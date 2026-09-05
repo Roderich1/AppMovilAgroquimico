@@ -347,38 +347,34 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
                       title: 'Factura',
                       child: Column(
                         children: [
-                          Row(
-                            children: [
-                              Expanded(
-                                child: _dropdown(
-                                  'Proveedor',
-                                  suppliers,
-                                  supplierId,
-                                  (value) {
-                                    setState(() {
-                                      supplierId = value;
-                                      dirty = true;
-                                    });
-                                  },
-                                ),
-                              ),
-                              const SizedBox(width: 10),
-                              Expanded(
-                                child: _dropdown(
-                                  'Campaña',
-                                  campaigns
-                                      .where((row) => row['status'] == 'ACTIVE')
-                                      .toList(),
-                                  campaignId,
-                                  (value) {
-                                    setState(() {
-                                      campaignId = value;
-                                      dirty = true;
-                                    });
-                                  },
-                                ),
-                              ),
-                            ],
+                          // Proveedor y campaña compartían una fila a medias,
+                          // así que en ancho de móvil ambos nombres se
+                          // truncaban justo cuando hay que leerlos para
+                          // confirmar la compra (UIBUG-040). Por debajo del
+                          // umbral se apilan: dos campos legibles pesan más
+                          // que una fila compacta ilegible.
+                          _responsivePair(
+                            _dropdown('Proveedor', suppliers, supplierId, (
+                              value,
+                            ) {
+                              setState(() {
+                                supplierId = value;
+                                dirty = true;
+                              });
+                            }),
+                            _dropdown(
+                              'Campaña',
+                              campaigns
+                                  .where((row) => row['status'] == 'ACTIVE')
+                                  .toList(),
+                              campaignId,
+                              (value) {
+                                setState(() {
+                                  campaignId = value;
+                                  dirty = true;
+                                });
+                              },
+                            ),
                           ),
                           const SizedBox(height: 10),
                           TextField(
@@ -534,6 +530,24 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
     ),
   );
 
+  /// Dos campos lado a lado si caben; apilados si no (UIBUG-040).
+  ///
+  /// El umbral es el ancho por debajo del cual media fila deja de bastar para
+  /// un nombre de proveedor o de campaña del dataset real.
+  static const double _pairMinWidth = 420;
+
+  Widget _responsivePair(Widget first, Widget second) => LayoutBuilder(
+    builder: (context, constraints) => constraints.maxWidth < _pairMinWidth
+        ? Column(children: [first, const SizedBox(height: 10), second])
+        : Row(
+            children: [
+              Expanded(child: first),
+              const SizedBox(width: 10),
+              Expanded(child: second),
+            ],
+          ),
+  );
+
   Widget _dropdown(
     String label,
     List<Map<String, Object?>> rows,
@@ -600,10 +614,36 @@ class _LineCard extends StatelessWidget {
     return null;
   }
 
+  /// Cómo va el reparto de esta línea entre personas (UIBUG-039).
+  ///
+  /// Antes bastaba con que `pendiente == 0` para rotular "asignado", y eso es
+  /// cierto también cuando **no se ha escrito nada**: cero comprado y cero
+  /// repartido dan diferencia cero. Una línea vacía se anunciaba como
+  /// terminada. Una asignación sólo está completa cuando existen todos sus
+  /// datos obligatorios: cantidad comprada, persona en cada reparto y suma
+  /// repartida igual a la comprada. La regla contable no cambia —la valida
+  /// igual `_confirm`—; cambia lo que la tarjeta declara.
+  String get _allocationStatus {
+    if (line.quantityBase <= 0) return 'Pendiente de cantidad';
+    if (line.allocations.any((allocation) => allocation.personId == null)) {
+      return 'Pendiente de persona';
+    }
+    final pending = line.quantityBase - line.assignedBase;
+    if (pending > 0) {
+      return 'Pendiente ${formatQuantity(pending, _unit)}';
+    }
+    if (pending < 0) {
+      return 'Excede en ${formatQuantity(-pending, _unit)}';
+    }
+    return 'Asignado';
+  }
+
+  String get _unit => selectedProduct?['unit']?.toString() ?? '';
+
   @override
   Widget build(BuildContext context) {
-    final unit = selectedProduct?['unit']?.toString() ?? '';
-    final pending = line.quantityBase - line.assignedBase;
+    final unit = _unit;
+    final hasProduct = unit.isNotEmpty;
     return Card(
       child: ExpansionTile(
         initiallyExpanded: true,
@@ -612,7 +652,8 @@ class _LineCard extends StatelessWidget {
           selectedProduct?['name']?.toString() ?? 'Seleccione producto',
         ),
         subtitle: Text(
-          '${formatQuantity(line.quantityBase, unit)} · ${formatBob(line.subtotalBob)} · ${pending == 0 ? 'asignado' : 'pendiente ${formatQuantity(pending, unit)}'}',
+          '${formatQuantity(line.quantityBase, unit)} · '
+          '${formatBob(line.subtotalBob)} · $_allocationStatus',
         ),
         trailing: onRemove == null
             ? null
@@ -620,7 +661,12 @@ class _LineCard extends StatelessWidget {
                 onPressed: onRemove,
                 icon: const Icon(Icons.delete_outline),
               ),
-        childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+        // El relleno superior era 0, así que la etiqueta flotante del primer
+        // campo ("Producto") se dibujaba encima de la cabecera de la tarjeta y
+        // aparecía recortada (UIBUG-041). Se corrige en el contenedor —la
+        // causa— y no desplazando ese texto en concreto: cualquier campo que
+        // llegue a ser el primero hereda el arreglo.
+        childrenPadding: const EdgeInsets.fromLTRB(14, 8, 14, 14),
         children: [
           AdaptiveEntityPicker<Map<String, Object?>>(
             label: 'Producto',
@@ -649,8 +695,13 @@ class _LineCard extends StatelessWidget {
                   keyboardType: const TextInputType.numberWithOptions(
                     decimal: true,
                   ),
+                  // "Cantidad comprada" y no "Cantidad" a secas: la tarjeta
+                  // tiene un segundo campo de cantidad por cada asignación, y
+                  // dos etiquetas idénticas en la misma tarjeta obligarían a
+                  // deducir cuál es cuál (UIBUG-038).
                   decoration: InputDecoration(
-                    labelText: 'Cantidad ${unit.isEmpty ? '' : '($unit)'}',
+                    labelText: 'Cantidad comprada',
+                    suffixText: unit.isEmpty ? null : unit,
                   ),
                 ),
               ),
@@ -687,9 +738,14 @@ class _LineCard extends StatelessWidget {
                   keyboardType: const TextInputType.numberWithOptions(
                     decimal: true,
                   ),
+                  // Sin producto elegido la etiqueta terminaba en una barra
+                  // huérfana: "Precio BOB/" (UIBUG-037). Mientras no haya
+                  // unidad se dice en palabras; en cuanto la hay se vuelve a
+                  // la forma corta "Precio BOB/L".
                   decoration: InputDecoration(
-                    labelText:
-                        'Precio ${line.currency == CurrencyCode.usd ? 'USD' : 'BOB'}/$unit',
+                    labelText: hasProduct
+                        ? 'Precio ${line.currency == CurrencyCode.usd ? 'USD' : 'BOB'}/$unit'
+                        : 'Precio por unidad',
                   ),
                 ),
               ),
@@ -711,8 +767,12 @@ class _LineCard extends StatelessWidget {
           const SizedBox(height: 8),
           Align(
             alignment: Alignment.centerRight,
+            // "Costo 0,00 Bs /" sin unidad tampoco significaba nada
+            // (UIBUG-037): hasta elegir producto sólo se muestra el subtotal.
             child: Text(
-              'Costo ${formatBob(line.unitBob)}/$unit · Subtotal ${formatBob(line.subtotalBob)}',
+              hasProduct
+                  ? 'Costo ${formatBob(line.unitBob)}/$unit · Subtotal ${formatBob(line.subtotalBob)}'
+                  : 'Subtotal ${formatBob(line.subtotalBob)}',
               style: const TextStyle(fontWeight: FontWeight.w700),
             ),
           ),
@@ -745,7 +805,7 @@ class _LineCard extends StatelessWidget {
               child: Row(
                 children: [
                   Expanded(
-                    flex: 2,
+                    flex: 3,
                     child: AdaptiveEntityPicker<Map<String, Object?>>(
                       label: 'Persona',
                       items: people,
@@ -767,13 +827,22 @@ class _LineCard extends StatelessWidget {
                   ),
                   const SizedBox(width: 8),
                   Expanded(
+                    flex: 2,
                     child: TextField(
                       controller: line.allocations[allocationIndex].quantity,
                       onChanged: (_) => onChanged(),
                       keyboardType: const TextInputType.numberWithOptions(
                         decimal: true,
                       ),
-                      decoration: InputDecoration(labelText: unit),
+                      // La etiqueta era la unidad a secas, y sin producto
+                      // elegido quedaba vacía: un recuadro sin nombre junto a
+                      // un selector de persona (UIBUG-038). Ahora el campo
+                      // dice qué es, y la unidad acompaña como sufijo cuando
+                      // se conoce.
+                      decoration: InputDecoration(
+                        labelText: 'Cantidad',
+                        suffixText: unit.isEmpty ? null : unit,
+                      ),
                     ),
                   ),
                   if (line.allocations.length > 1)

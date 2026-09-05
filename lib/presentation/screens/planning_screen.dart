@@ -23,7 +23,9 @@ class _PlanningScreenState extends ConsumerState<PlanningScreen> {
 
   void refresh() {
     final next = ref.read(repositoryProvider).plans();
-    setState(() => future = next);
+    setState(() {
+      future = next;
+    });
   }
 
   Future<void> add() async {

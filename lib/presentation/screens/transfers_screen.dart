@@ -22,7 +22,9 @@ class _TransfersScreenState extends ConsumerState<TransfersScreen> {
 
   void refresh() {
     final next = ref.read(repositoryProvider).transfers();
-    setState(() => future = next);
+    setState(() {
+      future = next;
+    });
   }
 
   Future<void> reverse(Map<String, Object?> row) async {
