@@ -16,12 +16,18 @@ class AppDatabase {
   /// Toda base, creada desde cero o migrada desde cualquier versión anterior,
   /// debe terminar con el mismo esquema. `test/schema_equivalence_test.dart`
   /// lo verifica automáticamente.
-  static const int schemaVersion = 5;
+  static const int schemaVersion = 6;
 
   /// Clave en `app_settings` donde se registra que la migración a v5 no pudo
   /// imponer la unicidad por existir filas duplicadas previas. Su presencia
   /// indica que hay datos que requieren revisión manual del propietario.
   static const String duplicateAnomalyKey = 'schema_v5_duplicate_anomaly';
+
+  /// Clave en `app_settings` donde se registra que la migración a v6 encontró
+  /// planes aplicados más de una vez —posible con la regla anterior— y no pudo
+  /// imponer la unicidad. Su presencia indica datos que el propietario debe
+  /// revisar; no se borra ninguna aplicación.
+  static const String planReuseAnomalyKey = 'schema_v6_plan_reuse_anomaly';
 
   final DatabaseFactory? _factory;
   final String? _customPath;
@@ -191,6 +197,11 @@ class AppDatabase {
       'CREATE UNIQUE INDEX idx_application_item_unique ON application_items(application_id, product_id)',
       'CREATE UNIQUE INDEX idx_plan_item_unique ON application_plan_items(plan_id, product_id)',
       'CREATE INDEX idx_transfer_items_transfer_product ON transfer_items(transfer_id, product_id)',
+      // **Un plan representa UNA aplicación planificada** (UIBUG-045). Que no
+      // pueda aplicarse dos veces no es una regla de pantalla: es una
+      // invariante de los datos, y vive donde vive el dato. El índice parcial
+      // sigue el mismo patrón que `idx_campaign_single_active`.
+      'CREATE UNIQUE INDEX idx_application_plan_single_use ON applications(plan_id) WHERE plan_id IS NOT NULL',
     ];
     for (final statement in statements) {
       await db.execute(statement);
@@ -328,6 +339,79 @@ class AppDatabase {
     }
     if (oldVersion < 5) {
       await _upgradeToV5(db);
+    }
+    if (oldVersion < 6) {
+      await _upgradeToV6(db);
+    }
+  }
+
+  /// Migración a la versión 6 — **un plan se aplica una sola vez**.
+  ///
+  /// Decisión de producto (UIBUG-045, MODELO A): un plan no es una plantilla
+  /// reutilizable, sino **una aplicación planificada**. Al registrarla pasa de
+  /// `PLANNED` a `APPLIED` y ya no puede volver a aplicarse — tampoco si esa
+  /// aplicación se revierte después, porque revertir corrige un movimiento
+  /// real, no devuelve la intención al futuro.
+  ///
+  /// Hace tres cosas, y ninguna borra datos del usuario:
+  ///
+  /// 1. Unifica el vocabulario: el estado que se escribía al aplicar era
+  ///    `COMPLETED`; pasa a llamarse `APPLIED`.
+  /// 2. Repara los planes que la regla anterior devolvía a `PLANNED` al
+  ///    revertir la aplicación: si existe una aplicación que los referencia,
+  ///    el plan ya se consumió.
+  /// 3. Impone la invariante en el motor con un índice único parcial sobre
+  ///    `applications(plan_id)`.
+  ///
+  /// El paso 3 puede chocar con datos anteriores: bajo la regla vieja era
+  /// posible aplicar → revertir → volver a aplicar, dejando dos aplicaciones
+  /// con el mismo `plan_id`. En ese caso se conserva un índice NO único y se
+  /// deja constancia en `app_settings`, igual que hizo v5 con sus duplicados:
+  /// eliminar aplicaciones del usuario sin su consentimiento sería peor que
+  /// mantener la divergencia.
+  Future<void> _upgradeToV6(Database db) async {
+    final existingTables = (await db.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type='table'",
+    )).map((row) => row['name'] as String).toSet();
+
+    if (!existingTables.contains('application_plans') ||
+        !existingTables.contains('applications')) {
+      return;
+    }
+
+    await db.execute(
+      "UPDATE application_plans SET status='APPLIED' WHERE status='COMPLETED'",
+    );
+    await db.execute(
+      '''UPDATE application_plans SET status='APPLIED'
+      WHERE status <> 'APPLIED'
+        AND id IN (SELECT plan_id FROM applications WHERE plan_id IS NOT NULL)''',
+    );
+
+    final reused =
+        mobile.Sqflite.firstIntValue(
+          await db.rawQuery(
+            'SELECT COUNT(*) FROM (SELECT plan_id FROM applications '
+            'WHERE plan_id IS NOT NULL GROUP BY plan_id HAVING COUNT(*) > 1)',
+          ),
+        ) ??
+        0;
+
+    await db.execute('DROP INDEX IF EXISTS idx_application_plan_single_use');
+    if (reused == 0) {
+      await db.execute(
+        'CREATE UNIQUE INDEX idx_application_plan_single_use '
+        'ON applications(plan_id) WHERE plan_id IS NOT NULL',
+      );
+    } else {
+      await db.execute(
+        'CREATE INDEX idx_application_plan_single_use '
+        'ON applications(plan_id) WHERE plan_id IS NOT NULL',
+      );
+      await db.insert('app_settings', {
+        'key': planReuseAnomalyKey,
+        'value': '$reused',
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
     }
   }
 

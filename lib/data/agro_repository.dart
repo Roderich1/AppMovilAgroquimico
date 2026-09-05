@@ -171,6 +171,54 @@ class AgroRepository {
     });
   }
 
+  /// Estados en los que un plan todavía **no se ha consumido**.
+  ///
+  /// `DRAFT` es el valor por defecto histórico de la columna; `addPlanMulti`
+  /// siempre escribe `PLANNED`. Se aceptan los dos para no dejar fuera a bases
+  /// antiguas.
+  static const pendingPlanStatuses = <String>{'PLANNED', 'DRAFT'};
+
+  /// Estado de un plan ya consumido por su aplicación.
+  static const appliedPlanStatus = 'APPLIED';
+
+  /// Rechaza aplicar un plan que ya se usó (UIBUG-045).
+  ///
+  /// Mira **las dos** señales: el estado del plan y la existencia de una
+  /// aplicación que lo referencie. Basta con una para rechazar, de modo que un
+  /// estado desincronizado por cualquier motivo no abra la puerta a duplicar
+  /// el movimiento.
+  Future<void> _ensurePlanNotApplied(
+    DatabaseExecutor executor,
+    int planId,
+  ) async {
+    final rows = await executor.query(
+      'application_plans',
+      columns: ['status'],
+      where: 'id=?',
+      whereArgs: [planId],
+      limit: 1,
+    );
+    if (rows.isEmpty) {
+      throw BusinessRuleException('El plan indicado no existe.');
+    }
+    final status = rows.single['status'] as String?;
+    final alreadyUsed =
+        (Sqflite.firstIntValue(
+              await executor.rawQuery(
+                'SELECT COUNT(*) FROM applications WHERE plan_id=?',
+                [planId],
+              ),
+            ) ??
+            0) >
+        0;
+    if (alreadyUsed || !pendingPlanStatuses.contains(status)) {
+      throw BusinessRuleException(
+        'Este plan ya fue aplicado y no puede volver a aplicarse. '
+        'Cree un plan nuevo si necesita repetir la aplicación.',
+      );
+    }
+  }
+
   Future<void> _ensureCampaignActive(
     DatabaseExecutor executor,
     int campaignId,
@@ -472,6 +520,14 @@ class AgroRepository {
     }
     return (await _db).transaction((txn) async {
       await _ensureCampaignActive(txn, draft.campaignId);
+      // **Un plan se aplica una sola vez** (UIBUG-045). La comprobación vive
+      // dentro de la transacción, así que un doble toque o una llamada
+      // repetida no pueden colarse entre la lectura y la escritura; el índice
+      // único parcial de `applications(plan_id)` es la segunda barrera, por si
+      // alguien llega por otro camino.
+      if (draft.planId != null) {
+        await _ensurePlanNotApplied(txn, draft.planId!);
+      }
       final person = (await txn.query(
         'persons',
         where: 'id = ?',
@@ -591,9 +647,10 @@ class AgroRepository {
         });
       }
       if (draft.planId != null) {
+        // PLANNED -> APPLIED, y ahí se queda (UIBUG-045).
         await txn.update(
           'application_plans',
-          {'status': 'COMPLETED'},
+          {'status': appliedPlanStatus},
           where: 'id=?',
           whereArgs: [draft.planId],
         );
@@ -709,14 +766,11 @@ class AgroRepository {
         where: 'id = ?',
         whereArgs: [applicationId],
       );
-      if (application['plan_id'] != null) {
-        await txn.update(
-          'application_plans',
-          {'status': 'PLANNED'},
-          where: 'id=?',
-          whereArgs: [application['plan_id']],
-        );
-      }
+      // **El plan NO vuelve a PLANNED** (UIBUG-045). Revertir corrige un
+      // movimiento que ocurrió de verdad; no devuelve la intención al futuro.
+      // Reabrirlo en silencio dejaba un plan listo para volver a aplicarse sin
+      // que nadie lo hubiera pedido, y borraba el rastro de que ya se usó. Si
+      // hay que ejecutar otra vez la planificación, se crea un plan nuevo.
     });
   }
 
@@ -1213,15 +1267,32 @@ class AgroRepository {
     );
   }
 
-  Future<List<Map<String, Object?>>> plans({int limit = 400}) async =>
-      (await _db).rawQuery(
-        '''SELECT i.*, p.name product_name, p.unit, f.name farm_name, pe.name owner_name,
-    c.name campaign_name, a.campaign_id FROM application_plan_items i
+  /// Planes con sus productos.
+  ///
+  /// Por omisión devuelve **sólo los pendientes**: la vista operativa de
+  /// Planificación no debe llenarse con años de planes ya consumidos
+  /// (UIBUG-045). Los aplicados se conservan íntegros para trazabilidad y se
+  /// piden con `includeApplied: true`.
+  ///
+  /// Cada fila trae `plan_status`, para que la pantalla sepa si ofrecer la
+  /// acción de aplicar sin volver a consultar.
+  Future<List<Map<String, Object?>>> plans({
+    int limit = 400,
+    bool includeApplied = false,
+  }) async {
+    final pending = pendingPlanStatuses.map((_) => '?').join(',');
+    return (await _db).rawQuery(
+      '''SELECT i.*, p.name product_name, p.unit, f.name farm_name, pe.name owner_name,
+    c.name campaign_name, a.campaign_id, a.status plan_status, a.planned_date
+    FROM application_plan_items i
     JOIN application_plans a ON a.id=i.plan_id JOIN products p ON p.id=i.product_id
     JOIN farms f ON f.id=a.farm_id JOIN persons pe ON pe.id=f.owner_person_id
-    JOIN campaigns c ON c.id=a.campaign_id ORDER BY a.id DESC LIMIT ?''',
-        [limit],
-      );
+    JOIN campaigns c ON c.id=a.campaign_id
+    ${includeApplied ? '' : 'WHERE a.status IN ($pending)'}
+    ORDER BY a.id DESC LIMIT ?''',
+      [if (!includeApplied) ...pendingPlanStatuses, limit],
+    );
+  }
 
   Future<List<Map<String, Object?>>> planForApplication(int planId) async =>
       (await _db).rawQuery(
