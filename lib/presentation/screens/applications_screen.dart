@@ -60,11 +60,25 @@ class _ApplicationsScreenState extends ConsumerState<ApplicationsScreen> {
     }
   }
 
-  Future<void> reverse(int id) async {
+  Future<void> reverse(Map<String, Object?> row) async {
+    final confirmed = await confirmDestructiveAction(
+      context,
+      title: '¿Revertir esta aplicación?',
+      detail:
+          '${row['person_name']} · ${row['farm_name']}\n'
+          '${row['campaign_name']}\n'
+          'Costo ${formatBob(row['total_cost_bob_minor']! as int)}\n\n'
+          'Se devolverá el producto consumido al inventario y se anulará el '
+          'cargo correspondiente. Esta acción no se puede deshacer.',
+    );
+    if (!confirmed || !mounted) return;
     try {
       await ref
           .read(repositoryProvider)
-          .reverseApplication(id, reason: 'Reversión solicitada por usuario');
+          .reverseApplication(
+            row['id']! as int,
+            reason: 'Reversión solicitada por usuario',
+          );
       if (mounted) refresh();
     } catch (e) {
       if (mounted) showError(context, e);
@@ -176,7 +190,7 @@ class _ApplicationsScreenState extends ConsumerState<ApplicationsScreen> {
                           if (row['status'] != 'REVERSED')
                             IconButton(
                               tooltip: 'Revertir',
-                              onPressed: () => reverse(row['id'] as int),
+                              onPressed: () => reverse(row),
                               icon: const Icon(Icons.undo),
                             ),
                         ],

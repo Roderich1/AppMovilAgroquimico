@@ -1,5 +1,10 @@
 # 27 — Defectos conocidos
 
+> **Actualizado tras la fase de estabilización (2026-09-05).** Los defectos
+> corregidos se marcan ✅ CORREGIDO con su test de regresión. El detalle de cada
+> corrección está en [33_STABILIZATION_FINDINGS](33_STABILIZATION_FINDINGS.md) y
+> la trazabilidad completa en [34_CHANGE_TRACEABILITY](34_CHANGE_TRACEABILITY.md).
+
 Defectos concretos y observables encontrados durante la auditoría. Cada uno indica su
 **nivel de confirmación**:
 
@@ -11,7 +16,7 @@ Ningún defecto fue corregido: esta fase es solo de inspección.
 
 ---
 
-## 🔴 KI-01 · Volver atrás desde "Nueva compra" rompe la aplicación
+## ✅ KI-01 · Volver atrás desde "Nueva compra" rompe la aplicación — CORREGIDO
 
 **Estado: CONFIRMADO — reproducido durante esta auditoría.**
 
@@ -74,7 +79,7 @@ navegación. Ver [22_TESTING](22_TESTING.md) T-02.
 
 ---
 
-## 🔴 KI-02 · Divergencia de índices entre instalación nueva e instalación migrada
+## ✅ KI-02 · Divergencia de índices entre instalación nueva e instalación migrada — CORREGIDO
 
 **Estado: VERIFICADO EN CÓDIGO.**
 
@@ -101,7 +106,7 @@ comprobación de que no existan filas duplicadas.
 
 ---
 
-## 🟠 KI-03 · Dos pantallas se quedan cargando para siempre ante un error
+## ✅ KI-03 · Dos pantallas se quedan cargando para siempre ante un error — CORREGIDO
 
 **Estado: VERIFICADO EN CÓDIGO.**
 
@@ -132,7 +137,7 @@ segunda es **código muerto**. Mismo síntoma.
 
 ---
 
-## 🟠 KI-04 · `productCostReport` filtrado por campaña oculta productos
+## ✅ KI-04 · `productCostReport` filtrado por campaña oculta productos — CORREGIDO
 
 **Estado: VERIFICADO EN CÓDIGO.**
 
@@ -219,7 +224,7 @@ repositorio, así que RN-16 no debería dispararse. Pero la inconsistencia estru
 
 ---
 
-## 🟡 KI-07 · `_farmOwner` siempre devuelve `null`
+## ✅ KI-07 · `_farmOwner` siempre devuelve `null` — CORREGIDO
 
 **Estado: VERIFICADO EN CÓDIGO.**
 
@@ -266,7 +271,7 @@ Contrasta con el resto de la app, que formatea con rigor mediante `formatBob` y
 
 ---
 
-## 🟡 KI-09 · `CASE` muerto y truncamiento en el valor de inventario
+## ✅ KI-09 · `CASE` muerto y truncamiento en el valor de inventario — CORREGIDO
 
 **Estado: VERIFICADO EN CÓDIGO.**
 
@@ -334,7 +339,7 @@ diálogo "¿Descartar cambios?".
 
 ---
 
-## 🟡 KI-12 · Reversiones sin confirmación
+## ✅ KI-12 · Reversiones sin confirmación — CORREGIDO
 
 **Estado: VERIFICADO EN CÓDIGO.**
 
@@ -395,7 +400,7 @@ Es una limitación de interfaz sobre una capacidad que el dominio ya soporta.
 
 ---
 
-## 🟡 KI-15 · Uso inconsistente de `friendlyError`
+## ✅ KI-15 · Uso inconsistente de `friendlyError` — CORREGIDO
 
 **Estado: VERIFICADO EN CÓDIGO.**
 
@@ -474,7 +479,7 @@ La carpeta `web/` existe y `.metadata` declara la plataforma, pero:
 
 ---
 
-## ⚪ KI-20 · El directorio de trabajo no está bajo control de versiones
+## ✅ KI-20 · El directorio de trabajo no está bajo control de versiones — YA NO APLICA
 
 **Estado: CONFIRMADO.**
 
@@ -498,23 +503,23 @@ está sincronizada con él.
 
 | ID | Defecto | Severidad | Confirmación |
 |---|---|---|---|
-| KI-01 | Atrás desde "Nueva compra" rompe la app | 🔴 Alta | **CONFIRMADO** |
-| KI-02 | Divergencia de índices creación vs migración | 🔴 Alta | Verificado en código |
-| KI-03 | Dos pantallas cargan para siempre ante error | 🟠 Media | Verificado en código |
-| KI-04 | `productCostReport` oculta productos al filtrar | 🟠 Media | Verificado en código |
+| KI-01 | Atrás desde "Nueva compra" rompe la app | 🔴 Alta | ✅ **CORREGIDO** (STAB-001) |
+| KI-02 | Divergencia de índices creación vs migración | 🔴 Alta | ✅ **CORREGIDO** (STAB-002, migración v5) |
+| KI-03 | Dos pantallas cargan para siempre ante error | 🟠 Media | ✅ **CORREGIDO** (STAB-004, 4 pantallas) |
+| KI-04 | `productCostReport` oculta productos al filtrar | 🟠 Media | ✅ **CORREGIDO** (STAB-005) |
 | KI-05 | Asientos sin campaña fuera del saldo inicial | 🟠 Media | Verificado en código |
 | KI-06 | Compra y pago no atómicos | 🟠 Media | Verificado en código |
-| KI-07 | `_farmOwner` siempre `null` | 🟡 Baja | Verificado en código |
+| KI-07 | `_farmOwner` siempre `null` | 🟡 Baja | ✅ **CORREGIDO** (STAB-012) |
 | KI-08 | Superficies sin formatear | 🟡 Baja | Verificado en código |
-| KI-09 | `CASE` muerto y truncamiento en valor de inventario | 🟡 Baja | Verificado en código |
+| KI-09 | `CASE` muerto y truncamiento en valor de inventario | 🟡 Baja | ✅ **CORREGIDO** (STAB-011) |
 | KI-10 | `int.parse` en rutas | 🟡 Baja | Verificado en código |
 | KI-11 | Notas no marcan como sucio | 🟡 Baja | Verificado en código |
-| KI-12 | Reversiones sin confirmación | 🟡 Baja | Verificado en código |
+| KI-12 | Reversiones sin confirmación | 🟡 Baja | ✅ **CORREGIDO** (STAB-010) |
 | KI-13 | Imágenes huérfanas | 🟡 Baja | Verificado en código |
 | KI-14 | Sin fecha editable en operaciones | 🟡 Baja | Verificado en código |
-| KI-15 | `friendlyError` inconsistente | 🟡 Baja | Verificado en código |
+| KI-15 | `friendlyError` inconsistente | 🟡 Baja | ✅ **CORREGIDO** (STAB-004) |
 | KI-16 | `DatabaseException` sin traducir | 🟡 Baja | Verificado en código |
 | KI-17 | Sin estado vacío en 5 listas | 🟡 Baja | Verificado en código |
 | KI-18 | `archiveCatalog` de campañas inalcanzable | 🟡 Baja | Verificado en código |
 | KI-19 | La app no funciona en web | 🟡 Baja | Verificado en código |
-| KI-20 | Sin control de versiones en esta copia | ⚪ Info | **CONFIRMADO** |
+| KI-20 | Sin control de versiones en esta copia | ⚪ Info | ✅ **YA NO APLICA**: repo Git activo |

@@ -129,10 +129,19 @@ void main() {
         ),
       );
       await settle(tester);
-      expect(find.byType(PopupMenuButton<String>), findsOneWidget);
+
+      // El menú de cada persona vive dentro de una Card; el de copias de
+      // seguridad está en la cabecera de la pantalla, fuera de toda Card. Se
+      // localiza por descendencia para no depender de que exista un único
+      // PopupMenuButton en la pantalla.
+      final personMenu = find.descendant(
+        of: find.byType(Card),
+        matching: find.byType(PopupMenuButton<String>),
+      );
+      expect(personMenu, findsOneWidget);
       for (var iteration = 0; iteration < 20; iteration++) {
-        await tester.ensureVisible(find.byType(PopupMenuButton<String>).first);
-        await tester.tap(find.byType(PopupMenuButton<String>).first);
+        await tester.ensureVisible(personMenu.first);
+        await tester.tap(personMenu.first);
         await settle(tester);
         await tester.tap(find.text('Ver detalle cronológico'));
         await settle(tester);

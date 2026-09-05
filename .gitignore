@@ -57,3 +57,8 @@ app.*.map.json
 
 # Widget Preview related
 .widget_preview/
+
+# Credenciales de firma de release: nunca deben versionarse.
+android/key.properties
+**/*.jks
+**/*.keystore

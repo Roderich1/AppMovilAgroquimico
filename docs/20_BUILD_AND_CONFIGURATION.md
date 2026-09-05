@@ -48,8 +48,11 @@ Los del README, **ejecutados durante esta auditoría** con su resultado real:
 |---|---|---|
 | `dart format --output=none --set-exit-if-changed lib test` | El formato está aplicado | ✅ **39 archivos, 0 modificados** |
 | `flutter analyze` | Sin errores ni avisos de lint | ✅ **No issues found!** (1,1 s) |
-| `flutter test` | Suite completa | ✅ **44 tests, todos en verde** (13 s) |
-| `flutter build apk --debug` | La app compila para Android | No ejecutado en esta auditoría |
+| `flutter test` | Suite completa | ✅ **91 tests, todos en verde** |
+| `flutter build apk --release` | La app compila para Android | ✅ Verificado |
+| `flutter build appbundle --release` | Bundle para Play | ✅ Verificado |
+
+> **No use `dart format .`** (repositorio completo): falla en Windows al recorrer `build/`, cuyas rutas de Gradle superan el límite del sistema. Use siempre `dart format ... lib test`. Registrado como STAB-018.
 
 El proyecto llega a la auditoría en un estado **limpio**: sin avisos del analizador, con el
 formato canónico aplicado y con la suite verde. Es un punto de partida sólido y poco común.
@@ -86,7 +89,7 @@ android {
 }
 ```
 
-> ### 🔴 La build de release usa la clave de depuración
+> ### CORREGIDO - antes la build de release usaba la clave de depuración
 >
 > ```kotlin
 > // TODO: Add your own signing config for the release build.
@@ -107,14 +110,39 @@ android {
 > Si el uso es exclusivamente interno mediante instalación directa del APK, el riesgo real
 > es menor, pero el bloqueo para publicar sigue existiendo.
 
-**Cómo se corregiría** (no aplicado — esta auditoría no modifica código):
+**Correccion aplicada (STAB-008)**
 
-1. Generar un keystore y **guardarlo fuera del repositorio**.
-2. Crear `android/key.properties` (añadido a `.gitignore`) con `storeFile`, `storePassword`,
-   `keyAlias`, `keyPassword`.
-3. Leerlo desde `build.gradle.kts` y declarar un `signingConfigs.create("release")`.
-4. Usar valores tipo `<REQUIRED>` en la documentación; **nunca** commitear el keystore ni las
-   contraseñas.
+`android/app/build.gradle.kts` lee ahora las credenciales de `android/key.properties`:
+
+- Si el archivo **existe**, se usa un `signingConfigs.create("release")` real.
+- Si **no existe**, la build de release queda **deliberadamente sin firmar**. No se firma con
+  la clave de depuracion: es publica, Google Play la rechaza y permitiria suplantar una
+  actualizacion. Un APK sin firmar no se puede instalar, lo que hace imposible distribuir por
+  error un binario inseguro.
+
+`android/key.properties` y cualquier `*.jks`/`*.keystore` estan en `.gitignore`. Se anadio
+`android/key.properties.example` como plantilla.
+
+### Que debe proporcionar el propietario
+
+`REQUIERE INFORMACION DEL DESARROLLADOR` - para poder firmar y publicar:
+
+1. Un keystore de release, guardado **fuera** del repositorio y con copia de seguridad.
+   Si no existe, generarlo con `keytool -genkey -v -keystore <ruta>.jks -keyalg RSA
+   -keysize 2048 -validity 10000 -alias agrocuentas`.
+2. `android/key.properties` a partir de la plantilla, con `storeFile`, `storePassword`,
+   `keyAlias` y `keyPassword`.
+
+**Advertencia**: perder el keystore impide publicar actualizaciones de la aplicacion para
+siempre.
+
+### Estado verificado de la build
+
+| Artefacto | Resultado |
+|---|---|
+| `flutter build apk --release` | ✅ compila — `app-release.apk` (~60 MB) |
+| `flutter build appbundle --release` | ✅ compila — `app-release.aab` (~58 MB) |
+| Firma | **Sin firmar** (no hay `key.properties`), verificado: el APK no contiene entradas de firma en `META-INF` |
 
 ### iOS
 
@@ -200,18 +228,20 @@ sería un trabajo de bajo coste y alto valor. Propuesta concreta en
 
 ## Control de versiones
 
-> ⚠️ **El directorio de trabajo auditado no es un repositorio Git.** `git rev-parse` falla.
->
-> Esto impidió cumplir el paso de validación "revisa `git diff`": no hay diff que revisar.
-> La verificación de que solo se añadió documentación se hizo comparando el inventario de
-> archivos antes y después (ver [27_KNOWN_ISSUES](27_KNOWN_ISSUES.md)).
->
-> Existe un `.gitignore` correcto y completo (ignora `build/`, `.dart_tool/`,
-> `.flutter-plugins-dependencies`, `*.iml`, `.idea/`), lo que sugiere que **el proyecto sí
-> estuvo o está bajo Git en otra copia**.
->
-> `REQUIERE INFORMACIÓN DEL DESARROLLADOR`: ubicación del repositorio real, rama de trabajo
-> y si esta copia está sincronizada con él.
+El proyecto **esta bajo Git**. En el momento de la estabilizacion:
+
+| Dato | Valor |
+|---|---|
+| Rama | `hardening/stabilization` |
+| Commit base | `5d0b8ef` (`proyecto base`) |
+| Remoto | `origin/main` |
+
+Esto corrige la observacion de la auditoria anterior (KI-20), hecha cuando `git rev-parse`
+todavia fallaba en esta copia de trabajo.
+
+`.gitignore` cubre `build/`, `.dart_tool/`, `.flutter-plugins-dependencies`, `*.iml`,
+`.idea/` y, desde la estabilizacion, tambien `android/key.properties`, `*.jks` y
+`*.keystore`.
 
 ## Versionado de la aplicación
 

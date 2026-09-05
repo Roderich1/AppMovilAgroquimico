@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import 'data/agro_repository.dart';
 import 'data/app_database.dart';
+import 'data/backup_service.dart';
 import 'presentation/app_shell.dart';
 import 'presentation/screens/applications_screen.dart';
 import 'presentation/screens/application_form_screen.dart';
@@ -31,6 +32,10 @@ final databaseProvider = Provider<AppDatabase>((ref) {
 
 final repositoryProvider = Provider<AgroRepository>(
   (ref) => AgroRepository(ref.watch(databaseProvider)),
+);
+
+final backupServiceProvider = Provider<BackupService>(
+  (ref) => BackupService(ref.watch(databaseProvider)),
 );
 
 final routerProvider = Provider<GoRouter>(

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../data/app_log.dart';
+
 class PageFrame extends StatelessWidget {
   const PageFrame({
     super.key,
@@ -75,6 +77,9 @@ class EmptyState extends StatelessWidget {
 }
 
 void showError(BuildContext context, Object error) {
+  // Punto único por el que pasan todos los errores que ve el usuario: es el
+  // mejor sitio para dejar rastro sin instrumentar cada pantalla.
+  AppLog.error('Error mostrado al usuario', error: error);
   ScaffoldMessenger.of(context).showSnackBar(
     SnackBar(
       content: Text(friendlyError(error)),
@@ -86,6 +91,42 @@ void showError(BuildContext context, Object error) {
 void showSuccess(BuildContext context, String message) {
   ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
 }
+
+/// Confirmación para acciones destructivas o contablemente irreversibles.
+///
+/// Las reversiones ajustan inventario y saldos y no se pueden deshacer desde la
+/// interfaz, así que no deben ejecutarse con un solo toque accidental. El
+/// [detail] debe describir *qué* registro se ve afectado y *qué* efecto tendrá,
+/// para que la confirmación sea informada y no un trámite.
+Future<bool> confirmDestructiveAction(
+  BuildContext context, {
+  required String title,
+  required String detail,
+  String confirmLabel = 'Revertir',
+}) async =>
+    await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        icon: const Icon(Icons.warning_amber_outlined),
+        title: Text(title),
+        content: Text(detail),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: Theme.of(context).colorScheme.error,
+              foregroundColor: Theme.of(context).colorScheme.onError,
+            ),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: Text(confirmLabel),
+          ),
+        ],
+      ),
+    ) ??
+    false;
 
 num? tryParseDecimal(String value) {
   final normalized = value.trim().replaceAll(' ', '').replaceAll(',', '.');

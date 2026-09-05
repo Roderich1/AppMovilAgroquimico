@@ -47,17 +47,27 @@ Si es la primera vez que tocas este proyecto, lee **[28_SYSTEM_MAP.md](28_SYSTEM
 | 29 | [IMPROVEMENT_AUDIT](29_IMPROVEMENT_AUDIT.md) | Oportunidades P0–P3 |
 | 30 | [IMPROVEMENT_ROADMAP](30_IMPROVEMENT_ROADMAP.md) | Plan por fases |
 | — | [31_TRACEABILITY_MATRIX](31_TRACEABILITY_MATRIX.md) | Matriz funcionalidad → test |
+| 32 | [STABILIZATION_BASELINE](32_STABILIZATION_BASELINE.md) | Estado medido **antes** de estabilizar |
+| 33 | [STABILIZATION_FINDINGS](33_STABILIZATION_FINDINGS.md) | Hallazgos verificados (STAB-001…019) |
+| 34 | [CHANGE_TRACEABILITY](34_CHANGE_TRACEABILITY.md) | Hallazgo → código → test → documento |
+| 35 | [RELEASE_READINESS](35_RELEASE_READINESS.md) | **Informe de preparación para release** |
 
 ## Estado verificado del repositorio al momento de la auditoría
 
 Comandos ejecutados y su resultado real:
 
-| Comando | Resultado |
-|---|---|
-| `flutter --version` | Flutter 3.47.2 · canal stable · Dart en `sdk: ^3.13.2` |
-| `flutter analyze` | **No issues found!** |
-| `dart format --set-exit-if-changed lib test` | **0 archivos cambiados** (39 formateados) |
-| `flutter test` | **44 tests, todos en verde** |
+> **Nota**: esta sección describía la auditoría inicial de solo lectura. Después se ejecutó
+> una **fase de estabilización** que sí modificó código. El estado vigente es el de abajo.
 
-El código fuente **no fue modificado** por esta auditoría. Los únicos archivos añadidos
-son los de esta carpeta `docs/`.
+| Comando | Auditoría inicial | Tras la estabilización |
+|---|---|---|
+| `flutter analyze` | 0 issues | **0 issues** |
+| `dart format --set-exit-if-changed lib test` | 0 cambios | **0 cambios** |
+| `flutter test` | 44 en verde | **91 en verde** |
+| `flutter build apk --release` | no medido | ✅ compila |
+| `flutter build appbundle --release` | no medido | ✅ compila |
+| Versión de esquema SQLite | 4 | **5** |
+
+Para saber qué cambió y por qué, empieza por
+[35_RELEASE_READINESS](35_RELEASE_READINESS.md) y
+[34_CHANGE_TRACEABILITY](34_CHANGE_TRACEABILITY.md).

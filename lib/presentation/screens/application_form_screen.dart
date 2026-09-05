@@ -104,7 +104,10 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
     final id = person?['id'] as int?;
     setState(() {
       personId = id;
-      if (_farmOwner(farmId) != id) farmId = null;
+      // Al cambiar de persona el chaco deja de ser válido, porque la lista de
+      // chacos se filtra por propietario. Si se limpia la persona (id nulo) se
+      // conserva la selección previa, que es el comportamiento existente.
+      if (id != null) farmId = null;
       loadingStock = id != null;
       stocks = [];
       dirty = true;
@@ -119,11 +122,6 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
       stocks = result;
       loadingStock = false;
     });
-  }
-
-  int? _farmOwner(int? id) {
-    if (id == null) return null;
-    return null;
   }
 
   void _clearLines() {
