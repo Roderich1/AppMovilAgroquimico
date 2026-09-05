@@ -1,6 +1,6 @@
 # 10 — Modelo de datos
 
-Fuente única: `lib/data/app_database.dart` (`_createSchema`, esquema **versión 4**) y
+Fuente única: `lib/data/app_database.dart` (`_createSchema`, esquema **versión 5**) y
 `lib/domain/models.dart`.
 
 ## Convenciones de unidades — leer antes que nada
@@ -307,9 +307,11 @@ La restricción `UNIQUE` impide imputar dos veces el mismo par pago-cargo.
 CREATE TABLE app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)
 ```
 
-**Tabla completamente muerta**: no hay ni una lectura ni una escritura en `lib/` ni en
-`test/`. Además **no se crea en las rutas de migración**, solo en `_createSchema`: una base
-migrada desde v1/v2/v3 no la tendrá. Al no usarse, hoy es inocuo.
+Desde la versión 5 se crea también al migrar, no solo en instalaciones nuevas.
+
+Primer uso real: la migración v5 registra en ella la clave
+`schema_v5_duplicate_anomaly` cuando encuentra filas duplicadas que impiden imponer la
+unicidad. Fuera de ese caso la tabla sigue vacía.
 
 ## Índices (15 en `_createSchema`)
 
@@ -340,25 +342,25 @@ migrada desde v1/v2/v3 no la tendrá. Al no usarse, hoy es inocuo.
 | **→ 2** | `ALTER TABLE application_items` + `treated_area_m2`, `dose_base_per_ha`, `theoretical_quantity_base` |
 | **→ 3** | Cierra campañas activas sobrantes dejando la más reciente; crea `payment_allocations`, `transfers`, `transfer_lot_items`; crea 7 índices condicionados a la existencia de la tabla |
 | **→ 4** | Crea `transfer_items`; `ALTER transfer_lot_items` + `transfer_item_id`; `ALTER application_items` + `unit`, `variance_quantity_base`, `fifo_estimated_cost_bob_minor`, `notes`; `ALTER applications` + `treated_area_m2`, `plan_id`; crea 3 índices |
+| **→ 5** | **Corrige la divergencia de esquema**: recrea `idx_application_item_unique` e `idx_plan_item_unique` como `UNIQUE`, y crea `app_settings` si falta. No borra ni modifica datos |
 
 Las migraciones v3 y v4 consultan `sqlite_master` antes de actuar, lo que las hace
 tolerantes a bases parcialmente formadas. Es una precaución razonable.
 
-> ### ⚠️ Divergencia confirmada entre creación y migración
+> ### ✅ Divergencia entre creación y migración — CORREGIDA en v5
 >
-> Dos índices se crean **`UNIQUE`** en `_createSchema` pero **sin `UNIQUE`** en la ruta de
-> migración a v4:
+> Hasta la versión 4, dos índices se creaban **`UNIQUE`** en `_createSchema` pero **sin
+> `UNIQUE`** al migrar, y `app_settings` no se creaba en ninguna ruta de migración. Eso
+> dejaba dos esquemas distintos en producción.
 >
-> | Índice | `_createSchema` | `_upgradeSchema` (v4) |
-> |---|---|---|
-> | `idx_application_item_unique` | `CREATE UNIQUE INDEX` | `CREATE INDEX` |
-> | `idx_plan_item_unique` | `CREATE UNIQUE INDEX` | `CREATE INDEX` |
+> La **migración a v5** (`_upgradeToV5`) los recrea como `UNIQUE` y crea `app_settings` si
+> falta. Si encuentra filas duplicadas preexistentes **no borra nada**: conserva el índice no
+> único y registra la anomalía en `app_settings` bajo la clave
+> `schema_v5_duplicate_anomaly`, para que el propietario la revise.
 >
-> **Consecuencia**: una instalación nueva tiene la restricción de unicidad a nivel de motor;
-> una instalación **migrada** desde una versión anterior **no la tiene**, y depende solo de
-> la validación en Dart. Detallado en [27_KNOWN_ISSUES](27_KNOWN_ISSUES.md).
->
-> Además, `app_settings` no se crea en ninguna ruta de migración.
+> `test/schema_equivalence_test.dart` compara el esquema migrado con el creado desde cero
+> —tablas, columnas, tipos, nullability, defaults e índices **con su atributo `unique`**— y
+> falla si vuelven a divergir.
 
 > ### ⚠️ Discrepancia entre README y código
 >
@@ -452,7 +454,7 @@ Redondeo **mitad hacia arriba**, consistente en todo el sistema.
 | `convertedUnitPriceBobMinor(precio, fx)` | `fx == null ? precio : redondeo(precio × fx / 1e6)` |
 | `subtotalMinor(cant, precio, fx)` | `redondeo(cant × precio × (fx ?? 1e6) / (1000 × 1e6))` |
 | `costForBaseQuantity(cant, costoUnit)` | `redondeo(cant × costoUnit / 1000)` |
-| `formatBob(minor)` | `NumberFormat.currency(locale: 'es_BO', symbol: 'Bs ', decimalDigits: 2)` |
+| `formatBob(minor)` | `NumberFormat.currency(locale: 'es_BO', symbol: 'Bs ', decimalDigits: 2)`. **Ojo**: en `es_BO` el símbolo se rinde como *sufijo* — `formatBob(50000)` devuelve `"500,00 Bs "`, no `"Bs 500,00"` |
 | `formatQuantity(base, unidad)` | `NumberFormat('#,##0.###', 'es_BO')` sobre `base / 1000` |
 
 **Restricción importante**: `divideRoundedHalfUp` **rechaza numeradores negativos**. Por eso

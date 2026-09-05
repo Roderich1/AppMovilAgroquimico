@@ -11,6 +11,18 @@ class AppDatabase {
     : _factory = factory,
       _customPath = path;
 
+  /// Versión actual del esquema SQLite.
+  ///
+  /// Toda base, creada desde cero o migrada desde cualquier versión anterior,
+  /// debe terminar con el mismo esquema. `test/schema_equivalence_test.dart`
+  /// lo verifica automáticamente.
+  static const int schemaVersion = 5;
+
+  /// Clave en `app_settings` donde se registra que la migración a v5 no pudo
+  /// imponer la unicidad por existir filas duplicadas previas. Su presencia
+  /// indica que hay datos que requieren revisión manual del propietario.
+  static const String duplicateAnomalyKey = 'schema_v5_duplicate_anomaly';
+
   final DatabaseFactory? _factory;
   final String? _customPath;
   Database? _db;
@@ -19,6 +31,15 @@ class AppDatabase {
   Future<Database> get database async => _db ??= await _open();
   String? get openedPath => _path;
 
+  /// Fábrica efectiva para esta plataforma (o la inyectada en tests).
+  ///
+  /// La necesita [BackupService] para abrir y validar un archivo de respaldo
+  /// candidato sin tocar la base en uso.
+  DatabaseFactory get resolvedFactory => _factory ?? _platformFactory();
+
+  /// Ruta que se usaría al abrir, esté o no abierta ya la base.
+  Future<String> resolvePath() async => _customPath ?? await _defaultPath();
+
   Future<Database> _open() async {
     final factory = _factory ?? _platformFactory();
     final dbPath = _customPath ?? await _defaultPath();
@@ -26,7 +47,7 @@ class AppDatabase {
     return factory.openDatabase(
       dbPath,
       options: OpenDatabaseOptions(
-        version: 4,
+        version: schemaVersion,
         onConfigure: (db) async => db.execute('PRAGMA foreign_keys = ON'),
         onCreate: (db, version) => _createSchema(db),
         onUpgrade: _upgradeSchema,
@@ -304,6 +325,88 @@ class AppDatabase {
           'CREATE INDEX idx_plan_item_unique ON application_plan_items(plan_id, product_id)',
         );
       }
+    }
+    if (oldVersion < 5) {
+      await _upgradeToV5(db);
+    }
+  }
+
+  /// Migración a la versión 5.
+  ///
+  /// Corrige dos divergencias entre `_createSchema` y las rutas de migración
+  /// anteriores, que dejaban a las bases migradas con un esquema distinto al de
+  /// una instalación nueva:
+  ///
+  /// 1. `idx_application_item_unique` e `idx_plan_item_unique` se creaban como
+  ///    índices NO únicos en la migración a v4, mientras que en una base nueva
+  ///    son UNIQUE. Eso dejaba a las instalaciones migradas sin la garantía de
+  ///    unicidad a nivel de motor.
+  /// 2. `app_settings` solo se creaba en `_createSchema`, nunca al migrar.
+  ///
+  /// No borra ni modifica ninguna fila de datos del usuario. Si encuentra
+  /// duplicados preexistentes que impiden imponer la unicidad, conserva el
+  /// índice no único (para no degradar el rendimiento de las consultas) y deja
+  /// constancia en `app_settings`, en lugar de fallar o de eliminar filas.
+  Future<void> _upgradeToV5(Database db) async {
+    final existingTables = (await db.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type='table'",
+    )).map((row) => row['name'] as String).toSet();
+
+    if (!existingTables.contains('app_settings')) {
+      await db.execute(
+        'CREATE TABLE app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)',
+      );
+    }
+
+    const promotions = <({String index, String table, String columns})>[
+      (
+        index: 'idx_application_item_unique',
+        table: 'application_items',
+        columns: 'application_id, product_id',
+      ),
+      (
+        index: 'idx_plan_item_unique',
+        table: 'application_plan_items',
+        columns: 'plan_id, product_id',
+      ),
+    ];
+
+    final anomalies = <String>[];
+    for (final promotion in promotions) {
+      if (!existingTables.contains(promotion.table)) continue;
+
+      final duplicates =
+          mobile.Sqflite.firstIntValue(
+            await db.rawQuery(
+              'SELECT COUNT(*) FROM (SELECT ${promotion.columns} '
+              'FROM ${promotion.table} GROUP BY ${promotion.columns} '
+              'HAVING COUNT(*) > 1)',
+            ),
+          ) ??
+          0;
+
+      await db.execute('DROP INDEX IF EXISTS ${promotion.index}');
+      if (duplicates == 0) {
+        await db.execute(
+          'CREATE UNIQUE INDEX ${promotion.index} '
+          'ON ${promotion.table}(${promotion.columns})',
+        );
+      } else {
+        // Se conserva el índice no único: eliminar filas del usuario sin su
+        // consentimiento sería peor que mantener la divergencia.
+        await db.execute(
+          'CREATE INDEX ${promotion.index} '
+          'ON ${promotion.table}(${promotion.columns})',
+        );
+        anomalies.add('${promotion.table}:$duplicates');
+      }
+    }
+
+    if (anomalies.isNotEmpty) {
+      await db.insert('app_settings', {
+        'key': duplicateAnomalyKey,
+        'value': anomalies.join(','),
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
     }
   }
 

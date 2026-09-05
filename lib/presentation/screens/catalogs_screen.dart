@@ -268,7 +268,7 @@ class _CatalogsScreenState extends ConsumerState<CatalogsScreen>
               if (snapshot.hasError)
                 return EmptyState(
                   icon: Icons.error_outline,
-                  message: snapshot.error.toString(),
+                  message: friendlyError(snapshot.error!),
                 );
               if (!snapshot.hasData)
                 return const Center(child: CircularProgressIndicator());

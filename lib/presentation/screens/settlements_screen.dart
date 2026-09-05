@@ -1,5 +1,8 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:path/path.dart' as p;
 
 import '../../app.dart';
 import '../../domain/money.dart';
@@ -216,8 +219,94 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
 
   Future<void> _backup() async {
     try {
-      final path = await ref.read(repositoryProvider).exportBackup();
+      final path = await ref.read(backupServiceProvider).export();
       if (mounted) showSuccess(context, 'Backup guardado en $path');
+    } catch (error) {
+      if (mounted) showError(context, error);
+    }
+  }
+
+  /// Restauración: valida el archivo, avisa de que reemplaza todo y solo
+  /// entonces sustituye la base. La copia previa se conserva siempre.
+  Future<void> _restore() async {
+    final service = ref.read(backupServiceProvider);
+    final List<File> backups;
+    try {
+      backups = await service.listAvailableBackups();
+    } catch (error) {
+      if (mounted) showError(context, error);
+      return;
+    }
+    if (!mounted) return;
+    if (backups.isEmpty) {
+      showError(
+        context,
+        'No se encontró ningún backup. Exporte uno primero o copie el archivo '
+        'a la carpeta de descargas del dispositivo.',
+      );
+      return;
+    }
+
+    final chosen = await showDialog<File>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Restaurar backup'),
+        content: SizedBox(
+          width: 520,
+          height: 320,
+          child: ListView(
+            children: [
+              for (final file in backups)
+                ListTile(
+                  leading: const Icon(Icons.restore_page_outlined),
+                  title: Text(p.basename(file.path)),
+                  subtitle: Text(
+                    '${file.statSync().modified.toString().substring(0, 16)} · '
+                    '${(file.statSync().size / 1024).round()} KB',
+                  ),
+                  onTap: () => Navigator.pop(dialogContext, file),
+                ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancelar'),
+          ),
+        ],
+      ),
+    );
+    if (chosen == null || !mounted) return;
+
+    final validation = await service.validate(chosen.path);
+    if (!mounted) return;
+    if (!validation.isValid) {
+      showError(context, validation.problem!);
+      return;
+    }
+
+    final confirmed = await confirmDestructiveAction(
+      context,
+      title: '¿Restaurar este backup?',
+      detail:
+          '${p.basename(chosen.path)}\n'
+          'Esquema versión ${validation.schemaVersion}\n\n'
+          'TODOS los datos actuales se reemplazarán por los del backup. '
+          'Se guardará automáticamente una copia de los datos actuales por si '
+          'necesita volver atrás.',
+      confirmLabel: 'Restaurar',
+    );
+    if (!confirmed || !mounted) return;
+
+    try {
+      final safetyCopy = await service.restore(chosen.path);
+      if (!mounted) return;
+      _refresh();
+      showSuccess(
+        context,
+        'Backup restaurado. Copia de los datos anteriores: $safetyCopy',
+      );
     } catch (error) {
       if (mounted) showError(context, error);
     }
@@ -227,14 +316,37 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
   Widget build(BuildContext context) => PageFrame(
     title: 'Liquidación y cuentas',
     subtitle: 'Cargos, pagos, adelantos y saldos sin borrar el historial.',
-    action: OutlinedButton.icon(
-      onPressed: _backup,
+    action: PopupMenuButton<String>(
+      tooltip: 'Copias de seguridad',
       icon: const Icon(Icons.backup_outlined),
-      label: const Text('Exportar backup'),
+      onSelected: (value) => value == 'export' ? _backup() : _restore(),
+      itemBuilder: (_) => const [
+        PopupMenuItem(
+          value: 'export',
+          child: ListTile(
+            leading: Icon(Icons.save_alt_outlined),
+            title: Text('Exportar backup'),
+          ),
+        ),
+        PopupMenuItem(
+          value: 'restore',
+          child: ListTile(
+            leading: Icon(Icons.restore_outlined),
+            title: Text('Restaurar backup'),
+          ),
+        ),
+      ],
     ),
     child: FutureBuilder(
       future: data,
       builder: (context, snapshot) {
+        // El error se comprueba ANTES que los datos: si no, un fallo se
+        // presenta como "cargando" y la pantalla gira indefinidamente.
+        if (snapshot.hasError)
+          return EmptyState(
+            icon: Icons.error_outline,
+            message: friendlyError(snapshot.error!),
+          );
         if (!snapshot.hasData)
           return const Center(child: CircularProgressIndicator());
         final (settlements, farmCosts, productCosts, campaigns) =

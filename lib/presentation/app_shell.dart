@@ -102,20 +102,54 @@ class AppShell extends StatelessWidget {
                 style: TextStyle(fontWeight: FontWeight.w800),
               ),
             ),
+            // `isForm` distingue las rutas declaradas FUERA del ShellRoute
+            // (formularios a pantalla completa). Esas deben apilarse con
+            // `push`: con `go` se reemplaza toda la pila y el botón atrás del
+            // formulario deja la aplicación sin ninguna página que mostrar.
             for (final action in const [
-              ('Planificación', Icons.event_note_outlined, '/planificacion'),
-              ('Compra', Icons.shopping_bag_outlined, '/compras/nueva'),
-              ('Aplicación', Icons.agriculture_outlined, '/aplicaciones'),
-              ('Pago', Icons.payments_outlined, '/liquidacion'),
-              ('Transferencia', Icons.swap_horiz, '/transferencias'),
+              (
+                label: 'Planificación',
+                icon: Icons.event_note_outlined,
+                path: '/planificacion',
+                isForm: false,
+              ),
+              (
+                label: 'Compra',
+                icon: Icons.shopping_bag_outlined,
+                path: '/compras/nueva',
+                isForm: true,
+              ),
+              (
+                label: 'Aplicación',
+                icon: Icons.agriculture_outlined,
+                path: '/aplicaciones',
+                isForm: false,
+              ),
+              (
+                label: 'Pago',
+                icon: Icons.payments_outlined,
+                path: '/liquidacion',
+                isForm: false,
+              ),
+              (
+                label: 'Transferencia',
+                icon: Icons.swap_horiz,
+                path: '/transferencias',
+                isForm: false,
+              ),
             ])
               ListTile(
-                leading: Icon(action.$2),
-                title: Text(action.$1),
+                leading: Icon(action.icon),
+                title: Text(action.label),
                 onTap: () {
                   Navigator.of(sheetContext).pop();
                   WidgetsBinding.instance.addPostFrameCallback((_) {
-                    if (context.mounted) context.go(action.$3);
+                    if (!context.mounted) return;
+                    if (action.isForm) {
+                      context.push(action.path);
+                    } else {
+                      context.go(action.path);
+                    }
                   });
                 },
               ),

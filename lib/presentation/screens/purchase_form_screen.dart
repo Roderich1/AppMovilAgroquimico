@@ -285,6 +285,13 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
       body: FutureBuilder(
         future: catalogs,
         builder: (context, snapshot) {
+          // Sin esta rama, un fallo al cargar los catálogos dejaba el
+          // formulario girando indefinidamente, sin explicación ni salida.
+          if (snapshot.hasError)
+            return EmptyState(
+              icon: Icons.error_outline,
+              message: friendlyError(snapshot.error!),
+            );
           if (!snapshot.hasData)
             return const Center(child: CircularProgressIndicator());
           final suppliers = snapshot.data![0];

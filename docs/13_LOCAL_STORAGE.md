@@ -134,6 +134,59 @@ Registrados en [26_TECHNICAL_DEBT](26_TECHNICAL_DEBT.md) y [27_KNOWN_ISSUES](27_
 
 ## 3. Archivo de backup
 
+> **Actualizado en la fase de estabilizacion.** La exportacion, la validacion y la
+> restauracion viven ahora en `lib/data/backup_service.dart` (`BackupService`), extraido de
+> `AgroRepository`. Ver [33_STABILIZATION_FINDINGS](33_STABILIZATION_FINDINGS.md) STAB-007.
+
+### Restauracion
+
+`BackupService.restore(path)`:
+
+1. **Valida** el archivo antes de tocar nada. Si no es valido, lanza `BackupException` y
+   **no modifica la base actual**.
+2. Cierra la base en uso.
+3. **Guarda una copia de seguridad** de los datos actuales en `<base>.previo-<fecha>.db` y
+   devuelve su ruta, de modo que una restauracion equivocada sigue siendo reversible.
+4. Copia el respaldo sobre la base y elimina los diarios `-wal`/`-shm` de la base anterior,
+   que pertenecian a otro archivo y la corromperian.
+5. Reabre la base, lo que **dispara las migraciones** si el respaldo era de un esquema mas
+   antiguo, y comprueba que resulte utilizable.
+6. Si la copia falla a mitad, restituye la copia de seguridad.
+
+### Validacion (`BackupService.validate`)
+
+| Comprobacion | Rechaza si |
+|---|---|
+| Existencia | El archivo no existe |
+| Tamano | El archivo esta vacio |
+| `PRAGMA integrity_check` | La base esta truncada o danada |
+| Tablas requeridas | Falta alguna de `persons`, `products`, `campaigns`, `purchases`, `inventory_lots`, `inventory_movements`, `account_transactions` - evita restaurar una base SQLite ajena |
+| `PRAGMA user_version` | El respaldo procede de una version de la app **mas nueva** que la instalada |
+
+Un respaldo de esquema **mas antiguo** si se acepta: se migra al restaurar.
+
+### Seleccion del archivo
+
+La interfaz no depende de un selector de archivos del sistema (no se anadio ninguna
+dependencia). `BackupService.listAvailableBackups()` enumera los respaldos presentes en las
+carpetas donde la propia app exporta, ordenados del mas reciente al mas antiguo, y el
+usuario elige de esa lista.
+
+### Acceso desde la interfaz
+
+`/liquidacion` -> menu de copias de seguridad -> **Exportar backup** / **Restaurar backup**.
+La restauracion muestra el nombre, la fecha, el tamano y la version de esquema, y exige una
+confirmacion explicita que advierte de que se reemplazaran todos los datos.
+
+### Limitacion conocida (sin resolver)
+
+El respaldo sigue conteniendo **solo la base de datos**. Las fotografias de factura
+(`<documentos>/invoices/`) **no se incluyen**, por lo que tras restaurar en otro dispositivo
+las rutas de imagen apuntaran a archivos inexistentes. La app lo detecta y muestra
+*"La imagen de factura ya no esta disponible en este dispositivo."*
+
+## 3.1. Detalle del archivo exportado
+
 `AgroRepository.exportBackup()`:
 
 ```
@@ -149,8 +202,8 @@ File(origen).copy(destino)  →  snackbar con la ruta
 | Cifrado | **Ninguno** — SQLite en texto plano |
 | Ubicación en Android | Descargas: **fuera del sandbox**, legible por otras apps con permiso de almacenamiento |
 | Incluye fotos | **No** |
-| Restauración desde la app | **No existe** |
-| Verificación de integridad | **Ninguna** |
+| Restauración desde la app | ✅ **Sí** (`BackupService.restore`, con validación y copia previa) |
+| Verificación de integridad | ✅ `PRAGMA integrity_check` + tablas requeridas + versión de esquema |
 | Automatización | **Ninguna**; es manual |
 
 El uso de `wal_checkpoint(FULL)` antes de copiar es correcto y evita el error clásico de

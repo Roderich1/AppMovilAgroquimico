@@ -133,12 +133,12 @@ cerrar la hoja con `Navigator.of(sheetContext).pop()` y un `addPostFrameCallback
 | Etiqueta | Destino | ¿Está en el shell? | Consecuencia |
 |---|---|:--:|---|
 | Planificación | `/planificacion` | ✅ | Correcto |
-| **Compra** | `/compras/nueva` | ❌ | **Rompe la navegación** (ver abajo) |
+| **Compra** | `/compras/nueva` | ❌ | Usa `push` (corregido en STAB-001) |
 | Aplicación | `/aplicaciones` | ✅ | Correcto (lleva a la lista, no al formulario) |
 | Pago | `/liquidacion` | ✅ | Correcto |
 | Transferencia | `/transferencias` | ✅ | Correcto |
 
-## Defecto confirmado: `go` hacia una ruta de nivel superior
+## ✅ Defecto corregido: `go` hacia una ruta de nivel superior (STAB-001)
 
 **Reproducido empíricamente durante esta auditoría** con un test aislado (ejecutado fuera
 del repositorio y ya eliminado; el código fuente no fue modificado).
@@ -169,16 +169,23 @@ Tras el atrás, ni "Nueva compra" ni "Inicio" están en el árbol: **la pantalla
 única ruta de nivel superior. Cuando `PurchaseFormScreen._close()` ejecuta
 `Navigator.of(context).pop()`, no queda ninguna página debajo.
 
-**Alcance**: afecta a las dos entradas que usan `go` hacia `/compras/nueva`:
+**Alcance**: afectaba a las dos entradas que usaban `go` hacia `/compras/nueva`:
 - `AppShell._newButton` (FAB → "Compra")
 - `OperationsScreen` (tarjeta "Registrar compra")
+
+**Corrección aplicada**: ambas listas de acciones marcan ahora cada destino con un campo
+`isForm`. Las rutas declaradas fuera del `ShellRoute` se abren con `context.push`; los
+destinos del shell siguen usando `context.go`.
+
+**Cobertura**: `test/navigation_test.dart` ejercita las tres vías de acceso al formulario de
+compra sobre `AgroApp` completo y comprueba que al volver atrás no hay excepción y queda una
+pantalla utilizable.
 
 **No afecta** a `PurchasesScreen._newPurchase`, que usa `context.push` y funciona bien.
 Las otras tres rutas de formulario (`/planificacion/nueva`, `/aplicaciones/nueva`,
 `/transferencias/nueva`) **solo** se alcanzan con `push`, por lo que están a salvo.
 
-Registrado como **P0** en [29_IMPROVEMENT_AUDIT](29_IMPROVEMENT_AUDIT.md) y detallado en
-[27_KNOWN_ISSUES](27_KNOWN_ISSUES.md).
+Detalle completo en [33_STABILIZATION_FINDINGS](33_STABILIZATION_FINDINGS.md) (STAB-001).
 
 ## Contrato de retorno de los formularios
 
