@@ -114,6 +114,21 @@ class AgroRepository {
           'Una campaña archivada no puede activarse.',
         );
       }
+      // **Una campaña cerrada es terminal** (UIBUG-059). Representa un periodo
+      // contable ya rendido: reabrirlo dejaría que movimientos nuevos entraran
+      // en un ejercicio dado por concluido, y que un cierre —que el usuario
+      // confirma sabiendo que es irreversible— se deshiciera con dos toques.
+      //
+      // Esconder el botón no basta: esta comprobación protege también de una
+      // pantalla desactualizada, de una doble ejecución y de cualquier camino
+      // indirecto que aparezca en el futuro. Si hiciera falta una corrección
+      // administrativa, sería otra funcionalidad explícita y auditable.
+      if (target.single['status'] == 'CLOSED') {
+        throw BusinessRuleException(
+          'Una campaña cerrada no puede volver a activarse. '
+          'Cree una campaña nueva para seguir operando.',
+        );
+      }
       final active = await txn.query(
         'campaigns',
         where: "status='ACTIVE' AND id<>?",
