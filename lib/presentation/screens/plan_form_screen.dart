@@ -63,9 +63,9 @@ class _PlanFormScreenState extends ConsumerState<PlanFormScreen> {
     });
     if (farm == null) return;
     final hectares = (farm['area_m2'] as int) / 10000;
-    area.text = hectares.toStringAsFixed(
-      hectares == hectares.truncateToDouble() ? 0 : 2,
-    );
+    // Convenio es-BO: el campo debe precargarse como el usuario podria
+    // teclearlo (coma decimal), no como "80.0" (UIBUG-003).
+    area.text = formatForInput(hectares, maxDecimals: 2);
     final rows = await ref
         .read(repositoryProvider)
         .personStockSummary(farm['owner_person_id'] as int);
@@ -109,8 +109,14 @@ class _PlanFormScreenState extends ConsumerState<PlanFormScreen> {
               child: const Text('Seguir editando'),
             ),
             FilledButton(
+              // Criterio unico de accion destructiva, el mismo que usa
+              // `confirmDestructiveAction` en las reversiones (UIBUG-033).
+              style: FilledButton.styleFrom(
+                backgroundColor: Theme.of(context).colorScheme.error,
+                foregroundColor: Theme.of(context).colorScheme.onError,
+              ),
               onPressed: () => Navigator.pop(c, true),
-              child: const Text('Descartar'),
+              child: const Text('Descartar cambios'),
             ),
           ],
         ),
@@ -128,8 +134,18 @@ class _PlanFormScreenState extends ConsumerState<PlanFormScreen> {
   }
 
   Future<void> submit(_PlanCatalogs data) async {
-    if (farmId == null || lines.isEmpty) {
-      showError(context, 'Seleccione chaco y al menos un producto.');
+    // El mensaje unico mencionaba el chaco aunque ya estuviera elegido
+    // (UIBUG-032): ahora dice exactamente que falta.
+    if (farmId == null && lines.isEmpty) {
+      showError(context, 'Seleccione el chaco y agregue al menos un producto.');
+      return;
+    }
+    if (farmId == null) {
+      showError(context, 'Seleccione el chaco.');
+      return;
+    }
+    if (lines.isEmpty) {
+      showError(context, 'Agregue al menos un producto al plan.');
       return;
     }
     final items = <PlanItemDraft>[];
@@ -233,7 +249,7 @@ class _PlanFormScreenState extends ConsumerState<PlanFormScreen> {
                   value: farm,
                   labelOf: (f) => f['name'] as String,
                   secondaryOf: (f) =>
-                      '${f['owner_name']} · ${(f['area_m2'] as int) / 10000} ha',
+                      '${f['owner_name']} · ${formatHectares(f['area_m2'] as int)}',
                   onChanged: selectFarm,
                 ),
                 const SizedBox(height: 12),

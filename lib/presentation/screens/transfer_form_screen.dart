@@ -55,7 +55,9 @@ class _TransferFormScreenState extends ConsumerState<TransferFormScreen> {
         .availableProductsForOwner(id);
     if (!mounted || fromId != id) return;
     for (final row in rows) {
-      quantities[row['product_id'] as int] = TextEditingController(text: '0');
+      // Campo vacio con `0` como pista: precargar el texto "0" obligaba a
+      // borrarlo y escribir `5` dejaba `05` (UIBUG-034).
+      quantities[row['product_id'] as int] = TextEditingController();
     }
     setState(() {
       available = rows;
@@ -84,8 +86,14 @@ class _TransferFormScreenState extends ConsumerState<TransferFormScreen> {
               child: const Text('Seguir editando'),
             ),
             FilledButton(
+              // Criterio unico de accion destructiva, el mismo que usa
+              // `confirmDestructiveAction` en las reversiones (UIBUG-033).
+              style: FilledButton.styleFrom(
+                backgroundColor: Theme.of(context).colorScheme.error,
+                foregroundColor: Theme.of(context).colorScheme.onError,
+              ),
               onPressed: () => Navigator.pop(dialogContext, true),
-              child: const Text('Descartar'),
+              child: const Text('Descartar cambios'),
             ),
           ],
         ),
@@ -236,10 +244,7 @@ class _TransferFormScreenState extends ConsumerState<TransferFormScreen> {
           final destination = people.where((p) => p['id'] == toId).firstOrNull;
           final query = search.text.trim().toLowerCase();
           final visible = available
-              .where(
-                (r) =>
-                    (r['product_name'] as String).toLowerCase().contains(query),
-              )
+              .where((r) => matchesSearch(r['product_name'] as String, query))
               .toList();
           return SafeArea(
             child: ListView(
@@ -256,8 +261,9 @@ class _TransferFormScreenState extends ConsumerState<TransferFormScreen> {
                   items: people,
                   value: origin,
                   labelOf: (p) => p['name'] as String,
-                  secondaryOf: (p) =>
-                      p['role'] == 'FAMILY' ? 'Familiar' : 'Tercero',
+                  // Mismo criterio de subtítulo que el selector de destino y
+                  // que el del formulario de compra (UIBUG-054/016).
+                  secondaryOf: (p) => personRoleLabel(p['role']),
                   onChanged: selectOrigin,
                 ),
                 const SizedBox(height: 20),
@@ -291,46 +297,47 @@ class _TransferFormScreenState extends ConsumerState<TransferFormScreen> {
                     message: 'Esta persona no tiene stock disponible.',
                   ),
                 if (available.isNotEmpty)
-                  ConstrainedBox(
-                    constraints: BoxConstraints(
-                      maxHeight: MediaQuery.sizeOf(context).height * 0.48,
-                    ),
-                    child: Card(
-                      child: ListView.builder(
-                        shrinkWrap: true,
-                        itemCount: visible.length,
-                        itemBuilder: (context, index) {
-                          final row = visible[index];
-                          final id = row['product_id'] as int;
-                          final unit = row['unit'] as String;
-                          return ListTile(
-                            title: Text(
-                              row['product_name'] as String,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w700,
+                  // Sin cota de altura: la lista crece con su contenido y el
+                  // desplazamiento es el del formulario, de modo que ninguna
+                  // fila queda seccionada sin señal de continuidad
+                  // (UIBUG-055).
+                  Card(
+                    child: ListView.builder(
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      itemCount: visible.length,
+                      itemBuilder: (context, index) {
+                        final row = visible[index];
+                        final id = row['product_id'] as int;
+                        final unit = row['unit'] as String;
+                        return ListTile(
+                          title: Text(
+                            row['product_name'] as String,
+                            style: const TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                          subtitle: Text(
+                            '${formatQuantity(row['available_base'] as int, unit)} disponibles · ${row['lot_count']} lote(s) · próximo FIFO ${formatBob(row['next_fifo_cost_minor'] as int)}/$unit',
+                          ),
+                          trailing: SizedBox(
+                            width: 105,
+                            child: TextField(
+                              controller: quantities[id],
+                              onChanged: (_) => setState(() => dirty = true),
+                              keyboardType:
+                                  const TextInputType.numberWithOptions(
+                                    decimal: true,
+                                  ),
+                              decoration: InputDecoration(
+                                labelText: unit,
+                                // El `0` es una pista, no texto que haya que
+                                // borrar antes de escribir (UIBUG-034).
+                                hintText: '0',
+                                isDense: true,
                               ),
                             ),
-                            subtitle: Text(
-                              '${formatQuantity(row['available_base'] as int, unit)} disponibles · ${row['lot_count']} lote(s) · próximo FIFO ${formatBob(row['next_fifo_cost_minor'] as int)}/$unit',
-                            ),
-                            trailing: SizedBox(
-                              width: 105,
-                              child: TextField(
-                                controller: quantities[id],
-                                onChanged: (_) => setState(() => dirty = true),
-                                keyboardType:
-                                    const TextInputType.numberWithOptions(
-                                      decimal: true,
-                                    ),
-                                decoration: InputDecoration(
-                                  labelText: unit,
-                                  isDense: true,
-                                ),
-                              ),
-                            ),
-                          );
-                        },
-                      ),
+                          ),
+                        );
+                      },
                     ),
                   ),
                 const SizedBox(height: 20),
@@ -345,6 +352,7 @@ class _TransferFormScreenState extends ConsumerState<TransferFormScreen> {
                   items: people.where((p) => p['id'] != fromId).toList(),
                   value: destination,
                   labelOf: (p) => p['name'] as String,
+                  secondaryOf: (p) => personRoleLabel(p['role']),
                   onChanged: (p) => setState(() {
                     toId = p?['id'] as int?;
                     dirty = true;

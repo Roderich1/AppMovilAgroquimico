@@ -1,0 +1,11 @@
+UIBUG-014 - Registrar un pago no muestra ningun mensaje de exito
+==============================================================================
+
+Evidencia original (se conserva):
+
+  artifacts/ui-audit/UI-10-liquidacion/UI-10-pago-en-PROFILE-sin-asserts.png
+
+Comportamiento ANTES: la lista se refrescaba y nada mas. Otras operaciones si
+mostraban mensaje ("Aplicacion multiproducto confirmada."). Junto con UIBUG-003 y
+UIBUG-012 dejaba la escritura contable mas delicada sin ningun punto de
+verificacion.

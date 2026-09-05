@@ -56,11 +56,7 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
             if (!snapshot.hasData)
               return const Center(child: CircularProgressIndicator());
             final rows = snapshot.data!
-                .where(
-                  (r) => (r['product_name'] as String).toLowerCase().contains(
-                    query,
-                  ),
-                )
+                .where((r) => matchesSearch(r['product_name'] as String, query))
                 .toList();
             if (rows.isEmpty)
               return const EmptyState(
@@ -93,7 +89,7 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
                         ),
                       ),
                       onTap: () =>
-                          context.go('/inventario/${row['product_id']}'),
+                          context.push('/inventario/${row['product_id']}'),
                     ),
                 ],
               ),

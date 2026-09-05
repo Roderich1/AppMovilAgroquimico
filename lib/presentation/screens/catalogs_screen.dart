@@ -260,9 +260,10 @@ class _CatalogsScreenState extends ConsumerState<CatalogsScreen>
           ),
         ),
         const SizedBox(height: 12),
-        SizedBox(
-          height: 520,
-          child: FutureBuilder(
+        // Sin altura fija: la lista participa del scroll de la página, así
+        // que su última fila siempre es alcanzable (UIBUG-018).
+        Builder(
+          builder: (context) => FutureBuilder(
             future: data,
             builder: (context, snapshot) {
               if (snapshot.hasError)
@@ -275,7 +276,7 @@ class _CatalogsScreenState extends ConsumerState<CatalogsScreen>
               final rows = snapshot.data![tabs.index].where((row) {
                 if (query.isEmpty) return true;
                 return row.values.any(
-                  (value) => value.toString().toLowerCase().contains(query),
+                  (value) => matchesSearch(value.toString(), query),
                 );
               }).toList();
               if (rows.isEmpty)
@@ -285,6 +286,10 @@ class _CatalogsScreenState extends ConsumerState<CatalogsScreen>
                 );
               return Card(
                 child: ListView.separated(
+                  // La lista ya no tiene altura propia: crece con su contenido
+                  // y se desplaza con la página (UIBUG-018).
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
                   itemCount: rows.length,
                   separatorBuilder: (_, __) => const Divider(height: 1),
                   itemBuilder: (_, index) {
@@ -297,7 +302,7 @@ class _CatalogsScreenState extends ConsumerState<CatalogsScreen>
                       ),
                       1 => (
                         row['name'].toString(),
-                        '${row['owner_name']} · ${(row['area_m2'] as int) / 10000} ha',
+                        '${row['owner_name']} · ${formatHectares(row['area_m2'] as int)}',
                         Icons.landscape_outlined,
                       ),
                       2 => (
@@ -312,9 +317,9 @@ class _CatalogsScreenState extends ConsumerState<CatalogsScreen>
                       ),
                       _ => (
                         row['name'].toString(),
-                        row['status'] == 'ACTIVE'
-                            ? 'Activa'
-                            : row['status'].toString(),
+                        '${campaignStatusLabel(row['status'])} · '
+                            '${formatDate(row['start_date'])}'
+                            '${row['end_date'] == null ? '' : ' – ${formatDate(row['end_date'])}'}',
                         Icons.calendar_month_outlined,
                       ),
                     };

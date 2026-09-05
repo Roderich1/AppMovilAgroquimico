@@ -57,22 +57,77 @@ class BackupService {
 
   static const _fileNamePrefix = 'agroquimicos_backup_';
 
+  /// Deja el archivo principal de la base en un estado del que se pueda hacer
+  /// una copia consistente.
+  ///
+  /// En modo WAL las últimas transacciones confirmadas viven en el archivo
+  /// `-wal`, no en el principal: copiar sólo el principal perdería datos. El
+  /// checkpoint las integra.
+  ///
+  /// **Se consulta con `rawQuery`, no con `execute`** (UIBUG-001):
+  /// `PRAGMA journal_mode` y `PRAGMA wal_checkpoint(...)` **devuelven filas**, y
+  /// en Android `sqflite` mapea `execute` a `SQLiteDatabase.execSQL`, que
+  /// rechaza toda sentencia con resultado. En escritorio (`sqflite_common_ffi`)
+  /// `execute` sí las admitía, y por eso el defecto no se veía en la suite.
+  Future<void> _consolidateForCopy(Database database) async {
+    final modeRows = await database.rawQuery('PRAGMA journal_mode');
+    final mode = modeRows.isEmpty
+        ? ''
+        : '${modeRows.first.values.first}'.toLowerCase();
+
+    // Con diario de reversión (`delete`, `truncate`, `persist`) el archivo
+    // principal ya contiene todo lo confirmado: no hay nada que integrar.
+    if (mode != 'wal') return;
+
+    // TRUNCATE hace lo mismo que FULL y además deja el `-wal` a cero, de modo
+    // que copiar el archivo principal basta para tener la base completa.
+    final result = await database.rawQuery('PRAGMA wal_checkpoint(TRUNCATE)');
+    final busy = result.isEmpty ? 1 : (result.first.values.first as int? ?? 1);
+    if (busy != 0) {
+      // No se consolidó: copiar ahora produciría un respaldo incompleto en
+      // silencio, que es peor que no tener respaldo.
+      throw const BackupException(
+        'No se pudo consolidar la base antes de copiarla porque está en uso. '
+        'Cierre los diálogos abiertos y vuelva a intentarlo.',
+      );
+    }
+  }
+
   /// Copia la base a la carpeta de descargas (o documentos como respaldo).
+  ///
+  /// Antes de devolver la ruta **valida el archivo escrito**: un respaldo que la
+  /// aplicación no sabe releer no protege de nada, y la única forma de saberlo
+  /// es intentarlo.
   Future<String> export() async {
     final database = await appDatabase.database;
-    await database.execute('PRAGMA wal_checkpoint(FULL)');
     final source = appDatabase.openedPath;
     if (source == null || source == ':memory:') {
       throw const BackupException(
         'Esta base de datos no admite exportación a archivo.',
       );
     }
+    await _consolidateForCopy(database);
+
     final directory =
         await getDownloadsDirectory() ??
         await getApplicationDocumentsDirectory();
     final stamp = DateTime.now().toIso8601String().replaceAll(':', '-');
     final target = p.join(directory.path, '$_fileNamePrefix$stamp.db');
     await File(source).copy(target);
+
+    final validation = await validate(target);
+    if (!validation.isValid) {
+      // No se deja un archivo inservible con nombre de respaldo: el usuario
+      // confiaría en él.
+      try {
+        await File(target).delete();
+      } on FileSystemException {
+        // si no se puede borrar, el mensaje siguiente sigue siendo lo importante
+      }
+      throw BackupException(
+        'El respaldo se escribió pero no es legible: ${validation.problem}',
+      );
+    }
     return target;
   }
 

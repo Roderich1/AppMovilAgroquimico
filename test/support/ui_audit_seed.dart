@@ -911,10 +911,7 @@ Future<UiAuditSeedResult> seedUiAudit(
             currency: CurrencyCode.bob,
             originalUnitPriceMinor: 9750,
             allocations: [
-              AllocationDraft(
-                personId: personIds['ana']!,
-                quantityBase: 99750,
-              ),
+              AllocationDraft(personId: personIds['ana']!, quantityBase: 99750),
             ],
           ),
           PurchaseItemDraft(
@@ -1281,7 +1278,10 @@ Future<UiAuditSeedResult> seedUiAudit(
     date: DateTime.utc(2026, 3, 2),
     notes: 'Destino equivocado.',
     items: [
-      TransferItemDraft(productId: productIds['paraquat']!, quantityBase: 10000),
+      TransferItemDraft(
+        productId: productIds['paraquat']!,
+        quantityBase: 10000,
+      ),
     ],
   );
   transferIds.add(transferToReverse);

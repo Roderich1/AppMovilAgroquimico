@@ -1,0 +1,17 @@
+UIBUG-005 - Registrar un pago rompe la interfaz en compilacion de depuracion
+==============================================================================
+
+Evidencia original (se conserva):
+
+  artifacts/ui-audit/UI-10-liquidacion/UI-10-ISSUE-pago-vacio.png
+  artifacts/ui-audit/UI-10-liquidacion/UI-10-pago-valido.png
+  artifacts/ui-audit/UI-10-liquidacion/UI-10-pago-en-PROFILE-sin-asserts.png
+
+Comportamiento ANTES: la pantalla entera se sustituia por la pantalla roja de
+Flutter y la app quedaba inusable hasta reiniciarla. Cadena en logcat:
+  1. A TextEditingController was used after being disposed
+  2. framework.dart:6281 '_dependents.isEmpty': is not true
+  3. Tried to build dirty widget in the wrong build scope (InputDecorator)
+
+Reproduccion en widget test (rojo) conservada en before-red-test.txt: la misma
+cadena de excepciones aparece literalmente al abrir y cerrar el dialogo.

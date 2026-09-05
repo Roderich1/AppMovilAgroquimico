@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import 'widgets/common.dart';
+
 class AppShell extends StatelessWidget {
   const AppShell({super.key, required this.location, required this.child});
   final String location;
@@ -22,15 +24,31 @@ class AppShell extends StatelessWidget {
     ),
   ];
 
+  /// Subdestinos que viven bajo la sección **Operaciones**.
+  static const operationsSubRoutes = <String>{
+    '/catalogos',
+    '/planificacion',
+    '/compras',
+    '/aplicaciones',
+    '/transferencias',
+  };
+
+  /// Rutas de detalle que no son destinos propios: heredan el destino desde el
+  /// que se entra. `/chacos/:id` se alcanza desde Personas.
+  static const _detailOwners = <String, String>{'/chacos': '/personas'};
+
   int get selectedIndex {
-    if ({
-      '/catalogos',
-      '/planificacion',
-      '/compras',
-      '/aplicaciones',
-      '/transferencias',
-    }.any((path) => location == path || location.startsWith('$path/'))) {
+    if (operationsSubRoutes.any(
+      (path) => location == path || location.startsWith('$path/'),
+    )) {
       return 1;
+    }
+    // Sin esto `/chacos/:id` no coincidía con nada y caía por defecto a 0, de
+    // modo que la barra resaltaba "Inicio" estando en la bitácora (UIBUG-062).
+    for (final entry in _detailOwners.entries) {
+      if (location == entry.key || location.startsWith('${entry.key}/')) {
+        return destinations.indexWhere((item) => item.path == entry.value);
+      }
     }
     final exact = destinations.indexWhere((item) => item.path == location);
     if (exact >= 0) return exact;
@@ -40,52 +58,122 @@ class AppShell extends StatelessWidget {
     return nested < 0 ? 0 : nested;
   }
 
+  /// A dónde lleva Atrás cuando no hay nada que desapilar.
+  ///
+  /// **UIBUG-004B — decisión de diseño.** Se adopta la guía de Material 3: desde
+  /// un destino raíz **no inicial** Atrás vuelve al destino inicial, y sólo
+  /// desde Inicio cede el gesto al sistema. Un toque accidental deja de cerrar
+  /// la aplicación con trabajo a medias. Los subdestinos de Operaciones
+  /// alcanzados sin apilar (por ejemplo desde el FAB) vuelven a Operaciones.
+  String? get backFallback {
+    if (location == '/') return null;
+    if (operationsSubRoutes.any(
+      (path) => location == path || location.startsWith('$path/'),
+    )) {
+      return '/operaciones';
+    }
+    return '/';
+  }
+
+  /// Alto del `FloatingActionButton.extended` más su margen.
+  ///
+  /// Se publica con [ContentInsets] para que el contenido desplazable termine
+  /// por encima del FAB en TODAS las pantallas del shell, en vez de que cada una
+  /// invente su relleno (UIBUG-008, UIBUG-009).
+  static const double fabReserve = 88;
+
   @override
   Widget build(BuildContext context) {
     final wide = MediaQuery.sizeOf(context).width >= 900;
-    final body = SafeArea(child: child);
+    final keyboardOpen = MediaQuery.viewInsetsOf(context).bottom > 0;
+    final body = SafeArea(
+      child: ContentInsets(
+        // Con el teclado abierto el FAB se oculta, así que deja de estorbar.
+        bottomReserve: keyboardOpen ? 0 : fabReserve,
+        child: child,
+      ),
+    );
     if (wide) {
-      return Scaffold(
-        floatingActionButton: _newButton(context),
-        body: Row(
-          children: [
-            NavigationRail(
-              extended: MediaQuery.sizeOf(context).width >= 1150,
-              selectedIndex: selectedIndex,
-              onDestinationSelected: (index) =>
-                  context.go(destinations[index].path),
-              leading: const Padding(
-                padding: EdgeInsets.symmetric(vertical: 20),
-                child: CircleAvatar(
-                  radius: 24,
-                  child: Icon(Icons.eco_outlined),
-                ),
-              ),
-              destinations: [
-                for (final item in destinations)
-                  NavigationRailDestination(
-                    icon: Icon(item.icon),
-                    label: Text(item.label),
+      return _withBackPolicy(
+        context,
+        Scaffold(
+          floatingActionButton: keyboardOpen ? null : _newButton(context),
+          body: Row(
+            children: [
+              NavigationRail(
+                extended: MediaQuery.sizeOf(context).width >= 1150,
+                // Sin esto, entre 900 y 1150 px (el Pixel 8 apaisado da ~914)
+                // los destinos se mostraban SOLO con iconos, sin etiqueta
+                // (UIBUG-063).
+                labelType: MediaQuery.sizeOf(context).width >= 1150
+                    ? null
+                    : NavigationRailLabelType.all,
+                selectedIndex: selectedIndex,
+                onDestinationSelected: (index) =>
+                    context.go(destinations[index].path),
+                leading: const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 20),
+                  child: CircleAvatar(
+                    radius: 24,
+                    child: Icon(Icons.eco_outlined),
                   ),
-              ],
-            ),
-            const VerticalDivider(width: 1),
-            Expanded(child: body),
-          ],
+                ),
+                destinations: [
+                  for (final item in destinations)
+                    NavigationRailDestination(
+                      icon: Icon(item.icon),
+                      label: Text(item.label),
+                    ),
+                ],
+              ),
+              const VerticalDivider(width: 1),
+              Expanded(child: body),
+            ],
+          ),
         ),
       );
     }
-    return Scaffold(
-      body: body,
-      floatingActionButton: _newButton(context),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: selectedIndex,
-        onDestinationSelected: (index) => context.go(destinations[index].path),
-        destinations: [
-          for (final item in destinations)
-            NavigationDestination(icon: Icon(item.icon), label: item.label),
-        ],
+    return _withBackPolicy(
+      context,
+      Scaffold(
+        body: body,
+        // Con el teclado abierto el FAB tapaba el campo activo (UIBUG-009).
+        floatingActionButton: keyboardOpen ? null : _newButton(context),
+        // **Compromiso deliberado de accesibilidad.** Con cinco destinos en
+        // 1080 px, "Operaciones" no cabe en una línea por encima del 100 % y se
+        // partía en "Operacion / es" (UIBUG-017). Las etiquetas de la barra se
+        // dejan en su cuerpo base: siguen siendo legibles, cada destino lleva
+        // icono, y **el resto de la aplicación sí escala** hasta el 130 %.
+        // La alternativa era acortar el nombre de una sección principal.
+        bottomNavigationBar: MediaQuery.withClampedTextScaling(
+          maxScaleFactor: 1,
+          child: NavigationBar(
+            selectedIndex: selectedIndex,
+            onDestinationSelected: (index) =>
+                context.go(destinations[index].path),
+            destinations: [
+              for (final item in destinations)
+                NavigationDestination(icon: Icon(item.icon), label: item.label),
+            ],
+          ),
+        ),
       ),
+    );
+  }
+
+  /// Aplica la política de Atrás de [backFallback] (UIBUG-004B).
+  ///
+  /// Sólo actúa cuando no hay nada que desapilar: si se llegó apilando, el
+  /// `Navigator` desapila normalmente y este `PopScope` no interviene.
+  Widget _withBackPolicy(BuildContext context, Widget scaffold) {
+    final fallback = backFallback;
+    return PopScope(
+      canPop: fallback == null,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop || fallback == null) return;
+        context.go(fallback);
+      },
+      child: scaffold,
     );
   }
 

@@ -67,36 +67,23 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
   Future<void> _record(
     Map<String, Object?> person, {
     required bool advance,
+    String? campaignName,
   }) async {
-    final amount = TextEditingController();
+    // El diálogo es dueño de su propio TextEditingController y lo libera en
+    // `State.dispose()`. Antes el controlador se creaba aquí y se liberaba al
+    // volver de `showDialog`, mientras el diálogo aún se animaba al cerrarse:
+    // el TextField seguía montado y volvía a suscribirse a un controlador ya
+    // liberado (UIBUG-005).
     final result = await showDialog<int?>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: Text(advance ? 'Registrar adelanto' : 'Registrar pago'),
-        content: TextField(
-          controller: amount,
-          autofocus: true,
-          keyboardType: TextInputType.number,
-          decoration: const InputDecoration(labelText: 'Importe BOB'),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            onPressed: () {
-              try {
-                Navigator.pop(context, parseMinor(amount.text));
-              } catch (_) {}
-            },
-            child: const Text('Registrar'),
-          ),
-        ],
+      builder: (_) => _RecordPaymentDialog(
+        personName: person['name']! as String,
+        campaignName: campaignName,
+        balanceMinor: person['balance']! as int,
+        advance: advance,
       ),
     );
-    amount.dispose();
-    if (result == null) return;
+    if (result == null || !mounted) return;
     try {
       await ref
           .read(repositoryProvider)
@@ -107,6 +94,14 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
             advance: advance,
           );
       _refresh();
+      if (mounted) {
+        showSuccess(
+          context,
+          // `formatBob` termina con el espacio del símbolo ("1.500,00 Bs ").
+          '${advance ? 'Adelanto' : 'Pago'} de ${formatBob(result).trim()} '
+          'registrado a ${person['name']}.',
+        );
+      }
     } catch (error) {
       if (mounted) showError(context, error);
     }
@@ -170,27 +165,43 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
                                   : Icons.remove_circle_outline,
                               color: amount > 0 ? Colors.orange : Colors.green,
                             ),
-                            title: Text(row['concept']! as String),
-                            subtitle: Text(
-                              '${(row['transaction_date']! as String).substring(0, 10)} · ${_transactionLabel(row['type']! as String)}${row['farm_name'] == null ? '' : ' · ${row['farm_name']}'}',
+                            title: Text(
+                              conceptLabel(row['concept']),
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
                             ),
-                            trailing: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              crossAxisAlignment: CrossAxisAlignment.end,
-                              children: [
-                                Text(
-                                  amount > 0
-                                      ? '+${formatBob(amount)}'
-                                      : formatBob(amount),
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w700,
+                            subtitle: Text(
+                              '${formatDate(row['transaction_date'])} · ${transactionTypeLabel(row['type'])}${row['farm_name'] == null ? '' : ' · ${row['farm_name']}'}',
+                            ),
+                            // Ancho acotado para el importe: sin esto la
+                            // columna de descripcion quedaba tan estrecha que
+                            // el texto se partia por caracter (UIBUG-021).
+                            trailing: SizedBox(
+                              width: 140,
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                crossAxisAlignment: CrossAxisAlignment.end,
+                                children: [
+                                  Text(
+                                    amount > 0
+                                        ? '+${formatBob(amount)}'
+                                        : formatBob(amount),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w700,
+                                    ),
                                   ),
-                                ),
-                                Text(
-                                  'Saldo ${formatBob(entry.$2)}',
-                                  style: Theme.of(context).textTheme.bodySmall,
-                                ),
-                              ],
+                                  Text(
+                                    'Acumulado ${formatBob(entry.$2)}',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .bodySmall,
+                                  ),
+                                ],
+                              ),
                             ),
                           );
                         },
@@ -208,19 +219,21 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
     );
   }
 
-  String _transactionLabel(String type) => switch (type) {
-    'USAGE_CHARGE' => 'Cargo por consumo',
-    'PURCHASE_ALLOCATION_CHARGE' => 'Cargo por compra',
-    'PAYMENT' => 'Pago',
-    'ADVANCE' => 'Adelanto',
-    'CREDIT_ADJUSTMENT' => 'Crédito por reversión',
-    _ => type,
-  };
+  /// Nombre de la campaña filtrada, o `null` si se están viendo todas.
+  String? _campaignName(List<Map<String, Object?>> campaigns) {
+    if (selectedCampaignId == null) return null;
+    for (final campaign in campaigns) {
+      if (campaign['id'] == selectedCampaignId) {
+        return campaign['name'] as String?;
+      }
+    }
+    return null;
+  }
 
   Future<void> _backup() async {
     try {
       final path = await ref.read(backupServiceProvider).export();
-      if (mounted) showSuccess(context, 'Backup guardado en $path');
+      if (mounted) showSuccess(context, 'Respaldo guardado en $path');
     } catch (error) {
       if (mounted) showError(context, error);
     }
@@ -239,10 +252,11 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
     }
     if (!mounted) return;
     if (backups.isEmpty) {
-      showError(
+      // No es un error: es una indicación normal la primera vez (UIBUG-050).
+      showSuccess(
         context,
-        'No se encontró ningún backup. Exporte uno primero o copie el archivo '
-        'a la carpeta de descargas del dispositivo.',
+        'Todavía no hay ningún respaldo. Use "Exportar respaldo" para crear el '
+        'primero.',
       );
       return;
     }
@@ -250,7 +264,7 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
     final chosen = await showDialog<File>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Restaurar backup'),
+        title: const Text('Restaurar respaldo'),
         content: SizedBox(
           width: 520,
           height: 320,
@@ -318,21 +332,23 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
     subtitle: 'Cargos, pagos, adelantos y saldos sin borrar el historial.',
     action: PopupMenuButton<String>(
       tooltip: 'Copias de seguridad',
-      icon: const Icon(Icons.backup_outlined),
+      // La nube sugería sincronización remota y esta aplicación no tiene
+      // ninguna función de red: el respaldo es un archivo local (UIBUG-049).
+      icon: const Icon(Icons.folder_outlined),
       onSelected: (value) => value == 'export' ? _backup() : _restore(),
       itemBuilder: (_) => const [
         PopupMenuItem(
           value: 'export',
           child: ListTile(
             leading: Icon(Icons.save_alt_outlined),
-            title: Text('Exportar backup'),
+            title: Text('Exportar respaldo'),
           ),
         ),
         PopupMenuItem(
           value: 'restore',
           child: ListTile(
             leading: Icon(Icons.restore_outlined),
-            title: Text('Restaurar backup'),
+            title: Text('Restaurar respaldo'),
           ),
         ),
       ],
@@ -353,7 +369,7 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
             snapshot.data!;
         final visibleSettlements = settlements.where((row) {
           return personQuery.isEmpty ||
-              (row['name']! as String).toLowerCase().contains(personQuery);
+              matchesSearch(row['name']! as String, personQuery);
         }).toList();
         if (settlements.isEmpty)
           return const Card(
@@ -414,6 +430,7 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
                         ),
                         const SizedBox(width: 14),
                         Expanded(
+                          flex: 5,
                           child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
@@ -421,40 +438,68 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
                                 row['name']! as String,
                                 style: Theme.of(context).textTheme.titleMedium
                                     ?.copyWith(fontWeight: FontWeight.w700),
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
                               ),
                               Text(
-                                'Cargos ${formatBob(row['charges']! as int)} · pagos/créditos ${formatBob(row['payments']! as int)}',
+                                'Cargos ${formatBob(row['charges']! as int)} · '
+                                'pagos/créditos ${formatBob(row['payments']! as int)}',
+                                // Sin recorte: son cifras contables, no un
+                                // subtítulo decorativo.
+                                maxLines: 5,
                               ),
                             ],
                           ),
                         ),
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          children: [
-                            Text(
-                              (row['balance']! as int) < 0
-                                  ? 'Saldo a favor'
-                                  : 'Saldo pendiente',
-                              style: Theme.of(context).textTheme.bodySmall,
-                            ),
-                            Text(
-                              formatBob(row['balance']! as int),
-                              style: Theme.of(context).textTheme.titleLarge
-                                  ?.copyWith(
-                                    fontWeight: FontWeight.w800,
-                                    color: (row['balance']! as int) > 0
-                                        ? Colors.orange.shade800
-                                        : Colors.green.shade700,
-                                  ),
-                            ),
-                          ],
+                        const SizedBox(width: 8),
+                        // Reparto de ancho explícito entre nombre e importe: sin
+                        // esto la columna del importe se quedaba con lo que
+                        // pedía y el nombre se partía por carácter al 130 %
+                        // (UIBUG-020, UIBUG-017).
+                        Expanded(
+                          flex: 4,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            children: [
+                              Text(
+                                '${(row['balance']! as int) < 0 ? 'A favor' : 'Pendiente'} · '
+                                '${selectedCampaignId == null ? 'todas las campañas' : _campaignName(campaigns) ?? 'campaña'}',
+                                style: Theme.of(context).textTheme.bodySmall,
+                                textAlign: TextAlign.end,
+                              ),
+                              // El importe NUNCA se trunca: es el dato más
+                              // importante de la tarjeta. Si no cabe se reduce
+                              // el cuerpo de letra, que conserva la cifra
+                              // entera; recortarla con "…" perdería
+                              // información crítica.
+                              FittedBox(
+                                fit: BoxFit.scaleDown,
+                                alignment: Alignment.centerRight,
+                                child: Text(
+                                  formatBob(row['balance']! as int),
+                                  maxLines: 1,
+                                  style: Theme.of(context).textTheme.titleLarge
+                                      ?.copyWith(
+                                        fontWeight: FontWeight.w800,
+                                        color: (row['balance']! as int) > 0
+                                            ? Colors.orange.shade800
+                                            : Colors.green.shade700,
+                                      ),
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                         PopupMenuButton<String>(
                           onSelected: (value) {
                             if (value == 'detail') {
                               _statement(row);
                             } else {
-                              _record(row, advance: value == 'advance');
+                              _record(
+                                row,
+                                advance: value == 'advance',
+                                campaignName: _campaignName(campaigns),
+                              );
                             }
                           },
                           itemBuilder: (_) => const [
@@ -495,7 +540,8 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
                       leading: const Icon(Icons.landscape_outlined),
                       title: Text(row['name']! as String),
                       subtitle: Text(
-                        '${row['owner_name']} · ${(row['area_m2']! as int) / 10000} ha · Total ${formatBob(row['total_cost_bob_minor']! as int)}',
+                        '${row['owner_name']} · ${formatHectares(row['area_m2']! as int)} · '
+                        'Total ${formatBob(row['total_cost_bob_minor']! as int)}',
                       ),
                       trailing: Text(
                         '${formatBob(divideRoundedHalfUp((row['total_cost_bob_minor']! as int) * 10000, row['area_m2']! as int))}/ha',
@@ -541,4 +587,124 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
       },
     ),
   );
+}
+
+/// Diálogo de registro de pago o adelanto.
+///
+/// Es un [StatefulWidget] con ownership claro de su [TextEditingController],
+/// como los diálogos de `catalogs_screen.dart` y `_PaymentDialog` de
+/// `purchases_screen.dart`, que ya seguían el patrón correcto.
+///
+/// Corrige a la vez:
+///  * **UIBUG-005** — el controlador se liberaba antes de que el diálogo
+///    terminara de cerrarse.
+///  * **UIBUG-012** — no se decía a quién se pagaba ni sobre qué campaña.
+///  * **UIBUG-065** — un importe no interpretable valía 0 y el usuario recibía
+///    el engañoso *"El importe debe ser mayor a cero"*.
+///  * **UIBUG-003** — el importe se interpretaba con convenio inglés.
+class _RecordPaymentDialog extends StatefulWidget {
+  const _RecordPaymentDialog({
+    required this.personName,
+    required this.campaignName,
+    required this.balanceMinor,
+    required this.advance,
+  });
+
+  final String personName;
+  final String? campaignName;
+  final int balanceMinor;
+  final bool advance;
+
+  @override
+  State<_RecordPaymentDialog> createState() => _RecordPaymentDialogState();
+}
+
+class _RecordPaymentDialogState extends State<_RecordPaymentDialog> {
+  final _amount = TextEditingController();
+  String? _error;
+
+  @override
+  void dispose() {
+    _amount.dispose();
+    super.dispose();
+  }
+
+  void _submit() {
+    final parsed = parseNumericInput(_amount.text);
+    switch (parsed.status) {
+      case NumericInputStatus.empty:
+        setState(() => _error = 'Escriba el importe.');
+      case NumericInputStatus.ambiguous:
+      case NumericInputStatus.malformed:
+        // El mensaje describe el problema real y cómo escribirlo bien, en vez
+        // de convertir la cadena en 0 y culpar al importe (UIBUG-065).
+        setState(() => _error = parsed.message);
+      case NumericInputStatus.valid:
+        final minor = (parsed.value! * 100).round();
+        if (minor <= 0) {
+          setState(() => _error = 'El importe debe ser mayor a cero.');
+          return;
+        }
+        Navigator.pop(context, minor);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final owed = widget.balanceMinor;
+    return AlertDialog(
+      title: Text(widget.advance ? 'Registrar adelanto' : 'Registrar pago'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Contexto de la operación: sin esto es fácil abrir el menú
+          // equivocado en una lista larga y cobrar a quien no era (UIBUG-012).
+          Text(
+            widget.personName,
+            style: Theme.of(context).textTheme.titleMedium
+                ?.copyWith(fontWeight: FontWeight.w700),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            widget.campaignName == null
+                ? 'Todas las campañas'
+                : 'Campaña ${widget.campaignName}',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          const SizedBox(height: 2),
+          Text(
+            owed < 0
+                ? 'Saldo a favor ${formatBob(owed)}'
+                : 'Saldo pendiente ${formatBob(owed)}',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          const SizedBox(height: 14),
+          TextField(
+            controller: _amount,
+            autofocus: true,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            onChanged: (_) {
+              if (_error != null) setState(() => _error = null);
+            },
+            onSubmitted: (_) => _submit(),
+            decoration: InputDecoration(
+              labelText: 'Importe BOB',
+              hintText: '1.500,25',
+              errorText: _error,
+              // Un mensaje de formato ocupa varias líneas.
+              errorMaxLines: 4,
+            ),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancelar'),
+        ),
+        FilledButton(onPressed: _submit, child: const Text('Registrar')),
+      ],
+    );
+  }
 }

@@ -12,7 +12,7 @@ verificado recorriendo la aplicación sobre el emulador Pixel 8.
 | UI-03 | `/catalogos` | `CatalogsScreen` | Operaciones → *Administrar datos* | 5 catálogos | ✅ |
 | UI-04 | `/planificacion` | `PlanningScreen` | Operaciones → *Planificar aplicación* · FAB → *Planificación* | Planes + campañas | ✅ |
 | UI-05 | `/planificacion/nueva` | `PlanFormScreen` | Planificación → **Nuevo plan** | Campaña activa, chacos, productos, stock | ✅ |
-| UI-06 | `/compras` | `PurchasesScreen` | **NINGUNO — inalcanzable** (UIBUG-002) | Compras, personas | ❌ |
+| UI-06 | `/compras` | `PurchasesScreen` | Operaciones → **Compras** *(añadido al corregir UIBUG-002)* | Compras, personas | ✅ |
 | UI-07 | `/compras/nueva` | `PurchaseFormScreen` | Operaciones → *Registrar compra* · FAB → *Compra* | Proveedores, campañas, productos, personas | ✅ |
 | UI-08 | `/aplicaciones` | `ApplicationsScreen` | Operaciones → *Registrar aplicación* · FAB → *Aplicación* · Inicio → *Ver todos* | Aplicaciones + campaña activa | ✅ |
 | UI-09 | `/aplicaciones/nueva` | `ApplicationFormScreen` | Aplicaciones → **Registrar** · Planificación → **Aplicar** | Campaña activa, personas, chacos, stock | ✅ |
@@ -25,9 +25,13 @@ verificado recorriendo la aplicación sobre el emulador Pixel 8.
 | UI-16 | `/transferencias` | `TransfersScreen` | Operaciones → *Transferir inventario* · FAB → *Transferencia* | Transferencias | ✅ |
 | UI-17 | `/transferencias/nueva` | `TransferFormScreen` | Transferencias → **Nueva** | Personas + stock por persona | ✅ |
 
-**16 de 17 pantallas auditadas.** La restante (UI-06) no pudo auditarse porque **no existe
-ninguna forma de llegar a ella desde la interfaz**, lo cual es en sí mismo el hallazgo
-UIBUG-002.
+**17 de 17 pantallas auditadas** (actualizado el 2026-09-05).
+
+> En la auditoría original eran 16 de 17: UI-06 no podía auditarse porque **no existía ninguna
+> forma de llegar a ella**, lo cual era en sí mismo el hallazgo UIBUG-002. Corregido ese
+> defecto, la pantalla se auditó por completo —historial, visor de factura, pago a proveedor y
+> reversión— y el resultado está en
+> [`45_UI_AUDIT_FINAL_VERIFICATION.md` §5](45_UI_AUDIT_FINAL_VERIFICATION.md).
 
 ### Vistas secundarias auditadas
 
@@ -47,8 +51,8 @@ No son rutas, pero sí superficies con lógica propia:
 | Diálogo *Confirmar transferencia* | `/transferencias/nueva` | ✅ |
 | Diálogo *¿Revertir esta transferencia?* | `/transferencias` | ✅ |
 | Diálogo *¿Descartar cambios?* | 4 formularios | ✅ |
-| Visor de factura (`InteractiveViewer`) | `/compras` | ❌ inalcanzable |
-| Diálogo *Registrar pago a proveedor* | `/compras` | ❌ inalcanzable |
+| Visor de factura (`InteractiveViewer`) | `/compras` | ✅ *(alcanzable desde 2026-09-05)* |
+| Diálogo *Registrar pago a proveedor* | `/compras` | ✅ *(alcanzable desde 2026-09-05)* |
 | Diálogo *Falta una campaña activa* | `/aplicaciones` | ❌ no provocable con el dataset |
 
 ## 2. Matriz de cobertura visual
@@ -62,7 +66,7 @@ Leyenda: ✅ probado · ⚠️ parcial · N/A no aplica · ❌ no probado
 | UI-03 Catálogos | ✅ | ✅ | ❌ | ❌ | ✅ | ⚠️ | ✅ | ✅ | ⚠️ | ✅ |
 | UI-04 Planificación | ✅ | ✅ | ❌ | ❌ | N/A | N/A | ✅ | ✅ | N/A | ✅ |
 | UI-05 Plan (form) | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ | ⚠️ | ✅ |
-| UI-06 Compras | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| UI-06 Compras | ✅ | ✅ | ❌ | ❌ | ✅ | ⚠️ | ✅ | ✅ | ✅ | ✅ |
 | UI-07 Compra (form) | ✅ | ✅ | N/A | ⚠️ | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | UI-08 Aplicaciones | ✅ | ✅ | ❌ | ❌ | N/A | ❌ | ✅ | ✅ | ⚠️ | ✅ |
 | UI-09 Aplicación (form) | ✅ | ✅ | ✅ | ❌ | ✅ | ✅ | ✅ | ✅ | ⚠️ | ✅ |
@@ -83,7 +87,7 @@ Leyenda: ✅ probado · ⚠️ parcial · N/A no aplica · ❌ no probado
 | **Empty** en 9 pantallas | Requiere un dataset vacío, es decir una segunda ejecución completa con otro seed. El vacío **sí** se observó en UI-01 (por filtro), UI-05, UI-09 y en el selector ("Sin resultados."). |
 | **Keyboard** en UI-08/UI-11 | Sus buscadores usan el mismo patrón ya auditado en UI-01, donde se detectaron UIBUG-009 y UIBUG-036. |
 | **CRUD** parcial | Se crearon una compra y dos pagos reales, y se abrieron los diálogos de reversión. No se ejecutaron reversiones ni archivados definitivos para no destruir el dataset base más veces de las necesarias; el RESET permite repetirlo cuando se quiera. |
-| **UI-06 completo** | Inalcanzable (UIBUG-002). |
+| ~~**UI-06 completo**~~ | ~~Inalcanzable (UIBUG-002).~~ **Resuelto el 2026-09-05**: auditada por completo, ver `45` §5. |
 
 ## 3. Matriz de flujos
 

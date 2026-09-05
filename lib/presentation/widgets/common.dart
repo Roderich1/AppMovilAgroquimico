@@ -1,6 +1,50 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../data/app_log.dart';
+import '../../domain/numeric_input.dart';
+
+export '../../domain/numeric_input.dart'
+    show
+        NumericInputResult,
+        NumericInputStatus,
+        formatForInput,
+        parseNumericInput;
+export '../../domain/labels.dart'
+    show
+        campaignStatusLabel,
+        conceptLabel,
+        operationStatusLabel,
+        personRoleLabel,
+        transactionTypeLabel;
+export '../../domain/text_search.dart' show matchesSearch, normalizeForSearch;
+
+/// Espacio que el contenido desplazable debe reservar por debajo.
+///
+/// Lo publica [AppShell] para que **cada pantalla no invente su propio relleno**
+/// bajo el `FloatingActionButton` (UIBUG-008/009). Las rutas que viven fuera del
+/// shell —los cuatro formularios— no tienen FAB y no encuentran este widget, así
+/// que reservan 0.
+class ContentInsets extends InheritedWidget {
+  const ContentInsets({
+    super.key,
+    required this.bottomReserve,
+    required super.child,
+  });
+
+  /// Alto que ocupan el FAB y su margen.
+  final double bottomReserve;
+
+  static double of(BuildContext context) =>
+      context
+          .dependOnInheritedWidgetOfExactType<ContentInsets>()
+          ?.bottomReserve ??
+      0;
+
+  @override
+  bool updateShouldNotify(ContentInsets oldWidget) =>
+      oldWidget.bottomReserve != bottomReserve;
+}
 
 class PageFrame extends StatelessWidget {
   const PageFrame({
@@ -16,44 +60,70 @@ class PageFrame extends StatelessWidget {
   final Widget? action;
 
   @override
-  Widget build(BuildContext context) => CustomScrollView(
-    slivers: [
-      SliverPadding(
-        padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-        sliver: SliverToBoxAdapter(
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: Theme.of(context).textTheme.headlineSmall
-                          ?.copyWith(fontWeight: FontWeight.w700),
-                    ),
-                    if (subtitle != null) ...[
-                      const SizedBox(height: 4),
+  Widget build(BuildContext context) {
+    // Una pantalla a la que se llegó apilando debe ofrecer siempre una salida:
+    // sin esto, las de detalle eran callejones sin salida (UIBUG-004A).
+    //
+    // Se pregunta al ROUTER, no al `Navigator`: con `ShellRoute` la pila que
+    // importa es la de go_router, y el `Navigator` más cercano no la refleja.
+    // Los cuatro formularios no usan `PageFrame` (tienen `AppBar` propia), así
+    // que no aparecen dos flechas.
+    //
+    // `maybeOf` y no `of`: varias suites montan una pantalla suelta sin router,
+    // y una cabecera no debe hacer estallar la pantalla por eso.
+    final router = GoRouter.maybeOf(context);
+    final canPop = router?.canPop() ?? false;
+    // El contenido termina por encima del FAB y del teclado, en vez de quedar
+    // tapado justo al agotarse el scroll (UIBUG-008, UIBUG-009).
+    final bottom =
+        24 +
+        ContentInsets.of(context) +
+        MediaQuery.viewInsetsOf(context).bottom;
+    return CustomScrollView(
+      slivers: [
+        SliverPadding(
+          padding: EdgeInsets.fromLTRB(canPop ? 4 : 16, 16, 16, 8),
+          sliver: SliverToBoxAdapter(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                if (canPop)
+                  IconButton(
+                    tooltip: 'Volver',
+                    icon: const Icon(Icons.arrow_back),
+                    onPressed: () => router!.pop(),
+                  ),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
                       Text(
-                        subtitle!,
-                        style: Theme.of(context).textTheme.bodyLarge,
+                        title,
+                        style: Theme.of(context).textTheme.headlineSmall
+                            ?.copyWith(fontWeight: FontWeight.w700),
                       ),
+                      if (subtitle != null) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          subtitle!,
+                          style: Theme.of(context).textTheme.bodyLarge,
+                        ),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
-              ),
-              if (action != null) action!,
-            ],
+                if (action != null) action!,
+              ],
+            ),
           ),
         ),
-      ),
-      SliverPadding(
-        padding: const EdgeInsets.fromLTRB(16, 6, 16, 24),
-        sliver: SliverToBoxAdapter(child: child),
-      ),
-    ],
-  );
+        SliverPadding(
+          padding: EdgeInsets.fromLTRB(16, 6, 16, bottom),
+          sliver: SliverToBoxAdapter(child: child),
+        ),
+      ],
+    );
+  }
 }
 
 class EmptyState extends StatelessWidget {
@@ -128,11 +198,14 @@ Future<bool> confirmDestructiveAction(
     ) ??
     false;
 
-num? tryParseDecimal(String value) {
-  final normalized = value.trim().replaceAll(' ', '').replaceAll(',', '.');
-  if (normalized.isEmpty) return null;
-  return num.tryParse(normalized);
-}
+/// Interpreta [value] con convenio es-BO: la coma separa decimales y el punto
+/// separa miles, igual que la salida de `formatBob`/`formatQuantity`.
+///
+/// Devuelve `null` si la cadena está vacía, es ambigua o no respeta el
+/// convenio. La regla vive en [parseNumericInput] (`lib/domain/numeric_input.dart`,
+/// especificada en `docs/44_NUMERIC_INPUT_SPEC.md`); aquí sólo se adapta al
+/// `num?` que esperan las pantallas.
+num? tryParseDecimal(String value) => parseNumericInput(value).value;
 
 int? tryParseMinor(String value) {
   final parsed = tryParseDecimal(value);
@@ -154,6 +227,21 @@ String friendlyError(Object error) {
   }
   if (message.contains('StateError')) {
     return 'Falta seleccionar información requerida.';
+  }
+  // Los errores de SQLite llegaban al usuario en inglés y con la sentencia
+  // dentro (UIBUG-015 / KI-16). El detalle técnico ya queda en el log local, que
+  // es donde sirve; aquí se dice qué pasó y qué hacer.
+  if (message.contains('DatabaseException') ||
+      message.contains('SQLITE') ||
+      message.contains('sqlite')) {
+    if (message.toUpperCase().contains('UNIQUE')) {
+      return 'Ese registro ya existe. Revise los datos e inténtelo de nuevo.';
+    }
+    if (message.toUpperCase().contains('FOREIGN KEY')) {
+      return 'No se puede completar: hay información relacionada que lo impide.';
+    }
+    return 'No se pudo completar la operación sobre los datos. Inténtelo de '
+        'nuevo; si el problema persiste, exporte un respaldo y reinicie.';
   }
   return message;
 }

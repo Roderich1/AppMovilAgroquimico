@@ -96,8 +96,14 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
               child: const Text('Seguir editando'),
             ),
             FilledButton(
+              // Criterio unico de accion destructiva, el mismo que usa
+              // `confirmDestructiveAction` en las reversiones (UIBUG-033).
+              style: FilledButton.styleFrom(
+                backgroundColor: Theme.of(context).colorScheme.error,
+                foregroundColor: Theme.of(context).colorScheme.onError,
+              ),
               onPressed: () => Navigator.pop(dialogContext, true),
-              child: const Text('Descartar'),
+              child: const Text('Descartar cambios'),
             ),
           ],
         ),
@@ -325,7 +331,16 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
                 ],
               ),
               SliverPadding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 120),
+                // Los 120 px fijos no contaban el inset del sistema, así que
+                // la tarjeta TOTAL COMPRA quedaba parcialmente bajo la barra de
+                // gestos. Este formulario está fuera del `ShellRoute` y no
+                // hereda su `SafeArea` (UIBUG-064).
+                padding: EdgeInsets.fromLTRB(
+                  16,
+                  12,
+                  16,
+                  120 + MediaQuery.viewPaddingOf(context).bottom,
+                ),
                 sliver: SliverList.list(
                   children: [
                     _Section(
@@ -742,7 +757,7 @@ class _LineCard extends StatelessWidget {
                           )
                           .firstOrNull,
                       labelOf: (person) => person['name']! as String,
-                      secondaryOf: (person) => person['role']! as String,
+                      secondaryOf: (person) => personRoleLabel(person['role']),
                       onChanged: (person) {
                         line.allocations[allocationIndex].personId =
                             person?['id'] as int?;
