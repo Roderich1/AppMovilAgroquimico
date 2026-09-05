@@ -39,7 +39,7 @@ class FarmLogbookScreen extends ConsumerWidget {
       return PageFrame(
         title: d.farm['name'] as String,
         subtitle:
-            'Bitácora · ${d.farm['owner_name']} · ${(d.farm['area_m2'] as int) / 10000} ha',
+            'Bitácora · ${d.farm['owner_name']} · ${formatHectares(d.farm['area_m2'] as int)}',
         child: d.entries.isEmpty
             ? const EmptyState(
                 icon: Icons.agriculture_outlined,
@@ -53,7 +53,7 @@ class FarmLogbookScreen extends ConsumerWidget {
                         leading: const Icon(Icons.agriculture_outlined),
                         title: Text(row['product_name'] as String),
                         subtitle: Text(
-                          '${row['applied_at'].toString().substring(0, 10)} · ${row['campaign_name']} · ${row['person_name']}',
+                          '${formatDate(row['applied_at'])} · ${row['campaign_name']} · ${row['person_name']}',
                         ),
                         trailing: Text(
                           formatQuantity(
@@ -67,7 +67,7 @@ class FarmLogbookScreen extends ConsumerWidget {
                             child: Align(
                               alignment: Alignment.centerLeft,
                               child: Text(
-                                'Área ${(row['treated_area_m2'] as int? ?? 0) / 10000} ha · dosis ${formatQuantity(row['dose_base_per_ha'] as int? ?? 0, row['unit'] as String)}/ha\nTeórico ${formatQuantity(row['theoretical_quantity_base'] as int? ?? 0, row['unit'] as String)} · real ${formatQuantity(row['quantity_base'] as int, row['unit'] as String)} · costo ${formatBob(row['cost_bob_minor'] as int)}\nFIFO: ${row['fifo_lots'] ?? 'sin detalle'}',
+                                'Área ${formatHectares(row['treated_area_m2'] as int? ?? 0)} · dosis ${formatQuantity(row['dose_base_per_ha'] as int? ?? 0, row['unit'] as String)}/ha\nTeórico ${formatQuantity(row['theoretical_quantity_base'] as int? ?? 0, row['unit'] as String)} · real ${formatQuantity(row['quantity_base'] as int, row['unit'] as String)} · costo ${formatBob(row['cost_bob_minor'] as int)}\nLotes ${formatFifoLots(row['fifo_lots'], row['unit'] as String)}',
                               ),
                             ),
                           ),

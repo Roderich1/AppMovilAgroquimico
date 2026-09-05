@@ -60,7 +60,7 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
       }
       personId = plan.first['person_id'] as int;
       farmId = plan.first['farm_id'] as int;
-      area.text = ((plan.first['area_m2'] as int) / 10000).toString();
+      area.text = formatForInput((plan.first['area_m2'] as int) / 10000);
       stocks = await repo.availableProductsForOwner(personId!);
       for (final item in plan) {
         final stock =
@@ -76,9 +76,12 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
               'next_fifo_cost_minor': 0,
             };
         final line = _ApplicationLineEditor(stock);
-        line.dose.text = ((item['dose_base_per_ha'] as int) / 1000).toString();
-        line.real.text = ((item['required_quantity_base'] as int) / 1000)
-            .toString();
+        line.dose.text = formatForInput(
+          (item['dose_base_per_ha'] as int) / 1000,
+        );
+        line.real.text = formatForInput(
+          (item['required_quantity_base'] as int) / 1000,
+        );
         lines.add(line);
         line.cost = await repo.estimateFifoCost(
           personId: personId!,
@@ -142,9 +145,9 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
     }
     final owner = farm['owner_person_id'] as int;
     final hectares = (farm['area_m2'] as int) / 10000;
-    area.text = hectares.toStringAsFixed(
-      hectares == hectares.truncateToDouble() ? 0 : 2,
-    );
+    // Convenio es-BO: el campo debe precargarse como el usuario podria
+    // teclearlo (coma decimal), no como "80.0" (UIBUG-003).
+    area.text = formatForInput(hectares, maxDecimals: 2);
     if (personId != owner) {
       final catalogsValue = _latestCatalogs;
       if (catalogsValue != null) {
@@ -212,8 +215,14 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
               child: const Text('Seguir editando'),
             ),
             FilledButton(
+              // Criterio unico de accion destructiva, el mismo que usa
+              // `confirmDestructiveAction` en las reversiones (UIBUG-033).
+              style: FilledButton.styleFrom(
+                backgroundColor: Theme.of(context).colorScheme.error,
+                foregroundColor: Theme.of(context).colorScheme.onError,
+              ),
               onPressed: () => Navigator.pop(dialogContext, true),
-              child: const Text('Descartar'),
+              child: const Text('Descartar cambios'),
             ),
           ],
         ),
@@ -378,8 +387,7 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
                         items: farms,
                         value: farm,
                         labelOf: (f) => f['name'] as String,
-                        secondaryOf: (f) =>
-                            '${(f['area_m2'] as int) / 10000} ha',
+                        secondaryOf: (f) => formatHectares(f['area_m2'] as int),
                         onChanged: selectFarm,
                         enabled: personId != null,
                       ),
@@ -440,13 +448,21 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
                   children: [
                     Expanded(
                       child: AdaptiveEntityPicker<Map<String, Object?>>(
-                        label: 'Agregar producto',
+                        label: 'Elegir producto',
                         items: addable,
                         value: productToAdd,
                         labelOf: (p) => p['product_name'] as String,
                         secondaryOf: (p) =>
                             '${formatQuantity(p['available_base'] as int, p['unit'] as String)} · FIFO ${formatBob(p['next_fifo_cost_minor'] as int)}/${p['unit']}',
-                        onChanged: (p) => setState(() => productToAdd = p),
+                        // Elegir un producto lo AGREGA. Antes solo lo dejaba
+                        // preseleccionado y el contador seguia en
+                        // "Productos (0)" hasta pulsar el "+" contiguo, de modo
+                        // que la accion no hacia lo que decia su etiqueta
+                        // (UIBUG-042).
+                        onChanged: (p) {
+                          setState(() => productToAdd = p);
+                          if (p != null) addProduct();
+                        },
                         enabled: personId != null,
                       ),
                     ),
@@ -469,6 +485,11 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
                     margin: const EdgeInsets.only(bottom: 8),
                     child: ExpansionTile(
                       key: ValueKey(line.product['product_id']),
+                      // Nace desplegada: los campos Dosis y Cantidad real
+                      // vivian dentro de un desplegable cuyo chevron habia sido
+                      // sustituido por "Quitar", asi que no habia ninguna senal
+                      // de que la fila se abriera (UIBUG-043).
+                      initiallyExpanded: true,
                       title: Text(
                         line.product['product_name'] as String,
                         style: const TextStyle(fontWeight: FontWeight.w700),
@@ -492,8 +513,28 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
                           padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
                           child: Column(
                             children: [
-                              Text(
-                                'Disponible ${formatQuantity(line.product['available_base'] as int, line.unit)} · stock después ${formatQuantity((line.product['available_base'] as int) - (tryParseBase(line.real.text) ?? 0), line.unit)}',
+                              Builder(
+                                builder: (context) {
+                                  final after =
+                                      (line.product['available_base'] as int) -
+                                      (tryParseBase(line.real.text) ?? 0);
+                                  return Text(
+                                    'Disponible ${formatQuantity(line.product['available_base'] as int, line.unit)} · '
+                                    'stock después ${formatQuantity(after, line.unit)}',
+                                    // Una proyección negativa se pintaba en
+                                    // color normal, mientras `/inventario` sí
+                                    // resalta en rojo las negativas
+                                    // (UIBUG-044).
+                                    style: after < 0
+                                        ? TextStyle(
+                                            color: Theme.of(context)
+                                                .colorScheme
+                                                .error,
+                                            fontWeight: FontWeight.w700,
+                                          )
+                                        : null,
+                                  );
+                                },
                               ),
                               const SizedBox(height: 8),
                               LayoutBuilder(

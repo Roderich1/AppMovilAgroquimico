@@ -308,8 +308,12 @@ class _PaymentDialog extends StatefulWidget {
 
 class _PaymentDialogState extends State<_PaymentDialog> {
   int? person;
+  // Se precarga con el convenio es-BO que la propia aplicacion acepta.
+  // `toStringAsFixed` producia "20000.00", que con la regla de entrada
+  // centralizada (UIBUG-003) es un formato invalido: el punto es separador de
+  // miles, no decimal.
   late final amount = TextEditingController(
-    text: (widget.maxMinor / 100).toStringAsFixed(2),
+    text: formatForInput(widget.maxMinor / 100, maxDecimals: 2),
   );
   @override
   void dispose() {

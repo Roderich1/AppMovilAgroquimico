@@ -1,5 +1,8 @@
 # 38 — Hallazgos de la auditoría de interfaz
 
+
+> **Estado del backlog (2026-09-05).** Los defectos de este documento se han corregido en su mayor parte: **38 `VERIFIED`** en Pixel 8, **16** corregidos y cubiertos por tests, **9** MEDIUM/LOW abiertos con justificación, **2** pendientes de decisión de producto y **1** `WONT_FIX`. Este documento conserva la **observación original**; el estado vigente está en [`43_UIBUG_FIX_TRACEABILITY.md`](43_UIBUG_FIX_TRACEABILITY.md) y el cierre en [`45_UI_AUDIT_FINAL_VERIFICATION.md`](45_UI_AUDIT_FINAL_VERIFICATION.md).
+
 Todos los defectos observados **ejecutando la aplicación** sobre el emulador Pixel 8.
 
 ## Entorno común a todos los hallazgos
@@ -18,15 +21,32 @@ Salvo que un hallazgo diga lo contrario:
 
 Evidencia: rutas relativas a `artifacts/ui-audit/`.
 
+> **Backlog vigente**: para planificar y ejecutar, usa
+> [41_UIBUG_MASTER_BACKLOG.md](41_UIBUG_MASTER_BACKLOG.md). Este documento conserva los pasos de
+> reproducción y la evidencia de cada hallazgo tal como se observaron.
+
 ## Resumen
 
-| Severidad | Nº |
-|---|---:|
-| CRITICAL | 4 |
-| HIGH | 17 |
-| MEDIUM | 26 |
-| LOW | 9 |
-| **Total** | **56** |
+| Severidad | IDs | Nº |
+|---|---|---:|
+| CRITICAL | 001–004 | 4 |
+| HIGH | 005–021 | 17 |
+| MEDIUM | 022–056 | **35** |
+| LOW | 057–065 | 9 |
+| **Total** | **001–065** | **65** |
+
+> **Corrección de conteo (2026-09-05).** Este resumen declaraba antes *26 MEDIUM* y un total de
+> *56*. Era un recuento arrastrado sin actualizar tras ampliar la sección MEDIUM: el documento
+> siempre definió, con contenido propio, los **65** IDs `UIBUG-001`…`UIBUG-065`, de los cuales
+> **35** son MEDIUM. Verificado mecánicamente (65 IDs únicos, 65 bloques de definición).
+> Ningún hallazgo se añadió, eliminó ni cambió de severidad al corregir la cifra.
+> Detalle en [`41` §2](41_UIBUG_MASTER_BACKLOG.md).
+
+> **Subdivisión de UIBUG-004 (2026-09-05).** Se dividió en **004A** (navegación jerárquica sin
+> retorno — CRITICAL) y **004B** (política de Atrás desde un destino raíz — MEDIUM, decisión de
+> diseño). El texto original de más abajo se conserva **sin modificar**; la separación y su
+> justificación están en [`41` §3](41_UIBUG_MASTER_BACKLOG.md). Con la subdivisión el backlog
+> tiene **66 entradas** sobre **65 IDs históricos**.
 
 ---
 
@@ -170,6 +190,22 @@ convenciones opuestas.
 ---
 
 ## UIBUG-004 · El botón Atrás sale de la aplicación desde cualquier pantalla, y los detalles no tienen botón de volver
+
+> **⚠️ Este hallazgo se subdividió el 2026-09-05.** Mezclaba dos comportamientos con distinto
+> veredicto. El texto de abajo se conserva íntegro como observación original.
+>
+> - **UIBUG-004A — CRITICAL** · la navegación **jerárquica** (`/personas/:id`, `/inventario/:id`,
+>   `/chacos/:id` y las 4 subrutas de Operaciones) usa `context.go`, que reemplaza la pila, y
+>   `PageFrame` no dibuja flecha de volver: **callejón sin salida funcional**.
+> - **UIBUG-004B — MEDIUM · `DESIGN_DECISION_REQUIRED`** · que Atrás salga desde un **destino
+>   raíz** (`/`, `/operaciones`, `/inventario`, `/personas`, `/liquidacion`) **no es
+>   automáticamente un defecto**: es una política de navegación. Material 3 recomienda volver
+>   antes al destino inicial; muchas apps de producción salen directamente. No hay pérdida de
+>   datos ni contenido inalcanzable.
+>
+> Justificación completa y enumeración de la navegación en
+> [`41` §3](41_UIBUG_MASTER_BACKLOG.md). En contextos de bloqueo de release, "UIBUG-004"
+> significa **UIBUG-004A**.
 
 | | |
 |---|---|
@@ -901,6 +937,16 @@ patrón `#,##0.###` suprime el cero final. Dificulta comparar cifras alineadas.
   barra de gestos del sistema.
 - **UIBUG-065** · `/liquidacion` — El único `catch (_) {}` que queda (`parseMinor` en el botón
   Registrar) se traga en silencio un importe no parseable, sin ningún aviso.
+
+  > **⚠️ Corrección de esta descripción (2026-09-05).** La afirmación de arriba es **incorrecta**
+  > y se conserva solo como registro. Verificado en código: `parseMinor` es
+  > `int parseMinor(String v) => tryParseMinor(v) ?? 0;` (`common.dart:147`) y **no lanza nunca**,
+  > luego el `catch (_) {}` de `settlements_screen.dart:89` es **código muerto inalcanzable**.
+  > Lo que ocurre en realidad: el texto no parseable se convierte en `0` y `addAccountPayment`
+  > (`agro_repository.dart:598`) lo rechaza con *"El importe debe ser mayor a cero."*
+  > **No es un error silencioso, es un mensaje engañoso.** La severidad **se mantiene en LOW**
+  > (el error se detecta y no se escribe nada), pero el hallazgo cambia de naturaleza.
+  > Ver [`41` §5 y ficha UIBUG-065](41_UIBUG_MASTER_BACKLOG.md).
 
 ---
 

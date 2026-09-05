@@ -112,7 +112,7 @@ class _ApplicationsScreenState extends ConsumerState<ApplicationsScreen> {
               (row) =>
                   (campaignFilter == null ||
                       row['campaign_id'] == campaignFilter) &&
-                  '$row'.toLowerCase().contains(query),
+                  matchesSearch('$row', query),
             )
             .toList();
         return Column(
@@ -181,12 +181,40 @@ class _ApplicationsScreenState extends ConsumerState<ApplicationsScreen> {
                         style: const TextStyle(fontWeight: FontWeight.w700),
                       ),
                       subtitle: Text(
-                        '${row['campaign_name']} · ${row['item_count']} producto(s)\n${row['items_summary']}',
+                        '${row['campaign_name']} · ${row['item_count']} producto(s)'
+                        '${row['status'] == 'REVERSED' ? ' · ${operationStatusLabel(row['status'])}' : ''}'
+                        '\n${formatItemsSummary(row['items_summary'])}',
                       ),
                       trailing: Wrap(
                         crossAxisAlignment: WrapCrossAlignment.center,
                         children: [
-                          Text(formatBob(row['total_cost_bob_minor'] as int)),
+                          // La ausencia del botón ↩ era la ÚNICA señal de que
+                          // una aplicación estaba revertida, y se confundía con
+                          // "no se puede revertir" (UIBUG-010).
+                          if (row['status'] == 'REVERSED')
+                            Padding(
+                              padding: const EdgeInsets.only(right: 8),
+                              child: Chip(
+                                label: Text(
+                                  operationStatusLabel(row['status']),
+                                  style: const TextStyle(fontSize: 11),
+                                ),
+                                visualDensity: VisualDensity.compact,
+                                materialTapTargetSize:
+                                    MaterialTapTargetSize.shrinkWrap,
+                              ),
+                            ),
+                          Text(
+                            formatBob(row['total_cost_bob_minor'] as int),
+                            style: TextStyle(
+                              decoration: row['status'] == 'REVERSED'
+                                  ? TextDecoration.lineThrough
+                                  : null,
+                              color: row['status'] == 'REVERSED'
+                                  ? Theme.of(context).colorScheme.outline
+                                  : null,
+                            ),
+                          ),
                           if (row['status'] != 'REVERSED')
                             IconButton(
                               tooltip: 'Revertir',

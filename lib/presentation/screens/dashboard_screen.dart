@@ -35,7 +35,10 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     final repo = ref.read(repositoryProvider);
     return (
       summary: await repo.dashboard(),
-      inventory: await repo.inventorySummary(limit: 5),
+      // Sin `limit`: el buscador filtra en cliente y con solo 5 filas
+      // precargadas afirmaba que no habia inventario aunque el producto
+      // existiera (UIBUG-007). La tabla sigue mostrando 5 cuando no se busca.
+      inventory: await repo.inventorySummary(),
       applications: await repo.applications(limit: 5),
       debts: await repo.topSettlements(limit: 5),
       campaigns: await repo.campaigns(),
@@ -68,12 +71,19 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         if (!snapshot.hasData)
           return const Center(child: CircularProgressIndicator());
         final data = snapshot.data!;
-        final visibleInventory = data.inventory.where((row) {
-          return inventoryQuery.isEmpty ||
-              (row['product_name']! as String).toLowerCase().contains(
-                inventoryQuery,
-              );
-        }).toList();
+        final searching = inventoryQuery.isNotEmpty;
+        final matchingInventory = data.inventory
+            .where(
+              (row) =>
+                  !searching ||
+                  matchesSearch(row['product_name']! as String, inventoryQuery),
+            )
+            .toList();
+        // Sin busqueda se mantiene el resumen corto de siempre; al buscar se
+        // recorre todo el inventario.
+        final visibleInventory = searching
+            ? matchingInventory
+            : matchingInventory.take(5).toList();
         final activeCampaign = data.campaigns
             .where((campaign) => campaign['status'] == 'ACTIVE')
             .firstOrNull;
@@ -197,7 +207,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             const SizedBox(height: 8),
             TextField(
               onChanged: (value) => setState(() {
-                inventoryQuery = value.trim().toLowerCase();
+                inventoryQuery = value.trim();
               }),
               decoration: const InputDecoration(
                 prefixIcon: Icon(Icons.search),
@@ -208,9 +218,16 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             const SizedBox(height: 8),
             Card(
               child: visibleInventory.isEmpty
-                  ? const EmptyState(
-                      icon: Icons.inventory_2_outlined,
-                      message: 'Aún no hay inventario.',
+                  // No es lo mismo no tener inventario que no encontrar nada:
+                  // el mensaje unico hacia creer que el almacen estaba vacio
+                  // (UIBUG-007).
+                  ? EmptyState(
+                      icon: searching
+                          ? Icons.search_off_outlined
+                          : Icons.inventory_2_outlined,
+                      message: searching
+                          ? 'Ningún producto coincide con "$inventoryQuery".'
+                          : 'Aún no hay inventario.',
                     )
                   : SingleChildScrollView(
                       scrollDirection: Axis.horizontal,
@@ -229,10 +246,14 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                           DataColumn(label: Text('Proyección'), numeric: true),
                           DataColumn(label: Text('Valor'), numeric: true),
                         ],
+                        // Sin `onSelectChanged` no aparece la columna de
+                        // casillas, que no tenia ninguna accion masiva detras y
+                        // robaba ancho a una tabla que ya no cabia (UIBUG-022).
+                        showCheckboxColumn: false,
                         rows: [
                           for (final row in visibleInventory)
                             DataRow(
-                              onSelectChanged: (_) => context.go(
+                              onSelectChanged: (_) => context.push(
                                 '/inventario/${row['product_id']}',
                               ),
                               cells: [
@@ -298,9 +319,24 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                       title: Text(
                         '${row['person_name']} · ${row['farm_name']}',
                       ),
-                      subtitle: Text(row['campaign_name'] as String),
+                      subtitle: Text(
+                        '${row['campaign_name']}'
+                        '${row['status'] == 'REVERSED' ? ' · ${operationStatusLabel(row['status'])}' : ''}',
+                      ),
+                      // El inicio mostraba el importe de una aplicación anulada
+                      // como si siguiera vigente, mientras el reporte de costos
+                      // sí la excluía: dos cifras para el mismo hecho
+                      // (UIBUG-010).
                       trailing: Text(
                         formatBob(row['total_cost_bob_minor']! as int),
+                        style: TextStyle(
+                          decoration: row['status'] == 'REVERSED'
+                              ? TextDecoration.lineThrough
+                              : null,
+                          color: row['status'] == 'REVERSED'
+                              ? Theme.of(context).colorScheme.outline
+                              : null,
+                        ),
                       ),
                     ),
                 ],

@@ -1,0 +1,11 @@
+UIBUG-012 - El dialogo Registrar pago no dice a quien se le esta pagando
+==============================================================================
+
+Evidencia original (se conserva):
+
+  artifacts/ui-audit/UI-10-liquidacion/UI-10-dialogo-registrar-pago.png
+
+Comportamiento ANTES: el dialogo se titulaba solo "Registrar pago" y contenia un
+unico campo "Importe BOB". No mostraba la persona, ni su saldo pendiente, ni la
+campaña a la que se imputaria, ni pedia confirmacion. Con seis personas en la
+lista y tarjetas altas era facil abrir el menu equivocado y cobrar a quien no era.

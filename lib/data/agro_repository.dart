@@ -1067,9 +1067,9 @@ class AgroRepository {
         source.name from_person_name, destination.name to_person_name,
         (SELECT COUNT(*) FROM transfer_lot_items i WHERE i.transfer_id=t.id) lot_count,
         COALESCE((SELECT COUNT(*) FROM transfer_items ti WHERE ti.transfer_id=t.id),1) item_count,
-        COALESCE((SELECT GROUP_CONCAT(p.name || ' ' || (ti.quantity_base / 1000.0) || ' ' || p.unit, ' · ')
+        COALESCE((SELECT GROUP_CONCAT(p.name || '|' || ti.quantity_base || '|' || p.unit, ';')
           FROM transfer_items ti JOIN products p ON p.id=ti.product_id WHERE ti.transfer_id=t.id),
-          pr.name || ' ' || (t.quantity_base / 1000.0) || ' ' || pr.unit) products_summary
+          pr.name || '|' || t.quantity_base || '|' || pr.unit) products_summary
         FROM transfers t JOIN products pr ON pr.id=t.product_id
         JOIN persons source ON source.id=t.from_person_id
         JOIN persons destination ON destination.id=t.to_person_id
@@ -1188,7 +1188,7 @@ class AgroRepository {
         COALESCE(SUM(i.theoretical_quantity_base),0) theoretical_quantity_base,
         COALESCE(SUM(i.quantity_base),0) real_quantity_base,
         GROUP_CONCAT(DISTINCT pr.unit) units, COUNT(i.id) item_count,
-        GROUP_CONCAT(pr.name || ' ' || (i.quantity_base / 1000.0) || ' ' || pr.unit, ' · ') items_summary
+        GROUP_CONCAT(pr.name || '|' || i.quantity_base || '|' || pr.unit, ';') items_summary
         FROM applications a JOIN persons p ON p.id=a.person_id JOIN farms f ON f.id=a.farm_id
         JOIN campaigns c ON c.id=a.campaign_id
         LEFT JOIN application_items i ON i.application_id=a.id LEFT JOIN products pr ON pr.id=i.product_id

@@ -1,0 +1,63 @@
+00:00 +0: loading C:/Users/MSI/Documents/ComunidadApp/AppFamiliaAgricultor/test/uibug003_red_evidence_test.dart
+00:00 +0: RED-1 pago: "1.500" deben ser 1.500,00 Bs (150000 minor)
+00:00 +0 -1: RED-1 pago: "1.500" deben ser 1.500,00 Bs (150000 minor) [E]
+  Expected: <150000>
+    Actual: <150>
+  
+  package:matcher                                     expect
+  package:flutter_test/src/widget_tester.dart 473:18  expect
+  test\uibug003_red_evidence_test.dart 11:5           main.<fn>
+  
+00:00 +0 -1: RED-2 transferencia: "15.000" sobre "15.000 KG disponibles"
+00:00 +0 -2: RED-2 transferencia: "15.000" sobre "15.000 KG disponibles" [E]
+  Expected: <15000000>
+    Actual: <15000>
+  
+  package:matcher                                     expect
+  package:flutter_test/src/widget_tester.dart 473:18  expect
+  test\uibug003_red_evidence_test.dart 15:5           main.<fn>
+  
+00:00 +0 -2: RED-3 ida y vuelta formatBob -> parse
+00:00 +0 -3: RED-3 ida y vuelta formatBob -> parse [E]
+  Expected: <150000>
+    Actual: <null>
+  
+  package:matcher                                     expect
+  package:flutter_test/src/widget_tester.dart 473:18  expect
+  test\uibug003_red_evidence_test.dart 21:5           main.<fn>
+  
+00:00 +0 -3: RED-4 ida y vuelta formatQuantity -> parse
+00:00 +0 -4: RED-4 ida y vuelta formatQuantity -> parse [E]
+  Expected: <15000000>
+    Actual: <15000>
+  
+  package:matcher                                     expect
+  package:flutter_test/src/widget_tester.dart 473:18  expect
+  test\uibug003_red_evidence_test.dart 27:5           main.<fn>
+  
+00:00 +0 -4: RED-5 "1,500" ambiguo debe rechazarse, no valer 1,5
+00:00 +0 -5: RED-5 "1,500" ambiguo debe rechazarse, no valer 1,5 [E]
+  Expected: null
+    Actual: <1.5>
+  
+  package:matcher                                     expect
+  package:flutter_test/src/widget_tester.dart 473:18  expect
+  test\uibug003_red_evidence_test.dart 31:5           main.<fn>
+  
+00:00 +0 -5: RED-6 "1.500,25" debe interpretarse exactamente
+00:00 +0 -6: RED-6 "1.500,25" debe interpretarse exactamente [E]
+  Expected: <150025>
+    Actual: <null>
+  
+  package:matcher                                     expect
+  package:flutter_test/src/widget_tester.dart 473:18  expect
+  test\uibug003_red_evidence_test.dart 35:5           main.<fn>
+  
+00:00 +0 -6: Some tests failed.
+
+Failing tests:
+  C:/Users/MSI/Documents/ComunidadApp/AppFamiliaAgricultor/test/uibug003_red_evidence_test.dart: RED-1 pago: "1.500" deben ser 1.500,00 Bs (150000 minor)
+  C:/Users/MSI/Documents/ComunidadApp/AppFamiliaAgricultor/test/uibug003_red_evidence_test.dart: RED-2 transferencia: "15.000" sobre "15.000 KG disponibles"
+  C:/Users/MSI/Documents/ComunidadApp/AppFamiliaAgricultor/test/uibug003_red_evidence_test.dart: RED-3 ida y vuelta formatBob -> parse
+  C:/Users/MSI/Documents/ComunidadApp/AppFamiliaAgricultor/test/uibug003_red_evidence_test.dart: RED-4 ida y vuelta formatQuantity -> parse
+  ... and 2 more

@@ -1,0 +1,23 @@
+UIBUG-003 - El formato que la app imprime, tecleado tal cual, divide el valor por mil
+==============================================================================
+
+Evidencia original de la auditoria (se conserva, no se borra):
+
+  artifacts/ui-audit/UI-17-transfer-form/UI-17-ISSUE-formato-millares.png
+  artifacts/ui-audit/UI-17-transfer-form/_c-conf.png
+
+Documentada en docs/38_UI_AUDIT_FINDINGS.md (UIBUG-003) y docs/41_UIBUG_MASTER_BACKLOG.md.
+
+Comportamiento observado ANTES:
+  - Transferencia: campo rotulado "15.000 KG disponibles"; tecleando 15.000 el
+    dialogo de confirmacion resumia "Cloruro de Potasio: 15 KG".
+  - Pago: tecleando 1.500 se guardaba account_transactions.amount_bob_minor_signed = -150,
+    es decir 1,50 Bs en lugar de 1.500,00 Bs.
+
+Reproduccion en test (rojo) conservada en: before-red-test.txt
+  RED-1 tryParseMinor('1.500')      esperado 150000    -> obtenido 150
+  RED-2 tryParseBase('15.000')      esperado 15000000  -> obtenido 15000
+  RED-3 formatBob -> parse          esperado 150000    -> obtenido null
+  RED-4 formatQuantity -> parse     esperado 15000000  -> obtenido 15000
+  RED-5 '1,500' debe rechazarse     esperado null      -> obtenido 1.5
+  RED-6 tryParseMinor('1.500,25')   esperado 150025    -> obtenido null

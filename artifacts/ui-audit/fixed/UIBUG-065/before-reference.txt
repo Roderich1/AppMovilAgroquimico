@@ -1,0 +1,15 @@
+UIBUG-065 - Un importe no interpretable se convierte en 0 y produce un mensaje engañoso
+==============================================================================
+
+Sin captura en la auditoria original: el hallazgo se detecto por revision de
+codigo (`docs/39` lo registra como "- (revision de codigo)").
+
+**La descripcion original de docs/38 era incorrecta** y se corrigio al normalizar
+el backlog (`docs/41` §5): decia que el `catch (_) {}` "se traga en silencio un
+importe no parseable". En realidad `parseMinor` es
+`int parseMinor(String v) => tryParseMinor(v) ?? 0;` y **no lanza nunca**, luego
+ese `catch` era codigo muerto inalcanzable.
+
+Comportamiento real ANTES: el texto no interpretable se convertia en `0` y
+`addAccountPayment` lo rechazaba con **"El importe debe ser mayor a cero."**, un
+mensaje que no describe el problema real.
