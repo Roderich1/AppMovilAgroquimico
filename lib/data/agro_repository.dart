@@ -1,12 +1,12 @@
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart' show Database, DatabaseExecutor, Sqflite;
 
 import '../domain/models.dart';
 import '../domain/money.dart';
 import 'app_database.dart';
+import 'invoice_storage.dart';
 
 class BusinessRuleException implements Exception {
   BusinessRuleException(this.message);
@@ -1727,9 +1727,10 @@ class AgroRepository {
   }
 
   Future<String> storeInvoiceImage(String sourcePath) async {
-    final directory = await getApplicationDocumentsDirectory();
-    final invoices = Directory(p.join(directory.path, 'invoices'));
-    await invoices.create(recursive: true);
+    // La carpeta la decide `invoice_storage.dart`, que es también donde la
+    // busca `BackupService` para meterla en el respaldo y devolverla al
+    // restaurar.
+    final invoices = await resolveInvoicesDirectory();
     final extension = p.extension(sourcePath).isEmpty
         ? '.jpg'
         : p.extension(sourcePath);

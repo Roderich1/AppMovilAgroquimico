@@ -27,6 +27,8 @@ import 'package:path_provider_platform_interface/path_provider_platform_interfac
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+import 'backup_container_support.dart';
+
 /// Devuelve siempre el directorio de trabajo de la prueba.
 ///
 /// En el host de pruebas `getDownloadsDirectory()` lanza
@@ -275,7 +277,7 @@ void main() {
       //   DatabaseException(unknown error (code 0 SQLITE_OK): Queries can be
       //   performed using SQLiteDatabase query or rawQuery methods only.)
       //   sql 'PRAGMA wal_checkpoint(FULL)'
-      final exported = await service.export();
+      final exported = (await service.export()).path;
 
       expect(await File(exported).exists(), isTrue);
       expect(await File(exported).length(), greaterThan(0));
@@ -288,7 +290,7 @@ void main() {
       final (database, repo) = await androidLikeDatabase('android_rt.db');
       final service = BackupService(database);
 
-      final exported = await service.export();
+      final exported = (await service.export()).path;
 
       // El respaldo debe pasar la propia validación de la aplicación.
       final validation = await service.validate(exported);
@@ -324,13 +326,17 @@ void main() {
     // Escritura inmediatamente antes de exportar: si el checkpoint no dejara la
     // base en un estado consistente, esta fila podría no estar en la copia.
     await repo.addPerson(name: 'Justo antes', role: PersonRole.family);
-    final exported = await service.export();
+    final exported = (await service.export()).path;
 
     final validation = await service.validate(exported);
     expect(validation.isValid, isTrue, reason: validation.problem);
 
-    // La fila recién escrita tiene que estar en el respaldo.
-    final copy = AppDatabase(factory: databaseFactoryFfi, path: exported);
+    // La fila recién escrita tiene que estar en el respaldo. El respaldo es
+    // ahora un contenedor, así que se saca su base para poder abrirla.
+    final copy = AppDatabase(
+      factory: databaseFactoryFfi,
+      path: await extractDatabaseFrom(exported),
+    );
     addTearDown(copy.close);
     final names = (await AgroRepository(
       copy,

@@ -232,11 +232,45 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
 
   Future<void> _backup() async {
     try {
-      final path = await ref.read(backupServiceProvider).export();
-      if (mounted) showSuccess(context, 'Respaldo guardado en $path');
+      final result = await ref.read(backupServiceProvider).export();
+      if (!mounted) return;
+      final photos = result.attachmentCount == 1
+          ? '1 fotografía de factura'
+          : '${result.attachmentCount} fotografías de factura';
+      showSuccess(
+        context,
+        'Respaldo guardado en ${result.path} (base de datos y $photos).',
+      );
+      // Una discrepancia no puede quedarse en silencio: si una factura ya no
+      // tiene su foto en el teléfono, el usuario tiene que enterarse ahora y
+      // no el día que necesite restaurar.
+      if (result.hasWarnings) await _showNotices('Respaldo', result.warnings);
     } catch (error) {
       if (mounted) showError(context, error);
     }
+  }
+
+  /// Avisos que acompañan a una operación que sí terminó.
+  Future<void> _showNotices(String title, List<String> notices) async {
+    if (!mounted || notices.isEmpty) return;
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        icon: const Icon(Icons.warning_amber_outlined),
+        title: Text(title),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [for (final notice in notices) Text('· $notice')],
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Entendido'),
+          ),
+        ],
+      ),
+    );
   }
 
   /// Restauración: valida el archivo, avisa de que reemplaza todo y solo
@@ -300,13 +334,23 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
       return;
     }
 
+    // Qué trae exactamente el archivo, antes de reemplazar nada. El formato
+    // histórico sólo guarda la base: conviene saberlo ANTES de aceptar.
+    final contents = validation.isLegacyWithoutPhotos
+        ? 'Formato histórico: contiene la base de datos, pero NO las '
+              'fotografías de factura. Las fotografías actuales del teléfono '
+              'se conservan.'
+        : 'Contiene la base de datos y ${validation.attachmentCount} '
+              'fotografía(s) de factura.';
+
     final confirmed = await confirmDestructiveAction(
       context,
-      title: '¿Restaurar este backup?',
+      title: '¿Restaurar este respaldo?',
       detail:
           '${p.basename(chosen.path)}\n'
-          'Esquema versión ${validation.schemaVersion}\n\n'
-          'TODOS los datos actuales se reemplazarán por los del backup. '
+          'Esquema versión ${validation.schemaVersion}\n'
+          '$contents\n\n'
+          'TODOS los datos actuales se reemplazarán por los del respaldo. '
           'Se guardará automáticamente una copia de los datos actuales por si '
           'necesita volver atrás.',
       confirmLabel: 'Restaurar',
@@ -314,13 +358,17 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
     if (!confirmed || !mounted) return;
 
     try {
-      final safetyCopy = await service.restore(chosen.path);
+      final result = await service.restore(chosen.path);
       if (!mounted) return;
       _refresh();
       showSuccess(
         context,
-        'Backup restaurado. Copia de los datos anteriores: $safetyCopy',
+        'Respaldo restaurado (${result.restoredAttachments} fotografía(s)). '
+        'Copia de los datos anteriores: ${result.safetyCopyPath}',
       );
+      if (result.warnings.isNotEmpty) {
+        await _showNotices('Restauración', result.warnings);
+      }
     } catch (error) {
       if (mounted) showError(context, error);
     }
