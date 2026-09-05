@@ -247,7 +247,7 @@ void main() {
   });
 
   test(
-    'aplicación desde plan conserva líneas y completa/reabre el plan',
+    'aplicación desde plan conserva líneas y consume el plan para siempre',
     () async {
       final first = await productWithStock('Plan A', 'L', 20000, 1000);
       final second = await productWithStock('Plan B', 'KG', 20000, 2000);
@@ -289,8 +289,10 @@ void main() {
           where: 'id=?',
           whereArgs: [plan],
         )).single['status'],
-        'COMPLETED',
+        'APPLIED',
       );
+      // **Revertir NO reabre el plan** (UIBUG-045, MODELO A). La reversión
+      // corrige un movimiento que ocurrió; el plan ya se consumió.
       await repo.reverseApplication(application);
       expect(
         (await database.query(
@@ -298,7 +300,7 @@ void main() {
           where: 'id=?',
           whereArgs: [plan],
         )).single['status'],
-        'PLANNED',
+        'APPLIED',
       );
     },
   );
