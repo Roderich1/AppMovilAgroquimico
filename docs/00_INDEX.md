@@ -51,6 +51,11 @@ Si es la primera vez que tocas este proyecto, lee **[28_SYSTEM_MAP.md](28_SYSTEM
 | 33 | [STABILIZATION_FINDINGS](33_STABILIZATION_FINDINGS.md) | Hallazgos verificados (STAB-001…019) |
 | 34 | [CHANGE_TRACEABILITY](34_CHANGE_TRACEABILITY.md) | Hallazgo → código → test → documento |
 | 35 | [RELEASE_READINESS](35_RELEASE_READINESS.md) | **Informe de preparación para release** |
+| 36 | [UI_AUDIT_DATASET](36_UI_AUDIT_DATASET.md) | Dataset determinista de la auditoría de interfaz y procedimiento RESET/SEED |
+| 37 | [UI_SCREEN_INVENTORY](37_UI_SCREEN_INVENTORY.md) | Inventario de pantallas, matriz de cobertura y matriz de flujos |
+| 38 | [UI_AUDIT_FINDINGS](38_UI_AUDIT_FINDINGS.md) | **Los 56 UIBUG observados en el Pixel 8** |
+| 39 | [UI_AUDIT_TRACEABILITY](39_UI_AUDIT_TRACEABILITY.md) | UIBUG → pantalla → feature → regla → evidencia → archivo |
+| 40 | [UI_AUDIT_SUMMARY](40_UI_AUDIT_SUMMARY.md) | **Resumen ejecutivo de la auditoría de interfaz** |
 
 ## Estado verificado del repositorio al momento de la auditoría
 

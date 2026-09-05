@@ -142,7 +142,7 @@ siempre.
 |---|---|
 | `flutter build apk --release` | ✅ compila — `app-release.apk` (~60 MB) |
 | `flutter build appbundle --release` | ✅ compila — `app-release.aab` (~58 MB) |
-| Firma | **Sin firmar** (no hay `key.properties`), verificado: el APK no contiene entradas de firma en `META-INF` |
+| Firma | **Sin firmar** (no hay `key.properties`). Verificado con `apksigner verify`: `DOES NOT VERIFY`. El APK de depuración sí verifica (esquema v2, 1 firmante) |
 
 ### iOS
 
