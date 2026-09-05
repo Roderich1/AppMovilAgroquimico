@@ -1,0 +1,231 @@
+import 'package:flutter/material.dart';
+
+class AdaptiveEntityPicker<T> extends StatefulWidget {
+  const AdaptiveEntityPicker({
+    super.key,
+    required this.label,
+    required this.items,
+    required this.value,
+    required this.labelOf,
+    required this.onChanged,
+    this.secondaryOf,
+    this.enabled = true,
+    this.loading = false,
+    this.error,
+    this.emptyMessage = 'No hay opciones disponibles.',
+    this.allowClear = true,
+  });
+
+  final String label;
+  final List<T> items;
+  final T? value;
+  final String Function(T item) labelOf;
+  final String Function(T item)? secondaryOf;
+  final ValueChanged<T?> onChanged;
+  final bool enabled;
+  final bool loading;
+  final Object? error;
+  final String emptyMessage;
+  final bool allowClear;
+
+  @override
+  State<AdaptiveEntityPicker<T>> createState() =>
+      _AdaptiveEntityPickerState<T>();
+}
+
+class _AdaptiveEntityPickerState<T> extends State<AdaptiveEntityPicker<T>> {
+  bool autoSelectionScheduled = false;
+
+  @override
+  void didUpdateWidget(covariant AdaptiveEntityPicker<T> oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.items.length != widget.items.length ||
+        oldWidget.value != widget.value) {
+      autoSelectionScheduled = false;
+    }
+  }
+
+  void _autoSelectSingle() {
+    if (autoSelectionScheduled ||
+        !widget.enabled ||
+        widget.value != null ||
+        widget.items.length != 1) {
+      return;
+    }
+    autoSelectionScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted && widget.value == null && widget.items.length == 1) {
+        widget.onChanged(widget.items.single);
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    _autoSelectSingle();
+    final selected = widget.value;
+    return Semantics(
+      button: true,
+      enabled: widget.enabled,
+      label: widget.label,
+      value: selected == null ? 'Sin seleccionar' : widget.labelOf(selected),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(12),
+        onTap: widget.enabled && !widget.loading ? _open : null,
+        child: InputDecorator(
+          isEmpty: selected == null,
+          decoration: InputDecoration(
+            labelText: widget.label,
+            enabled: widget.enabled,
+            errorText: widget.error?.toString(),
+            prefixIcon: widget.loading
+                ? const Padding(
+                    padding: EdgeInsets.all(14),
+                    child: SizedBox.square(
+                      dimension: 18,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  )
+                : const Icon(Icons.search),
+            suffixIcon: selected != null && widget.allowClear
+                ? IconButton(
+                    tooltip: 'Limpiar ${widget.label}',
+                    onPressed: widget.enabled
+                        ? () => widget.onChanged(null)
+                        : null,
+                    icon: const Icon(Icons.close),
+                  )
+                : const Icon(Icons.arrow_drop_down),
+          ),
+          child: Text(
+            selected == null ? 'Seleccionar' : widget.labelOf(selected),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _open() async {
+    if (widget.items.isEmpty) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(widget.emptyMessage)));
+      return;
+    }
+    final result = await showModalBottomSheet<T>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (context) => _EntityPickerSheet<T>(
+        label: widget.label,
+        items: widget.items,
+        selected: widget.value,
+        labelOf: widget.labelOf,
+        secondaryOf: widget.secondaryOf,
+      ),
+    );
+    if (result != null && mounted) widget.onChanged(result);
+  }
+}
+
+class _EntityPickerSheet<T> extends StatefulWidget {
+  const _EntityPickerSheet({
+    required this.label,
+    required this.items,
+    required this.selected,
+    required this.labelOf,
+    required this.secondaryOf,
+  });
+  final String label;
+  final List<T> items;
+  final T? selected;
+  final String Function(T) labelOf;
+  final String Function(T)? secondaryOf;
+  @override
+  State<_EntityPickerSheet<T>> createState() => _EntityPickerSheetState<T>();
+}
+
+class _EntityPickerSheetState<T> extends State<_EntityPickerSheet<T>> {
+  final search = TextEditingController();
+  String query = '';
+  @override
+  void dispose() {
+    search.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final filtered = widget.items.where((item) {
+      final text =
+          '${widget.labelOf(item)} ${widget.secondaryOf?.call(item) ?? ''}'
+              .toLowerCase();
+      return text.contains(query);
+    }).toList();
+    final height = MediaQuery.sizeOf(context).height * 0.65;
+    return SafeArea(
+      child: SizedBox(
+        height: height,
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      widget.label,
+                      style: Theme.of(context).textTheme.titleLarge
+                          ?.copyWith(fontWeight: FontWeight.w800),
+                    ),
+                  ),
+                  Text('${filtered.length}/${widget.items.length}'),
+                ],
+              ),
+            ),
+            if (widget.items.length >= 8)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                child: TextField(
+                  controller: search,
+                  autofocus: true,
+                  onChanged: (value) =>
+                      setState(() => query = value.trim().toLowerCase()),
+                  decoration: const InputDecoration(
+                    prefixIcon: Icon(Icons.search),
+                    labelText: 'Buscar',
+                    isDense: true,
+                  ),
+                ),
+              ),
+            Expanded(
+              child: filtered.isEmpty
+                  ? const Center(child: Text('Sin resultados.'))
+                  : ListView.builder(
+                      itemCount: filtered.length,
+                      itemBuilder: (context, index) {
+                        final item = filtered[index];
+                        final selected = item == widget.selected;
+                        return ListTile(
+                          selected: selected,
+                          leading: Icon(
+                            selected
+                                ? Icons.check_circle
+                                : Icons.circle_outlined,
+                          ),
+                          title: Text(widget.labelOf(item)),
+                          subtitle: widget.secondaryOf == null
+                              ? null
+                              : Text(widget.secondaryOf!(item)),
+                          onTap: () => Navigator.pop(context, item),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}

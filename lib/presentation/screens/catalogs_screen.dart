@@ -1,0 +1,620 @@
+import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../app.dart';
+import '../../data/agro_repository.dart';
+import '../../domain/models.dart';
+import '../../domain/money.dart';
+import '../widgets/common.dart';
+
+class CatalogsScreen extends ConsumerStatefulWidget {
+  const CatalogsScreen({super.key});
+  @override
+  ConsumerState<CatalogsScreen> createState() => _CatalogsScreenState();
+}
+
+class _CatalogsScreenState extends ConsumerState<CatalogsScreen>
+    with SingleTickerProviderStateMixin {
+  late TabController tabs;
+  late Future<List<List<Map<String, Object?>>>> data;
+  String query = '';
+
+  @override
+  void initState() {
+    super.initState();
+    tabs = TabController(length: 5, vsync: this)..addListener(_onTabChanged);
+    data = _load();
+  }
+
+  @override
+  void dispose() {
+    tabs.removeListener(_onTabChanged);
+    tabs.dispose();
+    super.dispose();
+  }
+
+  void _onTabChanged() {
+    if (mounted) setState(() {});
+  }
+
+  Future<List<List<Map<String, Object?>>>> _load() async {
+    final repo = ref.read(repositoryProvider);
+    return Future.wait([
+      repo.people(),
+      repo.farms(),
+      repo.products(),
+      repo.suppliers(),
+      repo.campaigns(),
+    ]);
+  }
+
+  void _refresh() {
+    final next = _load();
+    setState(() {
+      data = next;
+    });
+  }
+
+  Future<void> _edit(Map<String, Object?> row) async {
+    final value = await showDialog<String?>(
+      context: context,
+      builder: (_) => _NameDialog(
+        title: 'Editar nombre',
+        label: 'Nombre',
+        initial: row['name']! as String,
+      ),
+    );
+    if (value == null) return;
+    const tables = ['persons', 'farms', 'products', 'suppliers', 'campaigns'];
+    try {
+      await ref
+          .read(repositoryProvider)
+          .renameCatalog(tables[tabs.index], row['id']! as int, value);
+      _refresh();
+    } catch (error) {
+      if (mounted) showError(context, error);
+    }
+  }
+
+  Future<void> _archive(Map<String, Object?> row) async {
+    const tables = ['persons', 'farms', 'products', 'suppliers', 'campaigns'];
+    try {
+      await ref
+          .read(repositoryProvider)
+          .archiveCatalog(tables[tabs.index], row['id']! as int);
+      _refresh();
+    } catch (error) {
+      if (mounted) showError(context, error);
+    }
+  }
+
+  Future<void> _campaignAction(String action, Map<String, Object?> row) async {
+    final repo = ref.read(repositoryProvider);
+    try {
+      if (action == 'activate') {
+        try {
+          await repo.activateCampaign(row['id'] as int);
+        } on CampaignConflictException catch (conflict) {
+          if (!mounted) return;
+          final replace = await showDialog<bool>(
+            context: context,
+            builder: (dialogContext) => AlertDialog(
+              title: const Text('Cambiar campaña activa'),
+              content: Text(
+                'Está activa ${conflict.activeCampaignName}. ¿Desea cerrarla y activar ${row['name']}?',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext, false),
+                  child: const Text('Cancelar'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.pop(dialogContext, true),
+                  child: const Text('Cerrar y activar'),
+                ),
+              ],
+            ),
+          );
+          if (replace == true) {
+            await repo.activateCampaign(row['id'] as int, closeCurrent: true);
+          }
+        }
+      } else if (action == 'close') {
+        final summary = await repo.campaignCloseSummary(row['id'] as int);
+        if (!mounted) return;
+        final confirm = await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) => AlertDialog(
+            title: Text('Cerrar ${row['name']}'),
+            content: Text(
+              'Compras: ${summary['purchases_count']} · aplicaciones: ${summary['applications_count']}\n'
+              'Planes pendientes: ${summary['pending_plans']}\n'
+              'Saldo por cobrar: ${formatBob(summary['receivable_bob_minor'] as int)}\n\n'
+              'El inventario físico no se elimina y seguirá disponible en la próxima campaña.',
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(dialogContext, false),
+                child: const Text('Cancelar'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.pop(dialogContext, true),
+                child: const Text('Cerrar campaña'),
+              ),
+            ],
+          ),
+        );
+        if (confirm == true) await repo.closeCampaign(row['id'] as int);
+      } else {
+        await _edit(row);
+        return;
+      }
+      _refresh();
+    } catch (error) {
+      if (mounted) showError(context, error);
+    }
+  }
+
+  Future<void> _add() async {
+    final repo = ref.read(repositoryProvider);
+    try {
+      switch (tabs.index) {
+        case 0:
+          final result = await showDialog<(String, PersonRole)?>(
+            context: context,
+            builder: (_) => const _PersonDialog(),
+          );
+          if (result != null)
+            await repo.addPerson(name: result.$1, role: result.$2);
+        case 1:
+          final people = await repo.people();
+          if (!mounted) return;
+          final result = await showDialog<(int, String, int)?>(
+            context: context,
+            builder: (_) => _FarmDialog(people: people),
+          );
+          if (result != null)
+            await repo.addFarm(
+              ownerId: result.$1,
+              name: result.$2,
+              areaM2: result.$3,
+            );
+        case 2:
+          final result = await showDialog<(String, String, String)?>(
+            context: context,
+            builder: (_) => const _ProductDialog(),
+          );
+          if (result != null)
+            await repo.addProduct(
+              name: result.$1,
+              activeIngredient: result.$2,
+              unit: result.$3,
+            );
+        case 3:
+          final name = await showDialog<String?>(
+            context: context,
+            builder: (_) => const _NameDialog(
+              title: 'Nuevo proveedor',
+              label: 'Nombre del proveedor',
+            ),
+          );
+          if (name != null) await repo.addSupplier(name: name);
+        case 4:
+          final name = await showDialog<String?>(
+            context: context,
+            builder: (_) => const _NameDialog(
+              title: 'Nueva campaña',
+              label: 'Nombre de campaña',
+            ),
+          );
+          if (name != null)
+            await repo.addCampaign(name: name, start: DateTime.now());
+      }
+      _refresh();
+    } catch (error) {
+      if (mounted) showError(context, error);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => PageFrame(
+    title: 'Catálogos',
+    subtitle: 'Personas, chacos, insumos y campañas.',
+    action: FilledButton.icon(
+      onPressed: _add,
+      icon: const Icon(Icons.add),
+      label: const Text('Agregar'),
+    ),
+    child: Column(
+      children: [
+        TextField(
+          onChanged: (value) => setState(() {
+            query = value.trim().toLowerCase();
+          }),
+          decoration: const InputDecoration(
+            prefixIcon: Icon(Icons.search),
+            labelText: 'Buscar en esta sección',
+            isDense: true,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: Wrap(
+            spacing: 8,
+            runSpacing: 6,
+            children: [
+              for (final entry in const [
+                'Personas',
+                'Chacos',
+                'Productos',
+                'Proveedores',
+                'Campañas',
+              ].indexed)
+                ChoiceChip(
+                  label: Text(entry.$2),
+                  selected: tabs.index == entry.$1,
+                  onSelected: (_) => tabs.animateTo(entry.$1),
+                ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 12),
+        SizedBox(
+          height: 520,
+          child: FutureBuilder(
+            future: data,
+            builder: (context, snapshot) {
+              if (snapshot.hasError)
+                return EmptyState(
+                  icon: Icons.error_outline,
+                  message: snapshot.error.toString(),
+                );
+              if (!snapshot.hasData)
+                return const Center(child: CircularProgressIndicator());
+              final rows = snapshot.data![tabs.index].where((row) {
+                if (query.isEmpty) return true;
+                return row.values.any(
+                  (value) => value.toString().toLowerCase().contains(query),
+                );
+              }).toList();
+              if (rows.isEmpty)
+                return const EmptyState(
+                  icon: Icons.add_circle_outline,
+                  message: 'No hay registros. Usa Agregar para comenzar.',
+                );
+              return Card(
+                child: ListView.separated(
+                  itemCount: rows.length,
+                  separatorBuilder: (_, __) => const Divider(height: 1),
+                  itemBuilder: (_, index) {
+                    final row = rows[index];
+                    final (title, subtitle, icon) = switch (tabs.index) {
+                      0 => (
+                        row['name'].toString(),
+                        '${_roleLabel(row['role']! as String)} · ${_policyLabel(row['settlement_policy']! as String)}',
+                        Icons.person_outline,
+                      ),
+                      1 => (
+                        row['name'].toString(),
+                        '${row['owner_name']} · ${(row['area_m2'] as int) / 10000} ha',
+                        Icons.landscape_outlined,
+                      ),
+                      2 => (
+                        row['name'].toString(),
+                        '${row['active_ingredient'] ?? 'Sin ingrediente'} · ${row['unit']}',
+                        Icons.science_outlined,
+                      ),
+                      3 => (
+                        row['name'].toString(),
+                        row['phone']?.toString() ?? 'Proveedor',
+                        Icons.storefront_outlined,
+                      ),
+                      _ => (
+                        row['name'].toString(),
+                        row['status'] == 'ACTIVE'
+                            ? 'Activa'
+                            : row['status'].toString(),
+                        Icons.calendar_month_outlined,
+                      ),
+                    };
+                    return ListTile(
+                      leading: CircleAvatar(child: Icon(icon)),
+                      title: Text(title),
+                      subtitle: Text(subtitle),
+                      trailing: PopupMenuButton<String>(
+                        onSelected: (value) => tabs.index == 4
+                            ? _campaignAction(value, row)
+                            : value == 'edit'
+                            ? _edit(row)
+                            : _archive(row),
+                        itemBuilder: (_) => tabs.index == 4
+                            ? [
+                                const PopupMenuItem(
+                                  value: 'edit',
+                                  child: Text('Editar'),
+                                ),
+                                if (row['status'] != 'ACTIVE')
+                                  const PopupMenuItem(
+                                    value: 'activate',
+                                    child: Text('Activar'),
+                                  ),
+                                if (row['status'] == 'ACTIVE')
+                                  const PopupMenuItem(
+                                    value: 'close',
+                                    child: Text('Cerrar'),
+                                  ),
+                              ]
+                            : const [
+                                PopupMenuItem(
+                                  value: 'edit',
+                                  child: Text('Editar'),
+                                ),
+                                PopupMenuItem(
+                                  value: 'archive',
+                                  child: Text('Archivar'),
+                                ),
+                              ],
+                      ),
+                    );
+                  },
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    ),
+  );
+
+  String _roleLabel(String role) => switch (role) {
+    'ADMIN' => 'Administrador',
+    'FAMILY' => 'Familiar',
+    'THIRD_PARTY' => 'Tercero',
+    _ => role,
+  };
+
+  String _policyLabel(String policy) => switch (policy) {
+    'BY_ACTUAL_USAGE' => 'Cobro por consumo',
+    'BY_PURCHASE_ALLOCATION' => 'Cobro por compra',
+    'MANUAL' => 'Manual',
+    _ => policy,
+  };
+}
+
+class _NameDialog extends StatefulWidget {
+  const _NameDialog({required this.title, required this.label, this.initial});
+  final String title;
+  final String label;
+  final String? initial;
+  @override
+  State<_NameDialog> createState() => _NameDialogState();
+}
+
+class _NameDialogState extends State<_NameDialog> {
+  late final controller = TextEditingController(text: widget.initial);
+
+  @override
+  void dispose() {
+    controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: Text(widget.title),
+    content: TextField(
+      controller: controller,
+      autofocus: true,
+      decoration: InputDecoration(labelText: widget.label),
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: const Text('Cancelar'),
+      ),
+      FilledButton(
+        onPressed: () {
+          if (controller.text.trim().isNotEmpty)
+            Navigator.pop(context, controller.text.trim());
+        },
+        child: const Text('Guardar'),
+      ),
+    ],
+  );
+}
+
+class _PersonDialog extends StatefulWidget {
+  const _PersonDialog();
+  @override
+  State<_PersonDialog> createState() => _PersonDialogState();
+}
+
+class _PersonDialogState extends State<_PersonDialog> {
+  final name = TextEditingController();
+  PersonRole role = PersonRole.family;
+  @override
+  void dispose() {
+    name.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('Nueva persona'),
+    content: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        TextField(
+          controller: name,
+          decoration: const InputDecoration(labelText: 'Nombre'),
+        ),
+        const SizedBox(height: 12),
+        DropdownButtonFormField(
+          initialValue: role,
+          decoration: const InputDecoration(labelText: 'Tipo'),
+          items: const [
+            DropdownMenuItem(
+              value: PersonRole.admin,
+              child: Text('Administrador'),
+            ),
+            DropdownMenuItem(
+              value: PersonRole.family,
+              child: Text('Familiar · cobro por uso'),
+            ),
+            DropdownMenuItem(
+              value: PersonRole.thirdParty,
+              child: Text('Tercero · cobro por asignación'),
+            ),
+          ],
+          onChanged: (value) => setState(() => role = value!),
+        ),
+      ],
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: const Text('Cancelar'),
+      ),
+      FilledButton(
+        onPressed: () {
+          if (name.text.trim().isNotEmpty)
+            Navigator.pop(context, (name.text.trim(), role));
+        },
+        child: const Text('Guardar'),
+      ),
+    ],
+  );
+}
+
+class _FarmDialog extends StatefulWidget {
+  const _FarmDialog({required this.people});
+  final List<Map<String, Object?>> people;
+  @override
+  State<_FarmDialog> createState() => _FarmDialogState();
+}
+
+class _FarmDialogState extends State<_FarmDialog> {
+  final name = TextEditingController();
+  final area = TextEditingController();
+  int? owner;
+  @override
+  void dispose() {
+    name.dispose();
+    area.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('Nuevo chaco'),
+    content: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        DropdownButtonFormField<int>(
+          initialValue: owner,
+          decoration: const InputDecoration(labelText: 'Propietario'),
+          items: [
+            for (final row in widget.people)
+              DropdownMenuItem(
+                value: row['id']! as int,
+                child: Text(row['name']! as String),
+              ),
+          ],
+          onChanged: (value) => setState(() => owner = value),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: name,
+          decoration: const InputDecoration(labelText: 'Nombre'),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: area,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(labelText: 'Superficie (ha)'),
+        ),
+      ],
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: const Text('Cancelar'),
+      ),
+      FilledButton(
+        onPressed: () {
+          if (owner != null && name.text.isNotEmpty)
+            Navigator.pop(context, (
+              owner!,
+              name.text.trim(),
+              ((tryParseDecimal(area.text) ?? 0) * 10000).round(),
+            ));
+        },
+        child: const Text('Guardar'),
+      ),
+    ],
+  );
+}
+
+class _ProductDialog extends StatefulWidget {
+  const _ProductDialog();
+  @override
+  State<_ProductDialog> createState() => _ProductDialogState();
+}
+
+class _ProductDialogState extends State<_ProductDialog> {
+  final name = TextEditingController();
+  final ingredient = TextEditingController();
+  String unit = 'L';
+  @override
+  void dispose() {
+    name.dispose();
+    ingredient.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('Nuevo producto'),
+    content: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        TextField(
+          controller: name,
+          decoration: const InputDecoration(labelText: 'Producto'),
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          controller: ingredient,
+          decoration: const InputDecoration(labelText: 'Ingrediente activo'),
+        ),
+        const SizedBox(height: 12),
+        SegmentedButton<String>(
+          segments: const [
+            ButtonSegment(value: 'L', label: Text('Litros')),
+            ButtonSegment(value: 'KG', label: Text('Kilogramos')),
+          ],
+          selected: {unit},
+          onSelectionChanged: (value) => setState(() => unit = value.first),
+        ),
+      ],
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: const Text('Cancelar'),
+      ),
+      FilledButton(
+        onPressed: () {
+          if (name.text.isNotEmpty)
+            Navigator.pop(context, (
+              name.text.trim(),
+              ingredient.text.trim(),
+              unit,
+            ));
+        },
+        child: const Text('Guardar'),
+      ),
+    ],
+  );
+}
