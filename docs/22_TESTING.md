@@ -1,12 +1,28 @@
 # 22 — Testing
 
-> Esta fase de auditoría **no escribe tests nuevos**. Solo evalúa los existentes.
+> **Actualizado tras la fase de estabilización.** La suite pasó de **44 a 91 tests**. Lo que
+> sigue describe el estado actual; los huecos que se cerraron se marcan como tales.
 
 ## Estado verificado
 
 ```
-flutter test  →  44 tests, TODOS EN VERDE, 13 segundos
+flutter test  →  91 tests, TODOS EN VERDE
 ```
+
+### Archivos añadidos en la estabilización
+
+| Archivo | Tests | Cubre |
+|---|---:|---|
+| `reports_test.dart` | 17 | Reportes, dashboard, inventario y perfiles (cierra T-03) |
+| `backup_service_test.dart` | 10 | Validación y restauración de respaldos (cierra T-05) |
+| `app_log_test.dart` | 6 | Registro de diagnóstico |
+| `schema_equivalence_test.dart` | 4 | Equivalencia de esquema nuevo ↔ migrado (cierra T-01) |
+| `navigation_test.dart` | 4 | Navegación real sobre `AgroApp` (cierra T-02) |
+| `error_states_test.dart` | 3 | Un error nunca se muestra como carga (cierra T-04) |
+| `destructive_actions_test.dart` | 3 | Confirmación antes de revertir |
+
+**Los cinco huecos críticos T-01 … T-05 identificados en la auditoría anterior están
+cerrados.**
 
 13 archivos, 1 972 líneas de test frente a 8 250 de producción: una **ratio de 0,24**, que
 para un proyecto sin cultura formal de testing es razonable, aunque baja para el tipo de

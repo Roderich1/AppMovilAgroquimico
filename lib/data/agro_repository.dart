@@ -985,119 +985,6 @@ class AgroRepository {
     });
   }
 
-  @Deprecated('Compatibilidad con transferencias V3.')
-  Future<int> transferProductFifoV3Legacy({
-    required int fromPersonId,
-    required int toPersonId,
-    required int productId,
-    required int quantityBase,
-    DateTime? date,
-    String? notes,
-  }) async {
-    if (quantityBase <= 0) {
-      throw BusinessRuleException(
-        'La cantidad transferida debe ser mayor a cero.',
-      );
-    }
-    if (fromPersonId == toPersonId) {
-      throw BusinessRuleException(
-        'El origen y el destino deben ser diferentes.',
-      );
-    }
-    return (await _db).transaction((txn) async {
-      final lots = await txn.rawQuery(
-        '''SELECT l.*, COALESCE(SUM(m.quantity_signed),0) available
-        FROM inventory_lots l LEFT JOIN inventory_movements m ON m.lot_id=l.id
-        WHERE l.owner_person_id=? AND l.product_id=? AND l.reversed_at IS NULL
-        GROUP BY l.id HAVING available>0 ORDER BY l.acquired_date, l.id''',
-        [fromPersonId, productId],
-      );
-      final available = lots.fold<int>(
-        0,
-        (sum, lot) => sum + (lot['available']! as int),
-      );
-      if (available < quantityBase) {
-        throw BusinessRuleException(
-          'Stock insuficiente para completar la transferencia.',
-        );
-      }
-      final movementDate = _date(date ?? DateTime.now());
-      final transferId = await txn.insert('transfers', {
-        'product_id': productId,
-        'from_person_id': fromPersonId,
-        'to_person_id': toPersonId,
-        'transfer_date': movementDate,
-        'quantity_base': quantityBase,
-        'total_cost_bob_minor': 0,
-        'notes': notes,
-      });
-      var remaining = quantityBase;
-      var totalCost = 0;
-      for (final source in lots) {
-        if (remaining == 0) break;
-        final lotAvailable = source['available']! as int;
-        final take = remaining < lotAvailable ? remaining : lotAvailable;
-        final cost = costForBaseQuantity(
-          take,
-          source['unit_cost_bob_minor_per_major_unit']! as int,
-        );
-        final destinationLotId = await txn.insert('inventory_lots', {
-          'purchase_item_id': source['purchase_item_id'],
-          'product_id': productId,
-          'owner_person_id': toPersonId,
-          'acquired_date': source['acquired_date'],
-          'initial_quantity_base': take,
-          'unit_cost_bob_minor_per_major_unit':
-              source['unit_cost_bob_minor_per_major_unit'],
-          'currency_code': source['currency_code'],
-          'original_unit_price_minor': source['original_unit_price_minor'],
-          'exchange_rate_scaled': source['exchange_rate_scaled'],
-          'parent_lot_id': source['id'],
-          'notes': notes,
-        });
-        for (final movement in <Map<String, Object?>>[
-          {
-            'lot_id': source['id'],
-            'owner_person_id': fromPersonId,
-            'quantity_signed': -take,
-            'type': 'TRANSFER_OUT',
-          },
-          {
-            'lot_id': destinationLotId,
-            'owner_person_id': toPersonId,
-            'quantity_signed': take,
-            'type': 'TRANSFER_IN',
-          },
-        ]) {
-          await txn.insert('inventory_movements', {
-            ...movement,
-            'product_id': productId,
-            'movement_date': movementDate,
-            'reference_type': 'TRANSFER',
-            'reference_id': transferId,
-            'notes': notes,
-          });
-        }
-        await txn.insert('transfer_lot_items', {
-          'transfer_id': transferId,
-          'source_lot_id': source['id'],
-          'destination_lot_id': destinationLotId,
-          'quantity_base': take,
-          'cost_bob_minor': cost,
-        });
-        totalCost += cost;
-        remaining -= take;
-      }
-      await txn.update(
-        'transfers',
-        {'total_cost_bob_minor': totalCost},
-        where: 'id=?',
-        whereArgs: [transferId],
-      );
-      return transferId;
-    });
-  }
-
   Future<void> reverseTransfer(int transferId, {String? reason}) async {
     await (await _db).transaction((txn) async {
       final transfers = await txn.query(
@@ -1207,80 +1094,6 @@ class AgroRepository {
         ORDER BY p.name LIMIT ?''',
     [personId, personId, '%${query.trim()}%', limit],
   );
-
-  @Deprecated('Use transferProductFifo; kept for source compatibility.')
-  Future<int> transferStockLegacy({
-    required int sourceLotId,
-    required int destinationPersonId,
-    required int quantityBase,
-    DateTime? date,
-    String? notes,
-  }) async {
-    if (quantityBase <= 0) {
-      throw BusinessRuleException(
-        'La cantidad transferida debe ser mayor a cero.',
-      );
-    }
-    return (await _db).transaction((txn) async {
-      final rows = await txn.query(
-        'inventory_lots',
-        where: 'id = ? AND reversed_at IS NULL',
-        whereArgs: [sourceLotId],
-      );
-      if (rows.isEmpty)
-        throw BusinessRuleException('El lote de origen no está activo.');
-      final source = rows.single;
-      final available =
-          Sqflite.firstIntValue(
-            await txn.rawQuery(
-              'SELECT COALESCE(SUM(quantity_signed),0) FROM inventory_movements WHERE lot_id=?',
-              [sourceLotId],
-            ),
-          ) ??
-          0;
-      if (available < quantityBase) {
-        throw BusinessRuleException('Stock insuficiente en el lote de origen.');
-      }
-      final movementDate = _date(date ?? DateTime.now());
-      final newLotId = await txn.insert('inventory_lots', {
-        'purchase_item_id': source['purchase_item_id'],
-        'product_id': source['product_id'],
-        'owner_person_id': destinationPersonId,
-        'acquired_date': source['acquired_date'],
-        'initial_quantity_base': quantityBase,
-        'unit_cost_bob_minor_per_major_unit':
-            source['unit_cost_bob_minor_per_major_unit'],
-        'currency_code': source['currency_code'],
-        'original_unit_price_minor': source['original_unit_price_minor'],
-        'exchange_rate_scaled': source['exchange_rate_scaled'],
-        'parent_lot_id': sourceLotId,
-        'notes': notes,
-      });
-      await txn.insert('inventory_movements', {
-        'lot_id': sourceLotId,
-        'product_id': source['product_id'],
-        'owner_person_id': source['owner_person_id'],
-        'movement_date': movementDate,
-        'type': 'TRANSFER_OUT',
-        'quantity_signed': -quantityBase,
-        'reference_type': 'INVENTORY_LOT',
-        'reference_id': newLotId,
-        'notes': notes,
-      });
-      await txn.insert('inventory_movements', {
-        'lot_id': newLotId,
-        'product_id': source['product_id'],
-        'owner_person_id': destinationPersonId,
-        'movement_date': movementDate,
-        'type': 'TRANSFER_IN',
-        'quantity_signed': quantityBase,
-        'reference_type': 'INVENTORY_LOT',
-        'reference_id': sourceLotId,
-        'notes': notes,
-      });
-      return newLotId;
-    });
-  }
 
   Future<List<Map<String, Object?>>> list(String table, {String? orderBy}) =>
       _db.then((db) => db.query(table, orderBy: orderBy ?? 'id DESC'));
@@ -1426,7 +1239,7 @@ class AgroRepository {
           FROM application_plan_items pi JOIN application_plans ap ON ap.id=pi.plan_id
           JOIN campaigns c ON c.id=ap.campaign_id WHERE pi.product_id=p.id
           AND ap.status IN ('DRAFT','PLANNED') AND c.status='ACTIVE'),0) projected_base,
-        COALESCE(SUM(CASE WHEN m.quantity_signed>0 THEN m.quantity_signed*l.unit_cost_bob_minor_per_major_unit ELSE m.quantity_signed*l.unit_cost_bob_minor_per_major_unit END)/1000,0) available_value_bob_minor,
+        COALESCE((SUM(m.quantity_signed*l.unit_cost_bob_minor_per_major_unit)+500)/1000,0) available_value_bob_minor,
         COUNT(DISTINCT CASE WHEN m.quantity_signed <> 0 THEN l.owner_person_id END) people_count
         FROM products p LEFT JOIN inventory_movements m ON m.product_id=p.id
         LEFT JOIN inventory_lots l ON l.id=m.lot_id GROUP BY p.id ORDER BY p.name
@@ -1451,7 +1264,7 @@ class AgroRepository {
       COALESCE(SUM(CASE WHEN m.type='PURCHASE_IN' THEN m.quantity_signed ELSE 0 END),0) purchased_base,
       COALESCE(-SUM(CASE WHEN m.type='APPLICATION_OUT' THEN m.quantity_signed ELSE 0 END),0) consumed_base,
       COALESCE(SUM(m.quantity_signed),0) physical_base,
-      COALESCE(SUM(m.quantity_signed*l.unit_cost_bob_minor_per_major_unit)/1000,0) value_bob_minor,
+      COALESCE((SUM(m.quantity_signed*l.unit_cost_bob_minor_per_major_unit)+500)/1000,0) value_bob_minor,
       COALESCE((SELECT SUM(pi.required_quantity_base) FROM application_plan_items pi
         JOIN application_plans ap ON ap.id=pi.plan_id JOIN campaigns c ON c.id=ap.campaign_id
         WHERE pi.product_id=p.id AND ap.status IN ('DRAFT','PLANNED') AND c.status='ACTIVE'),0) committed_base
@@ -1769,7 +1582,7 @@ class AgroRepository {
         COALESCE(SUM(CASE WHEN a.id IS NOT NULL THEN i.cost_bob_minor ELSE 0 END),0) total_cost_bob_minor
         FROM products p LEFT JOIN application_items i ON i.product_id=p.id
         LEFT JOIN applications a ON a.id=i.application_id AND a.reversed_at IS NULL
-        ${campaignId == null ? '' : 'WHERE a.campaign_id=?'} GROUP BY p.id ORDER BY p.name''',
+        ${campaignId == null ? '' : 'AND a.campaign_id=?'} GROUP BY p.id ORDER BY p.name''',
     campaignId == null ? null : [campaignId],
   );
 
@@ -1825,24 +1638,6 @@ class AgroRepository {
       receivedMinor: received,
       stockBase: stock,
     );
-  }
-
-  Future<String> exportBackup() async {
-    await (await _db).execute('PRAGMA wal_checkpoint(FULL)');
-    final source = appDatabase.openedPath;
-    if (source == null || source == ':memory:')
-      throw BusinessRuleException(
-        'Esta base de datos no admite exportación a archivo.',
-      );
-    final downloads =
-        await getDownloadsDirectory() ??
-        await getApplicationDocumentsDirectory();
-    final target = p.join(
-      downloads.path,
-      'agroquimicos_backup_${DateTime.now().toIso8601String().replaceAll(':', '-')}.db',
-    );
-    await File(source).copy(target);
-    return target;
   }
 
   Future<String> storeInvoiceImage(String sourcePath) async {

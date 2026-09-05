@@ -25,9 +25,20 @@ class _TransfersScreenState extends ConsumerState<TransfersScreen> {
     setState(() => future = next);
   }
 
-  Future<void> reverse(int id) async {
+  Future<void> reverse(Map<String, Object?> row) async {
+    final confirmed = await confirmDestructiveAction(
+      context,
+      title: '¿Revertir esta transferencia?',
+      detail:
+          '${row['from_person_name']} → ${row['to_person_name']}\n'
+          '${row['products_summary']}\n'
+          'Costo ${formatBob(row['total_cost_bob_minor']! as int)}\n\n'
+          'El stock volverá a la persona de origen. Esta acción no se puede '
+          'deshacer.',
+    );
+    if (!confirmed || !mounted) return;
     try {
-      await ref.read(repositoryProvider).reverseTransfer(id);
+      await ref.read(repositoryProvider).reverseTransfer(row['id']! as int);
       if (mounted) refresh();
     } catch (error) {
       if (mounted) showError(context, error);
@@ -78,7 +89,7 @@ class _TransfersScreenState extends ConsumerState<TransfersScreen> {
                 trailing: row['status'] == 'CONFIRMED'
                     ? IconButton(
                         tooltip: 'Revertir',
-                        onPressed: () => reverse(row['id'] as int),
+                        onPressed: () => reverse(row),
                         icon: const Icon(Icons.undo),
                       )
                     : const Text('Revertida'),
