@@ -1,5 +1,8 @@
 # 40 — Resumen ejecutivo de la auditoría de interfaz
 
+
+> **Estado del backlog (2026-09-05).** Los defectos de este documento se han corregido en su mayor parte: **38 `VERIFIED`** en Pixel 8, **16** corregidos y cubiertos por tests, **9** MEDIUM/LOW abiertos con justificación, **2** pendientes de decisión de producto y **1** `WONT_FIX`. Este documento conserva la **observación original**; el estado vigente está en [`43_UIBUG_FIX_TRACEABILITY.md`](43_UIBUG_FIX_TRACEABILITY.md) y el cierre en [`45_UI_AUDIT_FINAL_VERIFICATION.md`](45_UI_AUDIT_FINAL_VERIFICATION.md).
+
 Auditoría de las vistas y flujos de la aplicación **ejecutándola realmente** sobre un emulador
 Pixel 8. Fecha: **2026-09-05**.
 
@@ -46,16 +49,32 @@ comprado**, otro **consumido al 100 %**, cantidades de 0,125 a 99 999,750 y un i
 
 ## 4. Hallazgos
 
-| Severidad | Nº |
-|---|---:|
-| **CRITICAL** | **4** |
-| **HIGH** | **17** |
-| MEDIUM | 26 |
-| LOW | 9 |
-| **Total** | **56** |
+| Severidad | IDs | Nº |
+|---|---|---:|
+| **CRITICAL** | 001–004 | **4** |
+| **HIGH** | 005–021 | **17** |
+| MEDIUM | 022–056 | **35** |
+| LOW | 057–065 | 9 |
+| **Total** | **001–065** | **65** |
+
+> **Corrección de conteo (2026-09-05).** Esta tabla declaraba antes *26 MEDIUM* y un total de
+> *56*, en contradicción con `39`, que enumeraba `UIBUG-001`…`UIBUG-065`. Verificado
+> mecánicamente sobre `38`: **65 IDs únicos, 65 bloques de definición con contenido propio**.
+> El error estaba en la celda MEDIUM. **No se añadió, eliminó ni reclasificó ningún hallazgo**
+> al corregir la cifra. Los totales de `38`, `39` y `40` coinciden ahora en **65**.
+>
+> Con la subdivisión de `UIBUG-004` en **004A** (CRITICAL, navegación jerárquica) y **004B**
+> (MEDIUM, política de Atrás en destino raíz), el backlog vigente tiene **66 entradas** sobre
+> estos 65 IDs: 4 CRITICAL · 17 HIGH · 36 MEDIUM · 9 LOW. Ver
+> [`41` §2 y §3](41_UIBUG_MASTER_BACKLOG.md).
 
 Por categoría: LAYOUT 13 · UX 12 · DATA 8 · TEXT 8 · NAVIGATION 5 · FUNCTIONAL 5 ·
 FORM 4 · SCROLL 4 · CONSISTENCY 3 · ERROR_HANDLING 3 · VALIDATION 2 · ACCESSIBILITY 2.
+
+Clasificación por **riesgo real** (no por lo llamativo del síntoma) en
+[`41` §7](41_UIBUG_MASTER_BACKLOG.md): 7 `ACCOUNTING` · 1 `DATA_LOSS` · 2 `DATA_INTEGRITY` ·
+5 `FUNCTIONAL_BLOCKER` · 10 `MISLEADING_INFORMATION` · 5 `NAVIGATION` · 26 `UX` ·
+2 `ACCESSIBILITY` · 8 `COSMETIC`.
 
 ## 5. Los problemas de mayor impacto
 
@@ -73,8 +92,12 @@ FORM 4 · SCROLL 4 · CONSISTENCY 3 · ERROR_HANDLING 3 · VALIDATION 2 · ACCES
    Con él quedan inaccesibles los pagos a proveedor posteriores, el visor de facturas y la
    reversión de compras: funcionalidad implementada y probada que nadie puede alcanzar.
 
-4. **UIBUG-004 — El botón Atrás cierra la aplicación desde cualquier pantalla**, y las
-   pantallas de detalle no tienen flecha de volver: son callejones sin salida.
+4. **UIBUG-004A — La navegación jerárquica no tiene retorno.** Entrar en un detalle
+   (`/personas/:id`, `/inventario/:id`, `/chacos/:id`) o en una subruta de Operaciones usa
+   `context.go`, que reemplaza la pila: Atrás cierra la aplicación y `PageFrame` no dibuja
+   flecha de volver. Son **callejones sin salida**.
+   *(Que Atrás salga desde un **destino raíz** se separó como **UIBUG-004B**, MEDIUM: es una
+   política de navegación a decidir, no un defecto evidente. Ver `41` §3.)*
 
 5. **UIBUG-007 — El buscador del inicio dice "Aún no hay inventario"** cuando el producto
    existe pero no está entre las 5 filas precargadas.
@@ -106,8 +129,9 @@ FORM 4 · SCROLL 4 · CONSISTENCY 3 · ERROR_HANDLING 3 · VALIDATION 2 · ACCES
 
 ## 8. Navegación
 
-- Atrás sale de la aplicación desde cualquier ruta del shell (UIBUG-004) — **CRITICAL**.
-- Las pantallas de detalle no tienen botón de volver (UIBUG-004).
+- La navegación **jerárquica** pierde el historial: Atrás sale de la app y no hay flecha de
+  volver (UIBUG-004A) — **CRITICAL**.
+- Atrás desde un **destino raíz** también sale (UIBUG-004B) — **MEDIUM**, política a decidir.
 - `/compras` no tiene entrada (UIBUG-002) — **CRITICAL**.
 - Las tarjetas de Operaciones prometen una acción y llevan a un listado (UIBUG-051).
 - La barra inferior resalta "Inicio" mientras se está en la bitácora de un chaco (UIBUG-062).
@@ -250,3 +274,27 @@ Antes de corregir, conviene decidir el orden. Los cuatro CRITICAL son independie
 tres de ellos (001, 002, 004) son cambios acotados. UIBUG-003 es el más delicado porque toca el
 parseo de **todos** los campos numéricos y exige decidir primero qué formato de entrada se acepta;
 merece su propia discusión y sus propios tests antes de tocar `common.dart`.
+
+---
+
+## 18. Qué ocurrió después de esta auditoría (2026-09-05)
+
+Este documento es el **resumen de la auditoría**, no el estado del proyecto. Después se
+normalizó la documentación y se construyó el backlog:
+
+| Documento | Qué aporta |
+|---|---|
+| [41_UIBUG_MASTER_BACKLOG](41_UIBUG_MASTER_BACKLOG.md) | **Backlog vigente**: 66 entradas sobre 65 IDs, con causa raíz verificada en código, riesgo, dependencias, tests requeridos y prioridad |
+| [42_UIBUG_FIX_PLAN](42_UIBUG_FIX_PLAN.md) | Plan de corrección en **15 lotes** agrupados por causa raíz |
+| [43_UIBUG_FIX_TRACEABILITY](43_UIBUG_FIX_TRACEABILITY.md) | Seguimiento de la corrección; todas las filas en `OPEN` |
+| [35 § POST-UI-AUDIT STATUS](35_RELEASE_READINESS.md#post-ui-audit-status) | **Veredicto de release actualizado a `NOT READY`** con la evidencia de esta auditoría |
+
+Cambios de exactitud aplicados al normalizar (ninguna severidad se bajó para mejorar métricas):
+conteo corregido de 56 a **65**; `UIBUG-004` subdividido en **004A**/**004B**; descripción de
+**UIBUG-065** corregida (el `catch` es código muerto: el defecto real es un mensaje engañoso);
+**UIBUG-064** reagrupado (no es el FAB, es la falta de `SafeArea` fuera del `ShellRoute`);
+causa raíz de **UIBUG-016** identificada (`COALESCE(..., t.type)` en `agro_repository.dart:1559`).
+**Duplicados encontrados: ninguno.**
+
+La confirmación de §17 sigue siendo válida: **no se corrigió ningún UIBUG** ni en la auditoría
+ni al normalizar el backlog. `lib/` permanece intacto.

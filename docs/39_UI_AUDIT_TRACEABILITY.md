@@ -1,10 +1,30 @@
 # 39 — Trazabilidad de la auditoría de interfaz
 
+
+> **Estado del backlog (2026-09-05).** Los defectos de este documento se han corregido en su mayor parte: **38 `VERIFIED`** en Pixel 8, **16** corregidos y cubiertos por tests, **9** MEDIUM/LOW abiertos con justificación, **2** pendientes de decisión de producto y **1** `WONT_FIX`. Este documento conserva la **observación original**; el estado vigente está en [`43_UIBUG_FIX_TRACEABILITY.md`](43_UIBUG_FIX_TRACEABILITY.md) y el cierre en [`45_UI_AUDIT_FINAL_VERIFICATION.md`](45_UI_AUDIT_FINAL_VERIFICATION.md).
+
 Cada UIBUG enlazado con la pantalla donde se observó, la funcionalidad y la regla de negocio
 afectadas, la evidencia capturada, los archivos probablemente implicados y su estado.
 
 Todas las rutas de evidencia son relativas a `artifacts/ui-audit/`.
 Todos los hallazgos están en estado **OPEN**: en esta fase **no se corrigió ninguno**.
+
+## Conteo
+
+| Severidad | IDs | Nº |
+|---|---|---:|
+| CRITICAL | 001–004 | 4 |
+| HIGH | 005–021 | 17 |
+| MEDIUM | 022–056 | **35** |
+| LOW | 057–065 | 9 |
+| **Total** | **001–065** | **65** |
+
+Coincide con `38` y `40`. Con la subdivisión de `UIBUG-004` (ver abajo) el backlog vigente
+tiene **66 entradas** sobre estos **65 IDs**. Ninguna evidencia referenciada falta:
+108 referencias a PNG, **0 rotas**, 119 archivos en `artifacts/ui-audit/`.
+
+> **Backlog vigente**: [41_UIBUG_MASTER_BACKLOG.md](41_UIBUG_MASTER_BACKLOG.md).
+> Seguimiento de la corrección: [43_UIBUG_FIX_TRACEABILITY.md](43_UIBUG_FIX_TRACEABILITY.md).
 
 ## Tabla maestra
 
@@ -13,7 +33,8 @@ Todos los hallazgos están en estado **OPEN**: en esta fase **no se corrigió ni
 | 001 | CRITICAL | FUNCTIONAL | UI-10 · `/liquidacion` | F-16 Exportación de backup | STAB-007 · `13_LOCAL_STORAGE` | `UI-10-liquidacion/UI-10-exportar-backup.png` | `data/backup_service.dart:63` |
 | 002 | CRITICAL | NAVIGATION | UI-06 · `/compras` | F-04, F-05, F-06, F-12 | `07_SCREENS` P-06 · `08_NAVIGATION` | enumeración de rutas en `38` | `app.dart:63`, `app_shell.dart`, `operations_screen.dart` |
 | 003 | CRITICAL | DATA | UI-17, UI-10 y todo campo numérico | F-09, F-10 | RN-50 · `16_VALIDATIONS` | `UI-17-transfer-form/UI-17-ISSUE-formato-millares.png`, `_c-conf.png` | `widgets/common.dart:132`, `domain/money.dart` |
-| 004 | CRITICAL | NAVIGATION | UI-13/14/12/15 y todo el shell | — | `08_NAVIGATION` · STAB-001 | `UI-14-persona-detalle/UI-14-ISSUE-back-desde-detalle.png` | `app_shell.dart`, `persons_screen.dart`, `dashboard_screen.dart` |
+| **004A** | CRITICAL | NAVIGATION | UI-13/14/12/15 y subrutas de Operaciones (**jerárquica**) | — | `08_NAVIGATION` · STAB-001 | `UI-14-persona-detalle/UI-14-ISSUE-back-desde-detalle.png` | `app_shell.dart`, `widgets/common.dart` (`PageFrame`), `persons_screen.dart`, `inventory_screen.dart`, `person_detail_screen.dart`, `dashboard_screen.dart`, `operations_screen.dart` |
+| **004B** | MEDIUM | NAVIGATION | los 5 destinos **raíz** | — | `08_NAVIGATION` | `UI-02-operaciones/UI-02-ISSUE-back-sale-de-la-app.png` | `app_shell.dart:56,83`, `app.dart` |
 | 005 | HIGH | FUNCTIONAL | UI-10 · `/liquidacion` | F-10 Cuentas y pagos | — | `UI-10-ISSUE-pago-vacio.png`, `UI-10-pago-valido.png`, `UI-10-pago-en-PROFILE-sin-asserts.png` | `settlements_screen.dart:71,98` |
 | 006 | HIGH | LAYOUT | UI-05, UI-07, UI-09, UI-17 | F-17 Selector adaptativo | — | `UI-05-plan-form/UI-05-ISSUE-etiqueta-superpuesta.png` | `widgets/adaptive_entity_picker.dart:76,100` |
 | 007 | HIGH | FUNCTIONAL | UI-01 · `/` | F-15 Dashboard | KI-17 (estado vacío) | `UI-01-dashboard/UI-01-busqueda-resultado.png` | `dashboard_screen.dart` |
@@ -98,10 +119,28 @@ cierra todas las manifestaciones:
 
 | Causa única | UIBUG | Pantallas afectadas |
 |---|---|---|
-| `isEmpty: selected == null` en el selector | 006 | 4 formularios |
-| `context.go` en todo el shell | 004 | 13 rutas del shell |
-| `tryParseDecimal` trata el punto como decimal | 003 | todos los campos numéricos |
-| Falta de relleno inferior bajo el FAB | 008, 009, 018, 064 | 6 pantallas |
-| Resúmenes construidos en SQL | 025 | 2 pantallas |
-| Enums sin traducir | 016 | 4 pantallas |
-| Superficies sin `NumberFormat` | 024 | 4 pantallas |
+| `isEmpty: selected == null` en el selector (`adaptive_entity_picker.dart:78`) | 006 | 4 formularios |
+| `context.go` en navegación **jerárquica** + `PageFrame` sin `AppBar` | 004A | 3 detalles + 4 subrutas de Operaciones |
+| `context.go` entre destinos **raíz** (por diseño; política a decidir) | 004B | 5 destinos raíz |
+| `tryParseDecimal` trata el punto como decimal (`common.dart:131`) | 003, 034, 065 | todos los campos numéricos |
+| `PageFrame` cierra con 24 px bajo un FAB extendido (`common.dart:52`) | 008, 009 | 6 pantallas |
+| Contenedores de **alto fijo** (`catalogs:264` 520 px · `person_detail:72` 480 px · `transfer_form:296` 48 %) | 018, 030, 055 | 3 pantallas |
+| Rutas **fuera del `ShellRoute` sin `SafeArea`** | 064 | `/compras/nueva` |
+| Resúmenes construidos en SQL (`agro_repository.dart:1070,1072,1191`) | 025 | 2 pantallas |
+| Enums sin traducir + `COALESCE(..., t.type) concept` (`agro_repository.dart:1559`) | 016 | 4 pantallas |
+| Superficies sin `NumberFormat` (`area_m2 / 10000` crudo) | 024 | 8 sitios en 5 pantallas |
+| `toLowerCase().contains` sin normalizar diacríticos | 019 | 6 pantallas + selector |
+
+> **Correcciones a esta tabla (2026-09-05), verificadas en código:**
+>
+> - **064 sale del grupo del FAB.** `/compras/nueva` está **fuera del `ShellRoute` y por tanto
+>   no tiene FAB**. La causa real es la ausencia de `SafeArea`: recuento verificado por
+>   formulario — `purchase_form_screen.dart` **0**, `application_form_screen.dart` 2,
+>   `plan_form_screen.dart` 2, `transfer_form_screen.dart` 2. Es el único sin ella.
+> - **018 se separa de 008.** Comparten la captura de Catálogos pero tienen causas distintas
+>   (alto fijo de 520 px vs. relleno bajo el FAB): **corregir una no cierra la otra**.
+>   No son duplicados; están marcados como *solapamiento* en `41` §5.
+> - **004 se divide** en 004A y 004B (ver tabla maestra y `41` §3).
+>
+> Agrupación completa por causa raíz —16 grupos que cubren los 66 hallazgos— en
+> [`41` §6](41_UIBUG_MASTER_BACKLOG.md).

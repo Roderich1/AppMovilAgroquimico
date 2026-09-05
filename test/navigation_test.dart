@@ -92,7 +92,9 @@ void main() {
     // Los selectores autoseleccionan cuando solo hay una opción, así que el
     // formulario se considera "sucio" nada más abrirse y pide confirmación.
     if (find.text('¿Descartar cambios?').evaluate().isNotEmpty) {
-      await tester.tap(find.text('Descartar'));
+      // La etiqueta pasó a "Descartar cambios" al unificar el criterio de
+      // acción destructiva de los cuatro formularios (UIBUG-033).
+      await tester.tap(find.text('Descartar cambios'));
       await settle(tester, frames: 30);
     }
     await settle(tester, frames: 30);
@@ -133,21 +135,35 @@ void main() {
     );
   });
 
-  testWidgets('STAB-001: Operaciones -> Registrar compra -> atrás vuelve', (
-    tester,
-  ) async {
-    final repo = (await tester.runAsync(fixture))!;
-    await pumpApp(tester, repo);
+  // El recorrido cambió al corregir UIBUG-002: la tarjeta de Operaciones abre
+  // ahora el LISTADO de compras (antes saltaba directamente al formulario, y
+  // `/compras` no tenía ninguna puerta de entrada). El invariante de STAB-001 se
+  // mantiene intacto y se comprueba con el mismo helper: al volver atrás debe
+  // quedar una pantalla utilizable y sin excepciones del router. La prueba cubre
+  // ahora un salto más que antes.
+  testWidgets(
+    'STAB-001: Operaciones -> Compras -> Nueva compra -> atrás vuelve',
+    (tester) async {
+      final repo = (await tester.runAsync(fixture))!;
+      await pumpApp(tester, repo);
 
-    await tester.tap(find.text('Operaciones').first);
-    await settle(tester);
+      await tester.tap(find.text('Operaciones').first);
+      await settle(tester);
+      await tester.tap(find.text('Compras'));
+      await settle(tester, frames: 30);
+      expect(
+        find.text('Nueva compra'),
+        findsOneWidget,
+        reason: 'La tarjeta de Operaciones debe abrir el historial de compras.',
+      );
 
-    await expectPurchaseFormReturnsCleanly(
-      tester,
-      open: () async => tester.tap(find.text('Registrar compra')),
-      expectedReturnText: 'Operaciones',
-    );
-  });
+      await expectPurchaseFormReturnsCleanly(
+        tester,
+        open: () async => tester.tap(find.text('Nueva compra')),
+        expectedReturnText: 'Compras',
+      );
+    },
+  );
 
   testWidgets('Compras -> Nueva compra -> atrás vuelve a la lista', (
     tester,

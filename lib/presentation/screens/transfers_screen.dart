@@ -31,7 +31,7 @@ class _TransfersScreenState extends ConsumerState<TransfersScreen> {
       title: '¿Revertir esta transferencia?',
       detail:
           '${row['from_person_name']} → ${row['to_person_name']}\n'
-          '${row['products_summary']}\n'
+          '${formatItemsSummary(row['products_summary'])}\n'
           'Costo ${formatBob(row['total_cost_bob_minor']! as int)}\n\n'
           'El stock volverá a la persona de origen. Esta acción no se puede '
           'deshacer.',
@@ -85,7 +85,10 @@ class _TransfersScreenState extends ConsumerState<TransfersScreen> {
                 title: Text(
                   '${row['from_person_name']} → ${row['to_person_name']}',
                 ),
-                subtitle: Text(row['products_summary'] as String),
+                subtitle: Text(
+                  '${formatDate(row['transfer_date'])} · '
+                  '${formatItemsSummary(row['products_summary'])}',
+                ),
                 trailing: row['status'] == 'CONFIRMED'
                     ? IconButton(
                         tooltip: 'Revertir',

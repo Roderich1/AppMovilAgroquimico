@@ -1,0 +1,35 @@
+UIBUG-002 - La pantalla de historial de compras es inalcanzable
+==============================================================================
+
+Evidencia original de la auditoria (se conserva, no se borra):
+
+  - Enumeracion de rutas en docs/38_UI_AUDIT_FINDINGS.md (UIBUG-002)
+  - docs/37_UI_SCREEN_INVENTORY.md marca UI-06 como la UNICA pantalla no
+    auditable: "NINGUNO - inalcanzable (UIBUG-002)"
+  - docs/41_UIBUG_MASTER_BACKLOG.md, ficha UIBUG-002
+
+No hay captura de pantalla ANTES porque la pantalla no se podia abrir: esa
+imposibilidad ES el hallazgo.
+
+Comportamiento observado ANTES:
+
+  La ruta /compras estaba declarada en lib/app.dart:62 pero ninguna de las 16
+  llamadas a context.go / context.push de lib/ apuntaba a ella. Verificado
+  enumerando todas las llamadas de navegacion del proyecto:
+
+    Barra/rail del shell   -> /, /operaciones, /inventario, /personas, /liquidacion
+    Tarjetas de Operaciones-> /planificacion, /compras/nueva, /aplicaciones,
+                              /transferencias, /catalogos
+    FAB "Nuevo"            -> /planificacion, /compras/nueva, /aplicaciones,
+                              /liquidacion, /transferencias
+    Dashboard              -> /inventario, /inventario/:id, /aplicaciones, /liquidacion
+
+  Quedaban fuera del alcance del usuario, pese a estar implementados y probados:
+    - consultar el historial de compras
+    - registrar pagos a proveedor posteriores a la compra
+    - ver la fotografia de la factura (se podia adjuntar, nunca consultar)
+    - revertir una compra
+
+Reproduccion en test (rojo) conservada en: before-red-test.txt
+  La guardia estructural "ninguna ruta declarada queda sin origen en lib/"
+  fallaba senalando exactamente:  ['/compras']

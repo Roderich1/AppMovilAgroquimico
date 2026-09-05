@@ -1,0 +1,73 @@
+00:00 +0: loading C:/Users/MSI/Documents/ComunidadApp/AppFamiliaAgricultor/test/purchases_access_test.dart
+00:00 +0: UIBUG-002: se llega al historial de compras desde Operaciones
+══╡ EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK ╞════════════════════════════════════════════════════
+The following TestFailure was thrown running a test:
+Expected: at least one matching candidate
+  Actual: _TextContainingWidgetFinder:<Found 0 widgets with text containing Compras: []>
+   Which: means none were found but some were expected
+Operaciones debe ofrecer una entrada a Compras
+
+When the exception was thrown, this was the stack:
+#4      main.<anonymous closure> (file:///C:/Users/MSI/Documents/ComunidadApp/AppFamiliaAgricultor/test/purchases_access_test.dart:83:5)
+<asynchronous suspension>
+#5      testWidgets.<anonymous closure>.<anonymous closure> (package:flutter_test/src/widget_tester.dart:192:15)
+<asynchronous suspension>
+#6      TestWidgetsFlutterBinding._runTestBody (package:flutter_test/src/binding.dart:1953:5)
+<asynchronous suspension>
+<asynchronous suspension>
+(elided one frame from package:stack_trace)
+
+This was caught by the test expectation on the following line:
+  file:///C:/Users/MSI/Documents/ComunidadApp/AppFamiliaAgricultor/test/purchases_access_test.dart line 83
+The test description was:
+  UIBUG-002: se llega al historial de compras desde Operaciones
+════════════════════════════════════════════════════════════════════════════════════════════════════
+00:01 +0 -1: UIBUG-002: se llega al historial de compras desde Operaciones [E]
+  Test failed. See exception logs above.
+  The test description was: UIBUG-002: se llega al historial de compras desde Operaciones
+  
+00:01 +0 -1: UIBUG-002: desde el historial se abre el formulario de compra
+══╡ EXCEPTION CAUGHT BY FLUTTER TEST FRAMEWORK ╞════════════════════════════════════════════════════
+The following StateError was thrown running a test:
+Bad state: No element
+
+When the exception was thrown, this was the stack:
+#0      Iterable.first (dart:core/iterable.dart:663:7)
+#1      _FirstFinderMixin.filter (package:flutter_test/src/finders.dart:1383:28)
+#3      _AncestorFinderMixin.allCandidates (package:flutter_test/src/finders.dart:1857:49)
+#4      FinderBase.evaluate (package:flutter_test/src/finders.dart:1030:76)
+#5      WidgetController.widgetList (package:flutter_test/src/controller.dart:848:19)
+#6      WidgetController._maybeViewOf (package:flutter_test/src/controller.dart:795:34)
+#7      WidgetController.tap (package:flutter_test/src/controller.dart:1078:31)
+#8      main.<anonymous closure> (file:///C:/Users/MSI/Documents/ComunidadApp/AppFamiliaAgricultor/test/purchases_access_test.dart:115:18)
+<asynchronous suspension>
+#9      testWidgets.<anonymous closure>.<anonymous closure> (package:flutter_test/src/widget_tester.dart:192:15)
+<asynchronous suspension>
+#10     TestWidgetsFlutterBinding._runTestBody (package:flutter_test/src/binding.dart:1953:5)
+<asynchronous suspension>
+<asynchronous suspension>
+(elided 2 frames from dart:async-patch and package:stack_trace)
+
+The test description was:
+  UIBUG-002: desde el historial se abre el formulario de compra
+════════════════════════════════════════════════════════════════════════════════════════════════════
+00:02 +0 -2: UIBUG-002: desde el historial se abre el formulario de compra [E]
+  Test failed. See exception logs above.
+  The test description was: UIBUG-002: desde el historial se abre el formulario de compra
+  
+00:02 +0 -2: ninguna ruta declarada queda sin origen en lib/
+00:02 +0 -3: ninguna ruta declarada queda sin origen en lib/ [E]
+  Expected: empty
+    Actual: ['/compras']
+  Rutas declaradas a las que no navega nadie (funcionalidad inalcanzable, como UIBUG-002): [/compras]
+  
+  package:matcher                                     expect
+  package:flutter_test/src/widget_tester.dart 473:18  expect
+  test\purchases_access_test.dart 167:5               main.<fn>
+  
+00:02 +0 -3: Some tests failed.
+
+Failing tests:
+  C:/Users/MSI/Documents/ComunidadApp/AppFamiliaAgricultor/test/purchases_access_test.dart: UIBUG-002: desde el historial se abre el formulario de compra
+  C:/Users/MSI/Documents/ComunidadApp/AppFamiliaAgricultor/test/purchases_access_test.dart: UIBUG-002: se llega al historial de compras desde Operaciones
+  C:/Users/MSI/Documents/ComunidadApp/AppFamiliaAgricultor/test/purchases_access_test.dart: ninguna ruta declarada queda sin origen en lib/

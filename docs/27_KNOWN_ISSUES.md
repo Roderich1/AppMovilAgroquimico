@@ -5,6 +5,23 @@
 > corrección está en [33_STABILIZATION_FINDINGS](33_STABILIZATION_FINDINGS.md) y
 > la trazabilidad completa en [34_CHANGE_TRACEABILITY](34_CHANGE_TRACEABILITY.md).
 
+> **⚠️ Este documento no está completo (2026-09-05).** Una auditoría posterior **ejecutando la
+> aplicación** sobre un Pixel 8 encontró **65 defectos adicionales** (`UIBUG-001`…`UIBUG-065`),
+> cuatro de ellos CRITICAL. **No se han trasladado aquí**: viven en
+> [41_UIBUG_MASTER_BACKLOG](41_UIBUG_MASTER_BACKLOG.md), que es el backlog vigente.
+>
+> Qué aportó esa auditoría a los KI de este documento:
+>
+> | KI | Aportación |
+> |---|---|
+> | **KI-16** `DatabaseException` sin traducir | **Reproducido en dispositivo** → UIBUG-015 |
+> | **KI-17** Sin estado vacío en varias listas | Confirmado y **agravado**: el estado vacío del inicio *miente* → UIBUG-007 |
+> | **KI-18** `archiveCatalog` de campañas inalcanzable | Relacionado con UIBUG-059 |
+> | **KI-08** Superficies sin formatear | Reproducido; alcance real: 8 sitios → UIBUG-024 |
+> | **STAB-001** Navegación `go` vs `push` | Se corrigió **solo** la vía al formulario de compra; el problema de fondo sigue → UIBUG-004A |
+> | **STAB-007** Backup y restauración | La exportación **falla siempre en Android** → UIBUG-001 |
+> | **STAB-019** "dirty" espurio del formulario | **NO REPRODUCIBLE** con datos realistas |
+
 Defectos concretos y observables encontrados durante la auditoría. Cada uno indica su
 **nivel de confirmación**:
 

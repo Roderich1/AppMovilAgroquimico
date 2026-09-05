@@ -104,22 +104,34 @@ class _PlanningScreenState extends ConsumerState<PlanningScreen> {
                         style: const TextStyle(fontWeight: FontWeight.w700),
                       ),
                       subtitle: Text(
-                        '${first['campaign_name']} · ${rows.length} producto(s)',
+                        '${first['campaign_name']} · ${rows.length} producto(s) · '
+                        'toque para ver el detalle',
                       ),
-                      trailing: FilledButton.tonalIcon(
-                        onPressed: () => context.push(
-                          '/aplicaciones/nueva?planId=${first['plan_id']}',
-                        ),
-                        icon: const Icon(Icons.agriculture_outlined),
-                        label: const Text('Aplicar'),
-                      ),
+                      // El chevron del `ExpansionTile` estaba ocupado por el
+                      // botón "Aplicar", así que nada indicaba que la fila se
+                      // desplegara (UIBUG-046). Ahora el botón va dentro y el
+                      // indicador de expansión vuelve a verse.
                       children: [
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                          child: Align(
+                            alignment: Alignment.centerLeft,
+                            child: FilledButton.tonalIcon(
+                              onPressed: () => context.push(
+                                '/aplicaciones/nueva?planId=${first['plan_id']}',
+                              ),
+                              icon: const Icon(Icons.agriculture_outlined),
+                              label: const Text('Aplicar este plan'),
+                            ),
+                          ),
+                        ),
                         for (final row in rows)
                           ListTile(
                             dense: true,
                             title: Text(row['product_name'] as String),
                             subtitle: Text(
-                              'Área ${(row['area_m2'] as int) / 10000} ha · dosis ${(row['dose_base_per_ha'] as int) / 1000} ${row['unit']}/ha',
+                              'Área ${formatHectares(row['area_m2'] as int)} · dosis '
+                              '${formatQuantity(row['dose_base_per_ha'] as int, row['unit'] as String)}/ha',
                             ),
                             trailing: Text(
                               formatQuantity(

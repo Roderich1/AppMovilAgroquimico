@@ -1,0 +1,25 @@
+00:00 +0: loading C:/Users/MSI/Documents/ComunidadApp/AppFamiliaAgricultor/test/backup_android_semantics_test.dart
+00:00 +0: UIBUG-001: export() no usa una sentencia que Android rechace
+00:00 +0 -1: UIBUG-001: export() no usa una sentencia que Android rechace [E]
+  DatabaseException(unknown error (code 0 SQLITE_OK): Queries can be performed using SQLiteDatabase query or rawQuery methods only.) sql 'PRAGMA wal_checkpoint(FULL)' args []
+  test\backup_android_semantics_test.dart 64:7         _AndroidLikeDatabase.execute
+  package:agroquimicos/data/backup_service.dart 63:20  BackupService.export
+  
+00:00 +0 -1: UIBUG-001: el respaldo exportado en Android es válido y restaurable
+00:00 +0 -2: UIBUG-001: el respaldo exportado en Android es válido y restaurable [E]
+  DatabaseException(unknown error (code 0 SQLITE_OK): Queries can be performed using SQLiteDatabase query or rawQuery methods only.) sql 'PRAGMA wal_checkpoint(FULL)' args []
+  test\backup_android_semantics_test.dart 64:7         _AndroidLikeDatabase.execute
+  package:agroquimicos/data/backup_service.dart 63:20  BackupService.export
+  
+00:00 +0 -2: el respaldo representa un estado consistente (integrity_check ok)
+00:00 +0 -3: el respaldo representa un estado consistente (integrity_check ok) [E]
+  DatabaseException(unknown error (code 0 SQLITE_OK): Queries can be performed using SQLiteDatabase query or rawQuery methods only.) sql 'PRAGMA wal_checkpoint(FULL)' args []
+  test\backup_android_semantics_test.dart 64:7         _AndroidLikeDatabase.execute
+  package:agroquimicos/data/backup_service.dart 63:20  BackupService.export
+  
+00:00 +0 -3: Some tests failed.
+
+Failing tests:
+  C:/Users/MSI/Documents/ComunidadApp/AppFamiliaAgricultor/test/backup_android_semantics_test.dart: UIBUG-001: el respaldo exportado en Android es válido y restaurable
+  C:/Users/MSI/Documents/ComunidadApp/AppFamiliaAgricultor/test/backup_android_semantics_test.dart: UIBUG-001: export() no usa una sentencia que Android rechace
+  C:/Users/MSI/Documents/ComunidadApp/AppFamiliaAgricultor/test/backup_android_semantics_test.dart: el respaldo representa un estado consistente (integrity_check ok)
