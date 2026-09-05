@@ -125,11 +125,21 @@ class _CatalogsScreenState extends ConsumerState<CatalogsScreen>
         final confirm = await showDialog<bool>(
           context: context,
           builder: (dialogContext) => AlertDialog(
-            title: Text('Cerrar ${row['name']}'),
+            title: Text('¿Cerrar ${row['name']}?'),
+            // Cerrar dejó de ser reversible desde la aplicación (UIBUG-059),
+            // así que la confirmación tiene que decirlo antes, no después:
+            // qué campaña, desde cuándo, qué deja de admitir y que no podrá
+            // reactivarse.
             content: Text(
+              'Periodo: desde ${formatDate(row['start_date'])}.\n\n'
               'Compras: ${summary['purchases_count']} · aplicaciones: ${summary['applications_count']}\n'
               'Planes pendientes: ${summary['pending_plans']}\n'
               'Saldo por cobrar: ${formatBob(summary['receivable_bob_minor'] as int)}\n\n'
+              'La campaña dejará de admitir nuevas compras, aplicaciones, '
+              'transferencias y planes.\n\n'
+              'Una campaña cerrada NO se puede volver a activar desde la '
+              'aplicación. Si necesita seguir operando, cree una campaña '
+              'nueva.\n\n'
               'El inventario físico no se elimina y seguirá disponible en la próxima campaña.',
             ),
             actions: [
@@ -138,8 +148,14 @@ class _CatalogsScreenState extends ConsumerState<CatalogsScreen>
                 child: const Text('Cancelar'),
               ),
               FilledButton(
+                // Mismo criterio visual de acción irreversible que las
+                // reversiones (UIBUG-033).
+                style: FilledButton.styleFrom(
+                  backgroundColor: Theme.of(dialogContext).colorScheme.error,
+                  foregroundColor: Theme.of(dialogContext).colorScheme.onError,
+                ),
                 onPressed: () => Navigator.pop(dialogContext, true),
-                child: const Text('Cerrar campaña'),
+                child: const Text('Cerrar definitivamente'),
               ),
             ],
           ),
@@ -216,14 +232,34 @@ class _CatalogsScreenState extends ConsumerState<CatalogsScreen>
     }
   }
 
+  /// Qué crea el botón primario en la sección abierta (UIBUG-047).
+  ///
+  /// "Agregar" a secas no decía si iba a crear una persona o una campaña, lo
+  /// que empataba en ambigüedad con el FAB global "Nuevo".
+  String get _addLabel => switch (tabs.index) {
+    0 => 'Agregar persona',
+    1 => 'Agregar chaco',
+    2 => 'Agregar producto',
+    3 => 'Agregar proveedor',
+    _ => 'Agregar campaña',
+  };
+
   @override
   Widget build(BuildContext context) => PageFrame(
     title: 'Catálogos',
     subtitle: 'Personas, chacos, insumos y campañas.',
+    // **UIBUG-047 — jerarquía de acciones en `/catalogos`.** La pantalla
+    // presentaba dos acciones visualmente primarias: este botón y el FAB
+    // global "Nuevo". Se conserva el botón específico, que dice **qué** va a
+    // crear en la sección abierta, y `AppShell` retira el FAB en esta ruta
+    // (ver `AppShell.hidesGlobalFab`). No se pierde ninguna función: el FAB
+    // sólo ofrece atajos a Planificación, Compra, Aplicación, Pago y
+    // Transferencia, todos alcanzables desde Operaciones y la barra inferior,
+    // y ninguno crea entradas de catálogo.
     action: FilledButton.icon(
       onPressed: _add,
       icon: const Icon(Icons.add),
-      label: const Text('Agregar'),
+      label: Text(_addLabel),
     ),
     child: Column(
       children: [
@@ -339,7 +375,16 @@ class _CatalogsScreenState extends ConsumerState<CatalogsScreen>
                                   value: 'edit',
                                   child: Text('Editar'),
                                 ),
-                                if (row['status'] != 'ACTIVE')
+                                // **UIBUG-059 — una campaña cerrada es
+                                // terminal.** Antes bastaba con no estar
+                                // `ACTIVE` para ofrecer "Activar", así que una
+                                // campaña cerrada —un periodo contable ya
+                                // terminado— podía reabrirse con dos toques.
+                                // Sólo se puede activar lo que aún no ha
+                                // vivido: `PLANNED`. El repositorio rechaza
+                                // además la reactivación, por si se llega por
+                                // otro camino.
+                                if (row['status'] == 'PLANNED')
                                   const PopupMenuItem(
                                     value: 'activate',
                                     child: Text('Activar'),
@@ -396,8 +441,18 @@ class _NameDialog extends StatefulWidget {
   State<_NameDialog> createState() => _NameDialogState();
 }
 
+/// Mensaje de validación común a los diálogos de catálogo (UIBUG-031).
+///
+/// Antes, "Guardar" con el campo vacío simplemente no hacía nada: ni guardaba,
+/// ni cerraba, ni explicaba por qué. El botón parecía averiado. Ahora cada
+/// diálogo es un `Form` con `validator`, así que el error aparece **en línea
+/// bajo el campo que falta** y sigue sin escribirse nada en la base.
+String? _requiredText(String? value, String what) =>
+    (value ?? '').trim().isEmpty ? 'Escriba $what.' : null;
+
 class _NameDialogState extends State<_NameDialog> {
   late final controller = TextEditingController(text: widget.initial);
+  final formKey = GlobalKey<FormState>();
 
   @override
   void dispose() {
@@ -405,26 +460,30 @@ class _NameDialogState extends State<_NameDialog> {
     super.dispose();
   }
 
+  void _save() {
+    if (!formKey.currentState!.validate()) return;
+    Navigator.pop(context, controller.text.trim());
+  }
+
   @override
   Widget build(BuildContext context) => AlertDialog(
     title: Text(widget.title),
-    content: TextField(
-      controller: controller,
-      autofocus: true,
-      decoration: InputDecoration(labelText: widget.label),
+    content: Form(
+      key: formKey,
+      child: TextFormField(
+        controller: controller,
+        autofocus: true,
+        decoration: InputDecoration(labelText: widget.label),
+        validator: (value) => _requiredText(value, widget.label.toLowerCase()),
+        onFieldSubmitted: (_) => _save(),
+      ),
     ),
     actions: [
       TextButton(
         onPressed: () => Navigator.pop(context),
         child: const Text('Cancelar'),
       ),
-      FilledButton(
-        onPressed: () {
-          if (controller.text.trim().isNotEmpty)
-            Navigator.pop(context, controller.text.trim());
-        },
-        child: const Text('Guardar'),
-      ),
+      FilledButton(onPressed: _save, child: const Text('Guardar')),
     ],
   );
 }
@@ -437,6 +496,7 @@ class _PersonDialog extends StatefulWidget {
 
 class _PersonDialogState extends State<_PersonDialog> {
   final name = TextEditingController();
+  final formKey = GlobalKey<FormState>();
   PersonRole role = PersonRole.family;
   @override
   void dispose() {
@@ -444,50 +504,53 @@ class _PersonDialogState extends State<_PersonDialog> {
     super.dispose();
   }
 
+  void _save() {
+    if (!formKey.currentState!.validate()) return;
+    Navigator.pop(context, (name.text.trim(), role));
+  }
+
   @override
   Widget build(BuildContext context) => AlertDialog(
     title: const Text('Nueva persona'),
-    content: Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        TextField(
-          controller: name,
-          decoration: const InputDecoration(labelText: 'Nombre'),
-        ),
-        const SizedBox(height: 12),
-        DropdownButtonFormField(
-          initialValue: role,
-          decoration: const InputDecoration(labelText: 'Tipo'),
-          items: const [
-            DropdownMenuItem(
-              value: PersonRole.admin,
-              child: Text('Administrador'),
-            ),
-            DropdownMenuItem(
-              value: PersonRole.family,
-              child: Text('Familiar · cobro por uso'),
-            ),
-            DropdownMenuItem(
-              value: PersonRole.thirdParty,
-              child: Text('Tercero · cobro por asignación'),
-            ),
-          ],
-          onChanged: (value) => setState(() => role = value!),
-        ),
-      ],
+    content: Form(
+      key: formKey,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TextFormField(
+            controller: name,
+            decoration: const InputDecoration(labelText: 'Nombre'),
+            validator: (value) => _requiredText(value, 'el nombre'),
+          ),
+          const SizedBox(height: 12),
+          DropdownButtonFormField(
+            initialValue: role,
+            decoration: const InputDecoration(labelText: 'Tipo'),
+            items: const [
+              DropdownMenuItem(
+                value: PersonRole.admin,
+                child: Text('Administrador'),
+              ),
+              DropdownMenuItem(
+                value: PersonRole.family,
+                child: Text('Familiar · cobro por uso'),
+              ),
+              DropdownMenuItem(
+                value: PersonRole.thirdParty,
+                child: Text('Tercero · cobro por asignación'),
+              ),
+            ],
+            onChanged: (value) => setState(() => role = value!),
+          ),
+        ],
+      ),
     ),
     actions: [
       TextButton(
         onPressed: () => Navigator.pop(context),
         child: const Text('Cancelar'),
       ),
-      FilledButton(
-        onPressed: () {
-          if (name.text.trim().isNotEmpty)
-            Navigator.pop(context, (name.text.trim(), role));
-        },
-        child: const Text('Guardar'),
-      ),
+      FilledButton(onPressed: _save, child: const Text('Guardar')),
     ],
   );
 }
@@ -502,6 +565,7 @@ class _FarmDialog extends StatefulWidget {
 class _FarmDialogState extends State<_FarmDialog> {
   final name = TextEditingController();
   final area = TextEditingController();
+  final formKey = GlobalKey<FormState>();
   int? owner;
   @override
   void dispose() {
@@ -510,53 +574,69 @@ class _FarmDialogState extends State<_FarmDialog> {
     super.dispose();
   }
 
+  void _save() {
+    if (!formKey.currentState!.validate()) return;
+    Navigator.pop(context, (
+      owner!,
+      name.text.trim(),
+      ((tryParseDecimal(area.text) ?? 0) * 10000).round(),
+    ));
+  }
+
   @override
   Widget build(BuildContext context) => AlertDialog(
     title: const Text('Nuevo chaco'),
-    content: Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        DropdownButtonFormField<int>(
-          initialValue: owner,
-          decoration: const InputDecoration(labelText: 'Propietario'),
-          items: [
-            for (final row in widget.people)
-              DropdownMenuItem(
-                value: row['id']! as int,
-                child: Text(row['name']! as String),
-              ),
-          ],
-          onChanged: (value) => setState(() => owner = value),
-        ),
-        const SizedBox(height: 12),
-        TextField(
-          controller: name,
-          decoration: const InputDecoration(labelText: 'Nombre'),
-        ),
-        const SizedBox(height: 12),
-        TextField(
-          controller: area,
-          keyboardType: TextInputType.number,
-          decoration: const InputDecoration(labelText: 'Superficie (ha)'),
-        ),
-      ],
+    content: Form(
+      key: formKey,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          DropdownButtonFormField<int>(
+            initialValue: owner,
+            decoration: const InputDecoration(labelText: 'Propietario'),
+            items: [
+              for (final row in widget.people)
+                DropdownMenuItem(
+                  value: row['id']! as int,
+                  child: Text(row['name']! as String),
+                ),
+            ],
+            onChanged: (value) => setState(() => owner = value),
+            validator: (value) =>
+                value == null ? 'Elija un propietario.' : null,
+          ),
+          const SizedBox(height: 12),
+          TextFormField(
+            controller: name,
+            decoration: const InputDecoration(labelText: 'Nombre'),
+            validator: (value) => _requiredText(value, 'el nombre del chaco'),
+          ),
+          const SizedBox(height: 12),
+          TextFormField(
+            controller: area,
+            keyboardType: TextInputType.number,
+            decoration: const InputDecoration(labelText: 'Superficie (ha)'),
+            // La superficie no sólo debe estar: debe ser un número mayor a
+            // cero, porque `farms.area_m2` lo exige con un CHECK y el fallo
+            // llegaba como excepción de SQLite en vez de como aviso del
+            // formulario (UIBUG-031).
+            validator: (value) {
+              if ((value ?? '').trim().isEmpty) return 'Escriba la superficie.';
+              final parsed = tryParseDecimal(value!);
+              if (parsed == null) return 'Escriba la superficie en números.';
+              if (parsed <= 0) return 'La superficie debe ser mayor a cero.';
+              return null;
+            },
+          ),
+        ],
+      ),
     ),
     actions: [
       TextButton(
         onPressed: () => Navigator.pop(context),
         child: const Text('Cancelar'),
       ),
-      FilledButton(
-        onPressed: () {
-          if (owner != null && name.text.isNotEmpty)
-            Navigator.pop(context, (
-              owner!,
-              name.text.trim(),
-              ((tryParseDecimal(area.text) ?? 0) * 10000).round(),
-            ));
-        },
-        child: const Text('Guardar'),
-      ),
+      FilledButton(onPressed: _save, child: const Text('Guardar')),
     ],
   );
 }
@@ -570,6 +650,7 @@ class _ProductDialog extends StatefulWidget {
 class _ProductDialogState extends State<_ProductDialog> {
   final name = TextEditingController();
   final ingredient = TextEditingController();
+  final formKey = GlobalKey<FormState>();
   String unit = 'L';
   @override
   void dispose() {
@@ -578,48 +659,50 @@ class _ProductDialogState extends State<_ProductDialog> {
     super.dispose();
   }
 
+  void _save() {
+    if (!formKey.currentState!.validate()) return;
+    Navigator.pop(context, (name.text.trim(), ingredient.text.trim(), unit));
+  }
+
   @override
   Widget build(BuildContext context) => AlertDialog(
     title: const Text('Nuevo producto'),
-    content: Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        TextField(
-          controller: name,
-          decoration: const InputDecoration(labelText: 'Producto'),
-        ),
-        const SizedBox(height: 12),
-        TextField(
-          controller: ingredient,
-          decoration: const InputDecoration(labelText: 'Ingrediente activo'),
-        ),
-        const SizedBox(height: 12),
-        SegmentedButton<String>(
-          segments: const [
-            ButtonSegment(value: 'L', label: Text('Litros')),
-            ButtonSegment(value: 'KG', label: Text('Kilogramos')),
-          ],
-          selected: {unit},
-          onSelectionChanged: (value) => setState(() => unit = value.first),
-        ),
-      ],
+    content: Form(
+      key: formKey,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TextFormField(
+            controller: name,
+            decoration: const InputDecoration(labelText: 'Producto'),
+            validator: (value) =>
+                _requiredText(value, 'el nombre del producto'),
+          ),
+          const SizedBox(height: 12),
+          // El ingrediente activo es opcional en el esquema, así que no se
+          // valida: exigirlo inventaría una regla que la base no tiene.
+          TextFormField(
+            controller: ingredient,
+            decoration: const InputDecoration(labelText: 'Ingrediente activo'),
+          ),
+          const SizedBox(height: 12),
+          SegmentedButton<String>(
+            segments: const [
+              ButtonSegment(value: 'L', label: Text('Litros')),
+              ButtonSegment(value: 'KG', label: Text('Kilogramos')),
+            ],
+            selected: {unit},
+            onSelectionChanged: (value) => setState(() => unit = value.first),
+          ),
+        ],
+      ),
     ),
     actions: [
       TextButton(
         onPressed: () => Navigator.pop(context),
         child: const Text('Cancelar'),
       ),
-      FilledButton(
-        onPressed: () {
-          if (name.text.isNotEmpty)
-            Navigator.pop(context, (
-              name.text.trim(),
-              ingredient.text.trim(),
-              unit,
-            ));
-        },
-        child: const Text('Guardar'),
-      ),
+      FilledButton(onPressed: _save, child: const Text('Guardar')),
     ],
   );
 }
