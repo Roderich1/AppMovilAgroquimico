@@ -1,0 +1,71 @@
+name: Flutter CI
+
+# Puerta de calidad automática. Reproduce EXACTAMENTE los cuatro comandos que
+# la baseline exige en local (docs/46_BASELINE_FINAL_FREEZE.md):
+# formato, análisis, tests y build de release.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# Mínimo privilegio: el workflow sólo lee el repositorio. No publica, no
+# comenta y no toca releases.
+permissions:
+  contents: read
+
+concurrency:
+  # Un push nuevo sobre la misma rama cancela la ejecución anterior: no tiene
+  # sentido gastar minutos en un commit ya superado.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Fijada, no "latest": la baseline se congela con esta versión y una subida
+  # silenciosa del canal estable dejaría de reproducir lo que se validó.
+  # Debe coincidir con `flutter --version` en el entorno de desarrollo.
+  FLUTTER_VERSION: 3.47.2
+
+jobs:
+  quality-gate:
+    name: Formato · análisis · tests · build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Descargar el repositorio
+        uses: actions/checkout@v4
+
+      # El build de release necesita un JDK; la imagen trae varios y conviene
+      # fijar cuál, por la misma razón que se fija Flutter.
+      - name: Preparar Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Preparar Flutter ${{ env.FLUTTER_VERSION }}
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+
+      - name: Dependencias
+        run: flutter pub get
+
+      - name: Formato
+        run: dart format --output=none --set-exit-if-changed lib test
+
+      - name: Análisis estático
+        run: flutter analyze
+
+      - name: Tests
+        run: flutter test
+
+      # Sin `android/key.properties` la build queda deliberadamente SIN firmar
+      # (ver android/app/build.gradle.kts). CI **no** necesita el keystore: el
+      # objetivo aquí es comprobar que el release compila, no distribuirlo.
+      # No se sube ningún secreto a este workflow.
+      - name: Build de release (sin firmar)
+        run: flutter build apk --release
