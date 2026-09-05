@@ -154,7 +154,11 @@ El mecanismo está completo y verificado, pero **falta el secreto**:
 
 - ✅ `build.gradle.kts` lee `android/key.properties` y crea un `signingConfig` real.
 - ✅ Sin ese archivo, la release queda **sin firmar** en lugar de firmarse en depuración.
-  Verificado: el APK generado no contiene entradas de firma en `META-INF`.
+  Verificado con `apksigner verify`:
+  ```
+  app-release.apk -> DOES NOT VERIFY (Missing META-INF/MANIFEST.MF)
+  app-debug.apk   -> Verifies, v2 scheme, 1 signer (clave de depuración)
+  ```
 - ✅ `key.properties.example` documenta exactamente qué hace falta.
 - ❌ **No existe keystore.** No se generó ninguno: inventar uno sería peor que no tenerlo,
   porque quedaría sin custodia y sin copia de seguridad.
