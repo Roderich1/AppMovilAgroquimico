@@ -50,10 +50,10 @@ No son intercambiables. `EVOLUTION-2` agrupa `EVO-004`, `EVO-005` y `EVO-006`.
 Los documentos `FINAL_VERIFICATION` sólo se crean después de implementar y reunir evidencia
 real de tests, CI y dispositivo. Su ausencia antes de esa fase es correcta.
 
-`EVOLUTION-2` está implementada en `evolution/evolution-2-typed-reports` con los cuatro gates
-locales en verde, pero **sin** CI del SHA final ni prueba en Pixel 8: por eso su estado es
-`IN_PROGRESS` y no existe `EVOLUTION-2_FINAL_VERIFICATION.md`. Los gates que faltan están
-enumerados en la trazabilidad, §7.
+`EVOLUTION-2` está implementada en `evolution/evolution-2-typed-reports`, con los cuatro gates
+locales en verde y el CI del SHA final `2b40955` en verde (run `34014442336`). Sigue en
+`IN_PROGRESS` y sin `EVOLUTION-2_FINAL_VERIFICATION.md` porque falta la verificación en
+Pixel 8, detallada en la trazabilidad, §8.
 
 ## Precedencia
 
