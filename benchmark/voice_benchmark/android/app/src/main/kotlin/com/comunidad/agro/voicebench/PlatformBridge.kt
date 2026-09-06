@@ -3,6 +3,7 @@ package com.comunidad.agro.voicebench
 import android.content.Context
 import android.os.Build
 import android.os.Debug
+import android.provider.Settings
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
@@ -44,6 +45,20 @@ class PlatformBridge(
                 Debug.getMemoryInfo(info)
                 result.success(info.totalPss.toLong() * 1024L)
             }
+
+            // Modo avión **según el sistema**, no según lo que el operador
+            // haya marcado en la pantalla. De este dato depende la única
+            // afirmación que no admite duda en ADR-002: si el motor transcribe
+            // sin Internet. Una tanda mal etiquetada la volveria falsa.
+            // `AIRPLANE_MODE_ON` se lee sin permisos; ACCESS_NETWORK_STATE
+            // no se pide para no ampliar la superficie del banco.
+            "airplaneMode" -> result.success(
+                Settings.Global.getInt(
+                    context.contentResolver,
+                    Settings.Global.AIRPLANE_MODE_ON,
+                    0,
+                ) != 0,
+            )
 
             "exportDir" -> result.success(
                 context.getExternalFilesDir(null)?.absolutePath,

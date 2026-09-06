@@ -89,6 +89,28 @@ abstract final class BenchReport {
       }
     }
 
+    final malEtiquetadas = summaries.where((s) => s.airplaneMismatches > 0);
+    if (malEtiquetadas.isNotEmpty) {
+      buffer
+        ..writeln()
+        ..writeln('## Tandas mal etiquetadas')
+        ..writeln()
+        ..writeln(
+          'En estas mediciones el modo avión declarado NO coincide con el que '
+          'informó el teléfono. **No sirven para afirmar ni negar que el motor '
+          'funcione sin Internet**; hay que repetirlas.',
+        )
+        ..writeln()
+        ..writeln('| Motor | Dispositivo | Corpus | Mediciones en conflicto |')
+        ..writeln('|---|---|---|--:|');
+      for (final s in malEtiquetadas) {
+        buffer.writeln(
+          '| ${s.engine} | ${s.device} | ${s.split} '
+          '| ${s.airplaneMismatches} |',
+        );
+      }
+    }
+
     final redactadas = summaries.fold<int>(0, (sum, s) => sum + s.redacted);
     if (redactadas > 0) {
       buffer

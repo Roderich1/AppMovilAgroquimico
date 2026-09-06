@@ -445,6 +445,59 @@ void main() {
     });
   });
 
+  group('tandas mal etiquetadas', () {
+    BenchRecord take({required bool declarado, bool? sistema}) => BenchRecord(
+      sampleId: 'AJ-001',
+      split: 'ajuste',
+      intent: 'compra',
+      expectedText: 'Registrar compra.',
+      obtainedText: 'registrar compra',
+      engine: 'android-speech',
+      device: 'Xiaomi 22101320G',
+      airplaneMode: declarado,
+      systemAirplaneMode: sistema,
+      startedAt: '2026-09-06T15:33:00.0',
+    );
+
+    test('declarar offline con la radio encendida cuenta como conflicto', () {
+      final summary = BenchAggregator.summarize([
+        take(declarado: true, sistema: false),
+      ]).single;
+
+      expect(summary.airplaneMismatches, 1);
+    });
+
+    test('sin lectura del sistema no se declara conflicto', () {
+      // Las tandas anteriores a que el banco registrara el dato no pueden
+      // contrastarse. Marcarlas como conflicto seria inventar un hallazgo.
+      final summary = BenchAggregator.summarize([take(declarado: true)]).single;
+
+      expect(summary.airplaneMismatches, 0);
+    });
+
+    test('el informe avisa y dice que esas tomas no prueban nada', () {
+      final markdown = BenchReport.render(
+        BenchAggregator.summarize([take(declarado: true, sistema: false)]),
+      );
+
+      expect(markdown, contains('Tandas mal etiquetadas'));
+      expect(markdown, contains('sin Internet'));
+    });
+
+    test('el lector distingue vacio de falso en el dato del sistema', () {
+      final csv = BenchResultParser.parseCsv(
+        'sampleId,split,intent,expectedText,engine,airplaneMode,systemAirplaneMode\n'
+        'AJ-001,ajuste,compra,Registrar compra.,android-speech,true,\n'
+        'AJ-002,ajuste,compra,Registrar pago.,android-speech,true,false\n',
+      );
+
+      expect(csv.first.systemAirplaneMode, isNull);
+      expect(csv.first.airplaneModeMismatch, isFalse);
+      expect(csv.last.systemAirplaneMode, isFalse);
+      expect(csv.last.airplaneModeMismatch, isTrue);
+    });
+  });
+
   group('percentiles', () {
     test('una serie vacía no tiene percentil', () {
       expect(percentile(const <int?>[], 50), isNull);

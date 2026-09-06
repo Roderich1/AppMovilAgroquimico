@@ -34,6 +34,62 @@ void main() {
 
   Future<void> settle() => Future<void>.delayed(Duration.zero);
 
+  group('modo avión declarado frente al del sistema', () {
+    BenchController withProbe(bool? system) => BenchController(
+      port: port,
+      corpus: loadCorpus(),
+      appVersion: 'test',
+      airplaneProbe: () async => system,
+    );
+
+    test('avisa cuando se declara modo avión y la radio sigue viva', () async {
+      // Es el caso que se dio en el POCO X5 Pro: el interruptor decia offline y
+      // el Wi-Fi estuvo encendido toda la tanda. Sin este contraste, 43 tomas
+      // con red habrian sostenido un "funciona sin Internet" falso en ADR-002.
+      final c = withProbe(false);
+      await c.setAirplaneMode(true);
+
+      expect(c.airplaneModeMismatch, isTrue);
+      c.dispose();
+    });
+
+    test('sin discrepancia cuando ambos coinciden', () async {
+      final c = withProbe(true);
+      await c.setAirplaneMode(true);
+
+      expect(c.airplaneModeMismatch, isFalse);
+      c.dispose();
+    });
+
+    test('sin lectura del sistema no se inventa una discrepancia', () async {
+      final c = withProbe(null);
+      await c.setAirplaneMode(true);
+
+      expect(c.systemAirplaneMode, isNull);
+      expect(c.airplaneModeMismatch, isFalse);
+      c.dispose();
+    });
+
+    test(
+      'la medición guarda lo que dijo el sistema, no lo declarado',
+      () async {
+        final c = withProbe(false);
+        await c.setAirplaneMode(true);
+        await c.start();
+        await c.stop();
+        await settle();
+        await c.record();
+
+        final result = c.results.single;
+        expect(result.airplaneMode, isTrue);
+        expect(result.systemAirplaneMode, isFalse);
+        expect(result.airplaneModeMismatch, isTrue);
+        expect(BenchExport.toCsv(c.buildRun()), contains('systemAirplaneMode'));
+        c.dispose();
+      },
+    );
+  });
+
   group('recorrido del corpus', () {
     test('empieza en la primera frase de ajuste', () {
       expect(controller.split, 'ajuste');

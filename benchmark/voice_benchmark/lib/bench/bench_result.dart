@@ -17,6 +17,7 @@ final class BenchResult {
     required this.androidRelease,
     required this.androidSdk,
     required this.airplaneMode,
+    this.systemAirplaneMode,
     required this.startedAt,
     this.obtainedText,
     this.partialLatencyMs,
@@ -58,7 +59,19 @@ final class BenchResult {
   final int androidSdk;
 
   /// La prueba se hizo en modo avión.
+  /// Modo avión **declarado** por quien opera el banco.
   final bool airplaneMode;
+
+  /// Modo avión **leído del sistema** en el momento de guardar la medición.
+  ///
+  /// `null` si no se pudo consultar. Cuando difiere de [airplaneMode] la tanda
+  /// está mal etiquetada y no puede sostener ninguna conclusión sobre
+  /// funcionamiento sin Internet: ver [airplaneModeMismatch].
+  final bool? systemAirplaneMode;
+
+  /// Lo declarado no coincide con lo que dice el teléfono.
+  bool get airplaneModeMismatch =>
+      systemAirplaneMode != null && systemAirplaneMode != airplaneMode;
 
   final DateTime startedAt;
 
@@ -127,6 +140,7 @@ final class BenchResult {
     androidRelease: androidRelease,
     androidSdk: androidSdk,
     airplaneMode: airplaneMode,
+    systemAirplaneMode: systemAirplaneMode,
     startedAt: startedAt,
     partialLatencyMs: partialLatencyMs ?? this.partialLatencyMs,
     finalLatencyMs: finalLatencyMs ?? this.finalLatencyMs,
@@ -153,6 +167,7 @@ final class BenchResult {
     'androidRelease': androidRelease,
     'androidSdk': androidSdk,
     'airplaneMode': airplaneMode,
+    'systemAirplaneMode': systemAirplaneMode,
     'startedAt': startedAt.toIso8601String(),
     'partialLatencyMs': partialLatencyMs,
     'finalLatencyMs': finalLatencyMs,

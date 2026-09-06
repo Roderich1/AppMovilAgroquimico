@@ -79,6 +79,7 @@ abstract final class BenchExport {
     'androidRelease',
     'androidSdk',
     'airplaneMode',
+    'systemAirplaneMode',
     'startedAt',
     'partialLatencyMs',
     'finalLatencyMs',
