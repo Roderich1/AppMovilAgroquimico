@@ -530,23 +530,8 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
     ),
   );
 
-  /// Dos campos lado a lado si caben; apilados si no (UIBUG-040).
-  ///
-  /// El umbral es el ancho por debajo del cual media fila deja de bastar para
-  /// un nombre de proveedor o de campaña del dataset real.
-  static const double _pairMinWidth = 420;
-
-  Widget _responsivePair(Widget first, Widget second) => LayoutBuilder(
-    builder: (context, constraints) => constraints.maxWidth < _pairMinWidth
-        ? Column(children: [first, const SizedBox(height: 10), second])
-        : Row(
-            children: [
-              Expanded(child: first),
-              const SizedBox(width: 10),
-              Expanded(child: second),
-            ],
-          ),
-  );
+  Widget _responsivePair(Widget first, Widget second) =>
+      _ResponsivePair(first: first, second: second);
 
   Widget _dropdown(
     String label,
@@ -586,6 +571,34 @@ class _Section extends StatelessWidget {
         ],
       ),
     ),
+  );
+}
+
+/// Dos campos lado a lado si caben; apilados si no (UIBUG-040).
+///
+/// El umbral es el ancho por debajo del cual media fila deja de bastar para el
+/// contenido real del formulario: un nombre de proveedor o de campaña del
+/// dataset, o una etiqueta como "Cantidad comprada". Comprimir dos campos hasta
+/// que su texto se recorta es peor que apilarlos.
+class _ResponsivePair extends StatelessWidget {
+  const _ResponsivePair({required this.first, required this.second});
+
+  final Widget first;
+  final Widget second;
+
+  static const double minWidth = 420;
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) => constraints.maxWidth < minWidth
+        ? Column(children: [first, const SizedBox(height: 10), second])
+        : Row(
+            children: [
+              Expanded(child: first),
+              const SizedBox(width: 10),
+              Expanded(child: second),
+            ],
+          ),
   );
 }
 
@@ -686,47 +699,36 @@ class _LineCard extends StatelessWidget {
             },
           ),
           const SizedBox(height: 10),
-          Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: line.quantity,
-                  onChanged: (_) => onChanged(),
-                  keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true,
-                  ),
-                  // "Cantidad comprada" y no "Cantidad" a secas: la tarjeta
-                  // tiene un segundo campo de cantidad por cada asignación, y
-                  // dos etiquetas idénticas en la misma tarjeta obligarían a
-                  // deducir cuál es cuál (UIBUG-038).
-                  decoration: InputDecoration(
-                    labelText: 'Cantidad comprada',
-                    suffixText: unit.isEmpty ? null : unit,
-                  ),
-                ),
+          // Apilados en ancho de móvil: media fila recortaba la etiqueta a
+          // "Cantidad compr…" (UIBUG-040).
+          _ResponsivePair(
+            first: TextField(
+              controller: line.quantity,
+              onChanged: (_) => onChanged(),
+              keyboardType: const TextInputType.numberWithOptions(
+                decimal: true,
               ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: DropdownButtonFormField<CurrencyCode>(
-                  initialValue: line.currency,
-                  decoration: const InputDecoration(labelText: 'Moneda'),
-                  items: const [
-                    DropdownMenuItem(
-                      value: CurrencyCode.bob,
-                      child: Text('BOB'),
-                    ),
-                    DropdownMenuItem(
-                      value: CurrencyCode.usd,
-                      child: Text('USD'),
-                    ),
-                  ],
-                  onChanged: (value) {
-                    line.currency = value!;
-                    onChanged();
-                  },
-                ),
+              // "Cantidad comprada" y no "Cantidad" a secas: la tarjeta
+              // tiene un segundo campo de cantidad por cada asignación, y
+              // dos etiquetas idénticas en la misma tarjeta obligarían a
+              // deducir cuál es cuál (UIBUG-038).
+              decoration: InputDecoration(
+                labelText: 'Cantidad comprada',
+                suffixText: unit.isEmpty ? null : unit,
               ),
-            ],
+            ),
+            second: DropdownButtonFormField<CurrencyCode>(
+              initialValue: line.currency,
+              decoration: const InputDecoration(labelText: 'Moneda'),
+              items: const [
+                DropdownMenuItem(value: CurrencyCode.bob, child: Text('BOB')),
+                DropdownMenuItem(value: CurrencyCode.usd, child: Text('USD')),
+              ],
+              onChanged: (value) {
+                line.currency = value!;
+                onChanged();
+              },
+            ),
           ),
           const SizedBox(height: 10),
           Row(
