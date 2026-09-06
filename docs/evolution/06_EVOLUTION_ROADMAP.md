@@ -76,7 +76,22 @@ offline depende del paquete instalado (`RISK-023`); Whisper no produce parciales
 resuelven en `EVO-010` contra la base local (`RISK-025`); Whisper afirma texto sobre silencio
 (`RISK-026`); y la misma frase dictada dos veces puede dar cantidades distintas (`RISK-027`).
 
-`EVO-009` sigue **`APPROVED`**: la implementación productiva todavía no comenzó.
+### Estado de la Fase 1 (`EVO-009`) — EN CURSO
+
+`EVO-009` pasó a **`IN_PROGRESS`** en `evolution/evo-009-safe-transcription`. Lo
+construido: entrada desde Operaciones, permiso contextual, sesión continua con
+reapertura acotada del turno, texto parcial separado del acumulado, vista previa
+editable y entrega de **texto de sesión**.
+
+Lo que **no** hace, y no debe leerse como si lo hiciera: no interpreta, no
+resuelve productos, no registra compras, pagos ni aplicaciones, y no escribe en
+SQLite. Las guardas arquitectónicas fallan si alguna de esas puertas se abre.
+
+Pendiente para `VERIFIED`: prueba en teléfono físico
+(`features/EVOLUTION-3_OWNER_DEVICE_TEST_PLAN_EVO-009.md`) y revisión del
+propietario. El gate Pixel 8 / API 36 sigue `WAIVED_BY_OWNER`.
+
+`EVO-010` **no ha comenzado**.
 
 ## Evoluciones posteriores no aprobadas
 
