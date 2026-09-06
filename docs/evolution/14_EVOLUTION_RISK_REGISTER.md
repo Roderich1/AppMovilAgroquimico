@@ -26,6 +26,14 @@ Escala: probabilidad e impacto `L/M/H`. Owner es responsabilidad lógica, no per
 | RISK-020 | Intento de compra deja producto o movimientos parciales | M | H | creación + compra en unidad atómica y fallos inducidos | Purchase/Data |
 | RISK-021 | Pago excedente se convierte silenciosamente en adelanto | M | H | decisión explícita y saldo antes/después | Accounts/Product |
 | RISK-022 | Plan cambia entre preview y confirmación | M | H | relectura/revalidación y conflicto bloqueante | Application/Inventory |
+| RISK-023 | El motor del sistema no transcribe sin descargar antes el idioma, y `es-BO` no existe on-device | H | H | Medido en Fase 0: declarar el locale real en la UI, no prometer offline y decidir con el propietario si se acepta una descarga inicial | Voice/Product |
+| RISK-024 | `whisper.cpp` no emite resultados parciales y la experiencia prometida asume texto en vivo | H | M | Medido en Fase 0: si `ADR-002` elige Whisper, o se acepta una UX sin texto en vivo o se mide aparte la transcripción por trozos | Voice/Product |
+
+## Evidencia incorporada
+
+`RISK-023` y `RISK-024` no son hipótesis: salen de mediciones de la Fase 0 de EVOLUTION-3,
+registradas en `features/EVOLUTION-3_SPEECH_ENGINE_BENCHMARK_RESULTS.md`. `RISK-016` sigue
+abierto y sin medir: es exactamente lo que debe cerrar el gate de dispositivo.
 
 ## Disparadores de revisión
 

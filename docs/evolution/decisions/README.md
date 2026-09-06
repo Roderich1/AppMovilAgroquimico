@@ -29,7 +29,7 @@ compatibilidad, rollback, evidencia y estado. Un ADR posterior puede reemplazar 
 
 | ADR | Título | Alcance | Estado |
 |---|---|---|---|
-| [`ADR-002`](ADR-002-voice-transcription-engine.md) | Motor de transcripción tras benchmark | `EVO-009` | `Proposed` |
+| [`ADR-002`](ADR-002-voice-transcription-engine.md) | Motor de transcripción tras benchmark | `EVO-009` | `Proposed` — benchmark construido; espera la evidencia de teléfonos reales |
 
 Un ADR `Proposed` no autoriza la dependencia que evalúa. Al resolver ADR-002 deben registrarse
 el benchmark, versiones y consecuencias; no se reescribe la evidencia anterior.
