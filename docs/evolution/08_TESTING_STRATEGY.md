@@ -33,7 +33,10 @@
 - SQLite: migración, equivalencia e integridad.
 - Reversión: asientos/movimientos compensatorios y trazabilidad.
 - Filesystem/plugin: fake determinista + prueba Android real.
-- Voz: falsos positivos, entidades homónimas, ruido, desconexión y confirmación.
+- Voz: corpus separado de ajuste/aceptación, falsos positivos, entidades homónimas, ruido,
+  modo avión, parciales, correcciones, lifecycle y confirmación táctil.
+- Drafts por voz: snapshot de DB antes/después para probar cero escrituras preconfirmación;
+  atomicidad, doble toque y paridad con el flujo manual al confirmar.
 
 ## Gates
 
@@ -44,7 +47,8 @@ excluir tests para obtener verde. Añadir el test que habría fallado antes del 
 
 Pixel 8, Android 16/API 36 sigue siendo regresión principal conocida; no define por sí solo el
 universo de soporte. Probar vertical, horizontal, 130 %, teclado, listas voluminosas y doble
-interacción si la feature toca esos escenarios.
+interacción si la feature toca esos escenarios. Un motor local de voz exige además un Android
+de gama media/baja, memoria pico, tamaño, temperatura/batería y latencia p50/p95.
 
 ## Evidencia
 

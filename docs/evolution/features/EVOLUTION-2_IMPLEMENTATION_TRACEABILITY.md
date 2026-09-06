@@ -1,12 +1,12 @@
 # EVOLUTION-2 — Trazabilidad de la implementación
 
-> **Estado: `IN_PROGRESS`.** Todos los gates exigidos por la especificación están cubiertos
+> **Estado de implementación: `VERIFIED`.** Todos los gates exigidos por la especificación están cubiertos
 > con evidencia real: gates locales, CI del SHA final y prueba en Pixel 8 (§8). Lo único que
 > queda sin ejercitar es abrir el CSV en una hoja de cálculo **del teléfono**, porque la
 > imagen del emulador no trae ninguna; el archivo se validó byte a byte en su lugar.
 >
-> El estado sigue en `IN_PROGRESS` y `EVOLUTION-2_FINAL_VERIFICATION.md` no se crea porque
-> declarar `VERIFIED` es una decisión del propietario tras revisar el PR, no del implementador.
+> El propietario revisó el resultado, comprobó CSV/PDF y declaró el cierre. La decisión final
+> se registra en `EVOLUTION-2_FINAL_VERIFICATION.md`.
 
 ## 1. Identidad
 
@@ -190,7 +190,7 @@ determinista de `36_UI_AUDIT_DATASET` regenerado en esquema v6: 7 personas · 22
 8 chacos · 4 proveedores · 3 campañas · 10 compras · 7 transferencias · 12 aplicaciones ·
 5 planes.
 
-Evidencia: 32 capturas en [`artifacts/ui-audit/evolution-2/`](../../../artifacts/ui-audit/evolution-2),
+Evidencia generada durante el gate: 32 capturas en `artifacts/ui-audit/evolution-2/`,
 con su índice en el `README.md` de esa carpeta.
 
 ### Resultado por punto

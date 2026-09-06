@@ -19,6 +19,13 @@ Escala: probabilidad e impacto `L/M/H`. Owner es responsabilidad lógica, no per
 | RISK-013 | Dependencia abandonada | M | M | health/licencia/escape hatch antes de adoptar | Architecture |
 | RISK-014 | Datos sensibles en logs | M | H | allowlist, redacción, retención | Security |
 | RISK-015 | Push directo evita CI | M | H | proteger `main` y requerir checks antes de PRs evolutivos | Release |
+| RISK-016 | Motor local degrada memoria, batería o latencia | M | H | benchmark Pixel 8 + gama media/baja antes de adoptar | Voice/Mobile QA |
+| RISK-017 | Audio/transcripción sensible sale o queda almacenado | M | H | local preferido, memoria efímera, logs redactados, ADR si remoto | Security |
+| RISK-018 | Voz crea catálogo equivocado | H | H | candidatos, aliases, estado `newProposed` y confirmación explícita | Voice/Catalog |
+| RISK-019 | Reintento/doble toque duplica compra/aplicación/pago | M | H | lock UI, revalidación, transacción e idempotencia | Application/Domain |
+| RISK-020 | Intento de compra deja producto o movimientos parciales | M | H | creación + compra en unidad atómica y fallos inducidos | Purchase/Data |
+| RISK-021 | Pago excedente se convierte silenciosamente en adelanto | M | H | decisión explícita y saldo antes/después | Accounts/Product |
+| RISK-022 | Plan cambia entre preview y confirmación | M | H | relectura/revalidación y conflicto bloqueante | Application/Inventory |
 
 ## Disparadores de revisión
 
