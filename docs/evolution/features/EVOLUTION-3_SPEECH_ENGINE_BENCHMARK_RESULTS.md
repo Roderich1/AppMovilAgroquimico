@@ -2,15 +2,17 @@
 
 ## Estado
 
-`WAITING_FOR_OWNER_DEVICE_TESTS`
+`MEASURED_ON_ONE_DEVICE` — `WAITING_FOR_OWNER_DECISION`
 
-La Fase 0 dejó construido y verificado el banco de pruebas, el corpus y las
-herramientas de análisis. **Falta la parte que sólo puede hacerse con teléfonos
-reales**, que ejecutará el propietario siguiendo
-`EVOLUTION-3_OWNER_DEVICE_TEST_PLAN.md`.
+El propietario ejecutó el corpus de ajuste completo con los tres motores en un
+teléfono real (POCO X5 Pro 5G, Android 12 / API 31) el 2026-09-06. Hay
+exactitud, latencia, memoria y comportamiento offline medidos.
 
-`ADR-002` permanece `Proposed`. No hay ganador, no hay candidato descartado y no
-se recomienda ningún motor todavía.
+**El gate del Pixel 8 / API 36 sigue pendiente**, así que todo lo de aquí
+describe un aparato de gama media con Android 12, no el universo de teléfonos.
+
+`ADR-002` permanece `Proposed`: hay recomendación técnica, falta la decisión del
+propietario.
 
 ## Identidad
 
@@ -274,110 +276,280 @@ que ningún borrador puede marcarse "listo" por el solo hecho de haber recibido
 texto. Debe medirse explícitamente en el teléfono: grabar sin hablar y anotar qué
 devuelve cada motor.
 
+## Resultados en teléfono real
+
+### Dispositivo
+
+| Campo | Valor |
+|---|---|
+| Marca y modelo | Xiaomi **POCO X5 Pro 5G** (`22101320G`, `redwood`) |
+| SoC | Qualcomm **SM7325** (Snapdragon 7 Gen 1), 8 núcleos |
+| ABI | `arm64-v8a` — físico, no emulado |
+| Android | **12**, **API 31**, MIUI V140, parche 2023-03-01 |
+| RAM | 7.363.124 kB (≈ 7,0 GiB) |
+| Almacenamiento libre | 173 GB de 225 GB |
+| Batería / temperatura | 58 % → 100 %, 31,0 °C → 33,0 °C durante toda la sesión |
+| Fecha | 2026-09-06, 14:11–16:53 |
+
+El aparato obligó a bajar el `minSdk` del banco de 33 a 31
+(`INSTALL_FAILED_OLDER_SDK`). Sólo `checkRecognitionSupport` necesita API 33;
+`createOnDeviceSpeechRecognizer` existe desde 31.
+
+### Cómo se verificó el modo avión
+
+El campo `airplaneMode` era una declaración del operador que nadie contrastaba.
+La primera tanda «offline» resultó no serlo: el buffer de `logcat`, que abarca
+desde las 14:13:55, contiene una sola transición de Wi-Fi —
+`WifiController: DisabledState.enter()` a las **15:45:50** — dos minutos después
+de exportar. Esas 43 tomas se descartaron como prueba offline.
+
+Desde entonces el banco lee `Settings.Global.AIRPLANE_MODE_ON` y guarda
+`systemAirplaneMode` junto a lo declarado. **Todas las tandas offline citadas
+abajo tienen `airplaneMode = systemAirplaneMode = true`**, y el log confirma
+cero transiciones de radio durante la sesión. El propietario comprobó además que
+el navegador no cargaba ninguna búsqueda.
+
+### Comparación — corpus de ajuste, los tres en modo avión verificado
+
+| Métrica | **Android** | **Whisper tiny** | **Whisper base** |
+|---|--:|--:|--:|
+| Tomas | 45 | 44 | 43 |
+| Con resultado | 42 | 40 | 42 |
+| Exactitud literal | **26,2 %** | 12,5 % | 7,1 % |
+| WER mediana | **0,167** | 0,385 | 0,300 |
+| Datos críticos (agregador) | **64,4 %** | 31,3 % | 41,7 % |
+| Datos críticos (por categoría) | **81,1 %** | 57,6 % | 66,3 % |
+| Primer parcial p50 / p95 | **1741 / 2378 ms** | no existe | no existe |
+| Final tras detener p50 / p95 | **17 / 46 ms** | 1228 / 9724 ms | 2944 / 3209 ms |
+| Memoria pico | **158,2 MiB** | 275,8 MiB | 328,2 MiB |
+| Peso añadido al APK | **0 B** | +41.063.516 B | +68.618.468 B |
+
+Las dos filas de «datos críticos» miden lo mismo con reglas distintas: la del
+agregador cuenta cada palabra crítica del corpus; la segunda agrupa por tipo de
+dato. El orden entre motores es el mismo con ambas.
+
+### Dónde se rompe cada motor
+
+| Dato | Android | tiny | base |
+|---|--:|--:|--:|
+| Cantidades | **17/17** | 12/16 | 16/17 |
+| Precio unitario | **8/8** | 6/8 | 6/8 |
+| Precio total | **1/1** | 0/1 | 0/1 |
+| Montos de pago | **6/7** | 2/7 | 5/7 |
+| **Productos** | **5/17** | 3/16 | 3/17 |
+| Personas | **4/7** | 3/7 | 4/7 |
+| Unidades | 17/17 | 16/16 | 17/17 |
+| Moneda | **13/15** | 6/15 | 7/15 |
+| Chaco | **5/5** | 4/5 | **5/5** |
+
+**Ningún motor reconoce los nombres de producto.** Paraquat, Mancozeb,
+Lambdacialotrina, Germi-100 y Expansive fallan en los tres. Eso no lo arregla el
+motor: lo arregla un diccionario contra los productos de la base local, que es
+trabajo de `EVO-010`.
+
+Errores numéricos de Whisper que Android no cometió:
+
+| Frase | Dicho | tiny | base |
+|---|---|---|---|
+| `AJ-014` | dos mil setecientos | **2017, 100** | **17,200** |
+| `AJ-003` | doscientos kilos | 200 kilos | **«Con preo, cientos kilos»** |
+| `AJ-026` | José Luis · dos mil | **«Juan Luis de 2011»** | José Luis · 2000 |
+| `AJ-039` | 20 litros · 48 · 80 | — | **«3.20 lítulos … 488»** |
+
+«bolivianos» sale sistemáticamente de Whisper como *volvianos*, *volviendo* u
+*olivinas*.
+
+### Silencio: la diferencia que decide
+
+| Motor | Audio | Resultado |
+|---|--:|---|
+| **Android** | 8737 ms · 8686 ms · 8686 ms (3 tomas) | `noMatch` (error 7), **ninguna palabra** |
+| **Whisper tiny** | 3052 ms | **`[MÚSICA]`**, sin error |
+| Whisper base | — | `NOT_MEASURED` |
+
+Whisper devuelve texto inventado y lo marca como resultado válido. En un flujo
+de voz que precarga un borrador, eso es exactamente el material de una falsa
+aceptación. Android, ante la misma entrada, no afirma nada.
+
+El silencio de Whisper base no se probó; se registra como `NOT_MEASURED` y no se
+infiere del comportamiento de `tiny`.
+
+### El idioma: `es-BO` no existe
+
+| Locale | Respuesta de Android |
+|---|---|
+| `es-BO` | error **12** `LANGUAGE_NOT_SUPPORTED` — no existe para el reconocedor |
+| `es-ES` | error **13** `LANGUAGE_UNAVAILABLE` — existe, no instalado en este aparato |
+| `es-US` | **funciona** — es el único paquete presente |
+
+La distinción entre 12 y 13 importa: `es-BO` no funcionará en ningún teléfono;
+`es-ES` funcionaría si el usuario descarga el paquete. La aplicación tendrá que
+usar el idioma que haya instalado y **no puede prometer español boliviano**.
+
+### La API de disponibilidad miente en este aparato
+
+`SpeechRecognizer.isOnDeviceRecognitionAvailable()` devuelve **`false`**, y sin
+embargo las 45 tomas offline se transcribieron. El `logcat` muestra por qué:
+
+```
+SodaSpeechRecognizer: Audio process finished, transcription completed.
+soda_async_impl.cc: SODA stopped processing audio, mics audio processed in millis: 5180
+```
+
+**SODA** es el reconocedor local de Google. Corrió íntegro en el teléfono, sin
+red. Conclusión de diseño: `EVO-009` **no puede** usar esa API para decidir si
+hay modo offline; hay que intentar la transcripción y observar el resultado.
+
+Por debajo de API 33 tampoco se puede consultar qué idiomas hay instalados. El
+banco lo informa como `localeSupportKnown = false` y la interfaz muestra
+«SIN VERIFICAR» en vez de prometer o negar el modo offline.
+
+### Repetibilidad
+
+Las mismas 40 frases se dictaron dos veces con red. **Sólo el 33,3 % de las
+transcripciones fue idéntica** (13 de 39). Los nombres de producto cambian entre
+tomas —Paraquat dio *Paraguay* y *paraqua*; Mancozeb dio *mongosep* y
+*mancosep*— y, más grave, `AJ-020` («no fueron **doce**») devolvió `12` en una
+toma y `dos` en otra. Una cantidad que cambia entre tomas del mismo hablante no
+se corrige con diccionarios: no hay forma de saber cuál lectura es la buena.
+
 ## Métricas todavía sin medir
 
 | Métrica | Estado | Por qué |
 |---|---|---|
-| Exactitud de transcripción | `NOT_MEASURED` | Necesita voz real en un teléfono |
-| Exactitud de datos críticos | `NOT_MEASURED` | Ídem |
-| Latencia parcial p50/p95 | `NOT_MEASURED` | Ídem; en Whisper además no existe |
-| Latencia final p50/p95 | `NOT_MEASURED` | Ídem |
-| Memoria pico | `NOT_MEASURED` | El banco la exporta; falta ejecutarlo |
-| CPU | `NOT_MEASURED` | Requiere el teléfono |
-| Batería y temperatura | `NOT_MEASURED` | Requiere sesión sostenida real |
-| Modo avión | `NOT_MEASURED` | El emulador no llega a transcribir |
-| Lifecycle e interrupciones | `NOT_MEASURED` en dispositivo | Cubierto por tests contra el fake; falta el teléfono |
+| CPU por motor | `NOT_MEASURED` | No se instrumentó; MIUI bloquea la inyección de eventos y el muestreo quedó fuera del alcance de la sesión |
+| Batería atribuida al motor | `NOT_MEASURED` | El teléfono estuvo cargando toda la sesión (58 % → 100 %) |
+| Temperatura bajo carga sostenida | `NOT_MEASURED` | Se mantuvo en 33,0 °C, pero sin sesión larga dedicada |
+| Silencio en Whisper base | `NOT_MEASURED` | No se ejecutó |
+| Corpus de **aceptación** | `NOT_MEASURED` | Reservado; sólo se usó el de ajuste |
+| Lifecycle e interrupciones en dispositivo | `NOT_MEASURED` | Cubierto por tests contra el fake; falta el teléfono |
+| Pixel 8 / API 36 | `NOT_MEASURED` | Gate pendiente |
 | Exactitud de intención | `NOT_MEASURED` | Es propiedad de `EVO-010`, que no existe |
 | Draft completo | `NOT_MEASURED` | Ídem |
 | **Falsa aceptación** | `NOT_MEASURED` | Se define sobre un borrador marcado "listo"; sin `EVO-010` no existe ese estado y medirla sobre texto crudo daría un número falso |
 
-Estas tres últimas no son un olvido de la Fase 0: son deliberadamente ajenas a
-ella. La Fase 0 decide el **transcriptor**; la falsa aceptación se decide en el
-intérprete tipado.
+Las tres últimas no son un olvido: son ajenas a esta fase. La Fase 0 decide el
+**transcriptor**; la falsa aceptación se decide en el intérprete tipado.
 
 ## Limitaciones de esta fase
 
-1. **No hubo ningún teléfono real.** El único aparato disponible fue un emulador
-   x86_64. Todo lo medido sobre él vale para ese entorno.
-2. **El reconocimiento del emulador está roto** (`DeadObjectException`), así que
-   el Candidato A no pudo transcribir ni una frase.
-3. **Whisper no pudo medirse en rendimiento.** El emulador es x86_64 sobre un
-   procesador de escritorio; cualquier latencia o memoria de ahí sería engañosa
-   para un teléfono ARM. Sólo se verificó que el motor carga y responde.
+1. **Un solo teléfono.** Gama media, Android 12, MIUI. El gate del Pixel 8 /
+   API 36 sigue abierto, y con él la posibilidad de que Android 16 se comporte
+   distinto — en particular, que `es-ES` sí esté instalado.
+2. **Un solo hablante**, en interior y sin ruido de campo. El corpus tiene
+   categoría `ruido_de_campo`, pero las condiciones acústicas no se variaron.
+3. **Sólo el corpus de ajuste.** El de aceptación sigue intacto, que es
+   justamente su función: no se afinó nada contra él.
 4. **No hay corpus de audio grabado.** No existen grabaciones autorizadas y no se
    generó audio sintético para reemplazarlas: un TTS leyendo frases perfectas
-   infla la exactitud y no dice nada sobre ruido de campo ni acentos reales. El
-   corpus es texto para leer en voz alta.
-5. **Falta el equipo de gama baja**, que es el que decide si Whisper es viable.
+   infla la exactitud y no dice nada sobre acentos reales.
+5. **La primera tanda «offline» estaba mal etiquetada** y se descartó. Se
+   conserva como evidencia de repetibilidad con red, no como prueba offline.
 
-## Comparación
-
-Sólo con lo medido. Las columnas de exactitud y rendimiento quedan vacías a
-propósito.
+## Comparación de fondo
 
 | Criterio | Candidato A (Android) | Candidato B (whisper.cpp) |
 |---|---|---|
-| Peso agregado al APK | **0 B** | +39,2 MiB (tiny) · +65,4 MiB (base) |
-| Dependencias de terceros | ninguna | whisper.cpp (MIT) + modelo (MIT), compilado desde fuente |
-| Necesita descarga previa | **Sí**, el modelo del idioma | No: el modelo viaja en el APK |
-| Funciona sin red recién instalado | **No** (idiomas instalados: 0) | Sí |
-| `es-BO` | **No existe**; cae a `es-ES` o `es-US` | Recibe `es` como pista de idioma |
-| Resultados parciales | Sí | **No** |
-| Reemplazable | Sí, detrás del puerto | Sí, detrás del puerto |
-| Mantenimiento | Lo mantiene Google con el sistema | Commit fijado; actualizar es una decisión explícita |
-| Exactitud | `NOT_MEASURED` | `NOT_MEASURED` |
-| Latencia, memoria, CPU, batería | `NOT_MEASURED` | `NOT_MEASURED` |
+| Exactitud en datos críticos | **81,1 %** | 57,6 % (tiny) · 66,3 % (base) |
+| Afirma texto sobre silencio | **No** (`noMatch`) | **Sí** (`[MÚSICA]`) |
+| Funciona sin red | **Sí**, vía SODA | **Sí**, modelo en el APK |
+| Peso agregado al APK | **0 B** | +39,2 MiB · +65,4 MiB |
+| Memoria pico | **158 MiB** | 276 MiB · 328 MiB |
+| Resultados parciales | **Sí**, ~1,7 s | **No** |
+| Latencia tras detener | **17 ms** | 1,2 s · 2,9 s |
+| Necesita paquete de idioma previo | **Sí** | No |
+| `es-BO` | **No existe** | Recibe `es` como pista |
+| Depende de Google | **Sí** (SODA / Servicios de voz) | **No** |
+| Dependencias de terceros | ninguna | whisper.cpp (MIT) + modelo (MIT) |
+| Mantenimiento | Lo mantiene Google con el sistema | Commit fijado; actualizar es decisión explícita |
 
 ## Recomendación
 
-**Ninguna todavía.** Las dos columnas que deciden —exactitud en datos críticos y
-comportamiento offline real— están sin medir en ambos candidatos.
+**Candidato A — el reconocimiento de Android — como motor primario**, por tres
+razones en este orden:
 
-Lo que sí puede afirmarse: los dos candidatos son **construibles, aislables y
-reemplazables** detrás de `SpeechTranscriptionPort`, y ninguno obliga a un
-servicio remoto.
+1. **No inventa.** Es el criterio que la aplicación no puede negociar: un motor
+   que produce `[MÚSICA]` sobre silencio puede producir un producto o un monto
+   sobre ruido, y el usuario lo vería como dato propuesto.
+2. **Acierta más donde importa**: 81,1 % contra 57,6 % / 66,3 % en datos
+   críticos, con cantidades y precios perfectos en las 25 comprobaciones.
+3. **No cuesta nada en distribución**: 0 bytes de APK y la mitad de memoria.
+
+Whisper **no debe descartarse**: es el único que no depende de Google y el único
+que garantiza offline sin paquete previo. Queda como reserva documentada para el
+caso de un teléfono sin Servicios de Google, y `SpeechTranscriptionPort` permite
+sustituirlo sin tocar el resto.
+
+**Ninguno de los dos alcanza el listón de `EVO-009` por sí solo.** Con 5 de 17
+productos correctos, la transcripción cruda no puede precargar un borrador de
+compra. La conclusión operativa no es «elegir motor y seguir», es:
+
+- el motor entrega **texto**, no datos;
+- el reconocimiento de productos y personas se resuelve contra la base local en
+  `EVO-010`, no en el motor;
+- la frontera de confirmación de `ADR-003` deja de ser una precaución y pasa a
+  ser el mecanismo que sostiene la corrección del flujo.
+
+### Condiciones que deben acompañar a la elección
+
+1. La app **no puede prometer `es-BO`**. Debe detectar el idioma disponible,
+   usarlo y **mostrarlo** al usuario (`EVO-009-REQ-008`).
+2. **No usar `isOnDeviceRecognitionAvailable()`** como garantía de offline:
+   devuelve `false` en un aparato donde el modo offline funciona.
+3. Si no hay ningún paquete de idioma instalado, el dictado **no está
+   disponible**, y así debe decirse — nunca «funciona sin Internet».
+4. Ningún dato crítico puede confirmarse sin revisión del usuario.
 
 ## Evidencia de dispositivo
 
 | Dispositivo | Estado |
 |---|---|
 | Emulador API 36 x86_64 | Ejecutado. Candidato A no funcional; Candidato B carga y responde |
+| **POCO X5 Pro 5G / Android 12 / API 31** | **EJECUTADO** — corpus de ajuste completo, tres motores, modo avión verificado |
 | **Pixel 8 / Android 16 / API 36** | **GATE PENDIENTE** |
-| **Android de gama media/baja** | **GATE PENDIENTE** |
 
-Instrucciones exactas para ejecutarlos:
-`EVOLUTION-3_OWNER_DEVICE_TEST_PLAN.md`. Plantilla de devolución:
-`EVOLUTION-3_OWNER_DEVICE_TEST_RESULTS_TEMPLATE.md`.
+Archivos exportados por el teléfono, en `artifacts/voice-benchmark/results/`:
+
+| Carpeta | Contenido |
+|---|---|
+| `android/` | 45 tomas offline, modo avión verificado |
+| `android-con-red/` | 58 tomas con red, incluye los rechazos de `es-BO` y `es-ES` |
+| `whisper-tiny/` | 43 tomas offline y la prueba de silencio |
+| `whisper-base/` | 43 tomas offline |
+| `etiqueta-incorrecta/` | 43 tomas declaradas offline que no lo eran |
 
 ### APK preparados
 
 Compilados en release (firmados con la clave de depuración: instalables, no
-publicables), `arm64-v8a`. Se entregan por ruta y hash, no por el repositorio.
+publicables), `arm64-v8a`, `minSdk 31`.
 
 | APK | Bytes | SHA-256 |
 |---|--:|---|
-| `voice-benchmark-android-arm64.apk` | 17.394.904 | `cc6542eb94ee49e59aa4e0fe8eaebd92c24a2d0df286ea45883e6e6df1962359` |
-| `voice-benchmark-whisper-tiny-arm64.apk` | 58.458.420 | `48d1535f39fd1238ee0261dd6bab4b700c5a0c84c268ac35dfebd5c387322152` |
-| `voice-benchmark-whisper-base-arm64.apk` | 86.013.372 | `9cbbcc9b80bdce17c7440715801824fbdcf968fcdc6c0b1fac5caaef61a40486` |
+| `voice-benchmark-android-arm64.apk` | 17.476.824 | `d104ded9a6390d119a8338ea2e14f4d7b8a902496777e476401668389fcd9fc5` |
+| `voice-benchmark-whisper-tiny-arm64.apk` | 58.523.956 | `1ad0650c767f6720ac751999f483d95efb61cfb441d3e9f9d041421498ec7d02` |
+| `voice-benchmark-whisper-base-arm64.apk` | 86.078.912 | `b6392d58cbd7bdde7cd71584f1a478d057bec92eef8e360f1d7faf5667bac28f` |
 
 Ninguno requiere credenciales, servicio remoto ni cuenta. Ninguno declara el
-permiso `INTERNET`, lo que puede verificarse en el manifiesto del APK instalado.
+permiso `INTERNET`; verificado en el aparato con `dumpsys package`: los tres
+declaran únicamente `RECORD_AUDIO`.
 
 ## Riesgos
 
 | ID | Cómo queda |
 |---|---|
-| `RISK-010` voz interpreta mal | Abierto. Reforzado: Whisper inventó `[Música]` sobre silencio |
+| `RISK-010` voz interpreta mal | **Abierto y agravado.** 5/17 productos correctos en el mejor motor, y una cantidad que cambió entre tomas del mismo audio |
 | `RISK-013` dependencia abandonada | Mitigado: sin wrapper de terceros; puente propio y commit fijado |
-| `RISK-016` motor local degrada memoria/batería/latencia | **Abierto y sin medir.** Es el riesgo que el gate de dispositivo debe cerrar |
-| `RISK-017` audio o transcripción se filtra | Mitigado en el banco: sin `INTERNET`, sin audio en disco, sin texto en logs, y opción de exportar sin transcripciones |
-| Nuevo: offline no garantizado en Candidato A | Ver `RISK-023` |
-| Nuevo: sin parciales en Candidato B | Ver `RISK-024` |
+| `RISK-016` motor local degrada memoria/batería/latencia | **Parcialmente cerrado.** Memoria y latencia medidas; CPU y batería siguen `NOT_MEASURED` |
+| `RISK-017` audio o transcripción se filtra | Mitigado: sin `INTERNET`, sin audio en disco, sin texto en logs, opción de exportar sin transcripciones |
+| `RISK-023` offline no garantizado en Candidato A | **Reformulado.** El modo offline funciona vía SODA, pero depende de un paquete de idioma instalado y `es-BO` no existe |
+| `RISK-024` sin parciales en Candidato B | **Confirmado** en teléfono real |
+| Nuevo: Whisper afirma texto sobre silencio | `[MÚSICA]` reproducido en hardware real |
 
 ## Decisión
 
 `ADR-002` permanece **`Proposed`**.
 
-No se declara ganador, no se descarta ningún candidato y no se introduce ningún
-servicio remoto. La decisión espera la evidencia de los teléfonos del
-propietario.
+Hay recomendación técnica con evidencia —Candidato A como primario, Whisper como
+reserva— pero la decisión es del propietario y el gate del Pixel 8 sigue
+abierto. No se ha descartado ningún candidato ni se ha introducido ningún
+servicio remoto.
