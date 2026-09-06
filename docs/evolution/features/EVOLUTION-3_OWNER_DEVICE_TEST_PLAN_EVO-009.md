@@ -89,7 +89,7 @@ mejor que no lo hagas: el objetivo es que las frases no viajen a ninguna parte.
 
 | Qué | Cómo | Esperado |
 |---|---|---|
-| Sin permiso de red | Ajustes → Aplicaciones → Agrocuentas → Permisos | La aplicación **no tiene** permiso de Internet |
+| Sin permiso de red | Ver la nota de abajo | El APK **de release** no declara Internet. El **debug sí**, y es normal |
 | Sin audio guardado | Explorador de archivos, carpeta de la aplicación | Ningún archivo de audio, ni antes ni después de dictar |
 | Sin transcripción guardada | Cierra la pantalla y vuelve a entrar | El campo aparece **vacío**: el texto no sobrevive a la salida |
 
@@ -105,6 +105,25 @@ Usa `EVOLUTION-3_OWNER_DEVICE_TEST_RESULTS_TEMPLATE.md`. Incluye:
 - veredicto por punto.
 
 **No copies las frases dictadas.** Con el número de punto y el código basta.
+
+## Nota importante sobre el permiso de Internet
+
+El APK **debug** que vas a instalar **sí declara el permiso de Internet**, y eso
+**no** es un defecto ni tiene nada que ver con la voz: lo añade la propia
+herramienta de Flutter en `android/app/src/debug/AndroidManifest.xml` para poder
+hablar con la aplicación mientras se desarrolla (hot reload, puntos de
+interrupción). Viene de la plantilla del proyecto y es anterior a `EVO-009`.
+
+**La build que se distribuye no lo lleva.** Comprobado sobre el binario:
+
+```bash
+aapt2 dump permissions build/app/outputs/flutter-apk/app-release.apk
+# uses-permission: name='android.permission.RECORD_AUDIO'
+```
+
+Si al revisar los permisos del teléfono ves «Internet», es por esto. La voz no
+usa la red en ningún caso: no hay código de red en el subsistema, y una prueba
+automatizada falla si aparece.
 
 ## Qué NO habilita esta prueba
 
