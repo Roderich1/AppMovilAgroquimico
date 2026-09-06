@@ -3,15 +3,19 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../app.dart';
+import '../../data/typed_reads.dart';
 import '../../domain/money.dart';
+import '../../domain/read_models.dart';
 import '../widgets/common.dart';
 
 typedef _PersonData = ({
+  // Perfil, chacos, aplicaciones y stock por persona no alimentan ninguno de
+  // los cinco reportes de EVOLUTION-2: siguen en el camino legacy.
   Map<String, Object?> profile,
   List<Map<String, Object?>> farms,
   List<Map<String, Object?>> applications,
   List<Map<String, Object?>> stock,
-  List<Map<String, Object?>> statement,
+  List<StatementEntryRead> statement,
 });
 
 class PersonDetailScreen extends ConsumerWidget {
@@ -24,7 +28,7 @@ class PersonDetailScreen extends ConsumerWidget {
       farms: await repo.farmsForPerson(personId),
       applications: await repo.applications(personId: personId),
       stock: await repo.personStockSummary(personId),
-      statement: await repo.detailedStatement(personId),
+      statement: await repo.detailedStatementTyped(personId),
     );
   }
 
@@ -128,26 +132,24 @@ class PersonDetailScreen extends ConsumerWidget {
                 // de información (UIBUG-028).
                 _Section(
                   children: [
-                    for (final entry in _withRunningBalance(d.statement))
+                    for (final line in StatementLine.runningBalance(
+                      d.statement,
+                    ))
                       ListTile(
-                        title: Text(conceptLabel(entry.$1['concept'])),
-                        subtitle: Text(
-                          formatDate(entry.$1['transaction_date']),
-                        ),
+                        title: Text(conceptLabel(line.entry.concept)),
+                        subtitle: Text(formatDate(line.entry.transactionDate)),
                         trailing: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           crossAxisAlignment: CrossAxisAlignment.end,
                           children: [
                             Text(
-                              formatBob(
-                                entry.$1['amount_bob_minor_signed'] as int,
-                              ),
+                              formatBob(line.entry.amountBobMinorSigned),
                               style: const TextStyle(
                                 fontWeight: FontWeight.w700,
                               ),
                             ),
                             Text(
-                              'Acumulado ${formatBob(entry.$2)}',
+                              'Acumulado ${formatBob(line.balanceMinor)}',
                               style: Theme.of(context).textTheme.bodySmall,
                             ),
                           ],
@@ -182,20 +184,6 @@ class _Section extends StatelessWidget {
           : Column(children: children),
     ),
   );
-}
-
-/// Movimientos con su saldo acumulado, en el mismo orden cronológico que usa el
-/// estado de cuenta de Liquidación (UIBUG-028).
-List<(Map<String, Object?>, int)> _withRunningBalance(
-  List<Map<String, Object?>> rows,
-) {
-  var balance = 0;
-  final result = <(Map<String, Object?>, int)>[];
-  for (final row in rows) {
-    balance += row['amount_bob_minor_signed']! as int;
-    result.add((row, balance));
-  }
-  return result;
 }
 
 /// Pestañas del detalle de persona que **se ajustan a su contenido**.
