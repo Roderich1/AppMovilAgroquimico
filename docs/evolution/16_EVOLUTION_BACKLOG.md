@@ -13,7 +13,7 @@ Estados: `PROPOSED`, `ANALYZED`, `APPROVED`, `IN_PROGRESS`, `VERIFIED`, `DEFERRE
 | EVO-006 | Exportación PDF | EVOLUTION-2 | VERIFIED | P1 | M | Escritor propio por ADR-001; Android y propietario verificados |
 | EVO-007 | Duplicar plan como borrador | Futuro | PROPOSED | P3 | M | Nunca reactivar plan original |
 | EVO-008 | Frontera única FIFO | Deuda | PROPOSED | P2 | H | Blocking sólo para nuevo consumidor FIFO |
-| EVO-009 | Voz: captura/transcripción/preview | EVOLUTION-3 | APPROVED | P1 | H | Primera feature tras benchmark; no ejecuta dominio |
+| EVO-009 | Voz: captura/transcripción/preview | EVOLUTION-3 | APPROVED | P1 | H | Primera feature tras benchmark; no ejecuta dominio. Fase 0 en curso: banco de pruebas listo, `ADR-002` sin resolver |
 | EVO-010 | Voz: intención y borradores tipados | EVOLUTION-3 | APPROVED | P1 | H | Sin escrituras; ADR-003 |
 | EVO-011 | Protección/cifrado local | Futuro | PROPOSED | P3 | H | Threat model y recuperación |
 | EVO-012 | Backup remoto | Futuro | DEFERRED | P4 | H | Red, proveedor e identidad |
@@ -30,6 +30,11 @@ Estados: `PROPOSED`, `ANALYZED`, `APPROVED`, `IN_PROGRESS`, `VERIFIED`, `DEFERRE
 
 1. Cerrar documentalmente EVOLUTION-2 con la evidencia ya revisada por el propietario.
 2. Ejecutar benchmark y aceptar/rechazar candidatos en `ADR-002`.
+   **En curso.** El banco de pruebas, el corpus y las herramientas están construidos y
+   verificados; falta la ejecución en teléfonos reales por parte del propietario. Ver
+   `features/EVOLUTION-3_SPEECH_ENGINE_BENCHMARK_RESULTS.md` y
+   `features/EVOLUTION-3_OWNER_DEVICE_TEST_PLAN.md`. Ningún `EVO-*` cambió de estado: el
+   benchmark no implementa funcionalidad de producto.
 3. Implementar `EVO-009` en una rama/PR propia.
 4. Implementar `EVO-010` sin escrituras.
 5. Implementar, cada una por separado, `EVO-017`, `EVO-018` y `EVO-019`.

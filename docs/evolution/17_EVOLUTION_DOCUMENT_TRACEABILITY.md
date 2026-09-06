@@ -40,10 +40,25 @@
 | `features/EVOLUTION-3_SECURITY_AND_CONFIRMATION_POLICY.md` | Privacidad y no autoejecución | APPROVED |
 | `features/EVOLUTION-3_VOICE_GRAMMAR_AND_EXAMPLES.md` | Corpus y lenguaje funcional | APPROVED |
 | `features/EVOLUTION-3_SPEECH_ENGINE_BENCHMARK_PLAN.md` | Selección con evidencia | REQUIRED |
+| `features/EVOLUTION-3_SPEECH_ENGINE_BENCHMARK_RESULTS.md` | Evidencia medida y lo que falta | WAITING_FOR_OWNER_DEVICE_TESTS |
+| `features/EVOLUTION-3_OWNER_DEVICE_TEST_PLAN.md` | Cómo ejecuta el propietario la prueba en teléfonos | Listo para ejecutar |
+| `features/EVOLUTION-3_OWNER_DEVICE_TEST_RESULTS_TEMPLATE.md` | Cómo devuelve el propietario los resultados | Plantilla |
 | `features/EVOLUTION-3_IMPLEMENTATION_PLAN.md` | PRs, gates y secuencia | APPROVED |
 | `features/EVOLUTION-3_TRACEABILITY_MATRIX.md` | Requisito a evidencia | APPROVED |
 | `decisions/ADR-002-voice-transcription-engine.md` | Motor por decidir | Proposed |
 | `decisions/ADR-003-typed-voice-interpretation.md` | Frontera segura | Accepted |
+
+## Herramientas de la Fase 0
+
+No son documentos, pero forman parte de la trazabilidad del benchmark:
+
+| Ruta | Qué es | Se borra |
+|---|---|---|
+| `benchmark/voice_benchmark/` | Banco de pruebas: puerto, dos motores, corpus y tres APK | Eliminando la carpeta |
+| `benchmark/voice_benchmark/assets/corpus.json` | Corpus de 100 frases, ajuste y aceptación | Con la carpeta |
+| `benchmark/voice_benchmark/THIRD_PARTY.md` | Licencias, versiones, hashes y tamaños medidos | Con la carpeta |
+| `tool/voice_benchmark/` | Agregador de resultados y su informe comparativo | Eliminando la carpeta |
+| `test/voice_benchmark_report_test.dart` | Pruebas del agregador, en la suite del proyecto | Con el agregador |
 
 ## Evidencia de creación
 
