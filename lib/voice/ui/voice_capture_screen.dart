@@ -3,7 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../presentation/widgets/common.dart';
 import '../port/speech_transcription_port.dart';
-import '../session/voice_locale_policy.dart';
 import '../session/voice_session_controller.dart';
 import '../session/voice_session_state.dart';
 import '../voice_providers.dart';
@@ -652,6 +651,3 @@ const voiceEntryTitle = 'Ingresar datos por voz';
 
 /// Ruta de la pantalla dentro de la sección Operaciones.
 const voiceRoutePath = '/voz';
-
-/// El locale que el producto pide, reexportado para la interfaz.
-const voiceRequestedLocale = VoiceLocalePolicy.requested;
