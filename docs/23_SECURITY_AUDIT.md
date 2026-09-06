@@ -288,3 +288,56 @@ Los dos problemas que merecen acción inmediata no son de código de aplicación
 El riesgo dominante del producto **no es de seguridad, sino de disponibilidad**: la pérdida
 del dispositivo implica la pérdida total de los datos. Ver
 [14_OFFLINE_AND_SYNC](14_OFFLINE_AND_SYNC.md).
+
+---
+
+# Actualización 2026-09-06 — Superficie de seguridad del respaldo 2.0
+
+El contenedor de respaldo es superficie nueva, así que se audita explícitamente.
+
+## Qué contiene y qué no
+
+| | |
+|---|---|
+| Contiene | `manifest.json`, la base SQLite y las fotografías de factura referenciadas |
+| **No contiene** | contraseñas, claves, tokens, rutas de desarrollo ni nada del entorno. El manifiesto guarda versiones, fechas, tamaños, `sha256` e identificadores de compra |
+| Cifrado | **no**. El archivo no está cifrado, igual que no lo estaba el `.db` anterior. Sigue siendo una limitación conocida del producto, no una regresión |
+
+Un test comprueba que el manifiesto serializado no contiene la cadena `password`.
+
+## Extracción: protección contra *zip slip*
+
+Un ZIP puede declarar entradas con nombres como `../../algo`, y extraerlas escribiría **fuera**
+del directorio de destino. `BackupService._extract` normaliza cada nombre y **rechaza el
+archivo completo** si alguna entrada sale de la carpeta o es absoluta:
+
+```dart
+final normalized = p.normalize(entry.name).replaceAll('\', '/');
+if (normalized.startsWith('..') || p.isAbsolute(normalized)) {
+  throw const BackupException('El respaldo contiene rutas no permitidas y no se abrirá.');
+}
+```
+
+El respaldo no se abre a medias: se rechaza entero y la carpeta temporal se borra.
+
+## Validación antes de tocar los datos
+
+Un archivo de respaldo es una **entrada no confiable**: puede venir de cualquier sitio. Antes
+de reemplazar nada se comprueba, en este orden: que es ZIP o base por su **contenido** (no por
+la extensión), que el manifiesto es legible y **de esta aplicación**, que la versión de formato
+no es más reciente que la que la app entiende, que la base pasa `integrity_check`, que tiene
+las tablas esperadas, que su esquema no es más nuevo que el soportado, y que cada fotografía
+anunciada existe y **coincide con su `sha256`**.
+
+Cualquier fallo aborta **antes** de cerrar la base en uso.
+
+## Firma para distribución
+
+Sin cambios de fondo: no hay keystore, y por eso el release queda sin firmar. Lo relevante para
+seguridad es que **no se filtró ningún secreto** al añadir CI:
+
+- `.gitignore` excluye `android/key.properties`, `**/*.jks` y `**/*.keystore`;
+- el repositorio no contiene ningún `.db`, `.apk`, `.aab`, `.jks` ni `.keystore` (verificado
+  con `git ls-files`);
+- el workflow de CI declara `permissions: contents: read` y **no recibe ningún secreto**: la
+  build de release se hace sin firmar a propósito.

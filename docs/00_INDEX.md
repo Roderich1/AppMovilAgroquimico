@@ -9,10 +9,21 @@ Cuando algo no pudo determinarse desde el código, aparece marcado explícitamen
 
 ## Estado vigente del proyecto
 
-> **Veredicto de release: `RELEASE CANDIDATE`** — ver
-> [35_RELEASE_READINESS § POST-BACKLOG STATUS](35_RELEASE_READINESS.md#post-backlog-status--cierre-del-backlog-uibug).
-> **0 CRITICAL y 0 HIGH abiertos**; quedan 9 MEDIUM/LOW cosméticos justificados y el bloqueo
-> externo del **keystore**.
+> # BASELINE CONGELADA — `v1.0.0-base-stable`
+>
+> **Baseline de desarrollo: `READY FOR EVOLUTION`.**
+> **Distribución en tienda: `NOT READY — KEYSTORE REQUIRED`.**
+>
+> Son dos gates distintos y se evalúan por separado: lo único que falta para publicar es una
+> clave privada, no código ni pruebas. Ver
+> [35_RELEASE_READINESS § BASELINE FREEZE STATUS](35_RELEASE_READINESS.md#baseline-freeze-status--dos-gates-separados).
+>
+> **0 CRITICAL · 0 HIGH · 0 MEDIUM · 0 LOW abiertos** · 0 decisiones de producto pendientes ·
+> 0 defectos conocidos fuera del backlog · 253 tests en verde · CI en GitHub Actions verde ·
+> 17/17 rutas verificadas en Pixel 8.
+>
+> **Empieza por [46_BASELINE_FINAL_FREEZE](46_BASELINE_FINAL_FREEZE.md)**: es el cierre
+> definitivo y el resumen más corto del estado real.
 
 La documentación de este repositorio está en **cuatro capas**, y confundirlas lleva a
 conclusiones equivocadas:
@@ -22,21 +33,25 @@ conclusiones equivocadas:
 | **1 · Línea base y auditoría de código** | `01`–`31` | Descripción del sistema tal como está escrito. Se generó por lectura de código, **sin ejecutar la app**. | Vigente como descripción; sus veredictos de calidad son **anteriores** a las capas 2 y 3. |
 | **2 · Estabilización (histórica)** | `32`–`35` | Fase que **sí modificó código** (STAB-001…019). Su informe de release concluía *RELEASE CANDIDATE*. | **Histórica.** El veredicto está **superado** por la capa 3; el análisis se conserva íntegro. |
 | **3 · Auditoría de interfaz (posterior)** | `36`–`40` | Auditoría **ejecutando la aplicación** en Pixel 8. Encontró 65 defectos, 4 de ellos CRITICAL. | **Histórica como observación**; 54 de 66 ya corregidos. Para el estado vigente, `43` y `45`. |
-| **4 · Backlog y cierre** | **`41`–`45`** | **Fuente de verdad operativa**: backlog normalizado, plan de corrección por lotes y trazabilidad. | **Vigente. Empieza aquí para trabajar.** |
+| **4 · Backlog y corrección** | `41`–`45` | Backlog normalizado, plan de corrección por lotes y trazabilidad de cada arreglo. | **Vigente**: `41` es el catálogo de hallazgos y `43` la trazabilidad. `45` es el cierre de su fase. |
+| **5 · Congelación de la baseline** | **`46`** | **Cierre definitivo del proyecto base**: estado, decisiones de producto, evidencia y veredicto. | **Vigente. Empieza aquí.** |
 
-**Documento de estado actual: [45_UI_AUDIT_FINAL_VERIFICATION](45_UI_AUDIT_FINAL_VERIFICATION.md).**
-**Backlog vigente: [41_UIBUG_MASTER_BACKLOG](41_UIBUG_MASTER_BACKLOG.md).**
+**Documento de estado actual: [46_BASELINE_FINAL_FREEZE](46_BASELINE_FINAL_FREEZE.md).**
+**Catálogo de hallazgos: [41_UIBUG_MASTER_BACKLOG](41_UIBUG_MASTER_BACKLOG.md).**
+**Trazabilidad de las correcciones: [43_UIBUG_FIX_TRACEABILITY](43_UIBUG_FIX_TRACEABILITY.md).**
 
-> **Rama**: la estabilización y la auditoría viven en `hardening/stabilization` (`81c919f`).
-> **`origin/main` (`5d0b8ef`) no contiene ninguna de las dos.**
+> **Rama**: el cierre de la baseline vive en `hardening/final-polish`, sobre `origin/main`
+> (`c36e5b7`, que ya integra la estabilización y la auditoría de interfaz).
 
 ## Punto de entrada recomendado
 
 | Si vienes a… | Empieza por |
 |---|---|
+| saber en qué estado está el proyecto | **[46 congelación de la baseline](46_BASELINE_FINAL_FREEZE.md)** |
 | entender el sistema | **[28_SYSTEM_MAP.md](28_SYSTEM_MAP.md)** (15–30 min) |
-| saber si se puede publicar | **[45 verificación final](45_UI_AUDIT_FINAL_VERIFICATION.md)** |
-| corregir defectos | **[41 backlog](41_UIBUG_MASTER_BACKLOG.md)** → **[42 plan](42_UIBUG_FIX_PLAN.md)** |
+| saber si se puede publicar | **[35 § BASELINE FREEZE STATUS](35_RELEASE_READINESS.md#baseline-freeze-status--dos-gates-separados)** — dos gates |
+| empezar una funcionalidad nueva | **[46 §18](46_BASELINE_FINAL_FREEZE.md)** (criterio de congelación) y **[30 roadmap](30_IMPROVEMENT_ROADMAP.md)** |
+| ver el estado de un defecto | **[41 catálogo](41_UIBUG_MASTER_BACKLOG.md)** → **[43 trazabilidad](43_UIBUG_FIX_TRACEABILITY.md)** |
 | ver la evidencia de un defecto | **[38 hallazgos](38_UI_AUDIT_FINDINGS.md)** y `artifacts/ui-audit/` |
 
 ## Índice
@@ -96,7 +111,7 @@ conclusiones equivocadas:
 | 39 | [UI_AUDIT_TRACEABILITY](39_UI_AUDIT_TRACEABILITY.md) | UIBUG → pantalla → feature → regla → evidencia → archivo |
 | 40 | [UI_AUDIT_SUMMARY](40_UI_AUDIT_SUMMARY.md) | Resumen ejecutivo de la auditoría de interfaz |
 
-### Capa 4 — Backlog vigente
+### Capa 4 — Backlog y corrección
 
 | # | Documento | Contenido |
 |---|-----------|-----------|
@@ -104,7 +119,13 @@ conclusiones equivocadas:
 | **42** | [**UIBUG_FIX_PLAN**](42_UIBUG_FIX_PLAN.md) | **Plan de corrección en 15 lotes** por causa raíz, con tests antes/después y criterios de terminado |
 | **43** | [**UIBUG_FIX_TRACEABILITY**](43_UIBUG_FIX_TRACEABILITY.md) | Seguimiento de la corrección: UIBUG → grupo → test → código → verificación en dispositivo → estado |
 | 44 | [NUMERIC_INPUT_SPEC](44_NUMERIC_INPUT_SPEC.md) | Especificación de la entrada numérica es-BO (regla única de UIBUG-003) |
-| **45** | [**UI_AUDIT_FINAL_VERIFICATION**](45_UI_AUDIT_FINAL_VERIFICATION.md) | **Cierre**: 17/17 rutas auditadas, flujos, estado del backlog y veredicto de release |
+| 45 | [UI_AUDIT_FINAL_VERIFICATION](45_UI_AUDIT_FINAL_VERIFICATION.md) | Cierre de la fase de corrección del backlog: 17/17 rutas, flujos y veredicto de entonces (histórico, íntegro) |
+
+### Capa 5 — Congelación de la baseline
+
+| # | Documento | Contenido |
+|---|-----------|-----------|
+| **46** | [**BASELINE_FINAL_FREEZE**](46_BASELINE_FINAL_FREEZE.md) | **Cierre definitivo del proyecto base**: baseline, estado de los 69 UIBUG, plan de un solo uso, campaña terminal, respaldo con fotografías, CI, 17/17 en Pixel 8, builds, limitaciones aceptadas y veredicto `READY FOR EVOLUTION` |
 
 ## Estado verificado del repositorio
 
@@ -114,29 +135,42 @@ Comandos ejecutados y su resultado real, por fase:
 > ejecutó una **fase de estabilización** que sí modificó código, y después una **auditoría de
 > interfaz** que **no** modificó código.
 
-| Comando | Auditoría inicial | Tras la estabilización | Tras la auditoría de interfaz (vigente) |
-|---|---|---|---|
-| `flutter analyze` | 0 issues | 0 issues | **0 issues** |
-| `dart format --set-exit-if-changed lib test` | 0 cambios | 0 cambios | **0 cambios** |
-| `flutter test` | 44 en verde | 91 en verde | **170 en verde** |
-| `flutter build apk --release` | no medido | ✅ compila | ✅ compila (sin firmar) |
-| `flutter build appbundle --release` | no medido | ✅ compila | ✅ compila (sin firmar) |
-| Versión de esquema SQLite | 4 | 5 | **5** |
-| Defectos CRITICAL abiertos | — | 0 conocidos | **0** (los 4 corregidos y verificados) |
-| Defectos HIGH abiertos | — | — | **0** (los 17 corregidos) |
-| Veredicto de release | — | RELEASE CANDIDATE | **RELEASE CANDIDATE** |
+| Comando | Auditoría inicial | Tras la estabilización | Tras la auditoría de interfaz | **Al congelar la baseline (vigente)** |
+|---|---|---|---|---|
+| `flutter analyze` | 0 issues | 0 issues | 0 issues | **0 issues** |
+| `dart format --set-exit-if-changed lib test` | 0 cambios | 0 cambios | 0 cambios | **0 cambios** |
+| `flutter test` | 44 en verde | 91 en verde | 170 en verde | **253 en verde** |
+| `flutter build apk --release` | no medido | ✅ compila | ✅ compila | ✅ **60,6 MB** (sin firmar) |
+| `flutter build appbundle --release` | no medido | ✅ compila | ✅ compila | ✅ **58,6 MB** (sin firmar) |
+| Verificación automática (CI) | no existía | no existía | no existía | ✅ **GitHub Actions verde** |
+| Versión de esquema SQLite | 4 | 5 | 5 | **6** |
+| Defectos CRITICAL abiertos | — | 0 conocidos | 0 | **0** |
+| Defectos HIGH abiertos | — | — | 0 | **0** |
+| Defectos MEDIUM / LOW abiertos | — | — | 9 | **0** |
+| Decisiones de producto pendientes | — | — | 2 | **0** |
+| Rutas verificadas en Pixel 8 | — | — | 17/17 | **17/17** |
+| Respaldo incluye fotografías | no | no | no | **sí** |
+| Veredicto de release | — | RELEASE CANDIDATE | RELEASE CANDIDATE | **READY FOR EVOLUTION** (distribución: keystore) |
 
-> La suite pasó de 91 a **170** tests. El hueco que dejó escapar UIBUG-001 —`export()` sin
-> cobertura y una suite que sólo corre sobre escritorio— está cerrado con
-> `backup_android_semantics_test.dart`, que reproduce la restricción de Android.
+> La suite pasó de 91 a 170 y de 170 a **253**. El hueco que dejó escapar UIBUG-001
+> —`export()` sin cobertura y una suite que sólo corre sobre escritorio— está cerrado con
+> `backup_android_semantics_test.dart`, que reproduce la restricción de Android. El que dejó
+> escapar UIBUG-066 —una guarda que sólo miraba dos formas de escribir el defecto— está
+> cerrado con `set_state_contract_test.dart`, que reconoce cualquier campo declarado `Future`.
 
 Para saber **qué cambió en la estabilización y por qué**, lee
 [34_CHANGE_TRACEABILITY](34_CHANGE_TRACEABILITY.md) y las secciones históricas de
 [35_RELEASE_READINESS](35_RELEASE_READINESS.md).
 
-Para saber **qué está roto hoy y en qué orden se corrige**, lee
-[41_UIBUG_MASTER_BACKLOG](41_UIBUG_MASTER_BACKLOG.md) y
-[42_UIBUG_FIX_PLAN](42_UIBUG_FIX_PLAN.md).
+Para saber **qué se encontró y por qué ocurría**, lee
+[41_UIBUG_MASTER_BACKLOG](41_UIBUG_MASTER_BACKLOG.md); para **cómo se corrigió cada cosa y
+cómo se comprobó**, [43_UIBUG_FIX_TRACEABILITY](43_UIBUG_FIX_TRACEABILITY.md).
+[42_UIBUG_FIX_PLAN](42_UIBUG_FIX_PLAN.md) conserva el plan por lotes con el que se ejecutó.
 
-Para saber **cómo quedó todo tras corregir el backlog**, lee
-[45_UI_AUDIT_FINAL_VERIFICATION](45_UI_AUDIT_FINAL_VERIFICATION.md).
+Para saber **cómo quedó todo al congelar la baseline**, lee
+[46_BASELINE_FINAL_FREEZE](46_BASELINE_FINAL_FREEZE.md). El cierre de la fase anterior sigue
+en [45_UI_AUDIT_FINAL_VERIFICATION](45_UI_AUDIT_FINAL_VERIFICATION.md), sin modificar.
+
+> **Nada conocido queda fuera del backlog.** Los tres defectos que aparecieron durante la fase
+> de cierre (`066` el aviso de `setState`, `067` la cinta de campaña, `068` el rail en
+> horizontal al 130 %) tienen ficha, causa, corrección y test, igual que los 66 originales.

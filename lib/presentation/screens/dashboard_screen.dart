@@ -127,9 +127,16 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                 children: [
                   const Icon(Icons.calendar_month_outlined),
                   const SizedBox(width: 8),
-                  Text(
-                    'Campaña activa: ${activeCampaign?['name'] ?? 'Sin campaña activa'}',
-                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  // Sin `Expanded` el texto reclamaba su ancho natural y la
+                  // fila desbordaba con un nombre de campaña largo o con la
+                  // fuente ampliada: `RenderFlex overflowed` y la cinta
+                  // recortada en la primera pantalla de la aplicación
+                  // (UIBUG-067). Ahora se reparte en varias líneas.
+                  Expanded(
+                    child: Text(
+                      'Campaña activa: ${activeCampaign?['name'] ?? 'Sin campaña activa'}',
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
                   ),
                 ],
               ),
@@ -229,74 +236,21 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                           ? 'Ningún producto coincide con "$inventoryQuery".'
                           : 'Aún no hay inventario.',
                     )
-                  : SingleChildScrollView(
-                      scrollDirection: Axis.horizontal,
-                      child: DataTable(
-                        headingRowHeight: 40,
-                        dataRowMinHeight: 40,
-                        dataRowMaxHeight: 48,
-                        columns: const [
-                          DataColumn(label: Text('Producto')),
-                          DataColumn(label: Text('Unidad')),
-                          DataColumn(label: Text('Físico'), numeric: true),
-                          DataColumn(
-                            label: Text('Comprometido'),
-                            numeric: true,
-                          ),
-                          DataColumn(label: Text('Proyección'), numeric: true),
-                          DataColumn(label: Text('Valor'), numeric: true),
-                        ],
-                        // Sin `onSelectChanged` no aparece la columna de
-                        // casillas, que no tenia ninguna accion masiva detras y
-                        // robaba ancho a una tabla que ya no cabia (UIBUG-022).
-                        showCheckboxColumn: false,
-                        rows: [
-                          for (final row in visibleInventory)
-                            DataRow(
-                              onSelectChanged: (_) => context.push(
-                                '/inventario/${row['product_id']}',
-                              ),
-                              cells: [
-                                DataCell(Text(row['product_name']! as String)),
-                                DataCell(Text(row['unit']! as String)),
-                                DataCell(
-                                  Text(
-                                    formatQuantity(
-                                      row['available_base']! as int,
-                                      row['unit']! as String,
-                                    ),
-                                  ),
-                                ),
-                                DataCell(
-                                  Text(
-                                    formatQuantity(
-                                      row['committed_base']! as int,
-                                      row['unit']! as String,
-                                    ),
-                                  ),
-                                ),
-                                DataCell(
-                                  Text(
-                                    formatQuantity(
-                                      row['projected_base']! as int,
-                                      row['unit']! as String,
-                                    ),
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  ),
-                                ),
-                                DataCell(
-                                  Text(
-                                    formatBob(
-                                      row['available_value_bob_minor']! as int,
-                                    ),
-                                  ),
-                                ),
-                              ],
+                  // En ancho de móvil la tabla no cabía y había que
+                  // desplazarla en horizontal: al hacerlo la columna
+                  // "Producto" salía de la pantalla y quedaban cifras sin
+                  // dueño visible (UIBUG-023). En vez de fijar la primera
+                  // columna, el ancho estrecho usa una lista donde el nombre
+                  // encabeza cada fila y las cifras van etiquetadas: no hay
+                  // desplazamiento horizontal que perder.
+                  : LayoutBuilder(
+                      builder: (context, constraints) =>
+                          constraints.maxWidth < _tableMinWidth
+                          ? _InventoryCards(rows: visibleInventory)
+                          : SingleChildScrollView(
+                              scrollDirection: Axis.horizontal,
+                              child: _inventoryTable(context, visibleInventory),
                             ),
-                        ],
-                      ),
                     ),
             ),
             const SizedBox(height: 20),
@@ -382,9 +336,173 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     ),
   );
 
+  /// Ancho por debajo del cual la tabla de inventario obligaría a desplazarse
+  /// en horizontal. Las seis columnas no caben en el ancho útil de un móvil
+  /// (UIBUG-023).
+  static const double _tableMinWidth = 560;
+
+  Widget _inventoryTable(
+    BuildContext context,
+    List<Map<String, Object?>> rows,
+  ) => DataTable(
+    headingRowHeight: 40,
+    dataRowMinHeight: 40,
+    dataRowMaxHeight: 48,
+    columns: const [
+      DataColumn(label: Text('Producto')),
+      DataColumn(label: Text('Unidad')),
+      DataColumn(label: Text('Físico'), numeric: true),
+      DataColumn(label: Text('Comprometido'), numeric: true),
+      DataColumn(label: Text('Proyección'), numeric: true),
+      DataColumn(label: Text('Valor'), numeric: true),
+    ],
+    // Sin `onSelectChanged` no aparece la columna de
+    // casillas, que no tenia ninguna accion masiva detras y
+    // robaba ancho a una tabla que ya no cabia (UIBUG-022).
+    showCheckboxColumn: false,
+    rows: [
+      for (final row in rows)
+        DataRow(
+          onSelectChanged: (_) =>
+              context.push('/inventario/${row['product_id']}'),
+          cells: [
+            DataCell(Text(row['product_name']! as String)),
+            DataCell(Text(row['unit']! as String)),
+            DataCell(
+              Text(
+                formatQuantity(
+                  row['available_base']! as int,
+                  row['unit']! as String,
+                ),
+              ),
+            ),
+            DataCell(
+              Text(
+                formatQuantity(
+                  row['committed_base']! as int,
+                  row['unit']! as String,
+                ),
+              ),
+            ),
+            DataCell(
+              Text(
+                formatQuantity(
+                  row['projected_base']! as int,
+                  row['unit']! as String,
+                ),
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+            ),
+            DataCell(Text(formatBob(row['available_value_bob_minor']! as int))),
+          ],
+        ),
+    ],
+  );
+
   Widget _title(BuildContext context, String text) => Text(
     text,
     style: Theme.of(context).textTheme.titleLarge
         ?.copyWith(fontWeight: FontWeight.w700),
+  );
+}
+
+/// Inventario en ancho de móvil: una fila por producto, con el **nombre como
+/// encabezado** y cada cifra junto a su etiqueta (UIBUG-023).
+///
+/// Sustituye a la tabla desplazable en horizontal, donde al arrastrar hacia la
+/// derecha el nombre del producto salía de la pantalla y las cantidades
+/// quedaban sin dueño visible. Aquí no hay desplazamiento horizontal que
+/// perder: cada fila se lee entera.
+class _InventoryCards extends StatelessWidget {
+  const _InventoryCards({required this.rows});
+
+  final List<Map<String, Object?>> rows;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      children: [
+        for (final (index, row) in rows.indexed) ...[
+          if (index > 0) const Divider(height: 1),
+          InkWell(
+            onTap: () => context.push('/inventario/${row['product_id']}'),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    row['product_name']! as String,
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  const SizedBox(height: 6),
+                  Wrap(
+                    spacing: 16,
+                    runSpacing: 4,
+                    children: [
+                      _figure(
+                        theme,
+                        'Físico',
+                        formatQuantity(
+                          row['available_base']! as int,
+                          row['unit']! as String,
+                        ),
+                      ),
+                      _figure(
+                        theme,
+                        'Comprometido',
+                        formatQuantity(
+                          row['committed_base']! as int,
+                          row['unit']! as String,
+                        ),
+                      ),
+                      _figure(
+                        theme,
+                        'Proyección',
+                        formatQuantity(
+                          row['projected_base']! as int,
+                          row['unit']! as String,
+                        ),
+                        strong: true,
+                      ),
+                      _figure(
+                        theme,
+                        'Valor',
+                        formatBob(row['available_value_bob_minor']! as int),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _figure(
+    ThemeData theme,
+    String label,
+    String value, {
+    bool strong = false,
+  }) => Column(
+    mainAxisSize: MainAxisSize.min,
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(
+        label,
+        style: theme.textTheme.labelSmall?.copyWith(
+          color: theme.colorScheme.outline,
+        ),
+      ),
+      Text(
+        value,
+        style: TextStyle(
+          fontWeight: strong ? FontWeight.w800 : FontWeight.w500,
+        ),
+      ),
+    ],
   );
 }

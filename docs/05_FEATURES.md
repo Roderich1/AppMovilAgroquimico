@@ -299,3 +299,21 @@ Se buscaron explícitamente y **no existen** en el código:
 | Selección manual de fecha de operación | **No existe**: compras, aplicaciones y transferencias usan `DateTime.now()` desde la UI, aunque el repositorio **sí** acepta fecha. Ver [27](27_KNOWN_ISSUES.md) |
 | Búsqueda global | **No existe**: cada pantalla filtra su propia lista en memoria |
 | Paginación / scroll infinito | **No existe**: las consultas usan `LIMIT` fijo (50/200/400/500) |
+
+---
+
+# Actualización 2026-09-06 — Cambios de alcance al congelar la baseline
+
+| Funcionalidad | Antes | **Ahora** |
+|---|---|---|
+| **Respaldo y restauración** | copia de la base de datos | contenedor `.agrobackup` con **la base y las fotografías de factura**, manifiesto con checksums, reconstrucción de rutas al restaurar en otro dispositivo, y compatibilidad con los `.db` anteriores |
+| **Planificación** | los planes se podían aplicar sin límite; la lista mostraba todos | un plan es **una aplicación planificada**: `PLANNED` a `APPLIED`, sin reaplicación ni al revertir. La lista operativa muestra los pendientes; los aplicados se conservan en un histórico secundario |
+| **Campañas** | se podía reactivar una cerrada | una campaña `CLOSED` es **terminal**; el cierre pide confirmación explícita advirtiendo de que es irreversible |
+| **Catálogos** | dos acciones primarias (botón + FAB global) | una sola acción primaria, que además dice qué crea en la sección abierta |
+| **Inventario en Inicio** | tabla con desplazamiento horizontal | por debajo de 560 px, lista con el nombre del producto por encabezado y cada cifra rotulada |
+
+No se añadió ninguna funcionalidad nueva: la fase era de cierre. Lo que se ve arriba son
+reglas decididas, limitaciones cerradas y presentación corregida.
+
+Funcionalidades explícitamente **fuera** de esta baseline y diferidas:
+[`46` sección 16](46_BASELINE_FINAL_FREEZE.md).

@@ -471,3 +471,57 @@ Los tests confirman la exactitud:
 - FX 7,00: 420 L × USD 16 = **Bs 47 040,00** (`4704000` centavos)
 - FX 12,10: 420 L × USD 16 = **Bs 81 312,00**
 - BOB no aplica FX
+
+---
+
+# Actualización 2026-09-06 — Esquema v6
+
+`AppDatabase.schemaVersion` pasa de **5 a 6**.
+
+## Qué cambia
+
+| Cambio | Detalle |
+|---|---|
+| **Índice nuevo** | `CREATE UNIQUE INDEX idx_application_plan_single_use ON applications(plan_id) WHERE plan_id IS NOT NULL` |
+| **Vocabulario de estado** | `application_plans.status`: el valor que se escribía al aplicar era `COMPLETED`; pasa a llamarse `APPLIED` |
+| Tablas nuevas | ninguna |
+| Columnas nuevas | ninguna |
+| Filas borradas | **ninguna** |
+
+No hacía falta una columna nueva: el estado ya podía derivarse de `applications.plan_id`. Lo
+que sí faltaba era **la invariante**, y una invariante de los datos vive en el motor. El índice
+parcial sigue el mismo patrón que `idx_campaign_single_active`, que ya se usaba para "exactamente
+una campaña activa".
+
+## Migración v5 a v6
+
+Tres pasos, ninguno destructivo:
+
+1. `UPDATE application_plans SET status='APPLIED' WHERE status='COMPLETED'` — unifica el
+   vocabulario.
+2. Marca como `APPLIED` todo plan que **tenga una aplicación** y no lo estuviera. Repara los
+   planes que la regla anterior devolvía a `PLANNED` al revertir la aplicación: si existe una
+   aplicación que los referencia, el plan ya se consumió.
+3. Crea el índice único parcial.
+
+**Datos anómalos preexistentes.** Bajo la regla vieja era posible aplicar, revertir y volver a
+aplicar, dejando **dos** aplicaciones con el mismo `plan_id`. Si la migración encuentra ese
+caso:
+
+- **conserva las filas** (son datos del usuario);
+- crea el índice **no único**, para no degradar el rendimiento de las consultas;
+- anota la anomalía en `app_settings` bajo `schema_v6_plan_reuse_anomaly`, con el número de
+  planes afectados.
+
+Es el mismo criterio que usó v5 con sus duplicados: eliminar filas del usuario sin su
+consentimiento sería peor que mantener la divergencia y dejar constancia.
+
+## Verificación
+
+| Comprobación | Resultado |
+|---|---|
+| `schema_equivalence_test.dart` | una base migrada desde v3 (y por tanto pasando por v4, v5 y v6) queda con **el mismo esquema** que una creada desde cero: tablas, columnas, tipos, nullability, defaults, PK, y unicidad y parcialidad de cada índice |
+| `plan_lifecycle_test.dart` grupo *migración a v6* | `COMPLETED` pasa a `APPLIED`; el plan reparado queda `APPLIED`; el pendiente real sigue `PLANNED`; con datos limpios el índice queda **único**; con un plan aplicado dos veces se conservan las filas, el índice queda **no único** y la anomalía queda registrada |
+| Migración real en Pixel 8 | al restaurar un respaldo `.db` de esquema v5: `user_version` 5 a 6, `integrity_check ok`, índice creado como único, estados normalizados a 4 `APPLIED` y 1 `PLANNED`, sin anomalías |
+
+Las migraciones históricas (v1 a v5) **no se tocaron**.

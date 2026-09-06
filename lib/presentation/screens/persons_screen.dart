@@ -24,7 +24,9 @@ class _PersonsScreenState extends ConsumerState<PersonsScreen> {
 
   void _refresh() {
     final next = ref.read(repositoryProvider).personProfiles();
-    setState(() => profiles = next);
+    setState(() {
+      profiles = next;
+    });
   }
 
   @override

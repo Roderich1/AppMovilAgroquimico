@@ -276,11 +276,23 @@ class _TransferFormScreenState extends ConsumerState<TransferFormScreen> {
                             ?.copyWith(fontWeight: FontWeight.w800),
                       ),
                     ),
-                    Text('${available.length}'),
+                    // Antes de elegir origen la sección mostraba un `0` a
+                    // secas, que se leía como un dato real ("esta persona
+                    // tiene 0") cuando en realidad todavía no se había
+                    // preguntado por nadie (UIBUG-060). El recuento sólo
+                    // aparece cuando hay un origen del que contar.
+                    if (fromId != null) Text('${available.length}'),
                   ],
                 ),
                 const SizedBox(height: 8),
-                if (available.length >= 8)
+                // Estado vacío explícito: dice qué falta hacer en vez de
+                // dejar la sección en blanco tras el encabezado.
+                if (fromId == null)
+                  const EmptyState(
+                    icon: Icons.person_search_outlined,
+                    message: 'Seleccione un origen para ver su inventario.',
+                  ),
+                if (fromId != null && available.length >= 8)
                   TextField(
                     controller: search,
                     onChanged: (_) => setState(() {}),

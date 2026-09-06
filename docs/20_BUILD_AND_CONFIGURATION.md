@@ -282,3 +282,58 @@ flutter build apk --debug                # APK instalable
 
 El paso 5 es esencial y **no está documentado en el README**: sin él, la app parece rota
 para quien la abre por primera vez. Ver [29_IMPROVEMENT_AUDIT](29_IMPROVEMENT_AUDIT.md).
+
+---
+
+# Actualización 2026-09-06 — Verificación automática en GitHub Actions
+
+Hasta esta fase el repositorio **no tenía ninguna verificación automática**: los cuatro
+comandos de la puerta de calidad se ejecutaban a mano y nada impedía integrar un PR que los
+rompiera.
+
+## `.github/workflows/flutter-ci.yml`
+
+| | |
+|---|---|
+| Disparadores | `pull_request` · `push` a `main` · `workflow_dispatch` |
+| Permisos | `contents: read` — el workflow sólo lee; no publica, no comenta, no toca releases |
+| Runner | `ubuntu-latest` |
+| Flutter | **fijado a 3.47.2**, canal `stable`, con caché de Flutter/pub |
+| JDK | **temurin 17**, fijado |
+| Timeout | 30 minutos |
+| Concurrency | `cancel-in-progress`: un push nuevo cancela la ejecución anterior de la misma rama |
+
+Pasos, en orden:
+
+```
+flutter pub get
+dart format --output=none --set-exit-if-changed lib test
+flutter analyze
+flutter test
+flutter build apk --release
+```
+
+Son **exactamente** los que la baseline exige en local, para que "verde en CI" y "verde en mi
+máquina" signifiquen lo mismo.
+
+## Por qué se fija la versión
+
+Un `latest` sin control deja de reproducir lo que se validó en cuanto el canal estable avanza.
+La baseline se congela con Flutter 3.47.2 y Dart 3.13.2; el workflow declara esa versión y la
+caché la reutiliza entre ejecuciones. Si algún día hay que subir de versión, será un cambio
+explícito y visible en el diff, no una sorpresa un lunes.
+
+## CI no necesita keystore
+
+Sin `android/key.properties`, `android/app/build.gradle.kts` deja la build de release
+**deliberadamente sin firmar** y avisa por consola. Eso es justo lo que CI tiene que comprobar:
+que el release **compila**. Firmar y distribuir es otra cosa, y depende de un secreto que sólo
+el propietario custodia.
+
+**No se sube ningún secreto al workflow**: ni keystore, ni `key.properties`, ni variables de
+entorno con credenciales. El `.gitignore` ya excluye `android/key.properties`, `**/*.jks` y
+`**/*.keystore`.
+
+## Último resultado conocido
+
+Run `33999797085` sobre el PR #4: **verde**, 7 min 18 s, los cuatro pasos en verde.
