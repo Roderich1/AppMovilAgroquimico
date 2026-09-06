@@ -2,17 +2,17 @@
 
 ## Estado
 
-`MEASURED_ON_ONE_DEVICE` — `WAITING_FOR_OWNER_DECISION`
+`DECIDED`
 
 El propietario ejecutó el corpus de ajuste completo con los tres motores en un
-teléfono real (POCO X5 Pro 5G, Android 12 / API 31) el 2026-09-06. Hay
-exactitud, latencia, memoria y comportamiento offline medidos.
+teléfono real (POCO X5 Pro 5G, Android 12 / API 31) el 2026-09-06, y con esa
+evidencia **aceptó `ADR-002`**: el motor productivo inicial es el reconocimiento
+de Android; Whisper queda como reserva técnica no distribuida.
 
-**El gate del Pixel 8 / API 36 sigue pendiente**, así que todo lo de aquí
-describe un aparato de gama media con Android 12, no el universo de teléfonos.
-
-`ADR-002` permanece `Proposed`: hay recomendación técnica, falta la decisión del
-propietario.
+El gate del **Pixel 8 / API 36 no se ejecutó**. El propietario lo declaró
+`WAIVED_BY_OWNER — residual compatibility risk accepted`. Todo lo de aquí
+describe un aparato de gama media con Android 12, **no el universo de
+teléfonos**, y no se afirma que API 36 haya sido probado.
 
 ## Identidad
 
@@ -423,7 +423,7 @@ se corrige con diccionarios: no hay forma de saber cuál lectura es la buena.
 | Silencio en Whisper base | `NOT_MEASURED` | No se ejecutó |
 | Corpus de **aceptación** | `NOT_MEASURED` | Reservado; sólo se usó el de ajuste |
 | Lifecycle e interrupciones en dispositivo | `NOT_MEASURED` | Cubierto por tests contra el fake; falta el teléfono |
-| Pixel 8 / API 36 | `NOT_MEASURED` | Gate pendiente |
+| Pixel 8 / API 36 | `NOT_MEASURED` | Gate `WAIVED_BY_OWNER`; riesgo residual en `RISK-028` |
 | Exactitud de intención | `NOT_MEASURED` | Es propiedad de `EVO-010`, que no existe |
 | Draft completo | `NOT_MEASURED` | Ídem |
 | **Falsa aceptación** | `NOT_MEASURED` | Se define sobre un borrador marcado "listo"; sin `EVO-010` no existe ese estado y medirla sobre texto crudo daría un número falso |
@@ -506,7 +506,7 @@ compra. La conclusión operativa no es «elegir motor y seguir», es:
 |---|---|
 | Emulador API 36 x86_64 | Ejecutado. Candidato A no funcional; Candidato B carga y responde |
 | **POCO X5 Pro 5G / Android 12 / API 31** | **EJECUTADO** — corpus de ajuste completo, tres motores, modo avión verificado |
-| **Pixel 8 / Android 16 / API 36** | **GATE PENDIENTE** |
+| **Pixel 8 / Android 16 / API 36** | **`WAIVED_BY_OWNER — residual compatibility risk accepted`** — no ejecutado, no verificado |
 
 Archivos exportados por el teléfono, en `artifacts/voice-benchmark/results/`:
 
@@ -547,9 +547,36 @@ declaran únicamente `RECORD_AUDIO`.
 
 ## Decisión
 
-`ADR-002` permanece **`Proposed`**.
+`ADR-002` está **`Accepted`** desde el 2026-09-06.
 
-Hay recomendación técnica con evidencia —Candidato A como primario, Whisper como
-reserva— pero la decisión es del propietario y el gate del Pixel 8 sigue
-abierto. No se ha descartado ningún candidato ni se ha introducido ningún
-servicio remoto.
+- **Motor productivo inicial**: Android `SpeechRecognizer`.
+- **Whisper tiny/base**: reserva técnica, **no distribuida** en la primera
+  implementación de `EVO-009`. No descartado.
+- **Sin servicio remoto**, sin credenciales, sin backend.
+
+### Waiver del gate Pixel 8 / Android 16 / API 36
+
+Estado: **`WAIVED_BY_OWNER — residual compatibility risk accepted`**
+
+Justificación registrada por el propietario:
+
+- las pruebas se realizaron en **hardware físico Android 12 / API 31**;
+- **API 31 representa el límite inferior real probado**;
+- el propietario **prioriza continuar la evolución**;
+- **API 36 permanece sin evidencia directa**;
+- la aplicación **tendrá fallback manual**;
+- **un problema en API 36 no debe impedir usar las funciones manuales**;
+- si posteriormente aparece un dispositivo API 36, **la prueba se ejecutará como
+  regresión adicional**.
+
+Riesgo residual: `RISK-028`.
+
+### Qué NO afirma esta decisión
+
+- No afirma que API 36 haya sido probado.
+- No afirma que el funcionamiento esté garantizado en API 36, en otros OEM ni con
+  otros paquetes de idioma.
+- No afirma que el reconocimiento de productos esté resuelto: 5/17 sigue siendo
+  el mejor resultado, y se aborda en `EVO-010`.
+
+`EVO-009` continúa **`APPROVED`**: la implementación productiva no ha comenzado.

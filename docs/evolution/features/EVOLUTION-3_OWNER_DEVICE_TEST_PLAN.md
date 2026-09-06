@@ -10,17 +10,39 @@ son independientes, se instalan al lado de la aplicación real, no abren su base
 de datos y no pueden registrar compras, aplicaciones ni pagos. Lo único que
 piden es el micrófono.
 
-## Qué se está decidiendo
+## Estado de este plan
+
+**EJECUTADO el 2026-09-06** en un POCO X5 Pro 5G (Android 12 / API 31), con el
+corpus de ajuste completo y los tres motores, en modo avión verificado contra el
+sistema. Resultados en `EVOLUTION-3_SPEECH_ENGINE_BENCHMARK_RESULTS.md`.
+
+Con esa evidencia el propietario aceptó `ADR-002`: **motor productivo = Android
+`SpeechRecognizer`**; Whisper queda como reserva no distribuida.
+
+Este documento **sigue vigente como procedimiento de regresión**. Si aparece un
+teléfono con **Android 16 / API 36** —gate `WAIVED_BY_OWNER`— se ejecuta igual,
+como comprobación adicional, no como condición para una decisión ya tomada.
+
+## Qué se estaba decidiendo
 
 Cuál motor de voz usará Agrocuentas: el que trae Android o `whisper.cpp` con un
-modelo propio. `ADR-002` sigue **sin decidir** y no se decidirá hasta tener estos
-resultados. Si ninguno sirve, se dirá que ninguno sirve.
+modelo propio. **Decidido**: el de Android.
 
 ## Lo que hay que entregar al final
 
 Un archivo exportado por cada aplicación y por cada teléfono, más la tabla del
 final de este documento. Con eso se completa
 `EVOLUTION-3_OWNER_DEVICE_TEST_RESULTS_TEMPLATE.md`.
+
+### Dos cosas que la ejecución de 2026-09-06 dejó aprendidas
+
+1. **El interruptor «Estoy en MODO AVIÓN» ya no basta por sí solo.** La
+   aplicación lee ahora el modo avión del sistema y avisa en rojo si no coincide
+   con lo que usted marcó. Si ve ese aviso, la tanda no sirve como prueba
+   offline: corrija y repita.
+2. **Exporte antes de cerrar la aplicación.** Las mediciones viven en memoria
+   hasta que toca «Exportar JSON». En la primera sesión estuvieron a punto de
+   perderse 40 frases ya dictadas.
 
 ---
 
