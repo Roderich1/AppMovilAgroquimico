@@ -150,6 +150,7 @@ final class TranscriptionAvailability {
     this.engineVersion = '',
     this.modelName,
     this.requiresNetwork = true,
+    this.localeSupportKnown = true,
     this.detail,
   });
 
@@ -187,6 +188,14 @@ final class TranscriptionAvailability {
   /// prohibido por `EVO-009-REQ-008`.
   final bool requiresNetwork;
 
+  /// `false` cuando el sistema **no permite consultar** qué idiomas hay
+  /// instalados (Android 12 y anteriores: `checkRecognitionSupport` es API 33).
+  ///
+  /// Distinto de "no hay ninguno". Sin esta marca, una lista vacía se leería
+  /// como ausencia comprobada de idiomas, y se registraría como medición algo
+  /// que nunca se midió.
+  final bool localeSupportKnown;
+
   final String? detail;
 
   /// El locale pedido no es el que se usará.
@@ -204,6 +213,7 @@ final class TranscriptionAvailability {
     'engineVersion': engineVersion,
     'modelName': modelName,
     'requiresNetwork': requiresNetwork,
+    'localeSupportKnown': localeSupportKnown,
     'detail': detail,
   };
 }

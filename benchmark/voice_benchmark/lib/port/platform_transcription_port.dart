@@ -57,6 +57,7 @@ final class PlatformSpeechTranscriptionPort
       engineVersion: map['engineVersion'] as String? ?? '',
       modelName: map['modelName'] as String?,
       requiresNetwork: map['requiresNetwork'] as bool? ?? true,
+      localeSupportKnown: map['localeSupportKnown'] as bool? ?? true,
       detail: map['detail'] as String?,
     );
   }

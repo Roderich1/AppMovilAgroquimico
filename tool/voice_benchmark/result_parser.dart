@@ -33,6 +33,7 @@ class BenchRecord {
     this.errorCode,
     this.errorDetail,
     this.attempt = 1,
+    this.startedAt,
     this.notes,
     this.transcriptRedacted = false,
   });
@@ -57,6 +58,13 @@ class BenchRecord {
   final String? errorCode;
   final String? errorDetail;
   final int attempt;
+
+  /// Instante en que se tomó la medición, tal como lo escribió el teléfono.
+  ///
+  /// No se usa para calcular nada: sirve para distinguir dos tomas reales de
+  /// una misma toma leída dos veces (ver [identity]).
+  final String? startedAt;
+
   final String? notes;
   final bool transcriptRedacted;
 
@@ -65,6 +73,27 @@ class BenchRecord {
 
   /// La transcripción no puede evaluarse porque se quitó a propósito.
   bool get comparable => !transcriptRedacted && succeeded;
+
+  /// Qué hace única a **una toma**.
+  ///
+  /// El banco exporta la misma tanda en JSON y en CSV. Si se dejan los dos
+  /// archivos en la carpeta, sin esto cada medición se cuenta dos veces y el
+  /// informe declara el doble de muestras de las que el propietario pronunció:
+  /// un número inventado con apariencia de medición.
+  ///
+  /// Incluye [startedAt] a propósito: dos tomas verdaderas de la misma frase
+  /// nunca comparten el instante de inicio, así que repetir una frase sigue
+  /// contando como dos.
+  String get identity => [
+    engine,
+    model,
+    device,
+    sampleId,
+    attempt,
+    startedAt ?? '',
+    requestedLocale,
+    airplaneMode,
+  ].join('|');
 }
 
 /// Error de lectura con contexto suficiente para arreglar el archivo.
@@ -175,6 +204,7 @@ abstract final class BenchResultParser {
       errorCode: _optionalText(row['errorCode']),
       errorDetail: _optionalText(row['errorDetail']),
       attempt: _optionalInt(row['attempt']) ?? 1,
+      startedAt: _optionalText(row['startedAt']),
       notes: _optionalText(row['notes']),
       transcriptRedacted: _bool(row['transcriptRedacted']),
     );

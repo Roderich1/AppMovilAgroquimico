@@ -167,6 +167,42 @@ void main() {
     );
   });
 
+  group('idiomas no consultables', () {
+    test(
+      'una lista vacia no se confunde con no haber podido preguntar',
+      () async {
+        // Android 12 no expone `checkRecognitionSupport`. Sin esta distincion,
+        // "no se pudo consultar" se registraria como "no hay ningun idioma
+        // instalado", que es una medicion inventada.
+        port.scenario = const FakeScenario(
+          availability: TranscriptionAvailability(
+            available: true,
+            onDeviceAvailable: true,
+            requestedLocale: 'es-BO',
+            localeSupportKnown: false,
+          ),
+        );
+        final availability = await port.checkAvailability('es-BO');
+
+        expect(availability.localeSupportKnown, isFalse);
+        expect(availability.installedLocales, isEmpty);
+        expect(availability.effectiveLocale, isNull);
+        expect(availability.localeIsFallback, isFalse);
+      },
+    );
+
+    test('por omision se asume que el sistema si pudo responder', () {
+      const availability = TranscriptionAvailability(
+        available: true,
+        onDeviceAvailable: true,
+        requestedLocale: 'es-BO',
+      );
+
+      expect(availability.localeSupportKnown, isTrue);
+      expect(availability.toJson()['localeSupportKnown'], isTrue);
+    });
+  });
+
   group('modo avión', () {
     test('un motor que necesitaba red falla con networkRequired', () async {
       port.scenario = FakeScenario.airplaneMode;

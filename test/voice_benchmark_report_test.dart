@@ -377,6 +377,74 @@ void main() {
     });
   });
 
+  group('mediciones repetidas', () {
+    BenchRecord take({
+      required String sampleId,
+      required String startedAt,
+      int attempt = 1,
+    }) => BenchRecord(
+      sampleId: sampleId,
+      split: 'ajuste',
+      intent: 'compra',
+      expectedText: 'Compre diez litros',
+      obtainedText: 'compre 10 litros',
+      engine: 'android-speech',
+      device: 'Xiaomi 22101320G',
+      airplaneMode: false,
+      attempt: attempt,
+      startedAt: startedAt,
+    );
+
+    test('la misma toma leida en JSON y en CSV se cuenta una vez', () {
+      // El banco exporta los dos formatos de la MISMA tanda. Dejar ambos en la
+      // carpeta duplicaba las muestras y el informe declaraba el doble de
+      // frases de las que se pronunciaron.
+      final uno = take(sampleId: 'AJ-001', startedAt: '2026-09-06T15:21:35.1');
+      final copia = take(
+        sampleId: 'AJ-001',
+        startedAt: '2026-09-06T15:21:35.1',
+      );
+
+      expect(cli.deduplicate([uno, copia]), hasLength(1));
+    });
+
+    test('repetir una frase de verdad sigue contando como dos tomas', () {
+      // Dos tomas reales nunca comparten el instante de inicio: distinguirlas
+      // importa porque el propietario repite frases cuando el motor falla.
+      final primera = take(
+        sampleId: 'AJ-001',
+        startedAt: '2026-09-06T15:21:35.1',
+      );
+      final segunda = take(
+        sampleId: 'AJ-001',
+        startedAt: '2026-09-06T15:24:02.7',
+        attempt: 2,
+      );
+
+      expect(cli.deduplicate([primera, segunda]), hasLength(2));
+    });
+
+    test('conserva el orden de lectura', () {
+      final a = take(sampleId: 'AJ-001', startedAt: '2026-09-06T15:21:35.1');
+      final b = take(sampleId: 'AJ-002', startedAt: '2026-09-06T15:22:00.0');
+
+      expect(cli.deduplicate([a, b, a]).map((r) => r.sampleId), [
+        'AJ-001',
+        'AJ-002',
+      ]);
+    });
+
+    test('el instante de la toma se lee del archivo exportado', () {
+      final records = BenchResultParser.parseCsv(
+        'sampleId,split,intent,expectedText,engine,airplaneMode,startedAt\n'
+        'AJ-001,ajuste,compra,Registrar compra.,android-speech,false,'
+        '2026-09-06T15:21:35.250644\n',
+      );
+
+      expect(records.single.startedAt, '2026-09-06T15:21:35.250644');
+    });
+  });
+
   group('percentiles', () {
     test('una serie vacía no tiene percentil', () {
       expect(percentile(const <int?>[], 50), isNull);

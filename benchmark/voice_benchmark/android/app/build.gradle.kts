@@ -39,10 +39,12 @@ android {
 
     defaultConfig {
         applicationId = "com.comunidad.agro.voicebench"
-        // `SpeechRecognizer.createOnDeviceSpeechRecognizer` y
-        // `checkRecognitionSupport` existen desde API 33: por debajo no hay nada
-        // que medir del Candidato A.
-        minSdk = 33
+        // `createOnDeviceSpeechRecognizer` existe desde API 31; sólo
+        // `checkRecognitionSupport` pide API 33. Bajar a 31 permite medir en
+        // Android 12, que es gama media todavía muy presente en campo, a cambio
+        // de no poder consultar los idiomas instalados: allí la capacidad
+        // offline se verifica en modo avión, no preguntándole a la API.
+        minSdk = 31
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
