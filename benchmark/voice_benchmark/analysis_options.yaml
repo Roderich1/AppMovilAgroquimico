@@ -1,0 +1,15 @@
+# Mismo conjunto de reglas que el proyecto raíz, para que el spike no se escriba
+# con un estilo distinto del código que después heredará `EVO-009`.
+include: package:flutter_lints/flutter.yaml
+
+analyzer:
+  exclude:
+    - build/**
+    - android/**
+
+linter:
+  rules:
+    curly_braces_in_flow_control_structures: false
+    unnecessary_underscores: false
+    use_null_aware_elements: false
+    prefer_initializing_formals: false

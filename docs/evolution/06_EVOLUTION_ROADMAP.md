@@ -53,6 +53,21 @@ Micrófono → transcripción → intención → draft editable → validar → 
 - Requiere benchmark local, corpus, privacidad, modo avión, Pixel 8 y equipo de menor capacidad.
 - No incluye transferencias, reversiones, cierres, borrado, palabra de activación ni consultas.
 
+### Estado de la Fase 0 (benchmark y `ADR-002`)
+
+En curso, sin cerrar. Se construyó un banco de pruebas instalable con tres APK —motor de
+Android, Whisper `tiny` y Whisper `base`—, un corpus de 100 frases separado en ajuste y
+aceptación, y un agregador de resultados con tests. Se midió todo lo que no depende de un
+teléfono: tamaños nativos, tamaño de modelos e impacto real en el APK.
+
+**Falta la ejecución en teléfonos reales**, que hará el propietario siguiendo
+`features/EVOLUTION-3_OWNER_DEVICE_TEST_PLAN.md`. Hasta entonces `ADR-002` sigue `Proposed` y
+`EVO-009` no comienza.
+
+Dos hallazgos ya afectan al alcance: el reconocimiento de Android no ofrece `es-BO` y exige
+descargar el idioma antes de funcionar sin red (`RISK-023`), y `whisper.cpp` no produce
+resultados parciales (`RISK-024`). Ambos son decisiones de producto pendientes.
+
 ## Evoluciones posteriores no aprobadas
 
 - `EVO-020`: consultas de sólo lectura por voz sobre typed reads/reportes.
