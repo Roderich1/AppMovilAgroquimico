@@ -55,8 +55,8 @@ No son intercambiables. `EVOLUTION-2` agrupa `EVO-004`, `EVO-005` y `EVO-006`.
 | Pago por voz | `EVO-019` | `features/EVO-019_VOICE_PAYMENT_DRAFT_SPEC.md` | `APPROVED` |
 | Consultas por voz | `EVO-020` | `features/EVO-020_VOICE_READ_QUERIES_SPEC.md` | `DEFERRED` |
 | Plan y trazabilidad | `EVOLUTION-3` | `features/EVOLUTION-3_IMPLEMENTATION_PLAN.md` y `features/EVOLUTION-3_TRACEABILITY_MATRIX.md` | `APPROVED` |
-| Resultados del benchmark | `EVOLUTION-3` Fase 0 | `features/EVOLUTION-3_SPEECH_ENGINE_BENCHMARK_RESULTS.md` | `WAITING_FOR_OWNER_DEVICE_TESTS` |
-| Pruebas en teléfonos | `EVOLUTION-3` Fase 0 | `features/EVOLUTION-3_OWNER_DEVICE_TEST_PLAN.md` | Listo para ejecutar |
+| Resultados del benchmark | `EVOLUTION-3` Fase 0 | `features/EVOLUTION-3_SPEECH_ENGINE_BENCHMARK_RESULTS.md` | `DECIDED` |
+| Pruebas en teléfonos | `EVOLUTION-3` Fase 0 | `features/EVOLUTION-3_OWNER_DEVICE_TEST_PLAN.md` | Ejecutado en API 31; vigente como regresión |
 | Devolución de esas pruebas | `EVOLUTION-3` Fase 0 | `features/EVOLUTION-3_OWNER_DEVICE_TEST_RESULTS_TEMPLATE.md` | Plantilla |
 
 Los documentos `FINAL_VERIFICATION` sólo se crean después de implementar y reunir evidencia
@@ -79,7 +79,10 @@ Ante contradicciones: código de la rama analizada → tests → `docs/46_BASELI
    `EVO-019`.
 3. Voz sólo prepara drafts; compra, aplicación y pago requieren confirmación táctil.
 4. `EVO-020`, consultas por voz, permanece `DEFERRED` hasta cerrar la base transaccional.
-5. La Fase 0 de EVOLUTION-3 está en curso: el banco de pruebas y el corpus existen y sus
-   gates están verdes, pero `ADR-002` sigue `Proposed` porque falta la evidencia de teléfonos
-   reales. `EVO-009` no comienza hasta resolverlo. El banco vive en `benchmark/voice_benchmark`,
-   no forma parte de la aplicación y se borra eliminando esa carpeta.
+5. La Fase 0 de EVOLUTION-3 está **cerrada**: el propietario ejecutó el corpus de ajuste con
+   los tres motores en un POCO X5 Pro 5G (Android 12 / API 31) y `ADR-002` quedó **`Accepted`**
+   con Android `SpeechRecognizer` como motor productivo; Whisper es reserva no distribuida. El
+   gate Pixel 8 / API 36 quedó `WAIVED_BY_OWNER` (`RISK-028`) y **no se afirma que API 36 haya
+   sido probado**. `EVO-009` sigue `APPROVED`: la implementación productiva no ha comenzado. El
+   banco vive en `benchmark/voice_benchmark`, no forma parte de la aplicación y se borra
+   eliminando esa carpeta.

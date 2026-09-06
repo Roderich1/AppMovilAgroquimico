@@ -8,7 +8,8 @@
 | Etapa | `EVOLUTION-3` |
 | Decisión del propietario | Aprobada el 2026-09-06 |
 | Estado | `APPROVED` |
-| Dependencia | EVOLUTION-2 integrada; cierre documental coherente antes de código |
+| Dependencia | EVOLUTION-2 integrada; `ADR-002` `Accepted` |
+| Motor decidido | Android `SpeechRecognizer` (`ADR-002`, 2026-09-06). Whisper es reserva no distribuida |
 | Rama prevista | `evolution/evo-009-safe-transcription` |
 
 Este ID conserva su significado original: captura y transcripción seguras. Las intenciones y
@@ -44,9 +45,12 @@ inventario.
 - Vista previa editable.
 - Seguir hablando, editar, reintentar, entregar texto y descartar.
 - Permiso contextual de micrófono.
-- Idioma principal español, preferencia `es-BO` y fallback visible.
+- Idioma español: se **pide** `es-BO`, pero **no se promete** — no existe como idioma de
+  reconocimiento. Se usa el mejor español instalado o soportado, con fallback **visible**.
 - Manejo de lifecycle, interrupciones, denegación y servicio no disponible.
-- Tests con fake y verificación real en Pixel 8.
+- Tests con fake y verificación en dispositivo físico. El gate Pixel 8 / API 36 está
+  `WAIVED_BY_OWNER`; si aparece un aparato API 36 se ejecuta como regresión adicional.
+- **Ingreso manual siempre disponible**, incluso sin reconocimiento.
 
 ## Fuera de alcance
 
@@ -105,20 +109,33 @@ sesión en memoria y estados observables.
 | EVO-009-REQ-010 | Errores no modifican estado operativo ni dejan una sesión falsa aceptada. |
 | EVO-009-REQ-011 | La UI diferencia transcripción, interpretación y confirmación de operación. |
 | EVO-009-REQ-012 | La sesión admite texto parcial acumulativo y continuar hablando sin reiniciar. |
+| EVO-009-REQ-013 | La app solicita preferentemente reconocimiento offline / on-device. |
+| EVO-009-REQ-014 | No confía únicamente en `isRecognitionAvailable()`, `isOnDeviceRecognitionAvailable()` ni en la lista de idiomas instalados: intenta la operación y observa el resultado real. |
+| EVO-009-REQ-015 | La UI muestra locale solicitado, locale utilizado, disponibilidad de modo offline, si falta un modelo y si el error es recuperable. |
+| EVO-009-REQ-016 | No puede prometer `es-BO`. Usa el mejor español instalado o soportado con fallback visible. |
+| EVO-009-REQ-017 | Sin reconocimiento disponible: no bloquea la app, no reintenta infinitamente, no descarga silenciosamente, muestra instrucciones y mantiene la edición manual. |
+| EVO-009-REQ-018 | La voz nunca confirma operaciones. |
+| EVO-009-REQ-019 | Los resultados parciales son sólo texto provisional; no alimentan ninguna decisión. |
+| EVO-009-REQ-020 | Todo texto pasa después por `EVO-010`: resolución local, validación y borrador editable. |
 
-## Decisiones técnicas pendientes
+## Motor decidido
 
-Antes de fijar una dependencia debe completarse el benchmark y resolverse `ADR-002`, que cubre:
+`ADR-002` está **`Accepted`**: el motor productivo inicial es el reconocimiento de Android
+(`android.speech.SpeechRecognizer`). Whisper queda como reserva técnica **no distribuida**.
 
-- motor local, servicio del dispositivo o remoto;
-- soporte real de `es-BO`;
-- necesidad de Internet;
-- datos enviados y proveedor;
-- licencia, mantenimiento y compatibilidad Flutter/Android API 36;
-- límites de sesión, timeouts y resultados parciales;
-- escape hatch para reemplazar el proveedor.
+Lo que la evidencia obliga a asumir en la implementación:
 
-La aprobación de la feature no aprueba automáticamente un proveedor remoto.
+| Hecho medido | Consecuencia para `EVO-009` |
+|---|---|
+| `es-BO` da error 12 `LANGUAGE_NOT_SUPPORTED` | No se promete `es-BO`; se muestra el locale realmente usado |
+| `es-ES` dio error 13 `LANGUAGE_UNAVAILABLE` | Puede faltar el modelo de idioma; hay que decirlo, no descargarlo en silencio |
+| Sólo funcionó `es-US` | Se usa el mejor español disponible, no uno fijo |
+| `isOnDeviceRecognitionAvailable()` devolvió `false` donde el offline **sí** funcionaba | La API no es garantía: hay que intentar transcribir y observar |
+| Silencio devuelve `noMatch` | Ausencia de habla no es texto; nunca se propone un dato |
+| La misma frase dio `12` y `dos` en dos tomas | Cantidades y montos exigen confirmación visible del usuario |
+| 5/17 productos correctos | La transcripción **no** precarga productos; eso es `EVO-010` |
+
+La aprobación de la feature no aprueba un proveedor remoto. Sigue prohibido.
 
 ## Privacidad
 
@@ -126,7 +143,9 @@ La aprobación de la feature no aprueba automáticamente un proveedor remoto.
 - No incluir transcripción completa en logs.
 - No enviar audio fuera del dispositivo sin decisión explícita, aviso y documentación.
 - Minimizar identificadores y metadata.
-- Explicar si el servicio del dispositivo puede usar red.
+- Explicar si el servicio del dispositivo puede usar red. En el aparato medido la
+  transcripción corrió en **SODA**, local, sin red — pero eso **no se generaliza**:
+  depende del dispositivo, del OEM, de la app de Google y de los modelos instalados.
 
 ## Pruebas
 
@@ -139,8 +158,10 @@ La aprobación de la feature no aprueba automáticamente un proveedor remoto.
 - Fake determinista del puerto.
 - Guardas que demuestren ausencia de llamadas a SQLite/dominio.
 - Fuente 130 %, transcripción larga y orientación.
-- Prueba real de micrófono en Pixel 8/API 36.
-- Modo avión documentando el comportamiento real.
+- Prueba real de micrófono en dispositivo físico.
+- Modo avión **verificado contra el sistema**, no declarado por quien prueba.
+- Ausencia de reconocimiento: la app sigue usable con ingreso manual.
+- Pixel 8 / API 36: gate `WAIVED_BY_OWNER`; si aparece el aparato, regresión adicional.
 
 ## Criterios de aceptación
 
@@ -149,7 +170,8 @@ La aprobación de la feature no aprueba automáticamente un proveedor remoto.
 - [ ] Ningún camino escribe en SQLite o ejecuta dominio.
 - [ ] Permiso, lifecycle, error y cancelación son seguros.
 - [ ] Política local/remota y retención están documentadas.
-- [ ] Tests, CI, build y Pixel 8 tienen evidencia.
+- [ ] Tests, CI y build tienen evidencia en dispositivo físico.
+- [ ] El ingreso manual funciona con el reconocimiento no disponible.
 
 ## Rollback
 

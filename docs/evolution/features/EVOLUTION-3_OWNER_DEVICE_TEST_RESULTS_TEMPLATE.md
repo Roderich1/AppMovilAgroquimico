@@ -117,19 +117,22 @@ _______________________________________________________________
 
 3. Los números se incorporan a
    `EVOLUTION-3_SPEECH_ENGINE_BENCHMARK_RESULTS.md`.
-4. Recién entonces se resuelve `ADR-002`.
+4. Recién entonces se resuelve `ADR-002` (resuelto el 2026-09-06; ver abajo).
 
-### Condiciones para que `ADR-002` pueda aceptarse
+### Condiciones para aceptar `ADR-002` — cómo se resolvieron
 
-Todas, sin excepción:
+`ADR-002` fue **aceptado el 2026-09-06**. Así quedó cada condición:
 
-- [ ] Hay resultados del **Pixel 8 / API 36**.
-- [ ] Hay resultados de un **Android de gama media o baja**.
-- [ ] El motor ganador funciona **en modo avión**, o queda documentado que no y
-      el propietario acepta esa limitación por escrito.
-- [ ] Se sabe qué locale usa realmente y si `es-BO` cae a otro.
-- [ ] El impacto en el tamaño de la aplicación es aceptable para el propietario.
-- [ ] Ningún dato crítico se transcribe mal de forma sistemática.
+- [x] Resultados de un **Android de gama media o baja** — POCO X5 Pro 5G, API 31.
+- [ ] Resultados del **Pixel 8 / API 36** — **`WAIVED_BY_OWNER`**, no ejecutado.
+- [x] El motor elegido funciona **en modo avión**, verificado contra el sistema.
+- [x] Se sabe qué locale usa: `es-US`. `es-BO` **no existe** y `es-ES` no estaba
+      instalado.
+- [x] Impacto en el tamaño de la aplicación: **0 bytes**.
+- [ ] **Ningún dato crítico se transcribe mal de forma sistemática** — *no se
+      cumple*: los nombres de producto fallan en los tres motores (5/17 el
+      mejor). Aceptado explícitamente, porque ningún motor lo resuelve; se
+      aborda en `EVO-010` contra el catálogo local.
 
-Si falta cualquiera, `ADR-002` permanece `Proposed`. No se elige motor "mientras
-tanto".
+Esta plantilla sigue vigente para futuras tandas de regresión, en particular si
+aparece un teléfono con **Android 16 / API 36**.

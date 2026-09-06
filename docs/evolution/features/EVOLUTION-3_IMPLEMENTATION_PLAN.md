@@ -10,7 +10,8 @@ sola PR.
 - EVOLUTION-2 integrada y cierre documental coherente con la evidencia aceptada.
 - `main` actualizado, tests y CI verdes.
 - Rama por incremento creada desde el `main` vigente.
-- ADR-002 resuelto después del benchmark; ADR-003 aceptado.
+- **ADR-002 `Accepted`** (2026-09-06): motor productivo = Android `SpeechRecognizer`;
+  Whisper es reserva no distribuida. ADR-003 aceptado.
 - Corpus inicial aprobado y datos de voz con consentimiento/anonimización.
 
 ## Secuencia y ramas sugeridas
@@ -28,12 +29,18 @@ sola PR.
 No iniciar la fase siguiente si la anterior tiene regresiones críticas/altas o su frontera no
 está verificada.
 
-## Fase 0 — Decisión técnica
+## Fase 0 — Decisión técnica · COMPLETADA
 
-- Crear `SpeechTranscriptionPort` mínimo y dos spikes descartables.
-- Ejecutar `EVOLUTION-3_SPEECH_ENGINE_BENCHMARK_PLAN.md`.
-- Revisar licencia, mantenimiento, tamaño, Android lifecycle y modo avión.
-- Actualizar `ADR-002` con decisión y evidencia.
+- [x] `SpeechTranscriptionPort` mínimo y dos spikes descartables.
+- [x] Benchmark ejecutado en hardware físico (POCO X5 Pro 5G, Android 12 / API 31), corpus de
+      ajuste completo con los tres motores, modo avión verificado contra el sistema.
+- [x] Licencia, mantenimiento, tamaño, lifecycle y modo avión revisados.
+- [x] `ADR-002` **`Accepted`** con la evidencia y sus limitaciones.
+
+Gate Pixel 8 / API 36: **`WAIVED_BY_OWNER — residual compatibility risk accepted`**. No se
+ejecutó y no se declara verificado.
+
+La Fase 0 no implementa ninguna feature. `EVO-009` sigue `APPROVED`, no `IN_PROGRESS`.
 
 ## Fase 1 — Captura segura
 
@@ -41,6 +48,10 @@ está verificada.
 - Permiso contextual, estados de sesión, texto parcial/final editable.
 - Cancelar/descartar y lifecycle completo.
 - Fake determinista; sin clasificador ni acceso a dominio.
+- **Motor fijado por `ADR-002`**: Android `SpeechRecognizer`. No se empaqueta Whisper.
+- Cumplir la **política productiva** de `ADR-002`: pedir offline, no confiar en las APIs de
+  disponibilidad, mostrar locale solicitado y utilizado, no prometer `es-BO`, y conservar el
+  **ingreso manual** cuando no haya reconocimiento.
 
 ## Fase 2 — Interpretación tipada
 
@@ -71,7 +82,9 @@ incluye caracterización del flujo manual, paridad, atomicidad, doble toque y di
 - `flutter build apk --release` y CI sobre SHA final.
 - Sin reducción/skip de tests previos.
 - Test rojo antes de cada corrección encontrada.
-- Pixel 8/API 36; prueba adicional en hardware de menor capacidad para motor/modelo.
+- Dispositivo físico. El gate Pixel 8 / API 36 está `WAIVED_BY_OWNER` para `ADR-002`;
+  si aparece un aparato API 36 se ejecuta como **regresión adicional**, no como
+  condición previa.
 - Modo avión, permiso denegado, llamada/interrupción, background/foreground y cancelación.
 - Evidencia de cero escrituras antes de confirmación y cero efectos parciales.
 

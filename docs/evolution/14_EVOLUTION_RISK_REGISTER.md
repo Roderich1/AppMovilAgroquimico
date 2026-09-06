@@ -19,7 +19,7 @@ Escala: probabilidad e impacto `L/M/H`. Owner es responsabilidad lógica, no per
 | RISK-013 | Dependencia abandonada | M | M | health/licencia/escape hatch antes de adoptar | Architecture |
 | RISK-014 | Datos sensibles en logs | M | H | allowlist, redacción, retención | Security |
 | RISK-015 | Push directo evita CI | M | H | proteger `main` y requerir checks antes de PRs evolutivos | Release |
-| RISK-016 | Motor local degrada memoria, batería o latencia | M | H | benchmark Pixel 8 + gama media/baja antes de adoptar | Voice/Mobile QA |
+| RISK-016 | Motor local degrada memoria, batería o latencia | M | H | **Parcialmente cerrado** en API 31: memoria pico 158 MiB (Android), 276–328 MiB (Whisper) y latencias medidas. CPU y batería siguen `NOT_MEASURED` porque el teléfono estuvo cargando. El motor elegido no añade peso al APK | Voice/Mobile QA |
 | RISK-017 | Audio/transcripción sensible sale o queda almacenado | M | H | local preferido, memoria efímera, logs redactados, ADR si remoto | Security |
 | RISK-018 | Voz crea catálogo equivocado | H | H | candidatos, aliases, estado `newProposed` y confirmación explícita | Voice/Catalog |
 | RISK-019 | Reintento/doble toque duplica compra/aplicación/pago | M | H | lock UI, revalidación, transacción e idempotencia | Application/Domain |
@@ -31,6 +31,7 @@ Escala: probabilidad e impacto `L/M/H`. Owner es responsabilidad lógica, no per
 | RISK-025 | Ningún motor reconoce los nombres de producto y la transcripción cruda no puede precargar un borrador | H | H | Medido: 5/17 productos correctos en el mejor motor. El reconocimiento se resuelve contra la base local en `EVO-010`, nunca en el motor, y la frontera de confirmación de `ADR-003` es obligatoria | Voice/Product |
 | RISK-026 | `whisper.cpp` afirma texto sobre silencio y lo marca como resultado válido | M | H | Reproducido en teléfono real: devolvió `[MÚSICA]` sin habla y sin error. Si se elige Whisper, hace falta una guarda explícita de "sin habla" antes de proponer cualquier dato | Voice/Product |
 | RISK-027 | La misma frase dictada dos veces da datos críticos distintos | M | H | Medido: 33,3 % de coincidencia entre dos tandas, con una cantidad que cambió de `12` a `dos`. No se corrige con diccionarios; obliga a que el usuario revise cantidades y montos antes de confirmar | Voice/Product |
+| RISK-028 | El motor elegido no fue probado en API 36 ni en otros OEM; su comportamiento depende del dispositivo, del fabricante, de la app de Google y de los modelos instalados | M | M | **Riesgo residual aceptado por el propietario** al conceder `WAIVED_BY_OWNER` al gate Pixel 8 / API 36. Mitigación: `EVO-009` detecta capacidades en runtime en vez de asumirlas, y conserva siempre el ingreso manual, de modo que un fallo en API 36 no impide usar la app. Si aparece un aparato API 36, la prueba se ejecuta como regresión adicional | Voice/Product |
 
 ## Evidencia incorporada
 
@@ -40,7 +41,9 @@ Escala: probabilidad e impacto `L/M/H`. Owner es responsabilidad lógica, no per
 
 `RISK-016` queda **parcialmente cerrado**: memoria pico (158 MiB Android, 276–328 MiB Whisper) y
 latencias están medidas; CPU y batería siguen `NOT_MEASURED` porque el teléfono estuvo cargando
-toda la sesión. El gate del Pixel 8 / API 36 sigue abierto.
+toda la sesión. El gate del Pixel 8 / API 36 **no se ejecutó**: el propietario lo declaró
+`WAIVED_BY_OWNER — residual compatibility risk accepted` el 2026-09-06, y el riesgo
+residual quedó registrado como `RISK-028`.
 
 ## Disparadores de revisión
 
