@@ -7,7 +7,7 @@
 | Feature | `EVO-009` |
 | Etapa | `EVOLUTION-3` |
 | Decisión del propietario | Aprobada el 2026-09-06 |
-| Estado | `APPROVED` |
+| Estado | `IN_PROGRESS` (implementación en `evolution/evo-009-safe-transcription`) |
 | Dependencia | EVOLUTION-2 integrada; `ADR-002` `Accepted` |
 | Motor decidido | Android `SpeechRecognizer` (`ADR-002`, 2026-09-06). Whisper es reserva no distribuida |
 | Rama prevista | `evolution/evo-009-safe-transcription` |
@@ -93,6 +93,66 @@ sesión en memoria y estados observables.
 | `unavailable` | Servicio/locale no disponible |
 | `error` | Fallo recuperable y seguro |
 
+### Refinamiento aplicado en la implementación
+
+La tabla anterior es la mínima. Al construir la sesión, tres de sus estados
+resultaron **insuficientes para decidir qué ofrecer al usuario**, y por eso el
+código usa una lista de catorce. No se retira nada: se separa.
+
+| Estado mínimo | Estados implementados | Por qué hizo falta separar |
+|---|---|---|
+| `denied` | `permissionDenied`, `permissionPermanentlyDenied` | En el primero se vuelve a pedir el permiso; en el segundo Android ya no pregunta y la única salida son los ajustes. Ofrecer «reintentar» en el segundo caso sería mentir |
+| `unavailable` | `languageUnavailable`, `recognizerUnavailable` | Sin español instalado se explica cómo instalarlo; sin reconocedor no hay nada que instalar. Los consejos son incompatibles |
+| `error` | `recoverableError`, `fatalError` | Sólo el primero admite reintentar sin acción del usuario |
+| — | `starting`, `stopping` | Son las transiciones donde se deshabilitan los botones. Sin estado propio, evitar la doble acción exigiría un booleano paralelo, que es exactamente la contradicción que esta tabla evita |
+
+`ready` **no** tiene estado propio. Entregar el texto deja un resultado en la
+sesión y la deja en `preview`: convertirlo en estado terminal habría obligado a
+salir de él para seguir editando, y `EVO-009-REQ-001` exige que la vista previa
+siga siendo editable siempre.
+
+### Lista de idiomas: exacta y probada
+
+`ADR-002` obliga a documentar el fallback. Es éste, en este orden:
+
+```text
+es-BO · es-419 · es-PE · es-AR · es-CL · es-CO · es-MX · es-US · es-ES · es
+```
+
+- Se **pide** `es-BO` y se muestra el que el motor **aceptó**.
+- `es-US` **no** está fijado: se intenta cuando le toca, como cualquier otro.
+- Con `checkRecognitionSupport` disponible (API 33+) los instalados se adelantan;
+  sin él (API 31, el aparato de referencia) se recorre la lista **intentando y
+  observando**, que es lo que exige `EVO-009-REQ-014`.
+- Sólo `LANGUAGE_NOT_SUPPORTED` / `LANGUAGE_UNAVAILABLE` avanzan al siguiente
+  candidato. Un permiso denegado no mejora cambiando de idioma, y recorrer diez
+  candidatos ante un micrófono denegado sería el bucle que `EVO-009-REQ-017`
+  prohíbe.
+- Agotada la lista: `languageUnavailable`, con instrucciones y **sin descargar
+  nada**.
+
+### Cómo se combinan la voz y las correcciones manuales
+
+Regla única: **el texto nuevo se añade al final; nunca reescribe.**
+
+- El texto de sesión es del usuario y se puede editar entero.
+- Un segmento del motor se concatena al final de lo que haya.
+- El parcial vive **separado** y no entra hasta que el motor lo confirma.
+- Deshacer revierte el último añadido automático y **se desactiva en cuanto el
+  usuario edita**: deshacer entonces borraría su propia corrección.
+
+Es la única regla que no puede perder una corrección, porque el motor nunca toca
+lo ya escrito.
+
+### Continuidad controlada
+
+`SpeechRecognizer` cierra la escucha al detectar silencio aunque el usuario
+quiera seguir. La sesión reabre el turno **sólo mientras el usuario la mantenga
+activa**, y frena con: máximo de turnos improductivos seguidos, backoff que se
+duplica hasta un tope, tope absoluto de turnos y duración máxima de sesión. Un
+turno con texto pone el contador a cero. **No se reabre nunca** ante permiso
+denegado, cancelación, error fatal, segundo plano o salida de la pantalla.
+
 ## Requisitos
 
 | ID | Requisito |
@@ -172,6 +232,17 @@ La aprobación de la feature no aprueba un proveedor remoto. Sigue prohibido.
 - [ ] Política local/remota y retención están documentadas.
 - [ ] Tests, CI y build tienen evidencia en dispositivo físico.
 - [ ] El ingreso manual funciona con el reconocimiento no disponible.
+
+## Estado de la implementación
+
+`IN_PROGRESS`. Construido y cubierto con pruebas automatizadas: puerto,
+adaptador de Android, sesión con continuidad, política de idioma, pantalla y
+guardas arquitectónicas. Detalle requisito a requisito en
+`EVO-009_IMPLEMENTATION_TRACEABILITY.md`.
+
+**Pendiente para `VERIFIED`**: prueba en dispositivo físico según
+`EVOLUTION-3_OWNER_DEVICE_TEST_PLAN_EVO-009.md` y revisión del propietario. El
+gate Pixel 8 / API 36 sigue `WAIVED_BY_OWNER` y no se declara probado.
 
 ## Rollback
 
