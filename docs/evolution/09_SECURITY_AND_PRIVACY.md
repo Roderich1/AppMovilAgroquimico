@@ -33,16 +33,21 @@ backup no están cifrados. Los roles de persona no son autorización.
 
 ## EVOLUTION-3 — voz segura y operaciones confirmadas
 
-La aprobación cubre transcripción, drafts tipados y tres operaciones confirmadas. Antes de
-fijar un motor debe documentarse:
+La aprobación cubre transcripción, drafts tipados y tres operaciones confirmadas.
 
-- motor local, del dispositivo o remoto;
-- conectividad real y degradación sin Internet;
-- idiomas/locales y fallback;
-- datos enviados fuera del teléfono;
-- retención de audio y texto;
-- permisos Android y lifecycle;
-- errores, interrupciones y cancelación.
+El motor quedó fijado por `ADR-002` (`Accepted`, 2026-09-06): **el reconocimiento del propio
+Android**. Lo documentado sobre él:
+
+| Punto | Qué se sabe |
+|---|---|
+| Motor | **Del dispositivo**, no remoto. Ningún servicio externo, ninguna credencial |
+| Conectividad | En el aparato medido transcribió **sin red**, vía SODA. **No se generaliza**: depende del dispositivo, del OEM, de la app de Google y de los modelos instalados |
+| Degradación sin Internet | Debe comprobarse **intentando transcribir**; las APIs de disponibilidad no son garantía |
+| Idiomas y fallback | `es-BO` **no existe**; `es-ES` puede no estar instalado. Se usa el mejor español disponible y **se muestra cuál** |
+| Datos fuera del teléfono | Ninguno por parte de la aplicación. Lo que el servicio del sistema haga queda fuera del control de la app y debe explicarse al usuario |
+| Retención | Audio nunca se persiste; el texto vive en memoria de sesión |
+| Permisos | Sólo `RECORD_AUDIO`, solicitado en contexto |
+| Errores e interrupciones | Estados explícitos; ninguno deja una sesión falsamente aceptada |
 
 Controles obligatorios:
 
@@ -53,11 +58,15 @@ Controles obligatorios:
 - compra, aplicación y pago sólo escriben después de validación y confirmación táctil;
 - creación de producto/proveedor junto a compra debe ser atómica;
 - homónimos, monto/unidad/moneda y adelanto no se autoresuelven;
-- no prometer funcionamiento offline si el motor no lo garantiza;
+- **no prometer funcionamiento offline** si el motor no lo garantiza, ni prometer `es-BO`;
+- **no descargar modelos de idioma en silencio**: se informa y se deja decidir;
+- **conservar siempre el ingreso manual**: la ausencia de reconocimiento no bloquea la app;
+- **no proponer datos a partir de silencio ni de texto no confirmado** por el usuario;
 - fake determinista en tests y prueba real en dispositivo.
 
 La política normativa completa está en
-`features/EVOLUTION-3_SECURITY_AND_CONFIRMATION_POLICY.md`; el motor se decide en `ADR-002`.
+`features/EVOLUTION-3_SECURITY_AND_CONFIRMATION_POLICY.md`. El motor está decidido en
+`ADR-002` (`Accepted`), junto con la política productiva que obliga a `EVO-009`.
 
 ## Respuesta mínima a incidentes
 

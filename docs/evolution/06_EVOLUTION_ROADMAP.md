@@ -50,8 +50,33 @@ Micrófono → transcripción → intención → draft editable → validar → 
   (`EVO-017`) → aplicación planificada (`EVO-018`) → pago (`EVO-019`).
 - Captura e interpretación nunca escriben. Las tres operaciones sólo llaman los casos de uso
   existentes después de una confirmación táctil específica.
-- Requiere benchmark local, corpus, privacidad, modo avión, Pixel 8 y equipo de menor capacidad.
+- Requiere benchmark local, corpus, privacidad y modo avión sobre dispositivo físico. El
+  gate Pixel 8 / API 36 quedó `WAIVED_BY_OWNER` para `ADR-002`.
 - No incluye transferencias, reversiones, cierres, borrado, palabra de activación ni consultas.
+
+### Estado de la Fase 0 (benchmark y `ADR-002`) — CERRADA
+
+El propietario ejecutó el corpus de ajuste completo con los tres motores en un **POCO X5 Pro 5G
+(Android 12 / API 31)**, en modo avión verificado contra el sistema. `ADR-002` está
+**`Accepted`**: motor productivo = **Android `SpeechRecognizer`**; Whisper queda como reserva
+técnica **no distribuida**.
+
+| | Android | Whisper tiny | Whisper base |
+|---|--:|--:|--:|
+| Datos críticos | **81,1 %** | 57,6 % | 66,3 % |
+| Sobre silencio | `noMatch` | **`[MÚSICA]`** | `NOT_MEASURED` |
+| Peso añadido al APK | **0 B** | +39,2 MiB | +65,4 MiB |
+
+Gate Pixel 8 / API 36: **`WAIVED_BY_OWNER — residual compatibility risk accepted`**
+(`RISK-028`). No se ejecutó y no se declara verificado.
+
+Hallazgos que condicionan el alcance: `es-BO` no existe como idioma de reconocimiento y el modo
+offline depende del paquete instalado (`RISK-023`); Whisper no produce parciales (`RISK-024`);
+**ningún motor reconoce el catálogo agrícola** —5/17 el mejor— por lo que los productos se
+resuelven en `EVO-010` contra la base local (`RISK-025`); Whisper afirma texto sobre silencio
+(`RISK-026`); y la misma frase dictada dos veces puede dar cantidades distintas (`RISK-027`).
+
+`EVO-009` sigue **`APPROVED`**: la implementación productiva todavía no comenzó.
 
 ## Evoluciones posteriores no aprobadas
 

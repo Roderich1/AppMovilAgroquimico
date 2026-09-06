@@ -1,0 +1,1989 @@
+{
+  "schemaVersion": 1,
+  "corpusVersion": "1.0.0",
+  "locale": "es-BO",
+  "audio": "NINGUNO_GRABADO",
+  "consentimiento": "El corpus es texto. No contiene ni referencia grabaciones de personas reales. Personas, proveedores y chacos son ficticios.",
+  "counts": {
+    "total": 100,
+    "ajuste": 40,
+    "aceptacion": 60,
+    "porIntencion": {
+      "compra": 49,
+      "aplicacion": 20,
+      "pago": 20,
+      "fuera_de_alcance": 7,
+      "mezclada": 4
+    },
+    "porResultadoEsperado": {
+      "incompleto": 14,
+      "listo": 61,
+      "ambiguo": 14,
+      "rechazado": 11
+    }
+  },
+  "samples": [
+    {
+      "id": "AJ-001",
+      "split": "ajuste",
+      "intent": "compra",
+      "text": "Registrar compra.",
+      "expected": "incompleto",
+      "slots": {},
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "frase_corta",
+        "intencion_sola"
+      ],
+      "note": "Solo intencion: el draft debe pedir producto, cantidad y precio."
+    },
+    {
+      "id": "AJ-002",
+      "split": "ajuste",
+      "intent": "compra",
+      "text": "Quiero registrar una compra de cincuenta litros de Glifosato 48.",
+      "expected": "incompleto",
+      "slots": {
+        "producto": "Glifosato 48 SL",
+        "cantidad": "50",
+        "unidad": "L"
+      },
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "litros",
+        "falta_precio"
+      ]
+    },
+    {
+      "id": "AJ-003",
+      "split": "ajuste",
+      "intent": "compra",
+      "text": "Compré doscientos kilos de Urea a nueve bolivianos el kilo.",
+      "expected": "listo",
+      "slots": {
+        "producto": "Urea",
+        "cantidad": "200",
+        "unidad": "KG",
+        "precioUnitario": "9",
+        "moneda": "BOB"
+      },
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "kilos",
+        "precio_unitario",
+        "bolivianos",
+        "numero_en_letras"
+      ]
+    },
+    {
+      "id": "AJ-004",
+      "split": "ajuste",
+      "intent": "compra",
+      "text": "Anota una compra de veinte litros de Atrazina 50 a ciento veinte bolivianos el litro.",
+      "expected": "listo",
+      "slots": {
+        "producto": "Atrazina 50",
+        "cantidad": "20",
+        "unidad": "L",
+        "precioUnitario": "120",
+        "moneda": "BOB"
+      },
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "litros",
+        "precio_unitario",
+        "bolivianos"
+      ]
+    },
+    {
+      "id": "AJ-005",
+      "split": "ajuste",
+      "intent": "compra",
+      "text": "Compré diez litros de germi cien.",
+      "expected": "incompleto",
+      "slots": {
+        "producto": "Germi-100",
+        "cantidad": "10",
+        "unidad": "L"
+      },
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "alias",
+        "germi_cien",
+        "pronunciacion_dificil"
+      ]
+    },
+    {
+      "id": "AJ-006",
+      "split": "ajuste",
+      "intent": "compra",
+      "text": "Compré diez litros de germi uno cero cero.",
+      "expected": "incompleto",
+      "slots": {
+        "producto": "Germi-100",
+        "cantidad": "10",
+        "unidad": "L"
+      },
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "alias",
+        "germi_uno_cero_cero",
+        "pronunciacion_dificil"
+      ]
+    },
+    {
+      "id": "AJ-007",
+      "split": "ajuste",
+      "intent": "compra",
+      "text": "Quiero registrar compra de cinco litros de expansiv.",
+      "expected": "incompleto",
+      "slots": {
+        "producto": "Expansive",
+        "cantidad": "5",
+        "unidad": "L"
+      },
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "alias",
+        "expansive",
+        "pronunciacion_dificil"
+      ]
+    },
+    {
+      "id": "AJ-008",
+      "split": "ajuste",
+      "intent": "compra",
+      "text": "Registrar compra: cincuenta litros de Bellator a ciento ochenta y seis bolivianos el litro y cincuenta litros de Germispa a ciento ochenta y uno.",
+      "expected": "listo",
+      "slots": {
+        "producto": "Bellator|Germispa",
+        "cantidad": "50|50",
+        "unidad": "L|L",
+        "precioUnitario": "186|181",
+        "moneda": "BOB"
+      },
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "multiproducto",
+        "frase_continua",
+        "litros",
+        "precio_unitario",
+        "bolivianos"
+      ]
+    },
+    {
+      "id": "AJ-009",
+      "split": "ajuste",
+      "intent": "compra",
+      "text": "Compré cien kilos de Fosfato Diamónico a doce dólares el kilo.",
+      "expected": "listo",
+      "slots": {
+        "producto": "Fosfato Diamónico",
+        "cantidad": "100",
+        "unidad": "KG",
+        "precioUnitario": "12",
+        "moneda": "USD"
+      },
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "kilos",
+        "dolares",
+        "precio_unitario"
+      ]
+    },
+    {
+      "id": "AJ-010",
+      "split": "ajuste",
+      "intent": "compra",
+      "text": "Compré cien kilos de Cloruro de Potasio a diez dólares el kilo, tipo de cambio seis noventa y seis.",
+      "expected": "listo",
+      "slots": {
+        "producto": "Cloruro de Potasio",
+        "cantidad": "100",
+        "unidad": "KG",
+        "precioUnitario": "10",
+        "moneda": "USD",
+        "tipoCambio": "6,96"
+      },
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "kilos",
+        "dolares",
+        "tipo_de_cambio"
+      ]
+    },
+    {
+      "id": "AJ-011",
+      "split": "ajuste",
+      "intent": "compra",
+      "text": "El proveedor es Agro Norte.",
+      "expected": "incompleto",
+      "slots": {
+        "proveedor": "Agro Norte"
+      },
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "proveedor",
+        "parche_conversacional"
+      ]
+    },
+    {
+      "id": "AJ-012",
+      "split": "ajuste",
+      "intent": "compra",
+      "text": "Todo queda para el administrador.",
+      "expected": "incompleto",
+      "slots": {
+        "propietario": "ADMIN"
+      },
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "propietario",
+        "agrupacion",
+        "parche_conversacional"
+      ]
+    },
+    {
+      "id": "AJ-013",
+      "split": "ajuste",
+      "intent": "compra",
+      "text": "Compré ocho litros de Lambdacialotrina 5 a trescientos veinte bolivianos el litro.",
+      "expected": "listo",
+      "slots": {
+        "producto": "Lambdacialotrina 5",
+        "cantidad": "8",
+        "unidad": "L",
+        "precioUnitario": "320",
+        "moneda": "BOB"
+      },
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "pronunciacion_dificil",
+        "litros",
+        "precio_unitario"
+      ]
+    },
+    {
+      "id": "AJ-014",
+      "split": "ajuste",
+      "intent": "compra",
+      "text": "Compré treinta litros de Paraquat 27 por dos mil setecientos bolivianos en total.",
+      "expected": "ambiguo",
+      "slots": {
+        "producto": "Paraquat 27",
+        "cantidad": "30",
+        "unidad": "L",
+        "precioTotal": "2700",
+        "moneda": "BOB"
+      },
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "precio_total_vs_unitario",
+        "litros"
+      ],
+      "note": "Precio total, no unitario: no debe asumirse precio unitario sin decision explicita."
+    },
+    {
+      "id": "AJ-015",
+      "split": "ajuste",
+      "intent": "aplicacion",
+      "text": "Aplicar planificación.",
+      "expected": "incompleto",
+      "slots": {},
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "frase_corta",
+        "intencion_sola"
+      ]
+    },
+    {
+      "id": "AJ-016",
+      "split": "ajuste",
+      "intent": "aplicacion",
+      "text": "Quiero que apliques la planificación para el chaco Limoncito.",
+      "expected": "listo",
+      "slots": {
+        "chaco": "Limoncito"
+      },
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "aplicacion_planificada",
+        "chaco"
+      ]
+    },
+    {
+      "id": "AJ-017",
+      "split": "ajuste",
+      "intent": "aplicacion",
+      "text": "De Bellator en realidad usamos diez litros.",
+      "expected": "incompleto",
+      "slots": {
+        "producto": "Bellator",
+        "cantidad": "10",
+        "unidad": "L"
+      },
+      "conditions": [
+        "silencio",
+        "correccion"
+      ],
+      "tags": [
+        "correccion_cantidad",
+        "parche_conversacional"
+      ]
+    },
+    {
+      "id": "AJ-018",
+      "split": "ajuste",
+      "intent": "aplicacion",
+      "text": "Aplica el plan del chaco El Carmen, de Mancozeb usamos cuarenta kilos.",
+      "expected": "listo",
+      "slots": {
+        "chaco": "El Carmen",
+        "producto": "Mancozeb 80",
+        "cantidad": "40",
+        "unidad": "KG"
+      },
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "aplicacion_planificada",
+        "correccion_cantidad",
+        "kilos"
+      ]
+    },
+    {
+      "id": "AJ-019",
+      "split": "ajuste",
+      "intent": "aplicacion",
+      "text": "Usamos la planificación de La Esperanza.",
+      "expected": "listo",
+      "slots": {
+        "chaco": "La Esperanza"
+      },
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "aplicacion_planificada",
+        "chaco"
+      ]
+    },
+    {
+      "id": "AJ-020",
+      "split": "ajuste",
+      "intent": "aplicacion",
+      "text": "De Glifosato no fueron doce, en realidad usamos diez litros.",
+      "expected": "ambiguo",
+      "slots": {
+        "producto": "Glifosato",
+        "cantidad": "10",
+        "unidad": "L"
+      },
+      "conditions": [
+        "silencio",
+        "correccion"
+      ],
+      "tags": [
+        "correccion_cantidad",
+        "nombre_parecido"
+      ],
+      "note": "Glifosato coincide con 48 SL y 68 SG: debe bloquear por candidatos multiples."
+    },
+    {
+      "id": "AJ-021",
+      "split": "ajuste",
+      "intent": "aplicacion",
+      "text": "Aplica la planificación del Lote 2 con las cantidades planificadas.",
+      "expected": "listo",
+      "slots": {
+        "chaco": "Lote 2"
+      },
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "aplicacion_planificada",
+        "chaco"
+      ]
+    },
+    {
+      "id": "AJ-022",
+      "split": "ajuste",
+      "intent": "aplicacion",
+      "text": "Aplicar planificación para el chaco Chaco Chico.",
+      "expected": "listo",
+      "slots": {
+        "chaco": "Chaco Chico"
+      },
+      "conditions": [
+        "silencio",
+        "pausas"
+      ],
+      "tags": [
+        "aplicacion_planificada",
+        "pausas"
+      ]
+    },
+    {
+      "id": "AJ-023",
+      "split": "ajuste",
+      "intent": "pago",
+      "text": "Registrar pago.",
+      "expected": "incompleto",
+      "slots": {},
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "frase_corta",
+        "intencion_sola"
+      ]
+    },
+    {
+      "id": "AJ-024",
+      "split": "ajuste",
+      "intent": "pago",
+      "text": "Registra un pago para Juan Pérez de dos mil bolivianos.",
+      "expected": "listo",
+      "slots": {
+        "persona": "Juan Pérez",
+        "monto": "2000",
+        "moneda": "BOB"
+      },
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "pago",
+        "bolivianos",
+        "persona"
+      ]
+    },
+    {
+      "id": "AJ-025",
+      "split": "ajuste",
+      "intent": "pago",
+      "text": "Me pagó Ana Áñez mil quinientos bolivianos.",
+      "expected": "listo",
+      "slots": {
+        "persona": "Ana Áñez",
+        "monto": "1500",
+        "moneda": "BOB"
+      },
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "pago",
+        "bolivianos",
+        "persona"
+      ]
+    },
+    {
+      "id": "AJ-026",
+      "split": "ajuste",
+      "intent": "pago",
+      "text": "Registra un pago para José Luis de dos mil bolivianos.",
+      "expected": "ambiguo",
+      "slots": {
+        "persona": "AMBIGUO",
+        "monto": "2000",
+        "moneda": "BOB"
+      },
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "pago",
+        "homonimo"
+      ],
+      "note": "Existen dos José Luis: debe bloquear y ofrecer candidatos."
+    },
+    {
+      "id": "AJ-027",
+      "split": "ajuste",
+      "intent": "pago",
+      "text": "Anota un pago para Pedro Áñez Suárez de trescientos dólares.",
+      "expected": "listo",
+      "slots": {
+        "persona": "Pedro Áñez Suárez",
+        "monto": "300",
+        "moneda": "USD"
+      },
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "pago",
+        "dolares",
+        "persona"
+      ]
+    },
+    {
+      "id": "AJ-028",
+      "split": "ajuste",
+      "intent": "pago",
+      "text": "Registra un pago de mil doscientos cincuenta bolivianos para Juan Pérez.",
+      "expected": "listo",
+      "slots": {
+        "persona": "Juan Pérez",
+        "monto": "1250",
+        "moneda": "BOB"
+      },
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "pago",
+        "bolivianos",
+        "orden_invertido"
+      ]
+    },
+    {
+      "id": "AJ-029",
+      "split": "ajuste",
+      "intent": "pago",
+      "text": "Registra un pago para Ana Áñez de diez mil bolivianos.",
+      "expected": "ambiguo",
+      "slots": {
+        "persona": "Ana Áñez",
+        "monto": "10000",
+        "moneda": "BOB"
+      },
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "pago",
+        "excedente"
+      ],
+      "note": "Excede la deuda: el excedente nunca se convierte en adelanto sin decision."
+    },
+    {
+      "id": "AJ-030",
+      "split": "ajuste",
+      "intent": "pago",
+      "text": "Un pago para Juan Pérez de dos mil, no, en realidad de dos mil quinientos bolivianos.",
+      "expected": "listo",
+      "slots": {
+        "persona": "Juan Pérez",
+        "monto": "2500",
+        "moneda": "BOB"
+      },
+      "conditions": [
+        "silencio",
+        "correccion"
+      ],
+      "tags": [
+        "pago",
+        "autocorreccion"
+      ]
+    },
+    {
+      "id": "AJ-031",
+      "split": "ajuste",
+      "intent": "fuera_de_alcance",
+      "text": "Borra la compra de ayer.",
+      "expected": "rechazado",
+      "slots": {},
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "fuera_de_alcance",
+        "borrado"
+      ]
+    },
+    {
+      "id": "AJ-032",
+      "split": "ajuste",
+      "intent": "fuera_de_alcance",
+      "text": "Cierra la campaña.",
+      "expected": "rechazado",
+      "slots": {},
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "fuera_de_alcance",
+        "cierre"
+      ]
+    },
+    {
+      "id": "AJ-033",
+      "split": "ajuste",
+      "intent": "fuera_de_alcance",
+      "text": "Transfiere todo el stock a Ana.",
+      "expected": "rechazado",
+      "slots": {},
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "fuera_de_alcance",
+        "transferencia"
+      ]
+    },
+    {
+      "id": "AJ-034",
+      "split": "ajuste",
+      "intent": "fuera_de_alcance",
+      "text": "Qué herbicida me recomiendas para la soya.",
+      "expected": "rechazado",
+      "slots": {},
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "fuera_de_alcance",
+        "consejo_agronomico"
+      ]
+    },
+    {
+      "id": "AJ-035",
+      "split": "ajuste",
+      "intent": "fuera_de_alcance",
+      "text": "Revierte la última aplicación.",
+      "expected": "rechazado",
+      "slots": {},
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "fuera_de_alcance",
+        "reversion"
+      ]
+    },
+    {
+      "id": "AJ-036",
+      "split": "ajuste",
+      "intent": "mezclada",
+      "text": "Registra una compra de veinte litros de Urea y tambien un pago para Juan Pérez de mil bolivianos.",
+      "expected": "rechazado",
+      "slots": {},
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "dos_intenciones"
+      ],
+      "note": "Dos operaciones: debe pedir separarlas, nunca ejecutar en lote."
+    },
+    {
+      "id": "AJ-037",
+      "split": "ajuste",
+      "intent": "mezclada",
+      "text": "Aplica la planificación de Limoncito y registra un pago para Ana Áñez.",
+      "expected": "rechazado",
+      "slots": {},
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "dos_intenciones"
+      ]
+    },
+    {
+      "id": "AJ-038",
+      "split": "ajuste",
+      "intent": "mezclada",
+      "text": "Compré diez litros de Atrazina y cierra la campaña.",
+      "expected": "rechazado",
+      "slots": {},
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "dos_intenciones",
+        "fuera_de_alcance"
+      ]
+    },
+    {
+      "id": "AJ-039",
+      "split": "ajuste",
+      "intent": "compra",
+      "text": "Registrar compra de veinte litros de Glifosato 48 a ochenta bolivianos el litro.",
+      "expected": "listo",
+      "slots": {
+        "producto": "Glifosato 48 SL",
+        "cantidad": "20",
+        "unidad": "L",
+        "precioUnitario": "80",
+        "moneda": "BOB"
+      },
+      "conditions": [
+        "ruido"
+      ],
+      "tags": [
+        "ruido_de_campo",
+        "litros",
+        "precio_unitario"
+      ],
+      "note": "Misma frase que en silencio: sirve para aislar el efecto del ruido."
+    },
+    {
+      "id": "AJ-040",
+      "split": "ajuste",
+      "intent": "compra",
+      "text": "Quiero registrar compra de cincuenta litros de Urea.",
+      "expected": "incompleto",
+      "slots": {
+        "producto": "Urea",
+        "cantidad": "50",
+        "unidad": "L"
+      },
+      "conditions": [
+        "pausas"
+      ],
+      "tags": [
+        "pausas",
+        "unidad_incompatible"
+      ],
+      "note": "Urea se maneja en KG: la unidad dictada es incompatible y debe bloquear."
+    },
+    {
+      "id": "AC-001",
+      "split": "aceptacion",
+      "intent": "compra",
+      "text": "Anota una compra.",
+      "expected": "incompleto",
+      "slots": {},
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "frase_corta",
+        "intencion_sola"
+      ]
+    },
+    {
+      "id": "AC-002",
+      "split": "aceptacion",
+      "intent": "compra",
+      "text": "Compré cuarenta litros de Cipermetrina 25 a noventa y cinco bolivianos el litro.",
+      "expected": "listo",
+      "slots": {
+        "producto": "Cipermetrina 25",
+        "cantidad": "40",
+        "unidad": "L",
+        "precioUnitario": "95",
+        "moneda": "BOB"
+      },
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "litros",
+        "precio_unitario",
+        "bolivianos"
+      ]
+    },
+    {
+      "id": "AC-003",
+      "split": "aceptacion",
+      "intent": "compra",
+      "text": "Compré trescientos kilos de Sulfato de Amonio a siete bolivianos el kilo.",
+      "expected": "listo",
+      "slots": {
+        "producto": "Sulfato de Amonio",
+        "cantidad": "300",
+        "unidad": "KG",
+        "precioUnitario": "7",
+        "moneda": "BOB"
+      },
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "kilos",
+        "precio_unitario",
+        "bolivianos"
+      ]
+    },
+    {
+      "id": "AC-004",
+      "split": "aceptacion",
+      "intent": "compra",
+      "text": "Quiero registrar compra de quince litros de Azoxistrobina 25 a doscientos diez bolivianos el litro.",
+      "expected": "listo",
+      "slots": {
+        "producto": "Azoxistrobina 25",
+        "cantidad": "15",
+        "unidad": "L",
+        "precioUnitario": "210",
+        "moneda": "BOB"
+      },
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "pronunciacion_dificil",
+        "litros",
+        "precio_unitario"
+      ]
+    },
+    {
+      "id": "AC-005",
+      "split": "aceptacion",
+      "intent": "compra",
+      "text": "Compré doce litros de Tebuconazole 43 a ciento noventa bolivianos el litro.",
+      "expected": "listo",
+      "slots": {
+        "producto": "Tebuconazole 43",
+        "cantidad": "12",
+        "unidad": "L",
+        "precioUnitario": "190",
+        "moneda": "BOB"
+      },
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "pronunciacion_dificil",
+        "litros",
+        "precio_unitario"
+      ]
+    },
+    {
+      "id": "AC-006",
+      "split": "aceptacion",
+      "intent": "compra",
+      "text": "Compré seis litros de Imidacloprid 35 a doscientos setenta bolivianos el litro.",
+      "expected": "listo",
+      "slots": {
+        "producto": "Imidacloprid 35",
+        "cantidad": "6",
+        "unidad": "L",
+        "precioUnitario": "270",
+        "moneda": "BOB"
+      },
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "pronunciacion_dificil",
+        "litros",
+        "precio_unitario"
+      ]
+    },
+    {
+      "id": "AC-007",
+      "split": "aceptacion",
+      "intent": "compra",
+      "text": "Compré veinticinco litros de dos cuatro D Amina a ciento cinco bolivianos el litro.",
+      "expected": "listo",
+      "slots": {
+        "producto": "2,4-D Amina",
+        "cantidad": "25",
+        "unidad": "L",
+        "precioUnitario": "105",
+        "moneda": "BOB"
+      },
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "pronunciacion_dificil",
+        "litros",
+        "precio_unitario"
+      ]
+    },
+    {
+      "id": "AC-008",
+      "split": "aceptacion",
+      "intent": "compra",
+      "text": "Compré veinte litros de germi cien a ciento cuarenta bolivianos el litro.",
+      "expected": "listo",
+      "slots": {
+        "producto": "Germi-100",
+        "cantidad": "20",
+        "unidad": "L",
+        "precioUnitario": "140",
+        "moneda": "BOB"
+      },
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "alias",
+        "germi_cien",
+        "precio_unitario"
+      ]
+    },
+    {
+      "id": "AC-009",
+      "split": "aceptacion",
+      "intent": "compra",
+      "text": "Compré veinte litros de germi uno cero cero a ciento cuarenta bolivianos el litro.",
+      "expected": "listo",
+      "slots": {
+        "producto": "Germi-100",
+        "cantidad": "20",
+        "unidad": "L",
+        "precioUnitario": "140",
+        "moneda": "BOB"
+      },
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "alias",
+        "germi_uno_cero_cero",
+        "precio_unitario"
+      ]
+    },
+    {
+      "id": "AC-010",
+      "split": "aceptacion",
+      "intent": "compra",
+      "text": "Anota una compra de ocho litros de expansive a doscientos treinta bolivianos el litro.",
+      "expected": "listo",
+      "slots": {
+        "producto": "Expansive",
+        "cantidad": "8",
+        "unidad": "L",
+        "precioUnitario": "230",
+        "moneda": "BOB"
+      },
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "alias",
+        "expansive",
+        "precio_unitario"
+      ]
+    },
+    {
+      "id": "AC-011",
+      "split": "aceptacion",
+      "intent": "compra",
+      "text": "Compré cinco litros de expansiv a doscientos treinta bolivianos el litro.",
+      "expected": "listo",
+      "slots": {
+        "producto": "Expansive",
+        "cantidad": "5",
+        "unidad": "L",
+        "precioUnitario": "230",
+        "moneda": "BOB"
+      },
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "alias",
+        "expansive",
+        "precio_unitario"
+      ]
+    },
+    {
+      "id": "AC-012",
+      "split": "aceptacion",
+      "intent": "compra",
+      "text": "Registrar compra: treinta litros de Glifosato 48 a ochenta y dos bolivianos el litro, veinte kilos de Mancozeb 80 a cuarenta y cinco bolivianos el kilo y diez litros de Coadyuvante Siliconado a sesenta bolivianos el litro.",
+      "expected": "listo",
+      "slots": {
+        "producto": "Glifosato 48 SL|Mancozeb 80|Coadyuvante Siliconado",
+        "cantidad": "30|20|10",
+        "unidad": "L|KG|L",
+        "precioUnitario": "82|45|60",
+        "moneda": "BOB"
+      },
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "multiproducto",
+        "frase_continua",
+        "litros",
+        "kilos",
+        "precio_unitario"
+      ]
+    },
+    {
+      "id": "AC-013",
+      "split": "aceptacion",
+      "intent": "compra",
+      "text": "Compré cincuenta litros de Aceite Agrícola Mineral a cincuenta y cinco bolivianos el litro y cien kilos de Urea a nueve bolivianos el kilo.",
+      "expected": "listo",
+      "slots": {
+        "producto": "Aceite Agrícola Mineral|Urea",
+        "cantidad": "50|100",
+        "unidad": "L|KG",
+        "precioUnitario": "55|9",
+        "moneda": "BOB"
+      },
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "multiproducto",
+        "litros",
+        "kilos"
+      ]
+    },
+    {
+      "id": "AC-014",
+      "split": "aceptacion",
+      "intent": "compra",
+      "text": "Compré doscientos kilos de Semilla Soya INTA noventa a quince dólares el kilo.",
+      "expected": "listo",
+      "slots": {
+        "producto": "Semilla Soya INTA-90",
+        "cantidad": "200",
+        "unidad": "KG",
+        "precioUnitario": "15",
+        "moneda": "USD"
+      },
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "kilos",
+        "dolares",
+        "precio_unitario"
+      ]
+    },
+    {
+      "id": "AC-015",
+      "split": "aceptacion",
+      "intent": "compra",
+      "text": "Compré cincuenta kilos de Fosfato Diamónico a once dólares el kilo, tipo de cambio seis con noventa y seis.",
+      "expected": "listo",
+      "slots": {
+        "producto": "Fosfato Diamónico",
+        "cantidad": "50",
+        "unidad": "KG",
+        "precioUnitario": "11",
+        "moneda": "USD",
+        "tipoCambio": "6,96"
+      },
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "dolares",
+        "tipo_de_cambio",
+        "kilos"
+      ]
+    },
+    {
+      "id": "AC-016",
+      "split": "aceptacion",
+      "intent": "compra",
+      "text": "Compré cuarenta litros de Paraquat 27 a noventa bolivianos el litro, el proveedor es Insumos Bolivia.",
+      "expected": "listo",
+      "slots": {
+        "producto": "Paraquat 27",
+        "cantidad": "40",
+        "unidad": "L",
+        "precioUnitario": "90",
+        "moneda": "BOB",
+        "proveedor": "Insumos Bolivia"
+      },
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "proveedor",
+        "litros",
+        "precio_unitario"
+      ]
+    },
+    {
+      "id": "AC-017",
+      "split": "aceptacion",
+      "intent": "compra",
+      "text": "Compré treinta kilos de Cloruro de Potasio a ocho bolivianos el kilo, el proveedor es Agropecuaria del Este y todo queda para el administrador.",
+      "expected": "listo",
+      "slots": {
+        "producto": "Cloruro de Potasio",
+        "cantidad": "30",
+        "unidad": "KG",
+        "precioUnitario": "8",
+        "moneda": "BOB",
+        "proveedor": "Agropecuaria del Este S.R.L.",
+        "propietario": "ADMIN"
+      },
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "proveedor",
+        "propietario",
+        "kilos"
+      ]
+    },
+    {
+      "id": "AC-018",
+      "split": "aceptacion",
+      "intent": "compra",
+      "text": "Compré veinte litros de Atrazina 50 a ciento veinte bolivianos el litro, todo para Juan Pérez.",
+      "expected": "listo",
+      "slots": {
+        "producto": "Atrazina 50",
+        "cantidad": "20",
+        "unidad": "L",
+        "precioUnitario": "120",
+        "moneda": "BOB",
+        "propietario": "Juan Pérez"
+      },
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "propietario",
+        "litros"
+      ]
+    },
+    {
+      "id": "AC-019",
+      "split": "aceptacion",
+      "intent": "compra",
+      "text": "Compré quince litros de Glifosato a ochenta bolivianos el litro.",
+      "expected": "ambiguo",
+      "slots": {
+        "producto": "AMBIGUO",
+        "cantidad": "15",
+        "unidad": "L",
+        "precioUnitario": "80",
+        "moneda": "BOB"
+      },
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "nombre_parecido",
+        "homonimo_producto"
+      ],
+      "note": "Glifosato 48 SL y Glifosato 68 SG: dos candidatos, debe bloquear."
+    },
+    {
+      "id": "AC-020",
+      "split": "aceptacion",
+      "intent": "compra",
+      "text": "Compré cuarenta litros de Coadyuvante a sesenta bolivianos el litro.",
+      "expected": "ambiguo",
+      "slots": {
+        "producto": "AMBIGUO",
+        "cantidad": "40",
+        "unidad": "L",
+        "precioUnitario": "60",
+        "moneda": "BOB"
+      },
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "nombre_parecido"
+      ],
+      "note": "Nombre parcial: no debe autoelegirse el unico parecido sin confirmacion."
+    },
+    {
+      "id": "AC-021",
+      "split": "aceptacion",
+      "intent": "compra",
+      "text": "Compré veinte litros de Glifosato 48 por mil seiscientos bolivianos en total.",
+      "expected": "ambiguo",
+      "slots": {
+        "producto": "Glifosato 48 SL",
+        "cantidad": "20",
+        "unidad": "L",
+        "precioTotal": "1600",
+        "moneda": "BOB"
+      },
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "precio_total_vs_unitario"
+      ]
+    },
+    {
+      "id": "AC-022",
+      "split": "aceptacion",
+      "intent": "compra",
+      "text": "Compré doce coma cinco litros de Azoxistrobina 25 a doscientos diez bolivianos el litro.",
+      "expected": "listo",
+      "slots": {
+        "producto": "Azoxistrobina 25",
+        "cantidad": "12,5",
+        "unidad": "L",
+        "precioUnitario": "210",
+        "moneda": "BOB"
+      },
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "decimales",
+        "litros"
+      ]
+    },
+    {
+      "id": "AC-023",
+      "split": "aceptacion",
+      "intent": "compra",
+      "text": "Compré mil quinientos kilos de Urea a nueve bolivianos el kilo.",
+      "expected": "listo",
+      "slots": {
+        "producto": "Urea",
+        "cantidad": "1500",
+        "unidad": "KG",
+        "precioUnitario": "9",
+        "moneda": "BOB"
+      },
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "kilos",
+        "cantidad_grande"
+      ]
+    },
+    {
+      "id": "AC-024",
+      "split": "aceptacion",
+      "intent": "compra",
+      "text": "Compré cincuenta kilos de Atrazina 50 a ciento veinte bolivianos el kilo.",
+      "expected": "ambiguo",
+      "slots": {
+        "producto": "Atrazina 50",
+        "cantidad": "50",
+        "unidad": "KG"
+      },
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "unidad_incompatible"
+      ],
+      "note": "Atrazina 50 se maneja en litros: unidad incompatible, debe bloquear."
+    },
+    {
+      "id": "AC-025",
+      "split": "aceptacion",
+      "intent": "compra",
+      "text": "Compré treinta litros de Cipermetrina 25 el quince de marzo.",
+      "expected": "incompleto",
+      "slots": {
+        "producto": "Cipermetrina 25",
+        "cantidad": "30",
+        "unidad": "L",
+        "fecha": "15-03"
+      },
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "fecha",
+        "falta_precio"
+      ]
+    },
+    {
+      "id": "AC-026",
+      "split": "aceptacion",
+      "intent": "compra",
+      "text": "Anota la compra de ayer de veinte kilos de Mancozeb 80 a cuarenta y cinco bolivianos el kilo.",
+      "expected": "listo",
+      "slots": {
+        "producto": "Mancozeb 80",
+        "cantidad": "20",
+        "unidad": "KG",
+        "precioUnitario": "45",
+        "moneda": "BOB",
+        "fecha": "AYER"
+      },
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "fecha",
+        "kilos"
+      ]
+    },
+    {
+      "id": "AC-027",
+      "split": "aceptacion",
+      "intent": "compra",
+      "text": "Compré diez litros de Lambdacialotrina 5, no, en realidad fueron quince litros.",
+      "expected": "listo",
+      "slots": {
+        "producto": "Lambdacialotrina 5",
+        "cantidad": "15",
+        "unidad": "L"
+      },
+      "conditions": [
+        "silencio",
+        "correccion"
+      ],
+      "tags": [
+        "autocorreccion",
+        "pronunciacion_dificil"
+      ]
+    },
+    {
+      "id": "AC-028",
+      "split": "aceptacion",
+      "intent": "compra",
+      "text": "Quiero registrar compra de veinte litros de Fertilizante Foliar Completo a setenta bolivianos el litro.",
+      "expected": "listo",
+      "slots": {
+        "producto": "Fertilizante Foliar Completo",
+        "cantidad": "20",
+        "unidad": "L",
+        "precioUnitario": "70",
+        "moneda": "BOB"
+      },
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "litros",
+        "precio_unitario",
+        "nombre_largo"
+      ]
+    },
+    {
+      "id": "AC-029",
+      "split": "aceptacion",
+      "intent": "compra",
+      "text": "Compré cuarenta litros de Glifosato 48 a ochenta bolivianos el litro.",
+      "expected": "listo",
+      "slots": {
+        "producto": "Glifosato 48 SL",
+        "cantidad": "40",
+        "unidad": "L",
+        "precioUnitario": "80",
+        "moneda": "BOB"
+      },
+      "conditions": [
+        "ruido"
+      ],
+      "tags": [
+        "ruido_de_campo",
+        "litros"
+      ]
+    },
+    {
+      "id": "AC-030",
+      "split": "aceptacion",
+      "intent": "compra",
+      "text": "Compré sesenta kilos de Urea a nueve bolivianos el kilo.",
+      "expected": "listo",
+      "slots": {
+        "producto": "Urea",
+        "cantidad": "60",
+        "unidad": "KG",
+        "precioUnitario": "9",
+        "moneda": "BOB"
+      },
+      "conditions": [
+        "ruido"
+      ],
+      "tags": [
+        "ruido_de_campo",
+        "kilos"
+      ]
+    },
+    {
+      "id": "AC-031",
+      "split": "aceptacion",
+      "intent": "compra",
+      "text": "Quiero registrar compra de treinta litros de Atrazina 50 a ciento veinte bolivianos el litro.",
+      "expected": "listo",
+      "slots": {
+        "producto": "Atrazina 50",
+        "cantidad": "30",
+        "unidad": "L",
+        "precioUnitario": "120",
+        "moneda": "BOB"
+      },
+      "conditions": [
+        "pausas"
+      ],
+      "tags": [
+        "pausas",
+        "litros"
+      ]
+    },
+    {
+      "id": "AC-032",
+      "split": "aceptacion",
+      "intent": "compra",
+      "text": "Compré quince kilos de Mancozeb 80 a cuarenta y cinco bolivianos el kilo.",
+      "expected": "listo",
+      "slots": {
+        "producto": "Mancozeb 80",
+        "cantidad": "15",
+        "unidad": "KG",
+        "precioUnitario": "45",
+        "moneda": "BOB"
+      },
+      "conditions": [
+        "habla_rapida"
+      ],
+      "tags": [
+        "habla_rapida",
+        "kilos"
+      ]
+    },
+    {
+      "id": "AC-033",
+      "split": "aceptacion",
+      "intent": "compra",
+      "text": "Compré veinte litros de Glifosato 68 a ochenta y cinco bolivianos el litro.",
+      "expected": "ambiguo",
+      "slots": {
+        "producto": "Glifosato 68 SG",
+        "cantidad": "20",
+        "unidad": "L"
+      },
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "unidad_incompatible",
+        "nombre_parecido"
+      ],
+      "note": "Glifosato 68 SG se maneja en KG: unidad incompatible."
+    },
+    {
+      "id": "AC-034",
+      "split": "aceptacion",
+      "intent": "aplicacion",
+      "text": "Aplica el plan para el chaco Limoncito.",
+      "expected": "listo",
+      "slots": {
+        "chaco": "Limoncito"
+      },
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "aplicacion_planificada",
+        "chaco"
+      ]
+    },
+    {
+      "id": "AC-035",
+      "split": "aceptacion",
+      "intent": "aplicacion",
+      "text": "Quiero que apliques la planificación del chaco El Carmen.",
+      "expected": "listo",
+      "slots": {
+        "chaco": "El Carmen"
+      },
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "aplicacion_planificada",
+        "chaco"
+      ]
+    },
+    {
+      "id": "AC-036",
+      "split": "aceptacion",
+      "intent": "aplicacion",
+      "text": "Usamos la planificación del Bloque Comunal Norte.",
+      "expected": "listo",
+      "slots": {
+        "chaco": "Bloque Comunal Norte"
+      },
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "aplicacion_planificada",
+        "nombre_largo"
+      ]
+    },
+    {
+      "id": "AC-037",
+      "split": "aceptacion",
+      "intent": "aplicacion",
+      "text": "Aplica la planificación de La Esperanza, de Mancozeb 80 usamos treinta y cinco kilos.",
+      "expected": "listo",
+      "slots": {
+        "chaco": "La Esperanza",
+        "producto": "Mancozeb 80",
+        "cantidad": "35",
+        "unidad": "KG"
+      },
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "aplicacion_planificada",
+        "correccion_cantidad",
+        "kilos"
+      ]
+    },
+    {
+      "id": "AC-038",
+      "split": "aceptacion",
+      "intent": "aplicacion",
+      "text": "Aplica el plan del Lote 2, de Cipermetrina 25 en realidad usamos ocho litros.",
+      "expected": "listo",
+      "slots": {
+        "chaco": "Lote 2",
+        "producto": "Cipermetrina 25",
+        "cantidad": "8",
+        "unidad": "L"
+      },
+      "conditions": [
+        "silencio",
+        "correccion"
+      ],
+      "tags": [
+        "aplicacion_planificada",
+        "correccion_cantidad",
+        "litros"
+      ]
+    },
+    {
+      "id": "AC-039",
+      "split": "aceptacion",
+      "intent": "aplicacion",
+      "text": "Aplica la planificación del chaco Limoncito, de Glifosato usamos doce litros.",
+      "expected": "ambiguo",
+      "slots": {
+        "chaco": "Limoncito",
+        "producto": "AMBIGUO",
+        "cantidad": "12",
+        "unidad": "L"
+      },
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "aplicacion_planificada",
+        "nombre_parecido"
+      ]
+    },
+    {
+      "id": "AC-040",
+      "split": "aceptacion",
+      "intent": "aplicacion",
+      "text": "Aplica la planificación del chaco Chico.",
+      "expected": "ambiguo",
+      "slots": {
+        "chaco": "AMBIGUO"
+      },
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "aplicacion_planificada",
+        "nombre_parecido"
+      ],
+      "note": "Chaco Chico frente a Chaco Grande u otros: nombre parcial, debe bloquear."
+    },
+    {
+      "id": "AC-041",
+      "split": "aceptacion",
+      "intent": "aplicacion",
+      "text": "Aplicar planificación para el chaco Cuatro Cañadas.",
+      "expected": "listo",
+      "slots": {
+        "chaco": "Cuatro Cañadas"
+      },
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "aplicacion_planificada",
+        "chaco"
+      ]
+    },
+    {
+      "id": "AC-042",
+      "split": "aceptacion",
+      "intent": "aplicacion",
+      "text": "Aplica la planificación de Pailón, de Urea usamos doscientos kilos y de Atrazina 50 usamos veinte litros.",
+      "expected": "listo",
+      "slots": {
+        "chaco": "Pailón",
+        "producto": "Urea|Atrazina 50",
+        "cantidad": "200|20",
+        "unidad": "KG|L"
+      },
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "aplicacion_planificada",
+        "multiproducto",
+        "kilos",
+        "litros"
+      ]
+    },
+    {
+      "id": "AC-043",
+      "split": "aceptacion",
+      "intent": "aplicacion",
+      "text": "Aplica el plan del chaco El Carmen.",
+      "expected": "listo",
+      "slots": {
+        "chaco": "El Carmen"
+      },
+      "conditions": [
+        "ruido"
+      ],
+      "tags": [
+        "aplicacion_planificada",
+        "ruido_de_campo"
+      ]
+    },
+    {
+      "id": "AC-044",
+      "split": "aceptacion",
+      "intent": "aplicacion",
+      "text": "Quiero aplicar la planificación del chaco La Esperanza.",
+      "expected": "listo",
+      "slots": {
+        "chaco": "La Esperanza"
+      },
+      "conditions": [
+        "pausas"
+      ],
+      "tags": [
+        "aplicacion_planificada",
+        "pausas"
+      ]
+    },
+    {
+      "id": "AC-045",
+      "split": "aceptacion",
+      "intent": "aplicacion",
+      "text": "De Mancozeb no fueron cuarenta, en realidad usamos treinta kilos.",
+      "expected": "incompleto",
+      "slots": {
+        "producto": "Mancozeb 80",
+        "cantidad": "30",
+        "unidad": "KG"
+      },
+      "conditions": [
+        "silencio",
+        "correccion"
+      ],
+      "tags": [
+        "correccion_cantidad",
+        "parche_conversacional"
+      ]
+    },
+    {
+      "id": "AC-046",
+      "split": "aceptacion",
+      "intent": "pago",
+      "text": "Registra un pago para Ana Áñez de mil bolivianos.",
+      "expected": "listo",
+      "slots": {
+        "persona": "Ana Áñez",
+        "monto": "1000",
+        "moneda": "BOB"
+      },
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "pago",
+        "bolivianos"
+      ]
+    },
+    {
+      "id": "AC-047",
+      "split": "aceptacion",
+      "intent": "pago",
+      "text": "Anota un pago para Pedro Áñez Suárez de dos mil quinientos bolivianos.",
+      "expected": "listo",
+      "slots": {
+        "persona": "Pedro Áñez Suárez",
+        "monto": "2500",
+        "moneda": "BOB"
+      },
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "pago",
+        "bolivianos"
+      ]
+    },
+    {
+      "id": "AC-048",
+      "split": "aceptacion",
+      "intent": "pago",
+      "text": "Me pagó Juan Pérez cuatrocientos dólares.",
+      "expected": "listo",
+      "slots": {
+        "persona": "Juan Pérez",
+        "monto": "400",
+        "moneda": "USD"
+      },
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "pago",
+        "dolares"
+      ]
+    },
+    {
+      "id": "AC-049",
+      "split": "aceptacion",
+      "intent": "pago",
+      "text": "Registra un pago para José Luis Ñáñez Álvarez de tres mil bolivianos.",
+      "expected": "listo",
+      "slots": {
+        "persona": "José Luis Ñáñez Álvarez",
+        "monto": "3000",
+        "moneda": "BOB"
+      },
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "pago",
+        "nombre_completo",
+        "pronunciacion_dificil"
+      ]
+    },
+    {
+      "id": "AC-050",
+      "split": "aceptacion",
+      "intent": "pago",
+      "text": "Anota un pago para José Luis de mil quinientos bolivianos.",
+      "expected": "ambiguo",
+      "slots": {
+        "persona": "AMBIGUO",
+        "monto": "1500",
+        "moneda": "BOB"
+      },
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "pago",
+        "homonimo"
+      ]
+    },
+    {
+      "id": "AC-051",
+      "split": "aceptacion",
+      "intent": "pago",
+      "text": "Registra un pago para Áñez de dos mil bolivianos.",
+      "expected": "ambiguo",
+      "slots": {
+        "persona": "AMBIGUO",
+        "monto": "2000",
+        "moneda": "BOB"
+      },
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "pago",
+        "homonimo",
+        "nombre_parecido"
+      ],
+      "note": "Ana Áñez, Pedro Áñez Suárez y José Luis Ñáñez Álvarez son candidatos."
+    },
+    {
+      "id": "AC-052",
+      "split": "aceptacion",
+      "intent": "pago",
+      "text": "Registra un pago para Ana Áñez de veinte mil bolivianos.",
+      "expected": "ambiguo",
+      "slots": {
+        "persona": "Ana Áñez",
+        "monto": "20000",
+        "moneda": "BOB"
+      },
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "pago",
+        "excedente"
+      ]
+    },
+    {
+      "id": "AC-053",
+      "split": "aceptacion",
+      "intent": "pago",
+      "text": "Registra un pago para Juan Pérez de mil quinientos con veinticinco bolivianos.",
+      "expected": "listo",
+      "slots": {
+        "persona": "Juan Pérez",
+        "monto": "1500,25",
+        "moneda": "BOB"
+      },
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "pago",
+        "decimales",
+        "bolivianos"
+      ]
+    },
+    {
+      "id": "AC-054",
+      "split": "aceptacion",
+      "intent": "pago",
+      "text": "Anota un pago para Pedro Áñez Suárez de quinientos dólares, tipo de cambio seis con noventa y seis.",
+      "expected": "listo",
+      "slots": {
+        "persona": "Pedro Áñez Suárez",
+        "monto": "500",
+        "moneda": "USD",
+        "tipoCambio": "6,96"
+      },
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "pago",
+        "dolares",
+        "tipo_de_cambio"
+      ]
+    },
+    {
+      "id": "AC-055",
+      "split": "aceptacion",
+      "intent": "pago",
+      "text": "Registra un pago para Ana Áñez de mil bolivianos.",
+      "expected": "listo",
+      "slots": {
+        "persona": "Ana Áñez",
+        "monto": "1000",
+        "moneda": "BOB"
+      },
+      "conditions": [
+        "ruido"
+      ],
+      "tags": [
+        "pago",
+        "ruido_de_campo"
+      ]
+    },
+    {
+      "id": "AC-056",
+      "split": "aceptacion",
+      "intent": "pago",
+      "text": "Anota un pago para Juan Pérez de tres mil doscientos bolivianos.",
+      "expected": "listo",
+      "slots": {
+        "persona": "Juan Pérez",
+        "monto": "3200",
+        "moneda": "BOB"
+      },
+      "conditions": [
+        "pausas"
+      ],
+      "tags": [
+        "pago",
+        "pausas"
+      ]
+    },
+    {
+      "id": "AC-057",
+      "split": "aceptacion",
+      "intent": "pago",
+      "text": "Un pago para Ana Áñez de mil, no, de mil doscientos bolivianos.",
+      "expected": "listo",
+      "slots": {
+        "persona": "Ana Áñez",
+        "monto": "1200",
+        "moneda": "BOB"
+      },
+      "conditions": [
+        "silencio",
+        "correccion"
+      ],
+      "tags": [
+        "pago",
+        "autocorreccion"
+      ]
+    },
+    {
+      "id": "AC-058",
+      "split": "aceptacion",
+      "intent": "fuera_de_alcance",
+      "text": "Reabre la campaña Invierno 2025.",
+      "expected": "rechazado",
+      "slots": {},
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "fuera_de_alcance",
+        "cierre"
+      ]
+    },
+    {
+      "id": "AC-059",
+      "split": "aceptacion",
+      "intent": "fuera_de_alcance",
+      "text": "Elimina el chaco La Esperanza.",
+      "expected": "rechazado",
+      "slots": {},
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "fuera_de_alcance",
+        "borrado"
+      ]
+    },
+    {
+      "id": "AC-060",
+      "split": "aceptacion",
+      "intent": "mezclada",
+      "text": "Registra una compra de diez litros de Atrazina 50 y un pago para Ana Áñez de mil bolivianos.",
+      "expected": "rechazado",
+      "slots": {},
+      "conditions": [
+        "silencio"
+      ],
+      "tags": [
+        "dos_intenciones"
+      ]
+    }
+  ]
+}
