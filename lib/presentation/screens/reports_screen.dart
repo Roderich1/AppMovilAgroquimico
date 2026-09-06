@@ -110,24 +110,39 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
 
     final cancellation = ReportCancellation();
     setState(() => _running = cancellation);
+
+    StoredReport? stored;
+    Object? failure;
+    var wasCancelled = false;
     try {
-      final stored = await ref
+      stored = await ref
           .read(reportExportServiceProvider)
           .export(_request(), cancellation: cancellation);
-      if (!mounted) return;
-      await _showSaved(stored);
     } on ReportCancelledException {
-      if (mounted) {
-        showSuccess(
-          context,
-          'Exportación cancelada. No se guardó ningún archivo.',
-        );
-      }
+      wasCancelled = true;
     } catch (error) {
-      if (mounted) showError(context, error);
-    } finally {
-      if (mounted) setState(() => _running = null);
+      failure = error;
     }
+    if (!mounted) return;
+
+    // El estado "generando" termina ANTES de dar el resultado: si no, el
+    // diálogo de éxito se abría con la barra de progreso y el botón "Cancelar"
+    // todavía vivos por detrás, diciendo que seguía en marcha algo que ya
+    // había acabado.
+    setState(() => _running = null);
+
+    if (wasCancelled) {
+      showSuccess(
+        context,
+        'Exportación cancelada. No se guardó ningún archivo.',
+      );
+      return;
+    }
+    if (failure != null) {
+      showError(context, failure);
+      return;
+    }
+    await _showSaved(stored!);
   }
 
   Future<bool> _confirmSensitiveData() async =>

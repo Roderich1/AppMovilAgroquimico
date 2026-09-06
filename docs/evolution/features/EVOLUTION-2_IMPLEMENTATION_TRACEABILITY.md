@@ -144,7 +144,7 @@ Sobre la rama, al terminar:
 |---|---|
 | `dart format --output=none --set-exit-if-changed lib test` | 0 cambios sobre 86 archivos |
 | `flutter analyze` | 0 issues |
-| `flutter test` | **454 / 454** (253 previos + 201 nuevos) |
+| `flutter test` | **456 / 456** (253 previos + 203 nuevos) |
 | `flutter build apk --release` | 61,1 MB, sin firmar |
 | `git diff --check` | limpio |
 
