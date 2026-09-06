@@ -37,7 +37,7 @@ el repositorio actual si no añade acoplamiento peligroso.
 | Accounts | cargos, pagos, saldos | Antes de nuevos tipos contables |
 | Reporting | consultas/proyecciones/exportaciones | Primera exportación o dashboard avanzado |
 | Backup | contenedor, validación y restore | Ya existe; mantener independiente |
-| Voice | captura, transcripción, intención, confirmación | Si se aprueba voz; nunca dentro de repositorio/UI |
+| Voice | captura, transcripción, intención y drafts | EVOLUTION-3; aislado de SQLite/escrituras |
 | Sync | identidad, cambios, conflictos y transporte | Sólo tras ADR y rediseño de IDs |
 
 ## Contratos recomendados
@@ -45,7 +45,10 @@ el repositorio actual si no añade acoplamiento peligroso.
 - Modelos de lectura inmutables por consulta crítica, con `fromRow` central.
 - Resultados explícitos para warnings de backup/migración.
 - `InventoryOperations` o caso de uso único para FIFO, sin duplicar cálculo.
-- Puertos de plataforma: `InvoiceFiles`, `BackupTransport`, `AudioCapture`, `Transcriber`.
+- Puertos de plataforma: `InvoiceFiles`, `BackupTransport`, `AudioCapture`,
+  `SpeechTranscriptionPort`.
+- Frontera de voz: sesión → intención cerrada → entidades → resolución → draft tipado →
+  validador. Sólo la confirmación táctil invoca casos de uso existentes.
 - Servicios externos reciben DTO mínimos; nunca acceso directo a `Database`.
 
 ## Ruta de adopción
@@ -66,5 +69,5 @@ el repositorio actual si no añade acoplamiento peligroso.
 ## Líneas rojas
 
 Voz/IA/cloud no ejecuta SQL, no decide montos, no omite confirmaciones y no modifica la lógica
-FIFO. La intención externa se convierte en un comando tipado y vuelve a pasar por las mismas
-validaciones que la UI manual.
+FIFO. STT y NLU sólo producen propuestas tipadas. La intención externa vuelve a pasar por las
+mismas validaciones que la UI manual, y toda escritura exige confirmación táctil específica.

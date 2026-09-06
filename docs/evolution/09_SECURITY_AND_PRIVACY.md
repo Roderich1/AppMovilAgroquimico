@@ -31,9 +31,10 @@ backup no están cifrados. Los roles de persona no son autorización.
 - Fallar o cancelar no deja archivos parciales.
 - CSV debe neutralizar celdas que puedan interpretarse como fórmulas.
 
-## EVO-009 — voz segura
+## EVOLUTION-3 — voz segura y operaciones confirmadas
 
-La aprobación cubre sólo transcripción y vista previa. Antes de implementar debe documentarse:
+La aprobación cubre transcripción, drafts tipados y tres operaciones confirmadas. Antes de
+fijar un motor debe documentarse:
 
 - motor local, del dispositivo o remoto;
 - conectividad real y degradación sin Internet;
@@ -47,13 +48,18 @@ Controles obligatorios:
 
 - no persistir audio por defecto;
 - texto de sesión en memoria salvo acción explícita;
-- no ejecutar dominio ni escribir SQLite;
-- no tratar transcripción como intención confirmada;
+- captura e interpretación no ejecutan dominio ni escriben SQLite;
+- no tratar transcripción o intención como operación confirmada;
+- compra, aplicación y pago sólo escriben después de validación y confirmación táctil;
+- creación de producto/proveedor junto a compra debe ser atómica;
+- homónimos, monto/unidad/moneda y adelanto no se autoresuelven;
 - no prometer funcionamiento offline si el motor no lo garantiza;
 - fake determinista en tests y prueba real en dispositivo.
+
+La política normativa completa está en
+`features/EVOLUTION-3_SECURITY_AND_CONFIRMATION_POLICY.md`; el motor se decide en `ADR-002`.
 
 ## Respuesta mínima a incidentes
 
 Registrar versión, dispositivo, exposición posible, backup disponible, contención y
 recuperación. No corregir inconsistencias borrando historial.
-

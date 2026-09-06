@@ -36,6 +36,18 @@ Una feature sólo es `VERIFIED` cuando todos los controles aplicables están sat
 - [ ] Permisos mínimos y datos/logs revisados.
 - [ ] Errores accionables; fallos externos no corrompen ni bloquean innecesariamente.
 
+## Controles adicionales para voz
+
+- [ ] Motor elegido mediante benchmark reproducible y ADR aceptado.
+- [ ] Corpus de aceptación separado incluye ruido, aliases, números, homónimos y correcciones.
+- [ ] Cero falsa aceptación de datos críticos ambiguos en el corpus de cierre.
+- [ ] Cero escrituras durante captura, interpretación, edición, cancelación y descarte.
+- [ ] Confirmación táctil específica; voz nunca confirma una escritura.
+- [ ] Audio/transcripción efímeros y logs sin contenido sensible.
+- [ ] Permiso, modo avión, lifecycle, interrupción y liberación de micrófono probados.
+- [ ] Latencia, memoria, tamaño, batería/temperatura medidos en Pixel 8 y un equipo inferior.
+- [ ] Paridad y atomicidad con compra/aplicación/pago manual según cada feature.
+
 ## Entrega
 
 - [ ] Trazabilidad requisito → cambio → test → evidencia.

@@ -11,8 +11,8 @@
 |---|---|
 | Baseline funcional inmutable | `f4c6510438991f4948fda921eec7c67fe2a2acc2` |
 | Tag | `v1.0.0-base-stable` |
-| Fundación documental en `main` | `bdd7b82f3e06d9943749a571284db8f94194c3b3` |
-| Diferencia funcional entre ambos | Ninguna; el commit posterior sólo añade documentación |
+| `main` analizado para este paquete | `2fd0ccbd7f06e5384eaf84a625e7ee8249c9add5` |
+| Evolución integrada | EVOLUTION-2 mediante PR #5 |
 
 ## Dos niveles de identificadores
 
@@ -20,7 +20,8 @@
 - `EVO-NNN`: ítem único y estable del backlog.
 
 No son intercambiables. `EVOLUTION-2` agrupa `EVO-004`, `EVO-005` y `EVO-006`.
-`EVOLUTION-3` implementará únicamente `EVO-009`.
+`EVOLUTION-3` agrupa `EVO-009`, `EVO-010`, `EVO-017`, `EVO-018` y `EVO-019`.
+`EVO-003` ya identifica diagnóstico local exportable y no debe reutilizarse para voz.
 
 ## Orden de lectura
 
@@ -41,20 +42,25 @@ No son intercambiables. `EVOLUTION-2` agrupa `EVO-004`, `EVO-005` y `EVO-006`.
 | Alcance | IDs | Documento | Estado |
 |---|---|---|---|
 | Compartir backup | `EVO-001` | `features/EVO-001_SHARE_BACKUP_SPEC.md` | `DEFERRED` |
-| Typed reads + reportes | `EVO-004/005/006` | `features/EVOLUTION-2_TYPED_READS_AND_REPORT_EXPORT_SPEC.md` | `IN_PROGRESS` |
-| Plan de EVOLUTION-2 | `EVO-004/005/006` | `features/EVOLUTION-2_IMPLEMENTATION_PLAN.md` | `IN_PROGRESS` |
-| Trazabilidad de EVOLUTION-2 | `EVO-004/005/006` | `features/EVOLUTION-2_IMPLEMENTATION_TRACEABILITY.md` | `IN_PROGRESS`, gates pendientes declarados |
-| Voz segura | `EVO-009` | `features/EVO-009_SAFE_VOICE_SPEC.md` | `APPROVED`, depende de EVOLUTION-2 verificada |
-| Plan de voz segura | `EVO-009` | `features/EVO-009_SAFE_VOICE_IMPLEMENTATION_PLAN.md` | `APPROVED`, no iniciar todavía |
+| Typed reads + reportes | `EVO-004/005/006` | `features/EVOLUTION-2_TYPED_READS_AND_REPORT_EXPORT_SPEC.md` | `VERIFIED` |
+| Plan de EVOLUTION-2 | `EVO-004/005/006` | `features/EVOLUTION-2_IMPLEMENTATION_PLAN.md` | Ejecutado |
+| Trazabilidad de EVOLUTION-2 | `EVO-004/005/006` | `features/EVOLUTION-2_IMPLEMENTATION_TRACEABILITY.md` | Evidencia de implementación |
+| Cierre de EVOLUTION-2 | `EVO-004/005/006` | `features/EVOLUTION-2_FINAL_VERIFICATION.md` | `VERIFIED` |
+| Visión de EVOLUTION-3 | `EVO-009/010/017/018/019` | `features/EVOLUTION-3_VOICE_VISION_AND_SCOPE.md` | `APPROVED` |
+| Captura/transcripción | `EVO-009` | `features/EVO-009_SAFE_VOICE_SPEC.md` | `APPROVED` |
+| Interpretación tipada | `EVO-010` | `features/EVO-010_TYPED_VOICE_INTERPRETATION_SPEC.md` | `APPROVED` |
+| Compra por voz | `EVO-017` | `features/EVO-017_VOICE_PURCHASE_DRAFT_SPEC.md` | `APPROVED` |
+| Aplicar planificación por voz | `EVO-018` | `features/EVO-018_VOICE_PLAN_APPLICATION_DRAFT_SPEC.md` | `APPROVED` |
+| Pago por voz | `EVO-019` | `features/EVO-019_VOICE_PAYMENT_DRAFT_SPEC.md` | `APPROVED` |
+| Consultas por voz | `EVO-020` | `features/EVO-020_VOICE_READ_QUERIES_SPEC.md` | `DEFERRED` |
+| Plan y trazabilidad | `EVOLUTION-3` | `features/EVOLUTION-3_IMPLEMENTATION_PLAN.md` y `features/EVOLUTION-3_TRACEABILITY_MATRIX.md` | `APPROVED` |
 
 Los documentos `FINAL_VERIFICATION` sólo se crean después de implementar y reunir evidencia
 real de tests, CI y dispositivo. Su ausencia antes de esa fase es correcta.
 
-`EVOLUTION-2` está implementada en `evolution/evolution-2-typed-reports`, con los cuatro gates
-locales en verde, el CI del SHA final en verde y el gate Pixel 8 ejecutado, que destapó y
-corrigió tres defectos de interfaz. Sigue en `IN_PROGRESS` y sin
-`EVOLUTION-2_FINAL_VERIFICATION.md` porque declarar `VERIFIED` corresponde al propietario tras
-revisar el PR. Evidencia en la trazabilidad §8 y en `artifacts/ui-audit/evolution-2/`.
+`EVOLUTION-2` fue fusionada mediante PR #5, sus gates están verdes, el gate Pixel 8 corrigió
+tres defectos y el propietario comprobó CSV/PDF. El cierre está en
+`features/EVOLUTION-2_FINAL_VERIFICATION.md`.
 
 ## Precedencia
 
@@ -63,8 +69,9 @@ Ante contradicciones: código de la rama analizada → tests → `docs/46_BASELI
 
 ## Decisión vigente del propietario
 
-1. Implementar primero `EVOLUTION-2` (`EVO-004`, `EVO-005`, `EVO-006`).
-2. Integrarla únicamente con gates verdes y evidencia honesta.
-3. Implementar después `EVOLUTION-3`, limitada a `EVO-009`.
-4. `EVO-010`, comandos de voz, permanece `DEFERRED` y fuera de alcance.
-
+1. EVOLUTION-2 fue revisada y aceptada por el propietario; mantener su cierre documental
+   coherente con la evidencia real.
+2. Implementar EVOLUTION-3 por PRs: benchmark, `EVO-009`, `EVO-010`, `EVO-017`, `EVO-018` y
+   `EVO-019`.
+3. Voz sólo prepara drafts; compra, aplicación y pago requieren confirmación táctil.
+4. `EVO-020`, consultas por voz, permanece `DEFERRED` hasta cerrar la base transaccional.
