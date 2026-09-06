@@ -76,7 +76,7 @@ código, con la prueba que los sostiene:
 | Logs sin contenido | Sólo códigos de estado, códigos de error y longitudes. `toString()` de eventos y sesión no imprime lo dictado | Pruebas de privacidad en puerto y sesión |
 | Cero escrituras de negocio | El subsistema no puede nombrar repositorios, SQLite, compras, aplicaciones ni pagos | Guardas arquitectónicas que leen los archivos |
 | Permiso mínimo y contextual | Sólo `RECORD_AUDIO`, pedido al tocar el micrófono | Guarda sobre el manifiesto: lista exacta de permisos |
-| Sin red | **No se declara `INTERNET`**, y es verificable en el manifiesto del APK instalado | Guarda sobre el manifiesto |
+| Sin red | **La build de release no declara `INTERNET`**, verificado con `aapt2 dump permissions` sobre el APK. Los manifiestos `debug`/`profile` de la plantilla de Flutter sí lo declaran, para hot reload; no se distribuyen y son anteriores a `EVO-009` | Guardas sobre los tres manifiestos |
 | Micrófono liberado | Detener, descartar, entregar, segundo plano, bloqueo, interrupción, `dispose` y salida de pantalla lo sueltan; el lado nativo lo repite en `onPause` por si el proceso se congela | Sesión, pantalla y contrato del puerto |
 | Sin escucha permanente | No hay palabra de activación ni servicio en segundo plano. La continuidad sólo reabre el turno mientras el usuario mantiene la sesión, con tope de reintentos y de duración | Sesión, con `fake_async` |
 | No prometer offline | Se muestran por separado preferencia pedida, modo avión del sistema, transcripción sin red **observada**, disponibilidad no consultable y modelo posiblemente ausente | Pantalla |

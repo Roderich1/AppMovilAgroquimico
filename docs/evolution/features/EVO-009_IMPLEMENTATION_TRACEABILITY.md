@@ -128,6 +128,23 @@ estable ni `pubspec.yaml`. **Ninguna dependencia nueva.**
 | Sólo `RECORD_AUDIO`; sin `INTERNET` | Manifiesto + guarda que enumera los permisos |
 | Guardas que fallen si Voice toca SQLite, compras, pagos, FIFO o backup | `voice_architecture_guard_test.dart` |
 
+## Una precisión sobre el permiso de Internet
+
+La build **de release** no declara `INTERNET`. Verificado sobre el binario, no
+sobre el código:
+
+```bash
+aapt2 dump permissions build/app/outputs/flutter-apk/app-release.apk
+# package: com.comunidad.agro.agroquimicos
+# uses-permission: name='android.permission.RECORD_AUDIO'
+```
+
+El APK **debug** sí lo declara, porque `android/app/src/debug/AndroidManifest.xml`
+—de la plantilla de Flutter, anterior a `EVO-009` y no modificado aquí— lo añade
+para hot reload. Como la prueba en teléfono se hace con el APK debug, quien la
+ejecute verá ese permiso; el plan de prueba lo advierte para que no se lea como
+que la aplicación usa la red.
+
 ## Estado de verificación
 
 | Gate | Estado |
