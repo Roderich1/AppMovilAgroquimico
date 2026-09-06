@@ -2,7 +2,7 @@
 
 ## Estado y guardrails
 
-Estado: `IN_PROGRESS`. Implementación iniciada en `evolution/evolution-2-typed-reports`
+Estado: `EXECUTED`. Implementación realizada en `evolution/evolution-2-typed-reports`
 sobre `44c2e792aa3d96a601428777a3a0419568a77ac1`.
 
 La rama se crea desde el `main` vigente después de integrar la corrección documental:
@@ -95,7 +95,5 @@ Después:
 5. `feat: expose report export UX`
 6. `test/docs: verify EVOLUTION-2`
 
-No declarar `VERIFIED` si falta un gate. Si no hay dispositivo, usar un estado honesto como
-`IMPLEMENTED_NOT_DEVICE_VERIFIED` sólo si la política de estados se actualiza explícitamente;
-de otro modo mantener `IN_PROGRESS` y registrar el gate pendiente.
-
+El cierre real y la decisión `VERIFIED` se registran en
+`EVOLUTION-2_FINAL_VERIFICATION.md`; este plan conserva la secuencia ejecutada.

@@ -25,6 +25,26 @@
 | templates | Normalizar trabajo | estrategias/DoD | Control faltante repetido | Architecture/QA |
 | decisions | Decisiones aceptadas | ADR | Decisión/supersession | Decision owner |
 
+## Paquete EVOLUTION-3
+
+| Documento | Propósito | Estado |
+|---|---|---|
+| `features/EVOLUTION-3_VOICE_VISION_AND_SCOPE.md` | Visión, alcance y orden aprobado | APPROVED |
+| `features/EVOLUTION-2_FINAL_VERIFICATION.md` | Cierre aceptado de typed reads/reportes | VERIFIED |
+| `features/EVO-009_SAFE_VOICE_SPEC.md` | Captura/transcripción segura | APPROVED |
+| `features/EVO-010_TYPED_VOICE_INTERPRETATION_SPEC.md` | Intenciones, resolución y drafts | APPROVED |
+| `features/EVO-017_VOICE_PURCHASE_DRAFT_SPEC.md` | Compra por voz | APPROVED |
+| `features/EVO-018_VOICE_PLAN_APPLICATION_DRAFT_SPEC.md` | Aplicación planificada por voz | APPROVED |
+| `features/EVO-019_VOICE_PAYMENT_DRAFT_SPEC.md` | Pago por voz | APPROVED |
+| `features/EVO-020_VOICE_READ_QUERIES_SPEC.md` | Dirección futura de consultas | DEFERRED |
+| `features/EVOLUTION-3_SECURITY_AND_CONFIRMATION_POLICY.md` | Privacidad y no autoejecución | APPROVED |
+| `features/EVOLUTION-3_VOICE_GRAMMAR_AND_EXAMPLES.md` | Corpus y lenguaje funcional | APPROVED |
+| `features/EVOLUTION-3_SPEECH_ENGINE_BENCHMARK_PLAN.md` | Selección con evidencia | REQUIRED |
+| `features/EVOLUTION-3_IMPLEMENTATION_PLAN.md` | PRs, gates y secuencia | APPROVED |
+| `features/EVOLUTION-3_TRACEABILITY_MATRIX.md` | Requisito a evidencia | APPROVED |
+| `decisions/ADR-002-voice-transcription-engine.md` | Motor por decidir | Proposed |
+| `decisions/ADR-003-typed-voice-interpretation.md` | Frontera segura | Accepted |
+
 ## Evidencia de creación
 
 Este conjunto se derivó de las fuentes del Proyecto ChatGPT, `main` y el tag congelado, los 46

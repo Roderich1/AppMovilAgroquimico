@@ -7,16 +7,18 @@
 | Feature | `EVO-009` |
 | Etapa | `EVOLUTION-3` |
 | Decisión del propietario | Aprobada el 2026-09-06 |
-| Estado | `APPROVED` con dependencia |
-| Dependencia | EVOLUTION-2 integrada y verificada |
-| Rama prevista | `evolution/evo-009-safe-voice` |
+| Estado | `APPROVED` |
+| Dependencia | EVOLUTION-2 integrada; cierre documental coherente antes de código |
+| Rama prevista | `evolution/evo-009-safe-transcription` |
 
-No comenzar implementación mientras EVOLUTION-2 no cumpla su Definition of Done.
+Este ID conserva su significado original: captura y transcripción seguras. Las intenciones y
+operaciones aprobadas viven en specs separadas y no deben mezclarse en la misma PR.
 
 ## Objetivo
 
-Reducir el tecleo en campo mediante captura y transcripción de voz con una vista previa
-editable y control humano. Esta evolución no interpreta ni ejecuta operaciones de dominio.
+Reducir el tecleo en campo mediante captura y transcripción continua con una vista previa
+editable y control humano. Esta feature no interpreta ni ejecuta operaciones de dominio; es la
+fuente reemplazable para `EVO-010`.
 
 ## Flujo autorizado
 
@@ -26,11 +28,12 @@ Micrófono
 → escuchar
 → recibir texto parcial/final
 → vista previa editable
-→ aceptar / editar / descartar
+→ seguir hablando / editar / entregar texto final / descartar
 ```
 
-Aceptar confirma únicamente el texto de la sesión. No confirma una compra, pago, aplicación,
-transferencia, reversión, cierre, cantidad ni cambio de inventario.
+Entregar texto confirma únicamente el resultado de la sesión para el siguiente componente. No
+confirma una compra, pago, aplicación, transferencia, reversión, cierre, cantidad ni cambio de
+inventario.
 
 ## Alcance
 
@@ -39,7 +42,7 @@ transferencia, reversión, cierre, cantidad ni cambio de inventario.
 - Controlador de sesión independiente de widgets y repositorio.
 - Texto parcial y final.
 - Vista previa editable.
-- Aceptar, editar, reintentar y descartar.
+- Seguir hablando, editar, reintentar, entregar texto y descartar.
 - Permiso contextual de micrófono.
 - Idioma principal español, preferencia `es-BO` y fallback visible.
 - Manejo de lifecycle, interrupciones, denegación y servicio no disponible.
@@ -54,7 +57,7 @@ transferencia, reversión, cierre, cantidad ni cambio de inventario.
 - Confirmar cantidades, costos, moneda, productos, personas o chacos.
 - Guardar audio o transcripciones como historial operativo.
 - IA generativa, backend, sync o autenticación.
-- `EVO-010`.
+- Clasificador, extractor y drafts de `EVO-010`; se integran después mediante el puerto.
 
 ## Arquitectura
 
@@ -80,7 +83,7 @@ sesión en memoria y estados observables.
 | `listening` | Micrófono activo |
 | `processing` | Esperando resultado final |
 | `preview` | Texto editable disponible |
-| `accepted` | Texto de sesión aceptado, sin ejecutar dominio |
+| `ready` | Texto de sesión listo para entregar, sin ejecutar dominio |
 | `cancelled` | Sesión descartada |
 | `denied` | Permiso rechazado |
 | `unavailable` | Servicio/locale no disponible |
@@ -91,7 +94,7 @@ sesión en memoria y estados observables.
 | ID | Requisito |
 |---|---|
 | EVO-009-REQ-001 | La transcripción siempre pasa por una vista previa editable. |
-| EVO-009-REQ-002 | Aceptar no llama repositorios, casos de uso ni SQLite. |
+| EVO-009-REQ-002 | Entregar texto no llama repositorios, casos de uso ni SQLite. |
 | EVO-009-REQ-003 | Descartar elimina el texto de sesión y libera el micrófono. |
 | EVO-009-REQ-004 | El permiso se solicita en contexto y se manejan denegación temporal/permanente. |
 | EVO-009-REQ-005 | Salir, ir a background o sufrir una interrupción detiene/libera recursos. |
@@ -100,11 +103,12 @@ sesión en memoria y estados observables.
 | EVO-009-REQ-008 | La UI muestra locale y no promete offline si el motor no lo garantiza. |
 | EVO-009-REQ-009 | Plugin/SDK queda aislado detrás de un puerto testeable. |
 | EVO-009-REQ-010 | Errores no modifican estado operativo ni dejan una sesión falsa aceptada. |
-| EVO-009-REQ-011 | La pantalla declara que ninguna operación será ejecutada. |
+| EVO-009-REQ-011 | La UI diferencia transcripción, interpretación y confirmación de operación. |
+| EVO-009-REQ-012 | La sesión admite texto parcial acumulativo y continuar hablando sin reiniciar. |
 
 ## Decisiones técnicas pendientes
 
-Antes de modificar código debe crearse un ADR que documente:
+Antes de fijar una dependencia debe completarse el benchmark y resolverse `ADR-002`, que cubre:
 
 - motor local, servicio del dispositivo o remoto;
 - soporte real de `es-BO`;
@@ -128,7 +132,7 @@ La aprobación de la feature no aprueba automáticamente un proveedor remoto.
 
 - Permiso concedido, denegado y permanentemente denegado.
 - Inicio, parcial, final y vista previa.
-- Edición, aceptación y descarte.
+- Edición, continuación, entrega y descarte.
 - Servicio/locale no disponible.
 - Error, timeout, doble toque e interrupción.
 - Background, dispose y navegación atrás liberan el micrófono.
@@ -141,7 +145,7 @@ La aprobación de la feature no aprueba automáticamente un proveedor remoto.
 ## Criterios de aceptación
 
 - [ ] Flujo completo produce y edita texto.
-- [ ] Aceptar sólo confirma texto de sesión.
+- [ ] Entregar sólo produce texto de sesión para el siguiente componente.
 - [ ] Ningún camino escribe en SQLite o ejecuta dominio.
 - [ ] Permiso, lifecycle, error y cancelación son seguros.
 - [ ] Política local/remota y retención están documentadas.
@@ -151,4 +155,3 @@ La aprobación de la feature no aprueba automáticamente un proveedor remoto.
 
 Retirar ruta, UI, controlador y adaptador. No existe downgrade de datos porque EVO-009 no
 cambia schema ni persiste audio/transcripciones.
-

@@ -19,10 +19,9 @@ inventadas y ninguna etapa se considera implementada por existir su documentaci�
 ## EVOLUTION-2 — Lecturas tipadas y exportación de reportes
 
 - IDs: `EVO-004`, `EVO-005`, `EVO-006`.
-- Estado: `IN_PROGRESS` en `evolution/evolution-2-typed-reports`. Los siete puntos del orden
-  interno están implementados, con CI del SHA final y gate Pixel 8 en verde. El paso a
-  `VERIFIED` corresponde al propietario tras revisar el PR. Detalle en
-  `features/EVOLUTION-2_IMPLEMENTATION_TRACEABILITY.md`.
+- Estado: `VERIFIED`; PR #5 fusionada y resultado CSV/PDF aceptado por el propietario. Detalle
+  en `features/EVOLUTION-2_IMPLEMENTATION_TRACEABILITY.md` y
+  `features/EVOLUTION-2_FINAL_VERIFICATION.md`.
 - Orden interno:
   1. typed read models y mappers incrementales;
   2. migración de consumidores necesarios;
@@ -37,34 +36,36 @@ inventadas y ninguna etapa se considera implementada por existir su documentaci�
 
 ## EVOLUTION-3 — Voz segura
 
-- ID: `EVO-009`.
-- Estado: `APPROVED`, bloqueada hasta que EVOLUTION-2 esté integrada y verificada.
-- Único alcance:
+- IDs: `EVO-009`, `EVO-010`, `EVO-017`, `EVO-018`, `EVO-019`.
+- Estado: `APPROVED` para implementación incremental.
+- Precondición: EVOLUTION-2 integrada y cierre documental coherente con la validación aceptada
+  por el propietario.
+- Flujo común:
 
 ```text
-Micrófono → transcripción → vista previa editable → aceptar/editar/descartar
+Micrófono → transcripción → intención → draft editable → validar → confirmar táctilmente
 ```
 
-- Aceptar confirma el texto de sesión, no una operación agrícola o contable.
-- No escribe SQLite, no llama casos de uso y no ejecuta compras, pagos, transferencias,
-  aplicaciones, reversiones ni cierres.
-- Requiere decisión técnica documentada sobre motor local/remoto, conectividad, idioma,
-  privacidad y retención.
+- Orden interno: benchmark/ADR-002 → captura (`EVO-009`) → interpretación (`EVO-010`) → compra
+  (`EVO-017`) → aplicación planificada (`EVO-018`) → pago (`EVO-019`).
+- Captura e interpretación nunca escriben. Las tres operaciones sólo llaman los casos de uso
+  existentes después de una confirmación táctil específica.
+- Requiere benchmark local, corpus, privacidad, modo avión, Pixel 8 y equipo de menor capacidad.
+- No incluye transferencias, reversiones, cierres, borrado, palabra de activación ni consultas.
 
 ## Evoluciones posteriores no aprobadas
 
-- `EVO-010`: convertir voz en comando tipado y confirmado.
+- `EVO-020`: consultas de sólo lectura por voz sobre typed reads/reportes.
 - Sync/multi-dispositivo, identidad, backup remoto, cifrado e IA.
 - Requieren nuevas specs, decisiones y aprobación. No son extensión implícita de EVOLUTION-3.
 
 ## Gates entre EVOLUTION-2 y EVOLUTION-3
 
-EVOLUTION-3 no comienza hasta que EVOLUTION-2 tenga:
+La primera rama productiva de EVOLUTION-3 no comienza hasta que EVOLUTION-2 tenga:
 
 - implementación integrada;
 - format/analyze/test/build verdes;
 - CI del SHA final;
-- verificación Pixel 8 o estado pendiente declarado honestamente;
-- `FINAL_VERIFICATION` coherente con evidencia;
+- verificación Pixel 8 y prueba CSV/PDF aceptada por el propietario;
+- cierre documental coherente con la evidencia;
 - ninguna regresión crítica/alta abierta.
-

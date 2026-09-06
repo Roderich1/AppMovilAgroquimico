@@ -2,16 +2,17 @@
 
 ## Estado
 
-`APPROVED`, bloqueado hasta que EVOLUTION-2 esté integrada y verificada.
+`APPROVED`. Es la primera feature productiva de EVOLUTION-3, después del benchmark.
 
-No crear la rama ni añadir plugins mientras la dependencia no se cumpla.
+No añadir plugins/modelos hasta resolver `ADR-002` con evidencia. No incluir intención,
+compras, aplicaciones o pagos en esta PR.
 
 ## Batch A — Auditoría y ADR
 
-- Confirmar SHA de `main`, estado de EVOLUTION-2 y gates.
+- Confirmar SHA de `main`, cierre de EVOLUTION-2 y gates.
 - Auditar navegación, DI, lifecycle y permisos actuales.
-- Evaluar motores de Speech-to-Text con fuentes primarias.
-- Crear ADR local/remoto con privacidad, conectividad y escape hatch.
+- Ejecutar `EVOLUTION-3_SPEECH_ENGINE_BENCHMARK_PLAN.md`.
+- Resolver `ADR-002` con privacidad, conectividad, licencia y escape hatch.
 - Salida: selección aprobada y ningún cambio de producción todavía.
 
 ## Batch B — Puerto y sesión pura
@@ -32,8 +33,8 @@ No crear la rama ni añadir plugins mientras la dependencia no se cumpla.
 
 - Añadir entrada coherente con navegación actual.
 - Mostrar estado de micrófono, locale y limitación offline.
-- Vista previa editable con Aceptar, Reintentar y Descartar.
-- Explicar que aceptar no ejecuta ninguna operación.
+- Vista previa editable con Seguir hablando, Reintentar, Entregar y Descartar.
+- Explicar que entregar el texto no ejecuta ninguna operación.
 
 ## Batch E — Seguridad estructural
 
@@ -59,7 +60,7 @@ Después verificar en Pixel 8/API 36:
 - permiso concedido/denegado;
 - español y locale fallback;
 - texto parcial/final;
-- edición, aceptación y descarte;
+- edición, continuación, entrega y descarte;
 - modo avión;
 - background e interrupciones;
 - navegación atrás;
@@ -73,6 +74,5 @@ Sólo después de reunir evidencia crear:
 
 `EVO-009_FINAL_VERIFICATION.md`
 
-Actualizar backlog, roadmap, riesgos, seguridad, DoD y trazabilidad. No añadir `EVO-010` al
-mismo PR.
-
+Actualizar backlog, roadmap, riesgos, seguridad, DoD y trazabilidad. La integración con
+`EVO-010` ocurre en la PR siguiente, nunca dentro de esta implementación base.
