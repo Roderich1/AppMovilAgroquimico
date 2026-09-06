@@ -1,4 +1,16 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- EVO-009. Microfono: UNICO permiso que añade la captura por voz, y se
+         solicita en contexto, al tocar el microfono, no al abrir la aplicacion.
+
+         NO se declara INTERNET, a proposito y de forma verificable en el
+         manifiesto del APK instalado: la aplicacion no envia audio ni texto a
+         ningun servidor. El reconocimiento lo hace el propio Android
+         (`ADR-002`); lo que el servicio del sistema haga con la red queda fuera
+         del control de la aplicacion y la interfaz lo explica en vez de
+         prometer que funciona sin red. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+
     <application
         android:label="agroquimicos"
         android:name="${applicationName}"
@@ -40,6 +52,13 @@
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
+        </intent>
+        <!-- EVO-009: sin esto `isRecognitionAvailable()` no puede ver los
+             servicios de reconocimiento del sistema en Android 11 y posteriores,
+             y la pantalla de voz informaria "sin reconocedor" en aparatos que si
+             lo tienen. -->
+        <intent>
+            <action android:name="android.speech.RecognitionService"/>
         </intent>
     </queries>
 </manifest>
