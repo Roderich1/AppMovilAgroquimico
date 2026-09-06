@@ -118,31 +118,53 @@ class AppShell extends StatelessWidget {
           floatingActionButton: showFab ? _newButton(context) : null,
           body: Row(
             children: [
-              NavigationRail(
-                extended: MediaQuery.sizeOf(context).width >= 1150,
-                // Sin esto, entre 900 y 1150 px (el Pixel 8 apaisado da ~914)
-                // los destinos se mostraban SOLO con iconos, sin etiqueta
-                // (UIBUG-063).
-                labelType: MediaQuery.sizeOf(context).width >= 1150
-                    ? null
-                    : NavigationRailLabelType.all,
-                selectedIndex: selectedIndex,
-                onDestinationSelected: (index) =>
-                    context.go(destinations[index].path),
-                leading: const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 20),
-                  child: CircleAvatar(
-                    radius: 24,
-                    child: Icon(Icons.eco_outlined),
+              // **UIBUG-068 — el rail tiene que poder desplazarse.**
+              // `NavigationRail` reparte su alto entre los destinos y no se
+              // desplaza por su cuenta. En horizontal el alto útil son 1080 px,
+              // y con la fuente al 130 % los cinco destinos con etiqueta ya no
+              // caben: `RenderFlex overflowed by 90 pixels` y "Personas" y
+              // "Cuentas" quedaban inalcanzables.
+              //
+              // Se resuelve dejándolo desplazar en vez de acotar la escala del
+              // texto: en horizontal sobra sitio para desplazarse, así que las
+              // etiquetas pueden seguir creciendo. (La barra inferior, con solo
+              // ~90 px de alto, sí mantiene su compromiso de escala.)
+              LayoutBuilder(
+                builder: (context, constraints) => SingleChildScrollView(
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                      minHeight: constraints.maxHeight,
+                    ),
+                    child: IntrinsicHeight(
+                      child: NavigationRail(
+                        extended: MediaQuery.sizeOf(context).width >= 1150,
+                        // Sin esto, entre 900 y 1150 px (el Pixel 8 apaisado
+                        // da ~914) los destinos se mostraban SOLO con iconos,
+                        // sin etiqueta (UIBUG-063).
+                        labelType: MediaQuery.sizeOf(context).width >= 1150
+                            ? null
+                            : NavigationRailLabelType.all,
+                        selectedIndex: selectedIndex,
+                        onDestinationSelected: (index) =>
+                            context.go(destinations[index].path),
+                        leading: const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 20),
+                          child: CircleAvatar(
+                            radius: 24,
+                            child: Icon(Icons.eco_outlined),
+                          ),
+                        ),
+                        destinations: [
+                          for (final item in destinations)
+                            NavigationRailDestination(
+                              icon: Icon(item.icon),
+                              label: Text(item.label),
+                            ),
+                        ],
+                      ),
+                    ),
                   ),
                 ),
-                destinations: [
-                  for (final item in destinations)
-                    NavigationRailDestination(
-                      icon: Icon(item.icon),
-                      label: Text(item.label),
-                    ),
-                ],
               ),
               const VerticalDivider(width: 1),
               Expanded(child: body),
