@@ -115,16 +115,24 @@ Uint8List _buildInvoicePng() {
       final border = x < 12 || y < 12 || x >= width - 12 || y >= height - 12;
       final band = (y ~/ 90).isEven;
       if (border) {
-        raw..addByte(20)..addByte(40)..addByte(60);
+        raw
+          ..addByte(20)
+          ..addByte(40)
+          ..addByte(60);
       } else if (band) {
-        raw..addByte(245)..addByte(243)..addByte(235);
+        raw
+          ..addByte(245)
+          ..addByte(243)
+          ..addByte(235);
       } else {
-        raw..addByte(214)..addByte(224)..addByte(214);
+        raw
+          ..addByte(214)
+          ..addByte(224)
+          ..addByte(214);
       }
     }
   }
-  final png = BytesBuilder()
-    ..add(const [137, 80, 78, 71, 13, 10, 26, 10]);
+  final png = BytesBuilder()..add(const [137, 80, 78, 71, 13, 10, 26, 10]);
   final ihdr = BytesBuilder()
     ..add(_u32(width))
     ..add(_u32(height))

@@ -62,3 +62,8 @@ app.*.map.json
 android/key.properties
 **/*.jks
 **/*.keystore
+
+# APK del banco de pruebas de voz (EVOLUTION-3, Fase 0). Se entregan por ruta y
+# SHA-256, no por el repositorio: son ~160 MB regenerables con
+# `benchmark/voice_benchmark/tool/` y `flutter build apk --release --flavor ...`.
+artifacts/voice-benchmark/
