@@ -5,7 +5,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
 
 import '../../app.dart';
+import '../../data/typed_reads.dart';
 import '../../domain/money.dart';
+import '../../domain/read_models.dart';
 import '../widgets/common.dart';
 
 class SettlementsScreen extends ConsumerStatefulWidget {
@@ -17,10 +19,10 @@ class SettlementsScreen extends ConsumerStatefulWidget {
 class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
   late Future<
     (
-      List<Map<String, Object?>>,
-      List<Map<String, Object?>>,
-      List<Map<String, Object?>>,
-      List<Map<String, Object?>>,
+      List<SettlementRead>,
+      List<FarmCostRead>,
+      List<ProductCostRead>,
+      List<CampaignRead>,
     )
   >
   data;
@@ -35,24 +37,24 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
 
   Future<
     (
-      List<Map<String, Object?>>,
-      List<Map<String, Object?>>,
-      List<Map<String, Object?>>,
-      List<Map<String, Object?>>,
+      List<SettlementRead>,
+      List<FarmCostRead>,
+      List<ProductCostRead>,
+      List<CampaignRead>,
     )
   >
   _load() async {
     final repo = ref.read(repositoryProvider);
-    final campaigns = await repo.campaigns();
+    final campaigns = await repo.campaignsTyped();
     if (!campaignInitialized) {
-      final active = campaigns.where((row) => row['status'] == 'ACTIVE');
-      selectedCampaignId = active.isEmpty ? null : active.first['id'] as int;
+      final active = campaigns.where((row) => row.isActive);
+      selectedCampaignId = active.isEmpty ? null : active.first.id;
       campaignInitialized = true;
     }
     return (
-      await repo.settlements(campaignId: selectedCampaignId),
-      await repo.farmCostReport(campaignId: selectedCampaignId),
-      await repo.productCostReport(campaignId: selectedCampaignId),
+      await repo.settlementsTyped(campaignId: selectedCampaignId),
+      await repo.farmCostReportTyped(campaignId: selectedCampaignId),
+      await repo.productCostReportTyped(campaignId: selectedCampaignId),
       campaigns,
     );
   }
@@ -65,7 +67,7 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
   }
 
   Future<void> _record(
-    Map<String, Object?> person, {
+    SettlementRead person, {
     required bool advance,
     String? campaignName,
   }) async {
@@ -77,9 +79,9 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
     final result = await showDialog<int?>(
       context: context,
       builder: (_) => _RecordPaymentDialog(
-        personName: person['name']! as String,
+        personName: person.name,
         campaignName: campaignName,
-        balanceMinor: person['balance']! as int,
+        balanceMinor: person.balanceMinor,
         advance: advance,
       ),
     );
@@ -88,7 +90,7 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
       await ref
           .read(repositoryProvider)
           .addAccountPayment(
-            personId: person['id']! as int,
+            personId: person.personId,
             campaignId: selectedCampaignId,
             amountBobMinor: result,
             advance: advance,
@@ -99,7 +101,7 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
           context,
           // `formatBob` termina con el espacio del símbolo ("1.500,00 Bs ").
           '${advance ? 'Adelanto' : 'Pago'} de ${formatBob(result).trim()} '
-          'registrado a ${person['name']}.',
+          'registrado a ${person.name}.',
         );
       }
     } catch (error) {
@@ -107,36 +109,34 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
     }
   }
 
-  Future<void> _statement(Map<String, Object?> person) async {
+  Future<void> _statement(SettlementRead person) async {
     final repo = ref.read(repositoryProvider);
-    final rows = await repo.detailedStatement(
-      person['id']! as int,
+    final rows = await repo.detailedStatementTyped(
+      person.personId,
       campaignId: selectedCampaignId,
     );
     final campaignBalance = selectedCampaignId == null
         ? null
-        : await repo.personCampaignBalance(
-            person['id']! as int,
+        : await repo.personCampaignBalanceTyped(
+            person.personId,
             selectedCampaignId!,
           );
     if (!mounted) return;
-    var balance = campaignBalance?['opening_balance'] as int? ?? 0;
-    final rowsWithBalance = <(Map<String, Object?>, int)>[];
-    for (final row in rows) {
-      balance += row['amount_bob_minor_signed']! as int;
-      rowsWithBalance.add((row, balance));
-    }
+    final rowsWithBalance = StatementLine.runningBalance(
+      rows,
+      openingMinor: campaignBalance?.openingBalanceMinor ?? 0,
+    );
     await showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: Text('Estado de cuenta · ${person['name']}'),
+        title: Text('Estado de cuenta · ${person.name}'),
         content: SizedBox(
           width: 620,
           height: 420,
           child:
               rows.isEmpty &&
                   (campaignBalance == null ||
-                      campaignBalance['opening_balance'] == 0)
+                      campaignBalance.openingBalanceMinor == 0)
               ? const EmptyState(
                   icon: Icons.receipt_long_outlined,
                   message: 'Sin movimientos.',
@@ -148,16 +148,16 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
                         leading: const Icon(Icons.history),
                         title: const Text('Saldo inicial de campaña'),
                         trailing: Text(
-                          formatBob(campaignBalance['opening_balance'] as int),
+                          formatBob(campaignBalance.openingBalanceMinor),
                           style: const TextStyle(fontWeight: FontWeight.w700),
                         ),
                       ),
                     if (campaignBalance != null) const Divider(height: 1),
-                    for (final entry in rowsWithBalance)
+                    for (final line in rowsWithBalance)
                       Builder(
                         builder: (_) {
-                          final row = entry.$1;
-                          final amount = row['amount_bob_minor_signed']! as int;
+                          final row = line.entry;
+                          final amount = row.amountBobMinorSigned;
                           return ListTile(
                             leading: Icon(
                               amount > 0
@@ -166,12 +166,12 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
                               color: amount > 0 ? Colors.orange : Colors.green,
                             ),
                             title: Text(
-                              conceptLabel(row['concept']),
+                              conceptLabel(row.concept),
                               maxLines: 2,
                               overflow: TextOverflow.ellipsis,
                             ),
                             subtitle: Text(
-                              '${formatDate(row['transaction_date'])} · ${transactionTypeLabel(row['type'])}${row['farm_name'] == null ? '' : ' · ${row['farm_name']}'}',
+                              '${formatDate(row.transactionDate)} · ${transactionTypeLabel(row.type)}${row.farmName == null ? '' : ' · ${row.farmName}'}',
                             ),
                             // Ancho acotado para el importe: sin esto la
                             // columna de descripcion quedaba tan estrecha que
@@ -193,7 +193,7 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
                                     ),
                                   ),
                                   Text(
-                                    'Acumulado ${formatBob(entry.$2)}',
+                                    'Acumulado ${formatBob(line.balanceMinor)}',
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                     style: Theme.of(context)
@@ -220,12 +220,10 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
   }
 
   /// Nombre de la campaña filtrada, o `null` si se están viendo todas.
-  String? _campaignName(List<Map<String, Object?>> campaigns) {
+  String? _campaignName(List<CampaignRead> campaigns) {
     if (selectedCampaignId == null) return null;
     for (final campaign in campaigns) {
-      if (campaign['id'] == selectedCampaignId) {
-        return campaign['name'] as String?;
-      }
+      if (campaign.id == selectedCampaignId) return campaign.name;
     }
     return null;
   }
@@ -416,8 +414,7 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
         final (settlements, farmCosts, productCosts, campaigns) =
             snapshot.data!;
         final visibleSettlements = settlements.where((row) {
-          return personQuery.isEmpty ||
-              matchesSearch(row['name']! as String, personQuery);
+          return personQuery.isEmpty || matchesSearch(row.name, personQuery);
         }).toList();
         if (settlements.isEmpty)
           return const Card(
@@ -441,8 +438,8 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
                 ),
                 for (final campaign in campaigns)
                   DropdownMenuItem<int?>(
-                    value: campaign['id']! as int,
-                    child: Text(campaign['name']! as String),
+                    value: campaign.id,
+                    child: Text(campaign.name),
                   ),
               ],
               onChanged: (value) {
@@ -471,10 +468,7 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
                     child: Row(
                       children: [
                         CircleAvatar(
-                          child: Text(
-                            (row['name']! as String).characters.first
-                                .toUpperCase(),
-                          ),
+                          child: Text(row.name.characters.first.toUpperCase()),
                         ),
                         const SizedBox(width: 14),
                         Expanded(
@@ -483,15 +477,15 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                row['name']! as String,
+                                row.name,
                                 style: Theme.of(context).textTheme.titleMedium
                                     ?.copyWith(fontWeight: FontWeight.w700),
                                 maxLines: 2,
                                 overflow: TextOverflow.ellipsis,
                               ),
                               Text(
-                                'Cargos ${formatBob(row['charges']! as int)} · '
-                                'pagos/créditos ${formatBob(row['payments']! as int)}',
+                                'Cargos ${formatBob(row.chargesMinor)} · '
+                                'pagos/créditos ${formatBob(row.paymentsMinor)}',
                                 // Sin recorte: son cifras contables, no un
                                 // subtítulo decorativo.
                                 maxLines: 5,
@@ -510,7 +504,7 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
                             crossAxisAlignment: CrossAxisAlignment.end,
                             children: [
                               Text(
-                                '${(row['balance']! as int) < 0 ? 'A favor' : 'Pendiente'} · '
+                                '${row.balanceMinor < 0 ? 'A favor' : 'Pendiente'} · '
                                 '${selectedCampaignId == null ? 'todas las campañas' : _campaignName(campaigns) ?? 'campaña'}',
                                 style: Theme.of(context).textTheme.bodySmall,
                                 textAlign: TextAlign.end,
@@ -524,12 +518,12 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
                                 fit: BoxFit.scaleDown,
                                 alignment: Alignment.centerRight,
                                 child: Text(
-                                  formatBob(row['balance']! as int),
+                                  formatBob(row.balanceMinor),
                                   maxLines: 1,
                                   style: Theme.of(context).textTheme.titleLarge
                                       ?.copyWith(
                                         fontWeight: FontWeight.w800,
-                                        color: (row['balance']! as int) > 0
+                                        color: row.balanceMinor > 0
                                             ? Colors.orange.shade800
                                             : Colors.green.shade700,
                                       ),
@@ -586,13 +580,15 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
                   for (final row in farmCosts)
                     ListTile(
                       leading: const Icon(Icons.landscape_outlined),
-                      title: Text(row['name']! as String),
+                      title: Text(row.farmName),
                       subtitle: Text(
-                        '${row['owner_name']} · ${formatHectares(row['area_m2']! as int)} · '
-                        'Total ${formatBob(row['total_cost_bob_minor']! as int)}',
+                        '${row.ownerName} · ${formatHectares(row.areaM2)} · '
+                        'Total ${formatBob(row.totalCostBobMinor)}',
                       ),
                       trailing: Text(
-                        '${formatBob(divideRoundedHalfUp((row['total_cost_bob_minor']! as int) * 10000, row['area_m2']! as int))}/ha',
+                        row.costPerHectareMinor == null
+                            ? 'sin superficie'
+                            : '${formatBob(row.costPerHectareMinor!)}/ha',
                         style: const TextStyle(fontWeight: FontWeight.w700),
                       ),
                     ),
@@ -615,15 +611,12 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
                   for (final row in productCosts)
                     ListTile(
                       leading: const Icon(Icons.science_outlined),
-                      title: Text(row['name']! as String),
+                      title: Text(row.productName),
                       subtitle: Text(
-                        formatQuantity(
-                          row['quantity_base']! as int,
-                          row['unit']! as String,
-                        ),
+                        formatQuantity(row.quantityBase, row.unit),
                       ),
                       trailing: Text(
-                        formatBob(row['total_cost_bob_minor']! as int),
+                        formatBob(row.totalCostBobMinor),
                         style: const TextStyle(fontWeight: FontWeight.w700),
                       ),
                     ),
