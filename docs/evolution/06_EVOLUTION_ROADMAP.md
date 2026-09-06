@@ -1,57 +1,67 @@
 # Roadmap de evolución
 
-No contiene fechas inventadas. El orden reduce primero riesgo operativo y crea seams antes de
-subsystems más complejos.
+El orden vigente proviene de una decisión explícita del propietario. No contiene fechas
+inventadas y ninguna etapa se considera implementada por existir su documentación.
 
 ## EVOLUTION-0 — Gobierno y contrato
 
-- Objetivo: establecer este paquete, IDs, backlog, DoD y plantillas.
-- Valor: cada feature inicia con alcance verificable.
-- Riesgo/datos: bajo/ninguno.
-- Salida: documentos consistentes, ninguna feature marcada aprobada.
+- Estado: `VERIFIED` documental.
+- Resultado: paquete de evolución, IDs, backlog, DoD y plantillas.
+- No añadió funcionalidad de producción.
 
 ## EVOLUTION-1 — Portabilidad y diagnóstico
 
-- Candidatas: compartir/exportar `.agrobackup`, registrar última copia, exportar diagnóstico.
-- Valor: el usuario puede sacar la única copia completa antes de perder/desinstalar el equipo.
-- Dependencias: frontera `BackupTransport`; selección tecnológica posterior.
-- Riesgo: plugins Android, exposición de archivo sin cifrar.
-- Datos: sin schema si sólo comparte; `app_settings` si registra fecha.
-- Tests: servicio, fallos, archivo incompleto, Android/device, recuperación.
-- Salida: backup compartido y revalidado; baseline compatible.
+- IDs: `EVO-001`, `EVO-002`, `EVO-003`.
+- Estado: `DEFERRED`.
+- Incluye compartir `.agrobackup`, recordar última copia y exportar diagnóstico.
+- Puede retomarse después mediante decisión explícita.
 
-## EVOLUTION-2 — Lecturas/exportación operativa
+## EVOLUTION-2 — Lecturas tipadas y exportación de reportes
 
-- Candidatas: modelos tipados para inventario/reportes, CSV y luego PDF si aporta valor.
-- Valor: información utilizable fuera de la app y seam seguro para nuevas interfaces.
-- Riesgo: semántica de saldos/columnas y archivos grandes.
-- Datos: normalmente ninguno; consultas e índices sólo con evidencia.
-- Salida: totales equivalentes a UI/DB y exportaciones verificadas.
+- IDs: `EVO-004`, `EVO-005`, `EVO-006`.
+- Estado: `APPROVED`.
+- Orden interno:
+  1. typed read models y mappers incrementales;
+  2. migración de consumidores necesarios;
+  3. compositor neutral de reportes;
+  4. CSV;
+  5. PDF;
+  6. almacenamiento y UX;
+  7. CI y Pixel 8.
+- Datos: no debe requerir cambio de schema salvo hallazgo independiente y justificado.
+- Salida: resultados equivalentes a UI/DB, exportaciones offline y trazabilidad completa.
+- No incluye compartir archivos, voz, cloud, sync ni refactor masivo.
 
 ## EVOLUTION-3 — Voz segura
 
-- Fase A: capturar → transcribir → mostrar intención, sin ejecutar.
-- Fase B: convertir a comando tipado y pedir confirmación explícita.
-- Fase C: ejecutar mediante casos de uso existentes y guardar auditoría.
-- Dependencias: decisión local/cloud, idioma, conectividad, privacidad y costos.
-- Riesgo: reconocimiento incorrecto de producto/persona/cantidad; muy alto en escritura.
-- Salida: ninguna operación silenciosa; offline degradable; escenarios adversos aprobados.
+- ID: `EVO-009`.
+- Estado: `APPROVED`, bloqueada hasta que EVOLUTION-2 esté integrada y verificada.
+- Único alcance:
 
-## EVOLUTION-4 — Capacidades distribuidas, sólo si se aprueban
+```text
+Micrófono → transcripción → vista previa editable → aceptar/editar/descartar
+```
 
-- Sync/multi-dispositivo, identidad/autenticación, backup remoto.
-- Precondiciones: ADR, modelo de amenazas, UUID, versionado de registros, conflictos,
-  observabilidad y plan de migración/rollback.
-- No debe empezar como «subir el SQLite» ni compartir un archivo entre escritores.
+- Aceptar confirma el texto de sesión, no una operación agrícola o contable.
+- No escribe SQLite, no llama casos de uso y no ejecuta compras, pagos, transferencias,
+  aplicaciones, reversiones ni cierres.
+- Requiere decisión técnica documentada sobre motor local/remoto, conectividad, idioma,
+  privacidad y retención.
 
-## Priorización común
+## Evoluciones posteriores no aprobadas
 
-Puntuar valor, riesgo, complejidad, dependencias, impacto en datos/arquitectura/UX y
-reversibilidad. Una feature de alto riesgo puede ir antes sólo si reduce un riesgo mayor y
-tiene un corte seguro.
+- `EVO-010`: convertir voz en comando tipado y confirmado.
+- Sync/multi-dispositivo, identidad, backup remoto, cifrado e IA.
+- Requieren nuevas specs, decisiones y aprobación. No son extensión implícita de EVOLUTION-3.
 
-## Recomendación
+## Gates entre EVOLUTION-2 y EVOLUTION-3
 
-Primera candidata: `EVO-001`, compartir un backup validado fuera del sandbox. Es visible,
-acotada, no altera contabilidad ni schema y reduce la limitación operativa más importante. La
-voz debería seguir después de crear su spec y resolver decisiones de privacidad/operación.
+EVOLUTION-3 no comienza hasta que EVOLUTION-2 tenga:
+
+- implementación integrada;
+- format/analyze/test/build verdes;
+- CI del SHA final;
+- verificación Pixel 8 o estado pendiente declarado honestamente;
+- `FINAL_VERIFICATION` coherente con evidencia;
+- ninguna regresión crítica/alta abierta.
+
