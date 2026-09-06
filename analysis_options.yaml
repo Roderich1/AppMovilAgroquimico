@@ -15,6 +15,12 @@ analyzer:
     - android/**
     - ios/**
     - web/**
+    # Spike de EVOLUTION-3: `benchmark/voice_benchmark` es un paquete Flutter
+    # aparte, con su propio `pubspec.yaml`, sus propias reglas y sus propios
+    # gates (`flutter analyze` y `flutter test` dentro de esa carpeta). No forma
+    # parte de la aplicación ni de su CI, y analizarlo desde aquí lo haría con
+    # las dependencias equivocadas.
+    - benchmark/**
 
 linter:
   # The lint rules applied to this project can be customized in the
