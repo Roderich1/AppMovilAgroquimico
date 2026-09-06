@@ -5,9 +5,9 @@
 | Campo | Valor |
 |---|---|
 | Feature ID | `EVO-001` |
-| Owner decision | `PENDING` |
-| Status | `ANALYZED` |
-| Recomendación | Primera evolución funcional |
+| Owner decision | Diferida el 2026-09-06 por prioridad de EVOLUTION-2/3 |
+| Status | `DEFERRED` |
+| Recomendación | Conservar la spec y reevaluar después de EVOLUTION-3 |
 
 ## Problem
 
@@ -114,8 +114,8 @@ datos porque no cambia persistencia.
 - [ ] CI y verificación Pixel 8 están enlazados.
 - [ ] El usuario ve que el archivo no está cifrado.
 
-## Decision Needed
+## Decisión pendiente al reactivar
 
-El propietario debe aprobar `EVO-001` y elegir la experiencia primaria: «Compartir» mediante
-hoja del sistema o «Guardar copia» mediante selector de documentos. Se recomienda compartir,
-con guardar como destino disponible si el sistema lo ofrece.
+Cuando el propietario reactive `EVO-001`, deberá elegir la experiencia primaria: «Compartir»
+mediante hoja del sistema o «Guardar copia» mediante selector de documentos. Esta decisión no
+bloquea EVOLUTION-2 ni EVOLUTION-3.

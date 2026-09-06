@@ -2,38 +2,50 @@
 
 ## Objetivo
 
-Evolucionar Agrocuentas significa aumentar su valor operativo sin degradar su contabilidad,
-trazabilidad, uso offline ni capacidad de recuperación. Cada capacidad nace como un cambio
-aislado, con contrato, pruebas y verificación proporcional al riesgo.
+Evolucionar Agrocuentas significa aumentar su valor operativo sin degradar contabilidad,
+trazabilidad, uso offline ni recuperación. Cada capacidad nace como un cambio aislado, con
+contrato, pruebas y verificación proporcional al riesgo.
 
-## Cuatro estados que no deben mezclarse
+## Estados que no deben mezclarse
 
 | Estado | Significado | Ejemplo vigente |
 |---|---|---|
 | Baseline | Punto histórico cerrado e inmutable | `v1.0.0-base-stable` |
-| Evolución | Capacidad posterior, todavía propuesta/aprobada/en desarrollo | Backlog `EVO-*` |
-| Producción | Artefacto firmable, distribuible y operable | Bloqueado por keystore |
-| Futuro | Hipótesis sin compromiso | voz, nube, sincronización |
+| Evolución aprobada | Capacidad autorizada todavía no iniciada | `EVOLUTION-2` |
+| Evolución condicionada | Autorizada pero dependiente de otra | `EVO-009`, después de EVOLUTION-2 |
+| En desarrollo | Rama real con implementación iniciada | Ninguna al aprobar estos documentos |
+| Producción | Artefacto distribuible y operable | Bloqueado por keystore |
+| Futuro | Hipótesis sin compromiso | comandos de voz, nube, sincronización |
 
-`READY FOR EVOLUTION` no significa `READY FOR STORE`. Del mismo modo, una idea futura no es
-un requisito y un backlog `PROPOSED` no autoriza implementación.
+`READY FOR EVOLUTION` no significa `READY FOR STORE`. `APPROVED` no significa `IMPLEMENTED`,
+y un merge no significa `VERIFIED` sin evidencia.
+
+## Orden aprobado
+
+1. `EVOLUTION-2`: modelos tipados de lectura y exportación PDF/CSV.
+2. `EVOLUTION-3`: captura, transcripción y vista previa editable, sin ejecutar operaciones.
+
+Compartir backup, diagnóstico exportable, comandos de voz, cloud y sincronización permanecen
+diferidos salvo nueva decisión explícita.
 
 ## Resultado buscado
 
 - Operaciones agrícolas rápidas y comprensibles en campo.
-- Cuentas exactas y auditables entre administrador, familiares y terceros.
+- Cuentas exactas y auditables.
 - Datos preservados durante años y entre actualizaciones.
-- Capacidades externas —voz, cloud o sincronización— detrás de fronteras explícitas.
+- Reportes producidos desde contratos tipados, no desde widgets ni SQL duplicado.
+- Voz detrás de un puerto reemplazable, sin escritura de dominio en su primera versión.
 - Arquitectura que crece por extracción oportunista, no por reescritura.
 
-## Límites actuales
+## Límites
 
 La baseline es local, monodispositivo y Android es la plataforma verificada. Backend,
-autenticación, nube, telemetría, IA y comandos por voz son subsistemas nuevos. No se asume su
-existencia ni se insertan dentro de una pantalla o de `AgroRepository` sin contrato propio.
+autenticación, nube, telemetría, IA y comandos de voz son subsistemas nuevos. La voz aprobada
+en `EVO-009` sólo produce texto editable y no confirma compras, aplicaciones, transferencias,
+pagos, inventario ni SQLite.
 
 ## Medida de éxito
 
-Una evolución es exitosa cuando entrega valor observable, conserva invariantes, migra datos
-sin pérdida, mantiene backups compatibles, pasa CI y queda verificable desde requisito hasta
-evidencia. Más capas o más archivos no son una medida de éxito.
+Una evolución es exitosa cuando entrega valor observable, conserva invariantes, mantiene
+backups compatibles, pasa CI y queda trazable desde requisito hasta evidencia.
+

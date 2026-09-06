@@ -2,9 +2,25 @@
 
 ## Propósito
 
-`docs/evolution/` gobierna las capacidades que se incorporen después de la baseline congelada
-`v1.0.0-base-stable`. No reemplaza `docs/00_INDEX.md` ni reescribe la evidencia histórica de
-estabilización.
+`docs/evolution/` gobierna las capacidades incorporadas después de la baseline congelada
+`v1.0.0-base-stable`. No reemplaza `docs/00_INDEX.md` ni reescribe evidencia histórica.
+
+## Identidad de estado
+
+| Elemento | Valor |
+|---|---|
+| Baseline funcional inmutable | `f4c6510438991f4948fda921eec7c67fe2a2acc2` |
+| Tag | `v1.0.0-base-stable` |
+| Fundación documental en `main` | `bdd7b82f3e06d9943749a571284db8f94194c3b3` |
+| Diferencia funcional entre ambos | Ninguna; el commit posterior sólo añade documentación |
+
+## Dos niveles de identificadores
+
+- `EVOLUTION-N`: etapa del roadmap que agrupa capacidades relacionadas.
+- `EVO-NNN`: ítem único y estable del backlog.
+
+No son intercambiables. `EVOLUTION-2` agrupa `EVO-004`, `EVO-005` y `EVO-006`.
+`EVOLUTION-3` implementará únicamente `EVO-009`.
 
 ## Orden de lectura
 
@@ -15,40 +31,33 @@ estabilización.
 5. `05_CAPABILITY_MAP.md`
 6. `06_EVOLUTION_ROADMAP.md`
 7. Estrategias `07` a `12`
-8. Gobierno `13` a `17`
-9. `18_SOURCE_UPDATE_POLICY.md`
-10. Specs analizadas en `features/`
-11. Plantillas en `templates/`
+8. Gobierno `13` a `18`
+9. Specs y planes en `features/`
+10. Plantillas en `templates/`
+11. ADR aceptados en `decisions/`
 
-## Clasificación
+## Registro de features
 
-| Tipo | Documentos | Autoridad |
-|---|---|---|
-| Contrato de partida | `02` | Normativo para toda evolución |
-| Principios y arquitectura | `03`, `04` | Normativos una vez aprobada una feature |
-| Estrategias | `07`–`12` | Normativas cuando el cambio toca esa materia |
-| Planificación | `05`, `06`, `16` | Viva; no convierte propuestas en compromisos |
-| Control | `13`–`15`, `17` | Normativo para trazabilidad y cierre |
-| Fuentes de ChatGPT | `18` | Normativo para mantener contexto vigente |
-| Features | `features/` | Specs; su estado controla si autorizan implementación |
-| Plantillas | `templates/` | Punto de partida; se adapta sin eliminar controles aplicables |
-| Decisiones | `decisions/` | Sólo ADR aceptados; su estado manda sobre recomendaciones |
+| Alcance | IDs | Documento | Estado |
+|---|---|---|---|
+| Compartir backup | `EVO-001` | `features/EVO-001_SHARE_BACKUP_SPEC.md` | `DEFERRED` |
+| Typed reads + reportes | `EVO-004/005/006` | `features/EVOLUTION-2_TYPED_READS_AND_REPORT_EXPORT_SPEC.md` | `APPROVED` |
+| Plan de EVOLUTION-2 | `EVO-004/005/006` | `features/EVOLUTION-2_IMPLEMENTATION_PLAN.md` | `APPROVED` |
+| Voz segura | `EVO-009` | `features/EVO-009_SAFE_VOICE_SPEC.md` | `APPROVED`, depende de EVOLUTION-2 verificada |
+| Plan de voz segura | `EVO-009` | `features/EVO-009_SAFE_VOICE_IMPLEMENTATION_PLAN.md` | `APPROVED`, no iniciar todavía |
 
-## Regla de precedencia
+Los documentos `FINAL_VERIFICATION` sólo se crean después de implementar y reunir evidencia
+real de tests, CI y dispositivo. Su ausencia antes de esa fase es correcta.
+
+## Precedencia
 
 Ante contradicciones: código de la rama analizada → tests → `docs/46_BASELINE_FINAL_FREEZE.md`
-→ trazabilidad final → documentación funcional → documentación histórica. Un ADR `Accepted`
-posterior puede reemplazar una decisión futura, pero nunca reescribe la baseline histórica.
+→ documentación final de evolución → documentación funcional → documentación histórica.
 
-## Actualización mínima por evolución
+## Decisión vigente del propietario
 
-- Al analizar: `05`, `06`, `14` y `16`.
-- Al aprobar: spec de feature, riesgos, dependencias y ADR si la decisión es estructural.
-- Al implementar: plan, trazabilidad y migración si aplica.
-- Al verificar: `15`, `16`, `17` y estado corriente de Sources.
-- Al liberar: `10`, changelog/release y nuevo SHA; `02` permanece como contrato de v1.0.0.
+1. Implementar primero `EVOLUTION-2` (`EVO-004`, `EVO-005`, `EVO-006`).
+2. Integrarla únicamente con gates verdes y evidencia honesta.
+3. Implementar después `EVOLUTION-3`, limitada a `EVO-009`.
+4. `EVO-010`, comandos de voz, permanece `DEFERRED` y fuera de alcance.
 
-## Estado de este paquete
-
-Creado contra `main` = `f4c6510438991f4948fda921eec7c67fe2a2acc2`. En esta fase sólo
-se añadió documentación; ninguna propuesta está `APPROVED`.

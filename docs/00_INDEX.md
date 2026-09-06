@@ -25,7 +25,7 @@ Cuando algo no pudo determinarse desde el código, aparece marcado explícitamen
 > **Empieza por [46_BASELINE_FINAL_FREEZE](46_BASELINE_FINAL_FREEZE.md)**: es el cierre
 > definitivo y el resumen más corto del estado real.
 
-La documentación de este repositorio está en **cuatro capas**, y confundirlas lleva a
+La documentación de este repositorio está en **seis capas**, y confundirlas lleva a
 conclusiones equivocadas:
 
 | Capa | Documentos | Qué es | ¿Vigente? |
@@ -35,13 +35,16 @@ conclusiones equivocadas:
 | **3 · Auditoría de interfaz (posterior)** | `36`–`40` | Auditoría **ejecutando la aplicación** en Pixel 8. Encontró 65 defectos, 4 de ellos CRITICAL. | **Histórica como observación**; 54 de 66 ya corregidos. Para el estado vigente, `43` y `45`. |
 | **4 · Backlog y corrección** | `41`–`45` | Backlog normalizado, plan de corrección por lotes y trazabilidad de cada arreglo. | **Vigente**: `41` es el catálogo de hallazgos y `43` la trazabilidad. `45` es el cierre de su fase. |
 | **5 · Congelación de la baseline** | **`46`** | **Cierre definitivo del proyecto base**: estado, decisiones de producto, evidencia y veredicto. | **Vigente. Empieza aquí.** |
+| **6 · Evolución posterior** | **`evolution/`** | Gobierno, roadmap, specs, planes, riesgos y verificaciones posteriores a `v1.0.0-base-stable`. | **Vigente para toda funcionalidad nueva.** |
 
 **Documento de estado actual: [46_BASELINE_FINAL_FREEZE](46_BASELINE_FINAL_FREEZE.md).**
 **Catálogo de hallazgos: [41_UIBUG_MASTER_BACKLOG](41_UIBUG_MASTER_BACKLOG.md).**
 **Trazabilidad de las correcciones: [43_UIBUG_FIX_TRACEABILITY](43_UIBUG_FIX_TRACEABILITY.md).**
 
-> **Rama**: el cierre de la baseline vive en `hardening/final-polish`, sobre `origin/main`
-> (`c36e5b7`, que ya integra la estabilización y la auditoría de interfaz).
+> **Baseline funcional congelada**: `v1.0.0-base-stable` →
+> `f4c6510438991f4948fda921eec7c67fe2a2acc2`. El HEAD documental posterior es
+> `bdd7b82f3e06d9943749a571284db8f94194c3b3`; entre ambos no existen cambios en código de
+> producción, tests, dependencias ni esquema.
 
 ## Punto de entrada recomendado
 
@@ -50,7 +53,7 @@ conclusiones equivocadas:
 | saber en qué estado está el proyecto | **[46 congelación de la baseline](46_BASELINE_FINAL_FREEZE.md)** |
 | entender el sistema | **[28_SYSTEM_MAP.md](28_SYSTEM_MAP.md)** (15–30 min) |
 | saber si se puede publicar | **[35 § BASELINE FREEZE STATUS](35_RELEASE_READINESS.md#baseline-freeze-status--dos-gates-separados)** — dos gates |
-| empezar una funcionalidad nueva | **[46 §18](46_BASELINE_FINAL_FREEZE.md)** (criterio de congelación) y **[30 roadmap](30_IMPROVEMENT_ROADMAP.md)** |
+| empezar una funcionalidad nueva | **[Índice de evolución](evolution/00_EVOLUTION_INDEX.md)** y **[46 §18](46_BASELINE_FINAL_FREEZE.md)** |
 | ver el estado de un defecto | **[41 catálogo](41_UIBUG_MASTER_BACKLOG.md)** → **[43 trazabilidad](43_UIBUG_FIX_TRACEABILITY.md)** |
 | ver la evidencia de un defecto | **[38 hallazgos](38_UI_AUDIT_FINDINGS.md)** y `artifacts/ui-audit/` |
 
@@ -126,6 +129,15 @@ conclusiones equivocadas:
 | # | Documento | Contenido |
 |---|-----------|-----------|
 | **46** | [**BASELINE_FINAL_FREEZE**](46_BASELINE_FINAL_FREEZE.md) | **Cierre definitivo del proyecto base**: baseline, estado de los 69 UIBUG, plan de un solo uso, campaña terminal, respaldo con fotografías, CI, 17/17 en Pixel 8, builds, limitaciones aceptadas y veredicto `READY FOR EVOLUTION` |
+
+### Capa 6 — Evolución posterior a la baseline
+
+| Documento | Contenido |
+|---|---|
+| [**EVOLUTION_INDEX**](evolution/00_EVOLUTION_INDEX.md) | Entrada normativa para toda capacidad posterior a `v1.0.0-base-stable` |
+| [EVOLUTION_ROADMAP](evolution/06_EVOLUTION_ROADMAP.md) | Orden aprobado: `EVOLUTION-2` y después `EVOLUTION-3` |
+| [EVOLUTION_BACKLOG](evolution/16_EVOLUTION_BACKLOG.md) | Registro único de IDs, estados, dependencias y prioridad |
+| [`features/`](evolution/features/) | Especificaciones, planes y verificaciones de cada evolución |
 
 ## Estado verificado del repositorio
 

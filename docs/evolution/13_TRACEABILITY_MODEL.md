@@ -4,36 +4,43 @@
 
 | Prefijo | Uso | Ejemplo |
 |---|---|---|
-| `EVO` | Capacidad/feature | `EVO-001` |
-| `REQ` | Requisito dentro de feature | `EVO-001-REQ-03` |
+| `EVOLUTION` | Etapa del roadmap | `EVOLUTION-2` |
+| `EVO` | Capacidad/feature única del backlog | `EVO-004` |
+| `REQ` | Requisito dentro de una feature | `EVO-004-REQ-001` |
 | `BR` | Regla de negocio | `BR-INV-01` |
 | `ADR` | Decisión arquitectónica | `ADR-001` |
 | `RISK` | Riesgo | `RISK-004` |
 | `MIG` | Migración de datos | `MIG-007` |
-| `TEST` | Escenario/evidencia | `EVO-001-TEST-05` |
+| `TEST` | Escenario/evidencia | `EVO-004-TEST-001` |
 
-No crear un ID para cada párrafo. Usarlo cuando se necesite enlazar artefactos o evidencia.
+`EVOLUTION-N` y `EVO-NNN` no son alias. Una etapa puede agrupar varias features:
+
+- `EVOLUTION-2` → `EVO-004`, `EVO-005`, `EVO-006`.
+- `EVOLUTION-3` → `EVO-009`.
 
 ## Cadena mínima
 
-`EVO → REQ/BR → decisión/diseño → archivos/commit → TEST → CI/device → documentación`.
+`EVOLUTION → EVO → REQ/BR → decisión/diseño → archivos/commit → TEST → CI/device → docs`.
 
 ## Registro por feature
 
 | Campo | Contenido |
 |---|---|
-| Identidad | ID, nombre, owner decision, estado |
+| Identidad | ID, nombre, decisión y estado |
 | Alcance | incluido/no incluido |
 | Reglas | IDs existentes/nuevos |
-| Cambio | commit/PR y archivos |
-| Datos | schema/MIG/backup impact |
-| Verificación | tests, CI, dispositivo |
-| Riesgo | RISK mitigados/aceptados |
-| Cierre | versión, docs y DoD |
+| Cambio | commits, PR y archivos |
+| Datos | schema, migración y backup impact |
+| Verificación | tests, CI y dispositivo |
+| Riesgo | mitigado/aceptado |
+| Cierre | versión, documentación y DoD |
 
 ## Reglas de integridad
 
-- IDs únicos y estables; no reciclar rechazados.
-- Un test puede cubrir varios requisitos si la relación se declara.
+- IDs únicos y estables; no reutilizar un ID para otro significado.
+- `APPROVED` no significa `IN_PROGRESS`.
+- `IN_PROGRESS` requiere una rama real con implementación iniciada.
+- `FINAL_VERIFICATION` sólo existe cuando hay implementación y evidencia que verificar.
 - `VERIFIED` exige evidencia; un merge no basta.
-- Una recomendación sin aprobación permanece `PROPOSED` o `ANALYZED`.
+- Un test puede cubrir varios requisitos si la relación se declara.
+
