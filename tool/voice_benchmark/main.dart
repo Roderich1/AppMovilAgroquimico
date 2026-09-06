@@ -66,8 +66,20 @@ Future<void> main(List<String> args) async {
     return;
   }
 
+  final unique = deduplicate(records);
+  final repeated = records.length - unique.length;
+  if (repeated > 0) {
+    // Caso normal: la misma tanda exportada en JSON y en CSV, ambos archivos en
+    // la carpeta. Se avisa en vez de callar, porque el propietario tiene que
+    // poder confirmar que el descarte era el esperado.
+    stdout.writeln(
+      'descartadas $repeated mediciones repetidas '
+      '(el mismo resultado leído en más de un archivo).',
+    );
+  }
+
   final summaries = BenchAggregator.summarize(
-    records,
+    unique,
     criticalSlots: loadCriticalSlots(File(_corpusPath)),
   );
   final markdown = BenchReport.render(summaries);
@@ -79,6 +91,15 @@ Future<void> main(List<String> args) async {
     File(output).writeAsStringSync(markdown);
     stdout.writeln('informe escrito en $output');
   }
+}
+
+/// Quita las mediciones leídas más de una vez, conservando el orden.
+///
+/// Se compara por [BenchRecord.identity], no por el archivo de origen: lo que
+/// importa es si describe la misma toma, no dónde estaba guardada.
+List<BenchRecord> deduplicate(List<BenchRecord> records) {
+  final seen = <String>{};
+  return records.where((r) => seen.add(r.identity)).toList(growable: false);
 }
 
 /// Datos críticos por frase, según el corpus.

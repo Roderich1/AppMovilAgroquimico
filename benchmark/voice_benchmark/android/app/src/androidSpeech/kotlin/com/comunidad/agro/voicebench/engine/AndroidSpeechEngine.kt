@@ -60,6 +60,31 @@ class AndroidSpeechEngine(private val context: Context) : TranscriptionEngine {
             return
         }
 
+        // `checkRecognitionSupport` llega en API 33. Por debajo no se puede
+        // preguntar qué idiomas hay instalados, y **inventar una lista vacía
+        // seria mentir**: vacio significa "ninguno", no "no se sabe". Se marca
+        // el dato como no verificable y la capacidad offline se decide con la
+        // prueba en modo avion, que es evidencia real y no una consulta.
+        if (android.os.Build.VERSION.SDK_INT < 33) {
+            onResult(
+                base.apply {
+                    put("localeSupportKnown", false)
+                    put("installedLocales", emptyList<String>())
+                    put("supportedLocales", emptyList<String>())
+                    put("effectiveLocale", null)
+                    put("requiresNetwork", !onDeviceAvailable)
+                    put(
+                        "detail",
+                        "API ${android.os.Build.VERSION.SDK_INT}: " +
+                            "checkRecognitionSupport requiere API 33; " +
+                            "idiomas instalados NO consultables. " +
+                            "apiOnDevice=$onDeviceAvailable",
+                    )
+                },
+            )
+            return
+        }
+
         val probe = if (onDeviceAvailable) {
             SpeechRecognizer.createOnDeviceSpeechRecognizer(context)
         } else {
@@ -83,6 +108,7 @@ class AndroidSpeechEngine(private val context: Context) : TranscriptionEngine {
                     val worksOffline = onDeviceAvailable && effective != null
                     onResult(
                         base.apply {
+                            put("localeSupportKnown", true)
                             put("onDeviceAvailable", worksOffline)
                             put("installedLocales", installed)
                             put("supportedLocales", support.supportedOnDeviceLanguages)

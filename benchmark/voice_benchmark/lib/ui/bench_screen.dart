@@ -134,13 +134,26 @@ class _BenchScreenState extends State<BenchScreen> with WidgetsBindingObserver {
               const Text('Sin comprobar todavía.')
             else ...[
               _kv('Reconocimiento disponible', a.available ? 'sí' : 'NO'),
-              _kv('Funciona sin Internet', a.onDeviceAvailable ? 'sí' : 'NO'),
+              _kv(
+                'Funciona sin Internet',
+                !a.localeSupportKnown
+                    ? 'SIN VERIFICAR — pruébelo en modo avión'
+                    : a.onDeviceAvailable
+                    ? 'sí'
+                    : 'NO',
+              ),
               _kv('Necesita red', a.requiresNetwork ? 'sí' : 'no'),
               _kv('Locale solicitado', a.requestedLocale),
-              _kv('Locale utilizado', a.effectiveLocale ?? 'NO DISPONIBLE'),
+              _kv(
+                'Locale utilizado',
+                a.effectiveLocale ??
+                    (a.localeSupportKnown ? 'NO DISPONIBLE' : 'NO CONSULTABLE'),
+              ),
               _kv(
                 'Idiomas instalados',
-                a.installedLocales.isEmpty
+                !a.localeSupportKnown
+                    ? 'NO CONSULTABLE en este Android'
+                    : a.installedLocales.isEmpty
                     ? 'ninguno'
                     : a.installedLocales.join(', '),
               ),
