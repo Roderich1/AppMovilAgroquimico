@@ -23,7 +23,9 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
 
   void refresh() {
     final next = ref.read(repositoryProvider).inventorySummary();
-    setState(() => future = next);
+    setState(() {
+      future = next;
+    });
   }
 
   @override

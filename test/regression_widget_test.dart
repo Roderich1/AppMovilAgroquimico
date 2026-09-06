@@ -86,10 +86,12 @@ void main() {
       ),
     );
     await settle(tester);
+    // La cantidad de la línea es "Cantidad comprada"; las de las asignaciones
+    // son "Cantidad" (UIBUG-038). Se apunta a la de la línea.
     final quantity = find.byWidgetPredicate(
       (widget) =>
           widget is TextField &&
-          (widget.decoration?.labelText ?? '').startsWith('Cantidad'),
+          widget.decoration?.labelText == 'Cantidad comprada',
     );
     expect(quantity, findsOneWidget);
     await tester.enterText(quantity, '420');

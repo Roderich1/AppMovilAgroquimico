@@ -139,7 +139,7 @@ void main() {
         where: 'id=?',
         whereArgs: [plan],
       )).single['status'],
-      'COMPLETED',
+      'APPLIED',
     );
     final balanceAfter =
         (await repo.settlements()).firstWhere(
@@ -170,13 +170,15 @@ void main() {
     expect(await repo.settlements(), hasLength(2));
 
     await repo.reverseApplication(application, reason: 'Control E2E');
+    // El plan permanece APPLIED: revertir la aplicación no lo devuelve a la
+    // cola de pendientes (UIBUG-045, MODELO A).
     expect(
       (await db.query(
         'application_plans',
         where: 'id=?',
         whereArgs: [plan],
       )).single['status'],
-      'PLANNED',
+      'APPLIED',
     );
     for (var i = 0; i < 12; i++) {
       final quantity = (await repo.inventorySummary()).firstWhere(

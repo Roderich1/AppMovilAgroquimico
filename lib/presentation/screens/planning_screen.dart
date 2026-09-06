@@ -15,6 +15,15 @@ class PlanningScreen extends ConsumerStatefulWidget {
 class _PlanningScreenState extends ConsumerState<PlanningScreen> {
   late Future<List<Map<String, Object?>>> future;
   int? campaignFilter;
+
+  /// La vista operativa muestra **planes pendientes** (UIBUG-045).
+  ///
+  /// Un plan aplicado ya no se puede volver a usar, así que dejarlo en la
+  /// lista principal sólo estorba: con los años serían decenas de filas
+  /// muertas. No se borran —son parte de la trazabilidad—; se consultan con
+  /// este interruptor.
+  bool showApplied = false;
+
   @override
   void initState() {
     super.initState();
@@ -22,8 +31,24 @@ class _PlanningScreenState extends ConsumerState<PlanningScreen> {
   }
 
   void refresh() {
-    final next = ref.read(repositoryProvider).plans();
-    setState(() => future = next);
+    final next = ref
+        .read(repositoryProvider)
+        .plans(includeApplied: showApplied);
+    setState(() {
+      future = next;
+    });
+  }
+
+  /// Abre el formulario de aplicación precargado con el plan y **recarga al
+  /// volver**.
+  ///
+  /// Sin la recarga la fila seguía diciendo "pendiente" y ofreciendo "Aplicar"
+  /// después de haberse aplicado: el estado del plan pasó a decidir qué muestra
+  /// esta lista, así que la lista tiene que releerlo. Detectado en el Pixel 8
+  /// durante la regresión final.
+  Future<void> applyPlan(int planId) async {
+    await context.push<bool>('/aplicaciones/nueva?planId=$planId');
+    if (mounted) refresh();
   }
 
   Future<void> add() async {
@@ -82,11 +107,28 @@ class _PlanningScreenState extends ConsumerState<PlanningScreen> {
               ],
               onChanged: (v) => setState(() => campaignFilter = v),
             ),
+            const SizedBox(height: 8),
+            // Acceso secundario y discreto al histórico: no compite con la
+            // lista, pero el plan aplicado sigue siendo consultable.
+            Align(
+              alignment: Alignment.centerLeft,
+              child: FilterChip(
+                selected: showApplied,
+                onSelected: (value) {
+                  showApplied = value;
+                  refresh();
+                },
+                avatar: const Icon(Icons.history, size: 18),
+                label: const Text('Mostrar planes aplicados'),
+              ),
+            ),
             const SizedBox(height: 12),
             if (visible.isEmpty)
-              const EmptyState(
+              EmptyState(
                 icon: Icons.event_note_outlined,
-                message: 'No hay planes para mostrar.',
+                message: showApplied
+                    ? 'No hay planes registrados.'
+                    : 'No hay planes pendientes.',
               )
             else
               Card(
@@ -98,6 +140,7 @@ class _PlanningScreenState extends ConsumerState<PlanningScreen> {
                   itemBuilder: (context, index) {
                     final rows = visible[index].value;
                     final first = rows.first;
+                    final applied = first['plan_status'] == 'APPLIED';
                     return ExpansionTile(
                       title: Text(
                         '${first['farm_name']} · ${first['owner_name']}',
@@ -105,8 +148,16 @@ class _PlanningScreenState extends ConsumerState<PlanningScreen> {
                       ),
                       subtitle: Text(
                         '${first['campaign_name']} · ${rows.length} producto(s) · '
-                        'toque para ver el detalle',
+                        '${applied ? 'aplicado' : 'pendiente'}',
                       ),
+                      // Un plan consumido se marca en la propia fila: no hace
+                      // falta desplegarla para saber que ya no está en juego.
+                      trailing: applied
+                          ? const Chip(
+                              visualDensity: VisualDensity.compact,
+                              label: Text('Aplicado'),
+                            )
+                          : null,
                       // El chevron del `ExpansionTile` estaba ocupado por el
                       // botón "Aplicar", así que nada indicaba que la fila se
                       // desplegara (UIBUG-046). Ahora el botón va dentro y el
@@ -116,13 +167,35 @@ class _PlanningScreenState extends ConsumerState<PlanningScreen> {
                           padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
                           child: Align(
                             alignment: Alignment.centerLeft,
-                            child: FilledButton.tonalIcon(
-                              onPressed: () => context.push(
-                                '/aplicaciones/nueva?planId=${first['plan_id']}',
-                              ),
-                              icon: const Icon(Icons.agriculture_outlined),
-                              label: const Text('Aplicar este plan'),
-                            ),
+                            // Un plan aplicado no ofrece la acción: no es que
+                            // se intente y falle, es que ya no procede
+                            // (UIBUG-045). El repositorio la rechaza además
+                            // por su cuenta.
+                            child: applied
+                                ? Text(
+                                    'Ya aplicado. Para repetir la aplicación, '
+                                    'cree un plan nuevo.',
+                                    style: TextStyle(
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .outline,
+                                    ),
+                                  )
+                                : FilledButton.tonalIcon(
+                                    // Al volver del formulario hay que
+                                    // recargar: el plan acaba de consumirse y
+                                    // una lista sin refrescar seguiría
+                                    // ofreciendo "Aplicar" sobre algo ya
+                                    // aplicado. El repositorio lo rechazaría,
+                                    // pero el usuario vería un error en vez de
+                                    // una lista al día.
+                                    onPressed: () =>
+                                        applyPlan(first['plan_id']! as int),
+                                    icon: const Icon(
+                                      Icons.agriculture_outlined,
+                                    ),
+                                    label: const Text('Aplicar este plan'),
+                                  ),
                           ),
                         ),
                         for (final row in rows)

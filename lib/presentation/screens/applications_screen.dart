@@ -24,7 +24,9 @@ class _ApplicationsScreenState extends ConsumerState<ApplicationsScreen> {
 
   void refresh() {
     final next = ref.read(repositoryProvider).applications(limit: 200);
-    setState(() => future = next);
+    setState(() {
+      future = next;
+    });
   }
 
   Future<void> add() async {

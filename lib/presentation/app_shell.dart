@@ -37,6 +37,20 @@ class AppShell extends StatelessWidget {
   /// que se entra. `/chacos/:id` se alcanza desde Personas.
   static const _detailOwners = <String, String>{'/chacos': '/personas'};
 
+  /// Rutas que ya tienen su propia acción primaria y donde el FAB global
+  /// competiría con ella (UIBUG-047).
+  ///
+  /// En `/catalogos` convivían dos acciones visualmente primarias: el botón
+  /// `Agregar «entidad»` de la cabecera, que crea en la sección abierta, y este
+  /// FAB "Nuevo", que **no crea ninguna entrada de catálogo**: sólo lleva a
+  /// Planificación, Compra, Aplicación, Pago y Transferencia. Retirarlo aquí no
+  /// quita ninguna función —esos cinco destinos siguen en Operaciones y en la
+  /// barra inferior— y deja una sola acción primaria por pantalla.
+  static const _routesWithoutGlobalFab = <String>{'/catalogos'};
+
+  /// Si esta ruta oculta el FAB global.
+  bool get hidesGlobalFab => _routesWithoutGlobalFab.contains(location);
+
   int get selectedIndex {
     if (operationsSubRoutes.any(
       (path) => location == path || location.startsWith('$path/'),
@@ -86,10 +100,14 @@ class AppShell extends StatelessWidget {
   Widget build(BuildContext context) {
     final wide = MediaQuery.sizeOf(context).width >= 900;
     final keyboardOpen = MediaQuery.viewInsetsOf(context).bottom > 0;
+    // El FAB desaparece con el teclado abierto (UIBUG-009) y en las rutas que
+    // ya tienen su propia acción primaria (UIBUG-047).
+    final showFab = !keyboardOpen && !hidesGlobalFab;
     final body = SafeArea(
       child: ContentInsets(
-        // Con el teclado abierto el FAB se oculta, así que deja de estorbar.
-        bottomReserve: keyboardOpen ? 0 : fabReserve,
+        // Sin FAB no hay nada que esquivar: reservar su alto dejaría un hueco
+        // muerto al final de la página.
+        bottomReserve: showFab ? fabReserve : 0,
         child: child,
       ),
     );
@@ -97,34 +115,56 @@ class AppShell extends StatelessWidget {
       return _withBackPolicy(
         context,
         Scaffold(
-          floatingActionButton: keyboardOpen ? null : _newButton(context),
+          floatingActionButton: showFab ? _newButton(context) : null,
           body: Row(
             children: [
-              NavigationRail(
-                extended: MediaQuery.sizeOf(context).width >= 1150,
-                // Sin esto, entre 900 y 1150 px (el Pixel 8 apaisado da ~914)
-                // los destinos se mostraban SOLO con iconos, sin etiqueta
-                // (UIBUG-063).
-                labelType: MediaQuery.sizeOf(context).width >= 1150
-                    ? null
-                    : NavigationRailLabelType.all,
-                selectedIndex: selectedIndex,
-                onDestinationSelected: (index) =>
-                    context.go(destinations[index].path),
-                leading: const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 20),
-                  child: CircleAvatar(
-                    radius: 24,
-                    child: Icon(Icons.eco_outlined),
+              // **UIBUG-068 — el rail tiene que poder desplazarse.**
+              // `NavigationRail` reparte su alto entre los destinos y no se
+              // desplaza por su cuenta. En horizontal el alto útil son 1080 px,
+              // y con la fuente al 130 % los cinco destinos con etiqueta ya no
+              // caben: `RenderFlex overflowed by 90 pixels` y "Personas" y
+              // "Cuentas" quedaban inalcanzables.
+              //
+              // Se resuelve dejándolo desplazar en vez de acotar la escala del
+              // texto: en horizontal sobra sitio para desplazarse, así que las
+              // etiquetas pueden seguir creciendo. (La barra inferior, con solo
+              // ~90 px de alto, sí mantiene su compromiso de escala.)
+              LayoutBuilder(
+                builder: (context, constraints) => SingleChildScrollView(
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                      minHeight: constraints.maxHeight,
+                    ),
+                    child: IntrinsicHeight(
+                      child: NavigationRail(
+                        extended: MediaQuery.sizeOf(context).width >= 1150,
+                        // Sin esto, entre 900 y 1150 px (el Pixel 8 apaisado
+                        // da ~914) los destinos se mostraban SOLO con iconos,
+                        // sin etiqueta (UIBUG-063).
+                        labelType: MediaQuery.sizeOf(context).width >= 1150
+                            ? null
+                            : NavigationRailLabelType.all,
+                        selectedIndex: selectedIndex,
+                        onDestinationSelected: (index) =>
+                            context.go(destinations[index].path),
+                        leading: const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 20),
+                          child: CircleAvatar(
+                            radius: 24,
+                            child: Icon(Icons.eco_outlined),
+                          ),
+                        ),
+                        destinations: [
+                          for (final item in destinations)
+                            NavigationRailDestination(
+                              icon: Icon(item.icon),
+                              label: Text(item.label),
+                            ),
+                        ],
+                      ),
+                    ),
                   ),
                 ),
-                destinations: [
-                  for (final item in destinations)
-                    NavigationRailDestination(
-                      icon: Icon(item.icon),
-                      label: Text(item.label),
-                    ),
-                ],
               ),
               const VerticalDivider(width: 1),
               Expanded(child: body),
@@ -138,7 +178,7 @@ class AppShell extends StatelessWidget {
       Scaffold(
         body: body,
         // Con el teclado abierto el FAB tapaba el campo activo (UIBUG-009).
-        floatingActionButton: keyboardOpen ? null : _newButton(context),
+        floatingActionButton: showFab ? _newButton(context) : null,
         // **Compromiso deliberado de accesibilidad.** Con cinco destinos en
         // 1080 px, "Operaciones" no cabe en una línea por encima del 100 % y se
         // partía en "Operacion / es" (UIBUG-017). Las etiquetas de la barra se

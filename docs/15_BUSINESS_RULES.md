@@ -461,3 +461,80 @@ costo de lo ya comprado. Ver RN-34 para su preservación en transferencias.
 | `settlements` / `topSettlements` | RN-41 |
 | `personCampaignBalance` | RN-42 |
 | `inventorySummary` | RN-21 |
+
+---
+
+# Actualización 2026-09-06 — Dos reglas de ciclo de vida decididas
+
+Dos preguntas que este documento no podía responder leyendo el código, porque eran decisiones
+de producto, quedan decididas por el propietario e implementadas.
+
+## RN-PLAN-01 · Un plan representa UNA aplicación planificada
+
+**MODELO A.** Un plan **no** es una plantilla reutilizable.
+
+| | |
+|---|---|
+| Estados | `PLANNED` a `APPLIED`. (`DRAFT` es el valor por defecto histórico de la columna y se trata como pendiente.) |
+| Transición | al registrar la aplicación que lo consume |
+| Reaplicar | **prohibido**, con `BusinessRuleException`: *Este plan ya fue aplicado y no puede volver a aplicarse. Cree un plan nuevo si necesita repetir la aplicación.* |
+| Revertir la aplicación | el plan **permanece `APPLIED`** |
+
+**Por qué la reversión no reabre el plan.** Revertir corrige un movimiento que ocurrió de
+verdad; no devuelve la intención al futuro. Reabrirlo en silencio dejaría un plan listo para
+volver a aplicarse sin que nadie lo hubiera pedido, y borraría el rastro de que ya se usó. Si
+hay que ejecutar otra vez la planificación, se crea un plan nuevo, y así queda registrado.
+
+**Dónde vive la regla.** En tres capas, a propósito:
+
+1. `confirmApplication` comprueba **dentro de la transacción** que el plan siga pendiente,
+   mirando el estado **y** la existencia de una aplicación que lo referencie. Basta una de las
+   dos señales para rechazar, de modo que un estado desincronizado por cualquier motivo no
+   abra la puerta a duplicar el movimiento.
+2. Índice único parcial `applications(plan_id) WHERE plan_id IS NOT NULL`: la invariante es de
+   los datos, así que vive en el motor. Protege de cualquier camino futuro.
+3. La pantalla no ofrece la acción sobre un plan aplicado.
+
+Un doble toque produce **una sola** aplicación (verificado con dos llamadas concurrentes en la
+suite y con doble confirmación en el dispositivo).
+
+**Presentación.** La vista operativa de Planificación muestra los **pendientes**: con los años,
+decenas de planes consumidos convertirían la lista de trabajo en un archivo. Los aplicados
+**se conservan íntegros** para trazabilidad y se consultan con un interruptor secundario, donde
+se marcan "Aplicado" y no ofrecen la acción.
+
+## RN-CAMPAIGN-02 · Una campaña cerrada es terminal
+
+El ciclo es **monótono** en operación normal.
+
+| | |
+|---|---|
+| Estados | `PLANNED` a `ACTIVE` a `CLOSED` |
+| `CLOSED` de vuelta a `ACTIVE` | **prohibido**, con `BusinessRuleException`: *Una campaña cerrada no puede volver a activarse. Cree una campaña nueva para seguir operando.* |
+| Campañas activas | como antes, **exactamente una** (índice único parcial `idx_campaign_single_active`) |
+| `ARCHIVED` a `ACTIVE` | prohibido (regla anterior, sin cambios) |
+
+**Por qué.** Una campaña cerrada representa un periodo contable ya rendido. Reabrirlo dejaría
+entrar movimientos nuevos en un ejercicio dado por concluido, y desharía un cierre que el
+usuario confirma sabiendo que es irreversible.
+
+**Dónde vive la regla.** `activateCampaign` rechaza `CLOSED` **antes** de tocar nada, así que
+también cubre la vía de cerrar la activa y activar otra (`closeCurrent: true`). Esconder el
+botón no bastaba: la comprobación de dominio protege igualmente de una pantalla
+desactualizada, de una doble ejecución y de cualquier camino indirecto que aparezca después.
+
+**Presentación.** Sólo una campaña `PLANNED` ofrece "Activar"; la cerrada sólo "Editar"; la
+activa sólo "Cerrar". Cerrar pide confirmación declarando la campaña, su periodo, que dejará
+de admitir compras, aplicaciones, transferencias y planes, y que **no podrá reactivarse**.
+
+**No se añadió ninguna reapertura administrativa.** Si algún día hace falta, será una
+funcionalidad explícita y auditable, y no pertenece a esta baseline.
+
+## Alcance de los saldos (registro de la decisión de UIBUG-013)
+
+No se renombró el concepto de saldo: **cada cifra declara su alcance en la propia pantalla**
+("Pendiente · Verano 2026", "Saldo total · todas las campañas"). Un glosario nuevo habría
+obligado a reeducar al usuario; decir en cada sitio qué se está sumando resuelve la ambigüedad
+sin cambiar el modelo.
+
+Detalle y evidencia: [`46_BASELINE_FINAL_FREEZE`](46_BASELINE_FINAL_FREEZE.md), secciones 7 y 8.

@@ -5,9 +5,37 @@ Sustituye a `38`/`39`/`40` como fuente de verdad operativa: aquellos conservan l
 histórica y la narrativa de la auditoría; **este documento manda para planificar y ejecutar**.
 
 Fecha de normalización: **2026-09-05** · Rama: `hardening/stabilization` · Base: `81c919f`
+Última actualización de estados: **2026-09-06** · Rama: `hardening/final-polish`
 
-> **En esta fase NO se corrigió ningún defecto.** Ningún archivo de `lib/` fue modificado.
-> Todos los hallazgos están en estado `OPEN`.
+> ## Estado vigente — BACKLOG CERRADO
+>
+> **0 `OPEN` · 0 `DESIGN_DECISION_REQUIRED` · 0 `IN_PROGRESS`.**
+>
+> Este documento es el **catálogo maestro de hallazgos**: qué se observó, con qué causa y con
+> qué riesgo. Los estados de cada entrada están al día, pero para seguir *cómo* se corrigió
+> cada uno —código, test, verificación en dispositivo, evidencia antes/después— la fuente es
+> [`43_UIBUG_FIX_TRACEABILITY`](43_UIBUG_FIX_TRACEABILITY.md). El cierre definitivo de la
+> baseline está en [`46_BASELINE_FINAL_FREEZE`](46_BASELINE_FINAL_FREEZE.md).
+>
+> | Documento | Qué responde |
+> |---|---|
+> | **41** (este) | **catálogo**: qué se encontró y por qué ocurría |
+> | **43** | **trazabilidad**: cómo se corrigió y cómo se comprobó |
+> | **45** | cierre de la fase de corrección del backlog (histórico) |
+> | **46** | cierre definitivo de la baseline `v1.0.0-base-stable` |
+>
+> El texto descriptivo de cada hallazgo se conserva **en presente**, tal como se redactó al
+> observarlo: describe el defecto, no el estado actual del producto. El campo `**Estado**` de
+> cada entrada es el que manda.
+>
+> Recuento final sobre **69** entradas (66 del backlog original + 3 halladas después):
+>
+> | Estado | Nº |
+> |---|---:|
+> | `VERIFIED` (corregido y comprobado en Pixel 8) | **67** |
+> | `FIXED_NOT_DEVICE_VERIFIED` (corregido, cubierto por la suite) | **1** — sólo `015`, con el motivo en su entrada |
+> | `WONT_FIX` justificado | **1** — sólo `058` |
+> | `OPEN` / `IN_PROGRESS` / `DESIGN_DECISION_REQUIRED` | **0** |
 
 ---
 
@@ -215,11 +243,26 @@ Los ocho primeros respetan la revisión obligatoria de prioridad solicitada:
 `DESIGN_DECISION_REQUIRED` (§10), que también están sin corregir pero **no pueden
 implementarse** hasta que el propietario decida.
 
-## 10. Decisiones de diseño requeridas
+## 10. Decisiones de diseño requeridas — **TODAS TOMADAS**
 
-Ninguna de estas puede resolverse leyendo el código: exigen una decisión de producto.
+Ninguna de estas podía resolverse leyendo el código: exigían una decisión de producto. **Las
+siete están decididas e implementadas**, así que ya no queda ningún
+`DESIGN_DECISION_REQUIRED`.
 
-| UIBUG | Decisión pendiente | Por qué bloquea |
+| UIBUG | Decisión tomada | Dónde se justifica |
+|---|---|---|
+| **003** | **es-BO estricto**: la coma decide decimales, el punto miles; `1,500` se **rechaza por ambiguo** en vez de adivinar | [`44_NUMERIC_INPUT_SPEC`](44_NUMERIC_INPUT_SPEC.md) |
+| **004B** | Desde un destino raíz **no inicial**, Atrás vuelve a Inicio; sólo desde Inicio cede el gesto al sistema (guía Material 3) | `app_shell.dart` `backFallback` · [`08_NAVIGATION`](08_NAVIGATION.md) |
+| **013** + 028 | Cada cifra **declara su alcance** en la propia pantalla ("Pendiente · Verano 2026", "Saldo total · todas las campañas") en vez de renombrar el concepto | [`15_BUSINESS_RULES`](15_BUSINESS_RULES.md) |
+| **045** | **MODELO A**: un plan es UNA aplicación planificada, no una plantilla. `PLANNED → APPLIED`, sin vuelta atrás ni al revertir | [`15_BUSINESS_RULES`](15_BUSINESS_RULES.md) · [`46`](46_BASELINE_FINAL_FREEZE.md) |
+| **059** | Una campaña `CLOSED` es **terminal**: no se reactiva desde la aplicación | [`15_BUSINESS_RULES`](15_BUSINESS_RULES.md) · [`46`](46_BASELINE_FINAL_FREEZE.md) |
+| **002** | La tarjeta de Operaciones abre el **listado** `/compras`, como aplicaciones y transferencias; el FAB sigue abriendo el formulario | `artifacts/ui-audit/fixed/UIBUG-002/verification.md` |
+| **051** | Las tarjetas de Operaciones abren **listado**, y dicen en su título a dónde llevan | `operations_screen.dart` |
+| **058** | `WONT_FIX`: el signo del asiento es **contablemente correcto**; invertirlo contradiría el modelo | su ficha en §LOW |
+
+Registro histórico de cómo se planteó cada una:
+
+| UIBUG | Decisión pendiente (al abrir el backlog) | Por qué bloqueaba |
 |---|---|---|
 | **003** | ¿Qué formato de entrada se acepta? (a) solo es-BO estricto `1.500,25`; (b) ambos con desambiguación; (c) `TextInputFormatter` que impide teclear lo ambiguo | Determina si el fix es de parseo, de formateo de entrada o de ambos. Tocar `tryParseDecimal` sin decidir esto rompe los cuatro formularios. |
 | **004B** | ¿Atrás desde un destino raíz sale, o vuelve antes a `/`? | Cambia el diseño del `ShellRoute` y afecta a 004A. |
@@ -529,7 +572,7 @@ requeridos · `Pixel 8` prueba en dispositivo requerida · `Estado` · `Prio` pr
 - **Dep** independiente de 001: aunque se arregle el backup, cualquier violación de restricción seguirá llegando cruda. **Corregir ambos.** Registrado como hueco conocido desde la estabilización y ahora **reproducido en dispositivo**.
 - **Fix** ampliar `friendlyError` a `DatabaseException` y a un caso por defecto en español
 - **Tests** unitarios de `friendlyError` con `DatabaseException`, violación de unicidad y excepción desconocida
-- **Pixel 8** **SÍ** — provocando un error real · **Estado** `FIXED_NOT_DEVICE_VERIFIED`· **Prio** P1-B
+- **Pixel 8** **SÍ** — provocando un error real · **Estado** `FIXED_NOT_DEVICE_VERIFIED` — **no reproducible en dispositivo**: exigiría corromper la base mientras la aplicación la tiene abierta, es decir fabricar una avería en vez de ejercitar el producto. Cubierto por `error_states_test.dart`· **Prio** P1-B
 
 ### UIBUG-016 · Literales de base de datos en inglés mostrados al usuario
 
@@ -680,7 +723,7 @@ el fix salvo donde se indica `Pixel 8: NO`.
 - **Evid.** `UI-01-dashboard/UI-01-tabla-scroll-horizontal.png`
 - **Causa PROBABLE** — `DataTable` dentro de un `SingleChildScrollView` horizontal, sin columna congelada.
 - **Files** `lib/presentation/screens/dashboard_screen.dart` · **Dep** se alivia al corregir 022 (recupera ancho) · **Fix** columna fija o cambiar a lista de tarjetas
-- **Tests** widget test de la presentación elegida · **Pixel 8** SÍ · **Estado** `OPEN`· **Prio** P3
+- **Tests** widget test de la presentación elegida · **Pixel 8** SÍ · **Estado** `VERIFIED` (Pixel 8, 2026-09-06)· **Prio** P3
 
 ### UIBUG-024 · Punto y coma decimal mezclados en la misma línea
 
@@ -776,7 +819,7 @@ el fix salvo donde se indica `Pixel 8: NO`.
 - **Evid.** `UI-03-catalogos/_crop-guardar-vacio.png`
 - **Causa PROBABLE** — el `onPressed` retorna temprano sin notificar.
 - **Files** `lib/presentation/screens/catalogs_screen.dart` · **Dep** — · **Fix** validación con `errorText` o botón condicionado
-- **Tests** widget test: guardar vacío muestra error visible · **Pixel 8** SÍ · **Estado** `OPEN`· **Prio** P2
+- **Tests** widget test: guardar vacío muestra error visible · **Pixel 8** SÍ · **Estado** `VERIFIED` (Pixel 8, 2026-09-06)· **Prio** P2
 
 ### UIBUG-032 · El mensaje de validación del plan no refleja qué falta
 
@@ -788,7 +831,7 @@ el fix salvo donde se indica `Pixel 8: NO`.
 - **Evid.** `UI-05-plan-form/_c-UI-05-guardar-sin-productos.png`
 - **Causa PROBABLE** — mensaje único para dos condiciones.
 - **Files** `lib/presentation/screens/plan_form_screen.dart` · **Dep** — · **Fix** mensajes por condición
-- **Tests** unitario/widget de los 3 casos (falta chaco, faltan productos, faltan ambos) · **Pixel 8** SÍ · **Estado** `FIXED_NOT_DEVICE_VERIFIED`· **Prio** P2
+- **Tests** unitario/widget de los 3 casos (falta chaco, faltan productos, faltan ambos) · **Pixel 8** SÍ · **Estado** `VERIFIED` (Pixel 8, 2026-09-06)· **Prio** P2
 
 ### UIBUG-033 · En "¿Descartar cambios?" el botón destructivo es el primario
 
@@ -800,7 +843,7 @@ el fix salvo donde se indica `Pixel 8: NO`.
 - **Evid.** `UI-05-plan-form/_c-UI-05-descartar-cambios.png`
 - **Causa CONFIRMADA** — el diálogo no reutiliza `confirmDestructiveAction` (`common.dart:~100-129`), que sí aplica `colorScheme.error`.
 - **Files** los 4 formularios, `lib/presentation/widgets/common.dart` · **Dep** — · **Fix** reutilizar el helper existente
-- **Tests** widget test: el botón destructivo usa el color de error y no es el primario · **Pixel 8** SÍ · **Estado** `FIXED_NOT_DEVICE_VERIFIED`· **Prio** P2
+- **Tests** widget test: el botón destructivo usa el color de error y no es el primario · **Pixel 8** SÍ · **Estado** `VERIFIED` (Pixel 8, 2026-09-06)· **Prio** P2
 
 ### UIBUG-034 · Los campos de cantidad vienen con "0" y el 0 no se limpia al enfocar
 
@@ -812,7 +855,7 @@ el fix salvo donde se indica `Pixel 8: NO`.
 - **Evid.** `UI-17-transfer-form/_zoom-cero.png`
 - **Causa CONFIRMADA** — `transfer_form_screen.dart:58`: `quantities[...] = TextEditingController(text: '0')`.
 - **Files** `lib/presentation/screens/transfer_form_screen.dart` · **Dep** mismo lote que 003 (ambos tocan entrada numérica) · **Fix** controlador vacío con `hintText: '0'`, o selección al enfocar
-- **Tests** widget test: escribir `5` en un campo recién enfocado produce `5` · **Pixel 8** SÍ · **Estado** `FIXED_NOT_DEVICE_VERIFIED`· **Prio** P2
+- **Tests** widget test: escribir `5` en un campo recién enfocado produce `5` · **Pixel 8** SÍ · **Estado** `VERIFIED` (Pixel 8, 2026-09-06)· **Prio** P2
 
 ### UIBUG-035 · El selector abre el teclado automáticamente y deja ver solo tres opciones
 
@@ -836,7 +879,7 @@ el fix salvo donde se indica `Pixel 8: NO`.
 - **Evid.** `UI-05-plan-form/_crop-sinres.png`
 - **Causa PROBABLE** — centrado vertical sobre el alto total de la hoja sin descontar `viewInsets`.
 - **Files** `lib/presentation/widgets/adaptive_entity_picker.dart` · **Dep** mismo archivo que 006, 035, 061 · **Fix** alinear arriba o descontar `viewInsets`
-- **Tests** widget test con `viewInsets` simulado · **Pixel 8** SÍ · **Estado** `FIXED_NOT_DEVICE_VERIFIED`· **Prio** P2
+- **Tests** widget test con `viewInsets` simulado · **Pixel 8** SÍ · **Estado** `VERIFIED` (Pixel 8, 2026-09-06)· **Prio** P2
 
 ### UIBUG-037 · Etiquetas colgando cuando aún no hay producto elegido
 
@@ -848,7 +891,7 @@ el fix salvo donde se indica `Pixel 8: NO`.
 - **Evid.** `UI-07-purchase-form/UI-07-ISSUE-precio-sin-unidad.png`
 - **Causa PROBABLE** — interpolación `'Precio BOB/${unit ?? ''}'`.
 - **Files** `lib/presentation/screens/purchase_form_screen.dart` · **Dep** — · **Fix** condicionar el sufijo
-- **Tests** widget test sin producto elegido · **Pixel 8** SÍ · **Estado** `OPEN`· **Prio** P2
+- **Tests** widget test sin producto elegido · **Pixel 8** SÍ · **Estado** `VERIFIED` (Pixel 8, 2026-09-06)· **Prio** P2
 
 ### UIBUG-038 · El campo de cantidad de la asignación no tiene etiqueta
 
@@ -860,7 +903,7 @@ el fix salvo donde se indica `Pixel 8: NO`.
 - **Evid.** `UI-07-purchase-form/UI-07-ISSUE-asignacion-sin-etiqueta.png`
 - **Causa PROBABLE** — `InputDecoration` sin `labelText`.
 - **Files** `lib/presentation/screens/purchase_form_screen.dart` · **Dep** — · **Fix** añadir etiqueta
-- **Tests** widget test: el campo tiene etiqueta accesible · **Pixel 8** SÍ · **Estado** `OPEN`· **Prio** P2
+- **Tests** widget test: el campo tiene etiqueta accesible · **Pixel 8** SÍ · **Estado** `VERIFIED` (Pixel 8, 2026-09-06)· **Prio** P2
 
 ### UIBUG-039 · La línea de compra dice "asignado" sin haber elegido persona
 
@@ -872,7 +915,7 @@ el fix salvo donde se indica `Pixel 8: NO`.
 - **Evid.** `UI-07-purchase-form/UI-07-teclado-campo-inferior.png`
 - **Causa PROBABLE** — el cómputo suma cantidades sin comprobar `personId != null`.
 - **Files** `lib/presentation/screens/purchase_form_screen.dart` · **Dep** — · **Fix** condicionar el cómputo
-- **Tests** unitario del cómputo de asignado/pendiente con persona nula · **Pixel 8** SÍ · **Estado** `OPEN`· **Prio** P2
+- **Tests** unitario del cómputo de asignado/pendiente con persona nula · **Pixel 8** SÍ · **Estado** `VERIFIED` (Pixel 8, 2026-09-06)· **Prio** P2
 
 ### UIBUG-040 · Campos de media anchura que truncan su contenido
 
@@ -884,7 +927,7 @@ el fix salvo donde se indica `Pixel 8: NO`.
 - **Evid.** `UI-07-purchase-form/UI-07-factura-con-teclado.png`
 - **Causa PROBABLE** — campos fijados a media anchura en una `Row`.
 - **Files** `lib/presentation/screens/purchase_form_screen.dart` · **Dep** — · **Fix** reparto flexible
-- **Tests** widget test con los valores largos del dataset · **Pixel 8** SÍ · **Estado** `OPEN`· **Prio** P2
+- **Tests** widget test con los valores largos del dataset · **Pixel 8** SÍ · **Estado** `VERIFIED` (Pixel 8, 2026-09-06)· **Prio** P2
 
 ### UIBUG-041 · La etiqueta "Producto" queda recortada por la cabecera de la línea
 
@@ -896,7 +939,7 @@ el fix salvo donde se indica `Pixel 8: NO`.
 - **Evid.** `UI-07-purchase-form/UI-07-ISSUE-etiqueta-producto-recortada.png`
 - **Causa PROBABLE** — margen superior insuficiente para la etiqueta flotante. **Distinto de 006**: allí la etiqueta no flota; aquí flota y choca con lo de arriba.
 - **Files** `lib/presentation/screens/purchase_form_screen.dart` · **Dep** conviene verificar **después** de 006 (al flotar la etiqueta, este solape puede aparecer en más sitios) · **Fix** margen superior
-- **Tests** widget test de la tarjeta de línea · **Pixel 8** SÍ · **Estado** `OPEN`· **Prio** P2
+- **Tests** widget test de la tarjeta de línea · **Pixel 8** SÍ · **Estado** `VERIFIED` (Pixel 8, 2026-09-06)· **Prio** P2
 
 ### UIBUG-042 · Elegir en "Agregar producto" no agrega el producto
 
@@ -908,7 +951,7 @@ el fix salvo donde se indica `Pixel 8: NO`.
 - **Evid.** `UI-09-application-form/UI-09-linea-producto.png`
 - **Causa PROBABLE** — el selector solo fija un valor temporal; el `+` es quien inserta.
 - **Files** `lib/presentation/screens/application_form_screen.dart` · **Dep** — · **Fix** agregar al elegir, o renombrar y destacar el `+`
-- **Tests** widget test: elegir un producto lo añade a la lista · **Pixel 8** SÍ · **Estado** `FIXED_NOT_DEVICE_VERIFIED`· **Prio** P2
+- **Tests** widget test: elegir un producto lo añade a la lista · **Pixel 8** SÍ · **Estado** `VERIFIED` (Pixel 8, 2026-09-06)· **Prio** P2
 
 ### UIBUG-043 · La línea de producto nace plegada y sin indicador de que se despliega
 
@@ -920,7 +963,7 @@ el fix salvo donde se indica `Pixel 8: NO`.
 - **Evid.** `UI-09-application-form/_c-fila.png` (plegada), `_c-fila1.png` (desplegada)
 - **Causa CONFIRMADA** — `application_form_screen.dart:~467`: `ExpansionTile` con `trailing` sobrescrito por el botón Quitar, que elimina el chevron por defecto.
 - **Files** `lib/presentation/screens/application_form_screen.dart` · **Dep** relacionado con 046 (mismo patrón en Planificación) · **Fix** `initiallyExpanded: true` o conservar el chevron
-- **Tests** widget test: la fila añadida muestra sus campos o su indicador · **Pixel 8** SÍ · **Estado** `FIXED_NOT_DEVICE_VERIFIED`· **Prio** P2
+- **Tests** widget test: la fila añadida muestra sus campos o su indicador · **Pixel 8** SÍ · **Estado** `VERIFIED` (Pixel 8, 2026-09-06)· **Prio** P2
 
 ### UIBUG-044 · "stock después" negativo no se resalta
 
@@ -932,7 +975,7 @@ el fix salvo donde se indica `Pixel 8: NO`.
 - **Evid.** `UI-09-application-form/_c-val.png`
 - **Causa PROBABLE** — falta el color condicional que ya existe en `inventory_screen.dart`.
 - **Files** `lib/presentation/screens/application_form_screen.dart` · **Dep** — · **Fix** reutilizar el criterio de color de Inventario
-- **Tests** widget test: valor negativo se pinta con el color de error · **Pixel 8** SÍ · **Estado** `FIXED_NOT_DEVICE_VERIFIED`· **Prio** P2
+- **Tests** widget test: valor negativo se pinta con el color de error · **Pixel 8** SÍ · **Estado** `VERIFIED` (Pixel 8, 2026-09-06)· **Prio** P2
 
 ### UIBUG-045 · Los planes ya aplicados siguen ofreciendo "Aplicar" sin ningún estado
 
@@ -947,7 +990,7 @@ el fix salvo donde se indica `Pixel 8: NO`.
 - **Dep** **puede requerir cambio de esquema (v6)**. Es el único hallazgo del backlog con ese alcance. No agrupar con cambios cosméticos.
 - **Fix** decisión de producto + estado de plan (derivado o persistido)
 - **Tests** test de repositorio del estado; widget test de que un plan aplicado no ofrece Aplicar sin advertencia
-- **Pixel 8** SÍ · **Estado** `DESIGN_DECISION_REQUIRED`· **Prio** P1-A
+- **Pixel 8** SÍ · **Estado** `VERIFIED` (Pixel 8, 2026-09-06)· **Prio** P1-A
 
 ### UIBUG-046 · Las filas de planificación son desplegables sin indicarlo
 
@@ -959,7 +1002,7 @@ el fix salvo donde se indica `Pixel 8: NO`.
 - **Evid.** `UI-04-planificacion/UI-04-plan-expandido.png`
 - **Causa CONFIRMADA** — mismo patrón que 043: `trailing` del `ExpansionTile` ocupado por un botón.
 - **Files** `lib/presentation/screens/planning_screen.dart` · **Dep** corregir junto con 043 (mismo patrón) · **Fix** conservar el chevron o mover el botón
-- **Tests** widget test: la fila muestra indicador de expansión · **Pixel 8** SÍ · **Estado** `FIXED_NOT_DEVICE_VERIFIED`· **Prio** P2
+- **Tests** widget test: la fila muestra indicador de expansión · **Pixel 8** SÍ · **Estado** `VERIFIED` (Pixel 8, 2026-09-06)· **Prio** P2
 
 ### UIBUG-047 · Dos puntos de creación distintos en la misma pantalla
 
@@ -971,7 +1014,7 @@ el fix salvo donde se indica `Pixel 8: NO`.
 - **Evid.** `UI-03-catalogos/UI-03-personas.png`
 - **Causa CONFIRMADA** — el FAB lo pinta el shell (`app_shell.dart:80`) para **todas** las rutas, incluida Catálogos, que ya tiene su propia acción de creación.
 - **Files** `lib/presentation/screens/catalogs_screen.dart`, `lib/presentation/app_shell.dart` · **Dep** relacionado con la decisión de 002 (qué hace el FAB en cada ruta) · **Fix** ocultar el FAB en Catálogos, o diferenciar visualmente
-- **Tests** widget test de la pantalla · **Pixel 8** SÍ · **Estado** `OPEN`· **Prio** P3
+- **Tests** widget test de la pantalla · **Pixel 8** SÍ · **Estado** `VERIFIED` (Pixel 8, 2026-09-06)· **Prio** P3
 
 ### UIBUG-048 · La lista de campañas no muestra fechas
 
@@ -983,7 +1026,7 @@ el fix salvo donde se indica `Pixel 8: NO`.
 - **Evid.** `UI-03-catalogos/UI-03-menu-campana.png`
 - **Causa CONFIRMADA** — los datos existen en el esquema; la pantalla no los pinta.
 - **Files** `lib/presentation/screens/catalogs_screen.dart` · **Dep** usará el helper de 027 · **Fix** añadir el subtítulo con fechas formateadas
-- **Tests** widget test: la fila de campaña muestra el rango · **Pixel 8** SÍ · **Estado** `FIXED_NOT_DEVICE_VERIFIED`· **Prio** P3
+- **Tests** widget test: la fila de campaña muestra el rango · **Pixel 8** SÍ · **Estado** `VERIFIED` (Pixel 8, 2026-09-06)· **Prio** P3
 
 ### UIBUG-049 · Iconografía de nube para un backup puramente local
 
@@ -1007,7 +1050,7 @@ el fix salvo donde se indica `Pixel 8: NO`.
 - **Evid.** `UI-10-liquidacion/UI-10-restaurar-backup.png`
 - **Causa CONFIRMADA** — el caso "sin backups" se propaga como excepción y se pinta con `showError`.
 - **Files** `lib/presentation/screens/settlements_screen.dart`, `lib/presentation/widgets/common.dart` · **Dep** mismo lote que 015; su frecuencia baja **una vez corregido 001** (hoy siempre se da porque nunca hay backup) · **Fix** distinguir "sin resultados" de "error"
-- **Tests** widget test: sin backups se muestra aviso informativo, no error · **Pixel 8** SÍ · **Estado** `FIXED_NOT_DEVICE_VERIFIED`· **Prio** P1-B
+- **Tests** widget test: sin backups se muestra aviso informativo, no error · **Pixel 8** SÍ · **Estado** `VERIFIED` (Pixel 8, 2026-09-06)· **Prio** P1-B
 
 ### UIBUG-051 · Las tarjetas de Operaciones prometen una acción y llevan a una lista
 
@@ -1043,7 +1086,7 @@ el fix salvo donde se indica `Pixel 8: NO`.
 - **Evid.** `UI-16-transferencias/UI-16-lista.png`
 - **Causa CONFIRMADA** — la pantalla no pinta la fecha ni ofrece controles de filtro.
 - **Files** `lib/presentation/screens/transfers_screen.dart` · **Dep** usará los helpers de 027 (fecha) y 019 (búsqueda) · **Fix** añadir fecha y filtros
-- **Tests** widget test de fecha y filtro · **Pixel 8** SÍ · **Estado** `FIXED_NOT_DEVICE_VERIFIED`· **Prio** P2
+- **Tests** widget test de fecha y filtro · **Pixel 8** SÍ · **Estado** `VERIFIED` (Pixel 8, 2026-09-06)· **Prio** P2
 
 ### UIBUG-054 · Dos selectores contiguos de la misma pantalla muestran datos distintos
 
@@ -1067,7 +1110,7 @@ el fix salvo donde se indica `Pixel 8: NO`.
 - **Evid.** `UI-17-transfer-form/UI-17-productos-disponibles.png`
 - **Causa CONFIRMADA** — `transfer_form_screen.dart:296`: `maxHeight: MediaQuery.sizeOf(context).height * 0.48`.
 - **Files** `lib/presentation/screens/transfer_form_screen.dart` · **Dep** mismo lote que 018 y 030 · **Fix** eliminar la cota fija o añadir indicador de desbordamiento
-- **Tests** widget test con 8 productos · **Pixel 8** SÍ · **Estado** `FIXED_NOT_DEVICE_VERIFIED`· **Prio** P2
+- **Tests** widget test con 8 productos · **Pixel 8** SÍ · **Estado** `VERIFIED` (Pixel 8, 2026-09-06)· **Prio** P2
 
 ### UIBUG-056 · Decimales variables en la misma fila
 
@@ -1079,7 +1122,7 @@ el fix salvo donde se indica `Pixel 8: NO`.
 - **Evid.** `UI-11-inventario/UI-11-lista.png`
 - **Causa CONFIRMADA** — `money.dart:43`: `NumberFormat('#,##0.###', 'es_BO')`. El patrón `###` suprime los ceros finales, así que `174,100` se imprime `174,1`.
 - **Files** `lib/domain/money.dart` · **Dep** mismo lote que 024/025/027; **cuidado**: cambiar el patrón afecta a toda la app y a los tests existentes · **Fix** decidir decimales fijos por unidad, o alinear a la derecha con relleno
-- **Tests** unitario de `formatQuantity` con `174250` y `174100`; **revisar los tests existentes que dependan del patrón actual** · **Pixel 8** SÍ · **Estado** `FIXED_NOT_DEVICE_VERIFIED`· **Prio** P1-A
+- **Tests** unitario de `formatQuantity` con `174250` y `174100`; **revisar los tests existentes que dependan del patrón actual** · **Pixel 8** SÍ · **Estado** `VERIFIED` (Pixel 8, 2026-09-06)· **Prio** P1-A
 
 ---
 
@@ -1116,7 +1159,7 @@ el fix salvo donde se indica `Pixel 8: NO`.
 - **Evid.** `UI-03-catalogos/UI-03-menu-campana.png`
 - **Causa CONFIRMADA** — el menú no distingue el estado de origen.
 - **Files** `lib/presentation/screens/catalogs_screen.dart` · **Dep** — · **Fix** decisión de producto + confirmación específica
-- **Tests** widget test del menú sobre una campaña cerrada · **Pixel 8** SÍ · **Estado** `DESIGN_DECISION_REQUIRED`· **Prio** P3
+- **Tests** widget test del menú sobre una campaña cerrada · **Pixel 8** SÍ · **Estado** `VERIFIED` (Pixel 8, 2026-09-06)· **Prio** P3
 
 ### UIBUG-060 · Un "0" sin explicación antes de elegir origen
 
@@ -1127,7 +1170,7 @@ el fix salvo donde se indica `Pixel 8: NO`.
 - **Evid.** `UI-17-transfer-form/UI-17-inicial.png`
 - **Causa PROBABLE** — contador pintado sin estado vacío asociado.
 - **Files** `lib/presentation/screens/transfer_form_screen.dart` · **Dep** — · **Fix** `EmptyState` con mensaje
-- **Tests** widget test del formulario recién abierto · **Pixel 8** SÍ · **Estado** `OPEN`· **Prio** P3
+- **Tests** widget test del formulario recién abierto · **Pixel 8** SÍ · **Estado** `VERIFIED` (Pixel 8, 2026-09-06)· **Prio** P3
 
 ### UIBUG-061 · La hoja del selector ocupa el 65 % aunque haya 4 elementos
 
@@ -1160,7 +1203,7 @@ el fix salvo donde se indica `Pixel 8: NO`.
 - **Evid.** `UI-22-orientacion/UI-22-horizontal-bitacora.png`
 - **Causa CONFIRMADA** — `app_shell.dart:53`: `extended: MediaQuery.sizeOf(context).width >= 1150`. El Pixel 8 apaisado da ≈914 px, así que nunca se extiende. Además `NavigationRail` sin `labelType` no muestra etiquetas en modo no extendido.
 - **Files** `lib/presentation/app_shell.dart` · **Dep** — · **Fix** `labelType: NavigationRailLabelType.all` o bajar el umbral
-- **Tests** widget test a 914 px de ancho: las etiquetas están presentes · **Pixel 8** SÍ — en horizontal, y **restaurar la rotación al terminar** · **Estado** `FIXED_NOT_DEVICE_VERIFIED`· **Prio** P3
+- **Tests** widget test a 914 px de ancho: las etiquetas están presentes · **Pixel 8** SÍ — en horizontal, y **restaurar la rotación al terminar** · **Estado** `VERIFIED` (Pixel 8, 2026-09-06)· **Prio** P3
 
 ### UIBUG-064 · La tarjeta TOTAL COMPRA queda solapada por la barra de gestos
 
@@ -1171,7 +1214,7 @@ el fix salvo donde se indica `Pixel 8: NO`.
 - **Evid.** `UI-07-purchase-form/_c-confirmar.png`
 - **Causa CONFIRMADA (reclasificada)** — `39` lo agrupaba bajo "falta de relleno bajo el FAB", pero `/compras/nueva` está **fuera del `ShellRoute` y por tanto no tiene FAB**. La causa real: `AppShell` envuelve su contenido en `SafeArea` (`app_shell.dart:46`), pero las 4 rutas de formulario están fuera del shell y deben poner la suya. Recuento verificado de `SafeArea` por formulario: `purchase_form_screen.dart` **0**, `application_form_screen.dart` 2, `plan_form_screen.dart` 2, `transfer_form_screen.dart` 2. **Es el único formulario sin `SafeArea`.**
 - **Files** `lib/presentation/screens/purchase_form_screen.dart` · **Dep** independiente de 008/009 (grupo distinto) · **Fix** añadir `SafeArea`, como los otros tres
-- **Tests** widget test con `viewPadding` inferior simulado · **Pixel 8** SÍ · **Estado** `FIXED_NOT_DEVICE_VERIFIED`· **Prio** P2
+- **Tests** widget test con `viewPadding` inferior simulado · **Pixel 8** SÍ · **Estado** `VERIFIED` (Pixel 8, 2026-09-06)· **Prio** P2
 
 ### UIBUG-065 · Un importe no parseable se convierte en 0 y produce un mensaje engañoso
 
@@ -1187,7 +1230,73 @@ el fix salvo donde se indica `Pixel 8: NO`.
 
 ---
 
-## 12. Verificación final de este documento
+---
+
+## 12. Hallazgos posteriores al backlog original (066–068)
+
+Tres defectos que la auditoría de interfaz **no** registró como UIBUG y que se encontraron
+durante la fase de cierre. Se incorporan al catálogo con el mismo formato que el resto: la
+regla del proyecto es que **nada conocido queda fuera del backlog**.
+
+### UIBUG-066 · `setState() callback argument returned a Future`
+
+- **Sev** LOW · **Cat** FUNCTIONAL / CODE_CORRECTNESS · **Riesgo** `NONE` (no afecta a datos) · **Grupo** `CODE_CORRECTNESS`
+- **Pant.** UI-08 `/aplicaciones`, UI-11 `/inventario`, UI-04 `/planificacion`, UI-16 `/transferencias`, UI-13 `/personas` · **Feat.** transversal
+- **Origen** anotado al margen del backlog en [`45`](45_UI_AUDIT_FINAL_VERIFICATION.md) §12,
+  visible en el log de la suite. No tenía identificador ni entrada, que es exactamente lo que
+  esta fase no permite.
+- **Actual** al recargar cualquiera de esas cinco listas, `State.setState` lanza un
+  `FlutterError` en modo depuración advirtiendo de que el callback devolvió un `Future`.
+- **Esperado** ninguna advertencia: el callback de `setState` es `void`.
+- **Causa CONFIRMADA** `setState(() => future = next)` es una **expresión de asignación**: su
+  valor es el `Future` asignado, así que la lambda de flecha lo *devuelve*. No corrompe datos,
+  pero delata que el callback no es realmente `void` y ocultaría un `await` olvidado.
+- **Files** `applications_screen.dart`, `inventory_screen.dart`, `planning_screen.dart`,
+  `transfers_screen.dart`, `persons_screen.dart` · **Fix** cuerpo de bloque, que no devuelve nada
+- **Nota** ya existía una guarda en `regression_widget_test.dart`, pero sólo miraba expresiones
+  que citaran `_load(` o `repositoryProvider`, y estas cinco asignan una variable intermedia.
+  La guarda nueva reconoce **cualquier** campo declarado `Future`.
+- **Tests** `set_state_contract_test.dart`: dos tests de widget que recargan la pantalla y una
+  guarda estática sobre todo `lib/`. Los tres comprobados en rojo antes del arreglo ·
+  **Pixel 8** SÍ — 0 ocurrencias en `logcat` tras la corrección · **Estado** `VERIFIED` (Pixel 8, 2026-09-06) · **Prio** P2
+
+### UIBUG-067 · La cinta "Campaña activa" desborda la fila con un nombre largo
+
+- **Sev** LOW · **Cat** LAYOUT / TEXT_WRAPPING · **Riesgo** `NONE` · **Grupo** `TEXT_WRAPPING`
+- **Pant.** UI-01 `/` · **Feat.** F-01
+- **Origen** destapado al escribir el test de UIBUG-023: la cinta de la primera pantalla de la
+  aplicación producía `A RenderFlex overflowed by 84 pixels on the right`.
+- **Causa CONFIRMADA** el `Text` de la cinta no estaba dentro de un `Expanded`, así que
+  reclamaba su ancho natural y la fila desbordaba. Con los nombres cortos del dataset no se
+  notaba; con un nombre de campaña largo, o con la fuente ampliada, sí.
+- **Files** `dashboard_screen.dart` · **Fix** `Expanded`, para que el texto reparta el ancho
+- **Tests** cubierto por `ui_polish_test.dart` (un desbordamiento de layout llega como
+  excepción y hace fallar el test) · **Pixel 8** SÍ · **Estado** `VERIFIED` (Pixel 8, 2026-09-06) · **Prio** P3
+
+### UIBUG-068 · En horizontal y al 130 % el rail de navegación desborda
+
+- **Sev** MEDIUM · **Cat** ACCESSIBILITY / LAYOUT · **Riesgo** `USABILITY` — dos destinos inalcanzables · **Grupo** `TEXT_WRAPPING`
+- **Pant.** shell completo (cualquier ruta en horizontal) · **Feat.** F-00 navegación
+- **Pre** orientación horizontal **y** escala de fuente 1.3.
+- **Pasos** girar el dispositivo con la fuente al 130 %.
+- **Actual** `BOTTOM OVERFLOWED BY 90 PIXELS` sobre el rail, y los destinos **Personas** y
+  **Cuentas** quedan fuera de la pantalla, sin forma de alcanzarlos.
+- **Esperado** los cinco destinos alcanzables en cualquier combinación de orientación y escala.
+- **Causa CONFIRMADA** defecto **latente desde el arreglo de UIBUG-063**, que puso etiquetas en
+  el rail por debajo de 1150 px. `NavigationRail` reparte su alto entre los destinos y **no se
+  desplaza por su cuenta**: en horizontal el alto útil son 411 dp y los cinco destinos con
+  etiqueta al 130 % no caben. Las auditorías anteriores probaron horizontal y 130 % **por
+  separado**, nunca combinados, y por eso no salió antes.
+- **Files** `app_shell.dart` · **Fix** el rail vive dentro de su propio scroll. Se elige eso
+  frente a acotar la escala del texto porque en horizontal **sobra sitio para desplazar**, así
+  que las etiquetas pueden seguir creciendo; la barra inferior, con ~90 px de alto, mantiene su
+  compromiso de escala ya documentado.
+- **Tests** `ui_polish_test.dart` grupo UIBUG-068: tres tests, incluida una guarda que
+  comprueba que la prueba mide el **rail** y no la barra inferior. Reproducido en rojo antes
+  del arreglo · **Pixel 8** SÍ — sin desbordamiento y "Cuentas" alcanzable al desplazar ·
+  **Estado** `VERIFIED` (Pixel 8, 2026-09-06) · **Prio** P2
+
+## 13. Verificación final de este documento
 
 | Comprobación | Resultado |
 |---|---|
@@ -1200,4 +1309,23 @@ el fix salvo donde se indica `Pixel 8: NO`.
 | Hallazgos con causa `CONFIRMADA` | 48 |
 | Hallazgos con causa `PROBABLE` | 18 |
 | Hallazgos con causa `DESCONOCIDA` | 0 |
-| Archivos de `lib/` modificados | **0** |
+| Archivos de `lib/` modificados **en la fase de normalización** | **0** |
+
+> La última fila describe la fase que **creó** este documento, no el estado del producto: desde
+> entonces las fases de corrección sí modificaron `lib/`. La cuenta de cambios por hallazgo está
+> en [`43`](43_UIBUG_FIX_TRACEABILITY.md).
+
+## 14. Recuento de estados al cerrar la baseline
+
+| Estado | Nº | Detalle |
+|---|---:|---|
+| `VERIFIED` | **67** | corregido y comprobado en Pixel 8 (Android 16 / API 36) |
+| `FIXED_NOT_DEVICE_VERIFIED` | **1** | `015`, no reproducible en dispositivo; cubierto por la suite |
+| `WONT_FIX` | **1** | `058`, el signo del asiento es contablemente correcto |
+| `OPEN` | **0** | |
+| `IN_PROGRESS` | **0** | |
+| `DESIGN_DECISION_REQUIRED` | **0** | `045` y `059` decididos por el propietario y ya implementados |
+| **Total** | **69** | 66 del backlog original + `066`, `067`, `068` |
+
+Por severidad, todo cerrado: **CRITICAL 0 abiertos · HIGH 0 · MEDIUM 0 · LOW 0** (salvo el
+`WONT_FIX` justificado).

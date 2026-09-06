@@ -209,7 +209,8 @@ void main() {
       await AgroRepository(target)
           .addPerson(name: 'Se va a reemplazar', role: PersonRole.family);
 
-      final safetyCopy = await BackupService(target).restore(backup);
+      final safetyCopy = (await BackupService(target).restore(backup))
+          .safetyCopyPath;
 
       expect(
         await File(safetyCopy).exists(),

@@ -267,3 +267,40 @@ En orden estricto de valor por hora invertida:
 
 Aproximadamente dos horas para eliminar el defecto que rompe la app, el que la deja colgada,
 el que impide distribuirla, y los dos problemas de código más visibles.
+
+---
+
+# Actualización 2026-09-06 — Qué queda tras congelar la baseline
+
+La baseline `v1.0.0-base-stable` cierra el proyecto base. Este roadmap deja de ser una lista de
+arreglos pendientes: **no queda ningún defecto abierto**. Lo que sigue son funcionalidades.
+
+## Ya hecho de este roadmap
+
+| Elemento | Estado |
+|---|---|
+| Respaldo que incluya las fotografías de factura | ✅ contenedor `.agrobackup` con manifiesto, checksums y compatibilidad hacia atrás |
+| Verificación automática en CI | ✅ GitHub Actions con los cuatro gates |
+| Estado de plan en el esquema | ✅ esquema v6, con la invariante en el motor |
+| Cerrar el ciclo de vida de campañas | ✅ `CLOSED` terminal, protegido en el dominio |
+| Cobertura de la entrada numérica y del respaldo en Android | ✅ desde fases anteriores; ampliada a 253 tests |
+
+## Evolución diferida — funcionalidades, no defectos
+
+Copiado y ampliado desde [`46` sección 16](46_BASELINE_FINAL_FREEZE.md), que es la fuente:
+
+| Prioridad sugerida | Elemento | Nota |
+|---|---|---|
+| Alta | **Compartir el respaldo con el selector del sistema** | Hoy el archivo vive en la carpeta de la aplicación y sobrevive a un borrado de datos, pero **no a desinstalar**. Poder enviarlo a Drive o a WhatsApp cierra el último hueco de la recuperación |
+| Alta | **Informes exportables** (PDF/CSV) | La liquidación por campaña es lo que el propietario acaba copiando a mano |
+| Media | **Duplicar un plan aplicado** como punto de partida de uno nuevo | Atajo de conveniencia. La regla de un solo uso **no** cambia: crea un plan nuevo, no revive el viejo |
+| Media | **Reapertura administrativa de una campaña cerrada** | Sólo si aparece una necesidad real. Debe ser explícita y auditable, con su propia traza: no un botón escondido |
+| Media | Purga o archivado de fotografías antiguas | Con su efecto sobre el tamaño del respaldo declarado |
+| Baja | Cifrado del respaldo | Hoy el archivo no está cifrado, igual que antes |
+| Baja | **Modelos tipados** en lugar de `Map<String, Object?>`, y división de `AgroRepository` por áreas | **Deliberadamente fuera de la baseline.** La meta de la fase era cerrarla, no reabrir la arquitectura. Con 253 tests verdes y CI, ahora es un refactor con red |
+
+## Criterio de arranque
+
+Toda evolución parte de `main` **posterior al tag** `v1.0.0-base-stable`, mediante ramas de
+feature. La baseline histórica no se toca: es el punto exacto de recuperación
+([`46` sección 18](46_BASELINE_FINAL_FREEZE.md)).

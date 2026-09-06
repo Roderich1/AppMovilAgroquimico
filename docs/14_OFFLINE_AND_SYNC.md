@@ -86,3 +86,30 @@ Mitigaciones propuestas, por orden de coste creciente, en
 `REQUIERE INFORMACIÓN DEL DESARROLLADOR`: el código no permite saber si el producto se usa
 en un solo dispositivo o en varios. Si fueran varios, **cada uno tendría una contabilidad
 distinta e irreconciliable**, porque no existe ningún mecanismo de unión.
+
+---
+
+# Actualización 2026-09-06 — El respaldo como único mecanismo de portabilidad
+
+El modelo sigue siendo **offline-only y monodispositivo**: no hay red, ni cuentas, ni
+sincronización. Lo que cambia es que el respaldo dejó de ser una copia parcial.
+
+Antes, mover los datos a otro teléfono conservaba las cuentas y **perdía todas las
+fotografías de factura**, porque viven en el sistema de archivos y no en SQLite. Ahora el
+contenedor `.agrobackup` lleva las dos cosas y, al restaurar, **reconstruye las rutas** para el
+dispositivo de destino: la base guarda rutas absolutas del teléfono de origen, que en otro
+equipo no existirían.
+
+Eso convierte el respaldo en un mecanismo de **portabilidad** real, no sólo de recuperación
+ante fallo, dentro de los límites del modelo:
+
+| | |
+|---|---|
+| Sirve para | recuperar tras un fallo, y mover los datos a otro teléfono |
+| No sirve para | trabajar en dos dispositivos a la vez. La restauración **reemplaza** todo; no fusiona |
+| Conflictos | no existen, porque no hay dos fuentes de verdad simultáneas |
+
+Compartir el archivo con el selector del sistema —para llevarlo fuera del teléfono sin
+cable— es evolución diferida ([`46` sección 16](46_BASELINE_FINAL_FREEZE.md)).
+
+Detalle del formato: [`13_LOCAL_STORAGE`](13_LOCAL_STORAGE.md).

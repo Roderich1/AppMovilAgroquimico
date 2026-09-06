@@ -5,9 +5,14 @@
 > Las secciones 1–13 describen el estado **tras la fase de estabilización** y **antes** de la
 > auditoría de interfaz ejecutada sobre Pixel 8. Se conservan íntegras como registro histórico.
 >
-> **El estado vigente es [§ POST-BACKLOG STATUS](#post-backlog-status--cierre-del-backlog-uibug),
-> al final de este documento: `RELEASE CANDIDATE`.** Entre medias, § POST-UI-AUDIT STATUS
-> registra el `NOT READY` que siguió a la auditoría de interfaz.
+> **El estado vigente es [§ BASELINE FREEZE STATUS](#baseline-freeze-status--dos-gates-separados),
+> al final de este documento, y da DOS veredictos separados:**
+> **`READY FOR EVOLUTION`** para la baseline de desarrollo y
+> **`NOT READY — KEYSTORE REQUIRED`** para la distribución en tienda.
+>
+> Las secciones intermedias son históricas y se conservan sin tocar: § POST-UI-AUDIT STATUS
+> registra el `NOT READY` que siguió a la auditoría de interfaz, y § POST-BACKLOG STATUS el
+> `RELEASE CANDIDATE` que siguió al cierre del backlog.
 >
 > La auditoría posterior encontró **4 defectos CRITICAL reales**, entre ellos uno de riesgo
 > contable (×1000) y otro que deja la exportación de backup inoperativa en Android. Todo lo que
@@ -548,4 +553,89 @@ esta fase no puede resolver.
 | Pérdida de datos | **Bajo para la base, medio para las facturas** — exportar/restaurar verificado en Android; las imágenes siguen fuera del respaldo |
 | Funcional | **Bajo** — 17/17 rutas alcanzables y con retorno |
 | Cosmético | **Medio-bajo** — nueve MEDIUM/LOW abiertos, ninguno bloqueante |
+| Publicación | **Alto y externo** — sin keystore no hay release firmable |
+
+---
+
+# BASELINE FREEZE STATUS — dos gates separados
+
+Sección añadida el **2026-09-06**, al congelar la baseline en `hardening/final-polish`
+(PR #4). Todo lo anterior de este documento se conserva sin modificar: son fotografías de
+momentos anteriores y su valor está justamente en no reescribirlas.
+
+Informe completo del cierre: [`46_BASELINE_FINAL_FREEZE`](46_BASELINE_FINAL_FREEZE.md).
+
+## 1. Por qué hacen falta dos veredictos
+
+Hasta ahora este documento daba **un** veredicto, y eso mezclaba dos preguntas distintas:
+
+- ¿está el proyecto base terminado y en condiciones de que empiece la evolución funcional?
+- ¿se puede publicar el binario en una tienda?
+
+La segunda depende de una **clave privada** que sólo el propietario puede generar y custodiar.
+No depende de código, ni de pruebas, ni de documentación. Mantenerlas juntas hacía que la
+ausencia del keystore rebajara la valoración de un trabajo que sí está terminado.
+
+Desde esta sección se evalúan por separado.
+
+## 2. DEVELOPMENT BASELINE
+
+> ## `READY FOR EVOLUTION`
+
+| Criterio | Estado |
+|---|---|
+| CRITICAL abiertos | ✅ **0** |
+| HIGH abiertos | ✅ **0** |
+| MEDIUM abiertos | ✅ **0** |
+| LOW abiertos | ✅ **0** (1 `WONT_FIX` justificado: `058`) |
+| `DESIGN_DECISION_REQUIRED` | ✅ **0** — las siete decisiones tomadas e implementadas |
+| Defectos conocidos fuera del backlog | ✅ **0** — `066`, `067` y `068` incorporados con ficha |
+| `FIXED_NOT_DEVICE_VERIFIED` | ✅ **1**, con motivo escrito (`015`, no reproducible en dispositivo) |
+| `flutter analyze` | ✅ 0 issues |
+| `dart format --set-exit-if-changed lib test` | ✅ limpio |
+| `flutter test` | ✅ **253 / 253** |
+| `flutter build apk --release` | ✅ 60,6 MB, sin firmar |
+| `flutter build appbundle --release` | ✅ 58,6 MB, sin firmar |
+| Verificación automática en CI | ✅ GitHub Actions **verde** (run `33999797085`) |
+| Rutas auditadas en Pixel 8 | ✅ **17 / 17** |
+| Recuperación de datos | ✅ respaldo con **base y fotografías**, legacy compatible, rollback demostrado |
+| Documentación sincronizada | ✅ 41 catálogo · 43 trazabilidad · 46 cierre |
+
+### Estado por sección, actualizado
+
+| Sección | Tras el backlog | **Ahora** |
+|---|---|---|
+| **Recuperación de datos** | PARTIALLY READY *(sin fotos)* | **READY** — el respaldo incluye las fotografías de factura, reconstruye rutas y deshace el conjunto ante cualquier fallo |
+| **Accesibilidad** | PARTIALLY READY | **READY** — 130 % y horizontal, también **combinados** (era el hueco que destapó `068`); el único compromiso es la barra inferior, razonado |
+| **Testing** | READY | **READY** — 170 → **253**, con CI que los ejecuta en cada PR |
+| **Verificación automática** | *no existía* | **READY** — workflow con los cuatro gates |
+| **Integridad de la base · Migraciones** | READY | **READY** — esquema v6, equivalencia fresh/migrada verificada, migración ejecutada en dispositivo |
+| **Corrección funcional · Navegación · Errores · Build** | READY | READY *(sin cambio)* |
+| **Seguridad · Rendimiento** | PARTIALLY READY | PARTIALLY READY *(sin cambio de alcance)* |
+| **Firma** | NOT READY (externo) | **NOT READY (externo)** — ver §3 |
+
+## 3. PRODUCTION DISTRIBUTION
+
+> ## `NOT READY — KEYSTORE REQUIRED`
+
+Único bloqueo, y es **externo al repositorio**:
+
+`android/app/build.gradle.kts` lee las credenciales de `android/key.properties`, que no está
+versionado (como tampoco `*.jks` ni `*.keystore`). Sin él la build de release queda
+deliberadamente **sin firmar**, avisando por consola. No falta código ni pruebas: falta una
+clave privada.
+
+Para desbloquearlo, el propietario debe generar el keystore, custodiarlo fuera del repositorio
+y crear `android/key.properties` a partir de `android/key.properties.example`.
+
+**Este bloqueo no rebaja `READY FOR EVOLUTION`.** Son dos gates distintos.
+
+## 4. Riesgo residual
+
+| Riesgo | Valoración |
+|---|---|
+| Contable | **Bajo** — parser es-BO estricto, reversiones marcadas en todas las vistas, plan de un solo uso protegido en la base |
+| Pérdida de datos | **Bajo** — respaldo con base y fotografías, verificado de extremo a extremo en el dispositivo: exportar → borrar la foto → restaurar → **la factura se abre** |
+| Funcional | **Bajo** — 17/17 rutas alcanzables y con retorno |
+| Cosmético | **Bajo** — 0 abiertos |
 | Publicación | **Alto y externo** — sin keystore no hay release firmable |

@@ -141,3 +141,28 @@ cuyos lotes ya se movieron, descuadrando el inventario).
   significa que **no hay red de seguridad**: hay que escribir el test antes de tocarla.
 - **Para planificar testing**: la sección "Funcionalidades sin cobertura" ya está priorizada.
 - **Para limpiar**: la sección "Partes desconectadas" lista todo lo que existe pero no se usa.
+
+---
+
+# Actualización 2026-09-06 — Reglas nuevas y sus pruebas
+
+| Regla / funcionalidad | Código | Tests | Pixel 8 |
+|---|---|---|---|
+| Un plan se aplica una sola vez | `agro_repository.dart` `_ensurePlanNotApplied`, `app_database.dart` v6 | `plan_lifecycle_test.dart` (14) | ✅ segundo intento rechazado, sin duplicar |
+| Revertir no reabre el plan | `agro_repository.dart` `reverseApplication` | `plan_lifecycle_test.dart`, `v5_domain_test.dart`, `e2e_v5_test.dart` | ✅ el plan sigue `APPLIED` |
+| La lista de planificación muestra pendientes | `agro_repository.dart` `plans(includeApplied:)`, `planning_screen.dart` | `plan_lifecycle_test.dart`, `plan_lifecycle_ui_test.dart` (4) | ✅ lista operativa e histórico |
+| Recarga al volver de aplicar | `planning_screen.dart` `applyPlan` | `plan_lifecycle_ui_test.dart` | ✅ el plan sale de la lista al instante |
+| Una campaña cerrada es terminal | `agro_repository.dart` `activateCampaign` | `campaign_lifecycle_test.dart` (10) | ✅ dominio y menú |
+| Confirmación de cierre irreversible | `catalogs_screen.dart` | `campaign_lifecycle_ui_test.dart` (5) | ✅ texto y botón de acción irreversible |
+| Respaldo con fotografías | `backup_service.dart`, `invoice_storage.dart` | `backup_container_test.dart` (27) | ✅ ciclo completo, la factura se abre tras restaurar |
+| Compatibilidad con respaldos `.db` | `backup_service.dart` `validate` | `backup_container_test.dart` | ✅ restaurado un `.db` v5, migrado a v6 |
+| Rollback de la restauración | `backup_service.dart` `restore` | `backup_container_test.dart` | cubierto por la suite (fallo forzado a mitad) |
+| Migración v5 a v6 | `app_database.dart` `_upgradeToV6` | `plan_lifecycle_test.dart`, `schema_equivalence_test.dart` | ✅ ejecutada al restaurar en el dispositivo |
+| `setState` no devuelve `Future` | 5 pantallas | `set_state_contract_test.dart` (3) | ✅ 0 avisos en `logcat` |
+| Validación visible en catálogos | `catalogs_screen.dart` | `ui_polish_test.dart` | ✅ error en línea, nada escrito |
+| Identidad del producto sin scroll horizontal | `dashboard_screen.dart` | `ui_polish_test.dart` | ✅ vertical y a 130 % |
+| Etiquetas con unidad y estado de la línea | `purchase_form_screen.dart` | `ui_polish_test.dart` | ✅ con y sin producto elegido |
+| Una sola acción primaria en Catálogos | `app_shell.dart`, `catalogs_screen.dart` | `ui_polish_test.dart` | ✅ sin FAB, etiqueta por sección |
+| Sin origen no hay cero engañoso | `transfer_form_screen.dart` | `ui_polish_test.dart` | ✅ estado vacío explícito |
+| El rail no desborda en horizontal a 130 % | `app_shell.dart` | `ui_polish_test.dart` (3) | ✅ sin desbordamiento, "Cuentas" alcanzable |
+| Puerta de calidad automática | `.github/workflows/flutter-ci.yml` | los cuatro gates en cada PR | ✅ run `33999797085` verde |

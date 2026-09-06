@@ -199,3 +199,53 @@ String friendlyError(Object error) {
 **Uso inconsistente**: `CatalogsScreen` y `PurchasesScreen` muestran
 `snapshot.error.toString()` **sin** pasar por `friendlyError`, a diferencia de las otras
 nueve pantallas. Registrado en [27_KNOWN_ISSUES](27_KNOWN_ISSUES.md).
+
+---
+
+# Actualización 2026-09-06 — Validación visible en los catálogos y en las líneas de compra
+
+## Diálogos de catálogo (UIBUG-031)
+
+Los cuatro diálogos de `catalogs_screen.dart` (`_NameDialog`, `_PersonDialog`, `_FarmDialog`,
+`_ProductDialog`) validaban con un `if` silencioso: si el campo estaba vacío, "Guardar" **no
+hacía nada**. Ni guardaba, ni cerraba, ni explicaba. El botón parecía averiado.
+
+Ahora cada uno es un `Form` con `validator`, así que el error aparece **en línea bajo el campo
+que falta**, con el campo marcado, y sigue sin escribirse nada en la base:
+
+| Diálogo | Qué exige |
+|---|---|
+| Nombre (proveedor, campaña, renombrar) | nombre no vacío |
+| Persona | nombre no vacío |
+| Chaco | propietario elegido · nombre no vacío · superficie no vacía, numérica y **mayor que cero** |
+| Producto | nombre no vacío. El ingrediente activo **no** se valida: es opcional en el esquema, y exigirlo inventaría una regla que la base no tiene |
+
+La superficie del chaco merece mención aparte: `farms.area_m2` tiene un `CHECK(area_m2 > 0)`,
+así que un valor cero o no numérico llegaba como **excepción de SQLite** en vez de como aviso
+del formulario. Ahora se valida donde se escribe.
+
+## Estado de una línea de compra (UIBUG-039)
+
+La tarjeta rotulaba "asignado" en cuanto la diferencia entre comprado y repartido era cero — y
+eso es cierto también cuando **no se ha escrito nada**: cero comprado y cero repartido dan
+diferencia cero. Una línea vacía se anunciaba como terminada.
+
+Una asignación sólo está completa cuando existen **todos** sus datos obligatorios. La tarjeta
+declara ahora cuál falta:
+
+| Condición | Qué dice |
+|---|---|
+| cantidad comprada <= 0 | `Pendiente de cantidad` |
+| alguna asignación sin persona | `Pendiente de persona` |
+| suma repartida < comprada | `Pendiente <cantidad>` |
+| suma repartida > comprada | `Excede en <cantidad>` |
+| todo completo y cuadrado | `Asignado` |
+
+**La regla contable no cambió**: `_confirm` valida exactamente lo mismo que antes. Lo que
+cambió es lo que la tarjeta afirma mientras se rellena.
+
+## Plan (UIBUG-032, verificado en dispositivo)
+
+Los tres casos dan mensajes distintos, comprobado en el Pixel 8: sin chaco ni productos,
+*"Seleccione el chaco y agregue al menos un producto."*; con chaco y sin productos, *"Agregue
+al menos un producto al plan."*
