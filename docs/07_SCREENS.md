@@ -330,3 +330,20 @@ Convención de estados usada abajo:
 | FarmLogbook | ✅ | ✅ | ✅ | ❌ ninguno |
 | Transfers | ✅ | ✅ | ✅ | tras acción |
 | TransferForm | ✅ | ✅ | ✅ | n/a |
+
+---
+
+# Actualización 2026-09-06 — Cambios de pantalla al congelar la baseline
+
+| Pantalla | Cambio |
+|---|---|
+| **UI-01 `/`** Inicio | El inventario proyectado usa **tarjetas** por debajo de 560 px (nombre por encabezado, cifras rotuladas) y conserva la `DataTable` en pantalla ancha. La cinta "Campaña activa" reparte el ancho y ya no desborda con nombres largos |
+| **UI-03 `/catalogos`** Catálogos | **Sin FAB global.** La acción primaria dice qué crea: "Agregar persona / chaco / producto / proveedor / campaña". Los cuatro diálogos validan en línea. El menú de una campaña ofrece "Activar" **sólo** si está `PLANNED`, y el cierre pide confirmación irreversible |
+| **UI-04 `/planificacion`** Planificación | Muestra los planes **pendientes**; un interruptor secundario añade los aplicados, marcados "Aplicado" y sin acción. Recarga al volver del formulario de aplicación |
+| **UI-07 `/compras/nueva`** Compra | Proveedor/campaña y cantidad/moneda se **apilan** por debajo de 420 px. Sin producto: "Precio por unidad" y sólo "Subtotal". El campo de la asignación se llama "Cantidad" y lleva su unidad; el de la línea, "Cantidad comprada". La tarjeta reserva relleno superior, así que la etiqueta "Producto" no se recorta. El estado de la línea declara qué falta |
+| **UI-10 `/liquidacion`** Liquidación | El respaldo informa de cuántas fotografías incluye; la restauración declara antes de aceptar qué trae el archivo, y avisa después si hubo discrepancias |
+| **UI-17 `/transferencias/nueva`** Transferencia | Sin origen elegido: estado vacío *"Seleccione un origen para ver su inventario."*, sin recuento y sin controles de cantidad |
+| **Shell (todas)** | En horizontal, el `NavigationRail` **se desplaza**, así que al 130 % ningún destino queda inalcanzable |
+
+Evidencia por pantalla: `artifacts/ui-audit/fixed/final-freeze/` (60 capturas) y
+[`43_UIBUG_FIX_TRACEABILITY`](43_UIBUG_FIX_TRACEABILITY.md).

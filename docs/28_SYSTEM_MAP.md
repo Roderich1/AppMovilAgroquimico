@@ -475,3 +475,41 @@ Para calibrar expectativas: **este es un proyecto sólido**, no un desastre que 
 Los problemas encontrados son **acotados y corregibles**, no estructurales-irreparables. El
 mayor riesgo del producto **no es técnico sino operativo**: toda la contabilidad vive en un
 solo archivo, en un solo teléfono, sin respaldo automático ni función de restauración.
+
+---
+
+# Actualización 2026-09-06 — Mapa al congelar la baseline
+
+## Archivos nuevos en `lib/`
+
+| Archivo | Responsabilidad |
+|---|---|
+| `lib/data/invoice_storage.dart` | **Único sitio que decide dónde viven las fotografías de factura.** Lo usan `AgroRepository.storeInvoiceImage` (que las guarda) y `BackupService` (que las empaqueta y las devuelve al restaurar). Antes cada uno lo calculaba por su cuenta, y bastaba con que uno cambiara para que el respaldo dejara de encontrar los archivos |
+
+## Responsabilidades que crecieron
+
+| Archivo | Qué añade |
+|---|---|
+| `lib/data/backup_service.dart` | Del `.db` suelto al contenedor `.agrobackup`: manifiesto con checksums, empaquetado y extracción con protección contra rutas fuera del destino, validación de los dos formatos, reconstrucción de rutas de fotografías y rollback del conjunto (base **y** fotos) |
+| `lib/data/app_database.dart` | Esquema **v6** y su migración: vocabulario de estado de plan, reparación de los planes reabiertos por la regla anterior e índice único parcial sobre `applications(plan_id)` |
+| `lib/data/agro_repository.dart` | `_ensurePlanNotApplied` (invariante del plan dentro de la transacción), rechazo de reactivar una campaña `CLOSED`, `plans(includeApplied:)` |
+| `lib/presentation/app_shell.dart` | `hidesGlobalFab` y rail desplazable |
+
+## Dónde viven ahora las invariantes
+
+Merece la pena verlas juntas, porque es el patrón que esta baseline consolida: **una invariante
+de los datos vive en el motor**, y la pantalla sólo evita ofrecer lo imposible.
+
+| Invariante | En la base | En el dominio | En la pantalla |
+|---|---|---|---|
+| Exactamente una campaña activa | `idx_campaign_single_active` (único parcial) | `addCampaign`, `activateCampaign` | el menú ofrece "Activar" sólo donde procede |
+| Una campaña cerrada es terminal | — | `activateCampaign` rechaza `CLOSED` | "Activar" sólo si está `PLANNED` |
+| Un plan se aplica una sola vez | `idx_application_plan_single_use` (único parcial) | `_ensurePlanNotApplied`, dentro de la transacción | no se ofrece la acción sobre un plan aplicado |
+| Un producto por línea de aplicación | `idx_application_item_unique` | `confirmApplication` | el selector excluye los ya usados |
+| Un producto por línea de plan | `idx_plan_item_unique` | `addPlanMulti` | ídem |
+
+## Verificación automática
+
+`.github/workflows/flutter-ci.yml` es parte del sistema desde esta fase: reproduce los cuatro
+gates en cada PR y en cada push a `main`. Ver
+[`20_BUILD_AND_CONFIGURATION`](20_BUILD_AND_CONFIGURATION.md).

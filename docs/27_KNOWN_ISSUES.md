@@ -5,10 +5,32 @@
 > corrección está en [33_STABILIZATION_FINDINGS](33_STABILIZATION_FINDINGS.md) y
 > la trazabilidad completa en [34_CHANGE_TRACEABILITY](34_CHANGE_TRACEABILITY.md).
 
-> **⚠️ Este documento no está completo (2026-09-05).** Una auditoría posterior **ejecutando la
+> # Estado vigente (2026-09-06): **0 defectos abiertos**
+>
+> Al congelar la baseline `v1.0.0-base-stable` no queda **ningún** defecto abierto: ni de este
+> documento, ni del backlog de interfaz.
+>
+> | Origen | Estado |
+> |---|---|
+> | KI-01…KI-20 (este documento) | corregidos o verificados en código; ninguno abierto |
+> | STAB-001…019 (estabilización) | cerrados; ver [`34`](34_CHANGE_TRACEABILITY.md) |
+> | UIBUG-001…068 (interfaz) | **67 `VERIFIED` en Pixel 8** · 1 `FIXED_NOT_DEVICE_VERIFIED` justificado (`015`) · 1 `WONT_FIX` justificado (`058`) · **0 abiertos** |
+>
+> El detalle vive en [`41_UIBUG_MASTER_BACKLOG`](41_UIBUG_MASTER_BACKLOG.md) (catálogo) y
+> [`43_UIBUG_FIX_TRACEABILITY`](43_UIBUG_FIX_TRACEABILITY.md) (trazabilidad). El cierre
+> completo, en [`46_BASELINE_FINAL_FREEZE`](46_BASELINE_FINAL_FREEZE.md).
+>
+> **Regla del proyecto: nada conocido queda fuera del backlog.** Los tres defectos hallados
+> durante la fase de cierre —`066` el aviso de `setState`, `067` la cinta de campaña activa,
+> `068` el rail de navegación en horizontal al 130 %— no se dejaron como notas al margen: se
+> les dio ficha, causa, corrección y test.
+>
+> Lo que sigue por debajo es el análisis original, **conservado sin reescribir**.
+
+> **⚠️ Este documento no era completo (2026-09-05).** Una auditoría posterior **ejecutando la
 > aplicación** sobre un Pixel 8 encontró **65 defectos adicionales** (`UIBUG-001`…`UIBUG-065`),
-> cuatro de ellos CRITICAL. **No se han trasladado aquí**: viven en
-> [41_UIBUG_MASTER_BACKLOG](41_UIBUG_MASTER_BACKLOG.md), que es el backlog vigente.
+> cuatro de ellos CRITICAL. **No se trasladaron aquí**: viven en
+> [41_UIBUG_MASTER_BACKLOG](41_UIBUG_MASTER_BACKLOG.md).
 >
 > Qué aportó esa auditoría a los KI de este documento:
 >
@@ -540,3 +562,20 @@ está sincronizada con él.
 | KI-18 | `archiveCatalog` de campañas inalcanzable | 🟡 Baja | Verificado en código |
 | KI-19 | La app no funciona en web | 🟡 Baja | Verificado en código |
 | KI-20 | Sin control de versiones en esta copia | ⚪ Info | ✅ **YA NO APLICA**: repo Git activo |
+
+
+---
+
+## Cierre de KI-13 y KI-16 al congelar la baseline
+
+Dos entradas de este documento cambian de estado con el trabajo de la fase de cierre:
+
+| KI | Estado anterior | **Ahora** |
+|---|---|---|
+| **KI-13** Imágenes huérfanas | Verificado en código | **Mitigado**: el respaldo sólo empaqueta las fotografías **realmente referenciadas** por alguna compra, así que las huérfanas ya no viajan ni cuentan. Si una referenciada falta en disco, se avisa por pantalla y se anota en el manifiesto en vez de ignorarla. Borrar las huérfanas del disco sigue siendo evolución diferida ([`46` §16](46_BASELINE_FINAL_FREEZE.md)) |
+| **KI-16** `DatabaseException` sin traducir | Verificado en código | **Corregido** (UIBUG-015): `friendlyError` cubre `DatabaseException`. No verificable en dispositivo —exigiría corromper la base en caliente— y cubierto por `error_states_test.dart` |
+
+También cambia el riesgo de fondo que este documento señalaba sobre el respaldo: dejó de ser
+sólo la base de datos. El contenedor `.agrobackup` incluye las fotografías de factura,
+reconstruye sus rutas al restaurar en otro dispositivo y deshace **el conjunto** ante cualquier
+fallo. Ver [`13_LOCAL_STORAGE`](13_LOCAL_STORAGE.md).

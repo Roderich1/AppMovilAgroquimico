@@ -254,3 +254,41 @@ Transición unificada en ambas plataformas. No hay transiciones personalizadas p
 - **Sin `StatefulShellRoute`**: al cambiar de pestaña, la pantalla se reconstruye y **pierde
   su estado y su posición de scroll**; los `late Future` de `initState` se relanzan.
 - **Sin navegación por gestos** ni `Hero` animations.
+
+---
+
+# Actualización 2026-09-06 — FAB global y rail desplazable
+
+## El FAB global no aparece en `/catalogos`
+
+`AppShell.hidesGlobalFab` retira el `FloatingActionButton` "Nuevo" en las rutas que ya tienen
+su propia acción primaria. Hoy la lista es una sola: `/catalogos`.
+
+**No se pierde ningún destino.** El FAB ofrece cinco atajos —Planificación, Compra, Aplicación,
+Pago, Transferencia— y **ninguno crea entradas de catálogo**; los cinco siguen alcanzables
+desde Operaciones y desde la barra inferior. Lo que se elimina es la ambigüedad de tener dos
+acciones que compiten por ser la principal en la misma pantalla (UIBUG-047).
+
+Cuando el FAB no está, `ContentInsets.bottomReserve` pasa a 0: reservar su alto dejaría un
+hueco muerto al final de la página.
+
+## El rail se desplaza (UIBUG-068)
+
+`NavigationRail` reparte su alto entre los destinos y **no se desplaza por su cuenta**. En
+horizontal el alto útil del Pixel 8 son 411 dp, y con la fuente al 130 % los cinco destinos con
+etiqueta no caben: el rail desbordaba 90 px y dejaba "Personas" y "Cuentas" fuera de la
+pantalla.
+
+Ahora vive dentro de un `SingleChildScrollView` con `ConstrainedBox(minHeight)` e
+`IntrinsicHeight`: ocupa todo el alto cuando cabe y se desplaza cuando no.
+
+Se eligió esto **frente a acotar la escala del texto** porque en horizontal sobra sitio para
+desplazar, así que las etiquetas pueden seguir creciendo. La barra inferior, con unos 90 px de
+alto, no tiene esa salida y mantiene su compromiso de escala ya documentado.
+
+## Atrás jerárquico — verificado de nuevo
+
+Comprobado en el Pixel 8 con `dumpsys window`: bitácora, detalle de persona, Personas e Inicio,
+tres pulsaciones seguidas de Atrás, y `mCurrentFocus` **permanece** en
+`com.comunidad.agro.agroquimicos/MainActivity`. Sólo la cuarta, desde Inicio, cede el gesto al
+sistema, que es la política elegida en UIBUG-004B.
