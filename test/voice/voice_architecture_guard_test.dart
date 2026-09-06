@@ -289,10 +289,29 @@ void main() {
       expect(permissions, ['android.permission.RECORD_AUDIO']);
     });
 
-    test('NO se declara INTERNET', () {
+    test('NO se declara INTERNET en la build que se distribuye', () {
       final source = manifest.readAsStringSync();
       expect(source.contains('android.permission.INTERNET'), isFalse);
       expect(source.contains('ACCESS_NETWORK_STATE'), isFalse);
+    });
+
+    test('los manifiestos de desarrollo sólo añaden INTERNET, y por hot reload', () {
+      // `src/debug` y `src/profile` vienen de la plantilla de Flutter y SÍ
+      // declaran INTERNET: la herramienta lo necesita para hablar con la
+      // aplicación en ejecución (puntos de interrupción, hot reload). No es de
+      // `EVO-009` y NO llega a la build de release, pero conviene fijarlo aquí:
+      // quien pruebe el APK debug en un teléfono verá ese permiso y debe saber
+      // que no significa que la aplicación use la red.
+      for (final variant in const ['debug', 'profile']) {
+        final file = File('android/app/src/$variant/AndroidManifest.xml');
+        final permissions = RegExp(r'uses-permission android:name="([^"]+)"')
+            .allMatches(file.readAsStringSync())
+            .map((m) => m.group(1))
+            .toList();
+        expect(permissions, [
+          'android.permission.INTERNET',
+        ], reason: '$variant no puede añadir ningún otro permiso');
+      }
     });
   });
 
