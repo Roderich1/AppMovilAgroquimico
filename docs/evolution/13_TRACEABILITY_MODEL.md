@@ -16,7 +16,10 @@
 `EVOLUTION-N` y `EVO-NNN` no son alias. Una etapa puede agrupar varias features:
 
 - `EVOLUTION-2` → `EVO-004`, `EVO-005`, `EVO-006`.
-- `EVOLUTION-3` → `EVO-009`.
+- `EVOLUTION-3` → `EVO-009`, `EVO-010`, `EVO-017`, `EVO-018`, `EVO-019`.
+
+`EVO-003` conserva el significado “diagnóstico local exportable”; no es abreviatura de
+`EVOLUTION-3`.
 
 ## Cadena mínima
 
@@ -43,4 +46,3 @@
 - `FINAL_VERIFICATION` sólo existe cuando hay implementación y evidencia que verificar.
 - `VERIFIED` exige evidencia; un merge no basta.
 - Un test puede cubrir varios requisitos si la relación se declara.
-
