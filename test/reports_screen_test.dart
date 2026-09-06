@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -248,6 +249,32 @@ void main() {
     });
   });
 
+  group('progreso y cancelación', () {
+    testWidgets('mientras genera muestra progreso y ofrece cancelar', (
+      tester,
+    ) async {
+      final gate = _GatedStorage();
+      await pump(tester, override: gate);
+      await tapOnPage(tester, 'Exportar PDF');
+      await waitFor(tester, find.text('El archivo no va cifrado'));
+      await tester.tap(find.text('Exportar igualmente'));
+      await waitFor(tester, find.byType(LinearProgressIndicator));
+
+      expect(find.byType(LinearProgressIndicator), findsOneWidget);
+      expect(
+        find.textContaining('Generando Inventario en PDF'),
+        findsOneWidget,
+      );
+      expect(find.text('Cancelar'), findsOneWidget);
+      // El botón de exportar no está disponible mientras se exporta.
+      expect(find.text('Exportar PDF'), findsNothing);
+
+      gate.release();
+      await waitFor(tester, find.text('Reporte guardado'));
+      expect(find.byType(LinearProgressIndicator), findsNothing);
+    });
+  });
+
   group('error', () {
     testWidgets('un fallo de almacenamiento se muestra y no cierra nada', (
       tester,
@@ -365,6 +392,21 @@ void main() {
   });
 
   group('accesibilidad', () {
+    testWidgets('en horizontal se lee entera y conserva el botón', (
+      tester,
+    ) async {
+      tester.view.physicalSize = const Size(2400, 1080);
+      tester.view.devicePixelRatio = 2.625;
+      addTearDown(tester.view.reset);
+
+      await pump(tester);
+      await tester.ensureVisible(find.text('Exportar PDF'));
+      await tester.pump();
+
+      expect(tester.takeException(), isNull);
+      expect(find.text('Exportar PDF'), findsOneWidget);
+    });
+
     testWidgets('al 130 % no desborda ni pierde el botón', (tester) async {
       tester.view.physicalSize = const Size(1080, 2400);
       tester.view.devicePixelRatio = 2.625;
@@ -392,6 +434,34 @@ void main() {
       expect(find.text('Exportar PDF'), findsOneWidget);
     });
   });
+}
+
+/// Almacenamiento que se queda esperando hasta que el test lo suelta.
+///
+/// Permite comprobar el estado "generando" sin depender de que el equipo tarde
+/// lo justo: la exportación no termina hasta que el test decide.
+class _GatedStorage implements ReportStorage {
+  final _gate = Completer<void>();
+
+  void release() => _gate.complete();
+
+  @override
+  Future<String> describeLocation() async => '/ruta/de/prueba';
+
+  @override
+  Future<StoredReport> save({
+    required String baseName,
+    required String extension,
+    required Uint8List bytes,
+  }) async {
+    await _gate.future;
+    return StoredReport(
+      path: '/ruta/de/prueba/$baseName.$extension',
+      fileName: '$baseName.$extension',
+      directory: '/ruta/de/prueba',
+      byteCount: bytes.length,
+    );
+  }
 }
 
 /// Almacenamiento que siempre falla, para ejercitar el camino de error sin
