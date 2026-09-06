@@ -26,14 +26,21 @@ Escala: probabilidad e impacto `L/M/H`. Owner es responsabilidad lógica, no per
 | RISK-020 | Intento de compra deja producto o movimientos parciales | M | H | creación + compra en unidad atómica y fallos inducidos | Purchase/Data |
 | RISK-021 | Pago excedente se convierte silenciosamente en adelanto | M | H | decisión explícita y saldo antes/después | Accounts/Product |
 | RISK-022 | Plan cambia entre preview y confirmación | M | H | relectura/revalidación y conflicto bloqueante | Application/Inventory |
-| RISK-023 | El motor del sistema no transcribe sin descargar antes el idioma, y `es-BO` no existe on-device | H | H | Medido en Fase 0: declarar el locale real en la UI, no prometer offline y decidir con el propietario si se acepta una descarga inicial | Voice/Product |
-| RISK-024 | `whisper.cpp` no emite resultados parciales y la experiencia prometida asume texto en vivo | H | M | Medido en Fase 0: si `ADR-002` elige Whisper, o se acepta una UX sin texto en vivo o se mide aparte la transcripción por trozos | Voice/Product |
+| RISK-023 | `es-BO` no existe como idioma de reconocimiento y el modo offline depende de un paquete de idioma ya instalado | H | H | Medido en teléfono real: `es-BO` da error 12 y `es-ES` error 13; sólo funcionó `es-US`. La UI debe declarar el locale realmente usado y no prometer `es-BO`. `isOnDeviceRecognitionAvailable()` no sirve como garantía: devuelve `false` donde el offline sí funciona | Voice/Product |
+| RISK-024 | `whisper.cpp` no emite resultados parciales y la experiencia prometida asume texto en vivo | H | M | Confirmado en teléfono real: cero parciales y 1,2–2,9 s de espera tras detener. Si `ADR-002` elige Whisper, o se acepta una UX sin texto en vivo o se mide aparte la transcripción por trozos | Voice/Product |
+| RISK-025 | Ningún motor reconoce los nombres de producto y la transcripción cruda no puede precargar un borrador | H | H | Medido: 5/17 productos correctos en el mejor motor. El reconocimiento se resuelve contra la base local en `EVO-010`, nunca en el motor, y la frontera de confirmación de `ADR-003` es obligatoria | Voice/Product |
+| RISK-026 | `whisper.cpp` afirma texto sobre silencio y lo marca como resultado válido | M | H | Reproducido en teléfono real: devolvió `[MÚSICA]` sin habla y sin error. Si se elige Whisper, hace falta una guarda explícita de "sin habla" antes de proponer cualquier dato | Voice/Product |
+| RISK-027 | La misma frase dictada dos veces da datos críticos distintos | M | H | Medido: 33,3 % de coincidencia entre dos tandas, con una cantidad que cambió de `12` a `dos`. No se corrige con diccionarios; obliga a que el usuario revise cantidades y montos antes de confirmar | Voice/Product |
 
 ## Evidencia incorporada
 
-`RISK-023` y `RISK-024` no son hipótesis: salen de mediciones de la Fase 0 de EVOLUTION-3,
-registradas en `features/EVOLUTION-3_SPEECH_ENGINE_BENCHMARK_RESULTS.md`. `RISK-016` sigue
-abierto y sin medir: es exactamente lo que debe cerrar el gate de dispositivo.
+`RISK-023` a `RISK-027` no son hipótesis: salen de mediciones sobre un teléfono real
+(POCO X5 Pro 5G, Android 12 / API 31, modo avión verificado contra el sistema), registradas en
+`features/EVOLUTION-3_SPEECH_ENGINE_BENCHMARK_RESULTS.md`.
+
+`RISK-016` queda **parcialmente cerrado**: memoria pico (158 MiB Android, 276–328 MiB Whisper) y
+latencias están medidas; CPU y batería siguen `NOT_MEASURED` porque el teléfono estuvo cargando
+toda la sesión. El gate del Pixel 8 / API 36 sigue abierto.
 
 ## Disparadores de revisión
 
