@@ -17,14 +17,14 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 void main() {
   sqfliteFfiInit();
 
-  /// Ancho útil del Pixel 8 en vertical (1080 px / densidad 2.75 ≈ 393 dp).
+  /// Ancho útil del Pixel 8 en vertical: 1080 px a densidad 2,625 ≈ 411 dp.
   ///
   /// El **alto** es deliberadamente mayor que el del dispositivo: estas
   /// pantallas son listas perezosas y sólo construyen lo visible, así que con
   /// el alto real habría que desplazarse para que existiera la sección que se
   /// quiere comprobar. Lo que se audita aquí es el ANCHO —de él depende el
   /// diseño responsive—, no cuánto entra sin desplazar.
-  const pixel8Portrait = Size(393, 2400);
+  const pixel8Portrait = Size(411, 2400);
 
   /// Deja avanzar el trabajo asíncrono real (SQLite) y luego repinta.
   ///
@@ -398,6 +398,83 @@ void main() {
         await settle(tester);
         expect(find.text(label), findsOneWidget, reason: chip);
       }
+    });
+  });
+
+  group('UIBUG-068 · el rail de navegación no desborda', () {
+    /// Pone el visor como el Pixel 8 apaisado: 2400×1080 px a 420 dpi, o sea
+    /// una densidad de 2,625 y 914×411 dp.
+    ///
+    /// Aquí NO sirve `setSurfaceSize`: sólo cambia el tamaño del render view, y
+    /// `AppShell` decide rail-o-barra con `MediaQuery.sizeOf`, que se calcula a
+    /// partir de `view.physicalSize / devicePixelRatio`. Con `setSurfaceSize`
+    /// la consulta seguiría diciendo 800×600 y la prueba mediría la barra
+    /// inferior creyendo medir el rail. Los 914 son lo que importa: el shell
+    /// cambia a `NavigationRail` a partir de 900.
+    void landscapePixel8(WidgetTester tester, {double textScale = 1.0}) {
+      tester.view.physicalSize = const Size(2400, 1080);
+      tester.view.devicePixelRatio = 2.625;
+      tester.platformDispatcher.textScaleFactorTestValue = textScale;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+    }
+
+    testWidgets('en horizontal el shell usa el rail, no la barra', (
+      tester,
+    ) async {
+      // Guarda de la propia prueba: si esto falla, las dos siguientes estarían
+      // midiendo la barra inferior y no probarían nada.
+      landscapePixel8(tester);
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: AppShell(location: '/', child: SizedBox()),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.byType(NavigationRail), findsOneWidget);
+      expect(find.byType(NavigationBar), findsNothing);
+    });
+
+    testWidgets('con la fuente al 130 % no desborda y caben los 5 destinos', (
+      tester,
+    ) async {
+      // `NavigationRail` reparte su alto entre los destinos y no se desplaza
+      // por su cuenta: al 130 % los cinco con etiqueta no caben en 411 dp de
+      // alto. En el Pixel 8 se veía "BOTTOM OVERFLOWED BY 90 PIXELS" y
+      // "Personas" y "Cuentas" quedaban fuera de la pantalla.
+      landscapePixel8(tester, textScale: 1.3);
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: AppShell(location: '/', child: SizedBox()),
+        ),
+      );
+      await tester.pump();
+
+      // Un desbordamiento de layout llega como excepción en los tests.
+      expect(tester.takeException(), isNull);
+      for (final item in AppShell.destinations) {
+        expect(find.text(item.label), findsOneWidget, reason: item.label);
+      }
+    });
+
+    testWidgets('el rail vive dentro de su propio scroll', (tester) async {
+      landscapePixel8(tester, textScale: 1.3);
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: AppShell(location: '/', child: SizedBox()),
+        ),
+      );
+      await tester.pump();
+
+      expect(
+        find.ancestor(
+          of: find.byType(NavigationRail),
+          matching: find.byType(SingleChildScrollView),
+        ),
+        findsOneWidget,
+      );
     });
   });
 
