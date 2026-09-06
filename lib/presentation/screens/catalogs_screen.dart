@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app.dart';
 import '../../data/agro_repository.dart';
+import '../../data/typed_reads.dart';
 import '../../domain/models.dart';
 import '../../domain/money.dart';
 import '../widgets/common.dart';
@@ -120,7 +121,7 @@ class _CatalogsScreenState extends ConsumerState<CatalogsScreen>
           }
         }
       } else if (action == 'close') {
-        final summary = await repo.campaignCloseSummary(row['id'] as int);
+        final summary = await repo.campaignCloseSummaryTyped(row['id'] as int);
         if (!mounted) return;
         final confirm = await showDialog<bool>(
           context: context,
@@ -132,9 +133,9 @@ class _CatalogsScreenState extends ConsumerState<CatalogsScreen>
             // reactivarse.
             content: Text(
               'Periodo: desde ${formatDate(row['start_date'])}.\n\n'
-              'Compras: ${summary['purchases_count']} · aplicaciones: ${summary['applications_count']}\n'
-              'Planes pendientes: ${summary['pending_plans']}\n'
-              'Saldo por cobrar: ${formatBob(summary['receivable_bob_minor'] as int)}\n\n'
+              'Compras: ${summary.purchasesCount} · aplicaciones: ${summary.applicationsCount}\n'
+              'Planes pendientes: ${summary.pendingPlans}\n'
+              'Saldo por cobrar: ${formatBob(summary.receivableBobMinor)}\n\n'
               'La campaña dejará de admitir nuevas compras, aplicaciones, '
               'transferencias y planes.\n\n'
               'Una campaña cerrada NO se puede volver a activar desde la '

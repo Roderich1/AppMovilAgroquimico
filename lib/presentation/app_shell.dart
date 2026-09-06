@@ -31,6 +31,7 @@ class AppShell extends StatelessWidget {
     '/compras',
     '/aplicaciones',
     '/transferencias',
+    '/reportes',
   };
 
   /// Rutas de detalle que no son destinos propios: heredan el destino desde el

@@ -3,16 +3,20 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../app.dart';
+import '../../data/typed_reads.dart';
 import '../../domain/models.dart';
 import '../../domain/money.dart';
+import '../../domain/read_models.dart';
 import '../widgets/common.dart';
 
 typedef _DashboardData = ({
   DashboardSummary summary,
-  List<Map<String, Object?>> inventory,
+  List<InventoryLineRead> inventory,
+  // `applications` no es fuente de ningun reporte de EVOLUTION-2: sigue en el
+  // camino legacy, como el resto de consumidores no migrados.
   List<Map<String, Object?>> applications,
-  List<Map<String, Object?>> debts,
-  List<Map<String, Object?>> campaigns,
+  List<TopSettlementRead> debts,
+  List<CampaignRead> campaigns,
 });
 
 class DashboardScreen extends ConsumerStatefulWidget {
@@ -38,10 +42,10 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       // Sin `limit`: el buscador filtra en cliente y con solo 5 filas
       // precargadas afirmaba que no habia inventario aunque el producto
       // existiera (UIBUG-007). La tabla sigue mostrando 5 cuando no se busca.
-      inventory: await repo.inventorySummary(),
+      inventory: await repo.inventorySummaryTyped(),
       applications: await repo.applications(limit: 5),
-      debts: await repo.topSettlements(limit: 5),
-      campaigns: await repo.campaigns(),
+      debts: await repo.topSettlementsTyped(limit: 5),
+      campaigns: await repo.campaignsTyped(),
     );
   }
 
@@ -75,8 +79,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         final matchingInventory = data.inventory
             .where(
               (row) =>
-                  !searching ||
-                  matchesSearch(row['product_name']! as String, inventoryQuery),
+                  !searching || matchesSearch(row.productName, inventoryQuery),
             )
             .toList();
         // Sin busqueda se mantiene el resumen corto de siempre; al buscar se
@@ -85,7 +88,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             ? matchingInventory
             : matchingInventory.take(5).toList();
         final activeCampaign = data.campaigns
-            .where((campaign) => campaign['status'] == 'ACTIVE')
+            .where((campaign) => campaign.isActive)
             .firstOrNull;
         final cards = [
           (
@@ -134,7 +137,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                   // (UIBUG-067). Ahora se reparte en varias líneas.
                   Expanded(
                     child: Text(
-                      'Campaña activa: ${activeCampaign?['name'] ?? 'Sin campaña activa'}',
+                      'Campaña activa: ${activeCampaign?.name ?? 'Sin campaña activa'}',
                       style: const TextStyle(fontWeight: FontWeight.w700),
                     ),
                   ),
@@ -311,19 +314,17 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                 children: [
                   for (final row
                       in (data.debts.toList()..sort(
-                            (a, b) => (b['balance']! as int).compareTo(
-                              a['balance']! as int,
-                            ),
+                            (a, b) => b.balanceMinor.compareTo(a.balanceMinor),
                           ))
                           .take(5))
                     ListTile(
                       dense: true,
-                      title: Text(row['name']! as String),
+                      title: Text(row.name),
                       subtitle: Text(
-                        row['role'] == 'FAMILY' ? 'Familiar' : 'Tercero',
+                        row.role == 'FAMILY' ? 'Familiar' : 'Tercero',
                       ),
                       trailing: Text(
-                        formatBob(row['balance']! as int),
+                        formatBob(row.balanceMinor),
                         style: const TextStyle(fontWeight: FontWeight.w700),
                       ),
                     ),
@@ -341,63 +342,44 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   /// (UIBUG-023).
   static const double _tableMinWidth = 560;
 
-  Widget _inventoryTable(
-    BuildContext context,
-    List<Map<String, Object?>> rows,
-  ) => DataTable(
-    headingRowHeight: 40,
-    dataRowMinHeight: 40,
-    dataRowMaxHeight: 48,
-    columns: const [
-      DataColumn(label: Text('Producto')),
-      DataColumn(label: Text('Unidad')),
-      DataColumn(label: Text('Físico'), numeric: true),
-      DataColumn(label: Text('Comprometido'), numeric: true),
-      DataColumn(label: Text('Proyección'), numeric: true),
-      DataColumn(label: Text('Valor'), numeric: true),
-    ],
-    // Sin `onSelectChanged` no aparece la columna de
-    // casillas, que no tenia ninguna accion masiva detras y
-    // robaba ancho a una tabla que ya no cabia (UIBUG-022).
-    showCheckboxColumn: false,
-    rows: [
-      for (final row in rows)
-        DataRow(
-          onSelectChanged: (_) =>
-              context.push('/inventario/${row['product_id']}'),
-          cells: [
-            DataCell(Text(row['product_name']! as String)),
-            DataCell(Text(row['unit']! as String)),
-            DataCell(
-              Text(
-                formatQuantity(
-                  row['available_base']! as int,
-                  row['unit']! as String,
+  Widget _inventoryTable(BuildContext context, List<InventoryLineRead> rows) =>
+      DataTable(
+        headingRowHeight: 40,
+        dataRowMinHeight: 40,
+        dataRowMaxHeight: 48,
+        columns: const [
+          DataColumn(label: Text('Producto')),
+          DataColumn(label: Text('Unidad')),
+          DataColumn(label: Text('Físico'), numeric: true),
+          DataColumn(label: Text('Comprometido'), numeric: true),
+          DataColumn(label: Text('Proyección'), numeric: true),
+          DataColumn(label: Text('Valor'), numeric: true),
+        ],
+        // Sin `onSelectChanged` no aparece la columna de
+        // casillas, que no tenia ninguna accion masiva detras y
+        // robaba ancho a una tabla que ya no cabia (UIBUG-022).
+        showCheckboxColumn: false,
+        rows: [
+          for (final row in rows)
+            DataRow(
+              onSelectChanged: (_) =>
+                  context.push('/inventario/${row.productId}'),
+              cells: [
+                DataCell(Text(row.productName)),
+                DataCell(Text(row.unit)),
+                DataCell(Text(formatQuantity(row.availableBase, row.unit))),
+                DataCell(Text(formatQuantity(row.committedBase, row.unit))),
+                DataCell(
+                  Text(
+                    formatQuantity(row.projectedBase, row.unit),
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
                 ),
-              ),
+                DataCell(Text(formatBob(row.availableValueBobMinor))),
+              ],
             ),
-            DataCell(
-              Text(
-                formatQuantity(
-                  row['committed_base']! as int,
-                  row['unit']! as String,
-                ),
-              ),
-            ),
-            DataCell(
-              Text(
-                formatQuantity(
-                  row['projected_base']! as int,
-                  row['unit']! as String,
-                ),
-                style: const TextStyle(fontWeight: FontWeight.w700),
-              ),
-            ),
-            DataCell(Text(formatBob(row['available_value_bob_minor']! as int))),
-          ],
-        ),
-    ],
-  );
+        ],
+      );
 
   Widget _title(BuildContext context, String text) => Text(
     text,
@@ -416,7 +398,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 class _InventoryCards extends StatelessWidget {
   const _InventoryCards({required this.rows});
 
-  final List<Map<String, Object?>> rows;
+  final List<InventoryLineRead> rows;
 
   @override
   Widget build(BuildContext context) {
@@ -426,14 +408,14 @@ class _InventoryCards extends StatelessWidget {
         for (final (index, row) in rows.indexed) ...[
           if (index > 0) const Divider(height: 1),
           InkWell(
-            onTap: () => context.push('/inventario/${row['product_id']}'),
+            onTap: () => context.push('/inventario/${row.productId}'),
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    row['product_name']! as String,
+                    row.productName,
                     style: const TextStyle(fontWeight: FontWeight.w700),
                   ),
                   const SizedBox(height: 6),
@@ -444,32 +426,23 @@ class _InventoryCards extends StatelessWidget {
                       _figure(
                         theme,
                         'Físico',
-                        formatQuantity(
-                          row['available_base']! as int,
-                          row['unit']! as String,
-                        ),
+                        formatQuantity(row.availableBase, row.unit),
                       ),
                       _figure(
                         theme,
                         'Comprometido',
-                        formatQuantity(
-                          row['committed_base']! as int,
-                          row['unit']! as String,
-                        ),
+                        formatQuantity(row.committedBase, row.unit),
                       ),
                       _figure(
                         theme,
                         'Proyección',
-                        formatQuantity(
-                          row['projected_base']! as int,
-                          row['unit']! as String,
-                        ),
+                        formatQuantity(row.projectedBase, row.unit),
                         strong: true,
                       ),
                       _figure(
                         theme,
                         'Valor',
-                        formatBob(row['available_value_bob_minor']! as int),
+                        formatBob(row.availableValueBobMinor),
                       ),
                     ],
                   ),

@@ -3,7 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../app.dart';
+import '../../data/typed_reads.dart';
 import '../../domain/money.dart';
+import '../../domain/read_models.dart';
 import '../widgets/common.dart';
 
 class InventoryScreen extends ConsumerStatefulWidget {
@@ -13,16 +15,16 @@ class InventoryScreen extends ConsumerStatefulWidget {
 }
 
 class _InventoryScreenState extends ConsumerState<InventoryScreen> {
-  late Future<List<Map<String, Object?>>> future;
+  late Future<List<InventoryLineRead>> future;
   String query = '';
   @override
   void initState() {
     super.initState();
-    future = ref.read(repositoryProvider).inventorySummary();
+    future = ref.read(repositoryProvider).inventorySummaryTyped();
   }
 
   void refresh() {
-    final next = ref.read(repositoryProvider).inventorySummary();
+    final next = ref.read(repositoryProvider).inventorySummaryTyped();
     setState(() {
       future = next;
     });
@@ -47,7 +49,7 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
           ),
         ),
         const SizedBox(height: 12),
-        FutureBuilder<List<Map<String, Object?>>>(
+        FutureBuilder<List<InventoryLineRead>>(
           future: future,
           builder: (context, snapshot) {
             if (snapshot.hasError)
@@ -58,7 +60,7 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
             if (!snapshot.hasData)
               return const Center(child: CircularProgressIndicator());
             final rows = snapshot.data!
-                .where((r) => matchesSearch(r['product_name'] as String, query))
+                .where((r) => matchesSearch(r.productName, query))
                 .toList();
             if (rows.isEmpty)
               return const EmptyState(
@@ -72,26 +74,22 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
                     ListTile(
                       leading: const Icon(Icons.inventory_2_outlined),
                       title: Text(
-                        row['product_name'] as String,
+                        row.productName,
                         style: const TextStyle(fontWeight: FontWeight.w700),
                       ),
                       subtitle: Text(
-                        'Físico ${formatQuantity(row['available_base'] as int, row['unit'] as String)} · comprometido ${formatQuantity(row['committed_base'] as int, row['unit'] as String)}',
+                        'Físico ${formatQuantity(row.availableBase, row.unit)} · comprometido ${formatQuantity(row.committedBase, row.unit)}',
                       ),
                       trailing: Text(
-                        formatQuantity(
-                          row['projected_base'] as int,
-                          row['unit'] as String,
-                        ),
+                        formatQuantity(row.projectedBase, row.unit),
                         style: TextStyle(
                           fontWeight: FontWeight.w700,
-                          color: (row['projected_base'] as int) < 0
+                          color: row.projectedBase < 0
                               ? Theme.of(context).colorScheme.error
                               : null,
                         ),
                       ),
-                      onTap: () =>
-                          context.push('/inventario/${row['product_id']}'),
+                      onTap: () => context.push('/inventario/${row.productId}'),
                     ),
                 ],
               ),

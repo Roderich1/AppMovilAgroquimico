@@ -7,12 +7,16 @@
 | Etapa | `EVOLUTION-2` |
 | Features | `EVO-004` typed reads; `EVO-005` CSV; `EVO-006` PDF |
 | Decisión del propietario | Aprobada el 2026-09-06 |
-| Estado | `APPROVED` |
+| Estado | `IN_PROGRESS` |
 | Base mínima | `main` incluye `bdd7b82f3e06d9943749a571284db8f94194c3b3` |
 | Rama prevista | `evolution/evolution-2-typed-reports` |
 
 `APPROVED` no significa implementada. El estado sólo pasa a `IN_PROGRESS` cuando exista una
 rama real con cambios de implementación.
+
+Estado actual: `IN_PROGRESS` desde la rama `evolution/evolution-2-typed-reports`, creada sobre
+`44c2e792aa3d96a601428777a3a0419568a77ac1`. `VERIFIED` exige además CI del SHA final y
+verificación en Pixel 8.
 
 ## Problema y valor
 

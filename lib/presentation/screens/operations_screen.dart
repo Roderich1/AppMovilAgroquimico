@@ -56,6 +56,13 @@ class OperationsScreen extends StatelessWidget {
             isForm: false,
           ),
           (
+            title: 'Reportes',
+            subtitle: 'Exportar inventario, costos y cuentas a CSV o PDF',
+            path: '/reportes',
+            icon: Icons.summarize_outlined,
+            isForm: false,
+          ),
+          (
             title: 'Administrar datos',
             subtitle: 'Campañas, chacos, productos y proveedores',
             path: '/catalogos',

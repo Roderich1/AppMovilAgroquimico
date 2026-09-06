@@ -192,12 +192,20 @@ class _SettlementFakeRepository extends AgroRepository {
     int personId, {
     int? campaignId,
   }) async => [
+    // La fila reproduce lo que devuelve la consulta real: `t.*` más `concept`
+    // y `farm_name`. Antes omitía `campaign_id`, `notes` y `reversal_of_id`,
+    // que la consulta sí trae; el mapper tipado de EVO-004 lo detectó.
     {
       'id': 1,
       'person_id': personId,
+      'campaign_id': campaignId,
       'transaction_date': '2026-06-01T00:00:00.000Z',
       'type': 'ADVANCE',
       'amount_bob_minor_signed': -10000,
+      'reference_type': 'ADVANCE',
+      'reference_id': null,
+      'notes': null,
+      'reversal_of_id': null,
       'concept': 'Adelanto',
       'farm_name': null,
     },
