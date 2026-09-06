@@ -7,16 +7,16 @@ Estado documental: `APPROVED`; evidencia de implementación: pendiente.
 
 | Requisito/capacidad | Diseño/autoridad | Evidencia mínima para cierre |
 |---|---|---|
-| Captura, permiso y lifecycle | `EVO-009`, ADR-002 | unit/widget/device, modo avión e interrupciones |
-| Sesión continua y preview editable | `EVO-009` | corpus + widget + dispositivo físico (gate Pixel 8 `WAIVED_BY_OWNER`) |
+| Captura, permiso y lifecycle | `EVO-009`, ADR-002 | **Automatizado**: `test/voice/` cubre permiso, lifecycle, interrupción y liberación de micrófono. **Pendiente**: dispositivo físico |
+| Sesión continua y preview editable | `EVO-009` | **Automatizado**: continuidad con backoff acotado, acumulación de segmentos, no duplicación y edición manual. **Pendiente**: dispositivo físico (gate Pixel 8 `WAIVED_BY_OWNER`) |
 | Intención y draft tipado | `EVO-010`, ADR-003 | corpus separado, unit y paridad |
 | Ambigüedad bloqueante | `EVO-010`, política de confirmación | homónimos, aliases, baja confianza |
 | Compra por voz | `EVO-017` | repository atomicity + paridad UI/inventario |
 | Crear catálogo + compra atómica | `EVO-017` | fallo inducido en cada paso, base sin diff |
 | Aplicar plan por voz | `EVO-018` | planes 0/1/N, FIFO, stock, one-shot |
 | Pago por voz | `EVO-019` | saldos, excedente/adelanto, homónimos |
-| Cero escritura preconfirmación | Política + todos los specs | spy/repository/database snapshot |
-| Privacidad de audio/texto | Política + ADR-002 | inspección de storage/logs y lifecycle |
+| Cero escritura preconfirmación | Política + todos los specs | **Cubierto para `EVO-009`** por guardas que fallan si el subsistema puede nombrar repositorios, SQLite u operaciones. Para `EVO-017/018/019` sigue haciendo falta snapshot de base |
+| Privacidad de audio/texto | Política + ADR-002 | **Cubierto para `EVO-009`**: guardas de disco y red, pruebas de que ni eventos ni sesión imprimen lo dictado, y manifiesto sin `INTERNET` |
 | Performance/offline | Plan de benchmark | **Cumplido en un dispositivo**: POCO X5 Pro 5G, API 31, modo avión verificado. El segundo (Pixel 8 / API 36) queda `WAIVED_BY_OWNER` |
 | Motor de transcripción elegido | `ADR-002`, plan de benchmark | **Cerrado.** Android `SpeechRecognizer`, `ADR-002` `Accepted` con evidencia en hardware físico API 31 |
 | Consultas futuras | `EVO-020` | No aplica; estado `DEFERRED` |
@@ -26,7 +26,7 @@ Estado documental: `APPROVED`; evidencia de implementación: pendiente.
 | Feature | Rama | PR | SHA final | CI | Device | Estado |
 |---|---|---|---|---|---|---|
 | Fase 0 · benchmark | `evolution/evolution-3-voice-benchmark` | #7 | Ver informe de la rama | Ver informe de la rama | POCO X5 Pro 5G, Android 12 / API 31, modo avión verificado | `DECIDED` — `ADR-002` `Accepted` |
-| EVO-009 | Pendiente | Pendiente | Pendiente | Pendiente | Pendiente | APPROVED |
+| EVO-009 | `evolution/evo-009-safe-transcription` | Ver informe de la rama | Ver informe de la rama | Ver informe de la rama | **Pendiente**: APK preparado, prueba del propietario no ejecutada | `IN_PROGRESS` |
 | EVO-010 | Pendiente | Pendiente | Pendiente | Pendiente | Pendiente | APPROVED |
 | EVO-017 | Pendiente | Pendiente | Pendiente | Pendiente | Pendiente | APPROVED |
 | EVO-018 | Pendiente | Pendiente | Pendiente | Pendiente | Pendiente | APPROVED |
@@ -34,6 +34,10 @@ Estado documental: `APPROVED`; evidencia de implementación: pendiente.
 
 No sustituir `Pendiente` por evidencia supuesta. Un merge sin run/dispositivo no completa la
 fila.
+
+`EVO-009` no puede pasar a `VERIFIED` mientras la columna *Device* diga
+`Pendiente`: el detalle de lo implementado y lo que falta está en
+`EVO-009_IMPLEMENTATION_TRACEABILITY.md`.
 
 La Fase 0 no implementa ninguna feature: construye el instrumento con el que se decide
 `ADR-002`. Por eso aparece como fila propia y ningún `EVO-*` cambió de estado.
