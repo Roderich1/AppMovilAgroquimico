@@ -8,9 +8,9 @@ Estados: `PROPOSED`, `ANALYZED`, `APPROVED`, `IN_PROGRESS`, `VERIFIED`, `DEFERRE
 | EVO-001 | Compartir backup validado | EVOLUTION-1 | DEFERRED | P2 | M | Spec analizada; no es prioridad actual |
 | EVO-002 | Registrar/recordar último backup | EVOLUTION-1 | DEFERRED | P3 | L | Depende de política de recordatorio |
 | EVO-003 | Diagnóstico local exportable | EVOLUTION-1 | DEFERRED | P3 | L | Redactar datos sensibles |
-| EVO-004 | Modelos tipados de lectura | EVOLUTION-2 | APPROVED | P1 | M | Implementación incremental, consulta a consulta |
-| EVO-005 | Exportación CSV | EVOLUTION-2 | APPROVED | P1 | M | Depende de EVO-004 y compositor neutral |
-| EVO-006 | Exportación PDF | EVOLUTION-2 | APPROVED | P1 | M | Depende de EVO-004 y compositor neutral |
+| EVO-004 | Modelos tipados de lectura | EVOLUTION-2 | IN_PROGRESS | P1 | M | Implementación incremental, consulta a consulta |
+| EVO-005 | Exportación CSV | EVOLUTION-2 | IN_PROGRESS | P1 | M | Depende de EVO-004 y compositor neutral |
+| EVO-006 | Exportación PDF | EVOLUTION-2 | IN_PROGRESS | P1 | M | Depende de EVO-004 y compositor neutral |
 | EVO-007 | Duplicar plan como borrador | Futuro | PROPOSED | P3 | M | Nunca reactivar plan original |
 | EVO-008 | Frontera única FIFO | Deuda | PROPOSED | P2 | H | Blocking sólo para nuevo consumidor FIFO |
 | EVO-009 | Voz: captura/transcripción/preview | EVOLUTION-3 | APPROVED | P2 | H | No iniciar hasta EVOLUTION-2 verificada; no ejecuta dominio |

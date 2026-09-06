@@ -41,8 +41,8 @@ No son intercambiables. `EVOLUTION-2` agrupa `EVO-004`, `EVO-005` y `EVO-006`.
 | Alcance | IDs | Documento | Estado |
 |---|---|---|---|
 | Compartir backup | `EVO-001` | `features/EVO-001_SHARE_BACKUP_SPEC.md` | `DEFERRED` |
-| Typed reads + reportes | `EVO-004/005/006` | `features/EVOLUTION-2_TYPED_READS_AND_REPORT_EXPORT_SPEC.md` | `APPROVED` |
-| Plan de EVOLUTION-2 | `EVO-004/005/006` | `features/EVOLUTION-2_IMPLEMENTATION_PLAN.md` | `APPROVED` |
+| Typed reads + reportes | `EVO-004/005/006` | `features/EVOLUTION-2_TYPED_READS_AND_REPORT_EXPORT_SPEC.md` | `IN_PROGRESS` |
+| Plan de EVOLUTION-2 | `EVO-004/005/006` | `features/EVOLUTION-2_IMPLEMENTATION_PLAN.md` | `IN_PROGRESS` |
 | Voz segura | `EVO-009` | `features/EVO-009_SAFE_VOICE_SPEC.md` | `APPROVED`, depende de EVOLUTION-2 verificada |
 | Plan de voz segura | `EVO-009` | `features/EVO-009_SAFE_VOICE_IMPLEMENTATION_PLAN.md` | `APPROVED`, no iniciar todavía |
 

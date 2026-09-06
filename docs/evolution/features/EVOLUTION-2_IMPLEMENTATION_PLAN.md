@@ -2,7 +2,8 @@
 
 ## Estado y guardrails
 
-Estado: `APPROVED`. No iniciado.
+Estado: `IN_PROGRESS`. Implementación iniciada en `evolution/evolution-2-typed-reports`
+sobre `44c2e792aa3d96a601428777a3a0419568a77ac1`.
 
 La rama se crea desde el `main` vigente después de integrar la corrección documental:
 
