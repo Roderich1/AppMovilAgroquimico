@@ -149,15 +149,26 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
       await showDialog<bool>(
         context: context,
         builder: (dialogContext) => AlertDialog(
-          icon: const Icon(Icons.lock_open_outlined),
-          title: const Text('El archivo no va cifrado'),
+          // `scrollable` desplaza icono, título y texto juntos. En horizontal
+          // y al 130 % no cabían ni las tres frases del aviso ni el armazón
+          // del propio diálogo, que desbordaba 2,3 px por abajo. Un aviso de
+          // consentimiento recortado deja al usuario aceptando algo que no ha
+          // podido leer. Se vio en el Pixel 8.
+          scrollable: true,
+          title: const Row(
+            children: [
+              Icon(Icons.lock_open_outlined),
+              SizedBox(width: 10),
+              Expanded(child: Text('El archivo no va cifrado')),
+            ],
+          ),
           content: Text(
             'El ${_format.label} de "${_kind.label}" contiene información '
             'sensible: precios, deudas, pagos y nombres de personas.\n\n'
             'Se guarda sin cifrar en la carpeta de la aplicación. Cualquiera '
             'que abra el archivo verá esos datos.\n\n'
-            'La aplicación no lo envía a ningún sitio: si lo comparte, lo hace '
-            'usted.',
+            'La aplicación no lo envía a ningún sitio: si lo comparte, lo '
+            'hace usted.',
           ),
           actions: [
             TextButton(
@@ -176,8 +187,17 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
   Future<void> _showSaved(StoredReport stored) => showDialog<void>(
     context: context,
     builder: (dialogContext) => AlertDialog(
-      icon: const Icon(Icons.check_circle_outline),
-      title: const Text('Reporte guardado'),
+      // Mismo criterio que el aviso: la ruta de destino es larga y al 130 % en
+      // horizontal no cabe. Desplazarla es preferible a recortarla, porque es
+      // justo el dato que el usuario necesita para encontrar el archivo.
+      scrollable: true,
+      title: const Row(
+        children: [
+          Icon(Icons.check_circle_outline),
+          SizedBox(width: 10),
+          Expanded(child: Text('Reporte guardado')),
+        ],
+      ),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -255,6 +275,10 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                     if (_kind.supportsCampaignFilter)
                       DropdownButtonFormField<int?>(
                         initialValue: _campaignId,
+                        // Sin `isExpanded` el desplegable se dimensiona por su
+                        // elemento más ancho y un nombre largo desborda el
+                        // campo por la derecha. Se vio en el Pixel 8.
+                        isExpanded: true,
                         decoration: InputDecoration(
                           labelText: _kind.requiresCampaign
                               ? 'Campaña (obligatoria)'
@@ -274,6 +298,8 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                               child: Text(
                                 '${campaign.name} · '
                                 '${campaignStatusLabel(campaign.status)}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                               ),
                             ),
                         ],
@@ -294,6 +320,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                       const SizedBox(height: 12),
                       DropdownButtonFormField<int?>(
                         initialValue: _personId,
+                        isExpanded: true,
                         decoration: const InputDecoration(
                           labelText: 'Persona (obligatoria)',
                         ),
@@ -304,6 +331,8 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                               child: Text(
                                 '${person.name} · '
                                 '${personRoleLabel(person.role)}',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                               ),
                             ),
                         ],

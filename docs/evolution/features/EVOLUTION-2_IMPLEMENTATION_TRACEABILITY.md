@@ -1,9 +1,12 @@
 # EVOLUTION-2 — Trazabilidad de la implementación
 
-> **Estado: `IN_PROGRESS`.** Este documento registra lo implementado y las evidencias
-> obtenidas. **No es una verificación final** y no debe leerse como cierre: faltan gates
-> declarado en §8. `EVOLUTION-2_FINAL_VERIFICATION.md` no existe todavía, y no debe crearse
-> hasta que ese gate esté cubierto con evidencia real.
+> **Estado: `IN_PROGRESS`.** Todos los gates exigidos por la especificación están cubiertos
+> con evidencia real: gates locales, CI del SHA final y prueba en Pixel 8 (§8). Lo único que
+> queda sin ejercitar es abrir el CSV en una hoja de cálculo **del teléfono**, porque la
+> imagen del emulador no trae ninguna; el archivo se validó byte a byte en su lugar.
+>
+> El estado sigue en `IN_PROGRESS` y `EVOLUTION-2_FINAL_VERIFICATION.md` no se crea porque
+> declarar `VERIFIED` es una decisión del propietario tras revisar el PR, no del implementador.
 
 ## 1. Identidad
 
@@ -171,30 +174,79 @@ local usó Temurin 21, y por eso el gate que cuenta para Java es éste.
 Un run anterior sobre `d9ad2e2` quedó `cancelled` por la política de `concurrency` del
 workflow al llegar el commit siguiente. No es un fallo: el run válido es el del SHA final.
 
-## 8. Gate PENDIENTE
+## 8. Gate Pixel 8
 
-No se declara `VERIFIED` y no se crea `FINAL_VERIFICATION` porque falta:
+Ejecutado el 2026-09-06 sobre el AVD `Pixel_8` (`emulator-5554`,
+`sdk_gphone16k_x86_64`), **Android 16 / API 36, 1080 × 2400, 420 dpi**, el mismo entorno de
+referencia que la baseline. Ajustes de partida y de salida: `font_scale 1.0`,
+`user_rotation 0`, `accelerometer_rotation 1`.
 
-| Gate | Estado | Motivo |
-|---|---|---|
-| Verificación en Pixel 8 / Android 16 (API 36) | **PENDIENTE** | no había dispositivo ni emulador disponible en el entorno de implementación |
+Procedimiento RESET → SEED → AUDIT con `tool/ui_audit_push.sh`, es decir el dataset
+determinista de `36_UI_AUDIT_DATASET` regenerado en esquema v6: 7 personas · 22 productos ·
+8 chacos · 4 proveedores · 3 campañas · 10 compras · 7 transferencias · 12 aplicaciones ·
+5 planes.
 
-Este gate no es una formalidad para esta feature: `EVO-006` escribe archivos en el
-almacenamiento de Android a través de `path_provider`, y la carpeta real, los permisos y el
-comportamiento de `rename` sólo se comprueban de verdad en el dispositivo. La suite usa
-carpetas temporales del equipo de desarrollo.
+Evidencia: 32 capturas en [`artifacts/ui-audit/evolution-2/`](../../../artifacts/ui-audit/evolution-2),
+con su índice en el `README.md` de esa carpeta.
 
-Lo que la prueba de dispositivo tiene que cubrir cuando se ejecute:
+### Resultado por punto
 
-1. `/reportes` alcanzable desde Operaciones; Atrás vuelve a Operaciones.
-2. Los cinco reportes en CSV y en PDF, con datos reales del dataset determinista.
-3. Carpeta de destino real en Android y nombre mostrado al usuario.
-4. Abrir el CSV en una hoja de cálculo del teléfono: `ñ`, tildes y columnas correctas.
-5. Abrir el PDF en un visor: varias páginas, cabeceras repetidas y totales.
-6. Colisión de nombres: exportar dos veces el mismo reporte el mismo día.
-7. Cancelar durante la generación: no queda archivo ni temporal.
-8. Texto al 130 %, horizontal y listas largas.
-9. `logcat` sin `RenderFlex` ni avisos de `setState`.
+| # | Punto | Resultado |
+|:--:|---|---|
+| 1 | `/reportes` desde Operaciones; Atrás vuelve allí | ✅ y `dumpsys window` confirma que el foco sigue en la aplicación |
+| 2 | Los cinco reportes en CSV y PDF con datos reales | ✅ 10 archivos escritos |
+| 3 | Carpeta real de Android y nombre mostrado | ✅ `/storage/emulated/0/Android/data/com.comunidad.agro.agroquimicos/files/Download/reportes`, declarada antes de exportar y repetida al terminar |
+| 4 | Abrir el CSV en una hoja de cálculo del teléfono | ⚠️ **no ejercitado**: la imagen del AVD no tiene ninguna aplicación que declare `text/csv` ni `text/plain`. Ver compensación abajo |
+| 5 | Abrir el PDF en un visor: varias páginas, cabeceras repetidas y totales | ✅ con el visor de Android (`com.google.android.apps.viewer.PdfViewerActivity`) |
+| 6 | Colisión de nombres el mismo día | ✅ `… (2).csv`, `… (3).pdf`, `… (5).pdf`; el original conserva su contenido |
+| 7 | Cancelar durante la generación | ✅ sin archivo nuevo y sin temporal `.parcial` |
+| 8 | 130 %, horizontal y listas largas | ✅ tras corregir dos desbordes (abajo) |
+| 9 | `logcat` sin `RenderFlex` ni avisos de `setState` | ✅ **0 y 0** en el recorrido final |
+
+### Punto 4 — qué se hizo en su lugar
+
+La imagen del emulador sólo trae Google Drive, que registra un visor de PDF pero ningún
+lector de hojas de cálculo ni de texto plano. En vez de dar el punto por bueno, los archivos
+se **extrajeron del dispositivo byte a byte** (`adb exec-out cat`) y se comprobó sobre esos
+bytes lo que el punto pretende asegurar:
+
+- BOM `EF BB BF` al inicio;
+- terminadores CRLF y separador `;`;
+- `ñ`, tildes y diéresis correctas (`Físico`, `Agrícola`, `Cooperativa Agrícola San Julián`);
+- columnas alineadas con las cabeceras y decimales exactos.
+
+Además las cifras se cruzaron con lo que la propia aplicación muestra: el inventario del CSV
+coincide con las tarjetas de Inicio (`2,4-D Amina` 500 L, `16.700,00 Bs`), y el saldo final del
+estado de cuenta (`312.816,70`) coincide con "Principales saldos" para esa persona. El costo
+total por chaco del CSV (`71.980,50`) coincide con las aplicaciones del resumen de campaña.
+
+Queda pendiente **abrir el archivo en una hoja de cálculo real**, que exige una imagen de
+Android con una instalada o un teléfono físico.
+
+### Defectos encontrados en el dispositivo y corregidos en esta rama
+
+Los tres se vieron sólo en el teléfono y ninguno lo detectaba la suite; cada uno lleva ahora
+su test de regresión.
+
+| Defecto | Causa | Corrección | Test |
+|---|---|---|---|
+| La barra inferior resaltaba "Inicio" estando en `/reportes`, y Atrás sin pila habría ido a Inicio | `/reportes` no estaba en `AppShell.operationsSubRoutes` | añadida a ese conjunto, que gobierna destino resaltado y retroceso | `hierarchical_navigation_test.dart`: `selectedIndex` y `backFallback` |
+| `RIGHT OVERFLOWED BY 47 PIXELS` en el desplegable de persona | `DropdownButtonFormField` se dimensiona por su elemento más ancho; sin `isExpanded` un nombre largo no cabe | `isExpanded: true` y elipsis en los elementos, en persona y en campaña | `reports_screen_test.dart`: nombre de persona y de campaña largos |
+| En horizontal y al 130 % el aviso de consentimiento salía recortado, y el armazón del diálogo desbordaba 2,3 px | altura insuficiente para icono + título + tres párrafos + acciones | `scrollable: true` y el icono movido al título en los dos diálogos | `reports_screen_test.dart`: aviso legible entero en horizontal al 130 % |
+
+El primero es de la misma familia que UIBUG-062 y el tercero de la de UIBUG-067/068: la
+combinación horizontal + 130 % vuelve a ser la que destapa el problema.
+
+### Comprobaciones adicionales
+
+- El PDF multipágina se verificó con un inventario de 120 líneas producido por el **mismo
+  generador**, porque el dataset determinista (22 productos) cabe en una sola página: 3
+  páginas, cabeceras repetidas en todas, pies `Página N de 3` y total sólo en la última.
+- El PDF renderiza en el visor de Android con tildes y `ñ` correctas, números alineados a la
+  derecha y nombres largos recortados con elipsis.
+- No quedó ningún archivo `.parcial` en ningún momento del recorrido.
+- La copia a `/sdcard/Download` para abrir los archivos con un visor externo la hizo `adb`
+  como parte de la verificación: **la aplicación no comparte ni transporta nada**.
 
 ## 9. Riesgos residuales
 
@@ -203,8 +255,9 @@ Lo que la prueba de dispositivo tiene que cubrir cuando se ejecute:
 | El escritor PDF es código propio | 24 tests de estructura y contenido; alcance acotado a tablas de texto (ADR-001) |
 | Los archivos no van cifrados | aviso permanente en pantalla y confirmación explícita antes de escribir; el usuario decide |
 | La carpeta de destino no sobrevive a desinstalar la aplicación | misma limitación ya documentada del respaldo (`46_BASELINE_FINAL_FREEZE` §15.7) |
-| Comportamiento real del filesystem de Android | **pendiente** de la prueba de dispositivo (§8) |
-| Reportes muy grandes | probado con 250 filas en CSV y 200 en PDF; no se ha medido con miles |
+| Comportamiento real del filesystem de Android | comprobado en el Pixel 8: carpeta real, colisiones numeradas y ningún temporal (§8) |
+| Reportes muy grandes | probado con 250 filas en CSV y 200 en PDF, y 120 líneas en el dispositivo; no se ha medido con miles |
+| CSV sin abrir en una hoja de cálculo real | el AVD no trae ninguna; validado byte a byte y cruzado con las cifras de la aplicación (§8) |
 
 ## 10. Fuera de alcance — confirmación explícita
 

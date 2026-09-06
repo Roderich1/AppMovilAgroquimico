@@ -20,8 +20,8 @@ inventadas y ninguna etapa se considera implementada por existir su documentaci�
 
 - IDs: `EVO-004`, `EVO-005`, `EVO-006`.
 - Estado: `IN_PROGRESS` en `evolution/evolution-2-typed-reports`. Los siete puntos del orden
-  interno están implementados y el CI del SHA final está en verde; falta la verificación en
-  Pixel 8. Detalle y gate pendiente en
+  interno están implementados, con CI del SHA final y gate Pixel 8 en verde. El paso a
+  `VERIFIED` corresponde al propietario tras revisar el PR. Detalle en
   `features/EVOLUTION-2_IMPLEMENTATION_TRACEABILITY.md`.
 - Orden interno:
   1. typed read models y mappers incrementales;
