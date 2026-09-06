@@ -130,6 +130,8 @@ La elección de no usar el paquete `pdf` está razonada en
 | 6 | `feat: expose report export UX` | Lote H |
 | 7 | `docs: record EVOLUTION-2 implementation and PDF decision` | ADR-001 y esta trazabilidad |
 | 8 | `fix: end the busy state before showing the export result` | corrección de UX detectada por un test nuevo |
+| 9 | `docs: record the green CI run on the final SHA` | evidencia de CI |
+| 10 | `fix: close three UI defects found on the Pixel 8` | gate de dispositivo y sus tres correcciones |
 
 ## 6. Gates ejecutados localmente
 
@@ -148,9 +150,10 @@ Sobre la rama, al terminar:
 |---|---|
 | `dart format --output=none --set-exit-if-changed lib test` | 0 cambios sobre 86 archivos |
 | `flutter analyze` | 0 issues |
-| `flutter test` | **456 / 456** (253 previos + 203 nuevos) |
-| Desglose de los nuevos | caracterización 19 · mappers 23 · paridad 13 · compositor 37 · CSV 23 · PDF 24 · storage 18 · orquestación 27 · pantalla 19 |
+| `flutter test` | **460 / 460** (253 previos + 207 nuevos) |
+| Desglose de los nuevos | caracterización 19 · mappers 23 · paridad 13 · compositor 37 · CSV 23 · PDF 24 · storage 18 · orquestación 27 · pantalla 22 · navegación 1 |
 | `flutter build apk --release` | 61,1 MB, sin firmar |
+| `flutter build apk --debug` + instalación en el Pixel 8 | correcta |
 | `git diff --check` | limpio |
 
 Ningún test previo se debilitó, se borró ni se marcó `skip`. El único cambio en un test
@@ -162,8 +165,8 @@ tipado lo detectó; el doble quedó **más** fiel al contrato, no menos exigente
 
 | Campo | Valor |
 |---|---|
-| SHA | `2b40955109b6588eb05173f9b54351beed618b8c` |
-| Run | [`34014442336`](https://github.com/Roderich1/AppMovilAgroquimico/actions/runs/34014442336) |
+| SHA | `3aab2e07808c0e62fca2432af6a8442e42dea0d2` |
+| Run | [`34017179810`](https://github.com/Roderich1/AppMovilAgroquimico/actions/runs/34017179810) |
 | Workflow | `Flutter CI` (`.github/workflows/flutter-ci.yml`), Flutter 3.47.2 · JDK Temurin 17 |
 | Resultado | **success** |
 | Pasos | Formato ✅ · Análisis estático ✅ · Tests ✅ · Build de release sin firmar ✅ |
@@ -171,8 +174,9 @@ tipado lo detectó; el doble quedó **más** fiel al contrato, no menos exigente
 El CI ejecuta los cuatro gates con **Java 17**, que es el toolchain de referencia; el entorno
 local usó Temurin 21, y por eso el gate que cuenta para Java es éste.
 
-Un run anterior sobre `d9ad2e2` quedó `cancelled` por la política de `concurrency` del
-workflow al llegar el commit siguiente. No es un fallo: el run válido es el del SHA final.
+Runs anteriores verdes sobre el mismo trabajo: `34014442336` (`2b40955`, antes de la prueba de
+dispositivo) y `34014742334` (`a643f61`). Un run sobre `d9ad2e2` quedó `cancelled` por la
+política de `concurrency` del workflow al llegar el commit siguiente; no es un fallo.
 
 ## 8. Gate Pixel 8
 
