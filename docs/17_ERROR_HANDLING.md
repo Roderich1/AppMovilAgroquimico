@@ -263,3 +263,48 @@ flowchart TD
 - Casts sin protección en la UI (E-02).
 - Sin registro de errores de ningún tipo: no hay forma de diagnosticar un problema reportado
   por el usuario.
+
+---
+
+# Actualización 2026-09-06 — Avisos que acompañan a una operación que sí terminó
+
+Hasta ahora este documento distinguía dos casos: la operación **falla** (error, en color de
+error) o **funciona** (acuse de éxito). El respaldo con fotografías introduce un tercero: la
+operación **termina, pero hay algo que el usuario tiene que saber**.
+
+Ejemplo real: se exporta un respaldo y una de las facturas ya no tiene su fotografía en el
+teléfono. El respaldo se completa —bloquearlo dejaría al usuario sin copia de sus cuentas por
+una foto perdida— pero la pérdida **no puede quedarse en silencio**.
+
+## Cómo se presenta
+
+| Caso | Presentación |
+|---|---|
+| Falla | `showError` — snackbar en color de error, con `friendlyError` |
+| Termina bien | `showSuccess` — snackbar informativo |
+| Termina **con avisos** | `showSuccess` con el resultado **y** un diálogo `_showNotices` con icono de advertencia, que enumera cada discrepancia y exige un "Entendido" |
+
+El diálogo es deliberadamente modal: un snackbar se desvanece, y el usuario tiene que enterarse
+**ahora** de que su respaldo no lleva una factura, no el día que necesite restaurarlo.
+
+## Dónde se usa
+
+- **Exportar respaldo**: fotografías referenciadas que ya no existen en disco.
+- **Restaurar respaldo**: que el archivo es de formato histórico y no trae fotografías; o que
+  alguna factura restaurada no tiene su fotografía disponible.
+
+Las discrepancias se anotan además en el `manifest.json` del contenedor
+(`missingAttachments`), para que queden por escrito y no sólo en pantalla. Ver
+[`13_LOCAL_STORAGE`](13_LOCAL_STORAGE.md).
+
+## Mensajes de dominio nuevos
+
+Dos reglas de ciclo de vida producen `BusinessRuleException` con mensaje ya presentable, que
+llega al usuario tal cual a través de `friendlyError`:
+
+- *"Este plan ya fue aplicado y no puede volver a aplicarse. Cree un plan nuevo si necesita
+  repetir la aplicación."*
+- *"Una campaña cerrada no puede volver a activarse. Cree una campaña nueva para seguir
+  operando."*
+
+Los dos dicen **qué** pasó y **qué hacer**, no sólo que algo falló. Verificados en el Pixel 8.

@@ -240,3 +240,129 @@ flowchart TD
 | Rutas absolutas de imágenes | Medio | Se rompen tras reinstalar en iOS |
 | Crecimiento sin límite de `invoices/` | Bajo | Ocupación de espacio a largo plazo |
 | Sin `android:allowBackup="false"` | Bajo | El manifiesto no lo declara, por lo que se aplica el valor por defecto de la plataforma. Ver [23](23_SECURITY_AUDIT.md) |
+
+---
+
+# Actualización 2026-09-06 — Respaldo 2.0: la base **y** las fotografías
+
+Este documento describía una limitación deliberada: el respaldo contenía sólo la base de
+datos, y las fotografías de factura, que viven en `<documentos>/invoices/`, quedaban fuera.
+**Esa limitación queda cerrada.**
+
+## Formato del contenedor
+
+`agroquimicos_backup_<fecha>.agrobackup` es un **ZIP corriente** —no un formato binario
+inventado— con esta estructura:
+
+```
+manifest.json
+database.db
+invoices/
+  invoice_<microsegundos>.<ext>
+  ...
+```
+
+Dependencias: `archive` (nueva, directa) y `crypto` (ya era transitiva; se promueve a directa
+sólo para los checksums). No se añadió nada más.
+
+## Manifiesto
+
+```json
+{
+  "backupFormatVersion": 1,
+  "application": "agrocuentas",
+  "appVersion": "1.0.0",
+  "databaseSchemaVersion": 6,
+  "createdAt": "2026-09-06T00:14:11.288837",
+  "database": { "name": "database.db", "bytes": 196608, "sha256": "..." },
+  "attachmentCount": 1,
+  "attachments": [
+    { "name": "invoice_ui_audit.png", "bytes": 5849, "sha256": "...", "purchaseIds": [1, 9] }
+  ],
+  "missingAttachments": []
+}
+```
+
+`backupFormatVersion` es **independiente** de la versión de esquema SQLite: describe la forma
+del paquete, no su contenido. **Nunca guarda secretos.**
+
+## Qué fotografías entran
+
+Sólo las **realmente referenciadas** por alguna compra (`purchases.invoice_image_path`). Las
+huérfanas del disco no viajan.
+
+Si una referenciada **ya no existe** en el teléfono, el respaldo **se completa igualmente** y
+la pérdida se declara: entra en `missingAttachments` y la aplicación la avisa por pantalla.
+La decisión está razonada: bloquear el respaldo por una foto perdida dejaría al usuario sin
+copia de sus cuentas, que es peor. Lo que no se hace nunca es ocultarlo.
+
+## Rutas absolutas y su reconstrucción
+
+`purchases.invoice_image_path` guarda una **ruta absoluta** del dispositivo donde se tomó la
+foto, por ejemplo
+`/data/user/0/com.comunidad.agro.agroquimicos/app_flutter/invoices/invoice_123.jpg`.
+
+Restaurar en otro teléfono —o tras reinstalar, porque la carpeta de datos cambia— dejaría esas
+rutas apuntando a un directorio inexistente. Al restaurar, cada compra se **reapunta** a la
+carpeta local de facturas **por nombre de archivo**, y sólo para las fotos que el respaldo
+traía. Es una reconstrucción acotada, no una migración global de rutas: una foto que el
+respaldo no incluía conserva su valor original y se avisa de que falta.
+
+La carpeta la decide un único sitio, `lib/data/invoice_storage.dart`, que usan tanto
+`AgroRepository.storeInvoiceImage` como `BackupService`. Antes cada uno la calculaba por su
+cuenta y bastaba con que uno cambiara para que el respaldo dejara de encontrar los archivos.
+
+## Secuencia de exportación
+
+1. consolidar la base (checkpoint WAL con `rawQuery`, ver UIBUG-001);
+2. carpeta temporal;
+3. copiar la base y **validarla ya copiada** — si no es legible, no se sigue;
+4. reunir las fotografías referenciadas, con tamaño y `sha256`;
+5. escribir el manifiesto;
+6. empaquetar **dentro de la carpeta temporal**, para que el destino nunca vea un archivo a
+   medio escribir con nombre de respaldo;
+7. **volver a validar el paquete escrito** con la misma validación que usa la restauración;
+8. mover al destino definitivo.
+
+## Secuencia de restauración
+
+validar, extraer a carpeta temporal, validar manifiesto, `integrity_check`, validar esquema,
+validar fotografías (presencia y `sha256`), **copia de seguridad de la base Y de las
+fotografías actuales**, cerrar la base, sustituir, reubicar fotografías, reabrir (lo que
+dispara las migraciones si el respaldo era más antiguo), reapuntar rutas y comprobación
+posterior.
+
+**Ante cualquier fallo se deshace el conjunto.** Nunca queda una base nueva con las fotos
+viejas ni al revés. Está probado forzando un fallo a mitad de la copia de fotografías
+(`backup_container_test.dart`).
+
+## Compatibilidad hacia atrás
+
+Los respaldos `.db` de versiones anteriores **se siguen validando y restaurando**. Se
+reconocen **por su contenido** (los dos primeros bytes: `PK` significa contenedor), no por su
+extensión, y la aplicación avisa antes de aceptar que el formato histórico no trae fotografías
+y que las del teléfono se conservan.
+
+El listado de respaldos ofrece los dos formatos. Verificado en el Pixel 8 restaurando un `.db`
+de esquema v5, que además ejercitó la migración v5 a v6 al reabrir.
+
+## Dónde se escribe
+
+`getDownloadsDirectory()` y, si no existe, el directorio de documentos de la aplicación. En
+Android eso resuelve a `Android/data/<paquete>/files/Download`.
+
+**Limitación aceptada:** el archivo sobrevive a un borrado de datos de la aplicación pero
+**no a desinstalarla**. Para conservarlo hay que copiarlo fuera del teléfono. Compartirlo con
+el selector del sistema es evolución diferida ([`46` seccion 16](46_BASELINE_FINAL_FREEZE.md)).
+
+## Cobertura
+
+`backup_container_test.dart` (27 tests) cubre: contenedor sin fotos, con una y con varias;
+nombres de archivo; foto ausente al exportar; archivo que no es ZIP ni base; contenedor sin
+manifiesto; manifiesto ilegible o de otra aplicación; contenedor sin base; base dañada; foto
+anunciada pero ausente; foto alterada (detectada por `sha256`); formato de contenedor futuro;
+esquema futuro; respaldo `.db` legado; ciclo completo con reapertura de la foto; restauración
+en otra carpeta; copia de seguridad previa; rollback a mitad; integridad posterior; y
+restaurar dos veces seguidas.
+
+Más `backup_service_test.dart` y `backup_android_semantics_test.dart`, que se conservan.

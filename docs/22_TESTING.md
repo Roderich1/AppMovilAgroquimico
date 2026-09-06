@@ -273,3 +273,59 @@ Por orden de valor:
 4. **Sustituir `_DirtyFormHarness`** por los formularios reales.
 5. **Extraer una fixture compartida** para reducir la duplicación de `setUp`.
 6. **Medir cobertura** y establecer un umbral en CI.
+
+---
+
+# Actualización 2026-09-06 — 253 tests y verificación automática
+
+| Métrica | Auditoría inicial | Estabilización | Backlog UIBUG | **Baseline congelada** |
+|---|---:|---:|---:|---:|
+| Tests | 44 | 91 | 170 | **253** |
+| Archivos | — | 20 | 25 | **34** |
+
+## Suites nuevas
+
+| Archivo | Tests | Qué fija |
+|---|---:|---|
+| `set_state_contract_test.dart` | 3 | UIBUG-066 · dos tests de widget que recargan la pantalla, más una guarda estática que recorre todo `lib/` |
+| `ui_polish_test.dart` | 19 | UIBUG-023, 031, 037, 038, 039, 040, 041, 047, 060 y 068 |
+| `plan_lifecycle_test.dart` | 14 | UIBUG-045 · regla de un solo uso, doble envío, barrera de la base, reversión, lista/histórico, persistencia y migración a v6 |
+| `plan_lifecycle_ui_test.dart` | 4 | UIBUG-045 en pantalla, incluida la recarga al volver de aplicar |
+| `campaign_lifecycle_test.dart` | 10 | UIBUG-059 · dominio de la campaña terminal |
+| `campaign_lifecycle_ui_test.dart` | 5 | UIBUG-059 en pantalla |
+| `backup_container_test.dart` | 27 | Respaldo 2.0 · formato, manifiesto, corrupción, legacy, ciclo completo, otra ruta, rollback e integridad |
+| `backup_container_support.dart` | — | utilidades de test para inspeccionar el contenedor sin exponerlas en producción |
+
+## Reglas que esta fase confirmó
+
+**Cada test de reproducción se comprobó en rojo antes del arreglo.** No se dio por bueno
+ningún test que pasara desde el principio: un test verde sobre código sin corregir no prueba
+nada. Los tres del rail (UIBUG-068), el de la recarga de Planificación y los tres de
+`setState` se ejecutaron contra el código defectuoso y fallaron con el error esperado.
+
+**Una guarda demasiado específica no es una guarda.** `regression_widget_test.dart` ya tenía un
+test contra `setState` devolviendo un `Future`, pero sólo reconocía expresiones que citaran
+`_load(` o `repositoryProvider`. Las cinco pantallas afectadas asignaban una variable
+intermedia, así que pasaban. La guarda nueva parte del **tipo declarado del campo**, no de
+cómo se escribe la asignación.
+
+**Una prueba que mide otra cosa es peor que no tener prueba.** Los tests del rail necesitan
+`tester.view.physicalSize` y `devicePixelRatio`, no `setSurfaceSize`: éste sólo cambia el
+tamaño del render view, y `AppShell` decide rail-o-barra con `MediaQuery.sizeOf`. Con la
+primera versión de la prueba se estaba midiendo la **barra inferior** creyendo medir el rail.
+Se añadió una guarda que lo comprueba antes de las otras dos.
+
+**`setUp` con E/S real y tests de widget no se mezclan.** El reloj simulado del binding de
+widgets no deja avanzar la E/S real, así que un fixture SQLite construido en un `setUp`
+compartido cuelga el proceso sin mensaje. Por eso el ciclo de vida del plan está en dos
+archivos: dominio con `setUp`, pantalla con el fixture dentro de `tester.runAsync`.
+
+## Verificación automática
+
+`.github/workflows/flutter-ci.yml` ejecuta en cada `pull_request` y en cada `push` a `main`
+los mismos cuatro comandos que la baseline exige en local: `dart format
+--set-exit-if-changed`, `flutter analyze`, `flutter test` y `flutter build apk --release`.
+Flutter y el JDK están **fijados**, no en "latest". Ver
+[`20_BUILD_AND_CONFIGURATION`](20_BUILD_AND_CONFIGURATION.md).
+
+Antes de esta fase la suite se ejecutaba a mano y nada impedía integrar un PR que la rompiera.

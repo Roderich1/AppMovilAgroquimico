@@ -385,3 +385,83 @@ Buscados y no encontrados en el código: registro de usuario, login, recuperaci�
 contraseña, logout, edición de perfil propio, onboarding, sincronización, resolución de
 conflictos, actualización forzada de versión, calificación en tienda, soporte/contacto,
 términos y condiciones, exportación selectiva, restauración de backup.
+
+---
+
+# Actualización 2026-09-06 — Flujos afectados por el cierre de la baseline
+
+## Aplicar un plan (una sola vez)
+
+```
+Operaciones -> Planificación
+  la lista muestra sólo planes PENDIENTES
+  tocar la fila -> se despliega -> "Aplicar este plan"
+    -> formulario de aplicación precargado (persona, chaco, área, productos, dosis)
+    -> Confirmar aplicación
+      -> aplicación creada
+      -> el plan pasa a APPLIED
+      -> al volver, la lista se recarga y el plan YA NO ESTÁ
+  "Mostrar planes aplicados" -> aparece marcado "Aplicado", sin acción de aplicar
+```
+
+Si se intenta aplicar otra vez por cualquier vía —pantalla desactualizada, doble toque, llamada
+indirecta— el repositorio lo rechaza: *"Este plan ya fue aplicado y no puede volver a
+aplicarse. Cree un plan nuevo si necesita repetir la aplicación."* No se crea una segunda
+aplicación ni se gasta stock.
+
+**Revertir la aplicación no devuelve el plan a pendiente.** Para repetir la planificación se
+crea un plan nuevo.
+
+## Cerrar una campaña (irreversible)
+
+```
+Operaciones -> Administrar datos -> Campañas -> menú de la campaña ACTIVA -> Cerrar
+  -> confirmación que declara:
+       periodo desde qué fecha
+       compras y aplicaciones registradas
+       planes pendientes
+       saldo por cobrar
+       que dejará de admitir compras, aplicaciones, transferencias y planes
+       que NO podrá reactivarse desde la aplicación
+  -> "Cerrar definitivamente" (en color de acción irreversible)
+     -> la campaña queda Cerrada, con su rango de fechas
+     -> su menú pasa a ofrecer sólo "Editar"
+```
+
+Sólo una campaña `PLANNED` ofrece "Activar". Para seguir operando se crea una campaña nueva.
+
+## Respaldar y restaurar con fotografías
+
+```
+Cuentas -> icono de carpeta -> Exportar respaldo
+  -> archivo .agrobackup en la carpeta de descargas de la aplicación
+  -> el acuse dice cuántas fotografías incluye
+  -> si alguna factura ya no tiene su foto en el teléfono, se avisa (no se oculta)
+
+Cuentas -> icono de carpeta -> Restaurar respaldo
+  -> lista de respaldos disponibles (contenedores nuevos y .db históricos)
+  -> elegir uno -> la confirmación declara ANTES de aceptar:
+       versión de esquema
+       si trae fotografías y cuántas, o que es formato histórico y no las trae
+       que TODOS los datos actuales se reemplazan
+       que se guardará una copia de los datos actuales
+  -> Restaurar
+     -> base restaurada, fotografías devueltas a su carpeta, rutas reapuntadas
+     -> el acuse indica cuántas fotografías se restauraron y dónde quedó la copia previa
+     -> si hubo discrepancias, se muestran
+     -> el historial de compras abre la fotografía restaurada
+```
+
+Ante cualquier fallo a mitad, se deshace **el conjunto**: no queda una base nueva con las fotos
+viejas ni al revés.
+
+## Crear una entrada de catálogo
+
+```
+Operaciones -> Administrar datos -> elegir sección
+  -> "Agregar persona" / "chaco" / "producto" / "proveedor" / "campaña"
+     (una sola acción primaria: en esta ruta no hay FAB)
+  -> Guardar con un campo obligatorio vacío
+     -> el campo se marca y aparece el motivo BAJO él
+     -> el diálogo NO se cierra y NO se escribe nada
+```

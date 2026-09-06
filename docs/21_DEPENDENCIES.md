@@ -180,3 +180,18 @@ flutter pub outdated
 
 No se ejecutó en esta auditoría porque requiere acceso a la red, que estaba fuera del
 alcance definido.
+
+---
+
+# Actualización 2026-09-06 — Dos dependencias para el respaldo con fotografías
+
+| Paquete | Antes | Ahora | Por qué |
+|---|---|---|---|
+| `archive` | — | **`^4.2.0`, directa** | El contenedor de respaldo `.agrobackup` es un ZIP. La alternativa era inventar un formato binario propio, que habría sido más código, más riesgo y ninguna ventaja: un ZIP se puede abrir con cualquier herramienta si algún día hace falta rescatar el contenido a mano. `archive` es pura Dart, mantenida por Brendan Duncan, sin dependencias nativas, y ya trae CRC32 por entrada. |
+| `crypto` | transitiva | **directa** | Se usa para el `sha256` de la base y de cada fotografía en el manifiesto. **No se descarga nada nuevo**: ya estaba en el árbol de dependencias; sólo se declara para poder importarla. Es del equipo de Dart. |
+
+Ninguna otra dependencia se añadió, actualizó ni retiró. En particular **no** se añadió nada
+para leer la versión de la aplicación en ejecución: `appVersion` del manifiesto es una
+constante que se mantiene a mano junto a `version:` de `pubspec.yaml`, porque es un dato
+puramente informativo y no justificaba otro paquete. Queda anotado como limitación aceptada en
+[`46` sección 15](46_BASELINE_FINAL_FREEZE.md).
