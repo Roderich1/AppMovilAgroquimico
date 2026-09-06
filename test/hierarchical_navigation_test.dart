@@ -191,6 +191,9 @@ void main() {
         '/compras/nueva': 1,
         '/aplicaciones': 1,
         '/transferencias': 1,
+        // Reportes se alcanza desde Operaciones, como el resto de sus hijas:
+        // en el Pixel 8 la barra resaltaba "Inicio" estando en /reportes.
+        '/reportes': 1,
         '/inventario': 2,
         '/inventario/7': 2,
         '/personas': 3,
@@ -203,6 +206,26 @@ void main() {
           AppShell(location: location, child: const SizedBox()).selectedIndex,
           expected,
           reason: '$location debe resaltar el destino $expected',
+        );
+      });
+    });
+
+    test('Atrás sin pila devuelve a la sección que corresponde', () {
+      const cases = <String, String?>{
+        '/': null,
+        '/operaciones': '/',
+        '/catalogos': '/operaciones',
+        '/compras': '/operaciones',
+        '/reportes': '/operaciones',
+        '/inventario': '/',
+        '/personas': '/',
+        '/liquidacion': '/',
+      };
+      cases.forEach((location, expected) {
+        expect(
+          AppShell(location: location, child: const SizedBox()).backFallback,
+          expected,
+          reason: 'Atrás desde $location',
         );
       });
     });

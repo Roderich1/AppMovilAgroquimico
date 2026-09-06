@@ -51,9 +51,10 @@ Los documentos `FINAL_VERIFICATION` sólo se crean después de implementar y reu
 real de tests, CI y dispositivo. Su ausencia antes de esa fase es correcta.
 
 `EVOLUTION-2` está implementada en `evolution/evolution-2-typed-reports`, con los cuatro gates
-locales en verde y el CI del SHA final `2b40955` en verde (run `34014442336`). Sigue en
-`IN_PROGRESS` y sin `EVOLUTION-2_FINAL_VERIFICATION.md` porque falta la verificación en
-Pixel 8, detallada en la trazabilidad, §8.
+locales en verde, el CI del SHA final en verde y el gate Pixel 8 ejecutado, que destapó y
+corrigió tres defectos de interfaz. Sigue en `IN_PROGRESS` y sin
+`EVOLUTION-2_FINAL_VERIFICATION.md` porque declarar `VERIFIED` corresponde al propietario tras
+revisar el PR. Evidencia en la trazabilidad §8 y en `artifacts/ui-audit/evolution-2/`.
 
 ## Precedencia
 

@@ -391,7 +391,94 @@ void main() {
     });
   });
 
+  group('desbordes', () {
+    testWidgets('un nombre de persona largo no desborda el desplegable', (
+      tester,
+    ) async {
+      // En el Pixel 8 el desplegable de persona desbordaba 47 px por la
+      // derecha: `DropdownButtonFormField` se dimensiona por el elemento más
+      // ancho y, sin `isExpanded`, ese elemento no cabe en el campo.
+      await tester.runAsync(
+        () => repo.addPerson(
+          name: 'María de los Ángeles Ñuflo de Chávez Iñiguez Villarroel',
+          role: PersonRole.thirdParty,
+        ),
+      );
+      await pump(tester, kind: ReportKind.accountStatement);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('un nombre de campaña largo tampoco desborda', (tester) async {
+      await tester.runAsync(
+        () => repo.addCampaign(
+          name: 'Campaña de verano de la comunidad San Juan del Norte 2026',
+          start: DateTime.utc(2027, 1, 1),
+        ),
+      );
+      await pump(tester, kind: ReportKind.farmCost);
+      expect(tester.takeException(), isNull);
+    });
+  });
+
   group('accesibilidad', () {
+    testWidgets('el aviso se puede leer entero en horizontal al 130 %', (
+      tester,
+    ) async {
+      // En el Pixel 8, horizontal y 130 % juntos recortaban la tercera frase
+      // del aviso y el armazon del dialogo desbordaba 2,3 px por abajo: el
+      // usuario aceptaba algo que no habia podido leer.
+      //
+      // La altura util es MENOR que la del dispositivo (1080 px menos barras
+      // de sistema): se prueba con 940 px para que el test falle antes que el
+      // telefono, no despues.
+      tester.view.physicalSize = const Size(2400, 940);
+      tester.view.devicePixelRatio = 2.625;
+      addTearDown(tester.view.reset);
+
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            repositoryProvider.overrideWithValue(repo),
+            reportStorageProvider.overrideWithValue(storage),
+          ],
+          child: MaterialApp(
+            // El MISMO tema que monta `AgroApp`: `visualDensity.compact`
+            // cambia las alturas del dialogo, y sin el el test no reproduce lo
+            // que ocurre en el telefono.
+            theme: ThemeData(
+              colorScheme: ColorScheme.fromSeed(
+                seedColor: const Color(0xFF35693E),
+              ),
+              useMaterial3: true,
+              visualDensity: VisualDensity.compact,
+            ),
+            builder: (context, child) => MediaQuery(
+              // El telefono descuenta barra de estado y barra de gestos: el
+              // dialogo va dentro de un `SafeArea`, asi que sin estos margenes
+              // el test dispone de mas altura que el dispositivo real.
+              data: MediaQuery.of(context).copyWith(
+                padding: const EdgeInsets.only(top: 28, bottom: 28),
+                viewPadding: const EdgeInsets.only(top: 28, bottom: 28),
+                textScaler: const TextScaler.linear(1.3),
+              ),
+              child: child!,
+            ),
+            home: const Scaffold(body: ReportsScreen()),
+          ),
+        ),
+      );
+      await waitFor(tester, find.text('Exportar PDF'));
+      await tapOnPage(tester, 'Exportar PDF');
+      await waitFor(tester, find.text('El archivo no va cifrado'));
+
+      final ultima = find.textContaining('si lo comparte, lo');
+      expect(ultima, findsOneWidget);
+      // Alcanzable: si el contenido no se desplazara, quedaria recortado.
+      await tester.ensureVisible(ultima);
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+    });
+
     testWidgets('en horizontal se lee entera y conserva el botón', (
       tester,
     ) async {
