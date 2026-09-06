@@ -220,6 +220,19 @@ class _BenchScreenState extends State<BenchScreen> with WidgetsBindingObserver {
               value: c.airplaneMode,
               onChanged: c.setAirplaneMode,
             ),
+            if (c.airplaneModeMismatch)
+              Container(
+                padding: const EdgeInsets.all(8),
+                color: Colors.red.shade100,
+                child: Text(
+                  c.airplaneMode
+                      ? 'EL TELÉFONO NO ESTÁ EN MODO AVIÓN. Lo que grabe ahora '
+                            'NO sirve como prueba de que funciona sin Internet.'
+                      : 'El teléfono SÍ está en modo avión, pero el '
+                            'interruptor dice que no. Corrija uno de los dos.',
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+              ),
             const Divider(),
             Wrap(
               spacing: 8,

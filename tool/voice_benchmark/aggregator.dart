@@ -47,6 +47,7 @@ class EngineSummary {
     required this.criticalTokenHits,
     required this.criticalTokenTotal,
     required this.airplaneRuns,
+    required this.airplaneMismatches,
     required this.errorCounts,
     required this.localeFallbacks,
     this.medianWer,
@@ -84,6 +85,11 @@ class EngineSummary {
   final int criticalTokenTotal;
 
   final int airplaneRuns;
+
+  /// Mediciones donde lo declarado sobre el modo avión no coincide con lo que
+  /// dijo el sistema. Mientras sea mayor que cero, la tanda no prueba nada
+  /// sobre funcionamiento sin Internet.
+  final int airplaneMismatches;
 
   /// Cuántas veces apareció cada código de error.
   final Map<String, int> errorCounts;
@@ -184,6 +190,7 @@ abstract final class BenchAggregator {
       criticalTokenHits: criticalHits,
       criticalTokenTotal: criticalTotal,
       airplaneRuns: group.where((r) => r.airplaneMode).length,
+      airplaneMismatches: group.where((r) => r.airplaneModeMismatch).length,
       errorCounts: errorCounts,
       localeFallbacks: group
           .where(

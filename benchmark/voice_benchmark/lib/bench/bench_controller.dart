@@ -41,6 +41,7 @@ class BenchController extends ChangeNotifier {
     required this.appVersion,
     this.deviceInfo = DeviceInfo.unknown,
     this.memoryProbe,
+    this.airplaneProbe,
   }) : _port = port,
        _corpus = corpus {
     _subscription = _port.events.listen(_onEvent);
@@ -55,7 +56,14 @@ class BenchController extends ChangeNotifier {
   /// la métrica queda sin medir y se exporta vacía.
   final Future<int?> Function()? memoryProbe;
 
+  /// Lectura opcional del modo avión del sistema. Sirve para contrastar lo que
+  /// el operador declaró; si es `null`, el contraste no se hace y el campo se
+  /// exporta vacío en vez de dar por buena la declaración.
+  final Future<bool?> Function()? airplaneProbe;
+
   StreamSubscription<TranscriptionEvent>? _subscription;
+
+  bool? _systemAirplaneMode;
 
   // ------------------------------------------------------------------ estado
 
@@ -96,6 +104,13 @@ class BenchController extends ChangeNotifier {
 
   List<CorpusSample> get samples => _corpus.bySplit(_split);
 
+  /// Modo avión según el sistema. `null` mientras no se haya podido consultar.
+  bool? get systemAirplaneMode => _systemAirplaneMode;
+
+  /// Lo declarado no coincide con lo que dice el teléfono.
+  bool get airplaneModeMismatch =>
+      _systemAirplaneMode != null && _systemAirplaneMode != _airplaneMode;
+
   CorpusSample? get current {
     final list = samples;
     if (list.isEmpty) return null;
@@ -127,6 +142,7 @@ class BenchController extends ChangeNotifier {
 
   Future<void> refreshAvailability() async {
     _availability = await _port.checkAvailability(_requestedLocale);
+    _systemAirplaneMode = await airplaneProbe?.call();
     notifyListeners();
   }
 
@@ -143,8 +159,12 @@ class BenchController extends ChangeNotifier {
     notifyListeners();
   }
 
-  void setAirplaneMode(bool value) {
+  Future<void> setAirplaneMode(bool value) async {
     _airplaneMode = value;
+    notifyListeners();
+    // Se contrasta al momento de marcar, no sólo al exportar: descubrir a
+    // posteriori que una tanda entera estaba mal etiquetada cuesta repetirla.
+    _systemAirplaneMode = await airplaneProbe?.call();
     notifyListeners();
   }
 
@@ -211,6 +231,7 @@ class BenchController extends ChangeNotifier {
     final attempt = (_attempts[sample.id] ?? 0) + 1;
     _attempts[sample.id] = attempt;
     final memory = await memoryProbe?.call();
+    final systemAirplane = await airplaneProbe?.call();
     _results.add(
       BenchResult(
         sampleId: sample.id,
@@ -226,6 +247,7 @@ class BenchController extends ChangeNotifier {
         androidRelease: deviceInfo.androidRelease,
         androidSdk: deviceInfo.androidSdk,
         airplaneMode: _airplaneMode,
+        systemAirplaneMode: systemAirplane,
         startedAt: DateTime.now(),
         partialLatencyMs: _partialLatencyMs,
         finalLatencyMs: _finalLatencyMs,

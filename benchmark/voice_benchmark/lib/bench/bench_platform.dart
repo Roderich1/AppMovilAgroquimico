@@ -45,6 +45,22 @@ final class BenchPlatform {
     }
   }
 
+  /// Modo avión leído del sistema. `null` si no se pudo consultar.
+  ///
+  /// Existe para contrastar lo que el operador declara con lo que el teléfono
+  /// dice. Sin esto, «funciona sin Internet» descansa en que nadie se olvide de
+  /// apagar la radio.
+  Future<bool?> systemAirplaneMode() async {
+    try {
+      final value = await _channel.invokeMethod<Object?>('airplaneMode');
+      return value is bool ? value : null;
+    } on PlatformException {
+      return null;
+    } on MissingPluginException {
+      return null;
+    }
+  }
+
   /// Carpeta donde dejar los archivos exportados, visible por USB/MTP.
   Future<String?> exportDirectory() async {
     try {

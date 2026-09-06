@@ -19,6 +19,7 @@ class BenchRecord {
     required this.expectedText,
     required this.engine,
     required this.airplaneMode,
+    this.systemAirplaneMode,
     this.obtainedText,
     this.model = '',
     this.requestedLocale = '',
@@ -50,7 +51,19 @@ class BenchRecord {
   final String device;
   final String androidRelease;
   final int? androidSdk;
+
+  /// Modo avión declarado por quien operó el banco.
   final bool airplaneMode;
+
+  /// Modo avión leído del sistema. `null` en tandas anteriores a que el banco
+  /// lo registrara: entonces la declaración no puede contrastarse.
+  final bool? systemAirplaneMode;
+
+  /// La tanda está mal etiquetada: dice offline y el teléfono tenía radio, o al
+  /// revés. Ninguna conclusión sobre funcionamiento sin Internet se sostiene
+  /// sobre una medición así.
+  bool get airplaneModeMismatch =>
+      systemAirplaneMode != null && systemAirplaneMode != airplaneMode;
   final int? partialLatencyMs;
   final int? finalLatencyMs;
   final int? audioDurationMs;
@@ -197,6 +210,7 @@ abstract final class BenchResultParser {
       androidRelease: text('androidRelease'),
       androidSdk: _optionalInt(row['androidSdk'] ?? envelope['androidSdk']),
       airplaneMode: _bool(row['airplaneMode']),
+      systemAirplaneMode: _optionalBool(row['systemAirplaneMode']),
       partialLatencyMs: _optionalInt(row['partialLatencyMs']),
       finalLatencyMs: _optionalInt(row['finalLatencyMs']),
       audioDurationMs: _optionalInt(row['audioDurationMs']),
@@ -221,6 +235,13 @@ abstract final class BenchResultParser {
     if (value is int) return value;
     if (value is num) return value.round();
     return int.tryParse('$value'.trim());
+  }
+
+  static bool? _optionalBool(Object? value) {
+    if (value == null) return null;
+    final text = '$value'.trim();
+    if (text.isEmpty) return null;
+    return _bool(value);
   }
 
   static bool _bool(Object? value) {

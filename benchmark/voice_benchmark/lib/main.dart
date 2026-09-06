@@ -30,6 +30,7 @@ Future<void> main() async {
     appVersion: '1.0.0',
     deviceInfo: device,
     memoryProbe: platform.memoryBytes,
+    airplaneProbe: platform.systemAirplaneMode,
   );
 
   runApp(BenchApp(controller: controller, platform: platform));
