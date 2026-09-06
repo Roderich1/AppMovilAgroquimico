@@ -19,7 +19,10 @@ inventadas y ninguna etapa se considera implementada por existir su documentaci�
 ## EVOLUTION-2 — Lecturas tipadas y exportación de reportes
 
 - IDs: `EVO-004`, `EVO-005`, `EVO-006`.
-- Estado: `APPROVED`.
+- Estado: `IN_PROGRESS` en `evolution/evolution-2-typed-reports`. Los siete puntos del orden
+  interno están implementados salvo el último: faltan el CI del SHA final y la verificación en
+  Pixel 8. Detalle y gates pendientes en
+  `features/EVOLUTION-2_IMPLEMENTATION_TRACEABILITY.md`.
 - Orden interno:
   1. typed read models y mappers incrementales;
   2. migración de consumidores necesarios;
