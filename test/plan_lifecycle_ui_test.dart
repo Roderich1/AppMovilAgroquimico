@@ -6,6 +6,7 @@ import 'package:agroquimicos/presentation/screens/planning_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 /// UIBUG-045 en la pantalla: la lista operativa muestra pendientes y un plan
@@ -151,6 +152,93 @@ void main() {
     await tester.tap(find.byType(ExpansionTile));
     await settle(tester);
     expect(find.text('Aplicar este plan'), findsOneWidget);
+  });
+
+  testWidgets('al volver de aplicar, la lista ya no ofrece ese plan', (
+    tester,
+  ) async {
+    // Regresión detectada en el Pixel 8: el estado del plan pasó a decidir qué
+    // muestra esta lista, pero la pantalla no releía al volver del formulario,
+    // así que la fila seguía diciendo "pendiente" y ofreciendo "Aplicar" sobre
+    // un plan ya consumido. El repositorio lo rechazaba, pero el usuario veía
+    // un error en vez de una lista al día.
+    await tester.binding.setSurfaceSize(const Size(393, 2400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final (database, repo) = (await tester.runAsync(
+      () => fixture(pending: true, applied: false),
+    ))!;
+    addTearDown(database.close);
+
+    final planId =
+        (await tester.runAsync(repo.plans))!.single['plan_id']! as int;
+
+    // El destino del formulario se sustituye por un doble que consume el plan
+    // igual que lo haría la aplicación real y devuelve el control.
+    final router = GoRouter(
+      initialLocation: '/planificacion',
+      routes: [
+        GoRoute(
+          path: '/planificacion',
+          builder: (_, _) => const Scaffold(body: PlanningScreen()),
+        ),
+        GoRoute(
+          path: '/aplicaciones/nueva',
+          builder: (context, _) => Scaffold(
+            body: Center(
+              child: ElevatedButton(
+                onPressed: () async {
+                  final prefill = await repo.planForApplication(planId);
+                  await repo.confirmApplication(
+                    ApplicationDraft(
+                      personId:
+                          (await repo.people()).firstWhere(
+                                (row) => row['role'] == 'FAMILY',
+                              )['id']!
+                              as int,
+                      farmId: prefill.first['farm_id']! as int,
+                      campaignId: prefill.first['campaign_id']! as int,
+                      planId: planId,
+                      appliedAt: DateTime.utc(2026, 3, 1),
+                      lines: [
+                        for (final row in prefill)
+                          ApplicationLineDraft(
+                            productId: row['product_id']! as int,
+                            quantityBase: row['required_quantity_base']! as int,
+                          ),
+                      ],
+                    ),
+                  );
+                  if (context.mounted) context.pop(true);
+                },
+                child: const Text('Confirmar aplicación'),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+    addTearDown(router.dispose);
+
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [repositoryProvider.overrideWithValue(repo)],
+        child: MaterialApp.router(routerConfig: router),
+      ),
+    );
+    await settle(tester);
+
+    await tester.tap(find.byType(ExpansionTile));
+    await settle(tester);
+    await tester.tap(find.text('Aplicar este plan'));
+    await settle(tester);
+
+    await tester.tap(find.text('Confirmar aplicación'));
+    await settle(tester);
+
+    // De vuelta en la lista: el plan ya no está y no se ofrece aplicarlo.
+    expect(find.text('No hay planes pendientes.'), findsOneWidget);
+    expect(find.text('Aplicar este plan'), findsNothing);
   });
 
   testWidgets('con ambos planes la lista operativa sólo trae el pendiente', (

@@ -39,6 +39,18 @@ class _PlanningScreenState extends ConsumerState<PlanningScreen> {
     });
   }
 
+  /// Abre el formulario de aplicación precargado con el plan y **recarga al
+  /// volver**.
+  ///
+  /// Sin la recarga la fila seguía diciendo "pendiente" y ofreciendo "Aplicar"
+  /// después de haberse aplicado: el estado del plan pasó a decidir qué muestra
+  /// esta lista, así que la lista tiene que releerlo. Detectado en el Pixel 8
+  /// durante la regresión final.
+  Future<void> applyPlan(int planId) async {
+    await context.push<bool>('/aplicaciones/nueva?planId=$planId');
+    if (mounted) refresh();
+  }
+
   Future<void> add() async {
     final active = await ref.read(repositoryProvider).activeCampaign();
     if (!mounted) return;
@@ -170,9 +182,15 @@ class _PlanningScreenState extends ConsumerState<PlanningScreen> {
                                     ),
                                   )
                                 : FilledButton.tonalIcon(
-                                    onPressed: () => context.push(
-                                      '/aplicaciones/nueva?planId=${first['plan_id']}',
-                                    ),
+                                    // Al volver del formulario hay que
+                                    // recargar: el plan acaba de consumirse y
+                                    // una lista sin refrescar seguiría
+                                    // ofreciendo "Aplicar" sobre algo ya
+                                    // aplicado. El repositorio lo rechazaría,
+                                    // pero el usuario vería un error en vez de
+                                    // una lista al día.
+                                    onPressed: () =>
+                                        applyPlan(first['plan_id']! as int),
                                     icon: const Icon(
                                       Icons.agriculture_outlined,
                                     ),

@@ -326,6 +326,19 @@ void main() {
       expect(campana.top, greaterThan(proveedor.bottom));
     });
 
+    testWidgets('cantidad y moneda tampoco se comprimen en móvil', (
+      tester,
+    ) async {
+      // Media fila recortaba la etiqueta a "Cantidad compr…", que es
+      // exactamente la compresión artificial que este defecto prohíbe.
+      await resize(tester, pixel8Portrait);
+      await pump(tester, const PurchaseFormScreen(), inScaffold: false);
+
+      final cantidad = tester.getRect(find.text('Cantidad comprada'));
+      final moneda = tester.getRect(find.text('Moneda'));
+      expect(moneda.top, greaterThan(cantidad.bottom));
+    });
+
     testWidgets('en pantalla ancha siguen compartiendo fila', (tester) async {
       await resize(tester, const Size(1200, 2400));
       await pump(tester, const PurchaseFormScreen(), inScaffold: false);
