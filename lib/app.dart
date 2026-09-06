@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import 'data/agro_repository.dart';
 import 'data/app_database.dart';
 import 'data/backup_service.dart';
+import 'domain/reports/report_composer.dart';
 import 'presentation/app_shell.dart';
 import 'presentation/screens/applications_screen.dart';
 import 'presentation/screens/application_form_screen.dart';
@@ -20,9 +21,12 @@ import 'presentation/screens/planning_screen.dart';
 import 'presentation/screens/plan_form_screen.dart';
 import 'presentation/screens/purchases_screen.dart';
 import 'presentation/screens/purchase_form_screen.dart';
+import 'presentation/screens/reports_screen.dart';
 import 'presentation/screens/settlements_screen.dart';
 import 'presentation/screens/transfers_screen.dart';
 import 'presentation/screens/transfer_form_screen.dart';
+import 'services/reports/report_export_service.dart';
+import 'services/reports/report_storage.dart';
 
 final databaseProvider = Provider<AppDatabase>((ref) {
   final database = AppDatabase();
@@ -36,6 +40,19 @@ final repositoryProvider = Provider<AgroRepository>(
 
 final backupServiceProvider = Provider<BackupService>(
   (ref) => BackupService(ref.watch(databaseProvider)),
+);
+
+/// Dónde se guardan los reportes. Es un proveedor propio para que las pruebas
+/// de pantalla puedan escribir en una carpeta temporal.
+final reportStorageProvider = Provider<ReportStorage>(
+  (ref) => LocalReportStorage(),
+);
+
+final reportExportServiceProvider = Provider<ReportExportService>(
+  (ref) => ReportExportService(
+    ref.watch(repositoryProvider),
+    ref.watch(reportStorageProvider),
+  ),
 );
 
 final routerProvider = Provider<GoRouter>(
@@ -74,6 +91,20 @@ final routerProvider = Provider<GoRouter>(
           GoRoute(
             path: '/inventario',
             builder: (_, __) => const InventoryScreen(),
+          ),
+          GoRoute(
+            path: '/reportes',
+            builder: (_, state) => ReportsScreen(
+              initialKind: reportKindFromRoute(
+                state.uri.queryParameters['tipo'],
+              ),
+              initialPersonId: int.tryParse(
+                state.uri.queryParameters['persona'] ?? '',
+              ),
+              initialCampaignId: int.tryParse(
+                state.uri.queryParameters['campana'] ?? '',
+              ),
+            ),
           ),
           GoRoute(
             path: '/inventario/:id',

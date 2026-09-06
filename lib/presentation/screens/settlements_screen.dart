@@ -2,12 +2,14 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:path/path.dart' as p;
 
 import '../../app.dart';
 import '../../data/typed_reads.dart';
 import '../../domain/money.dart';
 import '../../domain/read_models.dart';
+import '../../domain/reports/report_composer.dart';
 import '../widgets/common.dart';
 
 class SettlementsScreen extends ConsumerStatefulWidget {
@@ -216,6 +218,17 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
           ),
         ],
       ),
+    );
+  }
+
+  /// Abre Reportes ya situado en el estado de cuenta de esta persona, con la
+  /// campaña que se está mirando.
+  void _exportStatement(SettlementRead person) {
+    final campaign = selectedCampaignId;
+    context.push(
+      '/reportes?tipo=${ReportKind.accountStatement.name}'
+      '&persona=${person.personId}'
+      '${campaign == null ? '' : '&campana=$campaign'}',
     );
   }
 
@@ -534,20 +547,30 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
                         ),
                         PopupMenuButton<String>(
                           onSelected: (value) {
-                            if (value == 'detail') {
-                              _statement(row);
-                            } else {
-                              _record(
-                                row,
-                                advance: value == 'advance',
-                                campaignName: _campaignName(campaigns),
-                              );
+                            switch (value) {
+                              case 'detail':
+                                _statement(row);
+                              case 'export':
+                                _exportStatement(row);
+                              default:
+                                _record(
+                                  row,
+                                  advance: value == 'advance',
+                                  campaignName: _campaignName(campaigns),
+                                );
                             }
                           },
                           itemBuilder: (_) => const [
                             PopupMenuItem(
                               value: 'detail',
                               child: Text('Ver detalle cronológico'),
+                            ),
+                            // El estado de cuenta se exporta desde donde se
+                            // consulta, no obligando a rehacer la selección
+                            // de persona en otra pantalla.
+                            PopupMenuItem(
+                              value: 'export',
+                              child: Text('Exportar estado de cuenta'),
                             ),
                             PopupMenuItem(
                               value: 'pay',

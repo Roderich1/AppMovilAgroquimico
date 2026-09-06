@@ -66,6 +66,18 @@ extension ReportKindInfo on ReportKind {
   };
 }
 
+/// Reporte al que apunta un enlace de navegación, o `null` si no lo nombra.
+///
+/// Vive junto al enum para que una ruta nunca pueda referirse a un reporte que
+/// no existe.
+ReportKind? reportKindFromRoute(String? value) {
+  if (value == null) return null;
+  for (final kind in ReportKind.values) {
+    if (kind.name == value) return kind;
+  }
+  return null;
+}
+
 /// Texto del filtro de campaña, con el mismo criterio en los cinco reportes.
 String campaignFilterValue(String? campaignName) =>
     campaignName ?? 'Todas las campañas';
