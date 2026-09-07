@@ -55,3 +55,10 @@ app.*.map.json
 android/app/src/whisperCommon/jniLibs/
 android/app/src/whisperTiny/assets/
 android/app/src/whisperBase/assets/
+# Fase 0-bis: el modelo de Vosk (60 MB extraidos) lo baja
+# `tool/fetch_vosk_model.sh`, que verifica el SHA-256 del zip y el tamano ya
+# extraido. Mismo criterio: se regenera, no se versiona.
+android/app/src/whisperSmall/assets/
+android/app/src/vosk/assets/
+android/app/src/hybrid/assets/
+.vosk-stage/

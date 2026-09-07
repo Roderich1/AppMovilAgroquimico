@@ -183,6 +183,27 @@ android {
             // Necesario para páginas de 16 KB: las librerías se mapean desde el
             // APK sin descomprimir. `zipalign -P 16` lo comprueba después.
             useLegacyPackaging = false
+
+            // Fuera las ABIs que no se están construyendo.
+            //
+            // `ndk.abiFilters` filtra lo que compila el proyecto, pero **no**
+            // las librerías que vienen dentro de un AAR: medido sobre el APK de
+            // Vosk, que salió con `armeabi-v7a` y `x86_64` de `libvosk.so` y
+            // `libjnidispatch.so` pese a construirse con
+            // `--target-platform android-arm64`.
+            //
+            // No es sólo peso. El motor de Flutter sí respeta el filtro, así
+            // que el APK quedaba con Vosk para x86_64 y sin `libflutter.so`
+            // para x86_64: en un emulador x86_64 —como el que hace falta para
+            // el gate de 16 KB— Android elegiría esa ABI por las librerías de
+            // Vosk y la aplicación se caería al arrancar. Es exactamente el
+            // fallo que ya documenta el README de este banco.
+            val wanted = abisFromFlutterTarget(
+                project.findProperty("target-platform") as String?,
+            )
+            for (abi in listOf("arm64-v8a", "armeabi-v7a", "x86_64", "x86")) {
+                if (abi !in wanted) excludes += "lib/$abi/*.so"
+            }
         }
     }
 
@@ -193,6 +214,16 @@ android {
             // construye `--release` porque medir latencias sobre Dart
             // interpretado no mediría el motor.
             signingConfig = signingConfigs.getByName("debug")
+
+            // Las reglas de R8 son obligatorias aquí, no un adorno: sin ellas
+            // el APK release de Vosk arranca y falla al cargar el modelo con
+            // `Can't obtain peer field ID for class com.sun.jna.Pointer`,
+            // porque JNA resuelve ese campo por nombre desde código nativo y
+            // R8 lo renombra. Medido en el HONOR; en debug no ocurre.
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
         }
     }
 }

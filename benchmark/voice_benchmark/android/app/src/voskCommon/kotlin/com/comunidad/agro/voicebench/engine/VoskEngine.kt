@@ -60,7 +60,9 @@ class VoskEngine(private val context: Context) : TranscriptionEngine {
                     "effectiveLocale" to "es",
                     "detail" to when {
                         directory == null -> "modelo ausente: ${BuildConfig.VOSK_MODEL}"
-                        !ready -> "no se pudo cargar: $error · ${abiOf()}"
+                        !ready ->
+                            "no se pudo cargar: $error · ${session.lastLoadFailure} " +
+                                "· ${abiOf()}"
                         else ->
                             "modelo ${VoskModelStore.installedBytes(directory)} bytes · " +
                                 "carga ${session.lastModelLoadMs} ms · ${abiOf()}"

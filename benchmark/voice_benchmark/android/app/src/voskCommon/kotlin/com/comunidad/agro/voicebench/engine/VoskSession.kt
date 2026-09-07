@@ -39,6 +39,17 @@ class VoskSession(private val context: Context) {
     var lastModelLoadMs: Long = 0
         private set
 
+    /**
+     * Por qué falló la última carga, con nombre de excepción y mensaje.
+     *
+     * Un diagnóstico que sólo dice `serviceUnavailable` no permite decidir
+     * nada: hay media docena de motivos distintos por los que una librería
+     * nativa no carga y cada uno se arregla de otra manera. Nunca lleva texto
+     * dictado; sólo lo que dijo el sistema.
+     */
+    var lastLoadFailure: String? = null
+        private set
+
     /** El modelo ya está en memoria: la siguiente sesión arranca en caliente. */
     val isLoaded: Boolean get() = model != null
 
@@ -53,20 +64,37 @@ class VoskSession(private val context: Context) {
      */
     fun ensureLoaded(): String? {
         if (model != null) return null
-        val directory = VoskModelStore.ensureModel(context) ?: return "serviceUnavailable"
+        val directory = VoskModelStore.ensureModel(context)
+        if (directory == null) {
+            lastLoadFailure = "modelo no disponible en assets ni en almacenamiento"
+            return "serviceUnavailable"
+        }
         modelDirectory = directory
         return try {
             LibVosk.setLogLevel(LogLevel.WARNINGS)
             val started = System.nanoTime()
             model = Model(directory.absolutePath)
             lastModelLoadMs = (System.nanoTime() - started) / 1_000_000
+            lastLoadFailure = null
             null
-        } catch (_: UnsatisfiedLinkError) {
+        } catch (t: UnsatisfiedLinkError) {
             // Librería nativa ausente o incompatible con la ABI o el tamaño de
             // página del aparato. Es un fallo distinto de "no hay modelo".
+            lastLoadFailure = describe(t)
             "serviceUnavailable"
-        } catch (_: Throwable) {
+        } catch (t: Throwable) {
+            lastLoadFailure = describe(t)
             "engineFailure"
+        }
+    }
+
+    /** Nombre y mensaje de la excepción, incluida su causa. Sin datos dictados. */
+    private fun describe(t: Throwable): String = buildString {
+        append(t.javaClass.name)
+        t.message?.let { append(": ").append(it.take(300)) }
+        t.cause?.let { cause ->
+            append(" <- ").append(cause.javaClass.name)
+            cause.message?.let { append(": ").append(it.take(200)) }
         }
     }
 

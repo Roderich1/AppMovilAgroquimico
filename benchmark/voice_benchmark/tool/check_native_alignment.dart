@@ -2,8 +2,10 @@
 //
 // HERRAMIENTA DE SPIKE. No la usa la aplicación Agrocuentas ni su CI.
 //
-//   dart run tool/check_native_alignment.dart build/app/outputs/flutter-apk/*.apk
+//   dart run tool/check_native_alignment.dart --abi arm64-v8a <apk...>
 //   dart run tool/check_native_alignment.dart --json informe.json <apk...>
+//
+// Con `--abi` falla ademas si el archivo trae una ABI que nadie pidio.
 //
 // Sale con código 1 si CUALQUIER librería nativa queda por debajo de 16384, que
 // es lo que exige el gate: no basta con revisar `libvosk.so`.
@@ -19,8 +21,17 @@ import 'package:voice_benchmark/bench/native_alignment.dart';
 
 Future<void> main(List<String> args) async {
   final paths = <String>[];
+  final expectedAbis = <String>[];
   String? jsonOut;
   for (var i = 0; i < args.length; i++) {
+    if (args[i] == '--abi') {
+      if (i + 1 >= args.length) {
+        stderr.writeln('--abi necesita una lista, por ejemplo arm64-v8a');
+        exit(2);
+      }
+      expectedAbis.addAll(args[++i].split(',').map((a) => a.trim()));
+      continue;
+    }
     if (args[i] == '--json') {
       if (i + 1 >= args.length) {
         stderr.writeln('--json necesita una ruta de salida');
@@ -34,8 +45,8 @@ Future<void> main(List<String> args) async {
 
   if (paths.isEmpty) {
     stderr.writeln(
-      'uso: dart run tool/check_native_alignment.dart [--json salida.json] '
-      '<apk-o-aar> [...]',
+      'uso: dart run tool/check_native_alignment.dart '
+      '[--abi arm64-v8a] [--json salida.json] <apk-o-aar> [...]',
     );
     exit(2);
   }
@@ -50,7 +61,7 @@ Future<void> main(List<String> args) async {
       failed = true;
       continue;
     }
-    final report = inspectArchive(file);
+    final report = inspectArchive(file, expectedAbis: expectedAbis);
     reports.add(report);
     stdout.writeln(report.render());
     if (!report.passes) failed = true;

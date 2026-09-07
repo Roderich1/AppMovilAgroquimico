@@ -283,6 +283,35 @@ void main() {
       expect(report.render(), contains('SIN LIBRERÍAS NATIVAS'));
     });
 
+    test('una ABI que nadie pidió tumba el gate', () {
+      // Medido de verdad: `ndk.abiFilters` no filtra las librerías que vienen
+      // dentro de un AAR, y el APK de Vosk salió con armeabi-v7a y x86_64 pese
+      // a construirse sólo para arm64. Con Flutter presente sólo en arm64, un
+      // emulador x86_64 habría elegido esa ABI y la aplicación no arrancaría.
+      final file = archiveWith({
+        'lib/arm64-v8a/libvosk.so': elf(loadAlignments: [16384]),
+        'lib/x86_64/libvosk.so': elf(loadAlignments: [16384]),
+      });
+
+      final report = inspectArchive(file, expectedAbis: const ['arm64-v8a']);
+
+      expect(report.unexpectedAbis, ['x86_64']);
+      expect(report.passes, isFalse);
+      expect(report.render(), contains('ABIs que nadie pidió'));
+    });
+
+    test('sin lista de ABIs esperadas no se comprueba ninguna', () {
+      final file = archiveWith({
+        'lib/arm64-v8a/libvosk.so': elf(loadAlignments: [16384]),
+        'lib/x86_64/libvosk.so': elf(loadAlignments: [16384]),
+      });
+
+      final report = inspectArchive(file);
+
+      expect(report.unexpectedAbis, isEmpty);
+      expect(report.passes, isTrue);
+    });
+
     test('el informe recuerda que el ELF no es la prueba completa', () {
       final file = archiveWith({
         'lib/arm64-v8a/libvosk.so': elf(loadAlignments: [16384]),

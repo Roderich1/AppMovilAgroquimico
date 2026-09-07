@@ -103,10 +103,24 @@ final class NativeLibraryCheck {
 
 /// Lo encontrado en un APK o AAR completo.
 final class NativeAlignmentReport {
-  const NativeAlignmentReport({required this.archive, required this.libraries});
+  const NativeAlignmentReport({
+    required this.archive,
+    required this.libraries,
+    this.expectedAbis = const [],
+  });
 
   final String archive;
   final List<NativeLibraryCheck> libraries;
+
+  /// Las ABIs que el APK **debía** traer. Vacío significa "no se comprueba".
+  ///
+  /// Existe por un defecto medido: `ndk.abiFilters` filtra lo que compila el
+  /// proyecto pero no las librerías que vienen dentro de un AAR, así que el APK
+  /// de Vosk salió con `armeabi-v7a` y `x86_64` pese a construirse sólo para
+  /// arm64. Con el motor de Flutter presente sólo en arm64, un emulador x86_64
+  /// habría elegido esa ABI por las librerías de Vosk y la aplicación se habría
+  /// caído al arrancar.
+  final List<String> expectedAbis;
 
   /// ABIs presentes en el archivo, ordenadas.
   List<String> get abis =>
@@ -116,16 +130,24 @@ final class NativeAlignmentReport {
   List<NativeLibraryCheck> get failures =>
       libraries.where((l) => !l.isCompatible).toList();
 
+  /// ABIs presentes que nadie pidió.
+  List<String> get unexpectedAbis => expectedAbis.isEmpty
+      ? const []
+      : (abis.where((a) => !expectedAbis.contains(a)).toList());
+
   /// Ninguna librería queda en 4 KB **y** hay al menos una que revisar.
   ///
   /// Un archivo sin librerías nativas no "pasa": no hay nada que afirmar, y
   /// devolver `true` haría que un APK mal construido —sin las librerías— se
   /// leyera como aprobado.
-  bool get passes => libraries.isNotEmpty && failures.isEmpty;
+  bool get passes =>
+      libraries.isNotEmpty && failures.isEmpty && unexpectedAbis.isEmpty;
 
   Map<String, Object?> toJson() => {
     'archive': archive,
     'abis': abis,
+    'expectedAbis': expectedAbis,
+    'unexpectedAbis': unexpectedAbis,
     'libraryCount': libraries.length,
     'passes': passes,
     'libraries': [for (final l in libraries) l.toJson()],
@@ -146,6 +168,17 @@ final class NativeAlignmentReport {
         'SIN LIBRERÍAS NATIVAS: no hay nada que comprobar y por tanto no se '
         'aprueba. Si este APK debería llevar Vosk o Whisper, está mal '
         'construido.',
+      );
+    } else if (unexpectedAbis.isNotEmpty) {
+      buffer.writeln(
+        'RESULTADO: FALLA. El archivo trae ABIs que nadie pidió: '
+        '${unexpectedAbis.join(', ')}. Se esperaban sólo '
+        '${expectedAbis.join(', ')}.',
+      );
+      buffer.writeln(
+        'Una ABI de más no es sólo peso: si el motor de Flutter no está en '
+        'ella, Android puede elegirla por estas librerías y la aplicación no '
+        'arranca.',
       );
     } else if (passes) {
       final checked = libraries.where((l) => l.applies).length;
@@ -221,7 +254,10 @@ String abiFromPath(String path) {
 }
 
 /// Examina todas las librerías nativas de un APK o AAR.
-NativeAlignmentReport inspectArchive(File archive) {
+NativeAlignmentReport inspectArchive(
+  File archive, {
+  List<String> expectedAbis = const [],
+}) {
   final entries = _readZipEntries(archive.readAsBytesSync());
   final libraries = <NativeLibraryCheck>[];
   for (final entry in entries) {
@@ -251,6 +287,7 @@ NativeAlignmentReport inspectArchive(File archive) {
   return NativeAlignmentReport(
     archive: archive.path,
     libraries: libraries,
+    expectedAbis: expectedAbis,
   );
 }
 
