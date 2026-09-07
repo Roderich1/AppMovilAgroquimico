@@ -76,6 +76,12 @@ abstract class BaseSpeechTranscriptionPort implements SpeechTranscriptionPort {
   }
 
   /// Publica un fallo y cierra la sesión. El micrófono queda libre.
+  /// Publica un aviso de calidad. No cambia el estado de la sesión: el motor
+  /// sigue donde estaba y el texto se entrega igual.
+  void emitQuality(TranscriptionQuality quality) {
+    _publish(quality);
+  }
+
   void emitFailure(TranscriptionErrorCode code, {String? detail}) {
     if (_disposed) return;
     _closeSession();

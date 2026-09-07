@@ -130,10 +130,7 @@ void main() {
         (s) => s.tags.contains('fuera_de_dominio'),
       );
       expect(outOfDomain, isNotEmpty);
-      expect(
-        outOfDomain.every((s) => s.expected == 'rechazado'),
-        isTrue,
-      );
+      expect(outOfDomain.every((s) => s.expected == 'rechazado'), isTrue);
     });
 
     test('hay negaciones y autocorrecciones', () {
@@ -235,35 +232,35 @@ void main() {
       expect(phase0.corpusVersion, '1.0.0');
     });
 
-    test('una frase repetida de la Fase 0 se declara y no cambia de conjunto',
-        () {
-      // Reutilizar una frase no está prohibido: dos de ellas son las que el
-      // propietario quiere poder comparar contra lo medido en el POCO. Lo que
-      // sí está prohibido es moverla de conjunto. Una frase con la que ya se
-      // afinó, evaluada en aceptación, mediría el ajuste y no el motor.
-      final phase0 = Corpus.fromJsonString(
-        File('assets/corpus.json').readAsStringSync(),
-      );
-      final old = {
-        for (final s in phase0.samples) canonical(s.text): s,
-      };
+    test(
+      'una frase repetida de la Fase 0 se declara y no cambia de conjunto',
+      () {
+        // Reutilizar una frase no está prohibido: dos de ellas son las que el
+        // propietario quiere poder comparar contra lo medido en el POCO. Lo que
+        // sí está prohibido es moverla de conjunto. Una frase con la que ya se
+        // afinó, evaluada en aceptación, mediría el ajuste y no el motor.
+        final phase0 = Corpus.fromJsonString(
+          File('assets/corpus.json').readAsStringSync(),
+        );
+        final old = {for (final s in phase0.samples) canonical(s.text): s};
 
-      final undeclared = <String>[];
-      final movedSplit = <String>[];
-      for (final sample in hybrid.samples) {
-        if (sample.isNonSpeech) continue;
-        final previous = old[canonical(sample.text)];
-        if (previous == null) continue;
-        if (!sample.tags.contains('heredada_fase0')) {
-          undeclared.add('${sample.id} repite ${previous.id}');
-        } else if (previous.split != sample.split) {
-          movedSplit.add('${sample.id} (${previous.id}) cambia de conjunto');
+        final undeclared = <String>[];
+        final movedSplit = <String>[];
+        for (final sample in hybrid.samples) {
+          if (sample.isNonSpeech) continue;
+          final previous = old[canonical(sample.text)];
+          if (previous == null) continue;
+          if (!sample.tags.contains('heredada_fase0')) {
+            undeclared.add('${sample.id} repite ${previous.id}');
+          } else if (previous.split != sample.split) {
+            movedSplit.add('${sample.id} (${previous.id}) cambia de conjunto');
+          }
         }
-      }
 
-      expect(undeclared, isEmpty);
-      expect(movedSplit, isEmpty);
-    });
+        expect(undeclared, isEmpty);
+        expect(movedSplit, isEmpty);
+      },
+    );
 
     test('las heredadas están marcadas y son pocas', () {
       final inherited = hybrid.samples.where(

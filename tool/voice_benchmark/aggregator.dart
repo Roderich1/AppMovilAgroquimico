@@ -50,6 +50,10 @@ class EngineSummary {
     required this.airplaneMismatches,
     required this.errorCounts,
     required this.localeFallbacks,
+    required this.suspicious,
+    required this.flagCounts,
+    required this.acceptedOnNonSpeech,
+    required this.nonSpeechSamples,
     this.medianWer,
     this.partialP50,
     this.partialP95,
@@ -96,6 +100,32 @@ class EngineSummary {
 
   /// Mediciones donde el motor escuchó en un locale distinto del pedido.
   final int localeFallbacks;
+
+  /// Mediciones que el propio motor marcó como dudosas.
+  ///
+  /// No entran en [withResult] ni en la exactitud: contar `[MÚSICA]` sobre
+  /// silencio como una transcripción más daría por buena la afirmación que el
+  /// guardrail existe para impedir.
+  final int suspicious;
+
+  /// Cuántas veces apareció cada marca.
+  final Map<String, int> flagCounts;
+
+  /// **El guardrail binario.** Texto aceptado sobre muestras sin habla.
+  ///
+  /// Son las mediciones de la partición `sin_habla` que produjeron texto y que
+  /// el motor **no** marcó. La matriz de aceptación exige cero: cualquier otro
+  /// valor es una afirmación sobre algo que nadie dijo. Si la tanda no incluyó
+  /// esa partición, es cero porque no hubo muestras, no porque el motor las
+  /// haya superado; el informe lo distingue con [nonSpeechSamples].
+  final int acceptedOnNonSpeech;
+
+  /// Cuántas muestras sin habla se dictaron en esta tanda.
+  ///
+  /// Cero aquí y cero en [acceptedOnNonSpeech] significan cosas opuestas: la
+  /// primera dice que nadie probó el guardrail, la segunda que se probó y se
+  /// cumplió. El informe no puede presentarlas igual.
+  final int nonSpeechSamples;
 
   final double? medianWer;
   final int? partialP50;
@@ -148,6 +178,13 @@ abstract final class BenchAggregator {
     final first = group.first;
     final comparables = group.where((r) => r.comparable).toList();
 
+    final flagCounts = <String, int>{};
+    for (final record in group) {
+      for (final flag in record.qualityFlags) {
+        flagCounts[flag] = (flagCounts[flag] ?? 0) + 1;
+      }
+    }
+
     var exact = 0;
     var criticalHits = 0;
     var criticalTotal = 0;
@@ -199,6 +236,21 @@ abstract final class BenchAggregator {
                 r.effectiveLocale != r.requestedLocale,
           )
           .length,
+      suspicious: group.where((r) => r.isSuspicious).length,
+      flagCounts: flagCounts,
+      // Texto sobre no-habla que el motor NO objetó. La partición es la que
+      // dice qué muestras eran sin habla; si la tanda no la incluyó, no hay
+      // nada que contar y el informe lo dice en vez de exhibir un cero.
+      acceptedOnNonSpeech: group
+          .where(
+            (r) =>
+                r.partition == 'sin_habla' &&
+                r.errorCode == null &&
+                (r.obtainedText ?? '').isNotEmpty &&
+                !r.isSuspicious,
+          )
+          .length,
+      nonSpeechSamples: group.where((r) => r.partition == 'sin_habla').length,
       medianWer: wers.isEmpty ? null : percentileDouble(wers, 50),
       partialP50: percentile(group.map((r) => r.partialLatencyMs), 50),
       partialP95: percentile(group.map((r) => r.partialLatencyMs), 95),

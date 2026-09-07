@@ -595,4 +595,100 @@ void main() {
       expect(slots, isEmpty);
     });
   });
+
+  group('el guardrail de no-habla', () {
+    // C3, con `ggml-small-q5_1`, devolvió `[MÚSICA]` sobre 5177 ms de silencio
+    // en el emulador de 16 KB. Es `RISK-026` otra vez y `small` no lo arregla.
+    // Estas pruebas fijan qué hace el agregador con eso.
+    BenchRecord noSpeech({
+      required String obtained,
+      List<String> flags = const [],
+      String sampleId = 'HG-001',
+    }) => BenchRecord(
+      sampleId: sampleId,
+      split: 'aceptacion',
+      partition: 'sin_habla',
+      intent: 'fuera_de_alcance',
+      expectedText: '',
+      obtainedText: obtained,
+      engine: 'whisper-small-q5_1',
+      candidateId: 'C3',
+      corpusId: 'hibrido-ag',
+      corpusVersion: 'hybrid-1.0.0',
+      corpusDigest: 'd' * 64,
+      airplaneMode: true,
+      qualityFlags: flags,
+    );
+
+    test('un texto marcado no cuenta como transcripción', () {
+      final s = BenchAggregator.summarize([
+        noSpeech(obtained: '[MÚSICA]', flags: const ['possibleHallucination']),
+      ]).single;
+
+      expect(s.total, 1);
+      expect(s.withResult, 0, reason: 'no es una transcripción, es un aviso');
+      expect(s.suspicious, 1);
+      expect(s.flagCounts['possibleHallucination'], 1);
+    });
+
+    test('un texto marcado no rompe el guardrail: el motor sí lo objetó', () {
+      final s = BenchAggregator.summarize([
+        noSpeech(obtained: '[MÚSICA]', flags: const ['possibleHallucination']),
+      ]).single;
+
+      expect(s.acceptedOnNonSpeech, 0);
+      expect(s.nonSpeechSamples, 1);
+    });
+
+    test('un texto NO marcado sobre no-habla sí lo rompe', () {
+      // Es la afirmación peligrosa: el motor dijo algo que nadie dijo y lo dio
+      // por bueno. Un producto o un monto sobre ruido de campo llegaría al
+      // usuario como dato propuesto.
+      final s = BenchAggregator.summarize([
+        noSpeech(obtained: 'cincuenta litros de bellator'),
+      ]).single;
+
+      expect(s.acceptedOnNonSpeech, 1);
+    });
+
+    test('sin muestras sin habla el guardrail no está probado', () {
+      // Cero aceptaciones y cero muestras significan cosas opuestas, y
+      // presentarlas igual haría pasar por superado un gate que nadie ejecutó.
+      final s = BenchAggregator.summarize([
+        BenchRecord(
+          sampleId: 'HA-001',
+          split: 'ajuste',
+          partition: 'ajuste',
+          intent: 'compra',
+          expectedText: 'Anotar una compra nueva.',
+          obtainedText: 'anotar una compra nueva',
+          engine: 'whisper-small-q5_1',
+          candidateId: 'C3',
+          corpusId: 'hibrido-ag',
+          airplaneMode: true,
+        ),
+      ]).single;
+
+      expect(s.acceptedOnNonSpeech, 0);
+      expect(s.nonSpeechSamples, 0);
+    });
+
+    test('el informe muestra la columna de marcadas', () {
+      final markdown = BenchReport.render(
+        BenchAggregator.summarize([
+          noSpeech(
+            obtained: '[MÚSICA]',
+            flags: const ['possibleHallucination'],
+          ),
+        ]),
+        corpusId: 'hibrido-ag',
+        corpusVersion: 'hybrid-1.0.0',
+        corpusDigest: 'd' * 64,
+        partition: 'sin_habla',
+      );
+
+      expect(markdown, contains('Marcadas'));
+      expect(markdown, contains('hibrido-ag'));
+    });
+  });
 }

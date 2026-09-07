@@ -98,6 +98,7 @@ class BenchController extends ChangeNotifier {
   String? _errorDetail;
   int? _partialLatencyMs;
   int? _finalLatencyMs;
+  List<String> _qualityFlags = const <String>[];
   Stopwatch? _sessionClock;
   int? _audioDurationMs;
   final Map<String, int> _attempts = <String, int>{};
@@ -125,6 +126,13 @@ class BenchController extends ChangeNotifier {
   int? get partialLatencyMs => _partialLatencyMs;
   int? get finalLatencyMs => _finalLatencyMs;
   int? get audioDurationMs => _audioDurationMs;
+
+  /// Lo que el motor marcó como dudoso en la frase actual.
+  ///
+  /// Vacía significa que no objetó nada. La pantalla lo muestra antes de
+  /// guardar: es la advertencia que faltaba cuando `small` devolvió `[MÚSICA]`
+  /// sobre silencio y la interfaz lo presentó como resultado final a secas.
+  List<String> get qualityFlags => _qualityFlags;
   List<BenchResult> get results => List.unmodifiable(_results);
 
   /// El candidato que corresponde al motor instalado.
@@ -366,6 +374,7 @@ class BenchController extends ChangeNotifier {
         modelHashes: candidate?.modelHashes ?? const <String, String>{},
         benchCommit: benchCommit,
         abi: deviceInfo.abi,
+        qualityFlags: _qualityFlags,
         requestedLocale: _requestedLocale,
         effectiveLocale: _availability?.effectiveLocale,
         device: deviceInfo.device,
@@ -431,6 +440,7 @@ class BenchController extends ChangeNotifier {
     _partialLatencyMs = null;
     _finalLatencyMs = null;
     _audioDurationMs = null;
+    _qualityFlags = const <String>[];
     _sessionClock = null;
   }
 
@@ -462,6 +472,9 @@ class BenchController extends ChangeNotifier {
         // que tardó el motor en responder.
         _finalLatencyMs = elapsed.inMilliseconds - (_audioDurationMs ?? 0);
         _sessionClock?.stop();
+      case TranscriptionQuality(:final flags):
+        // No cambia el estado ni el texto: sólo anota qué hay que revisar.
+        _qualityFlags = List.unmodifiable(flags);
       case TranscriptionFailed(:final code, :final detail):
         _errorCode = code.name;
         _errorDetail = detail;

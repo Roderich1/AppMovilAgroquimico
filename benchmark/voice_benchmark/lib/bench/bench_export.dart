@@ -127,6 +127,7 @@ abstract final class BenchExportColumns {
     'modelHashes',
     'benchCommit',
     'abi',
+    'qualityFlags',
     'requestedLocale',
     'effectiveLocale',
     'device',

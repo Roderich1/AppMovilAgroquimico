@@ -498,6 +498,30 @@ class _BenchScreenState extends State<BenchScreen> with WidgetsBindingObserver {
             const SizedBox(height: 8),
             const Text('Final', style: TextStyle(fontWeight: FontWeight.w600)),
             SelectableText(c.finalText.isEmpty ? '—' : c.finalText),
+            // El motor puede objetar lo que acaba de entregar. Sin esto,
+            // `[MÚSICA]` sobre silencio se veía como un resultado cualquiera:
+            // es el defecto por el que `ADR-002` descartó a Whisper, y el
+            // modelo `small` volvió a producirlo en el emulador de 16 KB.
+            if (c.qualityFlags.isNotEmpty)
+              Container(
+                margin: const EdgeInsets.only(top: 8),
+                padding: const EdgeInsets.all(8),
+                color: Colors.red.shade100,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      'EL MOTOR MARCA ESTE TEXTO COMO DUDOSO',
+                      style: TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    Text(c.qualityFlags.map(_flagLabel).join(' · ')),
+                    const Text(
+                      'No cuenta como transcripción correcta. Queda marcado '
+                      'en el resultado exportado.',
+                    ),
+                  ],
+                ),
+              ),
           ],
         ),
       ),
@@ -651,4 +675,15 @@ class _BenchScreenState extends State<BenchScreen> with WidgetsBindingObserver {
   );
 
   static String _ms(int? value) => value == null ? 'NOT_MEASURED' : '$value ms';
+
+  /// El código del motor, en castellano, para quien opera el banco.
+  static String _flagLabel(String flag) => switch (flag) {
+    'noSpeech' => 'no oyó habla',
+    'possibleHallucination' =>
+      'anotación del modelo, no habla (por ejemplo «[MÚSICA]»)',
+    'degenerateRepetition' => 'se quedó repitiendo',
+    'lowSpeechRatio' => 'más texto del que cabe en el audio',
+    'criticalDisagreement' => 'los dos motores no coinciden en un dato crítico',
+    _ => flag,
+  };
 }

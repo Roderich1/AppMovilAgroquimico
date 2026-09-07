@@ -65,13 +65,15 @@ void main() {
       expect(result.hasCriticalDisagreement, isTrue);
       expect(result.isAcceptableWithoutReview, isFalse);
 
-      final digits = result.disagreements
-          .firstWhere((d) => d.kind == CriticalTokenKind.digitos);
+      final digits = result.disagreements.firstWhere(
+        (d) => d.kind == CriticalTokenKind.digitos,
+      );
       expect(digits.left, isEmpty);
       expect(digits.right, ['12']);
 
-      final words = result.disagreements
-          .firstWhere((d) => d.kind == CriticalTokenKind.numeroEnPalabras);
+      final words = result.disagreements.firstWhere(
+        (d) => d.kind == CriticalTokenKind.numeroEnPalabras,
+      );
       expect(words.left, ['dos']);
       expect(words.right, isEmpty);
     });
@@ -109,8 +111,9 @@ void main() {
         proposed: whisper('cincuenta kilos de mancozeb'),
       );
 
-      final unit = result.disagreements
-          .firstWhere((d) => d.kind == CriticalTokenKind.unidad);
+      final unit = result.disagreements.firstWhere(
+        (d) => d.kind == CriticalTokenKind.unidad,
+      );
       expect(unit.left, ['litros']);
       expect(unit.right, ['kilos']);
     });
@@ -134,8 +137,9 @@ void main() {
         catalogTerms: const ['Bellator'],
       );
 
-      final catalog = result.disagreements
-          .firstWhere((d) => d.kind == CriticalTokenKind.terminoDeCatalogo);
+      final catalog = result.disagreements.firstWhere(
+        (d) => d.kind == CriticalTokenKind.terminoDeCatalogo,
+      );
       expect(catalog.left, isEmpty);
       expect(catalog.right, ['bellator']);
     });
@@ -257,22 +261,28 @@ void main() {
         proposed: whisper('algo', flags: const ['degenerateRepetition']),
       );
 
-      expect(result.flags, containsAll(<String>[
-        'lowSpeechRatio',
-        'degenerateRepetition',
-      ]));
-      expect(result.isAcceptableWithoutReview, isFalse);
-    });
-
-    test('cualquier marca impide aceptar aunque coincidan palabra por palabra', () {
-      final result = compareTranscripts(
-        partial: vosk('cincuenta litros'),
-        proposed: whisper('cincuenta litros', flags: const ['lowSpeechRatio']),
+      expect(
+        result.flags,
+        containsAll(<String>['lowSpeechRatio', 'degenerateRepetition']),
       );
-
-      expect(result.disagreements, isEmpty);
       expect(result.isAcceptableWithoutReview, isFalse);
     });
+
+    test(
+      'cualquier marca impide aceptar aunque coincidan palabra por palabra',
+      () {
+        final result = compareTranscripts(
+          partial: vosk('cincuenta litros'),
+          proposed: whisper(
+            'cincuenta litros',
+            flags: const ['lowSpeechRatio'],
+          ),
+        );
+
+        expect(result.disagreements, isEmpty);
+        expect(result.isAcceptableWithoutReview, isFalse);
+      },
+    );
   });
 
   group('lo que se exporta', () {
@@ -282,14 +292,8 @@ void main() {
         proposed: whisper('12 litros'),
       ).toJson();
 
-      expect(
-        (json['partial']! as Map<String, Object?>)['text'],
-        'dos litros',
-      );
-      expect(
-        (json['proposed']! as Map<String, Object?>)['text'],
-        '12 litros',
-      );
+      expect((json['partial']! as Map<String, Object?>)['text'], 'dos litros');
+      expect((json['proposed']! as Map<String, Object?>)['text'], '12 litros');
       expect(json['hasCriticalDisagreement'], isTrue);
       expect(json['acceptableWithoutReview'], isFalse);
       expect(json['disagreements'], isA<List<Object?>>());

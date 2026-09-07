@@ -123,6 +123,50 @@ final class TranscriptionFinal extends TranscriptionEvent {
       'TranscriptionFinal(chars=${text.length}, elapsed=${elapsed.inMilliseconds}ms)';
 }
 
+/// Aviso del motor sobre la **fiabilidad** de lo que acaba de entregar.
+///
+/// No es un resultado y no reemplaza a [TranscriptionFinal]: el texto se
+/// entrega igual y sin tocar. Esto dice qué huele mal, para que quien mida lo
+/// registre y quien lea decida.
+///
+/// Existe porque Whisper afirma texto sobre silencio. En la Fase 0, el modelo
+/// `tiny` devolvió `[MÚSICA]` ante tres segundos sin habla y sin error
+/// (`RISK-026`); en el emulador de 16 KB, `small` hizo exactamente lo mismo
+/// sobre 5177 ms. El motor lo detecta; sin este evento, la detección se perdía
+/// en el canal y el texto llegaba a la pantalla y al archivo exportado como una
+/// transcripción cualquiera.
+final class TranscriptionQuality extends TranscriptionEvent {
+  const TranscriptionQuality({
+    required this.flags,
+    this.source,
+    this.elapsedMs,
+    this.audioMs,
+    this.realTimeFactor,
+  });
+
+  /// `noSpeech`, `possibleHallucination`, `degenerateRepetition`,
+  /// `lowSpeechRatio`, `criticalDisagreement`. Vacía significa «nada que
+  /// objetar», no «no se comprobó».
+  final List<String> flags;
+
+  /// Qué motor lo dice: `whisper`, `vosk`, `hybrid`.
+  final String? source;
+
+  /// Milisegundos de cómputo del motor.
+  final int? elapsedMs;
+
+  /// Milisegundos de audio que se le dieron.
+  final int? audioMs;
+
+  /// Cómputo dividido por audio. `ADR-004` pide p95 <= 0,50.
+  final double? realTimeFactor;
+
+  /// Nunca incluye el texto: los logs no deben contener lo dictado.
+  @override
+  String toString() =>
+      'TranscriptionQuality(${flags.join(",")}, source=$source)';
+}
+
 /// Fallo de la sesión. La sesión queda terminada y el micrófono liberado.
 final class TranscriptionFailed extends TranscriptionEvent {
   const TranscriptionFailed(this.code, {this.detail});

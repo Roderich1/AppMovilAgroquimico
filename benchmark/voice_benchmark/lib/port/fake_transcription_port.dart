@@ -94,6 +94,27 @@ final class FakeSpeechTranscriptionPort extends BaseSpeechTranscriptionPort {
   @override
   String get engineId => _engineId;
 
+  /// Emite un aviso de calidad, como haría el motor nativo.
+  ///
+  /// Existe para poder ejercitar sin teléfono el camino completo de una marca
+  /// de sospecha: del motor a la pantalla y al archivo exportado. Es el camino
+  /// donde se perdía.
+  void emitQualityForTest(
+    List<String> flags, {
+    String source = 'whisper',
+    int? elapsedMs,
+    int? audioMs,
+    double? realTimeFactor,
+  }) => emitQuality(
+    TranscriptionQuality(
+      flags: flags,
+      source: source,
+      elapsedMs: elapsedMs,
+      audioMs: audioMs,
+      realTimeFactor: realTimeFactor,
+    ),
+  );
+
   @override
   Future<TranscriptionAvailability> checkAvailability(String locale) async {
     calls.add('availability');

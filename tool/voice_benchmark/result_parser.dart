@@ -47,6 +47,7 @@ class BenchRecord {
     this.modelHashes = const <String, String>{},
     this.benchCommit = '',
     this.abi = '',
+    this.qualityFlags = const <String>[],
   });
 
   final String sampleId;
@@ -124,11 +125,24 @@ class BenchRecord {
 
   final String abi;
 
+  /// Lo que el motor marcó como dudoso.
+  ///
+  /// Vacía significa «el motor no objetó nada», no «no se comprobó».
+  final List<String> qualityFlags;
+
+  /// El motor objetó algo sobre este resultado.
+  bool get isSuspicious => qualityFlags.isNotEmpty;
+
   /// Hubo transcripción utilizable.
   bool get succeeded => errorCode == null && (obtainedText ?? '').isNotEmpty;
 
-  /// La transcripción no puede evaluarse porque se quitó a propósito.
-  bool get comparable => !transcriptRedacted && succeeded;
+  /// La transcripción se puede evaluar como acierto o error del motor.
+  ///
+  /// Un texto que el motor marcó como dudoso **no** entra: contar `[MÚSICA]`
+  /// sobre silencio como una transcripción más daría por buena justo la
+  /// afirmación que el guardrail existe para impedir. Cuenta aparte, en
+  /// [EngineSummary.suspicious].
+  bool get comparable => !transcriptRedacted && succeeded && !isSuspicious;
 
   /// Qué hace única a **una toma**.
   ///
@@ -276,7 +290,21 @@ abstract final class BenchResultParser {
       modelHashes: _modelHashes(row['modelHashes'] ?? envelope['modelHashes']),
       benchCommit: text('benchCommit'),
       abi: text('abi'),
+      qualityFlags: _flags(row['qualityFlags']),
     );
+  }
+
+  /// Las marcas llegan como lista en el JSON y como `a;b` en el CSV.
+  static List<String> _flags(Object? value) {
+    if (value == null) return const <String>[];
+    if (value is List) {
+      return value.map((e) => '$e').where((e) => e.isNotEmpty).toList();
+    }
+    return '$value'
+        .split(';')
+        .map((e) => e.trim())
+        .where((e) => e.isNotEmpty)
+        .toList();
   }
 
   /// Los hashes de modelo llegan como objeto en el JSON y como

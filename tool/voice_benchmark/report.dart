@@ -51,12 +51,13 @@ abstract final class BenchReport {
       ..writeln()
       ..writeln(
         '| Motor | Modelo | Dispositivo | Android | Corpus | Muestras | '
-        'Con resultado | Errores | Exactitud | WER mediana | Datos críticos | '
+        'Con resultado | Errores | Marcadas | Exactitud | WER mediana | '
+        'Datos críticos | '
         'Parcial p50 | Parcial p95 | Final p50 | Final p95 | Memoria pico | '
         'Modo avión | Locale distinto |',
       )
       ..writeln(
-        '|---|---|---|---|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|',
+        '|---|---|---|---|---|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|--:|',
       );
 
     for (final s in summaries) {

@@ -56,6 +56,7 @@ final class BenchResult {
     this.modelHashes = const <String, String>{},
     this.benchCommit = '',
     this.abi = '',
+    this.qualityFlags = const <String>[],
   });
 
   /// Identificador de la frase, por ejemplo `AC-012`.
@@ -119,6 +120,20 @@ final class BenchResult {
   /// ABI del aparato. El APK debe llevar una sola, y ésta es la que corrió.
   final String abi;
 
+  /// Lo que el motor marcó como dudoso: `noSpeech`,
+  /// `possibleHallucination`, `degenerateRepetition`, `lowSpeechRatio`,
+  /// `criticalDisagreement`.
+  ///
+  /// Vacía significa «el motor no objetó nada», no «no se comprobó». Es lo que
+  /// decide el guardrail binario de la matriz de aceptación: **cero texto
+  /// aceptado sobre no-habla**. Sin este campo, el `[MÚSICA]` que `small`
+  /// devolvió sobre silencio en el emulador de 16 KB entraría en el archivo
+  /// exportado como una transcripción cualquiera.
+  final List<String> qualityFlags;
+
+  /// El motor objetó algo sobre este resultado.
+  bool get isSuspicious => qualityFlags.isNotEmpty;
+
   // ---------------------------------------------------------- el aparato
 
   final String requestedLocale;
@@ -177,9 +192,9 @@ final class BenchResult {
   /// Sin fallo y con texto reconocido.
   bool get succeeded => errorCode == null && (obtainedText ?? '').isNotEmpty;
 
-  /// Copia sin la transcripción. **La identidad se conserva**: quitar el texto
-  /// dictado protege datos reales; quitar de qué corpus salió convertiría la
-  /// medición en una cifra suelta.
+  /// Copia sin la transcripción. **La identidad y las marcas se conservan**:
+  /// quitar el texto dictado protege datos reales, pero una marca es un código
+  /// y no lo es. Sin ella, la fila redactada parecería una transcripción sana.
   BenchResult redacted() => copyWith(
     obtainedText: null,
     clearObtainedText: true,
@@ -219,6 +234,7 @@ final class BenchResult {
     modelHashes: modelHashes,
     benchCommit: benchCommit,
     abi: abi,
+    qualityFlags: qualityFlags,
     requestedLocale: requestedLocale,
     effectiveLocale: effectiveLocale ?? this.effectiveLocale,
     device: device,
@@ -256,6 +272,7 @@ final class BenchResult {
     'modelHashes': modelHashes,
     'benchCommit': benchCommit,
     'abi': abi,
+    'qualityFlags': qualityFlags,
     'requestedLocale': requestedLocale,
     'effectiveLocale': effectiveLocale,
     'device': device,

@@ -103,8 +103,30 @@ final class PlatformSpeechTranscriptionPort
         for (final s in TranscriptionState.values) {
           if (s.name == name) emitState(s);
         }
+      // Aviso de fiabilidad del motor. Se leía en Kotlin, se mandaba por el
+      // canal y aquí se descartaba: por eso `[MÚSICA]` sobre silencio llegaba a
+      // la pantalla y al archivo exportado sin una sola advertencia.
+      case 'hybrid':
+        emitQuality(
+          TranscriptionQuality(
+            flags: _strings(map['flags']),
+            source: map['source'] as String?,
+            elapsedMs: _int(map['whisperElapsedMs']),
+            audioMs: _int(map['audioMs']),
+            realTimeFactor: _double(map['realTimeFactor']),
+          ),
+        );
     }
   }
+
+  static int? _int(Object? value) => value is int
+      ? value
+      : value is num
+      ? value.round()
+      : null;
+
+  static double? _double(Object? value) =>
+      value is num ? value.toDouble() : null;
 
   static TranscriptionErrorCode _codeFrom(String? name) {
     for (final code in TranscriptionErrorCode.values) {

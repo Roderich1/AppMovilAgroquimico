@@ -13,7 +13,10 @@ import 'package:voice_benchmark/bench/native_alignment.dart';
 /// fuera tarde.
 void main() {
   /// ELF64 little-endian mínimo con los `PT_LOAD` que se le pidan.
-  Uint8List elf({required List<int> loadAlignments, List<int> other = const []}) {
+  Uint8List elf({
+    required List<int> loadAlignments,
+    List<int> other = const [],
+  }) {
     const headerSize = 64;
     const phentsize = 56;
     final phnum = loadAlignments.length + other.length;
@@ -117,24 +120,24 @@ void main() {
   File archiveWith(Map<String, Uint8List> files) {
     final dir = Directory.systemTemp.createTempSync('align16k');
     addTearDown(() => dir.deleteSync(recursive: true));
-    final file = File('${dir.path}/candidato.apk')..writeAsBytesSync(zip(files));
+    final file = File('${dir.path}/candidato.apk')
+      ..writeAsBytesSync(zip(files));
     return file;
   }
 
   group('lectura del ELF', () {
     test('lee la alineación de cada segmento cargable', () {
-      expect(
-        loadSegmentAlignments(elf(loadAlignments: [16384, 16384])),
-        [16384, 16384],
-      );
+      expect(loadSegmentAlignments(elf(loadAlignments: [16384, 16384])), [
+        16384,
+        16384,
+      ]);
     });
 
     test('ignora los segmentos que no son PT_LOAD', () {
       // Un `PT_DYNAMIC` a 8 bytes es normal y no dice nada de la carga.
-      expect(
-        loadSegmentAlignments(elf(loadAlignments: [16384], other: [8])),
-        [16384],
-      );
+      expect(loadSegmentAlignments(elf(loadAlignments: [16384], other: [8])), [
+        16384,
+      ]);
     });
 
     test('lo que no es un ELF legible no devuelve alineaciones', () {

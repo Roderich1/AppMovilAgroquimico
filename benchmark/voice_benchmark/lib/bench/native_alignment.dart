@@ -76,8 +76,9 @@ final class NativeLibraryCheck {
   }
 
   /// La menor alineación encontrada, que es la que decide.
-  int get worstAlignment =>
-      loadAlignments.isEmpty ? 0 : loadAlignments.reduce((a, b) => a < b ? a : b);
+  int get worstAlignment => loadAlignments.isEmpty
+      ? 0
+      : loadAlignments.reduce((a, b) => a < b ? a : b);
 
   Map<String, Object?> toJson() => {
     'path': path,

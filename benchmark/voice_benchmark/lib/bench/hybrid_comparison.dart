@@ -140,8 +140,7 @@ final class CriticalDisagreement {
   };
 
   @override
-  String toString() =>
-      '${kind.label}: ${left.join(' ')} | ${right.join(' ')}';
+  String toString() => '${kind.label}: ${left.join(' ')} | ${right.join(' ')}';
 }
 
 /// El resultado de comparar los dos motores sobre una misma captura.
@@ -223,10 +222,7 @@ HybridComparison compareTranscripts({
   EngineTranscript? proposed,
   Iterable<String> catalogTerms = const [],
 }) {
-  final flags = <String>{
-    ...?partial?.flags,
-    ...?proposed?.flags,
-  };
+  final flags = <String>{...?partial?.flags, ...?proposed?.flags};
 
   final partialEmpty = partial == null || partial.isEmpty;
   final proposedEmpty = proposed == null || proposed.isEmpty;
@@ -385,24 +381,90 @@ bool _sameMultiset(List<String> a, List<String> b) {
 /// Números dichos con letras. Se comparan **como palabras**: aquí no se
 /// convierte nada a cifras.
 const _numberWords = <String>{
-  'cero', 'un', 'uno', 'una', 'dos', 'tres', 'cuatro', 'cinco', 'seis',
-  'siete', 'ocho', 'nueve', 'diez', 'once', 'doce', 'trece', 'catorce',
-  'quince', 'dieciseis', 'diecisiete', 'dieciocho', 'diecinueve', 'veinte',
-  'veintiuno', 'veintidos', 'veintitres', 'veinticuatro', 'veinticinco',
-  'veintiseis', 'veintisiete', 'veintiocho', 'veintinueve', 'treinta',
-  'cuarenta', 'cincuenta', 'sesenta', 'setenta', 'ochenta', 'noventa',
-  'cien', 'ciento', 'doscientos', 'trescientos', 'cuatrocientos',
-  'quinientos', 'seiscientos', 'setecientos', 'ochocientos', 'novecientos',
-  'mil', 'millon', 'millones', 'media', 'medio', 'mitad',
+  'cero',
+  'un',
+  'uno',
+  'una',
+  'dos',
+  'tres',
+  'cuatro',
+  'cinco',
+  'seis',
+  'siete',
+  'ocho',
+  'nueve',
+  'diez',
+  'once',
+  'doce',
+  'trece',
+  'catorce',
+  'quince',
+  'dieciseis',
+  'diecisiete',
+  'dieciocho',
+  'diecinueve',
+  'veinte',
+  'veintiuno',
+  'veintidos',
+  'veintitres',
+  'veinticuatro',
+  'veinticinco',
+  'veintiseis',
+  'veintisiete',
+  'veintiocho',
+  'veintinueve',
+  'treinta',
+  'cuarenta',
+  'cincuenta',
+  'sesenta',
+  'setenta',
+  'ochenta',
+  'noventa',
+  'cien',
+  'ciento',
+  'doscientos',
+  'trescientos',
+  'cuatrocientos',
+  'quinientos',
+  'seiscientos',
+  'setecientos',
+  'ochocientos',
+  'novecientos',
+  'mil',
+  'millon',
+  'millones',
+  'media',
+  'medio',
+  'mitad',
 };
 
 const _unitWords = <String>{
-  'litro', 'litros', 'kilo', 'kilos', 'kilogramo', 'kilogramos',
-  'gramo', 'gramos', 'unidad', 'unidades', 'bidon', 'bidones',
-  'bolsa', 'bolsas', 'caja', 'cajas', 'hectarea', 'hectareas',
+  'litro',
+  'litros',
+  'kilo',
+  'kilos',
+  'kilogramo',
+  'kilogramos',
+  'gramo',
+  'gramos',
+  'unidad',
+  'unidades',
+  'bidon',
+  'bidones',
+  'bolsa',
+  'bolsas',
+  'caja',
+  'cajas',
+  'hectarea',
+  'hectareas',
 };
 
 const _currencyWords = <String>{
-  'boliviano', 'bolivianos', 'bs', 'bob',
-  'dolar', 'dolares', 'usd',
+  'boliviano',
+  'bolivianos',
+  'bs',
+  'bob',
+  'dolar',
+  'dolares',
+  'usd',
 };
