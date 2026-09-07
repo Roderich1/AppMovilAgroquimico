@@ -80,9 +80,13 @@ Lo comprobado, no lo supuesto:
 | Transitivas | Una: `net.java.dev.jna:jna:5.18.1`, con exclusiones `*:*`. Dual LGPL-2.1-or-later / Apache-2.0; **se elige Apache-2.0** |
 | ABIs y `.so` | `libvosk.so` y `libjnidispatch.so`; arm64-v8a y x86_64 a 16384, 32 bits a 4096 (no aplica) |
 
-**Riesgo real:** no se puede reconstruir el binario desde fuente y comprobar que coincide. Se
-confía en que Alpha Cephei publicó lo que dice publicar. La integridad de la descarga sí está
-garantizada; la procedencia del binario, no.
+**Riesgo real:** no se puede reconstruir el binario desde fuente y comprobar que coincide, ni
+verificar su firma.
+
+El SHA-256 fija los bytes aceptados y permite detectar cualquier modificación posterior.
+El artefacto fue obtenido desde Maven Central mediante TLS y coordenadas fijas, pero su firma
+PGP no pudo verificarse; por tanto, la autenticidad criptográfica respecto del autor original
+permanece como riesgo residual.
 
 **Mitigaciones activas:** repositorio único y versión exacta, sin rangos ni `latest`;
 verificación de dependencias de Gradle con los hashes fijados; inventario de licencias y

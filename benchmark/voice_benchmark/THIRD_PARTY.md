@@ -126,9 +126,16 @@ Dos motivos, ambos comprobados en el material publicado:
    firma. `gpg` no la acepta para verificar y no existe otra copia con capacidad de firma en
    ninguno de los cuatro servidores consultados.
 
-La identidad del firmante **es coherente** con el autor de Vosk, pero eso es una observacion,
-no una verificacion criptografica. Lo que si queda comprobado es la integridad: el SHA-256 que
-publica Maven Central coincide byte a byte con el calculado localmente. Va a `RISK-033`.
+La identidad del firmante **es coherente** con el autor de Vosk, pero eso es una observación,
+no una verificación criptográfica.
+
+El SHA-256 fija los bytes aceptados y permite detectar cualquier modificación posterior.
+El artefacto fue obtenido desde Maven Central mediante TLS y coordenadas fijas, pero su firma
+PGP no pudo verificarse; por tanto, la autenticidad criptográfica respecto del autor original
+permanece como riesgo residual.
+
+El SHA-256 que publica Maven Central coincide byte a byte con el calculado localmente, de modo
+que los bytes que se compilan son exactamente los medidos. Va a `RISK-033`.
 
 ### Dependencia transitiva: JNA
 
@@ -139,15 +146,23 @@ nada mas.
 |---|---|
 | Coordenadas | `net.java.dev.jna:jna:5.18.1` (empaquetado `aar`) |
 | Licencia | **LGPL-2.1-or-later O Apache-2.0**, a eleccion del consumidor segun el POM |
-| Licencia elegida aqui | **Apache-2.0**, para no arrastrar las obligaciones de relinkeo de la LGPL |
+| **Licencia elegida por este proyecto** | **Apache-2.0** |
 | Tamano del AAR | 522.677 B |
 | SHA-256 del AAR | `7f053e3ec99e14dd71259c82c1c8a02738d64a13c31226b2acc170f3060951e0` |
 | Transitivas propias | Ninguna |
 | ABIs con `.so` | `arm64-v8a`, `armeabi`, `armeabi-v7a`, `mips`, `mips64`, `x86`, `x86_64` |
 | `libjnidispatch.so` arm64-v8a | 176.520 B |
 
+**Elección de licencia de JNA, explícita.** El POM ofrece las dos y deja la elección al
+consumidor: *«You can freely decide which license you want to apply to the project»*. Este
+proyecto **elige Apache-2.0**. El motivo es que la LGPL-2.1 obliga a permitir el relinkeo de la
+biblioteca por parte del usuario final, lo que en un APK exigiría publicar objetos o medios
+para recomponerlo; con Apache-2.0 basta con conservar el aviso de copyright y la atribución,
+que es lo que hace este archivo. La elección se aplica a `libjnidispatch.so` y a `classes.jar`
+tal como se distribuyen dentro de los APK de los sabores `vosk` e `hybrid`.
+
 Maven Central **no publica** `.sha256` para este artefacto (404); el hash de la tabla es el
-calculado sobre la descarga y es el que fija la verificacion de dependencias de Gradle.
+calculado sobre la descarga y es el que fija la verificación de dependencias de Gradle.
 
 ### Librerias nativas: 16 KB comprobados
 

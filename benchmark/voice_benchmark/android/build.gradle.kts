@@ -1,10 +1,13 @@
 // Repositorios del banco de pruebas.
 //
-// Los binarios de voz de la Fase 0-bis se resuelven **exclusivamente** desde
-// Maven Central. `exclusiveContent` no es una preferencia: hace que
-// `com.alphacephei` y `net.java.dev.jna` no puedan venir de ningún otro sitio,
-// de modo que un repositorio añadido por descuido —o un `google()` que algún día
-// publique un artefacto con esas coordenadas— no pueda sustituirlos.
+// La configuración `exclusiveContent` obliga a Gradle a resolver el namespace
+// configurado exclusivamente desde Maven Central dentro del flujo de build
+// versionado. Así, un repositorio añadido por descuido —o un `google()` que
+// algún día publique un artefacto con esas coordenadas— no puede sustituir a
+// `com.alphacephei` ni a `net.java.dev.jna` en esta build.
+//
+// No sustituye a la verificación por SHA-256: eso lo hace
+// `verifyPinnedVoiceArtifacts` en `app/build.gradle.kts`.
 //
 // No hay JitPack, ni repositorios de terceros, ni URLs sin versión. La versión
 // es exacta y su contenido está fijado por SHA-256 en `app/build.gradle.kts`.

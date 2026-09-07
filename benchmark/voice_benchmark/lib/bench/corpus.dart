@@ -10,6 +10,7 @@ final class CorpusSample {
     required this.id,
     required this.split,
     required this.intent,
+    this.category = '',
     required this.text,
     required this.expected,
     required this.slots,
@@ -22,6 +23,7 @@ final class CorpusSample {
     id: json['id'] as String,
     split: json['split'] as String,
     intent: json['intent'] as String,
+    category: json['category'] as String? ?? '',
     text: json['text'] as String,
     expected: json['expected'] as String,
     slots: (json['slots'] as Map).cast<String, Object?>().map(
@@ -40,6 +42,10 @@ final class CorpusSample {
 
   /// `compra`, `aplicacion`, `pago`, `fuera_de_alcance` o `mezclada`.
   final String intent;
+
+  /// Categoría `A`–`G` del plan de benchmark híbrido. Vacía en el corpus de la
+  /// Fase 0, que se escribió antes de que existieran esas categorías.
+  final String category;
 
   /// Lo que se dicta.
   final String text;
@@ -63,6 +69,12 @@ final class CorpusSample {
 
   /// La muestra exige un dato crítico que **no** debe autoresolverse.
   bool get hasBlockingAmbiguity => slots.values.contains('AMBIGUO');
+
+  /// No hay nada que leer en voz alta: silencio, ruido o golpe de micrófono.
+  ///
+  /// Son las muestras que deciden el guardrail más importante del benchmark:
+  /// **cualquier** texto aceptado aquí es una falsa afirmación.
+  bool get isNonSpeech => text.isEmpty;
 
   static List<String> _stringList(Object? value) {
     if (value is! List) return const [];
@@ -103,4 +115,12 @@ final class Corpus {
   List<CorpusSample> bySplit(String? split) => split == null
       ? samples
       : samples.where((s) => s.split == split).toList(growable: false);
+
+  /// Muestras de una categoría `A`–`G`.
+  List<CorpusSample> byCategory(String category) =>
+      samples.where((s) => s.category == category).toList(growable: false);
+
+  /// Muestras sin habla: silencio, ruido y golpe de micrófono.
+  List<CorpusSample> get nonSpeech =>
+      samples.where((s) => s.isNonSpeech).toList(growable: false);
 }

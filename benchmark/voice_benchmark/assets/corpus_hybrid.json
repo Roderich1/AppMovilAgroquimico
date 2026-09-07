@@ -1,0 +1,960 @@
+{
+  "schemaVersion": 2,
+  "corpusVersion": "hybrid-1.0.0",
+  "locale": "es-BO",
+  "audio": "NINGUNO_GRABADO",
+  "consentimiento": "El corpus es texto. No contiene ni referencia grabaciones de personas reales. Personas, proveedores y chacos son ficticios.",
+  "relacionConFase0": "Corpus SEPARADO de assets/corpus.json, que no se modifica. Aquel sigue siendo la referencia comparable con lo ya medido en el POCO; este anade las categorias A-G que pide EVOLUTION-3_HYBRID_ENGINE_BENCHMARK_PLAN.md. No comparten frases.",
+  "categorias": {
+    "A": "Acciones cortas",
+    "B": "Dictado largo de compras",
+    "C": "Aplicaciones y planificacion",
+    "D": "Pagos",
+    "E": "Catalogo agricola",
+    "F": "Negaciones y correcciones",
+    "G": "No-habla y adversarial"
+  },
+  "counts": {
+    "total": 54,
+    "ajuste": 23,
+    "aceptacion": 31,
+    "porCategoria": {
+      "A": 8,
+      "B": 11,
+      "C": 6,
+      "D": 6,
+      "E": 7,
+      "F": 6,
+      "G": 10
+    },
+    "porIntencion": {
+      "aplicacion": 8,
+      "compra": 25,
+      "fuera_de_alcance": 10,
+      "mezclada": 2,
+      "pago": 9
+    },
+    "porResultadoEsperado": {
+      "ambiguo": 5,
+      "incompleto": 7,
+      "listo": 28,
+      "rechazado": 14
+    },
+    "sinHabla": 8
+  },
+  "samples": [
+    {
+      "id": "HAJ-001",
+      "split": "ajuste",
+      "category": "A",
+      "intent": "compra",
+      "text": "Anotar una compra nueva.",
+      "expected": "incompleto",
+      "slots": {},
+      "conditions": [],
+      "tags": [
+        "frase_corta"
+      ],
+      "note": "Intencion sola: faltan producto, cantidad y precio."
+    },
+    {
+      "id": "HAJ-002",
+      "split": "ajuste",
+      "category": "A",
+      "intent": "aplicacion",
+      "text": "Ejecutar el plan del chaco.",
+      "expected": "incompleto",
+      "slots": {},
+      "conditions": [],
+      "tags": [
+        "frase_corta"
+      ]
+    },
+    {
+      "id": "HAJ-003",
+      "split": "ajuste",
+      "category": "A",
+      "intent": "pago",
+      "text": "Anotar un pago al proveedor.",
+      "expected": "incompleto",
+      "slots": {},
+      "conditions": [],
+      "tags": [
+        "frase_corta"
+      ]
+    },
+    {
+      "id": "HAJ-004",
+      "split": "ajuste",
+      "category": "A",
+      "intent": "mezclada",
+      "text": "Seguir hablando.",
+      "expected": "rechazado",
+      "slots": {},
+      "conditions": [],
+      "tags": [
+        "control_ui"
+      ],
+      "note": "Es una orden de la pantalla, no un dato. No debe convertirse en texto de negocio."
+    },
+    {
+      "id": "HAC-001",
+      "split": "aceptacion",
+      "category": "A",
+      "intent": "compra",
+      "text": "Quiero registrar una compra.",
+      "expected": "incompleto",
+      "slots": {},
+      "conditions": [],
+      "tags": [
+        "frase_corta"
+      ]
+    },
+    {
+      "id": "HAC-002",
+      "split": "aceptacion",
+      "category": "A",
+      "intent": "aplicacion",
+      "text": "Voy a aplicar la planificacion.",
+      "expected": "incompleto",
+      "slots": {},
+      "conditions": [],
+      "tags": [
+        "frase_corta"
+      ]
+    },
+    {
+      "id": "HAC-003",
+      "split": "aceptacion",
+      "category": "A",
+      "intent": "pago",
+      "text": "Necesito registrar un pago.",
+      "expected": "incompleto",
+      "slots": {},
+      "conditions": [],
+      "tags": [
+        "frase_corta"
+      ]
+    },
+    {
+      "id": "HAC-004",
+      "split": "aceptacion",
+      "category": "A",
+      "intent": "mezclada",
+      "text": "Descartar todo lo dictado.",
+      "expected": "rechazado",
+      "slots": {},
+      "conditions": [],
+      "tags": [
+        "control_ui"
+      ]
+    },
+    {
+      "id": "HAJ-005",
+      "split": "ajuste",
+      "category": "B",
+      "intent": "compra",
+      "text": "Compra de cincuenta litros de Bellator a ciento ochenta y seis bolivianos el litro.",
+      "expected": "listo",
+      "slots": {
+        "producto": "Bellator",
+        "cantidad": "50",
+        "unidad": "litro",
+        "precio": "186",
+        "moneda": "BOB"
+      },
+      "conditions": [],
+      "tags": [
+        "un_producto",
+        "precio_entero",
+        "bob"
+      ]
+    },
+    {
+      "id": "HAJ-006",
+      "split": "ajuste",
+      "category": "B",
+      "intent": "compra",
+      "text": "Compre veinticinco kilos de Mancozeb a noventa con cincuenta bolivianos el kilo.",
+      "expected": "listo",
+      "slots": {
+        "producto": "Mancozeb",
+        "cantidad": "25",
+        "unidad": "kilo",
+        "precio": "90.50",
+        "moneda": "BOB"
+      },
+      "conditions": [],
+      "tags": [
+        "un_producto",
+        "precio_decimal"
+      ]
+    },
+    {
+      "id": "HAJ-007",
+      "split": "ajuste",
+      "category": "B",
+      "intent": "compra",
+      "text": "Compra de diez litros de Paraquat y veinte kilos de Mancozeb del proveedor Agro Norte.",
+      "expected": "listo",
+      "slots": {
+        "producto": "Paraquat|Mancozeb",
+        "cantidad": "10|20",
+        "unidad": "litro|kilo",
+        "proveedor": "Agro Norte"
+      },
+      "conditions": [],
+      "tags": [
+        "dos_productos",
+        "proveedor_al_final"
+      ]
+    },
+    {
+      "id": "HAJ-008",
+      "split": "ajuste",
+      "category": "B",
+      "intent": "compra",
+      "text": "Del proveedor Agro Norte, cuarenta litros de Glifosato a doce dolares el litro.",
+      "expected": "listo",
+      "slots": {
+        "producto": "Glifosato",
+        "cantidad": "40",
+        "unidad": "litro",
+        "precio": "12",
+        "moneda": "USD",
+        "proveedor": "Agro Norte"
+      },
+      "conditions": [],
+      "tags": [
+        "un_producto",
+        "usd",
+        "proveedor_al_inicio"
+      ]
+    },
+    {
+      "id": "HAC-005",
+      "split": "aceptacion",
+      "category": "B",
+      "intent": "compra",
+      "text": "Registrar compra de ocho unidades de Expansive a treinta y cuatro bolivianos cada una.",
+      "expected": "listo",
+      "slots": {
+        "producto": "Expansive",
+        "cantidad": "8",
+        "unidad": "unidad",
+        "precio": "34",
+        "moneda": "BOB"
+      },
+      "conditions": [],
+      "tags": [
+        "un_producto",
+        "unidades"
+      ]
+    },
+    {
+      "id": "HAC-006",
+      "split": "aceptacion",
+      "category": "B",
+      "intent": "compra",
+      "text": "Compra de cien litros de Paraquat a quince con setenta y cinco bolivianos el litro.",
+      "expected": "listo",
+      "slots": {
+        "producto": "Paraquat",
+        "cantidad": "100",
+        "unidad": "litro",
+        "precio": "15.75",
+        "moneda": "BOB"
+      },
+      "conditions": [],
+      "tags": [
+        "un_producto",
+        "precio_decimal"
+      ]
+    },
+    {
+      "id": "HAC-007",
+      "split": "aceptacion",
+      "category": "B",
+      "intent": "compra",
+      "text": "Compra de treinta litros de Bellator, quince kilos de Mancozeb, doce litros de Paraquat y seis unidades de Expansive.",
+      "expected": "listo",
+      "slots": {
+        "producto": "Bellator|Mancozeb|Paraquat|Expansive",
+        "cantidad": "30|15|12|6",
+        "unidad": "litro|kilo|litro|unidad"
+      },
+      "conditions": [],
+      "tags": [
+        "cuatro_productos",
+        "frase_larga"
+      ]
+    },
+    {
+      "id": "HAC-008",
+      "split": "aceptacion",
+      "category": "B",
+      "intent": "compra",
+      "text": "Para la campana de verano, del proveedor Insumos del Este, compre veinte litros de Bellator, diez kilos de Mancozeb, cinco litros de Paraquat, ocho unidades de Expansive, doce litros de Glifosato, cuatro kilos de Lambdacialotrina, seis litros de Germispa y dos unidades de Germi cien.",
+      "expected": "listo",
+      "slots": {
+        "producto": "Bellator|Mancozeb|Paraquat|Expansive|Glifosato|Lambdacialotrina|Germispa|Germi-100",
+        "cantidad": "20|10|5|8|12|4|6|2",
+        "proveedor": "Insumos del Este",
+        "campana": "verano"
+      },
+      "conditions": [],
+      "tags": [
+        "ocho_productos",
+        "frase_muy_larga",
+        "campana_al_inicio"
+      ],
+      "note": "El caso peor de longitud. Mide si el motor se pierde al final de la frase."
+    },
+    {
+      "id": "HAC-009",
+      "split": "aceptacion",
+      "category": "B",
+      "intent": "compra",
+      "text": "Cincuenta litros de Bellator a ciento ochenta y seis bolivianos, todo queda asignado al administrador.",
+      "expected": "listo",
+      "slots": {
+        "producto": "Bellator",
+        "cantidad": "50",
+        "precio": "186",
+        "propietario": "administrador"
+      },
+      "conditions": [],
+      "tags": [
+        "propietario_al_final"
+      ]
+    },
+    {
+      "id": "HAJ-009",
+      "split": "ajuste",
+      "category": "C",
+      "intent": "aplicacion",
+      "text": "Aplicar la planificacion del chaco Limoncitos.",
+      "expected": "listo",
+      "slots": {
+        "chaco": "Limoncitos"
+      },
+      "conditions": [],
+      "tags": [
+        "chaco_simple"
+      ]
+    },
+    {
+      "id": "HAJ-010",
+      "split": "ajuste",
+      "category": "C",
+      "intent": "aplicacion",
+      "text": "En el chaco Monte Verde use diez litros de Bellator en vez de los doce planificados.",
+      "expected": "listo",
+      "slots": {
+        "chaco": "Monte Verde",
+        "producto": "Bellator",
+        "cantidad_real": "10",
+        "cantidad_plan": "12"
+      },
+      "conditions": [],
+      "tags": [
+        "real_vs_plan"
+      ]
+    },
+    {
+      "id": "HAC-010",
+      "split": "aceptacion",
+      "category": "C",
+      "intent": "aplicacion",
+      "text": "Quiero aplicar la planificacion para el chaco Limoncitos.",
+      "expected": "listo",
+      "slots": {
+        "chaco": "Limoncitos"
+      },
+      "conditions": [],
+      "tags": [
+        "chaco_simple"
+      ]
+    },
+    {
+      "id": "HAC-011",
+      "split": "aceptacion",
+      "category": "C",
+      "intent": "aplicacion",
+      "text": "Aplicar el plan del chaco Bajio Grande, pero solo alcanzo para la mitad del lote.",
+      "expected": "ambiguo",
+      "slots": {
+        "chaco": "Bajio Grande",
+        "cantidad": "AMBIGUO"
+      },
+      "conditions": [],
+      "tags": [
+        "cantidad_vaga"
+      ],
+      "note": "«La mitad» no es una cantidad: debe bloquear, no inventar un numero."
+    },
+    {
+      "id": "HAC-012",
+      "split": "aceptacion",
+      "category": "C",
+      "intent": "aplicacion",
+      "text": "Aplicar la planificacion del chaco, el de siempre.",
+      "expected": "ambiguo",
+      "slots": {
+        "chaco": "AMBIGUO"
+      },
+      "conditions": [],
+      "tags": [
+        "chaco_ambiguo"
+      ],
+      "note": "No hay chaco identificable. No debe elegirse uno por proximidad."
+    },
+    {
+      "id": "HAC-013",
+      "split": "aceptacion",
+      "category": "C",
+      "intent": "aplicacion",
+      "text": "No hay suficiente Mancozeb en el deposito para cubrir el plan del chaco Limoncitos.",
+      "expected": "rechazado",
+      "slots": {
+        "chaco": "Limoncitos",
+        "producto": "Mancozeb"
+      },
+      "conditions": [],
+      "tags": [
+        "stock_insuficiente"
+      ]
+    },
+    {
+      "id": "HAJ-011",
+      "split": "ajuste",
+      "category": "D",
+      "intent": "pago",
+      "text": "Registrar un pago de dos mil bolivianos.",
+      "expected": "incompleto",
+      "slots": {
+        "monto": "2000",
+        "moneda": "BOB"
+      },
+      "conditions": [],
+      "tags": [
+        "sin_persona"
+      ]
+    },
+    {
+      "id": "HAJ-012",
+      "split": "ajuste",
+      "category": "D",
+      "intent": "pago",
+      "text": "Pago de mil quinientos con veinticinco bolivianos para Jose Luis.",
+      "expected": "listo",
+      "slots": {
+        "persona": "Jose Luis",
+        "monto": "1500.25",
+        "moneda": "BOB"
+      },
+      "conditions": [],
+      "tags": [
+        "monto_decimal"
+      ]
+    },
+    {
+      "id": "HAJ-013",
+      "split": "ajuste",
+      "category": "D",
+      "intent": "pago",
+      "text": "Registra un pago para Jose Luis de dos mil bolivianos.",
+      "expected": "listo",
+      "slots": {
+        "persona": "Jose Luis",
+        "monto": "2000",
+        "moneda": "BOB"
+      },
+      "conditions": [],
+      "tags": [
+        "persona_simple",
+        "heredada_fase0"
+      ],
+      "note": "Heredada del corpus de la Fase 0 (AJ-026). Se conserva en ajuste, el mismo conjunto en el que ya estaba, para poder comparar contra lo medido en el POCO."
+    },
+    {
+      "id": "HAC-014",
+      "split": "aceptacion",
+      "category": "D",
+      "intent": "pago",
+      "text": "Pagar trescientos cincuenta dolares a Maria Elena.",
+      "expected": "listo",
+      "slots": {
+        "persona": "Maria Elena",
+        "monto": "350",
+        "moneda": "USD"
+      },
+      "conditions": [],
+      "tags": [
+        "usd"
+      ]
+    },
+    {
+      "id": "HAC-015",
+      "split": "aceptacion",
+      "category": "D",
+      "intent": "pago",
+      "text": "Un pago para Jose, el del chaco de arriba, de ochocientos bolivianos.",
+      "expected": "ambiguo",
+      "slots": {
+        "persona": "AMBIGUO",
+        "monto": "800"
+      },
+      "conditions": [],
+      "tags": [
+        "homonimo"
+      ],
+      "note": "Hay mas de un Jose. La persona no puede autoresolverse."
+    },
+    {
+      "id": "HAC-016",
+      "split": "aceptacion",
+      "category": "D",
+      "intent": "pago",
+      "text": "Pago de cinco mil bolivianos a Maria Elena, aunque su deuda es de cuatro mil doscientos.",
+      "expected": "ambiguo",
+      "slots": {
+        "persona": "Maria Elena",
+        "monto": "5000",
+        "excedente": "AMBIGUO"
+      },
+      "conditions": [],
+      "tags": [
+        "excedente"
+      ],
+      "note": "El excedente no se convierte en adelanto sin decision explicita."
+    },
+    {
+      "id": "HAJ-014",
+      "split": "ajuste",
+      "category": "E",
+      "intent": "compra",
+      "text": "Veinte litros de Germispa.",
+      "expected": "listo",
+      "slots": {
+        "producto": "Germispa",
+        "cantidad": "20",
+        "unidad": "litro"
+      },
+      "conditions": [],
+      "tags": [
+        "catalogo"
+      ]
+    },
+    {
+      "id": "HAJ-015",
+      "split": "ajuste",
+      "category": "E",
+      "intent": "compra",
+      "text": "Diez unidades de Germi cien.",
+      "expected": "listo",
+      "slots": {
+        "producto": "Germi-100",
+        "cantidad": "10",
+        "unidad": "unidad"
+      },
+      "conditions": [],
+      "tags": [
+        "catalogo",
+        "alias_hablado"
+      ],
+      "note": "Se dicta «germi cien»; el catalogo lo registra como Germi-100."
+    },
+    {
+      "id": "HAJ-016",
+      "split": "ajuste",
+      "category": "E",
+      "intent": "compra",
+      "text": "Quince litros de Lambdacialotrina.",
+      "expected": "listo",
+      "slots": {
+        "producto": "Lambdacialotrina",
+        "cantidad": "15",
+        "unidad": "litro"
+      },
+      "conditions": [],
+      "tags": [
+        "catalogo",
+        "palabra_larga"
+      ]
+    },
+    {
+      "id": "HAC-017",
+      "split": "aceptacion",
+      "category": "E",
+      "intent": "compra",
+      "text": "Cinco unidades de Germi uno cero cero.",
+      "expected": "listo",
+      "slots": {
+        "producto": "Germi-100",
+        "cantidad": "5",
+        "unidad": "unidad"
+      },
+      "conditions": [],
+      "tags": [
+        "catalogo",
+        "alias_deletreado"
+      ],
+      "note": "Misma sustancia dictada cifra a cifra. No debe dar un producto distinto que «germi cien»."
+    },
+    {
+      "id": "HAC-018",
+      "split": "aceptacion",
+      "category": "E",
+      "intent": "compra",
+      "text": "Doce litros de Expansiv.",
+      "expected": "listo",
+      "slots": {
+        "producto": "Expansive",
+        "cantidad": "12",
+        "unidad": "litro"
+      },
+      "conditions": [],
+      "tags": [
+        "catalogo",
+        "variante_pronunciacion"
+      ],
+      "note": "Se pronuncia sin la e final. Es el mismo producto del catalogo."
+    },
+    {
+      "id": "HAC-019",
+      "split": "aceptacion",
+      "category": "E",
+      "intent": "compra",
+      "text": "Treinta kilos de Mancozeb y diez litros de Paraquat.",
+      "expected": "listo",
+      "slots": {
+        "producto": "Mancozeb|Paraquat",
+        "cantidad": "30|10"
+      },
+      "conditions": [],
+      "tags": [
+        "catalogo",
+        "dos_productos"
+      ]
+    },
+    {
+      "id": "HAC-020",
+      "split": "aceptacion",
+      "category": "E",
+      "intent": "compra",
+      "text": "Ocho litros de Bellator para el chaco Limoncitos.",
+      "expected": "listo",
+      "slots": {
+        "producto": "Bellator",
+        "cantidad": "8",
+        "chaco": "Limoncitos"
+      },
+      "conditions": [],
+      "tags": [
+        "catalogo"
+      ]
+    },
+    {
+      "id": "HAJ-017",
+      "split": "ajuste",
+      "category": "F",
+      "intent": "compra",
+      "text": "No fueron doce, fueron dos.",
+      "expected": "ambiguo",
+      "slots": {
+        "cantidad": "2"
+      },
+      "conditions": [
+        "correccion"
+      ],
+      "tags": [
+        "negacion"
+      ],
+      "note": "La cantidad final es 2. Aceptar 12 seria el error caro."
+    },
+    {
+      "id": "HAJ-018",
+      "split": "ajuste",
+      "category": "F",
+      "intent": "compra",
+      "text": "Borra Bellator.",
+      "expected": "rechazado",
+      "slots": {},
+      "conditions": [
+        "correccion"
+      ],
+      "tags": [
+        "negacion"
+      ]
+    },
+    {
+      "id": "HAC-021",
+      "split": "aceptacion",
+      "category": "F",
+      "intent": "compra",
+      "text": "El precio no es ciento ochenta, es ciento ochenta y seis.",
+      "expected": "listo",
+      "slots": {
+        "precio": "186"
+      },
+      "conditions": [
+        "correccion"
+      ],
+      "tags": [
+        "negacion",
+        "precio"
+      ],
+      "note": "Debe quedar 186. Quedarse con 180 es el fallo tipico."
+    },
+    {
+      "id": "HAJ-019",
+      "split": "ajuste",
+      "category": "F",
+      "intent": "compra",
+      "text": "De Bellator en realidad usamos diez litros.",
+      "expected": "listo",
+      "slots": {
+        "producto": "Bellator",
+        "cantidad": "10"
+      },
+      "conditions": [
+        "correccion"
+      ],
+      "tags": [
+        "negacion",
+        "heredada_fase0"
+      ],
+      "note": "Heredada del corpus de la Fase 0 (AJ-017), en su mismo conjunto."
+    },
+    {
+      "id": "HAC-022",
+      "split": "aceptacion",
+      "category": "F",
+      "intent": "compra",
+      "text": "Cincuenta litros de... no, esperen... cuarenta litros de Paraquat.",
+      "expected": "listo",
+      "slots": {
+        "producto": "Paraquat",
+        "cantidad": "40"
+      },
+      "conditions": [
+        "pausas",
+        "correccion"
+      ],
+      "tags": [
+        "autocorreccion"
+      ],
+      "note": "Pausa intermedia y autocorreccion en la misma frase."
+    },
+    {
+      "id": "HAC-023",
+      "split": "aceptacion",
+      "category": "F",
+      "intent": "pago",
+      "text": "Para Jose Luis no, para Maria Elena, dos mil bolivianos.",
+      "expected": "listo",
+      "slots": {
+        "persona": "Maria Elena",
+        "monto": "2000"
+      },
+      "conditions": [
+        "correccion"
+      ],
+      "tags": [
+        "negacion",
+        "persona"
+      ]
+    },
+    {
+      "id": "HAJ-020",
+      "split": "ajuste",
+      "category": "G",
+      "intent": "fuera_de_alcance",
+      "text": "",
+      "expected": "rechazado",
+      "slots": {},
+      "conditions": [
+        "silencio_3s"
+      ],
+      "tags": [
+        "no_habla"
+      ],
+      "note": "Tres segundos de silencio. Cualquier texto aceptado aqui es una falsa afirmacion."
+    },
+    {
+      "id": "HAJ-021",
+      "split": "ajuste",
+      "category": "G",
+      "intent": "fuera_de_alcance",
+      "text": "",
+      "expected": "rechazado",
+      "slots": {},
+      "conditions": [
+        "ruido_viento"
+      ],
+      "tags": [
+        "no_habla"
+      ]
+    },
+    {
+      "id": "HAJ-022",
+      "split": "ajuste",
+      "category": "G",
+      "intent": "fuera_de_alcance",
+      "text": "Paralelepipedo.",
+      "expected": "rechazado",
+      "slots": {},
+      "conditions": [],
+      "tags": [
+        "fuera_de_dominio"
+      ],
+      "note": "Palabra aislada sin relacion con el dominio. No debe producir un dato."
+    },
+    {
+      "id": "HAC-024",
+      "split": "aceptacion",
+      "category": "G",
+      "intent": "fuera_de_alcance",
+      "text": "",
+      "expected": "rechazado",
+      "slots": {},
+      "conditions": [
+        "silencio_10s"
+      ],
+      "tags": [
+        "no_habla"
+      ]
+    },
+    {
+      "id": "HAC-025",
+      "split": "aceptacion",
+      "category": "G",
+      "intent": "fuera_de_alcance",
+      "text": "",
+      "expected": "rechazado",
+      "slots": {},
+      "conditions": [
+        "silencio_30s"
+      ],
+      "tags": [
+        "no_habla"
+      ],
+      "note": "Treinta segundos. Mide tambien si el motor se cuelga o suelta el microfono."
+    },
+    {
+      "id": "HAC-026",
+      "split": "aceptacion",
+      "category": "G",
+      "intent": "fuera_de_alcance",
+      "text": "",
+      "expected": "rechazado",
+      "slots": {},
+      "conditions": [
+        "ruido_tractor"
+      ],
+      "tags": [
+        "no_habla"
+      ]
+    },
+    {
+      "id": "HAC-027",
+      "split": "aceptacion",
+      "category": "G",
+      "intent": "fuera_de_alcance",
+      "text": "",
+      "expected": "rechazado",
+      "slots": {},
+      "conditions": [
+        "ruido_conversacion"
+      ],
+      "tags": [
+        "no_habla"
+      ],
+      "note": "Conversacion de fondo: hay voz, pero no es la del operador."
+    },
+    {
+      "id": "HAC-028",
+      "split": "aceptacion",
+      "category": "G",
+      "intent": "fuera_de_alcance",
+      "text": "",
+      "expected": "rechazado",
+      "slots": {},
+      "conditions": [
+        "ruido_radio"
+      ],
+      "tags": [
+        "no_habla"
+      ],
+      "note": "Musica. Es el caso que en la Fase 0 devolvio «[MUSICA]» como resultado valido."
+    },
+    {
+      "id": "HAC-029",
+      "split": "aceptacion",
+      "category": "G",
+      "intent": "fuera_de_alcance",
+      "text": "",
+      "expected": "rechazado",
+      "slots": {},
+      "conditions": [
+        "golpe_microfono"
+      ],
+      "tags": [
+        "no_habla"
+      ]
+    },
+    {
+      "id": "HAC-030",
+      "split": "aceptacion",
+      "category": "G",
+      "intent": "fuera_de_alcance",
+      "text": "Manana quizas llueva bastante por el norte.",
+      "expected": "rechazado",
+      "slots": {},
+      "conditions": [],
+      "tags": [
+        "fuera_de_dominio"
+      ],
+      "note": "Habla real y bien formada, pero fuera del dominio."
+    },
+    {
+      "id": "HAC-031",
+      "split": "aceptacion",
+      "category": "B",
+      "intent": "compra",
+      "text": "Compra de veinte litros de Bellator ...... y tambien quince kilos de Mancozeb.",
+      "expected": "listo",
+      "slots": {
+        "producto": "Bellator|Mancozeb",
+        "cantidad": "20|15"
+      },
+      "conditions": [
+        "pausas"
+      ],
+      "tags": [
+        "pausa_larga"
+      ],
+      "note": "Pausa de unos tres segundos en los puntos suspensivos: mide si el motor cierra el turno antes de tiempo y pierde la segunda mitad."
+    },
+    {
+      "id": "HAJ-023",
+      "split": "ajuste",
+      "category": "B",
+      "intent": "compra",
+      "text": "Cuarenta litros de Glifosato ...... para el chaco Monte Verde.",
+      "expected": "listo",
+      "slots": {
+        "producto": "Glifosato",
+        "cantidad": "40",
+        "chaco": "Monte Verde"
+      },
+      "conditions": [
+        "pausas"
+      ],
+      "tags": [
+        "pausa_larga"
+      ]
+    }
+  ]
+}
