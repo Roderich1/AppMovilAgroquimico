@@ -161,6 +161,11 @@ android {
             kotlin.srcDir("src/voskCommon/kotlin")
             kotlin.srcDir("src/voskOnly/kotlin")
         }
+        // La acumulación de lo que Vosk confirma es lógica pura y tiene su
+        // prueba JVM: es donde estuvo el defecto que daba «sin habla» a una
+        // frase transcrita correctamente.
+        getByName("testVosk") { kotlin.srcDir("src/test/kotlin") }
+        getByName("testHybrid") { kotlin.srcDir("src/test/kotlin") }
         // El híbrido es el único que compila los dos motores a la vez, porque
         // es el único que los usa sobre la misma captura.
         getByName("hybrid") {
@@ -236,6 +241,7 @@ kotlin {
 
 dependencies {
     implementation("androidx.core:core-ktx:1.13.1")
+    testImplementation("junit:junit:4.13.2")
 
     // Vosk sólo entra en los sabores que lo miden. El APK de Android y los de
     // Whisper no llevan una línea suya.

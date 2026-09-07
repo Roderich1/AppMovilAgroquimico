@@ -35,6 +35,18 @@ class VoskSession(private val context: Context) {
     private var model: Model? = null
     private var recognizer: Recognizer? = null
 
+    /**
+     * Lo que Vosk ya confirmó en esta sesión.
+     *
+     * Hace falta porque Vosk cierra un tramo en cada pausa y se reinicia: sin
+     * acumularlos, `getFinalResult()` devuelve vacío y una frase transcrita
+     * correctamente se registra como «sin habla». Medido en el HONOR.
+     */
+    private val transcript = VoskTranscript()
+
+    /** Cuántos tramos cerró el motor en la última sesión. Métrica. */
+    val segmentCount: Int get() = transcript.segmentCount
+
     /** Milisegundos que tardó la última carga del modelo. Métrica de arranque. */
     var lastModelLoadMs: Long = 0
         private set
@@ -102,6 +114,7 @@ class VoskSession(private val context: Context) {
     fun open(): String? {
         ensureLoaded()?.let { return it }
         close()
+        transcript.reset()
         return try {
             recognizer = Recognizer(model, PcmCapture.SAMPLE_RATE.toFloat())
             null
@@ -119,12 +132,13 @@ class VoskSession(private val context: Context) {
         val active = recognizer ?: return null
         return try {
             if (active.acceptWaveForm(buffer, length)) {
-                // Fin de una frase: Vosk cierra un segmento y empieza otro. Para
-                // el banco es texto que ya no cambiará.
-                textOf(active.result, "text")
+                // Fin de un tramo: Vosk lo entrega y **se reinicia**. Hay que
+                // guardarlo aquí; `getFinalResult()` ya no lo devolverá.
+                transcript.addSegment(textOf(active.result, "text"))
             } else {
-                textOf(active.partialResult, "partial")
+                transcript.setPartial(textOf(active.partialResult, "partial"))
             }
+            transcript.display()
         } catch (_: Throwable) {
             null
         }
@@ -139,9 +153,11 @@ class VoskSession(private val context: Context) {
     fun finish(): String? {
         val active = recognizer ?: return null
         return try {
-            textOf(active.finalResult, "text")
+            transcript.finish(textOf(active.finalResult, "text"))
         } catch (_: Throwable) {
-            null
+            // Si el motor falla al cerrar, lo ya confirmado sigue siendo válido:
+            // perderlo castigaría al usuario por un fallo del último tramo.
+            transcript.finish(null)
         } finally {
             close()
         }
