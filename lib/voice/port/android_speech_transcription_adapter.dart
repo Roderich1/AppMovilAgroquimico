@@ -50,6 +50,9 @@ final class AndroidSpeechTranscriptionAdapter
   Stopwatch? _clock;
   Timer? _deadline;
 
+  /// Cuánto puede durar el turno una vez el motor está escuchando.
+  Duration _turnBudget = Duration.zero;
+
   @override
   String get engineId => 'android-speech';
 
@@ -105,14 +108,8 @@ final class AndroidSpeechTranscriptionAdapter
     }
     _turnOpen = true;
     _clock = Stopwatch()..start();
-    _deadline = Timer(request.maxTurnDuration, () {
-      // Un turno colgado no puede quedarse con el micrófono. Se cancela en el
-      // motor y se cierra aquí aunque el sistema nunca conteste.
-      if (!_turnOpen) return;
-      unawaited(_method.invokeMethod<void>('cancel').catchError((_) {}));
-      _emit(const TranscriptionTimeout());
-      _closeTurn(TranscriptionEndReason.timeout);
-    });
+    _turnBudget = request.maxTurnDuration;
+    _armDeadline();
     try {
       await _method.invokeMethod<void>('start', {
         'locale': request.locale,
@@ -192,7 +189,28 @@ final class AndroidSpeechTranscriptionAdapter
       case 'stage':
         final name = map['stage'] as String?;
         for (final stage in TranscriptionStage.values) {
-          if (stage.name == name) _emit(TranscriptionStageChanged(stage));
+          if (stage.name != name) continue;
+          switch (stage) {
+            // `DEFECTO-005`: el plazo protege contra un motor colgado que se
+            // quede con el micrófono. Mientras el sistema pregunta por el
+            // permiso no hay micrófono tomado, así que no tiene nada que
+            // proteger. Dejarlo correr vencía el turno mientras el diálogo
+            // seguía abierto, la sesión reabría otro turno y pedía el permiso
+            // por segunda vez; Android respondía «Can request only one set of
+            // permissions at a time» y entregaba una denegación inmediata. En
+            // el HONOR JDY-LX3P eso convirtió un permiso **concedido** en
+            // «Permiso de micrófono denegado».
+            case TranscriptionStage.awaitingPermission:
+              _deadline?.cancel();
+              _deadline = null;
+            // El micrófono se acaba de abrir: el plazo cuenta desde aquí, no
+            // desde antes de saber si habría permiso.
+            case TranscriptionStage.listening:
+              _armDeadline();
+            case TranscriptionStage.processing:
+              break;
+          }
+          _emit(TranscriptionStageChanged(stage));
         }
 
       // El reconocedor que el motor creó de verdad, que puede no ser el pedido:
@@ -249,6 +267,20 @@ final class AndroidSpeechTranscriptionAdapter
     // Un fallo antes de abrir turno —permiso denegado al tocar, por ejemplo— no
     // debe inventar un cierre de algo que nunca se abrió.
     if (_turnOpen) _closeTurn(TranscriptionEndReason.error);
+  }
+
+  /// Arma el plazo del turno desde ahora.
+  ///
+  /// Un turno colgado no puede quedarse con el micrófono: se cancela en el
+  /// motor y se cierra aquí aunque el sistema nunca conteste.
+  void _armDeadline() {
+    _deadline?.cancel();
+    _deadline = Timer(_turnBudget, () {
+      if (!_turnOpen) return;
+      unawaited(_method.invokeMethod<void>('cancel').catchError((_) {}));
+      _emit(const TranscriptionTimeout());
+      _closeTurn(TranscriptionEndReason.timeout);
+    });
   }
 
   void _closeTurn(TranscriptionEndReason reason) {
