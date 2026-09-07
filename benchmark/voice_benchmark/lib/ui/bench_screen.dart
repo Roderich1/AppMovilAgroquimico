@@ -89,11 +89,17 @@ class _BenchScreenState extends State<BenchScreen> with WidgetsBindingObserver {
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
+            // El orden es el de la tarea: se elige qué medir, se confirma qué
+            // quedó cargado y sólo después aparece el botón de grabar. Con la
+            // identidad debajo de los botones se podría empezar a dictar sin
+            // haberla leído, que es la mitad del defecto que se corrigió.
+            _selectorCard(c),
+            const SizedBox(height: 12),
             _identityCard(c),
             const SizedBox(height: 12),
             _availabilityCard(c),
             const SizedBox(height: 12),
-            _controlsCard(c),
+            _actionsCard(c),
             const SizedBox(height: 12),
             if (sample != null) _sampleCard(c, sample),
             const SizedBox(height: 12),
@@ -144,7 +150,7 @@ class _BenchScreenState extends State<BenchScreen> with WidgetsBindingObserver {
                     '${corpus.descriptor.id}',
               ),
               _kv('Versión', corpus.version),
-              _kv('SHA-256', corpus.digest),
+              _kvWide('SHA-256', corpus.digest),
               _kv('Archivo', corpus.descriptor.assetPath),
               _kv('Partición', c.partition.label),
               _kv('Frases a dictar', '${c.total}'),
@@ -165,7 +171,7 @@ class _BenchScreenState extends State<BenchScreen> with WidgetsBindingObserver {
               _kv('Motor parcial', candidate.partialEngine ?? 'no aplica'),
               _kv('Motor final', candidate.finalEngine),
               for (final entry in candidate.modelHashes.entries)
-                _kv(entry.key, entry.value),
+                _kvWide(entry.key, entry.value),
               if (candidate.modelHashes.isEmpty)
                 _kv('Modelos', 'ninguno propio: los pone el sistema'),
             ],
@@ -260,17 +266,21 @@ class _BenchScreenState extends State<BenchScreen> with WidgetsBindingObserver {
     );
   }
 
-  Widget _controlsCard(BenchController c) {
-    final busy =
-        c.state == TranscriptionState.listening ||
-        c.state == TranscriptionState.processing;
+  /// Qué se va a medir. Lo primero de la pantalla, porque es lo primero que
+  /// hay que decidir.
+  Widget _selectorCard(BenchController c) {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Dos menús distintos, y con ese nombre. El anterior decía
+            // Cada menú en su propia fila y a todo el ancho. En el HONOR, con
+            // la fuente del sistema ampliada, los tres repartidos en dos filas
+            // dejaban el de locale **fuera de la pantalla**: no se podía elegir
+            // el idioma en el único aparato donde el idioma es el problema.
+            //
+            // Y son menús distintos, con ese nombre. El anterior decía
             // «Corpus» y elegía la partición: por eso C1 se midió con el
             // corpus de la Fase 0 sin que nadie pudiera verlo desde aquí.
             Row(
@@ -280,7 +290,11 @@ class _BenchScreenState extends State<BenchScreen> with WidgetsBindingObserver {
                   child: DropdownButton<String>(
                     isExpanded: true,
                     value: c.activeCorpus?.descriptor.id,
-                    hint: const Text('elija un corpus'),
+                    hint: const Text(
+                      'elija un corpus',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
                     onChanged: (id) {
                       final descriptor = id == null
                           ? null
@@ -291,7 +305,11 @@ class _BenchScreenState extends State<BenchScreen> with WidgetsBindingObserver {
                       for (final descriptor in CorpusCatalog.all)
                         DropdownMenuItem(
                           value: descriptor.id,
-                          child: Text(descriptor.label),
+                          child: Text(
+                            descriptor.label,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
                         ),
                     ],
                   ),
@@ -301,27 +319,40 @@ class _BenchScreenState extends State<BenchScreen> with WidgetsBindingObserver {
             Row(
               children: [
                 const Text('Partición: '),
-                DropdownButton<BenchPartition>(
-                  value: c.partition,
-                  onChanged: (v) => v == null ? null : c.setPartition(v),
-                  items: [
-                    for (final partition in BenchPartition.values)
-                      DropdownMenuItem(
-                        value: partition,
-                        child: Text(partition.label),
-                      ),
-                  ],
+                Expanded(
+                  child: DropdownButton<BenchPartition>(
+                    isExpanded: true,
+                    value: c.partition,
+                    onChanged: (v) => v == null ? null : c.setPartition(v),
+                    items: [
+                      for (final partition in BenchPartition.values)
+                        DropdownMenuItem(
+                          value: partition,
+                          child: Text(
+                            partition.label,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                    ],
+                  ),
                 ),
-                const SizedBox(width: 16),
+              ],
+            ),
+            Row(
+              children: [
                 const Text('Locale: '),
-                DropdownButton<String>(
-                  value: c.requestedLocale,
-                  onChanged: (v) => v == null ? null : c.setLocale(v),
-                  items: const [
-                    DropdownMenuItem(value: 'es-BO', child: Text('es-BO')),
-                    DropdownMenuItem(value: 'es-ES', child: Text('es-ES')),
-                    DropdownMenuItem(value: 'es-US', child: Text('es-US')),
-                  ],
+                Expanded(
+                  child: DropdownButton<String>(
+                    isExpanded: true,
+                    value: c.requestedLocale,
+                    onChanged: (v) => v == null ? null : c.setLocale(v),
+                    items: const [
+                      DropdownMenuItem(value: 'es-BO', child: Text('es-BO')),
+                      DropdownMenuItem(value: 'es-ES', child: Text('es-ES')),
+                      DropdownMenuItem(value: 'es-US', child: Text('es-US')),
+                    ],
+                  ),
                 ),
               ],
             ),
@@ -345,35 +376,45 @@ class _BenchScreenState extends State<BenchScreen> with WidgetsBindingObserver {
                   style: const TextStyle(fontWeight: FontWeight.w700),
                 ),
               ),
-            const Divider(),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                FilledButton.icon(
-                  // Sin corpus verificado, sin frases en la partición o sin
-                  // candidato identificado no se graba. Una medición que no se
-                  // puede nombrar no se puede colocar en ninguna columna.
-                  onPressed: busy || !c.canRun ? null : c.start,
-                  icon: const Icon(Icons.mic),
-                  label: const Text('Grabar'),
-                ),
-                OutlinedButton.icon(
-                  onPressed: busy ? c.stop : null,
-                  icon: const Icon(Icons.stop),
-                  label: const Text('Detener'),
-                ),
-                OutlinedButton.icon(
-                  onPressed: busy ? c.cancel : null,
-                  icon: const Icon(Icons.close),
-                  label: const Text('Cancelar'),
-                ),
-                TextButton.icon(
-                  onPressed: c.repeat,
-                  icon: const Icon(Icons.replay),
-                  label: const Text('Repetir'),
-                ),
-              ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _actionsCard(BenchController c) {
+    final busy =
+        c.state == TranscriptionState.listening ||
+        c.state == TranscriptionState.processing;
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            FilledButton.icon(
+              // Sin corpus verificado, sin frases en la partición o sin
+              // candidato identificado no se graba. Una medición que no se
+              // puede nombrar no se puede colocar en ninguna columna.
+              onPressed: busy || !c.canRun ? null : c.start,
+              icon: const Icon(Icons.mic),
+              label: const Text('Grabar'),
+            ),
+            OutlinedButton.icon(
+              onPressed: busy ? c.stop : null,
+              icon: const Icon(Icons.stop),
+              label: const Text('Detener'),
+            ),
+            OutlinedButton.icon(
+              onPressed: busy ? c.cancel : null,
+              icon: const Icon(Icons.close),
+              label: const Text('Cancelar'),
+            ),
+            TextButton.icon(
+              onPressed: c.repeat,
+              icon: const Icon(Icons.replay),
+              label: const Text('Repetir'),
             ),
           ],
         ),
@@ -569,6 +610,29 @@ class _BenchScreenState extends State<BenchScreen> with WidgetsBindingObserver {
     );
     messenger.showSnackBar(SnackBar(content: Text('Guardado: ${file.path}')));
   }
+
+  /// Etiqueta arriba y valor debajo, a todo el ancho.
+  ///
+  /// Los digests miden 64 caracteres. En la columna estrecha de [_kv] caían en
+  /// seis líneas de tres cifras y ocupaban media pantalla, que es lo contrario
+  /// de poder leerlos para compararlos con `sha256sum`.
+  Widget _kvWide(String key, String value) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 4),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('$key:'),
+        SelectableText(
+          value,
+          style: const TextStyle(
+            fontWeight: FontWeight.w600,
+            fontFamily: 'monospace',
+            fontFamilyFallback: ['Courier'],
+          ),
+        ),
+      ],
+    ),
+  );
 
   Widget _kv(String key, String value) => Padding(
     padding: const EdgeInsets.symmetric(vertical: 2),
