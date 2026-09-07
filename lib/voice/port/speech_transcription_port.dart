@@ -118,6 +118,32 @@ enum TranscriptionStage {
   processing,
 }
 
+/// Cuál de los dos reconocedores de Android atiende el turno.
+///
+/// Android expone **dos** servicios distintos y la diferencia importa:
+///
+/// * [onDevice] es `createOnDeviceSpeechRecognizer()`, un reconocedor dedicado
+///   que trabaja sin red pero que sólo entiende los idiomas cuyo modelo esté
+///   descargado en el aparato.
+/// * [systemDefault] es `createSpeechRecognizer()`, el servicio de
+///   reconocimiento que el teléfono trae configurado. Se le puede **pedir**
+///   `EXTRA_PREFER_OFFLINE`, pero es el sistema quien decide, y puede usar
+///   Internet.
+///
+/// La distinción existe por `DEFECTO-004`: el HONOR JDY-LX3P (API 36) tiene
+/// reconocedor [onDevice] —Android System Intelligence— **sin ningún español**,
+/// y agotaba los diez candidatos sin llegar a intentar el [systemDefault], que
+/// es exactamente el que había funcionado en el aparato de `ADR-002`. Allí
+/// `isOnDeviceRecognitionAvailable()` devolvía `false` y el sistema entregaba el
+/// predeterminado sin que nadie tuviera que elegir.
+enum TranscriptionEngineRoute {
+  /// Reconocedor local dedicado. No usa red.
+  onDevice,
+
+  /// Servicio de reconocimiento del teléfono. Puede usar red.
+  systemDefault,
+}
+
 /// Qué se sabe del modo avión del dispositivo.
 ///
 /// Es un dato del sistema, no una afirmación del operador: `ADR-002` se aceptó
@@ -240,6 +266,21 @@ final class TranscriptionLocaleInUse extends TranscriptionEvent {
   String toString() => 'TranscriptionLocaleInUse($locale)';
 }
 
+/// Por qué reconocedor está escuchando el motor, de verdad.
+///
+/// No es el que se pidió: es el que el sistema acabó creando. En API 31 se pide
+/// [TranscriptionEngineRoute.onDevice] y el sistema entrega el predeterminado
+/// porque no hay otro, y anunciar el pedido en vez del usado escondería por
+/// dónde pasa el audio.
+final class TranscriptionRouteInUse extends TranscriptionEvent {
+  const TranscriptionRouteInUse(this.route);
+
+  final TranscriptionEngineRoute route;
+
+  @override
+  String toString() => 'TranscriptionRouteInUse(${route.name})';
+}
+
 /// Disponibilidad **observada**, no prometida.
 final class TranscriptionAvailabilityObserved extends TranscriptionEvent {
   const TranscriptionAvailabilityObserved(this.availability);
@@ -331,6 +372,7 @@ final class TranscriptionRequest {
     this.preferOffline = true,
     this.partialResults = true,
     this.maxTurnDuration = const Duration(seconds: 60),
+    this.route = TranscriptionEngineRoute.onDevice,
   });
 
   /// Locale concreto que se intentará. Lo elige `VoiceLocalePolicy`, nunca el
@@ -347,11 +389,17 @@ final class TranscriptionRequest {
   /// micrófono: un turno colgado no puede quedarse escuchando.
   final Duration maxTurnDuration;
 
+  /// Qué reconocedor se pide. Lo decide la sesión, nunca el adaptador: elegirlo
+  /// dentro del motor escondería el cambio a los ojos del usuario, y el paso al
+  /// [TranscriptionEngineRoute.systemDefault] requiere su autorización.
+  final TranscriptionEngineRoute route;
+
   TranscriptionRequest withLocale(String value) => TranscriptionRequest(
     locale: value,
     preferOffline: preferOffline,
     partialResults: partialResults,
     maxTurnDuration: maxTurnDuration,
+    route: route,
   );
 }
 

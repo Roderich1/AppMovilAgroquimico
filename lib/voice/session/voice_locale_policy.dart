@@ -7,21 +7,25 @@ import '../port/speech_transcription_port.dart';
 /// `ADR-002` midió en teléfono real que `es-BO` **no existe** como idioma de
 /// reconocimiento (error 12, `LANGUAGE_NOT_SUPPORTED`), que `es-ES` puede estar
 /// soportado pero **sin modelo descargado** (error 13, `LANGUAGE_UNAVAILABLE`) y
-/// que en ese aparato **sólo funcionó `es-US`**. De ahí salen dos prohibiciones
-/// que esta clase implementa:
+/// que en ese aparato **sólo funcionó `es-US`**. El gate físico en el HONOR
+/// JDY-LX3P (API 36) añadió que allí el sistema **declara** `es-US` y `es-ES` y
+/// aun así ambos fallan con error 13: ninguna consulta sustituye al intento.
 ///
-/// 1. **No prometer `es-BO`.** Se pide, porque es el idioma del producto, pero
-///    la interfaz muestra siempre el locale *utilizado*, no el deseado.
-/// 2. **No fijar `es-US` en silencio.** Que fuera el único instalado en un
-///    teléfono no lo convierte en la respuesta correcta en otro. Fijarlo
-///    escondería el fallback y convertiría una medición puntual en una regla.
+/// De ahí la regla que esta clase implementa:
+///
+/// 1. **Se pide un locale concreto y se muestra el que de verdad se usó.** El
+///    solicitado no es una promesa; la interfaz enseña siempre los dos.
+/// 2. **No se fija un único idioma.** Se conserva la lista completa de respaldo
+///    y se recorre intentando, porque dos mediciones puntuales no describen a
+///    todos los aparatos (`RISK-023`).
 ///
 /// ## La lista exacta
 ///
 /// [candidates] es el orden completo y es parte del contrato: está cubierta por
-/// `test/voice/voice_locale_policy_test.dart`. El criterio del orden es
-/// cercanía de uso al español boliviano de campo, y sólo al final los que
-/// cambian más el vocabulario o el modelo acústico.
+/// `test/voice/voice_locale_policy_test.dart`. Encabeza [requested] por decisión
+/// del propietario, y el resto sigue el criterio de cercanía de uso al español
+/// boliviano de campo, dejando al final los que más cambian el vocabulario o el
+/// modelo acústico.
 ///
 /// ## Dos caminos, según lo que el sistema deje consultar
 ///
@@ -37,15 +41,41 @@ class VoiceLocalePolicy {
   const VoiceLocalePolicy();
 
   /// El locale que el producto pide. Nunca se muestra como el que se usará.
-  static const requested = 'es-BO';
-
-  /// Orden de intento, del más cercano al más lejano.
   ///
-  /// `es-BO` va primero **a propósito**, aunque `ADR-002` lo midió fallando: si
-  /// algún día existe, el usuario lo obtiene sin cambiar código, y mientras
-  /// tanto el error 12 es inmediato y barato. Quitarlo sería decidir por todos
-  /// los aparatos a partir de un único teléfono.
+  /// **Decisión del propietario, 2026-09-06**, tomada durante el gate físico en
+  /// el HONOR JDY-LX3P: se pide `es-US` en lugar de `es-BO`.
+  ///
+  /// El motivo es la evidencia acumulada en los dos aparatos medidos: en el
+  /// POCO X5 Pro (API 31) `es-US` fue **el único** que llegó a transcribir, y en
+  /// el HONOR (API 36) es uno de los dos que el sistema declara soportar. Pedir
+  /// un locale que ningún aparato medido ha admitido gastaba un intento y
+  /// mostraba al usuario un idioma solicitado que nunca se cumplía.
+  ///
+  /// Esto **revisa** el punto 5 de la política productiva de `ADR-002` («no
+  /// puede prometer `es-BO`») en su parte de qué se pide primero. Lo que **no**
+  /// cambia, y sigue siendo obligatorio: la lista de respaldo se conserva
+  /// completa, se sigue intentando y observando el resultado real, y la interfaz
+  /// sigue mostrando *solicitado* y *utilizado* por separado. `es-US` es el
+  /// primer intento, **no** una promesa: si falla, se recorre el resto.
+  ///
+  /// `es-BO` sigue en la lista, en segundo lugar, porque es el país del usuario:
+  /// si algún día existe como idioma de reconocimiento, lo obtiene sin cambiar
+  /// código.
+  static const requested = 'es-US';
+
+  /// Orden de intento, del más probable al más lejano.
+  ///
+  /// `es-US` va primero por la decisión del propietario documentada en
+  /// [requested]. El resto conserva el orden por cercanía de uso al español
+  /// boliviano de campo, y `es-BO` queda inmediatamente después porque es el
+  /// país del usuario.
+  ///
+  /// La lista completa se mantiene **a propósito**: es lo que permite que un
+  /// aparato con otro español instalado siga funcionando. Reducirla a `es-US`
+  /// convertiría dos mediciones puntuales en una regla para todos los teléfonos,
+  /// que es justo lo que `RISK-023` advierte.
   static const candidates = <String>[
+    'es-US',
     'es-BO',
     'es-419',
     'es-PE',
@@ -53,7 +83,6 @@ class VoiceLocalePolicy {
     'es-CL',
     'es-CO',
     'es-MX',
-    'es-US',
     'es-ES',
     'es',
   ];

@@ -34,6 +34,14 @@ class VoiceSpeechEngine(private val context: Context) {
     /** Eventos del motor. Nunca transportan audio. */
     interface Listener {
         fun onStage(stage: String)
+
+        /**
+         * Por cuál de los dos reconocedores está escuchando **de verdad**.
+         *
+         * @param route `onDevice` o `systemDefault`.
+         */
+        fun onRoute(route: String)
+
         fun onLocale(locale: String)
         fun onPartial(text: String)
         fun onFinal(text: String)
@@ -182,11 +190,34 @@ class VoiceSpeechEngine(private val context: Context) {
 
     // ------------------------------------------------------------------- turno
 
-    fun start(locale: String, preferOffline: Boolean, partialResults: Boolean) {
+    /**
+     * Abre un turno por el reconocedor que pida [route].
+     *
+     * `DEFECTO-004`: Android tiene **dos** reconocedores y hasta ahora esta
+     * clase elegía sola. En el HONOR JDY-LX3P (API 36)
+     * `isOnDeviceRecognitionAvailable()` devuelve `true`, así que siempre se
+     * usaba Android System Intelligence —que no trae **ningún** español— y
+     * nunca se llegaba a intentar el servicio predeterminado del teléfono, que
+     * es justamente el que funcionó en el aparato de `ADR-002`.
+     *
+     * Ahora la elección la trae la sesión, porque pasar al servicio del sistema
+     * exige la autorización del usuario: ese servicio puede usar Internet.
+     *
+     * Se avisa siempre del camino **realmente** usado: pedir [ROUTE_ON_DEVICE]
+     * en un aparato sin reconocedor local acaba en el predeterminado, y decir
+     * otra cosa escondería por dónde pasa el audio.
+     */
+    fun start(
+        locale: String,
+        preferOffline: Boolean,
+        partialResults: Boolean,
+        route: String,
+    ) {
         releaseRecognizer()
         turnClosed = false
 
-        val useOnDevice = preferOffline &&
+        val useOnDevice = route == ROUTE_ON_DEVICE &&
+            preferOffline &&
             Build.VERSION.SDK_INT >= 31 &&
             SpeechRecognizer.isOnDeviceRecognitionAvailable(context)
         val rec = try {
@@ -200,6 +231,7 @@ class VoiceSpeechEngine(private val context: Context) {
             return
         }
         recognizer = rec
+        listener?.onRoute(if (useOnDevice) ROUTE_ON_DEVICE else ROUTE_SYSTEM)
         rec.setRecognitionListener(object : RecognitionListener {
             override fun onReadyForSpeech(params: Bundle?) {
                 if (turnClosed) return
@@ -335,14 +367,20 @@ class VoiceSpeechEngine(private val context: Context) {
         else -> "engineFailure"
     }
 
-    private companion object {
-        const val ERROR_NO_MATCH = SpeechRecognizer.ERROR_NO_MATCH
-        const val ERROR_SPEECH_TIMEOUT = SpeechRecognizer.ERROR_SPEECH_TIMEOUT
-        const val ERROR_TOO_MANY_REQUESTS = 10
-        const val ERROR_SERVER_DISCONNECTED = 11
-        const val ERROR_LANGUAGE_NOT_SUPPORTED = 12
-        const val ERROR_LANGUAGE_UNAVAILABLE = 13
-        const val ERROR_CANNOT_CHECK_SUPPORT = 14
-        const val ERROR_CANNOT_LISTEN_TO_DOWNLOAD_EVENTS = 15
+    companion object {
+        /** Reconocedor local dedicado: `createOnDeviceSpeechRecognizer()`. */
+        const val ROUTE_ON_DEVICE = "onDevice"
+
+        /** Servicio de reconocimiento del teléfono: `createSpeechRecognizer()`. */
+        const val ROUTE_SYSTEM = "systemDefault"
+
+        private const val ERROR_NO_MATCH = SpeechRecognizer.ERROR_NO_MATCH
+        private const val ERROR_SPEECH_TIMEOUT = SpeechRecognizer.ERROR_SPEECH_TIMEOUT
+        private const val ERROR_TOO_MANY_REQUESTS = 10
+        private const val ERROR_SERVER_DISCONNECTED = 11
+        private const val ERROR_LANGUAGE_NOT_SUPPORTED = 12
+        private const val ERROR_LANGUAGE_UNAVAILABLE = 13
+        private const val ERROR_CANNOT_CHECK_SUPPORT = 14
+        private const val ERROR_CANNOT_LISTEN_TO_DOWNLOAD_EVENTS = 15
     }
 }

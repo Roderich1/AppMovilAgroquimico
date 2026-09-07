@@ -19,6 +19,10 @@ final class FakeTurn {
     this.acceptsLocale,
     this.delay = Duration.zero,
     this.endsOnStop = false,
+    this.announcesLocaleBeforeFailing = false,
+    this.awaitsPermission = false,
+    this.acceptsRoute,
+    this.reportsRoute,
   });
 
   /// Parciales que se emiten al abrir el turno, en orden.
@@ -57,6 +61,36 @@ final class FakeTurn {
   /// Es el turno "el usuario habla y calla cuando quiere", frente al turno que
   /// Android cierra por su cuenta al detectar silencio.
   final bool endsOnStop;
+
+  /// El motor anuncia que está listo a escuchar y **luego** falla.
+  ///
+  /// No es un caso teórico: el HONOR JDY-LX3P (Android 16 / API 36) emitió
+  /// `onReadyForSpeech` para `es-MX` y a continuación devolvió el error 12. Sin
+  /// este guion no se puede reproducir el defecto de mostrar como «utilizado»
+  /// un idioma que nunca llegó a funcionar.
+  final bool announcesLocaleBeforeFailing;
+
+  /// El turno se queda esperando a que el sistema resuelva el permiso.
+  ///
+  /// Es el estado real entre tocar el micrófono y contestar el diálogo: el
+  /// motor **no** ha arrancado y no hay micrófono tomado. Reproducirlo hace
+  /// falta para comprobar que mostrar el diálogo —que pone la aplicación en
+  /// segundo plano— no cancela la sesión.
+  final bool awaitsPermission;
+
+  /// Si no es nulo, el turno sólo funciona por ese reconocedor; con el otro
+  /// falla con [TranscriptionErrorCode.localeUnavailable].
+  ///
+  /// Reproduce el HONOR JDY-LX3P de `DEFECTO-004`: el reconocedor local existe
+  /// y no tiene ningún español, mientras que el servicio del sistema sí
+  /// transcribe.
+  final TranscriptionEngineRoute? acceptsRoute;
+
+  /// El camino que el motor **dice** estar usando, si no es el pedido.
+  ///
+  /// Es el caso de API 31: se pide el reconocedor local, el sistema no lo tiene
+  /// y entrega el predeterminado sin avisar a nadie.
+  final TranscriptionEngineRoute? reportsRoute;
 
   /// Turno sano con texto.
   static const ok = FakeTurn(
@@ -231,8 +265,26 @@ final class FakeSpeechTranscriptionPort implements SpeechTranscriptionPort {
     _pending = null;
     if (_openTurn != turn) return;
 
+    // El motor anuncia por dónde escucha antes que nada: en Android el
+    // reconocedor ya está creado cuando empieza el turno.
+    _emit(TranscriptionRouteInUse(turn.reportsRoute ?? request.route));
+
+    final route = turn.acceptsRoute;
+    if (route != null && route != (turn.reportsRoute ?? request.route)) {
+      _announceIfRequested(turn, request);
+      _emit(
+        TranscriptionFailed(
+          TranscriptionErrorCode.localeUnavailable,
+          detail: turn.failDetail ?? 'fake-route',
+        ),
+      );
+      _end(TranscriptionEndReason.error);
+      return;
+    }
+
     final accepted = turn.acceptsLocale;
     if (accepted != null && accepted != request.locale) {
+      _announceIfRequested(turn, request);
       _emit(
         const TranscriptionFailed(
           TranscriptionErrorCode.localeUnavailable,
@@ -244,8 +296,18 @@ final class FakeSpeechTranscriptionPort implements SpeechTranscriptionPort {
     }
 
     if (turn.failWith != null) {
+      _announceIfRequested(turn, request);
       _emit(TranscriptionFailed(turn.failWith!, detail: turn.failDetail));
       _end(TranscriptionEndReason.error);
+      return;
+    }
+
+    if (turn.awaitsPermission) {
+      _emit(
+        const TranscriptionStageChanged(TranscriptionStage.awaitingPermission),
+      );
+      // El micrófono no se toma hasta que haya permiso.
+      microphoneOpen = false;
       return;
     }
 
@@ -273,6 +335,13 @@ final class FakeSpeechTranscriptionPort implements SpeechTranscriptionPort {
     _emit(const TranscriptionStageChanged(TranscriptionStage.processing));
     _emit(TranscriptionSegment(turn.segment!, elapsed: Duration.zero));
     _end(TranscriptionEndReason.segment);
+  }
+
+  /// Reproduce el motor que dice «listo» y después falla.
+  void _announceIfRequested(FakeTurn turn, TranscriptionRequest request) {
+    if (!turn.announcesLocaleBeforeFailing) return;
+    _emit(const TranscriptionStageChanged(TranscriptionStage.listening));
+    _emit(TranscriptionLocaleInUse(request.locale));
   }
 
   void _end(TranscriptionEndReason reason) {

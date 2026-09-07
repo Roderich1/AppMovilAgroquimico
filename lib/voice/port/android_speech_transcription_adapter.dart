@@ -118,6 +118,7 @@ final class AndroidSpeechTranscriptionAdapter
         'locale': request.locale,
         'preferOffline': request.preferOffline,
         'partialResults': request.partialResults,
+        'route': request.route.name,
       });
     } on PlatformException catch (error) {
       _failTurn(TranscriptionErrorCode.engineFailure, 'platform:${error.code}');
@@ -192,6 +193,14 @@ final class AndroidSpeechTranscriptionAdapter
         final name = map['stage'] as String?;
         for (final stage in TranscriptionStage.values) {
           if (stage.name == name) _emit(TranscriptionStageChanged(stage));
+        }
+
+      // El reconocedor que el motor creó de verdad, que puede no ser el pedido:
+      // en API 31 se pide el local y el sistema entrega el predeterminado.
+      case 'route':
+        final name = map['route'] as String?;
+        for (final route in TranscriptionEngineRoute.values) {
+          if (route.name == name) _emit(TranscriptionRouteInUse(route));
         }
 
       case 'locale':

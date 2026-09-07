@@ -374,6 +374,117 @@ void main() {
     );
   });
 
+  group('regresiones del HONOR JDY-LX3P (Android 16 / API 36)', () {
+    // Defectos encontrados en el gate físico de EVO-009. Cada uno reproduce lo
+    // que el teléfono hizo de verdad, no lo que se suponía que haría.
+
+    test('DEFECTO-001: el diálogo de permiso no cancela la sesión', () async {
+      // El lado nativo avisa de que va a pedir el permiso y se queda esperando:
+      // el motor todavía no arrancó y no hay micrófono tomado.
+      build(script: [const FakeTurn(awaitsPermission: true)]);
+      await controller.startListening();
+      await settle();
+      expect(
+        controller.snapshot.status,
+        VoiceSessionStatus.requestingPermission,
+      );
+
+      // Mostrar el diálogo pone la aplicación en segundo plano. Tratarlo como
+      // «el usuario se fue» cancelaba la sesión justo antes de conceder, y el
+      // micrófono no llegaba a abrirse nunca.
+      await controller.handleAppPaused();
+      await settle();
+
+      expect(
+        controller.snapshot.status,
+        VoiceSessionStatus.requestingPermission,
+        reason: 'esperar el permiso no es abandonar la pantalla',
+      );
+      expect(port.calls, isNot(contains('cancel')));
+    });
+
+    test(
+      'DEFECTO-001: ir a segundo plano ya escuchando sí libera el micrófono',
+      () async {
+        build(script: [const FakeTurn(silent: true)]);
+        await controller.startListening();
+        await settle();
+        expect(controller.snapshot.status, VoiceSessionStatus.listening);
+
+        await controller.handleAppPaused();
+        await settle();
+
+        expect(port.microphoneReleased, isTrue);
+        expect(port.calls, contains('cancel'));
+      },
+    );
+
+    test('DEFECTO-002: un idioma que anunció estar listo y falló no se muestra '
+        'como utilizado', () async {
+      build(
+        script: const [
+          FakeTurn(
+            failWith: TranscriptionErrorCode.localeUnavailable,
+            failDetail: 'android-error-12',
+            announcesLocaleBeforeFailing: true,
+          ),
+        ],
+      );
+      await controller.startListening();
+      await settle(40);
+
+      expect(
+        controller.snapshot.status,
+        VoiceSessionStatus.languageUnavailable,
+      );
+      expect(
+        controller.snapshot.localeInUse,
+        isNull,
+        reason: 'ninguno de los diez funcionó: afirmar uno sería mentir',
+      );
+    });
+
+    test('DEFECTO-002: el idioma que sí funciona sigue mostrándose tras fallar '
+        'otros', () async {
+      build(
+        script: const [
+          FakeTurn(
+            acceptsLocale: 'es-PE',
+            segment: 'listo',
+            endsOnStop: true,
+            announcesLocaleBeforeFailing: true,
+          ),
+        ],
+      );
+      await controller.startListening();
+      await settle(40);
+
+      expect(controller.snapshot.localeInUse, 'es-PE');
+    });
+
+    test('OBSERVACIÓN-003: el recorrido de idiomas es visible', () async {
+      build(
+        script: const [
+          FakeTurn(
+            failWith: TranscriptionErrorCode.localeUnavailable,
+            announcesLocaleBeforeFailing: true,
+          ),
+        ],
+      );
+      final started = controller.startListening();
+      await settle(2);
+      // En el HONOR el recorrido tardó 17,6 s con la pantalla congelada. La
+      // sesión debe poder decir por dónde va.
+      expect(controller.snapshot.localeAttempt, greaterThan(0));
+      expect(
+        controller.snapshot.localeCandidates,
+        VoiceLocalePolicy.candidates.length,
+      );
+      await started;
+      await settle(40);
+    });
+  });
+
   group('idioma', () {
     test('recorre la lista de fallback y publica el que funciona', () async {
       build(
@@ -384,24 +495,50 @@ void main() {
       await controller.startListening();
       await settle(20);
 
-      expect(port.attemptedLocales.take(3), ['es-BO', 'es-419', 'es-PE']);
+      expect(port.attemptedLocales.take(4), [
+        'es-US',
+        'es-BO',
+        'es-419',
+        'es-PE',
+      ]);
       expect(controller.snapshot.localeInUse, 'es-PE');
-      expect(controller.snapshot.requestedLocale, 'es-BO');
+      expect(controller.snapshot.requestedLocale, 'es-US');
       expect(controller.snapshot.localeIsFallback, isTrue);
     });
 
-    test('no fija es-US: lo intenta sólo cuando le toca en la lista', () async {
+    test(
+      'el solicitado se intenta primero y, si sirve, no se recorre más',
+      () async {
+        build(
+          script: const [
+            FakeTurn(acceptsLocale: 'es-US', segment: 'ok', endsOnStop: true),
+          ],
+        );
+        await controller.startListening();
+        await settle(30);
+
+        expect(port.attemptedLocales, ['es-US']);
+        expect(controller.snapshot.localeInUse, 'es-US');
+        expect(
+          controller.snapshot.localeIsFallback,
+          isFalse,
+          reason: 'coincide con el solicitado: no hay nada que advertir',
+        );
+      },
+    );
+
+    test('si el solicitado falla, el respaldo sigue recorriéndose', () async {
       build(
         script: const [
-          FakeTurn(acceptsLocale: 'es-US', segment: 'ok', endsOnStop: true),
+          FakeTurn(acceptsLocale: 'es-CL', segment: 'ok', endsOnStop: true),
         ],
       );
       await controller.startListening();
       await settle(30);
 
-      expect(port.attemptedLocales.first, 'es-BO');
-      expect(port.attemptedLocales, contains('es-US'));
-      expect(controller.snapshot.localeInUse, 'es-US');
+      expect(port.attemptedLocales.first, VoiceLocalePolicy.requested);
+      expect(controller.snapshot.localeInUse, 'es-CL');
+      expect(controller.snapshot.localeIsFallback, isTrue);
     });
 
     test('si ningún español sirve, el estado es languageUnavailable', () async {
@@ -889,6 +1026,374 @@ void main() {
       expect(text, isNot(contains('urea')));
       expect(text, isNot(contains('José')));
       expect(text, contains('chars='));
+    });
+  });
+
+  group('DEFECTO-004: paso al reconocedor del sistema', () {
+    // El HONOR JDY-LX3P (Android 16 / API 36) **sí** tiene reconocedor
+    // on-device —Android System Intelligence— pero sin ningún español: los diez
+    // candidatos fallaron con error 12 o 13. El POCO X5 Pro de `ADR-002`
+    // funcionaba porque allí `isOnDeviceRecognitionAvailable()` devolvía `false`
+    // y se acababa usando el reconocedor **predeterminado** del teléfono.
+    //
+    // El camino que funcionó en el aparato de referencia existe también en el
+    // HONOR y no se estaba intentando. Se intenta ahora, pero **preguntando**:
+    // el servicio del sistema puede usar Internet, y eso lo decide el dueño del
+    // teléfono, no la aplicación.
+
+    /// Lo medido en el HONOR: nada por on-device, todo por el servicio del
+    /// sistema.
+    const honor = FakeTurn(
+      acceptsRoute: TranscriptionEngineRoute.systemDefault,
+      failDetail: 'android-error-12',
+      segment: 'cincuenta litros de bellator',
+      endsOnStop: true,
+    );
+
+    /// Recorre y agota los diez candidatos por el camino on-device.
+    Future<void> exhaustOnDevice() async {
+      await controller.startListening();
+      await settle(60);
+    }
+
+    test(
+      'agotar los idiomas con error 12 ofrece el servicio del sistema',
+      () async {
+        build(script: const [honor]);
+        await exhaustOnDevice();
+
+        expect(port.attemptedLocales, VoiceLocalePolicy.candidates);
+        expect(
+          controller.snapshot.status,
+          VoiceSessionStatus.languageUnavailable,
+        );
+        expect(controller.snapshot.routeFallbackOffered, isTrue);
+        expect(
+          controller.snapshot.route,
+          TranscriptionEngineRoute.onDevice,
+          reason: 'ofrecer no es haber cambiado: falta la decisión del usuario',
+        );
+        expect(port.microphoneReleased, isTrue);
+      },
+    );
+
+    test('agotar los idiomas con error 13 también lo ofrece', () async {
+      build(
+        script: const [
+          FakeTurn(
+            acceptsRoute: TranscriptionEngineRoute.systemDefault,
+            failDetail: 'android-error-13',
+            segment: 'ok',
+            endsOnStop: true,
+          ),
+        ],
+      );
+      await exhaustOnDevice();
+
+      expect(controller.snapshot.routeFallbackOffered, isTrue);
+      expect(controller.snapshot.offline.languageModelPossiblyMissing, isTrue);
+    });
+
+    test('no se ofrece nada mientras queden idiomas por probar', () async {
+      // El tercer candidato sí funciona: quedan siete sin probar y por tanto el
+      // camino local no está agotado. Preguntar aquí sería alarmar sin motivo.
+      build(
+        script: const [
+          FakeTurn(acceptsLocale: 'es-419', segment: 'ok', endsOnStop: true),
+        ],
+      );
+      await controller.startListening();
+      await settle(60);
+
+      expect(port.attemptedLocales, hasLength(3));
+      expect(controller.snapshot.localeInUse, 'es-419');
+      expect(controller.snapshot.routeFallbackOffered, isFalse);
+      expect(controller.snapshot.route, TranscriptionEngineRoute.onDevice);
+    });
+
+    test(
+      'un fallo que no es de idioma corta el recorrido sin ofrecer nada',
+      () async {
+        // El recorrido se detiene por permiso denegado con ocho candidatos sin
+        // probar: no se agotó nada, así que no hay nada que ofrecer.
+        build(
+          script: const [
+            FakeTurn(failWith: TranscriptionErrorCode.localeUnavailable),
+            FakeTurn(failWith: TranscriptionErrorCode.permissionDenied),
+          ],
+          repeatLast: false,
+        );
+        await controller.startListening();
+        await settle(60);
+
+        expect(controller.snapshot.status, VoiceSessionStatus.permissionDenied);
+        expect(controller.snapshot.routeFallbackOffered, isFalse);
+      },
+    );
+
+    test(
+      'aceptar destruye el reconocedor on-device antes de crear el otro',
+      () async {
+        build(script: const [honor]);
+        await exhaustOnDevice();
+        port.calls.clear();
+
+        await controller.useSystemRecognizer();
+        await settle(20);
+
+        expect(
+          port.calls.indexOf('cancel'),
+          lessThan(port.calls.indexOf('start')),
+          reason: 'el primer SpeechRecognizer se destruye antes de abrir otro',
+        );
+      },
+    );
+
+    test('aceptar crea el reconocedor predeterminado y mantiene la preferencia '
+        'sin conexión', () async {
+      build(script: const [honor]);
+      await exhaustOnDevice();
+      await controller.useSystemRecognizer();
+      await settle(20);
+
+      final last = port.startRequests.last;
+      expect(last.route, TranscriptionEngineRoute.systemDefault);
+      expect(
+        last.preferOffline,
+        isTrue,
+        reason: 'cambiar de reconocedor no es renunciar a pedir sin conexión',
+      );
+      expect(last.locale, VoiceLocalePolicy.requested);
+    });
+
+    test('aceptar transcribe por el servicio del sistema', () async {
+      build(script: const [honor]);
+      await exhaustOnDevice();
+      await controller.useSystemRecognizer();
+      await settle(20);
+      await controller.stopListening();
+      await settle(20);
+
+      expect(controller.snapshot.committedText, contains('bellator'));
+      expect(controller.snapshot.route, TranscriptionEngineRoute.systemDefault);
+      expect(
+        controller.snapshot.observedRoute,
+        TranscriptionEngineRoute.systemDefault,
+      );
+      expect(controller.snapshot.routeFallbackUsed, isTrue);
+      expect(controller.snapshot.routeFallbackOffered, isFalse);
+    });
+
+    test(
+      'el servicio del sistema no se presenta como offline comprobado',
+      () async {
+        build(script: const [honor]);
+        await exhaustOnDevice();
+        await controller.useSystemRecognizer();
+        await settle(20);
+        await controller.stopListening();
+        await settle(20);
+
+        expect(
+          controller.snapshot.offline.observedOffline,
+          isFalse,
+          reason: 'sin modo avión verificado no hay nada comprobado',
+        );
+      },
+    );
+
+    test(
+      'rechazar conserva el texto, suelta el micrófono y no abre turnos',
+      () async {
+        build(script: const [honor]);
+        controller.editText('diez litros');
+        await exhaustOnDevice();
+        final before = port.startRequests.length;
+
+        await controller.declineSystemRecognizer();
+        await settle(20);
+
+        expect(controller.snapshot.committedText, 'diez litros');
+        expect(controller.snapshot.routeFallbackOffered, isFalse);
+        expect(controller.snapshot.route, TranscriptionEngineRoute.onDevice);
+        expect(
+          controller.snapshot.status,
+          VoiceSessionStatus.languageUnavailable,
+        );
+        expect(port.startRequests, hasLength(before));
+        expect(port.microphoneReleased, isTrue);
+      },
+    );
+
+    test('la confirmación se ofrece una sola vez por sesión', () async {
+      build(script: const [honor]);
+      await exhaustOnDevice();
+      await controller.declineSystemRecognizer();
+      await settle(20);
+
+      // El usuario insiste con el micrófono: se vuelve a recorrer la lista,
+      // pero ya no se le pregunta lo mismo otra vez.
+      await controller.retry();
+      await settle(60);
+
+      expect(
+        controller.snapshot.status,
+        VoiceSessionStatus.languageUnavailable,
+      );
+      expect(controller.snapshot.routeFallbackOffered, isFalse);
+    });
+
+    test(
+      'si el servicio del sistema tampoco tiene español, se acaba sin ofrecer '
+      'más',
+      () async {
+        build(
+          script: const [
+            FakeTurn(failWith: TranscriptionErrorCode.localeUnavailable),
+          ],
+        );
+        await exhaustOnDevice();
+        expect(controller.snapshot.routeFallbackOffered, isTrue);
+
+        await controller.useSystemRecognizer();
+        await settle(80);
+
+        expect(
+          controller.snapshot.status,
+          VoiceSessionStatus.languageUnavailable,
+        );
+        expect(
+          controller.snapshot.routeFallbackOffered,
+          isFalse,
+          reason: 'ya no queda ningún camino que ofrecer',
+        );
+        expect(
+          controller.snapshot.route,
+          TranscriptionEngineRoute.systemDefault,
+        );
+      },
+    );
+
+    test('nunca se vuelve solo al reconocedor on-device', () async {
+      build(
+        script: const [
+          FakeTurn(failWith: TranscriptionErrorCode.localeUnavailable),
+        ],
+      );
+      await exhaustOnDevice();
+      await controller.useSystemRecognizer();
+      await settle(80);
+      await controller.retry();
+      await settle(80);
+
+      expect(
+        port.startRequests
+            .skipWhile((r) => r.route == TranscriptionEngineRoute.onDevice)
+            .every((r) => r.route == TranscriptionEngineRoute.systemDefault),
+        isTrue,
+        reason: 'alternar entre reconocedores sería el bucle que se prohíbe',
+      );
+    });
+
+    test(
+      'no se ofrece si el motor ya estaba usando el servicio del sistema',
+      () async {
+        // El caso del POCO X5 Pro de `ADR-002`: sin reconocedor on-device, el
+        // sistema ya entregaba el predeterminado. No hay a dónde cambiar.
+        build(
+          script: const [
+            FakeTurn(
+              failWith: TranscriptionErrorCode.localeUnavailable,
+              reportsRoute: TranscriptionEngineRoute.systemDefault,
+            ),
+          ],
+        );
+        await exhaustOnDevice();
+
+        expect(
+          controller.snapshot.status,
+          VoiceSessionStatus.languageUnavailable,
+        );
+        expect(controller.snapshot.routeFallbackOffered, isFalse);
+      },
+    );
+
+    test('descartar vuelve a empezar por el reconocedor on-device', () async {
+      build(script: const [honor]);
+      await exhaustOnDevice();
+      await controller.useSystemRecognizer();
+      await settle(20);
+      expect(controller.snapshot.route, TranscriptionEngineRoute.systemDefault);
+
+      await controller.discard();
+      await settle(10);
+
+      expect(
+        controller.snapshot.route,
+        TranscriptionEngineRoute.onDevice,
+        reason: 'la autorización valía para aquella sesión, no para siempre',
+      );
+      expect(controller.snapshot.routeFallbackUsed, isFalse);
+    });
+
+    test('el texto y las correcciones manuales sobreviven al cambio', () async {
+      build(script: const [honor]);
+      await exhaustOnDevice();
+      controller.editText('cinco litros');
+
+      await controller.useSystemRecognizer();
+      await settle(20);
+      await controller.stopListening();
+      await settle(20);
+
+      expect(controller.snapshot.committedText, startsWith('cinco litros'));
+      expect(controller.snapshot.manuallyEdited, isTrue);
+    });
+
+    test(
+      'salir de la pantalla con la confirmación a la vista suelta todo',
+      () async {
+        build(script: const [honor]);
+        await exhaustOnDevice();
+        controller.dispose();
+        await settle();
+
+        expect(port.microphoneReleased, isTrue);
+        expect(port.calls, contains('dispose'));
+      },
+    );
+
+    for (final caso in <(String, FakeTurn)>[
+      ('noMatch', FakeTurn(noMatch: true)),
+      ('timeout', FakeTurn(timeout: true)),
+      (
+        'permiso denegado',
+        FakeTurn(failWith: TranscriptionErrorCode.permissionDenied),
+      ),
+      (
+        'error transitorio',
+        FakeTurn(failWith: TranscriptionErrorCode.clientError),
+      ),
+      ('servicio ocupado', FakeTurn(failWith: TranscriptionErrorCode.busy)),
+    ]) {
+      test('${caso.$1} no ofrece el cambio de reconocedor', () async {
+        build(script: [caso.$2]);
+        await controller.startListening();
+        await settle(60);
+
+        expect(controller.snapshot.routeFallbackOffered, isFalse);
+        expect(controller.snapshot.route, TranscriptionEngineRoute.onDevice);
+      });
+    }
+
+    test('la cancelación no ofrece el cambio de reconocedor', () async {
+      build(script: const [FakeTurn(silent: true)]);
+      await controller.startListening();
+      await settle();
+      await controller.discard();
+      await settle(20);
+
+      expect(controller.snapshot.routeFallbackOffered, isFalse);
     });
   });
 }

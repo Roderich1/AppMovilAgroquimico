@@ -116,11 +116,15 @@ siga siendo editable siempre.
 `ADR-002` obliga a documentar el fallback. Es éste, en este orden:
 
 ```text
-es-BO · es-419 · es-PE · es-AR · es-CL · es-CO · es-MX · es-US · es-ES · es
+es-US · es-BO · es-419 · es-PE · es-AR · es-CL · es-CO · es-MX · es-ES · es
 ```
 
-- Se **pide** `es-BO` y se muestra el que el motor **aceptó**.
-- `es-US` **no** está fijado: se intenta cuando le toca, como cualquier otro.
+- Se **pide** `es-US` y se muestra el que el motor **aceptó**. El locale
+  solicitado lo revisó el propietario el 2026-09-06 durante el gate del HONOR
+  JDY-LX3P; el detalle y la evidencia están en la sección «Revisión 2026-09-06»
+  de `ADR-002`.
+- `es-US` es el **primer intento**, no una promesa: si falla se recorre el resto.
+- `es-BO` sigue en la lista, en segundo lugar, porque es el país del usuario.
 - Con `checkRecognitionSupport` disponible (API 33+) los instalados se adelantan;
   sin él (API 31, el aparato de referencia) se recorre la lista **intentando y
   observando**, que es lo que exige `EVO-009-REQ-014`.

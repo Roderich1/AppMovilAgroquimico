@@ -335,4 +335,102 @@ void main() {
       expect(availability.toString(), isNot(contains('urea')));
     });
   });
+
+  group('camino del reconocedor', () {
+    // `DEFECTO-004`: Android ofrece dos reconocedores y el puerto tiene que
+    // decir por cuál escuchó. Sin ese dato la sesión no puede distinguir «no hay
+    // español en el reconocedor local» de «no hay español en este teléfono», que
+    // es justo lo que dejó al HONOR JDY-LX3P sin salida.
+
+    test('el turno anuncia por qué reconocedor escucha', () async {
+      listen(
+        FakeSpeechTranscriptionPort(script: const [FakeTurn(segment: 'ok')]),
+      );
+      await port.start(request);
+      await settle();
+
+      expect(
+        eventsOf<TranscriptionRouteInUse>().single.route,
+        TranscriptionEngineRoute.onDevice,
+      );
+    });
+
+    test('el motor puede escuchar por un camino distinto del pedido', () async {
+      // Es lo que ocurre en API 31: se pide el reconocedor local, el sistema no
+      // lo tiene y entrega el predeterminado. Anunciar el pedido en vez del
+      // usado sería mentir sobre por dónde pasa el audio.
+      listen(
+        FakeSpeechTranscriptionPort(
+          script: const [
+            FakeTurn(
+              segment: 'ok',
+              reportsRoute: TranscriptionEngineRoute.systemDefault,
+            ),
+          ],
+        ),
+      );
+      await port.start(request);
+      await settle();
+
+      expect(
+        eventsOf<TranscriptionRouteInUse>().single.route,
+        TranscriptionEngineRoute.systemDefault,
+      );
+    });
+
+    test('el camino pedido llega al motor', () async {
+      listen(
+        FakeSpeechTranscriptionPort(script: const [FakeTurn(segment: 'ok')]),
+      );
+      await port.start(
+        const TranscriptionRequest(
+          locale: 'es-US',
+          route: TranscriptionEngineRoute.systemDefault,
+        ),
+      );
+      await settle();
+
+      expect(
+        port.startRequests.single.route,
+        TranscriptionEngineRoute.systemDefault,
+      );
+    });
+
+    test('la petición conserva el camino al cambiar de idioma', () {
+      const original = TranscriptionRequest(
+        locale: 'es-US',
+        route: TranscriptionEngineRoute.systemDefault,
+      );
+      final next = original.withLocale('es-BO');
+
+      expect(next.route, TranscriptionEngineRoute.systemDefault);
+      expect(next.preferOffline, isTrue);
+      expect(next.locale, 'es-BO');
+    });
+
+    test(
+      'un turno que no acepta el camino falla como idioma no disponible',
+      () async {
+        listen(
+          FakeSpeechTranscriptionPort(
+            script: const [
+              FakeTurn(
+                segment: 'ok',
+                acceptsRoute: TranscriptionEngineRoute.systemDefault,
+                failDetail: 'android-error-12',
+              ),
+            ],
+          ),
+        );
+        await port.start(request);
+        await settle();
+
+        expect(
+          eventsOf<TranscriptionFailed>().single.code,
+          TranscriptionErrorCode.localeUnavailable,
+        );
+        expect(port.microphoneReleased, isTrue);
+      },
+    );
+  });
 }
