@@ -32,12 +32,12 @@ class WhisperSession(private val context: Context) {
         val audioMs: Long,
         val error: String? = null,
     ) {
-        /** Segundos de audio por segundo de cómputo. `ADR-004` pide <= 0,50. */
+        /** Segundos de cómputo por segundo de audio. `ADR-004` pide <= 0,50. */
         val realTimeFactor: Double
-            get() = if (audioMs <= 0) 0.0 else elapsedMs.toDouble() / audioMs
+            get() = WhisperTranscript.realTimeFactor(elapsedMs, audioMs)
 
         /** Hay texto y nada lo marca como dudoso. */
-        val isUsable: Boolean get() = !text.isNullOrEmpty() && flags.isEmpty()
+        val isUsable: Boolean get() = WhisperTranscript.isUsable(text, flags)
     }
 
     private var contextPtr: Long = 0
@@ -105,7 +105,12 @@ class WhisperSession(private val context: Context) {
             }
         }.trim()
 
-        return Outcome(text.ifEmpty { null }, suspicionFlags(text, audioMs), elapsedMs, audioMs)
+        return Outcome(
+            text.ifEmpty { null },
+            WhisperTranscript.flagsFor(text, audioMs),
+            elapsedMs,
+            audioMs,
+        )
     }
 
     fun release() {
@@ -116,36 +121,6 @@ class WhisperSession(private val context: Context) {
     }
 
     // ------------------------------------------------------------------ privado
-
-    /**
-     * Qué hace sospechoso a este texto.
-     *
-     * Nada de esto lo descarta automáticamente: lo marca para que la interfaz
-     * pida revisión en vez de proponer un dato inventado.
-     */
-    private fun suspicionFlags(text: String, audioMs: Long): List<String> {
-        val flags = mutableListOf<String>()
-        if (text.isEmpty()) {
-            flags += FLAG_NO_SPEECH
-            return flags
-        }
-        // Anotaciones del propio modelo: `[MÚSICA]`, `(risas)`, `[BLANK_AUDIO]`.
-        // Whisper las emite cuando no oyó habla, y en la Fase 0 pasaron por
-        // resultado válido.
-        if (ANNOTATION.containsMatchIn(text)) flags += FLAG_ANNOTATION
-        // Repetición degenerada: el mismo trozo una y otra vez.
-        if (isDegenerate(text)) flags += FLAG_REPETITION
-        // Mucho texto para muy poco audio: no cabe en el tiempo que se grabó.
-        if (audioMs in 1..2_000 && text.length > 80) flags += FLAG_TOO_MUCH_TEXT
-        return flags
-    }
-
-    private fun isDegenerate(text: String): Boolean {
-        val words = text.lowercase().split(WHITESPACE).filter { it.isNotBlank() }
-        if (words.size < 6) return false
-        val distinct = words.toSet().size
-        return distinct * 4 <= words.size
-    }
 
     private fun threadCount(): Int =
         Runtime.getRuntime().availableProcessors().coerceIn(2, 4)
@@ -178,16 +153,14 @@ class WhisperSession(private val context: Context) {
     }
 
     companion object {
-        const val FLAG_NO_SPEECH = "noSpeech"
-        const val FLAG_ANNOTATION = "possibleHallucination"
-        const val FLAG_REPETITION = "degenerateRepetition"
-        const val FLAG_TOO_MUCH_TEXT = "lowSpeechRatio"
-
-        private val ANNOTATION = Regex("""[\[(](?:[^\[\])]{0,40})[\])]""")
-        private val WHITESPACE = Regex("""\s+""")
+        // Se reexportan desde [WhisperTranscript], que es donde vive la
+        // clasificación y donde se prueba sin JNI ni aparato.
+        const val FLAG_NO_SPEECH = WhisperTranscript.FLAG_NO_SPEECH
+        const val FLAG_ANNOTATION = WhisperTranscript.FLAG_ANNOTATION
+        const val FLAG_REPETITION = WhisperTranscript.FLAG_REPETITION
+        const val FLAG_TOO_MUCH_TEXT = WhisperTranscript.FLAG_TOO_MUCH_TEXT
 
         /** whisper usa el código de idioma (`es`), no el locale completo. */
-        fun languageOf(locale: String): String =
-            locale.replace('_', '-').substringBefore('-').lowercase()
+        fun languageOf(locale: String): String = WhisperTranscript.languageOf(locale)
     }
 }

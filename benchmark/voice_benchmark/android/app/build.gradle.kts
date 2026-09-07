@@ -164,8 +164,28 @@ android {
         // La acumulación de lo que Vosk confirma es lógica pura y tiene su
         // prueba JVM: es donde estuvo el defecto que daba «sin habla» a una
         // frase transcrita correctamente.
-        getByName("testVosk") { kotlin.srcDir("src/test/kotlin") }
-        getByName("testHybrid") { kotlin.srcDir("src/test/kotlin") }
+        // Las pruebas JVM van por sabor, no en `src/test/kotlin`.
+        //
+        // `src/test/kotlin` es el directorio por defecto de **todas** las
+        // variantes de prueba, así que la prueba de Vosk se compilaba también
+        // dentro de los sabores de Whisper y de Android, donde `VoskTranscript`
+        // no existe. `testVoskDebugUnitTest` pasaba y
+        // `testWhisperSmallDebugUnitTest` ni siquiera compilaba; como sólo se
+        // ejecutaba el primero, no se notó.
+        for (flavor in listOf("testVosk", "testHybrid")) {
+            getByName(flavor) { kotlin.srcDir("src/testVoskCommon/kotlin") }
+        }
+        // Del lado de Whisper: qué texto es sospechoso es lo que decide el
+        // guardrail de «cero texto aceptado sobre no-habla», y vive sin JNI
+        // para poder ejercitarlo entero sin modelo y sin aparato.
+        for (flavor in listOf(
+            "testWhisperTiny",
+            "testWhisperBase",
+            "testWhisperSmall",
+            "testHybrid",
+        )) {
+            getByName(flavor) { kotlin.srcDir("src/testWhisperCommon/kotlin") }
+        }
         // El híbrido es el único que compila los dos motores a la vez, porque
         // es el único que los usa sobre la misma captura.
         getByName("hybrid") {
