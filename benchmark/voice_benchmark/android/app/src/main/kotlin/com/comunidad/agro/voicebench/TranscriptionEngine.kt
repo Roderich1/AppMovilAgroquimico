@@ -54,6 +54,17 @@ interface EngineListener {
      * @param detail diagnóstico técnico. **Nunca** la frase dictada.
      */
     fun onError(code: String, detail: String?)
+
+    /**
+     * Qué dijo cada motor del candidato híbrido, con sus tiempos y sus marcas
+     * de calidad.
+     *
+     * Sólo lo emite el híbrido; por eso trae implementación vacía y los motores
+     * simples no cambian. **No fusiona textos**: entrega los dos por separado y
+     * es la capa de análisis —probada en Dart— la que marca las discrepancias
+     * críticas. Ningún algoritmo del motor elige por el usuario.
+     */
+    fun onHybridDetail(detail: Map<String, Any?>) = Unit
 }
 
 /**

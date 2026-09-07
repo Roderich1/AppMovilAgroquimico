@@ -8,6 +8,8 @@
 # Los deja donde Gradle los empaqueta como assets del sabor correspondiente:
 #   android/app/src/whisperTiny/assets/models/ggml-tiny-q5_1.bin
 #   android/app/src/whisperBase/assets/models/ggml-base-q5_1.bin
+#   android/app/src/whisperSmall/assets/models/ggml-small-q5_1.bin
+#   android/app/src/hybrid/assets/models/ggml-small-q5_1.bin
 #
 # El hash NO es decorativo: un modelo distinto es otro candidato y mediría otra
 # cosa. Si no coincide, el script falla y borra el archivo.
@@ -17,9 +19,14 @@ HERE="$(cd "$(dirname "$0")/.." && pwd)"
 BASE_URL=https://huggingface.co/ggerganov/whisper.cpp/resolve/main
 
 # nombre|sabor|sha256
+#
+# `small` va a dos sabores: C3 lo mide aislado y C4 lo usa como segunda pasada
+# del híbrido. Es el MISMO archivo, así que las dos medidas son comparables.
 MODELS=(
   "ggml-tiny-q5_1.bin|whisperTiny|818710568da3ca15689e31a743197b520007872ff9576237bda97bd1b469c3d7"
   "ggml-base-q5_1.bin|whisperBase|422f1ae452ade6f30a004d7e5c6a43195e4433bc370bf23fac9cc591f01a8898"
+  "ggml-small-q5_1.bin|whisperSmall|ae85e4a935d7a567bd102fe55afc16bb595bdb618e11b2fc7591bc08120411bb"
+  "ggml-small-q5_1.bin|hybrid|ae85e4a935d7a567bd102fe55afc16bb595bdb618e11b2fc7591bc08120411bb"
 )
 
 sha256_of() {

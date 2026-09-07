@@ -151,6 +151,17 @@ class SpeechBridge(
     override fun onError(code: String, detail: String?) =
         send(mapOf("type" to "error", "code" to code, "detail" to detail))
 
+    /**
+     * Detalle del candidato híbrido: los dos textos, sus tiempos y sus marcas.
+     *
+     * Viaja aparte del resultado final a propósito. La comparación entre lo que
+     * dijo Vosk y lo que dijo Whisper —y sobre todo qué hacer cuando no
+     * coinciden— es análisis, se prueba en Dart sin teléfono, y no puede vivir
+     * dentro del motor.
+     */
+    override fun onHybridDetail(detail: Map<String, Any?>) =
+        send(mapOf("type" to "hybrid") + detail)
+
     private fun send(payload: Map<String, Any?>) {
         main.post { sink?.success(payload) }
     }
