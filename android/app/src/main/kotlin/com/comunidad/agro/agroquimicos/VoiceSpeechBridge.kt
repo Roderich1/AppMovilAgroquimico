@@ -38,6 +38,16 @@ class VoiceSpeechBridge(
     private var pendingStart: PendingStart? = null
 
     /**
+     * Hay un diálogo de permiso esperando respuesta.
+     *
+     * `DEFECTO-005`: pedirlo dos veces no abre un segundo diálogo, hace que
+     * Android conteste «Can request only one set of permissions at a time» y
+     * entregue una denegación inmediata. En el HONOR JDY-LX3P eso convirtió un
+     * permiso concedido en «Permiso de micrófono denegado».
+     */
+    private var permissionInFlight = false
+
+    /**
      * El turno que espera a que el usuario conteste el diálogo de permiso.
      *
      * Lleva también el reconocedor pedido: conceder el micrófono no puede
@@ -57,6 +67,7 @@ class VoiceSpeechBridge(
     }
 
     fun detach() {
+        permissionInFlight = false
         engine.release()
         method.setMethodCallHandler(null)
         event.setStreamHandler(null)
@@ -88,10 +99,16 @@ class VoiceSpeechBridge(
                 } else {
                     pendingStart = PendingStart(locale, preferOffline, partials, route)
                     onStage("awaitingPermission")
-                    activity.requestPermissions(
-                        arrayOf(Manifest.permission.RECORD_AUDIO),
-                        MIC_REQUEST,
-                    )
+                    // Si ya hay un diálogo abierto se espera su respuesta: la
+                    // peticion pendiente se acaba de actualizar y `onPermissionResult`
+                    // la arrancara.
+                    if (!permissionInFlight) {
+                        permissionInFlight = true
+                        activity.requestPermissions(
+                            arrayOf(Manifest.permission.RECORD_AUDIO),
+                            MIC_REQUEST,
+                        )
+                    }
                 }
                 result.success(null)
             }
@@ -142,6 +159,7 @@ class VoiceSpeechBridge(
 
     /** Lo llama la Activity al volver del diálogo de permisos. */
     fun onPermissionResult(granted: Boolean) {
+        permissionInFlight = false
         val pending = pendingStart ?: return
         pendingStart = null
         if (granted) {
