@@ -3,6 +3,10 @@ import 'dart:convert';
 import 'bench_result.dart';
 
 /// Una tanda de mediciones exportable.
+///
+/// La cabecera repite la identidad que ya lleva cada fila. No es redundancia
+/// inútil: el JSON se lee entero y el CSV se corta, se filtra y se pega en una
+/// hoja, y hace falta que las dos formas digan lo mismo por separado.
 final class BenchRun {
   const BenchRun({
     required this.engine,
@@ -15,6 +19,14 @@ final class BenchRun {
     required this.results,
     this.abi = '',
     this.notes,
+    this.corpusId = '',
+    this.corpusDigest = '',
+    this.partition = '',
+    this.candidateId = '',
+    this.partialEngine,
+    this.finalEngine = '',
+    this.modelHashes = const <String, String>{},
+    this.benchCommit = '',
   });
 
   final String engine;
@@ -23,12 +35,29 @@ final class BenchRun {
   final String androidRelease;
   final int androidSdk;
   final String abi;
+
+  /// Corpus con el que se dictó la tanda entera.
+  final String corpusId;
   final String corpusVersion;
+  final String corpusDigest;
+  final String partition;
+
+  final String candidateId;
+  final String? partialEngine;
+  final String finalEngine;
+  final Map<String, String> modelHashes;
+
+  /// Commit del banco con el que se construyó el APK.
+  final String benchCommit;
+
   final String appVersion;
   final List<BenchResult> results;
   final String? notes;
 
   /// Copia sin transcripciones, para cuando el dictado incluyó datos reales.
+  ///
+  /// Quita el texto y **nada más**. Sin corpus, digest ni candidato, la tanda
+  /// dejaría de ser una medición para pasar a ser un puñado de latencias.
   BenchRun withoutTranscripts() => BenchRun(
     engine: engine,
     model: model,
@@ -36,7 +65,15 @@ final class BenchRun {
     androidRelease: androidRelease,
     androidSdk: androidSdk,
     abi: abi,
+    corpusId: corpusId,
     corpusVersion: corpusVersion,
+    corpusDigest: corpusDigest,
+    partition: partition,
+    candidateId: candidateId,
+    partialEngine: partialEngine,
+    finalEngine: finalEngine,
+    modelHashes: modelHashes,
+    benchCommit: benchCommit,
     appVersion: appVersion,
     notes: notes,
     results: results.map((r) => r.redacted()).toList(growable: false),
@@ -44,14 +81,25 @@ final class BenchRun {
 
   Map<String, Object?> toJson() => {
     'schema': 'evolution-3-voice-benchmark',
-    'schemaVersion': 1,
+    // Sube a 2 porque las filas traen identidad de corpus y de candidato. El
+    // agregador distingue por este número las tandas de la Fase 0, que no la
+    // llevan, de las nuevas.
+    'schemaVersion': 2,
     'engine': engine,
     'model': model,
     'device': device,
     'androidRelease': androidRelease,
     'androidSdk': androidSdk,
     'abi': abi,
+    'corpusId': corpusId,
     'corpusVersion': corpusVersion,
+    'corpusDigest': corpusDigest,
+    'partition': partition,
+    'candidateId': candidateId,
+    'partialEngine': partialEngine,
+    'finalEngine': finalEngine,
+    'modelHashes': modelHashes,
+    'benchCommit': benchCommit,
     'appVersion': appVersion,
     'notes': notes,
     'exportedAt': DateTime.now().toIso8601String(),
@@ -59,20 +107,26 @@ final class BenchRun {
   };
 }
 
-/// Serializa una tanda a JSON o CSV.
-///
-/// El JSON es la entrada del agregador del repositorio; el CSV existe para poder
-/// abrir los resultados en una planilla sin herramientas.
-abstract final class BenchExport {
-  /// Columnas del CSV, en orden. El agregador depende de estos nombres.
-  static const csvHeader = <String>[
+/// Columnas del CSV, en orden. El agregador depende de estos nombres.
+abstract final class BenchExportColumns {
+  static const csv = <String>[
     'sampleId',
     'split',
+    'partition',
     'intent',
     'expectedText',
     'obtainedText',
     'engine',
     'model',
+    'corpusId',
+    'corpusVersion',
+    'corpusDigest',
+    'candidateId',
+    'partialEngine',
+    'finalEngine',
+    'modelHashes',
+    'benchCommit',
+    'abi',
     'requestedLocale',
     'effectiveLocale',
     'device',
@@ -91,6 +145,15 @@ abstract final class BenchExport {
     'notes',
     'transcriptRedacted',
   ];
+}
+
+/// Serializa una tanda a JSON o CSV.
+///
+/// El JSON es la entrada del agregador del repositorio; el CSV existe para poder
+/// abrir los resultados en una planilla sin herramientas.
+abstract final class BenchExport {
+  /// Columnas del CSV, en orden.
+  static const csvHeader = BenchExportColumns.csv;
 
   static String toJsonString(BenchRun run) =>
       const JsonEncoder.withIndent('  ').convert(run.toJson());
@@ -112,7 +175,12 @@ abstract final class BenchExport {
   /// dato en código ejecutable al abrir el archivo.
   static String _cell(Object? value) {
     if (value == null) return '';
-    var text = '$value';
+    // Un mapa en una celda se escribe `modelo=hash;modelo=hash`. Es legible en
+    // una planilla y el agregador lo vuelve a partir sin ambigüedad: ni los
+    // nombres de modelo ni los hashes contienen `=` ni `;`.
+    var text = value is Map
+        ? value.entries.map((e) => '${e.key}=${e.value}').join(';')
+        : '$value';
     if (text.isNotEmpty && (text.startsWith(RegExp(r'''[=+\-@\t\r]''')))) {
       text = "'$text";
     }

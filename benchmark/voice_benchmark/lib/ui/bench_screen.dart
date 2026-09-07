@@ -6,6 +6,7 @@ import '../bench/bench_controller.dart';
 import '../bench/bench_export.dart';
 import '../bench/bench_platform.dart';
 import '../bench/corpus.dart';
+import '../bench/corpus_catalog.dart';
 import '../port/speech_transcription_port.dart';
 
 /// Pantalla única del banco de pruebas.
@@ -88,6 +89,8 @@ class _BenchScreenState extends State<BenchScreen> with WidgetsBindingObserver {
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
+            _identityCard(c),
+            const SizedBox(height: 12),
             _availabilityCard(c),
             const SizedBox(height: 12),
             _controlsCard(c),
@@ -107,6 +110,87 @@ class _BenchScreenState extends State<BenchScreen> with WidgetsBindingObserver {
   }
 
   // ------------------------------------------------------------------ tarjetas
+
+  /// Qué se está a punto de medir, antes de tocar el micrófono.
+  ///
+  /// Todo lo que aparece aquí sale de los bytes que el banco leyó y verificó,
+  /// no de lo que se pidió leer. El digest es el mismo que devuelve
+  /// `sha256sum` sobre el archivo del repositorio, así que se puede comprobar
+  /// desde fuera sin creerle nada al teléfono.
+  Widget _identityCard(BenchController c) {
+    final corpus = c.activeCorpus;
+    final failure = c.corpusFailure;
+    final candidate = c.candidate;
+    final bloqueo = c.blockedReason;
+
+    return Card(
+      color: c.canRun ? null : Theme.of(context).colorScheme.errorContainer,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Qué se va a medir',
+              style: TextStyle(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 8),
+            if (corpus == null)
+              const Text('Ningún corpus cargado.')
+            else ...[
+              _kv(
+                'Corpus',
+                '${corpus.descriptor.label}  ·  '
+                    '${corpus.descriptor.id}',
+              ),
+              _kv('Versión', corpus.version),
+              _kv('SHA-256', corpus.digest),
+              _kv('Archivo', corpus.descriptor.assetPath),
+              _kv('Partición', c.partition.label),
+              _kv('Frases a dictar', '${c.total}'),
+              if (corpus.descriptor.note.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.only(top: 4),
+                  child: Text(
+                    corpus.descriptor.note,
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ),
+            ],
+            const Divider(),
+            if (candidate == null)
+              _kv('Candidato', 'NO IDENTIFICADO · motor «${c.engineLabel}»')
+            else ...[
+              _kv('Candidato', candidate.label),
+              _kv('Motor parcial', candidate.partialEngine ?? 'no aplica'),
+              _kv('Motor final', candidate.finalEngine),
+              for (final entry in candidate.modelHashes.entries)
+                _kv(entry.key, entry.value),
+              if (candidate.modelHashes.isEmpty)
+                _kv('Modelos', 'ninguno propio: los pone el sistema'),
+            ],
+            if (failure != null)
+              Container(
+                margin: const EdgeInsets.only(top: 12),
+                padding: const EdgeInsets.all(8),
+                color: Colors.red.shade100,
+                child: Text(
+                  failure.diagnostic,
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+              ),
+            if (failure == null && bloqueo != null)
+              Container(
+                margin: const EdgeInsets.only(top: 12),
+                padding: const EdgeInsets.all(8),
+                color: Colors.amber.shade100,
+                child: Text(bloqueo),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
 
   Widget _availabilityCard(BenchController c) {
     final a = c.availability;
@@ -186,18 +270,46 @@ class _BenchScreenState extends State<BenchScreen> with WidgetsBindingObserver {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // Dos menús distintos, y con ese nombre. El anterior decía
+            // «Corpus» y elegía la partición: por eso C1 se midió con el
+            // corpus de la Fase 0 sin que nadie pudiera verlo desde aquí.
             Row(
               children: [
                 const Text('Corpus: '),
-                DropdownButton<String>(
-                  value: c.split,
-                  onChanged: (v) => v == null ? null : c.setSplit(v),
-                  items: const [
-                    DropdownMenuItem(value: 'ajuste', child: Text('ajuste')),
-                    DropdownMenuItem(
-                      value: 'aceptacion',
-                      child: Text('aceptación'),
-                    ),
+                Expanded(
+                  child: DropdownButton<String>(
+                    isExpanded: true,
+                    value: c.activeCorpus?.descriptor.id,
+                    hint: const Text('elija un corpus'),
+                    onChanged: (id) {
+                      final descriptor = id == null
+                          ? null
+                          : CorpusCatalog.byId(id);
+                      if (descriptor != null) c.selectCorpus(descriptor);
+                    },
+                    items: [
+                      for (final descriptor in CorpusCatalog.all)
+                        DropdownMenuItem(
+                          value: descriptor.id,
+                          child: Text(descriptor.label),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            Row(
+              children: [
+                const Text('Partición: '),
+                DropdownButton<BenchPartition>(
+                  value: c.partition,
+                  onChanged: (v) => v == null ? null : c.setPartition(v),
+                  items: [
+                    for (final partition in BenchPartition.values)
+                      DropdownMenuItem(
+                        value: partition,
+                        child: Text(partition.label),
+                      ),
                   ],
                 ),
                 const SizedBox(width: 16),
@@ -239,7 +351,10 @@ class _BenchScreenState extends State<BenchScreen> with WidgetsBindingObserver {
               runSpacing: 8,
               children: [
                 FilledButton.icon(
-                  onPressed: busy ? null : c.start,
+                  // Sin corpus verificado, sin frases en la partición o sin
+                  // candidato identificado no se graba. Una medición que no se
+                  // puede nombrar no se puede colocar en ninguna columna.
+                  onPressed: busy || !c.canRun ? null : c.start,
                   icon: const Icon(Icons.mic),
                   label: const Text('Grabar'),
                 ),

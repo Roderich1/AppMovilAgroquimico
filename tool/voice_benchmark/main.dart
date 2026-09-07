@@ -6,18 +6,35 @@
 ///     dart run tool/voice_benchmark/main.dart resultados/ -o informe.md
 ///
 /// Acepta los `.json` y `.csv` que produce el banco de pruebas. Lee el corpus
-/// desde `benchmark/voice_benchmark/assets/corpus.json` para saber qué datos
-/// críticos debían sobrevivir a cada frase.
+/// **con el que se dictó cada tanda** —lo dice el propio archivo exportado—
+/// para saber qué datos críticos debían sobrevivir a cada frase.
+///
+/// Se niega a generar el informe si lo que se le pasa no es comparable entre sí:
+/// dos corpus, dos versiones, dos digests, dos particiones, dos modelos bajo el
+/// mismo candidato o un candidato mal etiquetado. Ver `comparison_guard.dart`.
 library;
 
 import 'dart:convert';
 import 'dart:io';
 
 import 'aggregator.dart';
+import 'comparison_guard.dart';
 import 'report.dart';
 import 'result_parser.dart';
 
-const _corpusPath = 'benchmark/voice_benchmark/assets/corpus.json';
+/// Dónde vive cada corpus, por su identificador.
+///
+/// Los datos críticos que se exigen a cada frase salen del corpus con el que se
+/// dictó. Leerlos siempre del de la Fase 0, como se hacía antes, daría cero
+/// aciertos para toda corrida del corpus híbrido —los identificadores no
+/// coinciden— y esa columna aparecería como si el motor hubiera fallado.
+const _corpusPaths = <String, String>{
+  'fase0': 'benchmark/voice_benchmark/assets/corpus.json',
+  'hibrido-ag': 'benchmark/voice_benchmark/assets/corpus_hybrid.json',
+};
+
+/// El de la Fase 0, para las tandas que no dicen de qué corpus salieron.
+const _corpusPathHistorico = 'benchmark/voice_benchmark/assets/corpus.json';
 
 Future<void> main(List<String> args) async {
   if (args.isEmpty) {
@@ -78,11 +95,45 @@ Future<void> main(List<String> args) async {
     );
   }
 
+  // Antes de resumir nada: ¿esto se puede comparar entre sí? Poner dos corpus
+  // en la misma tabla presenta como diferencia entre motores lo que es
+  // diferencia entre exámenes.
+  final verdict = ComparisonGuard.check(unique);
+  if (!verdict.comparable) {
+    stderr.writeln();
+    stderr.writeln('NO SE GENERA EL INFORME: estas mediciones no son');
+    stderr.writeln('comparables entre sí.');
+    for (final rejection in verdict.rejections) {
+      stderr.writeln('  · ${rejection.detail}');
+    }
+    stderr.writeln();
+    stderr.writeln(
+      'Pase por separado los archivos de cada corpus, versión, digest y '
+      'partición. Comparar dos exámenes distintos y llamarlo comparación de '
+      'motores es el defecto que esta guarda existe para impedir.',
+    );
+    exitCode = 65;
+    return;
+  }
+  if (verdict.identityMissing) {
+    stdout.writeln(
+      'AVISO: ninguna medición dice de qué corpus salió. Son tandas anteriores '
+      'a la identidad de corpus (Fase 0) y el informe lo hace constar.',
+    );
+  }
+
   final summaries = BenchAggregator.summarize(
     unique,
-    criticalSlots: loadCriticalSlots(File(_corpusPath)),
+    criticalSlots: loadCriticalSlots(File(_corpusFor(unique))),
   );
-  final markdown = BenchReport.render(summaries);
+  final markdown = BenchReport.render(
+    summaries,
+    corpusId: unique.first.corpusId,
+    corpusVersion: unique.first.corpusVersion,
+    corpusDigest: unique.first.corpusDigest,
+    partition: unique.first.partition,
+    identityMissing: verdict.identityMissing,
+  );
 
   if (output == null) {
     stdout.writeln();
@@ -92,6 +143,14 @@ Future<void> main(List<String> args) async {
     stdout.writeln('informe escrito en $output');
   }
 }
+
+/// Corpus con el que se dictaron estas mediciones.
+///
+/// La guarda ya garantizó que todas vienen del mismo; basta con mirar la
+/// primera. Un `corpusId` desconocido cae en el histórico y la columna de datos
+/// críticos quedará vacía, que es lo correcto: no se sabe qué debía escucharse.
+String _corpusFor(List<BenchRecord> records) =>
+    _corpusPaths[records.first.corpusId] ?? _corpusPathHistorico;
 
 /// Quita las mediciones leídas más de una vez, conservando el orden.
 ///

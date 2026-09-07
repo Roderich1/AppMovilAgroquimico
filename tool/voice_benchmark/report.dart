@@ -11,7 +11,14 @@ const notMeasured = 'NOT_MEASURED';
 
 /// Arma la tabla comparativa en Markdown.
 abstract final class BenchReport {
-  static String render(List<EngineSummary> summaries) {
+  static String render(
+    List<EngineSummary> summaries, {
+    String corpusId = '',
+    String corpusVersion = '',
+    String corpusDigest = '',
+    String partition = '',
+    bool identityMissing = false,
+  }) {
     final buffer = StringBuffer()
       ..writeln('# EVOLUTION-3 — Comparación de motores de voz')
       ..writeln()
@@ -20,7 +27,16 @@ abstract final class BenchReport {
         'exportados por los teléfonos. Ninguna celda se completa por estimación: '
         'lo que no se midió dice `$notMeasured`.',
       )
-      ..writeln();
+      ..writeln()
+      ..write(
+        _identidad(
+          corpusId: corpusId,
+          corpusVersion: corpusVersion,
+          corpusDigest: corpusDigest,
+          partition: partition,
+          identityMissing: identityMissing,
+        ),
+      );
 
     if (summaries.isEmpty) {
       buffer
@@ -125,6 +141,49 @@ abstract final class BenchReport {
     buffer
       ..writeln()
       ..write(_pendientes());
+    return buffer.toString();
+  }
+
+  /// Con qué se midió todo lo que hay debajo.
+  ///
+  /// Una sola vez, porque la guarda de comparabilidad ya se aseguró de que no
+  /// haya dos. Va arriba del todo: quien lea la tabla tiene que poder ver de
+  /// qué examen salieron las notas antes de compararlas.
+  static String _identidad({
+    required String corpusId,
+    required String corpusVersion,
+    required String corpusDigest,
+    required String partition,
+    required bool identityMissing,
+  }) {
+    final buffer = StringBuffer();
+    if (identityMissing || corpusId.isEmpty) {
+      buffer
+        ..writeln('## Corpus')
+        ..writeln()
+        ..writeln(
+          '**Las mediciones no declaran corpus.** Son tandas anteriores a que '
+          'el banco registrara con qué se dictó. Siguen valiendo como historia '
+          'y **no** pueden compararse con una corrida nueva.',
+        )
+        ..writeln();
+      return buffer.toString();
+    }
+    buffer
+      ..writeln('## Corpus')
+      ..writeln()
+      ..writeln('| Campo | Valor |')
+      ..writeln('|---|---|')
+      ..writeln('| Corpus | `$corpusId` |')
+      ..writeln('| Versión | `$corpusVersion` |')
+      ..writeln('| SHA-256 | `$corpusDigest` |')
+      ..writeln('| Partición | `$partition` |')
+      ..writeln()
+      ..writeln(
+        'El digest es el de los bytes que leyó el teléfono. Se comprueba con '
+        '`sha256sum` sobre el archivo del repositorio.',
+      )
+      ..writeln();
     return buffer.toString();
   }
 

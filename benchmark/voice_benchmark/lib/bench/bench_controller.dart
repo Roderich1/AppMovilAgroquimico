@@ -5,7 +5,9 @@ import 'package:flutter/foundation.dart';
 import '../port/speech_transcription_port.dart';
 import 'bench_export.dart';
 import 'bench_result.dart';
+import 'candidates.dart';
 import 'corpus.dart';
+import 'corpus_catalog.dart';
 
 /// Datos del aparato donde corre la prueba.
 final class DeviceInfo {
@@ -34,22 +36,35 @@ final class DeviceInfo {
 /// No conoce SQLite, repositorios ni operaciones de negocio: recibe frases,
 /// entrega texto y guarda tiempos. Su único efecto es una lista en memoria y,
 /// cuando se exporta, un archivo de resultados.
+///
+/// ## Arranca sin corpus, y es a propósito
+///
+/// Antes recibía un `Corpus` ya construido y la pantalla nunca supo cuál era.
+/// Así se midió C1 entero con el corpus de la Fase 0 creyendo estar en A–G.
+/// Ahora recibe un [CorpusLoader] y **no hay corpus hasta que uno se carga y se
+/// verifica**: sin eso, [canRun] es `false` y no se puede grabar.
 class BenchController extends ChangeNotifier {
   BenchController({
     required SpeechTranscriptionPort port,
-    required Corpus corpus,
+    required CorpusLoader loader,
     required this.appVersion,
+    this.benchCommit = '',
     this.deviceInfo = DeviceInfo.unknown,
     this.memoryProbe,
     this.airplaneProbe,
   }) : _port = port,
-       _corpus = corpus {
+       _loader = loader {
     _subscription = _port.events.listen(_onEvent);
   }
 
   final SpeechTranscriptionPort _port;
-  final Corpus _corpus;
+  final CorpusLoader _loader;
   final String appVersion;
+
+  /// Commit del banco con el que se construyó este APK. Llega por
+  /// `--dart-define`; vacío significa que nadie lo pasó, y así se exporta.
+  final String benchCommit;
+
   final DeviceInfo deviceInfo;
 
   /// Lectura opcional de memoria del proceso. Si es `null` o devuelve `null`,
@@ -67,7 +82,9 @@ class BenchController extends ChangeNotifier {
 
   // ------------------------------------------------------------------ estado
 
-  String _split = 'ajuste';
+  LoadedCorpus? _activeCorpus;
+  CorpusLoadFailure? _corpusFailure;
+  BenchPartition _partition = BenchPartition.ajuste;
   int _index = 0;
   String _requestedLocale = 'es-BO';
   bool _airplaneMode = false;
@@ -86,8 +103,16 @@ class BenchController extends ChangeNotifier {
   final Map<String, int> _attempts = <String, int>{};
   final List<BenchResult> _results = <BenchResult>[];
 
-  Corpus get corpus => _corpus;
-  String get split => _split;
+  /// El corpus cargado y verificado, o `null` si no hay ninguno utilizable.
+  ///
+  /// La pantalla lee de aquí, nunca de lo que se pidió cargar: es lo que impide
+  /// que el rótulo diga «híbrido A–G» mientras dentro hay otra cosa.
+  LoadedCorpus? get activeCorpus => _activeCorpus;
+
+  /// Por qué el último intento de cargar un corpus no sirvió.
+  CorpusLoadFailure? get corpusFailure => _corpusFailure;
+
+  BenchPartition get partition => _partition;
   String get requestedLocale => _requestedLocale;
   bool get airplaneMode => _airplaneMode;
   bool get includeTranscripts => _includeTranscripts;
@@ -102,7 +127,39 @@ class BenchController extends ChangeNotifier {
   int? get audioDurationMs => _audioDurationMs;
   List<BenchResult> get results => List.unmodifiable(_results);
 
-  List<CorpusSample> get samples => _corpus.bySplit(_split);
+  /// El candidato que corresponde al motor instalado.
+  ///
+  /// Sale de `engineId`, que viene del sabor compilado. `null` significa que
+  /// este APK no es ninguno de los candidatos conocidos: se bloquea, porque una
+  /// medición que no se puede nombrar no se puede colocar en ninguna columna.
+  BenchCandidate? get candidate => CandidateRegistry.byEngineId(_port.engineId);
+
+  /// Las frases de la partición activa. Es la **única** lista que se dicta, y
+  /// la misma de la que sale [total].
+  List<CorpusSample> get samples =>
+      _activeCorpus?.samplesOf(_partition) ?? const <CorpusSample>[];
+
+  /// Se puede grabar: hay corpus verificado, la partición tiene frases y el
+  /// candidato está identificado.
+  bool get canRun =>
+      _activeCorpus != null && samples.isNotEmpty && candidate != null;
+
+  /// Por qué no se puede grabar, en una frase para la pantalla.
+  String? get blockedReason {
+    if (_corpusFailure != null) return _corpusFailure!.diagnostic;
+    if (_activeCorpus == null) {
+      return 'Elija un corpus antes de grabar.';
+    }
+    if (samples.isEmpty) {
+      return 'El corpus «${_activeCorpus!.descriptor.label}» no tiene frases '
+          'en la partición «${_partition.label}».';
+    }
+    if (candidate == null) {
+      return 'El motor «${_port.engineId}» no corresponde a ningún candidato '
+          'registrado. No se puede etiquetar la medición.';
+    }
+    return null;
+  }
 
   /// Modo avión según el sistema. `null` mientras no se haya podido consultar.
   bool? get systemAirplaneMode => _systemAirplaneMode;
@@ -117,12 +174,12 @@ class BenchController extends ChangeNotifier {
     return list[_index.clamp(0, list.length - 1)];
   }
 
-  /// Posición 1..N de la frase actual dentro del `split`.
+  /// Posición 1..N de la frase actual dentro de la partición.
   int get position => samples.isEmpty ? 0 : _index + 1;
 
   int get total => samples.length;
 
-  /// Frases del `split` activo que ya tienen al menos una medición.
+  /// Frases de la partición activa que ya tienen al menos una medición.
   int get measured {
     final ids = _results.map((r) => r.sampleId).toSet();
     return samples.where((s) => ids.contains(s.id)).length;
@@ -138,19 +195,69 @@ class BenchController extends ChangeNotifier {
         : '${a.engineName} ${a.engineVersion} · $model'.trim();
   }
 
+  // ------------------------------------------------------- corpus y partición
+
+  /// Carga y verifica [descriptor].
+  ///
+  /// Si falla, **no queda ningún corpus activo**. Conservar el anterior sería
+  /// la forma exacta de medir Fase 0 con el rótulo de A–G puesto; sustituirlo
+  /// por el otro sería peor todavía, porque nadie lo pidió.
+  Future<void> selectCorpus(CorpusDescriptor descriptor) async {
+    try {
+      final loaded = await _loader.load(descriptor);
+      _activeCorpus = loaded;
+      _corpusFailure = null;
+    } on CorpusLoadFailure catch (failure) {
+      _activeCorpus = null;
+      _corpusFailure = failure;
+    }
+    _index = 0;
+    _clearSampleState();
+    notifyListeners();
+  }
+
+  /// Vuelve a una selección guardada, verificándola otra vez.
+  ///
+  /// Restaurar no es dar por buena la selección anterior: el archivo pudo
+  /// cambiar entre una corrida y otra, y ahí es donde una comparación se
+  /// estropea sin que nadie lo note. Pasa por el mismo camino que
+  /// [selectCorpus], con las mismas comprobaciones.
+  Future<void> restoreSelection({
+    required String corpusId,
+    required String partitionId,
+  }) async {
+    final descriptor = CorpusCatalog.byId(corpusId);
+    if (descriptor == null) {
+      _activeCorpus = null;
+      _corpusFailure = CorpusLoadFailure(
+        kind: CorpusFailureKind.desconocido,
+        assetPath: '',
+        diagnostic:
+            'No hay ningún corpus con el identificador «$corpusId». '
+            'El banco no elige otro por su cuenta.',
+        actual: corpusId,
+      );
+      notifyListeners();
+      return;
+    }
+    final partition = BenchPartition.byId(partitionId);
+    if (partition != null) _partition = partition;
+    await selectCorpus(descriptor);
+  }
+
+  void setPartition(BenchPartition value) {
+    if (_partition == value) return;
+    _partition = value;
+    _index = 0;
+    _clearSampleState();
+    notifyListeners();
+  }
+
   // -------------------------------------------------------------- comandos
 
   Future<void> refreshAvailability() async {
     _availability = await _port.checkAvailability(_requestedLocale);
     _systemAirplaneMode = await airplaneProbe?.call();
-    notifyListeners();
-  }
-
-  void setSplit(String value) {
-    if (_split == value) return;
-    _split = value;
-    _index = 0;
-    _clearSampleState();
     notifyListeners();
   }
 
@@ -190,6 +297,7 @@ class BenchController extends ChangeNotifier {
   }
 
   void jumpTo(int index) {
+    if (samples.isEmpty) return;
     _index = index.clamp(0, samples.length - 1);
     _clearSampleState();
     notifyListeners();
@@ -203,6 +311,7 @@ class BenchController extends ChangeNotifier {
   }
 
   Future<void> start() async {
+    if (!canRun) return;
     final sample = current;
     if (sample == null) return;
     _clearSampleState();
@@ -225,22 +334,38 @@ class BenchController extends ChangeNotifier {
   Future<void> cancel() => _port.cancel();
 
   /// Guarda la medición de la frase actual y avanza.
+  ///
+  /// Cada fila sale con la identidad entera de la corrida encima. Es lo que
+  /// permite que el agregador se niegue a comparar dos corpus distintos, y lo
+  /// que faltaba cuando C1 se midió sobre el corpus equivocado.
   Future<void> record({String? notes}) async {
     final sample = current;
-    if (sample == null) return;
+    final corpus = _activeCorpus;
+    if (sample == null || corpus == null) return;
     final attempt = (_attempts[sample.id] ?? 0) + 1;
     _attempts[sample.id] = attempt;
     final memory = await memoryProbe?.call();
     final systemAirplane = await airplaneProbe?.call();
+    final candidate = this.candidate;
     _results.add(
       BenchResult(
         sampleId: sample.id,
         split: sample.split,
+        partition: _partition.id,
         intent: sample.intent,
         expectedText: sample.text,
         obtainedText: _finalText.isEmpty ? null : _finalText,
         engine: _port.engineId,
         model: _availability?.modelName ?? '',
+        corpusId: corpus.descriptor.id,
+        corpusVersion: corpus.version,
+        corpusDigest: corpus.digest,
+        candidateId: candidate?.id ?? '',
+        partialEngine: candidate?.partialEngine,
+        finalEngine: candidate?.finalEngine ?? '',
+        modelHashes: candidate?.modelHashes ?? const <String, String>{},
+        benchCommit: benchCommit,
+        abi: deviceInfo.abi,
         requestedLocale: _requestedLocale,
         effectiveLocale: _availability?.effectiveLocale,
         device: deviceInfo.device,
@@ -271,6 +396,8 @@ class BenchController extends ChangeNotifier {
 
   /// Arma la tanda exportable, respetando la decisión sobre transcripciones.
   BenchRun buildRun({String? notes}) {
+    final corpus = _activeCorpus;
+    final candidate = this.candidate;
     final run = BenchRun(
       engine: _port.engineId,
       model: _availability?.modelName ?? '',
@@ -278,7 +405,15 @@ class BenchController extends ChangeNotifier {
       androidRelease: deviceInfo.androidRelease,
       androidSdk: deviceInfo.androidSdk,
       abi: deviceInfo.abi,
-      corpusVersion: _corpus.corpusVersion,
+      corpusId: corpus?.descriptor.id ?? '',
+      corpusVersion: corpus?.version ?? '',
+      corpusDigest: corpus?.digest ?? '',
+      partition: _partition.id,
+      candidateId: candidate?.id ?? '',
+      partialEngine: candidate?.partialEngine,
+      finalEngine: candidate?.finalEngine ?? '',
+      modelHashes: candidate?.modelHashes ?? const <String, String>{},
+      benchCommit: benchCommit,
       appVersion: appVersion,
       notes: notes,
       results: List.of(_results),

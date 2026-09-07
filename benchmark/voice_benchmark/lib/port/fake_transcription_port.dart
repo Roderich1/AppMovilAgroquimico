@@ -68,9 +68,19 @@ final class FakeScenario {
 /// Además **registra** las llamadas recibidas, para poder afirmar en un test que
 /// el micrófono se liberó y que no quedó una sesión abierta.
 final class FakeSpeechTranscriptionPort extends BaseSpeechTranscriptionPort {
-  FakeSpeechTranscriptionPort({this.scenario = FakeScenario.ok});
+  FakeSpeechTranscriptionPort({
+    this.scenario = FakeScenario.ok,
+    String engineId = 'fake',
+  }) : _engineId = engineId;
 
   FakeScenario scenario;
+
+  /// Motor que el fake dice ser.
+  ///
+  /// Configurable porque el banco resuelve el candidato a partir de este
+  /// identificador —viene del sabor compilado— y hay que poder probar tanto un
+  /// candidato reconocido como uno que no está en la tabla.
+  final String _engineId;
 
   /// Nombres de los métodos de motor invocados, en orden.
   final List<String> calls = <String>[];
@@ -82,7 +92,7 @@ final class FakeSpeechTranscriptionPort extends BaseSpeechTranscriptionPort {
   bool get microphoneReleased => !isSessionOpen;
 
   @override
-  String get engineId => 'fake';
+  String get engineId => _engineId;
 
   @override
   Future<TranscriptionAvailability> checkAvailability(String locale) async {

@@ -1,26 +1,47 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:voice_benchmark/bench/bench_controller.dart';
 import 'package:voice_benchmark/bench/bench_export.dart';
-import 'package:voice_benchmark/bench/corpus.dart';
+import 'package:voice_benchmark/bench/corpus_catalog.dart';
 import 'package:voice_benchmark/port/fake_transcription_port.dart';
 import 'package:voice_benchmark/port/speech_transcription_port.dart';
 
-Corpus loadCorpus() =>
-    Corpus.fromJsonString(File('assets/corpus.json').readAsStringSync());
+Future<Uint8List> readAsset(String path) async => File(path).readAsBytesSync();
+
+/// El banco arranca sin corpus a propósito, así que cada controlador de prueba
+/// elige uno explícitamente. Se usa el de la Fase 0 porque estas pruebas miran
+/// el recorrido y la exportación, no el contenido del corpus.
+Future<BenchController> phase0Controller(
+  FakeSpeechTranscriptionPort port, {
+  DeviceInfo deviceInfo = DeviceInfo.unknown,
+  Future<bool?> Function()? airplaneProbe,
+}) async {
+  final controller = BenchController(
+    port: port,
+    loader: const CorpusLoader(readAsset),
+    appVersion: 'test',
+    benchCommit: 'prueba',
+    deviceInfo: deviceInfo,
+    airplaneProbe: airplaneProbe,
+  );
+  await controller.selectCorpus(CorpusCatalog.fase0);
+  return controller;
+}
 
 void main() {
   late FakeSpeechTranscriptionPort port;
   late BenchController controller;
 
-  setUp(() {
-    port = FakeSpeechTranscriptionPort();
-    controller = BenchController(
-      port: port,
-      corpus: loadCorpus(),
-      appVersion: 'test',
+  setUp(() async {
+    // El motor que dice ser el fake tiene que estar en el registro de
+    // candidatos: el banco no deja grabar con uno sin identificar, y estas
+    // pruebas sí graban.
+    port = FakeSpeechTranscriptionPort(engineId: 'vosk-small-es-0.42');
+    controller = await phase0Controller(
+      port,
       deviceInfo: const DeviceInfo(
         device: 'Equipo de prueba',
         androidRelease: '16',
@@ -35,18 +56,14 @@ void main() {
   Future<void> settle() => Future<void>.delayed(Duration.zero);
 
   group('modo avión declarado frente al del sistema', () {
-    BenchController withProbe(bool? system) => BenchController(
-      port: port,
-      corpus: loadCorpus(),
-      appVersion: 'test',
-      airplaneProbe: () async => system,
-    );
+    Future<BenchController> withProbe(bool? system) =>
+        phase0Controller(port, airplaneProbe: () async => system);
 
     test('avisa cuando se declara modo avión y la radio sigue viva', () async {
       // Es el caso que se dio en el POCO X5 Pro: el interruptor decia offline y
       // el Wi-Fi estuvo encendido toda la tanda. Sin este contraste, 43 tomas
       // con red habrian sostenido un "funciona sin Internet" falso en ADR-002.
-      final c = withProbe(false);
+      final c = await withProbe(false);
       await c.setAirplaneMode(true);
 
       expect(c.airplaneModeMismatch, isTrue);
@@ -54,7 +71,7 @@ void main() {
     });
 
     test('sin discrepancia cuando ambos coinciden', () async {
-      final c = withProbe(true);
+      final c = await withProbe(true);
       await c.setAirplaneMode(true);
 
       expect(c.airplaneModeMismatch, isFalse);
@@ -62,7 +79,7 @@ void main() {
     });
 
     test('sin lectura del sistema no se inventa una discrepancia', () async {
-      final c = withProbe(null);
+      final c = await withProbe(null);
       await c.setAirplaneMode(true);
 
       expect(c.systemAirplaneMode, isNull);
@@ -73,7 +90,7 @@ void main() {
     test(
       'la medición guarda lo que dijo el sistema, no lo declarado',
       () async {
-        final c = withProbe(false);
+        final c = await withProbe(false);
         await c.setAirplaneMode(true);
         await c.start();
         await c.stop();
@@ -92,14 +109,14 @@ void main() {
 
   group('recorrido del corpus', () {
     test('empieza en la primera frase de ajuste', () {
-      expect(controller.split, 'ajuste');
+      expect(controller.partition, BenchPartition.ajuste);
       expect(controller.position, 1);
       expect(controller.current!.id, 'AJ-001');
     });
 
     test('cambiar de corpus vuelve al principio del otro', () {
       controller.next();
-      controller.setSplit('aceptacion');
+      controller.setPartition(BenchPartition.aceptacion);
 
       expect(controller.position, 1);
       expect(controller.current!.split, 'aceptacion');
@@ -129,7 +146,10 @@ void main() {
 
       final result = controller.results.single;
       expect(result.sampleId, 'AJ-001');
-      expect(result.engine, 'fake');
+      expect(result.engine, 'vosk-small-es-0.42');
+      expect(result.candidateId, 'C1');
+      expect(result.corpusId, 'fase0');
+      expect(result.corpusDigest, hasLength(64));
       expect(result.device, 'Equipo de prueba');
       expect(result.androidSdk, 36);
       expect(result.airplaneMode, isTrue);
@@ -277,12 +297,10 @@ void main() {
     test('dispose del controlador libera el micrófono', () async {
       // Controlador propio: este caso lo libera él mismo y el `tearDown` no debe
       // volver a liberar el compartido.
-      final ownPort = FakeSpeechTranscriptionPort();
-      final own = BenchController(
-        port: ownPort,
-        corpus: loadCorpus(),
-        appVersion: 'test',
+      final ownPort = FakeSpeechTranscriptionPort(
+        engineId: 'vosk-small-es-0.42',
       );
+      final own = await phase0Controller(ownPort);
       await own.start();
       own.dispose();
       await settle();

@@ -1,0 +1,10 @@
+# Los corpus del banco de voz son artefactos fijados por SHA-256: la interfaz
+# muestra su digest antes de cada corrida y el banco bloquea la ejecución si no
+# coincide. Con la conversión automática de fin de línea de Git, el mismo commit
+# produce bytes distintos en Windows y en Linux, y ese digest dejaría de
+# identificar un contenido: marcaría la máquina donde se hizo el checkout.
+#
+# `-text` desactiva toda conversión para estos archivos. Se guardan y se
+# obtienen con LF en cualquier sistema, y el digest de una copia de trabajo es
+# siempre el del blob de Git.
+benchmark/voice_benchmark/assets/*.json -text

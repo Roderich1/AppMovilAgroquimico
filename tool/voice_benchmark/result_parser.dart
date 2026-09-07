@@ -37,6 +37,16 @@ class BenchRecord {
     this.startedAt,
     this.notes,
     this.transcriptRedacted = false,
+    this.corpusId = '',
+    this.corpusVersion = '',
+    this.corpusDigest = '',
+    this.partition = '',
+    this.candidateId = '',
+    this.partialEngine,
+    this.finalEngine = '',
+    this.modelHashes = const <String, String>{},
+    this.benchCommit = '',
+    this.abi = '',
   });
 
   final String sampleId;
@@ -80,6 +90,39 @@ class BenchRecord {
 
   final String? notes;
   final bool transcriptRedacted;
+
+  // ------------------------------------------------------------- identidad
+  //
+  // Vacías en las tandas de la Fase 0, exportadas antes de que estos campos
+  // existieran. Ese vacío es información: `ComparisonGuard` lo lee como
+  // «corrida sin identidad» y no la pone en la misma tabla que una nueva.
+
+  /// Corpus con el que se dictó: `fase0`, `hibrido-ag`.
+  final String corpusId;
+  final String corpusVersion;
+
+  /// SHA-256 de los bytes del corpus, tal como los leyó el teléfono.
+  final String corpusDigest;
+
+  /// Partición dictada: `ajuste`, `aceptacion` o `sin_habla`.
+  final String partition;
+
+  /// `C0`…`C4`.
+  final String candidateId;
+
+  /// Motor de los parciales. `null` si el candidato no los promete.
+  final String? partialEngine;
+
+  /// Motor del texto final propuesto.
+  final String finalEngine;
+
+  /// Modelo → SHA-256 verificado por el script que lo dejó en el APK.
+  final Map<String, String> modelHashes;
+
+  /// Commit del banco con el que se construyó el APK.
+  final String benchCommit;
+
+  final String abi;
 
   /// Hubo transcripción utilizable.
   bool get succeeded => errorCode == null && (obtainedText ?? '').isNotEmpty;
@@ -221,7 +264,37 @@ abstract final class BenchResultParser {
       startedAt: _optionalText(row['startedAt']),
       notes: _optionalText(row['notes']),
       transcriptRedacted: _bool(row['transcriptRedacted']),
+      corpusId: text('corpusId'),
+      corpusVersion: text('corpusVersion'),
+      corpusDigest: text('corpusDigest'),
+      partition: text('partition'),
+      candidateId: text('candidateId'),
+      partialEngine: _optionalText(
+        row['partialEngine'] ?? envelope['partialEngine'],
+      ),
+      finalEngine: text('finalEngine'),
+      modelHashes: _modelHashes(row['modelHashes'] ?? envelope['modelHashes']),
+      benchCommit: text('benchCommit'),
+      abi: text('abi'),
     );
+  }
+
+  /// Los hashes de modelo llegan como objeto en el JSON y como
+  /// `modelo=hash;modelo=hash` en el CSV, que es lo que cabe en una celda.
+  static Map<String, String> _modelHashes(Object? value) {
+    if (value == null) return const <String, String>{};
+    if (value is Map) {
+      return value.map((k, v) => MapEntry('$k', '$v'));
+    }
+    final text = '$value'.trim();
+    if (text.isEmpty) return const <String, String>{};
+    final out = <String, String>{};
+    for (final pair in text.split(';')) {
+      final i = pair.indexOf('=');
+      if (i <= 0) continue;
+      out[pair.substring(0, i)] = pair.substring(i + 1);
+    }
+    return out;
   }
 
   static String? _optionalText(Object? value) {
