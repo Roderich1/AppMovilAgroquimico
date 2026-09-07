@@ -67,6 +67,25 @@ Abierta por `RISK-029`. Ninguna métrica está medida todavía.
 | Umbrales por dispositivo y guardrails binarios | `EVOLUTION-3_HYBRID_ACCEPTANCE_MATRIX.md` |
 | Cómo migraría `EVO-009` | `EVO-009_HYBRID_ENGINE_MIGRATION_PLAN.md` |
 | Procedencia verificada de modelos y bibliotecas | `benchmark/voice_benchmark/THIRD_PARTY.md` |
+| Selector de corpus, identidad y guarda de comparabilidad | `benchmark/voice_benchmark/lib/bench/corpus_catalog.dart`, `candidates.dart`, `tool/voice_benchmark/comparison_guard.dart` |
+| Gate de páginas de 16 KB, ejecutado para C1 y C3 | `EVOLUTION-3_HYBRID_16KB_GATE_EVIDENCE.md` |
+| Instrucciones de dictado para el propietario | `EVOLUTION-3_HYBRID_OWNER_DEVICE_TEST_PLAN.md` |
 | Rama y PR del benchmark | `evolution/evolution-3-hybrid-voice-benchmark` |
+
+### Estado de la Fase 0-bis
+
+| Elemento | Estado |
+|---|---|
+| Selector de corpus A–G, con digest y bloqueo | Terminado, `093a6ba` |
+| C1 construido y verificado (`arm64-v8a`) | Sí; medición **no** ejecutada |
+| C3 construido y verificado (`arm64-v8a`) | Sí; medición **no** ejecutada |
+| C4 | No construido |
+| Gate de 16 KB | Ejecutado para C1 y C3; C4 pendiente |
+| Corrida A–G en POCO y HONOR | **No ejecutada.** Todas las métricas `NOT_MEASURED` |
+| `ADR-004` | `Proposed` |
+
+Las mediciones anteriores de C1 en el HONOR son **preliminares y no
+comparables**: se tomaron con el corpus de la Fase 0 mientras la pantalla decía
+otra cosa. No se copian a ninguna tabla.
 
 

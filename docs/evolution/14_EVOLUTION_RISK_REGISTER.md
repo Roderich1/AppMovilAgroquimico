@@ -49,6 +49,21 @@ Escala: probabilidad e impacto `L/M/H`. Owner es responsabilidad lógica, no per
 (Android 16 / API 36)** ejecutado el 2026-09-06 y de la verificación en fuente primaria de los
 candidatos de `ADR-004`. `RISK-029` es el que abre la Fase 0-bis.
 
+`RISK-026` se **confirma con el modelo `small`**, y esto cambia una expectativa
+del plan. `ADR-002` descartó Whisper porque `tiny` devolvió `[MÚSICA]` ante tres
+segundos de silencio y lo dio por resultado válido. Al construir C3 y ejecutarlo
+en el emulador de páginas de 16 KB, `ggml-small-q5_1` hizo **exactamente lo
+mismo** sobre 5177 ms sin habla. Subir de modelo no arregla la alucinación sobre
+silencio; ver `features/EVOLUTION-3_HYBRID_16KB_GATE_EVIDENCE.md`. En la misma
+prueba, Vosk respondió `noMatch` con el mismo silencio.
+
+La mitigación existía a medias: el motor marcaba `possibleHallucination` y el
+puente nativo mandaba el aviso, pero Dart no leía ese evento y el texto llegaba a
+la pantalla y al archivo exportado sin marca. Corregido: el aviso viaja como
+evento propio, la pantalla lo muestra y el agregador cuenta aparte lo marcado y
+lo aceptado sobre no-habla. Sin eso, el guardrail binario se habría medido sobre
+un archivo que daba `[MÚSICA]` por transcripción buena.
+
 `RISK-023` se **amplía** con esa evidencia: no sólo `es-BO` no existe como idioma de
 reconocimiento; en API 36 puede no existir **ningún** español instalado, y la aplicación no
 tiene forma de instalarlo. La mitigación de `EVO-009` —detectar en runtime y conservar el

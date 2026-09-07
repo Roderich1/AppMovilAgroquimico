@@ -1,0 +1,180 @@
+[
+  {
+    "archive": "build/app/outputs/flutter-apk/C1-vosk-arm64-093a6ba.apk",
+    "abis": [
+      "arm64-v8a"
+    ],
+    "expectedAbis": [
+      "arm64-v8a"
+    ],
+    "unexpectedAbis": [],
+    "libraryCount": 4,
+    "passes": true,
+    "libraries": [
+      {
+        "path": "lib/arm64-v8a/libapp.so",
+        "abi": "arm64-v8a",
+        "sizeBytes": 4916104,
+        "loadAlignments": [
+          65536,
+          65536,
+          65536
+        ],
+        "worstAlignment": 65536,
+        "is64Bit": true,
+        "requirementApplies": true,
+        "compatible16k": true,
+        "error": null
+      },
+      {
+        "path": "lib/arm64-v8a/libflutter.so",
+        "abi": "arm64-v8a",
+        "sizeBytes": 11747864,
+        "loadAlignments": [
+          65536,
+          65536,
+          65536
+        ],
+        "worstAlignment": 65536,
+        "is64Bit": true,
+        "requirementApplies": true,
+        "compatible16k": true,
+        "error": null
+      },
+      {
+        "path": "lib/arm64-v8a/libjnidispatch.so",
+        "abi": "arm64-v8a",
+        "sizeBytes": 165992,
+        "loadAlignments": [
+          16384,
+          16384
+        ],
+        "worstAlignment": 16384,
+        "is64Bit": true,
+        "requirementApplies": true,
+        "compatible16k": true,
+        "error": null
+      },
+      {
+        "path": "lib/arm64-v8a/libvosk.so",
+        "abi": "arm64-v8a",
+        "sizeBytes": 10042800,
+        "loadAlignments": [
+          16384,
+          16384,
+          16384,
+          16384
+        ],
+        "worstAlignment": 16384,
+        "is64Bit": true,
+        "requirementApplies": true,
+        "compatible16k": true,
+        "error": null
+      }
+    ]
+  },
+  {
+    "archive": "build/app/outputs/flutter-apk/C3-whisperSmall-arm64-093a6ba.apk",
+    "abis": [
+      "arm64-v8a"
+    ],
+    "expectedAbis": [
+      "arm64-v8a"
+    ],
+    "unexpectedAbis": [],
+    "libraryCount": 6,
+    "passes": true,
+    "libraries": [
+      {
+        "path": "lib/arm64-v8a/libapp.so",
+        "abi": "arm64-v8a",
+        "sizeBytes": 4916104,
+        "loadAlignments": [
+          65536,
+          65536,
+          65536
+        ],
+        "worstAlignment": 65536,
+        "is64Bit": true,
+        "requirementApplies": true,
+        "compatible16k": true,
+        "error": null
+      },
+      {
+        "path": "lib/arm64-v8a/libflutter.so",
+        "abi": "arm64-v8a",
+        "sizeBytes": 11747864,
+        "loadAlignments": [
+          65536,
+          65536,
+          65536
+        ],
+        "worstAlignment": 65536,
+        "is64Bit": true,
+        "requirementApplies": true,
+        "compatible16k": true,
+        "error": null
+      },
+      {
+        "path": "lib/arm64-v8a/libggml-base.so",
+        "abi": "arm64-v8a",
+        "sizeBytes": 1157112,
+        "loadAlignments": [
+          16384,
+          16384,
+          16384
+        ],
+        "worstAlignment": 16384,
+        "is64Bit": true,
+        "requirementApplies": true,
+        "compatible16k": true,
+        "error": null
+      },
+      {
+        "path": "lib/arm64-v8a/libggml-cpu.so",
+        "abi": "arm64-v8a",
+        "sizeBytes": 873392,
+        "loadAlignments": [
+          16384,
+          16384,
+          16384
+        ],
+        "worstAlignment": 16384,
+        "is64Bit": true,
+        "requirementApplies": true,
+        "compatible16k": true,
+        "error": null
+      },
+      {
+        "path": "lib/arm64-v8a/libggml.so",
+        "abi": "arm64-v8a",
+        "sizeBytes": 123280,
+        "loadAlignments": [
+          16384,
+          16384,
+          16384
+        ],
+        "worstAlignment": 16384,
+        "is64Bit": true,
+        "requirementApplies": true,
+        "compatible16k": true,
+        "error": null
+      },
+      {
+        "path": "lib/arm64-v8a/libwhisper_bench.so",
+        "abi": "arm64-v8a",
+        "sizeBytes": 1047280,
+        "loadAlignments": [
+          16384,
+          16384,
+          16384
+        ],
+        "worstAlignment": 16384,
+        "is64Bit": true,
+        "requirementApplies": true,
+        "compatible16k": true,
+        "error": null
+      }
+    ]
+  }
+]

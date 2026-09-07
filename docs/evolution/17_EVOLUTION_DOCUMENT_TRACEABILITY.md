@@ -60,6 +60,8 @@ nada del paquete anterior: `ADR-002` y sus resultados siguen siendo evidencia v�
 | `features/EVOLUTION-3_MODEL_DISTRIBUTION_SECURITY_SPEC.md` | Manifest, instalación atómica, privacidad y supply chain de los modelos | PROPOSED |
 | `features/EVOLUTION-3_HYBRID_ACCEPTANCE_MATRIX.md` | Umbrales y guardrails binarios por dispositivo | PENDING: ninguna métrica medida |
 | `features/EVO-009_HYBRID_ENGINE_MIGRATION_PLAN.md` | Cómo pasaría `EVO-009` al híbrido sin perder lo hecho | PROPOSED, condicionado a `ADR-004` |
+| `features/EVOLUTION-3_HYBRID_16KB_GATE_EVIDENCE.md` | Gate de páginas de 16 KB ejecutado de verdad, no sólo comprobado en el ELF | Ejecutado para C1 y C3; C4 pendiente |
+| `features/EVOLUTION-3_HYBRID_OWNER_DEVICE_TEST_PLAN.md` | Cómo dictar el corpus A–G frase por frase, y qué no hacer | Listo para ejecutar |
 
 `features/EVO-009_IMPLEMENTATION_TRACEABILITY.md` también debe recibir esta revisión, pero
 vive únicamente en la PR #8, que está **congelada** durante la Fase 0-bis. Se actualiza en la
