@@ -35,7 +35,20 @@ class VoiceSpeechBridge(
     private val main = Handler(Looper.getMainLooper())
 
     private var sink: EventChannel.EventSink? = null
-    private var pendingStart: Triple<String, Boolean, Boolean>? = null
+    private var pendingStart: PendingStart? = null
+
+    /**
+     * El turno que espera a que el usuario conteste el diálogo de permiso.
+     *
+     * Lleva también el reconocedor pedido: conceder el micrófono no puede
+     * cambiar por cuál de los dos se escucha (`DEFECTO-004`).
+     */
+    private data class PendingStart(
+        val locale: String,
+        val preferOffline: Boolean,
+        val partialResults: Boolean,
+        val route: String,
+    )
 
     init {
         method.setMethodCallHandler(this)
@@ -66,10 +79,14 @@ class VoiceSpeechBridge(
                 val locale = call.argument<String>("locale") ?: DEFAULT_LOCALE
                 val preferOffline = call.argument<Boolean>("preferOffline") ?: true
                 val partials = call.argument<Boolean>("partialResults") ?: true
+                // Sin dato explícito se usa el reconocedor local: es el que no
+                // toca la red, y el otro exige autorización del usuario.
+                val route = call.argument<String>("route")
+                    ?: VoiceSpeechEngine.ROUTE_ON_DEVICE
                 if (hasMicPermission()) {
-                    engine.start(locale, preferOffline, partials)
+                    engine.start(locale, preferOffline, partials, route)
                 } else {
-                    pendingStart = Triple(locale, preferOffline, partials)
+                    pendingStart = PendingStart(locale, preferOffline, partials, route)
                     onStage("awaitingPermission")
                     activity.requestPermissions(
                         arrayOf(Manifest.permission.RECORD_AUDIO),
@@ -110,7 +127,15 @@ class VoiceSpeechBridge(
      * `EVO-009-REQ-005` no admite un reconocedor vivo en segundo plano.
      */
     fun onHostPaused() {
-        pendingStart = null
+        // El diálogo de permisos es OTRA Activity, así que mostrarlo pausa ésta.
+        // Borrar aquí la petición pendiente hacía que conceder el permiso no
+        // arrancara nada: `onPermissionResult` encontraba `pendingStart` nulo y
+        // salía en silencio. Medido en el HONOR JDY-LX3P (Android 16 / API 36):
+        // el usuario concedía y tenía que volver a tocar el micrófono.
+        //
+        // No soltar nada en este caso es seguro: mientras se espera el permiso
+        // el motor todavía no arrancó, y por tanto no hay micrófono tomado.
+        if (pendingStart != null) return
         engine.cancel()
         send(mapOf("type" to "cancelled"))
     }
@@ -120,7 +145,12 @@ class VoiceSpeechBridge(
         val pending = pendingStart ?: return
         pendingStart = null
         if (granted) {
-            engine.start(pending.first, pending.second, pending.third)
+            engine.start(
+                pending.locale,
+                pending.preferOffline,
+                pending.partialResults,
+                pending.route,
+            )
             return
         }
         // Denegación permanente: el sistema ya no volverá a mostrar el diálogo,
@@ -169,6 +199,9 @@ class VoiceSpeechBridge(
     // --------------------------------------------------------- Engine.Listener
 
     override fun onStage(stage: String) = send(mapOf("type" to "stage", "stage" to stage))
+
+    override fun onRoute(route: String) =
+        send(mapOf("type" to "route", "route" to route))
 
     override fun onLocale(locale: String) =
         send(mapOf("type" to "locale", "locale" to locale))

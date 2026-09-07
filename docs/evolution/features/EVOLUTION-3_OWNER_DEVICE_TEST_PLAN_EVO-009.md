@@ -62,7 +62,7 @@ mejor que no lo hagas: el objetivo es que las frases no viajen a ninguna parte.
 | 7 | **Detener** | Pulsa `Detener` | El micrófono se cierra, el indicador desaparece y el texto queda editable |
 | 8 | **Descartar** | Pulsa `Descartar` | El campo queda vacío, el estado dice `Sesión descartada` y el micrófono está libre |
 | 9 | **Modo avión** | Activa modo avión **desde los ajustes del sistema** y dicta | La pantalla dice `Modo avión: activado`. Si transcribe, después dice `Comprobado: aquí se transcribió con el modo avión activado`. Si **no** transcribe, muestra un error accionable — ambas cosas son resultados válidos, anota cuál pasó |
-| 10 | **Idioma** | Mira el bloque de idioma en cualquier momento | Siempre se ven **dos** líneas: `Idioma solicitado: es-BO` y `Idioma utilizado: …`. Lo esperable aquí es que el utilizado **no** sea `es-BO` |
+| 10 | **Idioma** | Mira el bloque de idioma en cualquier momento | Siempre se ven **dos** líneas: `Idioma solicitado: es-US` y `Idioma utilizado: …`. Si difieren, la pantalla lo advierte. Durante la búsqueda muestra «Buscando un español que este teléfono admita… (n de 10)» |
 | 11 | **Error por idioma** | Si el teléfono no tiene ningún español, o quitas el paquete de idioma | Estado `Sin español disponible en el motor`, con instrucciones. **No debe descargar nada por su cuenta** |
 | 12 | **Background / foreground** | Con el micrófono abierto, pulsa Inicio; vuelve a la app | El micrófono **se suelta al salir**. Al volver, el texto sigue ahí y el micrófono está cerrado |
 | 13 | **Navegación** | Con el micrófono abierto, pulsa Atrás | Vuelve a Operaciones. El micrófono se libera: el punto rojo de grabación del sistema **debe desaparecer** |

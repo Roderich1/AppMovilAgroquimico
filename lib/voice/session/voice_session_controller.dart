@@ -81,6 +81,17 @@ class VoiceSessionController extends ChangeNotifier {
   List<String> _localeOrder = VoiceLocalePolicy.candidates;
   int _localeIndex = 0;
 
+  /// Candidatos que ya fallaron por idioma en esta sesión y por este
+  /// reconocedor. Se agota el camino cuando están **todos**, no cuando se llega
+  /// al final de la lista: la sesión puede haber empezado por el medio si ya
+  /// había un idioma confirmado.
+  final Set<String> _localeExhausted = <String>{};
+
+  /// El usuario ya decidió sobre el servicio del sistema en esta sesión, sea
+  /// que lo aceptara o que lo rechazara. Sólo se pregunta una vez
+  /// (`DEFECTO-004`).
+  bool _routeFallbackDecided = false;
+
   Timer? _restartTimer;
   Timer? _sessionTimer;
 
@@ -132,9 +143,15 @@ class VoiceSessionController extends ChangeNotifier {
     // cada `Seguir hablando` gastaría un turno por candidato fallido.
     final confirmed = _snapshot.localeInUse;
     final index = confirmed == null ? -1 : _localeOrder.indexOf(confirmed);
-    _localeIndex = index < 0 ? 0 : index;
+    _localeIndex = index < 0 ? (_nextLocaleIndex() ?? 0) : index;
 
     _turnCount = 0;
+    _update(
+      _snapshot.copyWith(
+        localeAttempt: _localeProgress,
+        localeCandidates: _localeOrder.length,
+      ),
+    );
     _sessionTimer?.cancel();
     _sessionTimer = Timer(_continuity.maxSessionDuration, () {
       // Última red: ni siquiera una sesión productiva puede quedarse escuchando
@@ -168,6 +185,10 @@ class VoiceSessionController extends ChangeNotifier {
   Future<void> retry() async {
     if (_disposed) return;
     _unproductive = 0;
+    // Reintentar es una petición explícita: se vuelve a recorrer la lista de
+    // idiomas. Lo que NO se rehace es preguntar por el reconocedor del sistema,
+    // que ya se decidió una vez en esta sesión.
+    _localeExhausted.clear();
     _update(_snapshot.copyWith(clearError: true));
     await startListening();
   }
@@ -182,6 +203,11 @@ class VoiceSessionController extends ChangeNotifier {
     await _releaseMicrophone();
     _turnCount = 0;
     _undoText = null;
+    _localeExhausted.clear();
+    // La autorización para usar el servicio del sistema valía **para esta
+    // sesión**. No se guarda en ningún sitio y no sobrevive a descartar
+    // (`DEFECTO-004`).
+    _routeFallbackDecided = false;
     AppLog.info('voz: sesión descartada por el usuario');
     _update(
       VoiceSessionSnapshot(
@@ -189,9 +215,62 @@ class VoiceSessionController extends ChangeNotifier {
         requestedLocale: VoiceLocalePolicy.requested,
         // El idioma y la disponibilidad son hechos del aparato, no contenido de
         // la sesión: conservarlos evita volver a recorrer la lista de idiomas.
-        localeInUse: _snapshot.localeInUse,
+        // Salvo que se hubiera cambiado de reconocedor: un idioma confirmado
+        // por el servicio del sistema no dice nada del reconocedor local, con
+        // el que la siguiente sesión vuelve a empezar.
+        localeInUse: _snapshot.routeFallbackUsed ? null : _snapshot.localeInUse,
         offline: _snapshot.offline,
         availability: _snapshot.availability,
+      ),
+    );
+  }
+
+  /// Pulsa `Usar servicio del teléfono` en la confirmación de `DEFECTO-004`.
+  ///
+  /// Es la **única** transición permitida, y sólo con el sí explícito del
+  /// usuario: el reconocedor local se destruye, se crea el predeterminado del
+  /// teléfono y se le sigue pidiendo trabajar sin conexión. No se vuelve
+  /// automáticamente al local, no se pregunta dos veces y no se guarda la
+  /// autorización en ningún sitio.
+  Future<void> useSystemRecognizer() async {
+    if (_disposed) return;
+    if (!_snapshot.routeFallbackOffered) return;
+    _routeFallbackDecided = true;
+    _localeExhausted.clear();
+    _localeIndex = 0;
+    // Se suelta antes de crear el otro: dos reconocedores vivos se pelearían
+    // por el micrófono.
+    await _releaseMicrophone();
+    AppLog.info('voz: el usuario autorizó el reconocedor del sistema');
+    _update(
+      _snapshot.copyWith(
+        route: TranscriptionEngineRoute.systemDefault,
+        clearObservedRoute: true,
+        routeFallbackOffered: false,
+        routeFallbackUsed: true,
+        clearLocaleInUse: true,
+        clearError: true,
+      ),
+    );
+    await startListening();
+  }
+
+  /// Pulsa `Continuar escribiendo` en la confirmación de `DEFECTO-004`.
+  ///
+  /// No cambia de reconocedor, conserva el texto y suelta el micrófono. La
+  /// pantalla sigue permitiendo escribir a mano, que es lo que `EVO-009-REQ-017`
+  /// exige que nunca se pierda.
+  Future<void> declineSystemRecognizer() async {
+    if (_disposed) return;
+    if (!_snapshot.routeFallbackOffered) return;
+    _routeFallbackDecided = true;
+    _stopContinuity();
+    await _releaseMicrophone();
+    AppLog.info('voz: el usuario prefirió seguir escribiendo a mano');
+    _update(
+      _snapshot.copyWith(
+        status: VoiceSessionStatus.languageUnavailable,
+        routeFallbackOffered: false,
       ),
     );
   }
@@ -272,6 +351,14 @@ class VoiceSessionController extends ChangeNotifier {
   /// llamada sería un castigo, no una medida de seguridad.
   Future<void> handleAppPaused() async {
     if (_disposed) return;
+    // El diálogo de permisos del sistema pone la aplicación en segundo plano.
+    // Tratar eso como «el usuario se fue» cancelaba la sesión justo antes de que
+    // concediera el permiso, y el micrófono no llegaba a abrirse nunca: había
+    // que tocar el micrófono una segunda vez. Medido en el HONOR JDY-LX3P.
+    //
+    // Es seguro no soltar nada aquí: en este estado el motor todavía no ha
+    // arrancado, así que no hay micrófono tomado que liberar.
+    if (_snapshot.status == VoiceSessionStatus.requestingPermission) return;
     if (!_userListening && !_snapshot.status.microphoneMayBeOpen) return;
     _stopContinuity();
     await _releaseMicrophone();
@@ -348,9 +435,12 @@ class VoiceSessionController extends ChangeNotifier {
     await _port.start(
       TranscriptionRequest(
         locale: _localeOrder[_localeIndex],
+        // Se sigue pidiendo trabajar sin conexión también por el servicio del
+        // sistema. Es una preferencia, no una garantía, y la pantalla lo dice.
         preferOffline: true,
         partialResults: true,
         maxTurnDuration: _continuity.turnDuration,
+        route: _snapshot.route,
       ),
     );
   }
@@ -377,6 +467,10 @@ class VoiceSessionController extends ChangeNotifier {
 
       case TranscriptionLocaleInUse(:final locale):
         _update(_snapshot.copyWith(localeInUse: locale));
+
+      case TranscriptionRouteInUse(:final route):
+        // Lo que el motor está usando de verdad, que puede no ser lo pedido.
+        _update(_snapshot.copyWith(observedRoute: route));
 
       case TranscriptionPartial(:final text):
         if (!_snapshot.status.microphoneMayBeOpen) return;
@@ -521,21 +615,30 @@ class VoiceSessionController extends ChangeNotifier {
     if (_locales.advancesLocale(code)) {
       _update(
         _snapshot.copyWith(
+          // El motor puede anunciar «listo para escuchar» y fallar a
+          // continuación: el HONOR lo hizo con `es-MX`. Si no se limpiara aquí,
+          // la pantalla diría «Sin español disponible» y «Se está escuchando en
+          // es-MX» a la vez.
+          clearLocaleInUse: true,
           offline: _snapshot.offline.copyWith(
             languageModelPossiblyMissing: true,
           ),
         ),
       );
-      _localeIndex++;
-      if (_localeIndex < _localeOrder.length && _userListening) {
+      _localeExhausted.add(_localeOrder[_localeIndex]);
+      _update(_snapshot.copyWith(localeAttempt: _localeProgress));
+
+      final next = _nextLocaleIndex();
+      if (next != null && _userListening) {
         // Intentar y observar: la lista de idiomas del sistema no decide
         // (`EVO-009-REQ-014`). No cuenta como turno improductivo, porque el
         // presupuesto de esta búsqueda es la longitud de la lista.
         _turnCount--;
+        _localeIndex = next;
         unawaited(_openTurn());
         return;
       }
-      _fail(VoiceSessionStatus.languageUnavailable, code, detail);
+      _onLocalesExhausted(code, detail);
       return;
     }
 
@@ -551,6 +654,60 @@ class VoiceSessionController extends ChangeNotifier {
       return;
     }
     _scheduleRestart(_continuity.backoffFor(_unproductive));
+  }
+
+  /// Qué hacer cuando ningún español funcionó por el reconocedor actual.
+  ///
+  /// `DEFECTO-004`: el HONOR JDY-LX3P tiene reconocedor local sin ningún
+  /// español y se quedaba aquí, sin salida, aunque el servicio del sistema —el
+  /// que funcionó en el aparato de `ADR-002`— estuviera disponible. Ahora se
+  /// ofrece, pero **se pregunta**: ese servicio puede transcribir usando
+  /// Internet y esa decisión es del dueño del teléfono.
+  ///
+  /// No se ofrece nada si ya se está en el servicio del sistema, si el motor ya
+  /// estaba usándolo —el caso de API 31, donde no hay a dónde cambiar— o si el
+  /// usuario ya decidió en esta sesión.
+  void _onLocalesExhausted(TranscriptionErrorCode code, String? detail) {
+    final canOffer =
+        _snapshot.route == TranscriptionEngineRoute.onDevice &&
+        _snapshot.observedRoute == TranscriptionEngineRoute.onDevice &&
+        !_routeFallbackDecided;
+    if (!canOffer) {
+      _fail(VoiceSessionStatus.languageUnavailable, code, detail);
+      return;
+    }
+    AppLog.info(
+      'voz: sin español por el reconocedor local; se ofrece el del sistema',
+    );
+    _stopContinuity();
+    _update(
+      _snapshot.copyWith(
+        status: VoiceSessionStatus.languageUnavailable,
+        partialText: '',
+        errorCode: code,
+        errorDetail: detail,
+        routeFallbackOffered: true,
+      ),
+    );
+  }
+
+  /// El siguiente candidato sin agotar, o `null` si no queda ninguno.
+  ///
+  /// Recorre la lista entera y no sólo lo que quede por delante: una sesión que
+  /// empezó por un idioma ya confirmado dejaría atrás candidatos sin probar, y
+  /// entonces «se agotaron todos» sería falso.
+  int? _nextLocaleIndex() {
+    for (var i = 0; i < _localeOrder.length; i++) {
+      if (!_localeExhausted.contains(_localeOrder[i])) return i;
+    }
+    return null;
+  }
+
+  /// Por qué candidato va el recorrido, para mostrarlo. Nunca pasa del total.
+  int get _localeProgress {
+    final total = _localeOrder.length;
+    final next = _localeExhausted.length + 1;
+    return total == 0 ? next : (next > total ? total : next);
   }
 
   VoiceSessionStatus _statusForFatal(TranscriptionErrorCode code) =>

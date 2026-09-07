@@ -106,7 +106,14 @@ class _VoiceCaptureScreenState extends ConsumerState<VoiceCaptureScreen>
           _LocalePanel(snapshot: snapshot),
           const SizedBox(height: 12),
           _OfflinePanel(snapshot: snapshot),
-          if (snapshot.errorCode != null) ...[
+          if (snapshot.routeFallbackOffered) ...[
+            const SizedBox(height: 12),
+            _RouteFallbackPanel(
+              snapshot: snapshot,
+              onAccept: _session.useSystemRecognizer,
+              onDecline: _session.declineSystemRecognizer,
+            ),
+          ] else if (snapshot.errorCode != null) ...[
             const SizedBox(height: 12),
             _ErrorPanel(
               snapshot: snapshot,
@@ -216,9 +223,17 @@ class _NoticeCard extends StatelessWidget {
             'aplicaciones, y no modifica el inventario ni las cuentas.',
           ),
           const SizedBox(height: 8),
-          const Text(
-            'El reconocimiento lo hace tu propio teléfono. La aplicación no '
-            'envía nada a ningún servidor.',
+          Text(
+            snapshot.route == TranscriptionEngineRoute.systemDefault
+                // Autorizado por el usuario: la aplicación sigue sin enviar
+                // nada, pero el servicio del teléfono puede usar Internet y
+                // decirlo es la mitad del trato.
+                ? 'El reconocimiento lo hace el servicio de voz de tu '
+                      'teléfono, con preferencia sin conexión. La aplicación no '
+                      'envía nada a ningún servidor, pero ese servicio del '
+                      'sistema sí podría usar Internet.'
+                : 'El reconocimiento lo hace tu propio teléfono. La aplicación '
+                      'no envía nada a ningún servidor.',
           ),
         ],
       ),
@@ -347,6 +362,20 @@ class _LocalePanel extends StatelessWidget {
 
   final VoiceSessionSnapshot snapshot;
 
+  /// Por qué reconocedor se está escuchando **de verdad**.
+  ///
+  /// Se muestra el observado, no el pedido: en API 31 se pide el local y el
+  /// sistema entrega el predeterminado, y decir lo contrario escondería por
+  /// dónde pasa el audio (`DEFECTO-004`).
+  static String describeRoute(VoiceSessionSnapshot snapshot) =>
+      switch (snapshot.observedRoute) {
+        null => 'todavía no se sabe',
+        TranscriptionEngineRoute.onDevice =>
+          'reconocimiento local del teléfono',
+        TranscriptionEngineRoute.systemDefault =>
+          'Servicio del sistema — preferencia sin conexión',
+      };
+
   @override
   Widget build(BuildContext context) {
     final inUse = snapshot.localeInUse;
@@ -354,12 +383,28 @@ class _LocalePanel extends StatelessWidget {
       key: const Key('voz-locale'),
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        Text(
+          'Reconocedor: ${describeRoute(snapshot)}',
+          key: const Key('voz-proveedor'),
+        ),
         Text('Idioma solicitado: ${snapshot.requestedLocale}'),
         Text(
           inUse == null
               ? 'Idioma utilizado: todavía no se sabe'
               : 'Idioma utilizado: $inUse',
         ),
+        // El recorrido puede ser largo: en el HONOR JDY-LX3P tardó 17,6 s en
+        // agotar los diez candidatos. Sin esto la pantalla parecía colgada.
+        if (snapshot.isSearchingLocale)
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Text(
+              'Buscando un español que este teléfono admita… '
+              '(${snapshot.localeAttempt} de ${snapshot.localeCandidates})',
+              key: const Key('voz-buscando-idioma'),
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ),
         if (snapshot.localeIsFallback)
           Padding(
             padding: const EdgeInsets.only(top: 4),
@@ -429,13 +474,20 @@ class _ErrorPanel extends StatelessWidget {
 
   /// Qué puede hacer el usuario ante cada fallo. Ninguno bloquea la aplicación:
   /// escribir a mano siempre queda disponible (`EVO-009-REQ-017`).
-  static String advice(VoiceSessionStatus status) => switch (status) {
+  static String advice(
+    VoiceSessionStatus status, {
+    bool systemTried = false,
+  }) => switch (status) {
     VoiceSessionStatus.permissionDenied =>
       'Sin permiso de micrófono no se puede dictar. Puedes concederlo y volver '
           'a intentarlo, o escribir el texto a mano.',
     VoiceSessionStatus.permissionPermanentlyDenied =>
       'Android ya no volverá a preguntar. Abre los ajustes de la aplicación '
           'para conceder el micrófono, o escribe el texto a mano.',
+    VoiceSessionStatus.languageUnavailable when systemTried =>
+      'No hay reconocimiento en español disponible en este teléfono: ni el '
+          'reconocimiento local ni el servicio del sistema lo tienen. Puedes '
+          'instalarlo desde los ajustes de voz de Android, o escribir a mano.',
     VoiceSessionStatus.languageUnavailable =>
       'Tu teléfono no tiene ningún español instalado para reconocimiento. '
           'Instálalo desde los ajustes de voz de Android, o escribe a mano.',
@@ -459,7 +511,11 @@ class _ErrorPanel extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              advice(snapshot.status),
+              advice(
+                snapshot.status,
+                systemTried:
+                    snapshot.route == TranscriptionEngineRoute.systemDefault,
+              ),
               style: TextStyle(color: scheme.onErrorContainer),
             ),
             if (snapshot.status ==
@@ -479,6 +535,104 @@ class _ErrorPanel extends StatelessWidget {
               '${snapshot.errorDetail == null ? '' : ' (${snapshot.errorDetail})'}',
               style: Theme.of(context).textTheme.bodySmall
                   ?.copyWith(color: scheme.onErrorContainer),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// La confirmación de `DEFECTO-004`, cuando el español local se agota.
+///
+/// Existe porque el cambio **no puede ser silencioso**. El reconocedor local no
+/// usa red; el servicio del sistema puede usarla aunque se le pida lo contrario,
+/// y llevar allí el audio de alguien sin avisarle sería decidir por él. Se le
+/// dice qué falta, qué se intentaría, qué se seguirá pidiendo y qué riesgo
+/// queda; y se le deja la salida de seguir escribiendo.
+///
+/// La autorización vale **para esta sesión**. No se guarda en ninguna parte.
+class _RouteFallbackPanel extends StatelessWidget {
+  const _RouteFallbackPanel({
+    required this.snapshot,
+    required this.onAccept,
+    required this.onDecline,
+  });
+
+  final VoiceSessionSnapshot snapshot;
+  final Future<void> Function() onAccept;
+  final Future<void> Function() onDecline;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    // Durante una transición no hay acción: es lo que impide la doble pulsación.
+    final enabled = !snapshot.status.isTransition;
+    return Card(
+      key: const Key('voz-fallback-motor'),
+      color: scheme.tertiaryContainer,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'El reconocimiento local no tiene ningún español',
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w700,
+                color: scheme.onTertiaryContainer,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Se probaron los ${snapshot.localeCandidates} españoles de la '
+              'lista con el reconocimiento local de este teléfono y ninguno '
+              'está disponible.',
+              style: TextStyle(color: scheme.onTertiaryContainer),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Puede intentarse con el servicio de reconocimiento del teléfono, '
+              'que es otro programa del sistema. Se le seguirá pidiendo que '
+              'trabaje sin conexión.',
+              style: TextStyle(color: scheme.onTertiaryContainer),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Aviso: eso es una preferencia, no una garantía. El sistema '
+              'podría usar Internet para transcribir. La aplicación sigue sin '
+              'guardar audio ni transcripciones.',
+              style: TextStyle(
+                color: scheme.onTertiaryContainer,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                FilledButton.icon(
+                  key: const Key('voz-usar-servicio-sistema'),
+                  onPressed: enabled ? () => onAccept() : null,
+                  icon: const Icon(Icons.record_voice_over_outlined),
+                  label: const Text('Usar servicio del teléfono'),
+                ),
+                OutlinedButton.icon(
+                  key: const Key('voz-continuar-escribiendo'),
+                  onPressed: enabled ? () => onDecline() : null,
+                  icon: const Icon(Icons.keyboard_outlined),
+                  label: const Text('Continuar escribiendo'),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            // Diagnóstico: códigos, nunca lo dictado.
+            Text(
+              'Código: ${snapshot.errorCode?.name ?? '-'}'
+              '${snapshot.errorDetail == null ? '' : ' (${snapshot.errorDetail})'}',
+              style: Theme.of(context).textTheme.bodySmall
+                  ?.copyWith(color: scheme.onTertiaryContainer),
             ),
           ],
         ),

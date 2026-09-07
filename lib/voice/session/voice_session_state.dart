@@ -200,6 +200,12 @@ final class VoiceSessionSnapshot {
     this.manuallyEdited = false,
     this.requestedLocale = '',
     this.localeInUse,
+    this.localeAttempt = 0,
+    this.localeCandidates = 0,
+    this.route = TranscriptionEngineRoute.onDevice,
+    this.observedRoute,
+    this.routeFallbackOffered = false,
+    this.routeFallbackUsed = false,
     this.offline = const VoiceOfflineEvidence(),
     this.errorCode,
     this.errorDetail,
@@ -231,9 +237,53 @@ final class VoiceSessionSnapshot {
   /// El locale que se pidió (`es-BO`). Se muestra siempre junto a [localeInUse].
   final String requestedLocale;
 
-  /// El locale que el motor aceptó. `null` mientras no lo haya aceptado ninguno:
-  /// hasta entonces la interfaz no puede afirmar en qué idioma escucha.
+  /// El locale que el motor aceptó **y que no falló después**.
+  ///
+  /// `null` mientras no lo haya aceptado ninguno. Se limpia si el idioma que se
+  /// estaba anunciando termina fallando: el HONOR JDY-LX3P emitió «listo para
+  /// escuchar» en `es-MX` y acto seguido devolvió el error 12, y la pantalla
+  /// llegó a decir «Sin español disponible» y «Se está escuchando en es-MX» a la
+  /// vez. Anunciar un idioma que no funciona es exactamente lo que prohíbe
+  /// `EVO-009-REQ-015`.
   final String? localeInUse;
+
+  /// Cuántos candidatos de español se han intentado en esta sesión.
+  ///
+  /// Existe porque el recorrido puede ser largo: en el HONOR tardó 17,6 s en
+  /// agotar los diez, y sin esto la pantalla parecía colgada.
+  final int localeAttempt;
+
+  /// Cuántos candidatos tiene la lista. Cero antes de empezar.
+  final int localeCandidates;
+
+  /// El reconocedor que la sesión está pidiendo.
+  ///
+  /// Empieza siempre en [TranscriptionEngineRoute.onDevice] y sólo pasa a
+  /// [TranscriptionEngineRoute.systemDefault] si el usuario lo autoriza. La
+  /// autorización vale para **esta** sesión: descartar vuelve a empezar por el
+  /// reconocedor local (`DEFECTO-004`).
+  final TranscriptionEngineRoute route;
+
+  /// El reconocedor que el motor dijo estar usando. `null` mientras no lo diga.
+  ///
+  /// Puede no coincidir con [route]: en API 31 se pide el local y el sistema
+  /// entrega el predeterminado. La pantalla muestra **éste**, porque es el que
+  /// describe por dónde pasa el audio.
+  final TranscriptionEngineRoute? observedRoute;
+
+  /// Hay una confirmación en pantalla para pasar al servicio del sistema.
+  ///
+  /// Se ofrece **sólo** al agotar los idiomas por el reconocedor local, nunca
+  /// ante un silencio, un permiso denegado o un fallo transitorio: cambiar de
+  /// reconocedor puede llevar el audio a un servicio que use Internet, y eso lo
+  /// decide el dueño del teléfono.
+  final bool routeFallbackOffered;
+
+  /// Ya se hizo la única transición permitida en esta sesión.
+  ///
+  /// Impide preguntar dos veces y, sobre todo, impide alternar entre
+  /// reconocedores en bucle.
+  final bool routeFallbackUsed;
 
   final VoiceOfflineEvidence offline;
 
@@ -267,6 +317,10 @@ final class VoiceSessionSnapshot {
   /// Hay algo que entregar o editar.
   bool get hasText => committedText.trim().isNotEmpty;
 
+  /// Se está recorriendo la lista de idiomas y aún no hay uno que funcione.
+  bool get isSearchingLocale =>
+      localeInUse == null && localeAttempt > 1 && status.microphoneMayBeOpen;
+
   /// Texto que la pantalla muestra como "lo que se lleva", parcial incluido.
   ///
   /// Sólo para mostrar: lo que se entrega es [committedText].
@@ -283,6 +337,13 @@ final class VoiceSessionSnapshot {
     String? requestedLocale,
     String? localeInUse,
     bool clearLocaleInUse = false,
+    int? localeAttempt,
+    int? localeCandidates,
+    TranscriptionEngineRoute? route,
+    TranscriptionEngineRoute? observedRoute,
+    bool clearObservedRoute = false,
+    bool? routeFallbackOffered,
+    bool? routeFallbackUsed,
     VoiceOfflineEvidence? offline,
     TranscriptionErrorCode? errorCode,
     String? errorDetail,
@@ -300,6 +361,14 @@ final class VoiceSessionSnapshot {
     manuallyEdited: manuallyEdited ?? this.manuallyEdited,
     requestedLocale: requestedLocale ?? this.requestedLocale,
     localeInUse: clearLocaleInUse ? null : (localeInUse ?? this.localeInUse),
+    localeAttempt: localeAttempt ?? this.localeAttempt,
+    localeCandidates: localeCandidates ?? this.localeCandidates,
+    route: route ?? this.route,
+    observedRoute: clearObservedRoute
+        ? null
+        : (observedRoute ?? this.observedRoute),
+    routeFallbackOffered: routeFallbackOffered ?? this.routeFallbackOffered,
+    routeFallbackUsed: routeFallbackUsed ?? this.routeFallbackUsed,
     offline: offline ?? this.offline,
     errorCode: clearError ? null : (errorCode ?? this.errorCode),
     errorDetail: clearError ? null : (errorDetail ?? this.errorDetail),
@@ -314,5 +383,7 @@ final class VoiceSessionSnapshot {
   String toString() =>
       'VoiceSessionSnapshot(${status.name}, chars=${committedText.length}, '
       'partialChars=${partialText.length}, segments=$segmentCount, '
-      'edited=$manuallyEdited, locale=$localeInUse, error=${errorCode?.name})';
+      'edited=$manuallyEdited, locale=$localeInUse, '
+      'route=${observedRoute?.name ?? route.name}, '
+      'error=${errorCode?.name})';
 }

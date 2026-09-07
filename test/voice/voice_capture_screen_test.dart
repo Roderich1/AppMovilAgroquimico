@@ -322,7 +322,7 @@ void main() {
           FakeTurn(acceptsLocale: 'es-PE', segment: 'ok', endsOnStop: true),
         ],
       );
-      expect(find.textContaining('Idioma solicitado: es-BO'), findsOneWidget);
+      expect(find.textContaining('Idioma solicitado: es-US'), findsOneWidget);
       expect(
         find.textContaining('Idioma utilizado: todavía no se sabe'),
         findsOneWidget,
@@ -331,7 +331,7 @@ void main() {
       await tap(tester, const Key('voz-boton-microfono'));
 
       expect(find.textContaining('Idioma utilizado: es-PE'), findsOneWidget);
-      expect(find.textContaining('no tiene es-BO'), findsOneWidget);
+      expect(find.textContaining('no tiene es-US'), findsOneWidget);
     });
 
     testWidgets('no promete funcionar sin conexión sin haberlo comprobado', (
@@ -462,14 +462,66 @@ void main() {
       await tap(tester, const Key('voz-boton-microfono'));
       await settle(tester, frames: 30);
 
-      expect(
-        find.textContaining('no tiene ningún español instalado'),
-        findsOneWidget,
-      );
+      // Agotado el español del reconocedor local, la pantalla lo dice y ofrece
+      // el servicio del sistema (`DEFECTO-004`). Lo que no hace, en ningún
+      // camino, es descargar un modelo por su cuenta.
+      expect(find.textContaining('no tiene ningún español'), findsOneWidget);
+      expect(find.byKey(const Key('voz-fallback-motor')), findsOneWidget);
       expect(
         find.textContaining('no descarga nada por su cuenta'),
         findsOneWidget,
       );
+    });
+
+    testWidgets('DEFECTO-002: no afirma escuchar en un idioma que falló', (
+      tester,
+    ) async {
+      // El HONOR JDY-LX3P anunció «listo para escuchar» en es-MX y a
+      // continuación devolvió el error 12. La pantalla llegó a decir «Sin
+      // español disponible» y «Se está escuchando en es-MX» a la vez.
+      await pumpScreen(
+        tester,
+        script: const [
+          FakeTurn(
+            failWith: TranscriptionErrorCode.localeUnavailable,
+            failDetail: 'android-error-12',
+            announcesLocaleBeforeFailing: true,
+          ),
+        ],
+      );
+      await tap(tester, const Key('voz-boton-microfono'));
+      await settle(tester, frames: 40);
+
+      expect(find.textContaining('no tiene ningún español'), findsOneWidget);
+      expect(
+        find.textContaining('Se está escuchando en'),
+        findsNothing,
+        reason: 'ninguno funcionó: no puede afirmar que escucha en uno',
+      );
+      expect(
+        find.textContaining('Idioma utilizado: todavía no se sabe'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('OBSERVACIÓN-003: enseña por dónde va el recorrido', (
+      tester,
+    ) async {
+      await pumpScreen(
+        tester,
+        script: const [
+          FakeTurn(
+            failWith: TranscriptionErrorCode.localeUnavailable,
+            announcesLocaleBeforeFailing: true,
+            delay: Duration(milliseconds: 80),
+          ),
+        ],
+      );
+      await tester.tap(find.byKey(const Key('voz-boton-microfono')));
+      await settle(tester, frames: 8);
+
+      expect(find.byKey(const Key('voz-buscando-idioma')), findsOneWidget);
+      await settle(tester, frames: 120);
     });
 
     testWidgets('el diagnóstico muestra código, no la frase dictada', (
@@ -607,6 +659,121 @@ void main() {
 
       expect(port.microphoneReleased, isTrue);
       expect(port.calls, contains('cancel'));
+    });
+  });
+
+  group('DEFECTO-004: elegir el reconocedor del sistema', () {
+    /// El HONOR: el reconocedor on-device existe pero no tiene ningún español.
+    const honor = FakeTurn(
+      acceptsRoute: TranscriptionEngineRoute.systemDefault,
+      failDetail: 'android-error-12',
+      segment: 'cincuenta litros de bellator',
+      endsOnStop: true,
+    );
+
+    testWidgets('el proveedor utilizado se ve desde el primer turno', (
+      tester,
+    ) async {
+      await pumpScreen(
+        tester,
+        script: const [
+          FakeTurn(acceptsLocale: 'es-US', segment: 'ok', endsOnStop: true),
+        ],
+      );
+      expect(
+        find.textContaining('Reconocedor: todavía no se sabe'),
+        findsOneWidget,
+      );
+
+      await tap(tester, const Key('voz-boton-microfono'));
+
+      expect(
+        find.textContaining('Reconocedor: reconocimiento local del teléfono'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('agotado el español local, se pregunta antes de cambiar', (
+      tester,
+    ) async {
+      await pumpScreen(tester, script: const [honor]);
+      await tap(tester, const Key('voz-boton-microfono'));
+      await settle(tester, frames: 40);
+
+      expect(find.byKey(const Key('voz-fallback-motor')), findsOneWidget);
+      // Lo que el propietario tiene que poder decidir con conocimiento.
+      expect(find.textContaining('no tiene ningún español'), findsWidgets);
+      expect(
+        find.textContaining('servicio de reconocimiento del teléfono'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('sin conexión'), findsWidgets);
+      expect(find.textContaining('podría usar Internet'), findsOneWidget);
+      expect(
+        find.byKey(const Key('voz-usar-servicio-sistema')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const Key('voz-continuar-escribiendo')),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('aceptar identifica el camino como servicio del sistema', (
+      tester,
+    ) async {
+      await pumpScreen(tester, script: const [honor]);
+      await tap(tester, const Key('voz-boton-microfono'));
+      await settle(tester, frames: 40);
+
+      await tap(tester, const Key('voz-usar-servicio-sistema'));
+      await settle(tester, frames: 20);
+
+      expect(
+        find.textContaining(
+          'Reconocedor: Servicio del sistema — preferencia sin conexión',
+        ),
+        findsOneWidget,
+      );
+      expect(find.byKey(const Key('voz-fallback-motor')), findsNothing);
+      expect(
+        find.textContaining('se transcribió con el modo avión'),
+        findsNothing,
+        reason: 'pedir sin conexión no es haberlo comprobado',
+      );
+    });
+
+    testWidgets('rechazar deja escribir y no vuelve a preguntar', (
+      tester,
+    ) async {
+      await pumpScreen(tester, script: const [honor]);
+      await tap(tester, const Key('voz-boton-microfono'));
+      await settle(tester, frames: 40);
+
+      await tap(tester, const Key('voz-continuar-escribiendo'));
+
+      expect(find.byKey(const Key('voz-fallback-motor')), findsNothing);
+      await tester.enterText(
+        find.byKey(const Key('voz-campo-editable')),
+        'diez litros de bellator',
+      );
+      await tester.pump();
+      expect(find.text('diez litros de bellator'), findsOneWidget);
+    });
+
+    testWidgets('un permiso denegado no ofrece cambiar de reconocedor', (
+      tester,
+    ) async {
+      await pumpScreen(
+        tester,
+        script: const [
+          FakeTurn(failWith: TranscriptionErrorCode.permissionDenied),
+        ],
+      );
+      await tap(tester, const Key('voz-boton-microfono'));
+      await settle(tester, frames: 20);
+
+      expect(find.byKey(const Key('voz-fallback-motor')), findsNothing);
     });
   });
 }
