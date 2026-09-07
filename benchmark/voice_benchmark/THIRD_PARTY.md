@@ -63,6 +63,85 @@ El modelo viaja **dentro del APK**: el teléfono no necesita Internet para
 transcribir. También puede sustituirse sin recompilar dejando el archivo en
 `<carpeta de la app>/models/<nombre>`, que tiene prioridad sobre el asset.
 
+## Vosk (Fase 0-bis)
+
+Incorporado para medir `ADR-004`. **Nada de esto entra en Agrocuentas**: vive sólo en este
+banco y `ADR-004` sigue `Proposed`.
+
+### Biblioteca
+
+| Campo | Valor |
+|---|---|
+| Proyecto | `alphacep/vosk-api` |
+| Licencia | Apache-2.0 (verificada en la API de GitHub) |
+| Artefacto | `com.alphacephei:vosk-android:0.3.75` (Maven Central) |
+| Publicado | 2025-12-08 |
+| Tamaño del AAR | 13.472.638 B |
+| SHA-256 del AAR | `ab2f8b91ac8051561aa325546b35fed9a68b36b8121bac5c6fb927525c4adfad` |
+| SHA-1 publicado | `40764b038a882055e1a57c33136c86ab9b7db2ee` |
+| `libvosk.so` arm64-v8a | 10.042.800 B |
+| Se versiona | No: lo resuelve Gradle desde Maven Central |
+
+**Por qué un artefacto y no un commit.** El resto del banco fija commits: `whisper.cpp` se
+compila desde uno concreto. Con Vosk no se puede hacer lo mismo. Sus *releases* de GitHub
+llegan a `v0.3.50` y sólo `v0.3.45` publicó un `.zip` para Android; el artefacto que la
+distribución oficial mantiene vive en Maven Central y llega a `0.3.75`, **sin tag público
+equivalente** (`https://api.github.com/repos/alphacep/vosk-api/git/ref/tags/v0.3.47` responde
+`Not Found`). Compilar `vosk-api` desde fuente para Android arrastra Kaldi y OpenFST completos.
+Lo que sí se puede fijar es versión exacta más SHA-256 del binario, que es lo que se hace.
+Queda registrado como `RISK-033` y es decisión pendiente del propietario.
+
+**Por qué `0.3.75` y no `0.3.47`.** Se midieron las cabeceras ELF de `jni/arm64-v8a/libvosk.so`
+de ambas:
+
+| Versión | `p_align` de los segmentos `LOAD` | Compatible con páginas de 16 KB |
+|---|---|---|
+| `0.3.75` | `16384` | **Sí** |
+| `0.3.47` | `4096` | No |
+
+Android 15 y posteriores admiten aparatos con páginas de 16 KB, donde una librería alineada a
+4 KB **no carga**. El HONOR de esta fase usa páginas de 4096 —`getconf PAGE_SIZE`— así que allí
+cualquiera de las dos funcionaría; elegir la alineada evita reproducir, en un aparato futuro,
+exactamente la clase de fallo por incompatibilidad que abrió esta fase.
+
+### Modelo español
+
+| Campo | Valor |
+|---|---|
+| Modelo | `vosk-model-small-es-0.42` |
+| Fuente | `https://alphacephei.com/vosk/models/vosk-model-small-es-0.42.zip` |
+| Licencia | Apache 2.0 (declarada en la lista oficial) |
+| Tamaño comprimido | 39.817.833 B (37,97 MiB) |
+| Tamaño instalado | 60.286.598 B (57,49 MiB), 14 archivos |
+| SHA-256 del zip | `09b239888f633ef2f0b4e09736e3d9936acfd810bc65d53fad45261762c6511f` |
+| WER declarada | 16,02 (cv test) · 16,72 (mtedx test) · 11,21 (mls) |
+| Se versiona | No: lo baja `tool/fetch_vosk_model.sh` y verifica el hash |
+
+**No existe un modelo español de Vosk de 180 MB.** Comprobado en la lista oficial: sólo hay dos
+modelos españoles, el móvil de 39 MB y `vosk-model-es-0.42` de 1,4 GB, orientado a servidor.
+Los ~180 MB que circulaban corresponden a otra cosa: son el tamaño de `ggml-small-q5_1.bin`
+(181,28 MiB), el modelo de Whisper.
+
+## Modelo Whisper small (Fase 0-bis)
+
+| Campo | Valor |
+|---|---|
+| Archivo | `ggml-small-q5_1.bin` |
+| Fuente | `huggingface.co/ggerganov/whisper.cpp` |
+| Tamaño | 190.085.487 B (181,28 MiB) |
+| SHA-256 | `ae85e4a935d7a567bd102fe55afc16bb595bdb618e11b2fc7591bc08120411bb` |
+| Cuantización | `q5_1` |
+| Multilingüe | Sí |
+| Licencia | MIT (pesos de OpenAI Whisper); conversión ggml por whisper.cpp (MIT) |
+| Se versiona | No: lo baja `tool/fetch_whisper_models.sh` y verifica el hash |
+
+El SHA-256 coincide con el `X-Linked-ETag` que publica Hugging Face para el objeto, así que la
+verificación no depende de haber descargado bien una sola vez.
+
+Se reutiliza **el mismo commit de `whisper.cpp`** que la Fase 0
+(`52a939a2a762224e255d366c1182b2af4dd1a032`). Cambiarlo habría hecho que `base` y `small` no
+fueran comparables entre sí ni con lo ya medido.
+
 ## Impacto real en el APK
 
 Medido, no estimado: los tres APK salen del mismo código y sólo cambia el motor.
