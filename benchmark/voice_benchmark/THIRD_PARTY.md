@@ -104,6 +104,72 @@ Android 15 y posteriores admiten aparatos con páginas de 16 KB, donde una libre
 cualquiera de las dos funcionaría; elegir la alineada evita reproducir, en un aparato futuro,
 exactamente la clase de fallo por incompatibilidad que abrió esta fase.
 
+### Firma PGP: **no verificable**
+
+Maven Central publica `.asc` para el AAR y el POM. Se intentó verificar y **no se pudo cerrar
+la cadena de confianza**. Se registra tal cual, sin presentarla como comprobada:
+
+| Dato | Valor |
+|---|---|
+| Firma creada | 2025-12-08 16:52:05 |
+| Clave firmante | RSA `4A454BDCD9D47FE2` |
+| Huella completa de esa subclave | `52D24C01CB76F44728F566A74A454BDCD9D47FE2` |
+| Clave primaria | `BD81E366B50708218FABB1DEBBC8CD3EE461F718` — `Nickolay V. Shmyrev <nshmyrev@alphacephei.com>` |
+| Origen de la clave | `keyserver.ubuntu.com`; tambien en `pgp.mit.edu` y `pgpkeys.eu`. `keys.openpgp.org` responde 404 |
+| Resultado de `gpg --verify` | **`Can't check signature: No public key`** |
+
+Dos motivos, ambos comprobados en el material publicado:
+
+1. La clave primaria y su subclave **caducaron el 2023-11-07**, dos anos antes de la fecha de
+   la firma.
+2. La subclave `4A454BDCD9D47FE2` esta publicada como **`[E]`, solo cifrado**, no como clave de
+   firma. `gpg` no la acepta para verificar y no existe otra copia con capacidad de firma en
+   ninguno de los cuatro servidores consultados.
+
+La identidad del firmante **es coherente** con el autor de Vosk, pero eso es una observacion,
+no una verificacion criptografica. Lo que si queda comprobado es la integridad: el SHA-256 que
+publica Maven Central coincide byte a byte con el calculado localmente. Va a `RISK-033`.
+
+### Dependencia transitiva: JNA
+
+Unica transitiva declarada por el POM, y con `<exclusions>` de `*:*`, de modo que no arrastra
+nada mas.
+
+| Campo | Valor |
+|---|---|
+| Coordenadas | `net.java.dev.jna:jna:5.18.1` (empaquetado `aar`) |
+| Licencia | **LGPL-2.1-or-later O Apache-2.0**, a eleccion del consumidor segun el POM |
+| Licencia elegida aqui | **Apache-2.0**, para no arrastrar las obligaciones de relinkeo de la LGPL |
+| Tamano del AAR | 522.677 B |
+| SHA-256 del AAR | `7f053e3ec99e14dd71259c82c1c8a02738d64a13c31226b2acc170f3060951e0` |
+| Transitivas propias | Ninguna |
+| ABIs con `.so` | `arm64-v8a`, `armeabi`, `armeabi-v7a`, `mips`, `mips64`, `x86`, `x86_64` |
+| `libjnidispatch.so` arm64-v8a | 176.520 B |
+
+Maven Central **no publica** `.sha256` para este artefacto (404); el hash de la tabla es el
+calculado sobre la descarga y es el que fija la verificacion de dependencias de Gradle.
+
+### Librerias nativas: 16 KB comprobados
+
+Ejecutado con `dart run tool/check_native_alignment.dart` sobre los dos AAR. Evidencia en
+`artifacts/hybrid-bench/supply-chain/aar-alignment.json`.
+
+| Libreria | ABI | Bytes | `p_align` | Veredicto |
+|---|---|--:|--:|---|
+| `libvosk.so` | `arm64-v8a` | 10.042.800 | 16384 | OK |
+| `libvosk.so` | `x86_64` | 10.335.120 | 16384 | OK |
+| `libvosk.so` | `armeabi-v7a` | 8.985.628 | 4096 | No aplica (32 bits) |
+| `libvosk.so` | `x86` | 10.397.552 | 4096 | No aplica (32 bits) |
+| `libjnidispatch.so` | `arm64-v8a` | 176.520 | 16384 | OK |
+| `libjnidispatch.so` | `x86_64` | 126.912 | 16384 | OK |
+| `libjnidispatch.so` | `mips64` | 150.256 | 16384 | OK |
+
+El requisito de 16 KB se aplica **solo a las ABIs de 64 bits**: los aparatos con paginas de
+16 KB no ejecutan codigo de 32 bits. Los APK de este banco se construyen `arm64-v8a` unicamente.
+
+Esto comprueba el **ELF** y nada mas. Faltan, y no se sustituyen entre si, el alineamiento
+dentro del ZIP (`zipalign -c -P 16 -v 4`) y la ejecucion real con `PAGE_SIZE=16384`.
+
 ### Modelo español
 
 | Campo | Valor |

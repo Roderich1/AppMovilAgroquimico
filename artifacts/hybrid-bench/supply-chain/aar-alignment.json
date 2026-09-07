@@ -1,0 +1,193 @@
+[
+  {
+    "archive": "C:/Users/MSI/AppData/Local/Temp/voskaar/vosk-0.3.75.aar",
+    "abis": [
+      "arm64-v8a",
+      "armeabi-v7a",
+      "x86",
+      "x86_64"
+    ],
+    "libraryCount": 4,
+    "passes": true,
+    "libraries": [
+      {
+        "path": "jni/arm64-v8a/libvosk.so",
+        "abi": "arm64-v8a",
+        "sizeBytes": 10042800,
+        "loadAlignments": [
+          16384,
+          16384,
+          16384,
+          16384
+        ],
+        "worstAlignment": 16384,
+        "is64Bit": true,
+        "requirementApplies": true,
+        "compatible16k": true,
+        "error": null
+      },
+      {
+        "path": "jni/armeabi-v7a/libvosk.so",
+        "abi": "armeabi-v7a",
+        "sizeBytes": 8985628,
+        "loadAlignments": [
+          4096,
+          4096,
+          4096,
+          4096
+        ],
+        "worstAlignment": 4096,
+        "is64Bit": false,
+        "requirementApplies": false,
+        "compatible16k": true,
+        "error": null
+      },
+      {
+        "path": "jni/x86/libvosk.so",
+        "abi": "x86",
+        "sizeBytes": 10397552,
+        "loadAlignments": [
+          4096,
+          4096,
+          4096,
+          4096
+        ],
+        "worstAlignment": 4096,
+        "is64Bit": false,
+        "requirementApplies": false,
+        "compatible16k": true,
+        "error": null
+      },
+      {
+        "path": "jni/x86_64/libvosk.so",
+        "abi": "x86_64",
+        "sizeBytes": 10335120,
+        "loadAlignments": [
+          16384,
+          16384,
+          16384,
+          16384
+        ],
+        "worstAlignment": 16384,
+        "is64Bit": true,
+        "requirementApplies": true,
+        "compatible16k": true,
+        "error": null
+      }
+    ]
+  },
+  {
+    "archive": "C:/Users/MSI/AppData/Local/Temp/voskaar/jna-5.18.1.aar",
+    "abis": [
+      "arm64-v8a",
+      "armeabi",
+      "armeabi-v7a",
+      "mips",
+      "mips64",
+      "x86",
+      "x86_64"
+    ],
+    "libraryCount": 7,
+    "passes": true,
+    "libraries": [
+      {
+        "path": "jni/arm64-v8a/libjnidispatch.so",
+        "abi": "arm64-v8a",
+        "sizeBytes": 176520,
+        "loadAlignments": [
+          16384,
+          16384
+        ],
+        "worstAlignment": 16384,
+        "is64Bit": true,
+        "requirementApplies": true,
+        "compatible16k": true,
+        "error": null
+      },
+      {
+        "path": "jni/armeabi-v7a/libjnidispatch.so",
+        "abi": "armeabi-v7a",
+        "sizeBytes": 126496,
+        "loadAlignments": [
+          16384,
+          16384
+        ],
+        "worstAlignment": 16384,
+        "is64Bit": false,
+        "requirementApplies": false,
+        "compatible16k": true,
+        "error": null
+      },
+      {
+        "path": "jni/armeabi/libjnidispatch.so",
+        "abi": "armeabi",
+        "sizeBytes": 126980,
+        "loadAlignments": [
+          16384,
+          16384
+        ],
+        "worstAlignment": 16384,
+        "is64Bit": false,
+        "requirementApplies": false,
+        "compatible16k": true,
+        "error": null
+      },
+      {
+        "path": "jni/mips/libjnidispatch.so",
+        "abi": "mips",
+        "sizeBytes": 130556,
+        "loadAlignments": [
+          16384,
+          16384
+        ],
+        "worstAlignment": 16384,
+        "is64Bit": false,
+        "requirementApplies": false,
+        "compatible16k": true,
+        "error": null
+      },
+      {
+        "path": "jni/mips64/libjnidispatch.so",
+        "abi": "mips64",
+        "sizeBytes": 150256,
+        "loadAlignments": [
+          16384,
+          16384
+        ],
+        "worstAlignment": 16384,
+        "is64Bit": true,
+        "requirementApplies": true,
+        "compatible16k": true,
+        "error": null
+      },
+      {
+        "path": "jni/x86/libjnidispatch.so",
+        "abi": "x86",
+        "sizeBytes": 124380,
+        "loadAlignments": [
+          16384,
+          16384
+        ],
+        "worstAlignment": 16384,
+        "is64Bit": false,
+        "requirementApplies": false,
+        "compatible16k": true,
+        "error": null
+      },
+      {
+        "path": "jni/x86_64/libjnidispatch.so",
+        "abi": "x86_64",
+        "sizeBytes": 126912,
+        "loadAlignments": [
+          16384,
+          16384
+        ],
+        "worstAlignment": 16384,
+        "is64Bit": true,
+        "requirementApplies": true,
+        "compatible16k": true,
+        "error": null
+      }
+    ]
+  }
+]

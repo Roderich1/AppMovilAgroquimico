@@ -37,7 +37,7 @@ Escala: probabilidad e impacto `L/M/H`. Owner es responsabilidad lógica, no per
 | RISK-030 | Empaquetar modelos propios multiplica el tamaño de la distribución | H | M | Medido en fuente primaria: `vosk-model-small-es-0.42` son 39.817.833 B comprimidos y 60.286.598 B instalados; `ggml-small-q5_1.bin` son 190.085.487 B. El APK de producción hoy pesa 64.027.725 B. La `EVOLUTION-3_MODEL_DISTRIBUTION_SECURITY_SPEC` obliga a medir bundle frente a paquete descargable antes de decidir | Voice/Release |
 | RISK-031 | Dos motores pesados sobre el mismo audio pueden causar OOM, throttling o ANR | M | H | `ADR-004` fija una sola captura, un solo motor infiriendo a la vez, buffer acotado y tope de duración. El benchmark mide memoria pico, temperatura y 30 sesiones seguidas en **ambos** teléfonos; sin esos números `ADR-004` no puede aceptarse | Voice/Mobile QA |
 | RISK-032 | Whisper alucina texto sobre silencio y el híbrido podría heredarlo | M | H | Ya observado con Whisper tiny (`RISK-026`, `[MÚSICA]`). El híbrido debe marcar `noSpeech` y `possibleHallucination` en vez de aceptar texto. Guardrail binario: cero texto aceptado en las muestras sin habla, en los dos aparatos | Voice/Product |
-| RISK-033 | La biblioteca Android de Vosk se distribuye como binario sin commit público correspondiente | M | M | `vosk-api` es Apache-2.0 y sus releases de GitHub llegan a `v0.3.50`, pero el artefacto Android publicado en Maven Central llega a `0.3.75` y **no existe un tag público equivalente**. La spec de distribución pide «fijar commits»; para este componente sólo puede fijarse versión + SHA-256 del artefacto. Decisión pendiente del propietario | Voice/Supply chain |
+| RISK-033 | La biblioteca Android de Vosk se distribuye como binario sin commit público correspondiente y su firma PGP no es verificable | M | M | **Aceptado provisionalmente por el propietario el 2026-09-07, sólo para construir y medir C1 y C4; no es aprobación para producción.** Detalle y mitigaciones abajo | Voice/Supply chain |
 
 ## Evidencia incorporada
 
@@ -64,6 +64,34 @@ latencias están medidas; CPU y batería siguen `NOT_MEASURED` porque el teléfo
 toda la sesión. El gate del Pixel 8 / API 36 **no se ejecutó**: el propietario lo declaró
 `WAIVED_BY_OWNER — residual compatibility risk accepted` el 2026-09-06, y el riesgo
 residual quedó registrado como `RISK-028`.
+
+## RISK-033 en detalle
+
+Lo comprobado, no lo supuesto:
+
+| Hecho | Estado |
+|---|---|
+| Artefacto oficial en Maven Central | Sí: `com.alphacephei:vosk-android:0.3.75`, sólo desde `repo1.maven.org` |
+| Versión y hash fijados | Sí: 13.472.638 B, SHA-256 `ab2f8b91…4adfad`, coincidente con el `.sha256` publicado |
+| Correspondencia con un commit o tag público | **No existe.** Los releases de GitHub paran en `v0.3.50`; `v0.3.47` devuelve `Not Found` |
+| Firma PGP publicada | Sí (`.asc` para AAR y POM) |
+| Firma verificable | **No.** Clave `4A454BDCD9D47FE2`, subclave publicada como sólo-cifrado y caducada el 2023-11-07, dos años antes de la firma. `gpg` responde `Can't check signature: No public key` en los cuatro servidores consultados |
+| Licencia | Apache-2.0 (POM y repositorio) |
+| Transitivas | Una: `net.java.dev.jna:jna:5.18.1`, con exclusiones `*:*`. Dual LGPL-2.1-or-later / Apache-2.0; **se elige Apache-2.0** |
+| ABIs y `.so` | `libvosk.so` y `libjnidispatch.so`; arm64-v8a y x86_64 a 16384, 32 bits a 4096 (no aplica) |
+
+**Riesgo real:** no se puede reconstruir el binario desde fuente y comprobar que coincide. Se
+confía en que Alpha Cephei publicó lo que dice publicar. La integridad de la descarga sí está
+garantizada; la procedencia del binario, no.
+
+**Mitigaciones activas:** repositorio único y versión exacta, sin rangos ni `latest`;
+verificación de dependencias de Gradle con los hashes fijados; inventario de licencias y
+transitivas; gate de ABI y de 16 KB sobre cada AAR y cada APK; y el escape hatch de
+`SpeechTranscriptionPort`, que permite retirar Vosk cambiando una clase.
+
+**Gate de actualización:** ninguna versión posterior de Vosk se adopta automáticamente. Subir
+de versión obliga a repetir, y a registrar de nuevo, hashes, licencias, transitivas, ABIs,
+comprobación de 16 KB, corpus completo y rendimiento en los dos teléfonos.
 
 ## Disparadores de revisión
 
