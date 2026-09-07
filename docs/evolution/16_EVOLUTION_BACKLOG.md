@@ -13,7 +13,7 @@ Estados: `PROPOSED`, `ANALYZED`, `APPROVED`, `IN_PROGRESS`, `VERIFIED`, `DEFERRE
 | EVO-006 | Exportación PDF | EVOLUTION-2 | VERIFIED | P1 | M | Escritor propio por ADR-001; Android y propietario verificados |
 | EVO-007 | Duplicar plan como borrador | Futuro | PROPOSED | P3 | M | Nunca reactivar plan original |
 | EVO-008 | Frontera única FIFO | Deuda | PROPOSED | P2 | H | Blocking sólo para nuevo consumidor FIFO |
-| EVO-009 | Voz: captura/transcripción/preview | EVOLUTION-3 | APPROVED | P1 | H | Fase 0 cerrada: `ADR-002` `Accepted`, motor = Android `SpeechRecognizer`. La implementación productiva **no ha comenzado** |
+| EVO-009 | Voz: captura/transcripción/preview | EVOLUTION-3 | IN_PROGRESS | P1 | H | Rama `evolution/evo-009-safe-transcription`. Motor = Android `SpeechRecognizer` (`ADR-002`). Captura, continuidad, preview editable y entrega de texto implementadas; **cero escrituras de negocio**. Falta prueba en dispositivo físico y revisión del propietario para pasar a `VERIFIED` |
 | EVO-010 | Voz: intención y borradores tipados | EVOLUTION-3 | APPROVED | P1 | H | Sin escrituras; ADR-003 |
 | EVO-011 | Protección/cifrado local | Futuro | PROPOSED | P3 | H | Threat model y recuperación |
 | EVO-012 | Backup remoto | Futuro | DEFERRED | P4 | H | Red, proveedor e identidad |
@@ -37,7 +37,10 @@ Estados: `PROPOSED`, `ANALYZED`, `APPROVED`, `IN_PROGRESS`, `VERIFIED`, `DEFERRE
    `features/EVOLUTION-3_SPEECH_ENGINE_BENCHMARK_RESULTS.md` y
    `decisions/ADR-002-voice-transcription-engine.md`. Ningún `EVO-*` cambió de estado: el
    benchmark no implementa funcionalidad de producto.
-3. Implementar `EVO-009` en una rama/PR propia.
+3. Implementar `EVO-009` en una rama/PR propia. **En curso**: rama
+   `evolution/evo-009-safe-transcription`, PR abierta y sin fusionar. La feature
+   entrega texto de sesión y no ejecuta ninguna operación; `EVO-010` no se ha
+   iniciado.
 4. Implementar `EVO-010` sin escrituras.
 5. Implementar, cada una por separado, `EVO-017`, `EVO-018` y `EVO-019`.
 6. Mantener `EVO-020` fuera de alcance hasta verificar la base.

@@ -27,6 +27,7 @@ import 'presentation/screens/transfers_screen.dart';
 import 'presentation/screens/transfer_form_screen.dart';
 import 'services/reports/report_export_service.dart';
 import 'services/reports/report_storage.dart';
+import 'voice/ui/voice_capture_screen.dart';
 
 final databaseProvider = Provider<AppDatabase>((ref) {
   final database = AppDatabase();
@@ -128,6 +129,12 @@ final routerProvider = Provider<GoRouter>(
           GoRoute(
             path: '/transferencias',
             builder: (_, __) => const TransfersScreen(),
+          ),
+          // EVO-009. Vive DENTRO del shell, como el resto de subdestinos de
+          // Operaciones: se llega apilando y Atrás devuelve a Operaciones.
+          GoRoute(
+            path: voiceRoutePath,
+            builder: (_, __) => const VoiceCaptureScreen(),
           ),
         ],
       ),

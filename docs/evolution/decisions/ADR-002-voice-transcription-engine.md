@@ -231,6 +231,36 @@ ningún motor lo resuelve. Bloquea la idea de que la transcripción alcance para
 El propietario acepta que el reconocimiento de productos y personas se resuelve en `EVO-010`,
 contra el catálogo local, y que hasta entonces la voz entrega texto y no datos.
 
+## Revisión 2026-09-06 — locale solicitado (decisión del propietario)
+
+La elección de motor **no cambia**: sigue siendo Android `SpeechRecognizer`. Lo
+que se revisa es un punto de la política productiva derivada.
+
+**Punto 5 revisado.** Donde decía «no puede prometer `es-BO`» —y en la práctica
+`es-BO` era el primer locale solicitado—, el propietario decidió durante el gate
+físico del HONOR JDY-LX3P que **el locale solicitado sea `es-US`**.
+
+Evidencia sobre la que se decidió, de los dos únicos aparatos medidos:
+
+| Aparato | Qué se observó con `es-US` |
+|---|---|
+| POCO X5 Pro 5G, API 31 | **El único** locale que llegó a transcribir |
+| HONOR JDY-LX3P, API 36 | El sistema lo **declara** soportado y lo intenta primero; falla con error 13 porque el modelo no está descargado |
+
+Qué **no** cambia, y sigue siendo obligatorio:
+
+- la lista de respaldo se conserva **completa** y se recorre intentando;
+- se sigue **observando el resultado real** en vez de creerle a la consulta
+  (`EVO-009-REQ-014`), reforzado por el HONOR: declaró `es-US` y `es-ES` y ambos
+  fallaron;
+- la interfaz sigue mostrando **solicitado** y **utilizado** por separado, y
+  avisa cuando difieren;
+- `es-US` es el **primer intento**, no una promesa;
+- `es-BO` permanece en la lista, en segunda posición, porque es el país del
+  usuario.
+
+`RISK-023` sigue abierto: dos teléfonos no describen el universo de aparatos.
+
 ## Qué invalidaría esta decisión
 
 Cualquiera de los disparadores de reconsideración de Whisper, o evidencia en API 36 de que el
