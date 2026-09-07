@@ -26,7 +26,11 @@ void main() {
 
   group('la lista exacta', () {
     test('es la documentada, en ese orden', () {
+      // Decisión del propietario (2026-09-06, gate del HONOR JDY-LX3P): se pide
+      // `es-US` primero. La lista completa se conserva: es lo que permite que un
+      // aparato con otro español instalado siga funcionando.
       expect(VoiceLocalePolicy.candidates, const [
+        'es-US',
         'es-BO',
         'es-419',
         'es-PE',
@@ -34,15 +38,18 @@ void main() {
         'es-CL',
         'es-CO',
         'es-MX',
-        'es-US',
         'es-ES',
         'es',
       ]);
     });
 
-    test('el locale pedido por el producto es es-BO', () {
-      expect(VoiceLocalePolicy.requested, 'es-BO');
+    test('el locale pedido por el producto es es-US', () {
+      expect(VoiceLocalePolicy.requested, 'es-US');
       expect(VoiceLocalePolicy.candidates.first, VoiceLocalePolicy.requested);
+    });
+
+    test('es-BO sigue en la lista: es el país del usuario', () {
+      expect(VoiceLocalePolicy.candidates, contains('es-BO'));
     });
 
     test('sólo contiene español: nunca se escucha en otro idioma', () {
@@ -71,8 +78,11 @@ void main() {
       );
     });
 
-    test('empieza por es-BO aunque ADR-002 lo midiera fallando', () {
-      expect(policy.attemptOrder(availability(known: false)).first, 'es-BO');
+    test('empieza por el locale solicitado', () {
+      expect(
+        policy.attemptOrder(availability(known: false)).first,
+        VoiceLocalePolicy.requested,
+      );
     });
   });
 
@@ -81,8 +91,21 @@ void main() {
       final order = policy.attemptOrder(
         availability(installed: ['en-US', 'es-MX', 'es-ES']),
       );
+      // `es-MX` precede a `es-ES` en la lista, así que va antes aunque ambos
+      // estén instalados.
       expect(order.first, 'es-MX');
       expect(order.indexOf('es-MX'), lessThan(order.indexOf('es-ES')));
+    });
+
+    test('lo declarado manda sobre el solicitado, y se sigue intentando todo', () {
+      // Medido en el HONOR: el sistema declaró es-US y es-ES, y la política los
+      // adelantó. Que después fallaran no invalida el orden: invalida creerle a
+      // la consulta, y por eso el resto de la lista se intenta igualmente.
+      final order = policy.attemptOrder(
+        availability(supported: ['es-US', 'es-ES']),
+      );
+      expect(order.take(2), ['es-US', 'es-ES']);
+      expect(order.toSet(), VoiceLocalePolicy.candidates.toSet());
     });
 
     test('los soportados pero no instalados van después de los instalados', () {
