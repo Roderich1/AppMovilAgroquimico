@@ -48,6 +48,24 @@
 | `decisions/ADR-002-voice-transcription-engine.md` | Motor decidido, waiver del gate Pixel 8 y política productiva de `EVO-009` | **Accepted** |
 | `decisions/ADR-003-typed-voice-interpretation.md` | Frontera segura | Accepted |
 
+## Paquete de la Fase 0-bis (motor híbrido local)
+
+Incorporado el 2026-09-07 tras el gate físico en HONOR API 36 (`RISK-029`). No sustituye
+nada del paquete anterior: `ADR-002` y sus resultados siguen siendo evidencia válida.
+
+| Documento | Propósito | Estado |
+|---|---|---|
+| `decisions/ADR-004-hybrid-embedded-voice-engine.md` | Motor local propio, independiente de los modelos del fabricante | **Proposed** |
+| `features/EVOLUTION-3_HYBRID_ENGINE_BENCHMARK_PLAN.md` | Cómo se mide el híbrido y contra qué | PROPOSED |
+| `features/EVOLUTION-3_MODEL_DISTRIBUTION_SECURITY_SPEC.md` | Manifest, instalación atómica, privacidad y supply chain de los modelos | PROPOSED |
+| `features/EVOLUTION-3_HYBRID_ACCEPTANCE_MATRIX.md` | Umbrales y guardrails binarios por dispositivo | PENDING: ninguna métrica medida |
+| `features/EVO-009_HYBRID_ENGINE_MIGRATION_PLAN.md` | Cómo pasaría `EVO-009` al híbrido sin perder lo hecho | PROPOSED, condicionado a `ADR-004` |
+
+`features/EVO-009_IMPLEMENTATION_TRACEABILITY.md` también debe recibir esta revisión, pero
+vive únicamente en la PR #8, que está **congelada** durante la Fase 0-bis. Se actualiza en la
+fase P3 del plan de migración, cuando esa rama vuelva a moverse.
+
+
 ## Herramientas de la Fase 0
 
 No son documentos, pero forman parte de la trazabilidad del benchmark:
@@ -57,6 +75,7 @@ No son documentos, pero forman parte de la trazabilidad del benchmark:
 | `benchmark/voice_benchmark/` | Banco de pruebas: puerto, dos motores, corpus y tres APK | Eliminando la carpeta |
 | `benchmark/voice_benchmark/assets/corpus.json` | Corpus de 100 frases, ajuste y aceptación | Con la carpeta |
 | `benchmark/voice_benchmark/THIRD_PARTY.md` | Licencias, versiones, hashes y tamaños medidos | Con la carpeta |
+| `benchmark/voice_benchmark/tool/fetch_vosk_model.sh` | Descarga y verifica el modelo español de Vosk | Con la carpeta |
 | `tool/voice_benchmark/` | Agregador de resultados y su informe comparativo | Eliminando la carpeta |
 | `test/voice_benchmark_report_test.dart` | Pruebas del agregador, en la suite del proyecto | Con el agregador |
 | `artifacts/voice-benchmark/results/` | Archivos exportados por el teléfono (no versionados) | Con la carpeta |

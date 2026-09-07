@@ -76,7 +76,38 @@ offline depende del paquete instalado (`RISK-023`); Whisper no produce parciales
 resuelven en `EVO-010` contra la base local (`RISK-025`); Whisper afirma texto sobre silencio
 (`RISK-026`); y la misma frase dictada dos veces puede dar cantidades distintas (`RISK-027`).
 
-`EVO-009` sigue **`APPROVED`**: la implementación productiva todavía no comenzó.
+`EVO-009` pasó después a **`IN_PROGRESS`** (PR #8, abierta y sin fusionar) sobre este motor.
+La Fase 0-bis revisa esa elección; ver más abajo.
+
+### Fase 0-bis (motor híbrido local y `ADR-004`) — ABIERTA
+
+El gate físico de `EVO-009` en un **HONOR JDY-LX3P (Android 16 / API 36)** expuso una
+dependencia que el POCO no mostraba: ese teléfono **no tiene ningún español** para
+reconocimiento. Los diez candidatos de la lista fallaron con error 12 o 13 por el reconocedor
+local (Android System Intelligence) y otros diez por el servicio del sistema
+(`com.google.android.tts`). La pantalla de ajustes que descarga esos modelos no está exportada,
+de modo que la aplicación no puede ofrecer una salida.
+
+Eso cumple el disparador «`SpeechRecognizer` no disponible en una parte relevante de los
+dispositivos reales» de `ADR-002`, que por tanto queda **bajo revisión** sin dejar de estar
+`Accepted` mientras `ADR-004` siga `Proposed`.
+
+Se evalúa, **sin tocar la aplicación productiva**, una canalización local:
+
+```text
+AudioRecord PCM 16 kHz mono
+        ├── Vosk        → parciales rápidos, no autoritativos
+        └── buffer      → Whisper small-q5_1 → texto final propuesto
+```
+
+Documentos: `decisions/ADR-004-hybrid-embedded-voice-engine.md`,
+`features/EVOLUTION-3_HYBRID_ENGINE_BENCHMARK_PLAN.md`,
+`features/EVOLUTION-3_MODEL_DISTRIBUTION_SECURITY_SPEC.md`,
+`features/EVOLUTION-3_HYBRID_ACCEPTANCE_MATRIX.md` y
+`features/EVO-009_HYBRID_ENGINE_MIGRATION_PLAN.md`.
+
+El benchmark vive en su propia rama y PR; la PR #8 de `EVO-009` queda **congelada** mientras
+tanto. Ninguna métrica está medida: la matriz de aceptación está entera en `PENDING`.
 
 ## Evoluciones posteriores no aprobadas
 

@@ -137,6 +137,19 @@ Lo que la evidencia obliga a asumir en la implementación:
 
 La aprobación de la feature no aprueba un proveedor remoto. Sigue prohibido.
 
+### El motor está bajo revisión (2026-09-07)
+
+El gate físico en un **HONOR JDY-LX3P (Android 16 / API 36)** encontró que ese teléfono no
+tiene ningún español de reconocimiento, ni en el reconocedor local ni en el servicio del
+sistema, y que la aplicación no puede instalarlo (`RISK-029`). Se abrió
+`decisions/ADR-004-hybrid-embedded-voice-engine.md`, en estado **`Proposed`**, para evaluar un
+motor local propio.
+
+Nada de esta spec cambia por ahora. Lo que sí cambia si `ADR-004` se acepta está acotado en
+`features/EVO-009_HYBRID_ENGINE_MIGRATION_PLAN.md`: **se sustituye el adaptador**, no la
+pantalla, ni la sesión, ni los permisos, ni el ciclo de vida, ni el puerto. La frontera
+`SpeechTranscriptionPort` es justamente lo que hace que ese cambio sea acotado.
+
 ## Privacidad
 
 - No persistir audio.

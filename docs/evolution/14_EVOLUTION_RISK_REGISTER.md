@@ -33,11 +33,31 @@ Escala: probabilidad e impacto `L/M/H`. Owner es responsabilidad lógica, no per
 | RISK-027 | La misma frase dictada dos veces da datos críticos distintos | M | H | Medido: 33,3 % de coincidencia entre dos tandas, con una cantidad que cambió de `12` a `dos`. No se corrige con diccionarios; obliga a que el usuario revise cantidades y montos antes de confirmar | Voice/Product |
 | RISK-028 | El motor elegido no fue probado en API 36 ni en otros OEM; su comportamiento depende del dispositivo, del fabricante, de la app de Google y de los modelos instalados | M | M | **Riesgo residual aceptado por el propietario** al conceder `WAIVED_BY_OWNER` al gate Pixel 8 / API 36. Mitigación: `EVO-009` detecta capacidades en runtime en vez de asumirlas, y conserva siempre el ingreso manual, de modo que un fallo en API 36 no impide usar la app. Si aparece un aparato API 36, la prueba se ejecuta como regresión adicional | Voice/Product |
 
+| RISK-029 | El reconocimiento del sistema depende de un modelo de idioma que el fabricante puede no traer y que la app no puede instalar | H | H | **Reproducido en HONOR JDY-LX3P (Android 16 / API 36)**: los diez españoles fallaron con error 12/13 por el reconocedor local y otros diez por el servicio del sistema; la pantalla que descarga el modelo (`modelmanager.languagepack.settings`) **no está exportada** y sin Gboard no hay entrada accesible. Es el disparador de reconsideración de `ADR-002` y el motivo de `ADR-004` | Voice/Product |
+| RISK-030 | Empaquetar modelos propios multiplica el tamaño de la distribución | H | M | Medido en fuente primaria: `vosk-model-small-es-0.42` son 39.817.833 B comprimidos y 60.286.598 B instalados; `ggml-small-q5_1.bin` son 190.085.487 B. El APK de producción hoy pesa 64.027.725 B. La `EVOLUTION-3_MODEL_DISTRIBUTION_SECURITY_SPEC` obliga a medir bundle frente a paquete descargable antes de decidir | Voice/Release |
+| RISK-031 | Dos motores pesados sobre el mismo audio pueden causar OOM, throttling o ANR | M | H | `ADR-004` fija una sola captura, un solo motor infiriendo a la vez, buffer acotado y tope de duración. El benchmark mide memoria pico, temperatura y 30 sesiones seguidas en **ambos** teléfonos; sin esos números `ADR-004` no puede aceptarse | Voice/Mobile QA |
+| RISK-032 | Whisper alucina texto sobre silencio y el híbrido podría heredarlo | M | H | Ya observado con Whisper tiny (`RISK-026`, `[MÚSICA]`). El híbrido debe marcar `noSpeech` y `possibleHallucination` en vez de aceptar texto. Guardrail binario: cero texto aceptado en las muestras sin habla, en los dos aparatos | Voice/Product |
+| RISK-033 | La biblioteca Android de Vosk se distribuye como binario sin commit público correspondiente | M | M | `vosk-api` es Apache-2.0 y sus releases de GitHub llegan a `v0.3.50`, pero el artefacto Android publicado en Maven Central llega a `0.3.75` y **no existe un tag público equivalente**. La spec de distribución pide «fijar commits»; para este componente sólo puede fijarse versión + SHA-256 del artefacto. Decisión pendiente del propietario | Voice/Supply chain |
+
 ## Evidencia incorporada
 
 `RISK-023` a `RISK-027` no son hipótesis: salen de mediciones sobre un teléfono real
 (POCO X5 Pro 5G, Android 12 / API 31, modo avión verificado contra el sistema), registradas en
 `features/EVOLUTION-3_SPEECH_ENGINE_BENCHMARK_RESULTS.md`.
+
+`RISK-029` a `RISK-033` salen del gate físico de `EVO-009` en un **HONOR JDY-LX3P
+(Android 16 / API 36)** ejecutado el 2026-09-06 y de la verificación en fuente primaria de los
+candidatos de `ADR-004`. `RISK-029` es el que abre la Fase 0-bis.
+
+`RISK-023` se **amplía** con esa evidencia: no sólo `es-BO` no existe como idioma de
+reconocimiento; en API 36 puede no existir **ningún** español instalado, y la aplicación no
+tiene forma de instalarlo. La mitigación de `EVO-009` —detectar en runtime y conservar el
+ingreso manual— se comportó como estaba previsto: la aplicación siguió siendo utilizable.
+
+`RISK-028` se **actualiza**: API 36 ya no está sin probar. Se probó en un HONOR JDY-LX3P, no en
+un Pixel 8, y el resultado fue el fallo descrito en `RISK-029`. La compatibilidad con Pixel 8
+**sigue sin verificarse** y el riesgo residual por OEM, versión de la app de Google y modelos
+instalados permanece abierto.
 
 `RISK-016` queda **parcialmente cerrado**: memoria pico (158 MiB Android, 276–328 MiB Whisper) y
 latencias están medidas; CPU y batería siguen `NOT_MEASURED` porque el teléfono estuvo cargando

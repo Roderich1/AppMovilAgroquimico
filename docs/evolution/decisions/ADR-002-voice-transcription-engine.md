@@ -140,6 +140,32 @@ Además: **sin resultados parciales**, **mayor latencia** (1,2 s y 2,9 s p50 tra
 - necesidad de independencia tecnológica respecto de Google;
 - existencia de un mecanismo fiable de detección de silencio y de alucinaciones.
 
+### Disparador cumplido el 2026-09-06: revisión abierta
+
+**Esta decisión sigue `Accepted` y su evidencia no se modifica**, pero queda **bajo revisión**.
+
+El gate físico de `EVO-009` en un **HONOR JDY-LX3P (Android 16 / API 36)** —un aparato distinto
+del POCO X5 Pro con el que se aceptó este ADR— encontró que allí no hay **ningún** español
+utilizable para reconocimiento:
+
+| Camino | Turnos | Resultado |
+|---|--:|---|
+| Reconocedor local (`createOnDeviceSpeechRecognizer`, Android System Intelligence) | 10 | 2 × error 13, 8 × error 12 |
+| Servicio del sistema (`createSpeechRecognizer` → `com.google.android.tts`) | 10 | 2 × error 13, 8 × error 12 |
+
+El error 13 significa idioma soportado **sin modelo descargado**. La pantalla que descarga esos
+modelos (`com.google.android.libraries.speech.modelmanager.languagepack.settings`) **no está
+exportada**, y sin Gboard instalado no hay entrada accesible: la aplicación no puede ofrecer
+una salida al usuario.
+
+Eso cumple, literalmente, el primer disparador de la lista anterior. Se abre `ADR-004 —
+Motor de voz híbrido y autocontenido`, en estado `Proposed`, para evaluar con evidencia una
+canalización local propia. **`ADR-002` no queda `Superseded` mientras `ADR-004` siga
+`Proposed`**: sin benchmark no hay sustitución.
+
+Lo que este hallazgo **no** invalida: las mediciones del POCO siguen siendo válidas y siguen
+describiendo lo que ocurre en un aparato donde el modelo sí está instalado.
+
 ## Hallazgo de productos: no resuelto
 
 Esta decisión **no resuelve** el reconocimiento del catálogo agrícola, y no debe presentarse
@@ -235,3 +261,7 @@ contra el catálogo local, y que hasta entonces la voz entrega texto y no datos.
 
 Cualquiera de los disparadores de reconsideración de Whisper, o evidencia en API 36 de que el
 reconocimiento no funciona. En ese caso este ADR se revisa; no se sustituye el motor sin ADR.
+
+**Ocurrió el 2026-09-06**, y se hizo exactamente eso: se abrió la revisión y se creó `ADR-004`
+en lugar de cambiar el motor por decisión propia. Ver la sección
+«Disparador cumplido el 2026-09-06».

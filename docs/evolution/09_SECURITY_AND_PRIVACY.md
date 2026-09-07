@@ -68,6 +68,37 @@ La política normativa completa está en
 `features/EVOLUTION-3_SECURITY_AND_CONFIRMATION_POLICY.md`. El motor está decidido en
 `ADR-002` (`Accepted`), junto con la política productiva que obliga a `EVO-009`.
 
+## Modelos de voz locales (Fase 0-bis, `ADR-004` `Proposed`)
+
+Si se adoptara un motor propio —Vosk y/o Whisper embebidos— la superficie cambia: la
+aplicación pasaría a **contener y ejecutar modelos**, no sólo a pedirle texto al sistema. Nada
+de esto está aceptado todavía; queda escrito antes de medir para que la decisión no se tome
+sobre un criterio inventado después.
+
+Lo que gana el usuario: el reconocimiento deja de depender de que el fabricante haya instalado
+un paquete de idioma, y deja de pasar por un servicio del sistema que puede usar Internet.
+
+Lo que hay que controlar, y está normado en
+`features/EVOLUTION-3_MODEL_DISTRIBUTION_SECURITY_SPEC.md`:
+
+- el audio vive **sólo en memoria nativa**, con duración máxima, y no cruza a Dart;
+- no se escribe WAV ni PCM temporal en almacenamiento, en ningún camino, ni siquiera de
+  diagnóstico;
+- ni la transcripción ni el audio entran en logs, métricas ni informes de fallo;
+- los buffers se limpian al terminar, cancelar, perder el permiso o morir el proceso;
+- todo modelo llega con manifest, licencia y **SHA-256 verificado antes de extraer**;
+- la instalación es atómica, con rollback, y nunca deja una versión a medias;
+- **nunca** se descarga un modelo en silencio, y un fallo de modelo no bloquea la aplicación:
+  el ingreso manual sigue disponible;
+- los modelos no entran en `.agrobackup` ni tocan SQLite;
+- la pantalla sólo puede decir «procesamiento local en este teléfono» cuando de verdad esté
+  usando el motor local; un fallback al servicio del sistema debe decirse, y no puede llamarse
+  local sin evidencia.
+
+Precedente que obliga a esa última regla: en `EVO-009` el paso al reconocedor del sistema se
+implementó **preguntando** al usuario y advirtiendo que ese servicio podría usar Internet
+(`DEFECTO-004`). El mismo criterio se aplica aquí.
+
 ## Respuesta mínima a incidentes
 
 Registrar versión, dispositivo, exposición posible, backup disponible, contención y

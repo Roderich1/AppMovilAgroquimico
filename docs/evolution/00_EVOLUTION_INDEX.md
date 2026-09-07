@@ -12,7 +12,7 @@
 | Baseline funcional inmutable | `f4c6510438991f4948fda921eec7c67fe2a2acc2` |
 | Tag | `v1.0.0-base-stable` |
 | `main` analizado para este paquete | `2fd0ccbd7f06e5384eaf84a625e7ee8249c9add5` |
-| `main` vigente | `0189faa17dbe78672881d3ec86614667bacbe907` (merge del PR #6: sólo documentación de EVOLUTION-3) |
+| `main` vigente | `ff38c48a2b26b2c9a147b689fc4eeca1a9ec76e0` (merge del PR #7: banco de pruebas de la Fase 0) |
 | Evolución integrada | EVOLUTION-2 mediante PR #5 |
 
 ## Dos niveles de identificadores
@@ -58,6 +58,11 @@ No son intercambiables. `EVOLUTION-2` agrupa `EVO-004`, `EVO-005` y `EVO-006`.
 | Resultados del benchmark | `EVOLUTION-3` Fase 0 | `features/EVOLUTION-3_SPEECH_ENGINE_BENCHMARK_RESULTS.md` | `DECIDED` |
 | Pruebas en teléfonos | `EVOLUTION-3` Fase 0 | `features/EVOLUTION-3_OWNER_DEVICE_TEST_PLAN.md` | Ejecutado en API 31; vigente como regresión |
 | Devolución de esas pruebas | `EVOLUTION-3` Fase 0 | `features/EVOLUTION-3_OWNER_DEVICE_TEST_RESULTS_TEMPLATE.md` | Plantilla |
+| Motor híbrido local | `EVOLUTION-3` Fase 0-bis | `decisions/ADR-004-hybrid-embedded-voice-engine.md` | `Proposed` |
+| Benchmark del híbrido | `EVOLUTION-3` Fase 0-bis | `features/EVOLUTION-3_HYBRID_ENGINE_BENCHMARK_PLAN.md` | `PROPOSED` |
+| Distribución y seguridad de modelos | `EVOLUTION-3` Fase 0-bis | `features/EVOLUTION-3_MODEL_DISTRIBUTION_SECURITY_SPEC.md` | `PROPOSED` |
+| Aceptación del híbrido | `EVOLUTION-3` Fase 0-bis | `features/EVOLUTION-3_HYBRID_ACCEPTANCE_MATRIX.md` | `PENDING` (sin medir) |
+| Migración de `EVO-009` al híbrido | `EVO-009` | `features/EVO-009_HYBRID_ENGINE_MIGRATION_PLAN.md` | `PROPOSED`, condicionado a `ADR-004` |
 
 Los documentos `FINAL_VERIFICATION` sólo se crean después de implementar y reunir evidencia
 real de tests, CI y dispositivo. Su ausencia antes de esa fase es correcta.
@@ -83,6 +88,13 @@ Ante contradicciones: código de la rama analizada → tests → `docs/46_BASELI
    los tres motores en un POCO X5 Pro 5G (Android 12 / API 31) y `ADR-002` quedó **`Accepted`**
    con Android `SpeechRecognizer` como motor productivo; Whisper es reserva no distribuida. El
    gate Pixel 8 / API 36 quedó `WAIVED_BY_OWNER` (`RISK-028`) y **no se afirma que API 36 haya
-   sido probado**. `EVO-009` sigue `APPROVED`: la implementación productiva no ha comenzado. El
-   banco vive en `benchmark/voice_benchmark`, no forma parte de la aplicación y se borra
-   eliminando esa carpeta.
+   sido probado**. El banco vive en `benchmark/voice_benchmark`, no forma parte de la
+   aplicación y se borra eliminando esa carpeta.
+6. `EVO-009` está **`IN_PROGRESS`** en la PR #8, abierta y sin fusionar.
+7. **Fase 0-bis, abierta.** El gate físico en un HONOR JDY-LX3P (Android 16 / API 36) encontró
+   que ese aparato no tiene **ningún** modelo de español para reconocimiento —ni en el
+   reconocedor local ni en el servicio del sistema— y que no existe una ruta exportada para
+   instalarlo desde la aplicación. Eso cumple el primer disparador de reconsideración de
+   `ADR-002`. Se evalúa una canalización local propia (Vosk para parciales, Whisper small para
+   el final) en `ADR-004`, que permanece **`Proposed`**. `ADR-002` sigue `Accepted` y su
+   evidencia no se toca: sólo queda **bajo revisión**. `EVO-010` no ha comenzado.

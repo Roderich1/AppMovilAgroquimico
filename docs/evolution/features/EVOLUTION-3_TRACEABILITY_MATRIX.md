@@ -55,3 +55,18 @@ La Fase 0 no implementa ninguna feature: construye el instrumento con el que se 
 | Instrucciones para el propietario | `EVOLUTION-3_OWNER_DEVICE_TEST_PLAN.md` |
 | Plantilla de devolución | `EVOLUTION-3_OWNER_DEVICE_TEST_RESULTS_TEMPLATE.md` |
 
+## Evidencia de la Fase 0-bis (motor híbrido, en curso)
+
+Abierta por `RISK-029`. Ninguna métrica está medida todavía.
+
+| Requisito de la fase | Dónde está |
+|---|---|
+| Decisión propuesta y umbrales de aceptación | `decisions/ADR-004-hybrid-embedded-voice-engine.md` |
+| Plan de medición y corpus adicional | `EVOLUTION-3_HYBRID_ENGINE_BENCHMARK_PLAN.md` |
+| Manifest, instalación atómica y supply chain | `EVOLUTION-3_MODEL_DISTRIBUTION_SECURITY_SPEC.md` |
+| Umbrales por dispositivo y guardrails binarios | `EVOLUTION-3_HYBRID_ACCEPTANCE_MATRIX.md` |
+| Cómo migraría `EVO-009` | `EVO-009_HYBRID_ENGINE_MIGRATION_PLAN.md` |
+| Procedencia verificada de modelos y bibliotecas | `benchmark/voice_benchmark/THIRD_PARTY.md` |
+| Rama y PR del benchmark | `evolution/evolution-3-hybrid-voice-benchmark` |
+
+
