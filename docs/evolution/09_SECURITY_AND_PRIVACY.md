@@ -64,6 +64,30 @@ Controles obligatorios:
 - **no proponer datos a partir de silencio ni de texto no confirmado** por el usuario;
 - fake determinista en tests y prueba real en dispositivo.
 
+### Qué implementa `EVO-009` de estos controles
+
+La captura ya está construida. Estos son los controles tal como quedaron en el
+código, con la prueba que los sostiene:
+
+| Control | Cómo se cumple | Prueba |
+|---|---|---|
+| Audio nunca persistido | El audio no cruza a Dart: el puente transporta texto y estados. No hay archivos temporales | Guardas: el subsistema no puede importar `dart:io`, `path_provider` ni escribir en disco |
+| Transcripción efímera | Vive en la memoria de la sesión y muere con la pantalla; `Descartar` la borra y libera el micrófono | Sesión y pantalla |
+| Logs sin contenido | Sólo códigos de estado, códigos de error y longitudes. `toString()` de eventos y sesión no imprime lo dictado | Pruebas de privacidad en puerto y sesión |
+| Cero escrituras de negocio | El subsistema no puede nombrar repositorios, SQLite, compras, aplicaciones ni pagos | Guardas arquitectónicas que leen los archivos |
+| Permiso mínimo y contextual | Sólo `RECORD_AUDIO`, pedido al tocar el micrófono | Guarda sobre el manifiesto: lista exacta de permisos |
+| Sin red | **La build de release no declara `INTERNET`**, verificado con `aapt2 dump permissions` sobre el APK. Los manifiestos `debug`/`profile` de la plantilla de Flutter sí lo declaran, para hot reload; no se distribuyen y son anteriores a `EVO-009` | Guardas sobre los tres manifiestos |
+| Micrófono liberado | Detener, descartar, entregar, segundo plano, bloqueo, interrupción, `dispose` y salida de pantalla lo sueltan; el lado nativo lo repite en `onPause` por si el proceso se congela | Sesión, pantalla y contrato del puerto |
+| Sin escucha permanente | No hay palabra de activación ni servicio en segundo plano. La continuidad sólo reabre el turno mientras el usuario mantiene la sesión, con tope de reintentos y de duración | Sesión, con `fake_async` |
+| No prometer offline | Se muestran por separado preferencia pedida, modo avión del sistema, transcripción sin red **observada**, disponibilidad no consultable y modelo posiblemente ausente | Pantalla |
+| No prometer `es-BO` | Se pide `es-BO` y se muestra el idioma aceptado; lista de fallback documentada y probada | Política de idioma y pantalla |
+| Ingreso manual siempre | El campo editable funciona con permiso denegado, sin idioma y sin reconocedor | Pantalla |
+
+Lo que **no** cubre ninguna de esas pruebas: qué hace el servicio de
+reconocimiento del propio Android con el audio. Queda fuera del control de la
+aplicación, depende del dispositivo y del fabricante, y por eso la pantalla lo
+explica al usuario en vez de afirmar que el proceso es local.
+
 La política normativa completa está en
 `features/EVOLUTION-3_SECURITY_AND_CONFIRMATION_POLICY.md`. El motor está decidido en
 `ADR-002` (`Accepted`), junto con la política productiva que obliga a `EVO-009`.

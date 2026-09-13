@@ -48,7 +48,9 @@ No son intercambiables. `EVOLUTION-2` agrupa `EVO-004`, `EVO-005` y `EVO-006`.
 | Trazabilidad de EVOLUTION-2 | `EVO-004/005/006` | `features/EVOLUTION-2_IMPLEMENTATION_TRACEABILITY.md` | Evidencia de implementación |
 | Cierre de EVOLUTION-2 | `EVO-004/005/006` | `features/EVOLUTION-2_FINAL_VERIFICATION.md` | `VERIFIED` |
 | Visión de EVOLUTION-3 | `EVO-009/010/017/018/019` | `features/EVOLUTION-3_VOICE_VISION_AND_SCOPE.md` | `APPROVED` |
-| Captura/transcripción | `EVO-009` | `features/EVO-009_SAFE_VOICE_SPEC.md` | `APPROVED` |
+| Captura/transcripción | `EVO-009` | `features/EVO-009_SAFE_VOICE_SPEC.md` | `IN_PROGRESS` |
+| Trazabilidad de `EVO-009` | `EVO-009` | `features/EVO-009_IMPLEMENTATION_TRACEABILITY.md` | Evidencia de implementación |
+| Prueba en teléfono de `EVO-009` | `EVO-009` | `features/EVOLUTION-3_OWNER_DEVICE_TEST_PLAN_EVO-009.md` | Pendiente de ejecutar |
 | Interpretación tipada | `EVO-010` | `features/EVO-010_TYPED_VOICE_INTERPRETATION_SPEC.md` | `APPROVED` |
 | Compra por voz | `EVO-017` | `features/EVO-017_VOICE_PURCHASE_DRAFT_SPEC.md` | `APPROVED` |
 | Aplicar planificación por voz | `EVO-018` | `features/EVO-018_VOICE_PLAN_APPLICATION_DRAFT_SPEC.md` | `APPROVED` |
@@ -79,7 +81,14 @@ Ante contradicciones: código de la rama analizada → tests → `docs/46_BASELI
    `EVO-019`.
 3. Voz sólo prepara drafts; compra, aplicación y pago requieren confirmación táctil.
 4. `EVO-020`, consultas por voz, permanece `DEFERRED` hasta cerrar la base transaccional.
-5. La Fase 0 de EVOLUTION-3 está **cerrada**: el propietario ejecutó el corpus de ajuste con
+5. `EVO-009` está **en implementación** en `evolution/evo-009-safe-transcription`:
+   la pantalla `Ingresar datos por voz` captura, transcribe de forma continua y
+   deja una vista previa editable. **Entrega texto y no ejecuta ninguna
+   operación**; no hay escrituras de negocio, ni audio ni transcripciones
+   persistidas, y no se declara `INTERNET`. Pasa a `VERIFIED` sólo tras la
+   prueba en teléfono y la revisión del propietario. `EVO-010` **no ha
+   comenzado**.
+6. La Fase 0 de EVOLUTION-3 está **cerrada**: el propietario ejecutó el corpus de ajuste con
    los tres motores en un POCO X5 Pro 5G (Android 12 / API 31) y `ADR-002` quedó **`Accepted`**
    con Android `SpeechRecognizer` como motor productivo; Whisper es reserva no distribuida. El
    gate Pixel 8 / API 36 quedó `WAIVED_BY_OWNER` (`RISK-028`) y **no se afirma que API 36 haya

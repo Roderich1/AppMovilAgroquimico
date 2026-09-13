@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../voice/ui/voice_capture_screen.dart';
 import '../widgets/common.dart';
 
 class OperationsScreen extends StatelessWidget {
@@ -60,6 +61,15 @@ class OperationsScreen extends StatelessWidget {
             subtitle: 'Exportar inventario, costos y cuentas a CSV o PDF',
             path: '/reportes',
             icon: Icons.summarize_outlined,
+            isForm: false,
+          ),
+          // EVO-009. Nombre en palabras del trabajo diario: la tarjeta no
+          // promete registrar nada, porque esta pantalla sólo produce texto.
+          (
+            title: voiceEntryTitle,
+            subtitle: 'Dicta y corrige el texto antes de usarlo',
+            path: voiceRoutePath,
+            icon: Icons.mic_none_outlined,
             isForm: false,
           ),
           (
