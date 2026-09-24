@@ -7,6 +7,10 @@ import 'package:path_provider/path_provider.dart';
 
 typedef InstallationDirectoryProvider = Future<Directory> Function();
 typedef SecureByteGenerator = List<int> Function(int length);
+typedef InstallationFileReplacer = Future<void> Function(
+  File temporaryFile,
+  File targetFile,
+);
 
 class InstallationClientIdCorruptException implements Exception {
   const InstallationClientIdCorruptException(this.path);
@@ -28,8 +32,10 @@ class InstallationClientIdStore {
   InstallationClientIdStore({
     InstallationDirectoryProvider? directoryProvider,
     SecureByteGenerator? secureBytes,
+    InstallationFileReplacer? fileReplacer,
   }) : _directoryProvider = directoryProvider ?? _defaultInstallationDirectory,
-       _secureBytes = secureBytes ?? _randomSecureBytes;
+       _secureBytes = secureBytes ?? _randomSecureBytes,
+       _fileReplacer = fileReplacer ?? _replaceFile;
 
   static const MethodChannel _androidStorage = MethodChannel(
     'agrocuentas/installation_identity',
@@ -41,7 +47,9 @@ class InstallationClientIdStore {
 
   final InstallationDirectoryProvider _directoryProvider;
   final SecureByteGenerator _secureBytes;
+  final InstallationFileReplacer _fileReplacer;
   Future<String>? _pendingGetOrCreate;
+  static int _temporarySequence = 0;
 
   Future<String> getOrCreate() {
     final pending = _pendingGetOrCreate;
@@ -110,7 +118,25 @@ class InstallationClientIdStore {
   Future<void> _write(String value) async {
     final file = await _file();
     await file.parent.create(recursive: true);
-    await file.writeAsString('$value\n', flush: true);
+    final temporary = File(
+      p.join(file.parent.path, '$fileName.tmp-$pid-${_temporarySequence++}'),
+    );
+
+    try {
+      await temporary.writeAsString('$value\n', flush: true);
+      await _fileReplacer(temporary, file);
+    } finally {
+      if (await temporary.exists()) {
+        await temporary.delete();
+      }
+    }
+  }
+
+  /// En Android ambos archivos viven en el mismo `noBackupFilesDir`. El rename
+  /// evita truncar primero una identidad válida y reemplaza el destino en una
+  /// operación del filesystem. No se afirma atomicidad para otros targets.
+  static Future<void> _replaceFile(File temporary, File target) async {
+    await temporary.rename(target.path);
   }
 
   static List<int> _randomSecureBytes(int length) {
