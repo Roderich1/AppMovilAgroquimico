@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:agroquimicos/data/app_database.dart';
 import 'package:agroquimicos/data/backup_service.dart';
 import 'package:agroquimicos/data/installation_client_id_store.dart';
+import 'package:agroquimicos/data/installation_identity_initializer.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 // Dependencia transitiva ya usada por la suite para sustituir path_provider.
@@ -65,6 +66,29 @@ void main() {
     expect('89ab'.contains(clientId.split('-')[3][0]), isTrue);
   });
 
+  test('initialization creates a missing identity and reports READY', () async {
+    final result = await initializeInstallationIdentity(store: store);
+
+    expect(result.status, InstallationIdentityStatus.ready);
+    expect(
+      InstallationClientIdStore.isCanonicalUuidV4((await store.read())!),
+      isTrue,
+    );
+  });
+
+  test('initialization reads a valid identity and reports READY', () async {
+    final clientId = await store.getOrCreate();
+    final reopened = InstallationClientIdStore(
+      directoryProvider: () async => noBackupDirectory,
+      secureBytes: (_) => List<int>.filled(16, 255),
+    );
+
+    final result = await initializeInstallationIdentity(store: reopened);
+
+    expect(result.status, InstallationIdentityStatus.ready);
+    expect(await reopened.read(), clientId);
+  });
+
   test('getOrCreate and a reopened store preserve the same identity', () async {
     final first = await store.getOrCreate();
     final second = await store.getOrCreate();
@@ -105,9 +129,80 @@ void main() {
   );
 
   test(
+    'corrupt identity is preserved and initialization reports CORRUPT',
+    () async {
+      await noBackupDirectory.create(recursive: true);
+      final file = File(
+        p.join(noBackupDirectory.path, InstallationClientIdStore.fileName),
+      );
+      const corruptContents = 'android-id-from-hardware';
+      await file.writeAsString(corruptContents);
+      final diagnostics = <String>[];
+
+      final result = await initializeInstallationIdentity(
+        store: store,
+        diagnostic: diagnostics.add,
+      );
+
+      expect(result.status, InstallationIdentityStatus.corrupt);
+      expect(await file.readAsString(), corruptContents);
+      expect(diagnostics, hasLength(1));
+      expect(diagnostics.single, isNot(contains(corruptContents)));
+      expect(diagnostics.single, isNot(contains(file.path)));
+    },
+  );
+
+  test('identity failure does not block application bootstrap', () async {
+    var continued = false;
+    final unavailableStore = InstallationClientIdStore(
+      directoryProvider: () async =>
+          throw const FileSystemException('storage unavailable'),
+    );
+
+    final result = await bootstrapWithInstallationIdentity(
+      store: unavailableStore,
+      diagnostic: (_) {},
+      continueStartup: () => continued = true,
+    );
+
+    expect(result.status, InstallationIdentityStatus.unavailable);
+    expect(continued, isTrue);
+  });
+
+  test('failed rotation preserves the previous valid identity', () async {
+    final original = await store.getOrCreate();
+    final failingStore = InstallationClientIdStore(
+      directoryProvider: () async => noBackupDirectory,
+      secureBytes: (_) => List<int>.filled(16, 128),
+      fileReplacer: (_, _) async {
+        throw const FileSystemException('simulated replace failure');
+      },
+    );
+
+    await expectLater(
+      failingStore.rotate(),
+      throwsA(isA<FileSystemException>()),
+    );
+
+    expect(await store.read(), original);
+    final names = await noBackupDirectory
+        .list()
+        .map((entity) => p.basename(entity.path))
+        .toList();
+    expect(names.where((name) => name.contains('.tmp-')), isEmpty);
+  });
+
+  test(
     'Agrocuentas backup and restore never include or replace clientId',
     () async {
       final clientId = await store.getOrCreate();
+      final leftoverTemporary = File(
+        p.join(
+          noBackupDirectory.path,
+          '${InstallationClientIdStore.fileName}.tmp-leftover',
+        ),
+      );
+      await leftoverTemporary.writeAsString('temporary-data');
       final database = AppDatabase(
         factory: databaseFactoryFfi,
         path: p.join(workspace.path, 'domain.db'),
@@ -129,6 +224,13 @@ void main() {
       );
 
       expect(entries, isNot(contains(InstallationClientIdStore.fileName)));
+      expect(
+        entries.any(
+          (entry) =>
+              entry.contains('${InstallationClientIdStore.fileName}.tmp'),
+        ),
+        isFalse,
+      );
       expect(manifest, isNot(contains(clientId)));
       expect(
         tables.map((row) => row['name']),

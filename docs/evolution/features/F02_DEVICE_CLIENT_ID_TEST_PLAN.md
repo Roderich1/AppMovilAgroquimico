@@ -40,3 +40,17 @@ adb shell run-as com.comunidad.agro.agroquimicos cat no_backup/installation_iden
 - `APP_BACKUP_EXCLUDED`: no aparece en `manifest.json`, `database.db`, invoices ni entradas ZIP.
 
 Hasta ejecutar este plan en hardware: `DEVICE = NOT_MEASURED`.
+
+## Recuperación previa a DEVICE
+
+- `READY`: el archivo existe con UUID v4 canónico o fue creado correctamente.
+- `CORRUPT`: se preserva el archivo inválido, no se genera otra identidad y la aplicación local arranca.
+- `UNAVAILABLE`: un fallo de plataforma/filesystem queda diagnosticado sin bloquear la operación local.
+- `CORRUPT_IDENTITY_STARTUP = RECOVERABLE_LOCAL_OPERATION`.
+
+Una futura operación de registro, Sync o asociación de sesión deberá exigir `READY`. Esta entrega no
+implementa networking ni afirma que ese flujo remoto haya sido probado.
+
+En Android, la escritura crea y vacía (`flush`) un temporal en el mismo `noBackupFilesDir` antes de
+renombrarlo sobre el destino. Por ello nunca se trunca primero la identidad válida y un fallo previo al
+rename conserva el valor anterior; no se afirma atomicidad equivalente fuera del target Android.
