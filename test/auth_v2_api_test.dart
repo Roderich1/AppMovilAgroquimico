@@ -87,6 +87,215 @@ void main() {
     );
   });
 
+  test('HTTPS origin resolves exactly the six permitted auth paths', () {
+    final config = ApiEndpointConfig(
+      Uri.parse('https://api.example.test:8443/'),
+    );
+    for (final path in [
+      '/api/v1/auth/v2/login',
+      '/api/v1/auth/clients',
+      '/api/v1/auth/v2/session/client',
+      '/api/v1/auth/v2/me',
+      '/api/v1/auth/v2/refresh',
+      '/api/v1/auth/v2/logout',
+    ]) {
+      expect(
+        config.endpoint(path).toString(),
+        'https://api.example.test:8443$path',
+      );
+    }
+  });
+
+  test('HTTP and non-origin configurations are rejected safely', () {
+    for (final value in [
+      'http://api.example.test',
+      'https://user:password-for-test@api.example.test',
+      'https://api.example.test/base',
+      'https://api.example.test?accessToken=$_access',
+      'https://api.example.test#refreshToken=$_refresh',
+      'https://api.example.test:0',
+    ]) {
+      expect(
+        () => ApiEndpointConfig(Uri.parse(value)),
+        throwsA(
+          isA<AuthApiException>()
+              .having(
+                (error) => error.kind,
+                'kind',
+                AuthApiErrorKind.configuration,
+              )
+              .having(
+                (error) => error.toString(),
+                'no supplied origin',
+                isNot(contains(value)),
+              ),
+        ),
+      );
+    }
+  });
+
+  test('external, traversal and decorated paths cannot escape auth scope', () {
+    final config = ApiEndpointConfig(Uri.parse('https://api.example.test'));
+    for (final path in [
+      'https://evil.example.test/api/v1/auth/v2/login',
+      '//evil.example.test/api/v1/auth/v2/login',
+      '/api/v1/auth/v2/../login',
+      '/api/v1/auth/v2/%2e%2e/login',
+      '/api/v1/auth/v2/%2E%2E/login',
+      '/api/v1/auth/v2/%2f..%2flogin',
+      '/api/v1/auth/v2/login?refreshToken=$_refresh',
+      '/api/v1/auth/v2/login#accessToken=$_access',
+      '/public/auth/v2/login',
+      '/api/v1/auth/v2/login/',
+      '/api/v1/auth/v2/%6cogin',
+    ]) {
+      expect(
+        () => config.endpoint(path),
+        throwsA(
+          isA<AuthApiException>()
+              .having(
+                (error) => error.kind,
+                'kind',
+                AuthApiErrorKind.configuration,
+              )
+              .having(
+                (error) => error.toString(),
+                'no supplied path',
+                isNot(contains(path)),
+              ),
+        ),
+      );
+    }
+  });
+
+  test('all six auth operations explicitly disable redirects', () async {
+    final seen = <String>[];
+    final api = _api(
+      MockClient((request) async {
+        expect(request.followRedirects, isFalse);
+        seen.add(request.url.path);
+        switch (request.url.path) {
+          case '/api/v1/auth/v2/login':
+          case '/api/v1/auth/v2/refresh':
+            return _json(200, _authResponse());
+          case '/api/v1/auth/clients':
+            return _json(201, {
+              'registrationId': _registrationId,
+              'status': 'ACTIVE',
+              'createdAt': '2026-09-28T10:00:00.000Z',
+              'lastSeenAt': '2026-09-28T10:00:00.000Z',
+              'revokedAt': null,
+            });
+          case '/api/v1/auth/v2/session/client':
+            return _json(201, {
+              'registrationId': _registrationId,
+              'status': 'ACTIVE',
+            });
+          case '/api/v1/auth/v2/me':
+            return _json(200, _context());
+          case '/api/v1/auth/v2/logout':
+            return http.Response('', 204);
+        }
+        fail('Unexpected contract path');
+      }),
+    );
+
+    await api.login(
+      const LoginV2Request(
+        email: 'farmer@example.test',
+        password: 'password-for-test',
+      ),
+    );
+    await api.registerClient(accessToken: _access, clientId: _clientId);
+    await api.bindSessionClient(
+      accessToken: _access,
+      registrationId: _registrationId,
+    );
+    await api.currentContext(_access);
+    await api.refresh(_refresh);
+    await api.logout(refreshToken: _refresh);
+    expect(seen, hasLength(6));
+  });
+
+  for (final redirectStatus in [303, 307]) {
+    test('HTTP $redirectStatus is rejected without exposing Location', () async {
+      var sends = 0;
+      final api = _api(
+        MockClient((request) async {
+          sends++;
+          expect(request.followRedirects, isFalse);
+          expect(request.headers['authorization'], 'Bearer $_access');
+          return http.Response(
+            'password-for-test $_refresh $_clientId',
+            redirectStatus,
+            headers: {
+              'location':
+                  'https://evil.example.test/?accessToken=$_access&refreshToken=$_refresh',
+            },
+          );
+        }),
+      );
+      await expectLater(
+        api.currentContext(_access),
+        throwsA(
+          isA<AuthApiException>()
+              .having((error) => error.kind, 'kind', AuthApiErrorKind.server)
+              .having((error) => error.statusCode, 'status', redirectStatus)
+              .having(
+                (error) => error.toString(),
+                'safe error',
+                allOf([
+                  isNot(contains('evil.example.test')),
+                  isNot(contains(_access)),
+                  isNot(contains(_refresh)),
+                  isNot(contains(_clientId)),
+                  isNot(contains('password-for-test')),
+                ]),
+              ),
+        ),
+      );
+      // MockClient cannot prove real network navigation; the request flag and
+      // lack of a second mock send are the only claims made by this test.
+      expect(sends, 1);
+    });
+  }
+
+  test(
+    'raw transport also rejects a redirect without leaking headers',
+    () async {
+      final transport = AuthHttpClient(
+        config: ApiEndpointConfig(Uri.parse('https://api.example.test')),
+        client: MockClient((request) async {
+          expect(request.followRedirects, isFalse);
+          return http.Response(
+            '',
+            302,
+            headers: {
+              'location': 'https://evil.example.test/?clientId=$_clientId',
+            },
+          );
+        }),
+      );
+      await expectLater(
+        transport.request('GET', '/api/v1/auth/v2/me', accessToken: _access),
+        throwsA(
+          isA<AuthApiException>()
+              .having((error) => error.kind, 'kind', AuthApiErrorKind.server)
+              .having((error) => error.statusCode, 'status', 302)
+              .having(
+                (error) => error.toString(),
+                'safe error',
+                allOf([
+                  isNot(contains('evil.example.test')),
+                  isNot(contains(_clientId)),
+                  isNot(contains(_access)),
+                ]),
+              ),
+        ),
+      );
+    },
+  );
+
   test('login serializes BODY V2 exactly and parses typed response', () async {
     final api = _api(
       MockClient((request) async {

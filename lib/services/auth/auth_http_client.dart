@@ -61,6 +61,7 @@ class AuthHttpClient {
     String? accessToken,
   ) async {
     final request = http.Request(method, _config.endpoint(path));
+    request.followRedirects = false;
     request.headers['Accept'] = 'application/json';
     if (jsonBody != null) {
       request.headers['Content-Type'] = 'application/json; charset=utf-8';
@@ -72,6 +73,13 @@ class AuthHttpClient {
     final response = await http.Response.fromStream(
       await _client.send(request),
     );
+    if (response.statusCode >= 300 && response.statusCode < 400) {
+      // Neither Location nor the redirect body may escape this boundary.
+      throw AuthApiException(
+        AuthApiErrorKind.server,
+        statusCode: response.statusCode,
+      );
+    }
     return AuthHttpResponse(response.statusCode, response.bodyBytes);
   }
 }
