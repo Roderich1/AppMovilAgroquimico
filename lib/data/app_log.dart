@@ -11,9 +11,8 @@ enum LogLevel { debug, info, warning, error }
 /// Existe porque la aplicación no tenía ninguna forma de averiguar qué falló:
 /// ante un "me dio error al guardar" no quedaba ni un rastro que consultar.
 ///
-/// Deliberadamente **local**: no envía nada a ningún servidor. La aplicación no
-/// declara el permiso de INTERNET y esa postura no se cambia por añadir
-/// diagnóstico.
+/// Deliberadamente **local**: no envía nada a ningún servidor. F03 añade
+/// INTERNET para el cliente de autenticación, pero este diagnóstico no usa red.
 ///
 /// ## Qué NO se debe registrar
 ///
