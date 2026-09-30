@@ -90,6 +90,8 @@ Dos intentos de instalación fueron rechazados por MIUI con
 Por tanto DEVICE-A/B/C/D/E quedan **NOT_MEASURED** hasta autorizar la
 instalación USB; no se afirma interacción visual ni E2E. La validación #20
 existente no se repitió y no equivale a DEVICE-E de esta UI.
+Este párrafo registra aquel intento histórico; el reintento autorizado y sus
+resultados se documentan al final de este informe.
 
 ## Seguridad y riesgos residuales
 
@@ -141,3 +143,33 @@ USB; DEVICE-C/D/E/F permanecen `NOT_MEASURED` por ausencia de entorno HTTPS,
 activación real y/o dispositivo. Los rechazos MIUI de la medición anterior
 siguen siendo evidencia histórica, no un PASS. La prueba widget de mismo
 runtime no se presenta como validación física DEVICE-F.
+Ese preflight sin dispositivo también es histórico; no sustituye el resultado
+del reintento posterior.
+
+## Reintento DEVICE autorizado — 2026-09-30
+
+Después de que el propietario conectó y autorizó el teléfono por USB,
+`adb devices -l` mostró `cc14247a device`, modelo `22101320G` (POCO X5 Pro 5G),
+Android 12/API 31, `arm64-v8a`. Se construyó desde el HEAD corregido
+`d824ee89e1c38f720041cfdb5015323717eb8d3f` una copia **debug aislada**:
+`com.comunidad.agro.agroquimicos.auth02validation`, etiqueta
+`Agrocuentas F03 test`. El APK tenía 169 788 998 bytes y SHA-256
+`15BAAC7A239A70C9CDA70FF5E6B4D623B0A0BB63F690D2D98D3D725964AA3971`.
+El suffix y la etiqueta fueron cambios locales temporales, retirados antes de
+publicar. `adb install` respondió `Success`; el paquete normal
+`com.comunidad.agro.agroquimicos` permaneció instalado por separado.
+
+| Caso | Resultado físico | Evidencia y límite |
+|---|---|---|
+| DEVICE-A — pantalla | **PASS** | Desde Inicio se abrió `Activar cuenta en línea`; se vio la pantalla correcta, correo editable, contraseña enmascarada, teclado y acciones utilizables sin overflow visible, y `Continuar con datos locales` disponible. |
+| DEVICE-B — configuración ausente | **PASS** | Con correo y contraseña exclusivamente sintéticos se pulsó `Activar` sin `AGRO_API_BASE_URL`. Apareció `La conexión segura todavía no está configurada.`, la contraseña quedó vacía, la app siguió abierta y `Continuar con datos locales` devolvió a Inicio. Es fallo seguro de configuración, no validación de credenciales ni E2E. |
+| DEVICE-C — pérdida de red real | **NOT_MEASURED** | Sin origin HTTPS de prueba no se inició request de red que pudiera interrumpirse. |
+| DEVICE-D — completed real | **NOT_MEASURED** | Faltan origin HTTPS alcanzable y cuenta AGRICULTOR de desarrollo. |
+| DEVICE-E — force-stop posterior | **NOT_MEASURED** | Depende de DEVICE-D; la evidencia previa de #20 no sustituye esta prueba. |
+| DEVICE-F — reactivación en el mismo runtime | **NOT_MEASURED** | Depende de DEVICE-D. La regresión widget de 608/608 sigue siendo evidencia contractual, no física. |
+
+La inspección se hizo con capturas de la copia aislada y entradas ADB de prueba;
+no se capturaron ni emplearon credenciales reales. La ausencia de crash se
+observó en pantalla durante DEVICE-B, sin afirmar una auditoría completa de
+logs. `E2E_MOBILE_BACKEND = BLOCKED_ENVIRONMENT` y
+`EXISTING_SESSION_AFTER_RESTART = #21 / NOT_IMPLEMENTED` permanecen sin cambios.
