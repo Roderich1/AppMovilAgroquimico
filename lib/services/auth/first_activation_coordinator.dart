@@ -137,7 +137,8 @@ class _ActivationAbort implements Exception {
 }
 
 /// One attempt at a time. Nothing in this class changes SQLite or backup.
-/// No production route is wired until #20 supplies SecureSessionCommitPort.
+/// The production route and Android commit port are composed in
+/// first_activation_providers.dart; this coordinator stays UI/SQLite-free.
 class FirstActivationCoordinator {
   FirstActivationCoordinator({
     required InstallationIdentityInitialization identity,
