@@ -120,6 +120,13 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            OutlinedButton.icon(
+              key: const Key('open-first-activation'),
+              onPressed: () => context.push('/activar'),
+              icon: const Icon(Icons.verified_user_outlined),
+              label: const Text('Activar cuenta en línea'),
+            ),
+            const SizedBox(height: 10),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
               decoration: BoxDecoration(
