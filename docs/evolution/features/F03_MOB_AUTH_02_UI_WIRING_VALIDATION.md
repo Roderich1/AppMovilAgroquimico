@@ -1,0 +1,105 @@
+# F03-MOB-AUTH-02 — presentación y wiring de primera activación
+
+Estado: **implementado en PR #63, pendiente de auditoría y merge**. Código de
+UI/wiring: `2b571a6dd9d277884cd636c4ccf4958c5d80f903`. Este informe
+complementa la foundation histórica de #19; no modifica sus resultados previos
+ni la evidencia física de #20. Fecha de validación local: 2026-09-30.
+
+## Alcance y secuencia
+
+`main.dart` inicializa la identidad F02-B y entrega su resultado a Riverpod.
+Un fallo `CORRUPT` o `UNAVAILABLE` no bloquea el dominio SQLite, pero deshabilita
+la activación remota. La pantalla `/activar` es una ruta real de GoRouter,
+accesible desde el botón **Activar cuenta en línea** de Inicio. Es una entrada
+explícita, no una política de reapertura ni una ruta oculta de test.
+
+La composición productiva inyecta el `InstallationClientIdStore` existente,
+`ApiEndpointConfig.fromEnvironment()`, un `http.Client` administrado por
+Riverpod, `AuthHttpClient`, `AuthV2Api` y
+`SecureSessionStore.android(identityStore: ...)`. El cliente HTTP se cierra al
+liberar su provider. La URL se lee sólo al iniciar un intento real; no se
+introduce un origin alternativo si falta `AGRO_API_BASE_URL`. Se preservan HTTPS,
+validación origin-only, seis rutas permitidas y la prohibición de redirects.
+Los dobles de HTTP y secure commit están limitados a tests.
+
+El controlador conecta los cambios de estado de `FirstActivationCoordinator`
+con la UI. El recorrido es login V2/BODY → registrar UUID lógico F02-B →
+vincular ClientRegistration → `/me` y verificación de contexto →
+`commitAndVerify` del refresh en el almacén seguro → `completed`. Sólo entonces
+se borra la contraseña del controlador y se navega una vez al dominio local.
+No se almacena el access JWT. La contraseña también se limpia al terminar un
+intento fallido o cancelado. Los formularios se deshabilitan durante la
+operación y no aceptan doble submit.
+
+`localCommitUnknown` y `remoteOutcomeUnknown` muestran una instrucción de
+reconciliación y deshabilitan nuevos intentos en esta ejecución. No se borra
+el almacén ni SQLite, no se rota el clientId y no se reintentan operaciones
+remotas de resultado incierto. Los mensajes visibles provienen de
+`FirstActivationProblem.safeMessage`, nunca de una excepción o payload.
+La cancelación se solicita al coordinador; no se fuerza durante el secure
+commit. Un resultado cancelado o fallido no navega como éxito.
+
+## Fronteras
+
+- **#21, ExistingSessionStartup:** leer y reconciliar la sesión al abrir la app,
+  y definir la política posterior offline/online. El marcador de incertidumbre
+  de la UI es de esta ejecución, no una solución persistente de reapertura.
+- **#22:** refresh silencioso, rotación, revocación, reautenticación y política
+  de resolución remota. No se invoca refresh en startup ni en esta pantalla.
+- La operación individual SQLite continúa independiente. No se modificaron
+  esquema, backups, F05/F06 ni Backend.
+
+## Validación automática
+
+Baseline 581 tests. Se añadieron 26 tests de UI/DI; **607/607** pasaron en
+`flutter test --reporter expanded` el 2026-09-30. Cubren entrada real desde
+Inicio, validación vacía, contraseña oculta, submit único, progreso, 400/401/
+403/409/429, timeout, fallo de red, configuración HTTPS ausente, JSON inválido,
+contexto no autorizado o incoherente, identidad corrupta/no disponible, navegación
+única tras commit, fallos de commit, incertidumbre local/remota, cancelación,
+ausencia de secretos en textos de error y SQLite disponible tras 401. Los tests
+usan `MockClient` y un commit port falso: **no son E2E Mobile→Backend**.
+El test de composición comprueba el binding de producción a la factoría
+Android-only; las pruebas físicas de Keystore siguen en la evidencia #20.
+El caso de configuración descubrió que una excepción emitida dentro de un
+provider quedaba envuelta por Riverpod y aparecía como error inesperado. El
+wiring ahora representa explícitamente configuración ausente y entrega al
+coordinador su error tipado antes de construir HTTP.
+
+`flutter pub get`, `flutter analyze`, `dart format --output=none
+--set-exit-if-changed lib test`, `git diff --check` y
+`flutter build apk --release` pasaron. El APK release local sin
+`AGRO_API_BASE_URL` fue generado sin modificar las restricciones de red:
+SHA-256 `8387CA8A1E7AC82A3E893B1B7DC8FE1324FDE2F2D4D00F06206712839EAEAA3F`
+(66 637 491 bytes). El build no equivale a instalación física ni E2E.
+
+## Backend, E2E y DEVICE
+
+El OpenAPI de Backend `a09876106dd696868217b301a9abf9125ac6d01d`
+contiene las seis rutas utilizadas. No hay `AGRO_API_BASE_URL` ni credenciales
+de cuenta AGRICULTOR de prueba configuradas en este entorno; no se ejecutó un
+login contra un Backend HTTPS real. `E2E_MOBILE_BACKEND = BLOCKED_ENVIRONMENT`.
+Ni los tests widget ni el build reemplazan ese resultado.
+
+El POCO X5 Pro 5G (`22101320G`), Android 12/API 31, `arm64-v8a`, está
+conectado por ADB. Para no sobrescribir la app normal se compiló una copia
+debug temporal con suffix `.auth02validation`, no versionada, SHA-256
+`86FB3E5D2CA0AED4A78ACE48898A137E6E0A848B136E0C09D02FDF9E7C5DB9A9`.
+Dos intentos de instalación fueron rechazados por MIUI con
+`INSTALL_FAILED_USER_RESTRICTED`; el suffix se retiró del árbol de trabajo.
+Por tanto DEVICE-A/B/C/D/E quedan **NOT_MEASURED** hasta autorizar la
+instalación USB; no se afirma interacción visual ni E2E. La validación #20
+existente no se repitió y no equivale a DEVICE-E de esta UI.
+
+## Seguridad y riesgos residuales
+
+La UI no escribe password ni access JWT en SQLite, preferencias, backups,
+archivos o logs. El refresh se entrega sólo a `SecureSessionStore.android`;
+su aislamiento cifrado y exclusiones de `.agrobackup` están documentados en
+la evidencia propia de #20. La activación no debilita TLS ni usa HTTP.
+
+Permanecen **NOT_MEASURED** el restore de Android Auto Backup, el restore D2D
+y la pérdida física de energía; la concurrencia multi-isolate queda
+**NOT_CLAIMED**. También quedan pendientes E2E nominal/fallido sobre HTTPS,
+reconciliación al reabrir (#21) y políticas de refresh/revocación (#22).
+PR #63 debe seguir draft; #19 y #20 abiertos; GATE-F03 #23 pendiente.
