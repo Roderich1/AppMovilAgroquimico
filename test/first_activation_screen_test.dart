@@ -478,6 +478,47 @@ void main() {
     expect(find.text(_password), findsNothing);
   });
 
+  testWidgets('completed activation cannot be repeated in the same runtime', (
+    tester,
+  ) async {
+    final fixture = await _mount(tester);
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(FirstActivationScreen)),
+    );
+    await _fill(tester);
+    await _submit(tester);
+    await _flush(tester);
+    expect(fixture.router.routeInformationProvider.value.uri.path, '/');
+    expect(container.read(firstActivationProvider).isCompleted, isTrue);
+    expect(fixture.backend.loginCalls, 1);
+    expect(fixture.commit.calls, 1);
+    final firstRequestPaths = List<String>.of(fixture.backend.paths);
+
+    fixture.router.go('/activar');
+    await tester.pumpAndSettle();
+    expect(container.read(firstActivationProvider).isCompleted, isTrue);
+    // On the unfixed screen this is a second valid submit. After the fix the
+    // form is absent, so the same attempted path cannot reach the coordinator.
+    if (find.byKey(const Key('activation-submit')).evaluate().isNotEmpty) {
+      await _fill(tester);
+      await _submit(tester);
+      await _flush(tester);
+    }
+
+    expect(fixture.backend.loginCalls, 1);
+    expect(fixture.backend.paths, firstRequestPaths);
+    expect(fixture.commit.calls, 1);
+    expect(find.byKey(const Key('activation-submit')), findsNothing);
+    expect(find.byKey(const Key('activation-password')), findsNothing);
+    expect(
+      find.byKey(const Key('activation-already-completed')),
+      findsOneWidget,
+    );
+    await tester.tap(find.text('Continuar con datos locales'));
+    await tester.pumpAndSettle();
+    expect(fixture.router.routeInformationProvider.value.uri.path, '/');
+  });
+
   testWidgets('secure commit failure never navigates', (tester) async {
     final secure = _CommitPort()
       ..failure = const SecureSessionStorageException(

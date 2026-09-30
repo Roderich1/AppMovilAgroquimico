@@ -103,3 +103,41 @@ y la pérdida física de energía; la concurrencia multi-isolate queda
 **NOT_CLAIMED**. También quedan pendientes E2E nominal/fallido sobre HTTPS,
 reconciliación al reabrir (#21) y políticas de refresh/revocación (#22).
 PR #63 debe seguir draft; #19 y #20 abiertos; GATE-F03 #23 pendiente.
+
+## Corrective audit — reactivación durante el mismo runtime
+
+La auditoría pre-integración detectó que, tras `completed → /`, abrir de nuevo
+`/activar` creaba una nueva instancia de pantalla con `_navigated = false`,
+mientras el `firstActivationProvider` conservaba `completed`. El formulario no
+consultaba ese estado para impedir otro intento. La regresión
+`completed activation cannot be repeated in the same runtime` se ejecutó
+primero contra el código anterior: esperaba un login y observó **dos**.
+
+La pantalla ahora comprueba `state.isCompleted` antes de construir el
+formulario y muestra solamente una explicación de alcance local y la acción
+**Continuar con datos locales**. `_submit()` también se niega a iniciar una
+activación si el provider ya está en `completed`, aunque se intentara llamar
+por otra ruta de UI. No se modificaron `FirstActivationCoordinator`, Dashboard,
+almacenamiento #20 ni contratos HTTP.
+
+La misma prueba pasa después del cambio: al volver a `/activar` bajo el mismo
+`ProviderScope` no hay formulario ni password reutilizable; el estado sigue
+`completed`, `loginCalls = 1`, `commit.calls = 1` y la secuencia remota completa
+no se repite. Se verificó la navegación de regreso al dominio local. La suite
+anterior de 607 pruebas sigue intacta: **608/608 PASS**; `flutter pub get`,
+formato, `flutter analyze`, `git diff --check` y build release local PASS.
+
+`SAME_RUNTIME_REACTIVATION = BLOCKED` por la guarda de UI y la regresión.
+`EXISTING_SESSION_AFTER_RESTART = #21 / NOT_IMPLEMENTED`: un nuevo proceso aún
+no reconstruye `completed` desde el almacén seguro, ni se afirma vigencia
+remota o funcionamiento offline posterior. Refresh/revocación siguen en #22.
+El Backend HTTPS de pruebas y una cuenta AGRICULTOR de desarrollo aún faltan:
+`E2E_MOBILE_BACKEND = BLOCKED_ENVIRONMENT`.
+
+En el primer preflight DEVICE de esta corrección, `adb devices -l` no mostró
+ningún dispositivo; un segundo sondeo tampoco. No se instaló APK ni se tocó la
+aplicación normal. DEVICE-A/B están bloqueados por desconexión/autorización
+USB; DEVICE-C/D/E/F permanecen `NOT_MEASURED` por ausencia de entorno HTTPS,
+activación real y/o dispositivo. Los rechazos MIUI de la medición anterior
+siguen siendo evidencia histórica, no un PASS. La prueba widget de mismo
+runtime no se presenta como validación física DEVICE-F.

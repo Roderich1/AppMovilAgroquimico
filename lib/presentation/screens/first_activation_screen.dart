@@ -31,7 +31,12 @@ class _FirstActivationScreenState extends ConsumerState<FirstActivationScreen> {
   }
 
   Future<void> _submit() async {
-    if (_submitting || !_formKey.currentState!.validate()) return;
+    if (_submitting ||
+        _navigated ||
+        ref.read(firstActivationProvider).isCompleted ||
+        !_formKey.currentState!.validate()) {
+      return;
+    }
     setState(() => _submitting = true);
     final result = await ref
         .read(firstActivationProvider.notifier)
@@ -52,8 +57,41 @@ class _FirstActivationScreenState extends ConsumerState<FirstActivationScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final identity = ref.watch(installationIdentityProvider);
     final state = ref.watch(firstActivationProvider);
+    if (state.isCompleted) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Activar cuenta')),
+        body: SafeArea(
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 480),
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.verified_user_outlined, size: 54),
+                    const SizedBox(height: 16),
+                    const Text(
+                      'La activación de esta instalación ya se completó '
+                      'durante esta ejecución. Puede continuar con sus datos locales.',
+                      key: Key('activation-already-completed'),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 20),
+                    FilledButton(
+                      onPressed: () => context.go('/'),
+                      child: const Text('Continuar con datos locales'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+    final identity = ref.watch(installationIdentityProvider);
     final blockedByIdentity =
         identity.status != InstallationIdentityStatus.ready;
     final needsReconciliation =
