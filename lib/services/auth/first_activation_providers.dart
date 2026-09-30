@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 import '../../data/installation_client_id_store.dart';
 import '../../data/installation_identity_initializer.dart';
 import 'api_endpoint_config.dart';
+import 'auth_api_exception.dart';
 import 'auth_http_client.dart';
 import 'auth_v2_api.dart';
 import 'first_activation_coordinator.dart';
@@ -22,9 +23,14 @@ final installationClientIdStoreProvider = Provider<InstallationClientIdStore>(
   (ref) => InstallationClientIdStore(),
 );
 
-final apiEndpointConfigProvider = Provider<ApiEndpointConfig>(
-  (ref) => ApiEndpointConfig.fromEnvironment(),
-);
+final apiEndpointConfigProvider = Provider<ApiEndpointConfig?>((ref) {
+  try {
+    return ApiEndpointConfig.fromEnvironment();
+  } on AuthApiException {
+    // Configuration is a typed activation failure, not a broken provider.
+    return null;
+  }
+});
 
 final authHttpTransportProvider = Provider<http.Client>((ref) {
   final client = http.Client();
@@ -34,7 +40,9 @@ final authHttpTransportProvider = Provider<http.Client>((ref) {
 
 final authHttpClientProvider = Provider<AuthHttpClient>(
   (ref) => AuthHttpClient(
-    config: ref.watch(apiEndpointConfigProvider),
+    config:
+        ref.watch(apiEndpointConfigProvider) ??
+        (throw const AuthApiException(AuthApiErrorKind.configuration)),
     client: ref.watch(authHttpTransportProvider),
   ),
 );
@@ -65,7 +73,12 @@ class FirstActivationController extends Notifier<FirstActivationState> {
       identity: ref.watch(installationIdentityProvider),
       identityStore: ref.watch(installationClientIdStoreProvider),
       // Delay URL parsing and transport creation until a real activation.
-      apiFactory: () => ref.read(authV2ApiProvider),
+      apiFactory: () {
+        if (ref.read(apiEndpointConfigProvider) == null) {
+          throw const AuthApiException(AuthApiErrorKind.configuration);
+        }
+        return ref.read(authV2ApiProvider);
+      },
       secureSession: ref.watch(secureSessionCommitProvider),
       onStateChanged: (next) => state = next,
     );
