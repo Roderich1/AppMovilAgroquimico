@@ -69,10 +69,13 @@ Los errores de identidad y red no bloquean, borran ni migran SQLite local.
 ## Contrato pendiente de #20
 
 `SecureSessionCommitPort.commitAndVerify(candidate)` debe hacer un compromiso
-duradero, cifrado y de todo-o-nada del refresh token y metadatos mínimos;
-verificar lectura posterior; impedir persistencia en preferencias ordinarias,
-SQLite, backups o archivos temporales sin protección; y dejar **ninguna**
-credencial utilizable si lanza una excepción. Debe definir recuperación segura,
+duradero y cifrado del refresh token y metadatos mínimos; verificar lectura
+posterior e impedir persistencia en preferencias ordinarias, SQLite, backups o
+archivos temporales sin protección. Una escritura rechazada antes del cambio de
+puntero conserva la sesión anterior y no activa la nueva. Si se pierde la
+respuesta **después** de cambiar el puntero, el resultado local es incierto:
+`SecureSessionCommitOutcomeUnknown` impide declarar éxito, sin afirmar un
+rollback que no puede demostrarse. Debe definir recuperación segura,
 lectura y eliminación para #21/#22. Un éxito parcial o un simple write sin
 readback no satisface el contrato. #19 no debe conectar UI/ruta de producción
 ni declararse completado hasta integrar y probar una implementación real de

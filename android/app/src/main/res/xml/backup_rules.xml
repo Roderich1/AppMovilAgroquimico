@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<full-backup-content>
+    <!-- Android 11 and earlier: keep existing backup defaults except session material. -->
+    <exclude domain="sharedpref" path="agrocuentas_secure_session_v1.xml" />
+    <exclude domain="sharedpref" path="FlutterSecureKeyStorage:agrocuentas_secure_session_v1.xml" />
+    <exclude domain="sharedpref" path="FlutterSecureStorageConfiguration:agrocuentas_secure_session_v1.xml" />
+    <exclude domain="sharedpref" path="AgrocuentasSessionPointer.xml" />
+</full-backup-content>

@@ -75,19 +75,22 @@ class FirstActivationState {
     this.problem,
     this.cleanup = RemoteCleanup.notNeeded,
     this.remoteOutcomeUnknown = false,
+    this.localCommitUnknown = false,
   });
 
   final FirstActivationPhase phase;
   final FirstActivationProblem? problem;
   final RemoteCleanup cleanup;
   final bool remoteOutcomeUnknown;
+  final bool localCommitUnknown;
 
   bool get isCompleted => phase == FirstActivationPhase.completed;
 
   @override
   String toString() =>
       'FirstActivationState(${phase.name}, ${problem?.name}, '
-      '${cleanup.name}, remoteOutcomeUnknown: $remoteOutcomeUnknown)';
+      '${cleanup.name}, remoteOutcomeUnknown: $remoteOutcomeUnknown, '
+      'localCommitUnknown: $localCommitUnknown)';
 }
 
 /// Transient hand-off for #20. Never persist or log this object in #19.
@@ -116,12 +119,16 @@ class SessionCommitCandidate {
   String toString() => 'SessionCommitCandidate(redacted)';
 }
 
-/// #20 must implement an all-or-none durable, encrypted commit with readback.
-/// Returning means the session can be recovered; throwing means no usable
-/// credential remains. There is intentionally no production implementation.
+/// #20 must implement a durable, encrypted commit with readback. Returning
+/// means the session can be recovered. A rejected staging write leaves the
+/// previous session intact. A lost acknowledgement after the durable pointer
+/// write is fundamentally indeterminate and must use the explicit marker below.
 abstract interface class SecureSessionCommitPort {
   Future<void> commitAndVerify(SessionCommitCandidate candidate);
 }
+
+abstract interface class SecureSessionCommitOutcomeUnknown
+    implements Exception {}
 
 class _ActivationAbort implements Exception {
   const _ActivationAbort(this.problem);
@@ -193,6 +200,7 @@ class FirstActivationCoordinator {
     V2AuthResponse? login;
     FirstActivationProblem? failure;
     var remoteOutcomeUnknown = false;
+    var localCommitUnknown = false;
 
     try {
       _emit(
@@ -287,6 +295,9 @@ class FirstActivationCoordinator {
       failure = error.problem;
     } on InstallationClientIdCorruptException {
       failure = FirstActivationProblem.identityCorrupt;
+    } on SecureSessionCommitOutcomeUnknown {
+      failure = FirstActivationProblem.secureCommitFailed;
+      localCommitUnknown = true;
     } on AuthApiException catch (error) {
       final failurePhase = _cancelledDuring ?? _state.phase;
       failure = _cancelRequested
@@ -322,6 +333,7 @@ class FirstActivationCoordinator {
           cleanup: cleanup,
           remoteOutcomeUnknown:
               remoteOutcomeUnknown || cleanup == RemoteCleanup.unconfirmed,
+          localCommitUnknown: localCommitUnknown,
         ),
       );
     }

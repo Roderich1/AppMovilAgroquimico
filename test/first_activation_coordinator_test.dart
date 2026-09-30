@@ -10,6 +10,7 @@ import 'package:agroquimicos/services/auth/auth_api_exception.dart';
 import 'package:agroquimicos/services/auth/auth_http_client.dart';
 import 'package:agroquimicos/services/auth/auth_v2_api.dart';
 import 'package:agroquimicos/services/auth/first_activation_coordinator.dart';
+import 'package:agroquimicos/services/auth/secure_session_store.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -635,6 +636,24 @@ void main() {
     expect(result.cleanup, RemoteCleanup.confirmed);
     expect(backend.paths.last, _logoutPath);
     expect(result.toString(), isNot(contains(_refresh)));
+  });
+
+  test('uncertain local commit never declares activation complete', () async {
+    final backend = _BackendHarness();
+    final commit = _CommitPort()
+      ..failure = const SecureSessionCommitUncertainException();
+    final result = await _activate(
+      _coordinator(
+        identityStore: _IdentityStore(),
+        secureSession: commit,
+        backend: backend,
+      ),
+    );
+    expect(result.isCompleted, isFalse);
+    expect(result.problem, FirstActivationProblem.secureCommitFailed);
+    expect(result.localCommitUnknown, isTrue);
+    expect(result.cleanup, RemoteCleanup.confirmed);
+    expect(backend.paths.last, _logoutPath);
   });
 
   test('remote failure does not change SQLite individual data', () async {
