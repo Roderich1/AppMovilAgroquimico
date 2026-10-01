@@ -2,7 +2,7 @@ import 'auth_api_exception.dart';
 import 'auth_http_client.dart';
 import 'auth_v2_models.dart';
 
-/// Typed, stateless F02 Backend contract for the future F03 activation flow.
+/// Typed, stateless F02 Backend contract used by F03 first activation.
 /// This service neither persists credentials nor changes the local database.
 class AuthV2Api {
   const AuthV2Api(this._http);
