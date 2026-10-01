@@ -318,10 +318,17 @@ void main() {
   testWidgets('progress disables form through secure commit', (tester) async {
     final secure = _CommitPort()..pending = Completer<void>();
     final fixture = await _mount(tester, commit: secure);
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(FirstActivationScreen)),
+    );
     await _fill(tester);
     await _submit(tester);
     await _flush(tester);
     expect(secure.calls, 1);
+    expect(
+      container.read(effectiveLocalSessionProvider),
+      ExistingSessionStartupState.noLocalSession,
+    );
     expect(fixture.router.routeInformationProvider.value.uri.path, '/activar');
     expect(
       tester
@@ -332,6 +339,10 @@ void main() {
     expect(find.text('Guardando sesión de forma segura…'), findsOneWidget);
     secure.pending!.complete();
     await _flush(tester);
+    expect(
+      container.read(effectiveLocalSessionProvider),
+      ExistingSessionStartupState.localSessionAvailable,
+    );
   });
 
   for (final (status, problem) in <(int, FirstActivationProblem)>[
@@ -516,7 +527,7 @@ void main() {
     expect(find.byKey(const Key('activation-submit')), findsNothing);
     expect(find.byKey(const Key('activation-password')), findsNothing);
     expect(
-      find.byKey(const Key('activation-already-completed')),
+      find.byKey(const Key('existing-session-blocks-activation')),
       findsOneWidget,
     );
     await tester.tap(find.text('Continuar con datos locales'));
@@ -530,6 +541,9 @@ void main() {
         SecureSessionFailure.writeFailed,
       );
     final fixture = await _mount(tester, commit: secure);
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(FirstActivationScreen)),
+    );
     await _fill(tester);
     await _submit(tester);
     await _flush(tester);
@@ -538,12 +552,19 @@ void main() {
       findsOneWidget,
     );
     expect(fixture.router.routeInformationProvider.value.uri.path, '/activar');
+    expect(
+      container.read(effectiveLocalSessionProvider),
+      ExistingSessionStartupState.noLocalSession,
+    );
   });
 
   testWidgets('unknown local commit requires reconciliation', (tester) async {
     final secure = _CommitPort()
       ..failure = const SecureSessionCommitUncertainException();
     final fixture = await _mount(tester, commit: secure);
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(FirstActivationScreen)),
+    );
     await _fill(tester);
     await _submit(tester);
     await _flush(tester);
@@ -557,17 +578,28 @@ void main() {
       isNull,
     );
     expect(fixture.router.routeInformationProvider.value.uri.path, '/activar');
+    expect(
+      container.read(effectiveLocalSessionProvider),
+      ExistingSessionStartupState.noLocalSession,
+    );
   });
 
   testWidgets('unknown remote outcome never retries', (tester) async {
     final backend = _Backend()..failRegisterNetwork = true;
     final fixture = await _mount(tester, backend: backend);
+    final container = ProviderScope.containerOf(
+      tester.element(find.byType(FirstActivationScreen)),
+    );
     await _fill(tester);
     await _submit(tester);
     await _flush(tester);
     expect(find.byKey(const Key('activation-reconcile')), findsOneWidget);
     expect(fixture.backend.loginCalls, 1);
     expect(fixture.identityStore.rotations, 0);
+    expect(
+      container.read(effectiveLocalSessionProvider),
+      ExistingSessionStartupState.noLocalSession,
+    );
     await tester.drag(find.byType(ListView), const Offset(0, -400));
     await tester.pump();
     expect(
@@ -677,6 +709,127 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Primera activación'), findsOneWidget);
   });
+
+  testWidgets(
+    'successful activation updates local binding state in the same runtime',
+    (tester) async {
+      final database = AppDatabase(
+        factory: databaseFactoryFfi,
+        path: inMemoryDatabasePath,
+      );
+      addTearDown(database.close);
+      final repository = AgroRepository(database);
+      final backend = _Backend();
+      final secure = _CommitPort();
+      final client = MockClient(backend.respond);
+      addTearDown(client.close);
+      final container = ProviderContainer(
+        overrides: [
+          existingSessionStartupProvider.overrideWithValue(
+            ExistingSessionStartupState.noLocalSession,
+          ),
+          repositoryProvider.overrideWithValue(repository),
+          installationIdentityProvider.overrideWithValue(
+            const InstallationIdentityInitialization(
+              InstallationIdentityStatus.ready,
+            ),
+          ),
+          installationClientIdStoreProvider.overrideWithValue(_IdentityStore()),
+          secureSessionCommitProvider.overrideWithValue(secure),
+          apiEndpointConfigProvider.overrideWithValue(
+            ApiEndpointConfig(Uri.parse('https://api.example.test')),
+          ),
+          authHttpTransportProvider.overrideWithValue(client),
+        ],
+      );
+      addTearDown(container.dispose);
+      await tester.pumpWidget(
+        UncontrolledProviderScope(container: container, child: const AgroApp()),
+      );
+      for (var i = 0; i < 25; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 20)),
+        );
+        await tester.pump(const Duration(milliseconds: 20));
+        if (find
+            .byKey(const Key('open-first-activation'))
+            .evaluate()
+            .isNotEmpty) {
+          break;
+        }
+      }
+      expect(
+        container.read(effectiveLocalSessionProvider),
+        ExistingSessionStartupState.noLocalSession,
+      );
+      expect(find.byKey(const Key('open-first-activation')), findsOneWidget);
+      expect(backend.paths, isEmpty);
+
+      await tester.tap(find.byKey(const Key('open-first-activation')));
+      await tester.pumpAndSettle();
+      await _fill(tester);
+      await _submit(tester);
+      await _flush(tester);
+      expect(container.read(firstActivationProvider).isCompleted, isTrue);
+      expect(container.read(runtimeSecureCommitCompletedProvider), isTrue);
+      expect(
+        container.read(effectiveLocalSessionProvider),
+        ExistingSessionStartupState.localSessionAvailable,
+      );
+      expect(secure.calls, 1);
+      expect(backend.paths, [
+        '/api/v1/auth/v2/login',
+        '/api/v1/auth/clients',
+        '/api/v1/auth/v2/session/client',
+        '/api/v1/auth/v2/me',
+      ]);
+      final firstPaths = List<String>.of(backend.paths);
+
+      for (var i = 0; i < 25; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 20)),
+        );
+        await tester.pump(const Duration(milliseconds: 20));
+        if (find
+            .byKey(const Key('local-session-status'))
+            .evaluate()
+            .isNotEmpty) {
+          break;
+        }
+      }
+      expect(
+        container.read(routerProvider).routeInformationProvider.value.uri.path,
+        '/',
+      );
+      expect(find.byKey(const Key('open-first-activation')), findsNothing);
+      expect(find.byKey(const Key('local-session-status')), findsOneWidget);
+      expect(
+        tester.widget<Text>(find.byKey(const Key('local-session-status'))).data,
+        ExistingSessionStartupState.localSessionAvailable.safeMessage,
+      );
+      final id = await tester.runAsync(
+        () => repository.addPerson(
+          name: 'Persona local',
+          role: PersonRole.family,
+        ),
+      );
+      expect(id, greaterThan(0));
+
+      container.read(routerProvider).go('/activar');
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const Key('existing-session-blocks-activation')),
+        findsOneWidget,
+      );
+      expect(find.byKey(const Key('activation-submit')), findsNothing);
+      expect(find.byKey(const Key('activation-password')), findsNothing);
+      expect(backend.paths, firstPaths);
+      expect(secure.calls, 1);
+      for (final secret in [_password, _access, _refresh, _registrationId]) {
+        expect(find.textContaining(secret), findsNothing);
+      }
+    },
+  );
 
   test('production DI binds the Android encrypted store factory', () {
     final container = ProviderContainer();

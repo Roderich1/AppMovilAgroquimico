@@ -60,7 +60,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
   @override
   Widget build(BuildContext context) =>
-      _build(context, ref.watch(existingSessionStartupProvider));
+      _build(context, ref.watch(effectiveLocalSessionProvider));
 
   Widget _build(
     BuildContext context,

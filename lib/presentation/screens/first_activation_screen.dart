@@ -34,7 +34,7 @@ class _FirstActivationScreenState extends ConsumerState<FirstActivationScreen> {
   Future<void> _submit() async {
     if (_submitting ||
         _navigated ||
-        !ref.read(existingSessionStartupProvider).allowsFirstActivation ||
+        !ref.read(effectiveLocalSessionProvider).allowsFirstActivation ||
         ref.read(firstActivationProvider).isCompleted ||
         !_formKey.currentState!.validate()) {
       return;
@@ -59,7 +59,7 @@ class _FirstActivationScreenState extends ConsumerState<FirstActivationScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final existingSession = ref.watch(existingSessionStartupProvider);
+    final existingSession = ref.watch(effectiveLocalSessionProvider);
     if (!existingSession.allowsFirstActivation) {
       return Scaffold(
         appBar: AppBar(title: const Text('Activar cuenta')),

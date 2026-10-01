@@ -7,6 +7,7 @@ import 'api_endpoint_config.dart';
 import 'auth_api_exception.dart';
 import 'auth_http_client.dart';
 import 'auth_v2_api.dart';
+import 'existing_session_providers.dart';
 import 'first_activation_coordinator.dart';
 import 'secure_session_store.dart';
 
@@ -88,7 +89,18 @@ class FirstActivationController extends Notifier<FirstActivationState> {
   Future<FirstActivationState> activate({
     required String email,
     required String password,
-  }) => _coordinator.activate(email: email, password: password);
+  }) async {
+    final result = await _coordinator.activate(
+      email: email,
+      password: password,
+    );
+    // completed is emitted only after commitAndVerify has returned. Keep the
+    // local binding coherent even if the activation screen has unmounted.
+    if (result.isCompleted) {
+      ref.read(runtimeSecureCommitCompletedProvider.notifier).markCompleted();
+    }
+    return result;
+  }
 
   bool requestCancel() => _coordinator.requestCancel();
 }
