@@ -12,6 +12,7 @@ import 'presentation/screens/application_form_screen.dart';
 import 'presentation/screens/catalogs_screen.dart';
 import 'presentation/screens/dashboard_screen.dart';
 import 'presentation/screens/first_activation_screen.dart';
+import 'presentation/screens/reauthentication_screen.dart';
 import 'presentation/screens/farm_logbook_screen.dart';
 import 'presentation/screens/inventory_detail_screen.dart';
 import 'presentation/screens/inventory_screen.dart';
@@ -135,6 +136,10 @@ final routerProvider = Provider<GoRouter>(
       GoRoute(
         path: '/activar',
         builder: (_, __) => const FirstActivationScreen(),
+      ),
+      GoRoute(
+        path: '/reauth',
+        builder: (_, __) => const ReauthenticationScreen(),
       ),
       GoRoute(
         path: '/transferencias/nueva',

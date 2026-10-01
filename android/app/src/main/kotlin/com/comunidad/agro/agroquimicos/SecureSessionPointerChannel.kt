@@ -16,6 +16,7 @@ internal object SecureSessionPointerChannel {
     private const val namespace = "agrocuentas_secure_session_v1"
     private const val pointerPrefs = "AgrocuentasSessionPointer"
     private const val pointerKey = "activeSlot"
+    private const val refreshGuardKey = "refreshQuarantined"
     private val lock = Any()
 
     fun register(context: Context, messenger: BinaryMessenger) {
@@ -48,6 +49,17 @@ internal object SecureSessionPointerChannel {
                                 flushEncryptedPrefs(app)
                                 null
                             }
+                            "readRefreshGuard" -> readRefreshGuard(app)
+                            "setRefreshGuard" -> {
+                                if (readRefreshGuard(app)) throw IllegalStateException("Refresh already quarantined")
+                                writeRefreshGuard(app, true)
+                                true
+                            }
+                            "clearRefreshGuard" -> {
+                                if (!readRefreshGuard(app)) throw IllegalStateException("Refresh guard not set")
+                                writeRefreshGuard(app, false)
+                                false
+                            }
                             else -> throw UnsupportedOperationException("Unknown method")
                         }
                     }
@@ -77,6 +89,22 @@ internal object SecureSessionPointerChannel {
         if (next == null) editor.remove(pointerKey) else editor.putString(pointerKey, next)
         if (!editor.commit() || read(context) != next) {
             throw IllegalStateException("Pointer commit not verified")
+        }
+    }
+
+    private fun readRefreshGuard(context: Context): Boolean {
+        val prefs = preferences(context)
+        if (!prefs.contains(refreshGuardKey)) return false
+        val raw = prefs.all[refreshGuardKey]
+        if (raw !is Boolean) throw IllegalStateException("Invalid refresh guard")
+        return raw
+    }
+
+    private fun writeRefreshGuard(context: Context, quarantined: Boolean) {
+        val prefs = preferences(context)
+        if (!prefs.edit().putBoolean(refreshGuardKey, quarantined).commit() ||
+            readRefreshGuard(context) != quarantined) {
+            throw IllegalStateException("Refresh guard commit not verified")
         }
     }
 

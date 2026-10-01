@@ -9,6 +9,8 @@ import '../../domain/money.dart';
 import '../../domain/read_models.dart';
 import '../../services/auth/existing_session_providers.dart';
 import '../../services/auth/existing_session_startup.dart';
+import '../../services/auth/remote_session_coordinator.dart';
+import '../../services/auth/remote_session_providers.dart';
 import '../widgets/common.dart';
 
 typedef _DashboardData = ({
@@ -140,6 +142,11 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                 existingSession.safeMessage!,
                 key: const Key('local-session-status'),
               ),
+            if (existingSession ==
+                    ExistingSessionStartupState.localSessionAvailable ||
+                existingSession ==
+                    ExistingSessionStartupState.localSessionExpired)
+              const _RemoteSessionControls(),
             const SizedBox(height: 10),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
@@ -407,6 +414,50 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     style: Theme.of(context).textTheme.titleLarge
         ?.copyWith(fontWeight: FontWeight.w700),
   );
+}
+
+class _RemoteSessionControls extends ConsumerWidget {
+  const _RemoteSessionControls();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final guard = ref.watch(refreshGuardStateProvider);
+    final remote = ref.watch(remoteSessionProvider);
+    final blocked =
+        guard.asData?.value != false ||
+        remote.phase == RemoteSessionPhase.requiresReauthentication ||
+        remote.phase == RemoteSessionPhase.outcomeUnknown ||
+        remote.phase == RemoteSessionPhase.registrationRejected ||
+        remote.phase == RemoteSessionPhase.guardUnavailable;
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (guard.isLoading)
+            const Text('Comprobando protección local de la sesión…')
+          else if (blocked)
+            OutlinedButton.icon(
+              key: const Key('open-reauthentication'),
+              onPressed: remote.isBusy ? null : () => context.push('/reauth'),
+              icon: const Icon(Icons.lock_reset_outlined),
+              label: const Text('Volver a autenticar'),
+            )
+          else
+            OutlinedButton.icon(
+              key: const Key('verify-online-access'),
+              onPressed: remote.isBusy
+                  ? null
+                  : () =>
+                        ref.read(remoteSessionProvider.notifier).verifyOnline(),
+              icon: const Icon(Icons.cloud_done_outlined),
+              label: const Text('Verificar acceso en línea'),
+            ),
+          Text(remote.safeMessage, key: const Key('remote-session-status')),
+        ],
+      ),
+    );
+  }
 }
 
 /// Inventario en ancho de móvil: una fila por producto, con el **nombre como
