@@ -149,7 +149,7 @@ del reintento posterior.
 ## Reintento DEVICE autorizado — 2026-09-30
 
 Después de que el propietario conectó y autorizó el teléfono por USB,
-`adb devices -l` mostró `cc14247a device`, modelo `22101320G` (POCO X5 Pro 5G),
+`adb devices -l` mostró `cc14… device`, modelo `22101320G` (POCO X5 Pro 5G),
 Android 12/API 31, `arm64-v8a`. Se construyó desde el HEAD corregido
 `d824ee89e1c38f720041cfdb5015323717eb8d3f` una copia **debug aislada**:
 `com.comunidad.agro.agroquimicos.auth02validation`, etiqueta
