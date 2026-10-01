@@ -12,6 +12,8 @@ import 'package:agroquimicos/presentation/screens/first_activation_screen.dart';
 import 'package:agroquimicos/services/auth/api_endpoint_config.dart';
 import 'package:agroquimicos/services/auth/auth_http_client.dart';
 import 'package:agroquimicos/services/auth/auth_v2_api.dart';
+import 'package:agroquimicos/services/auth/existing_session_providers.dart';
+import 'package:agroquimicos/services/auth/existing_session_startup.dart';
 import 'package:agroquimicos/services/auth/first_activation_coordinator.dart';
 import 'package:agroquimicos/services/auth/first_activation_providers.dart';
 import 'package:agroquimicos/services/auth/secure_session_store.dart';
@@ -201,6 +203,9 @@ Future<_Fixture> _mount(
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
+        existingSessionStartupProvider.overrideWithValue(
+          ExistingSessionStartupState.noLocalSession,
+        ),
         installationIdentityProvider.overrideWithValue(
           InstallationIdentityInitialization(identity),
         ),
@@ -641,6 +646,9 @@ void main() {
     await tester.pumpWidget(
       ProviderScope(
         overrides: [
+          existingSessionStartupProvider.overrideWithValue(
+            ExistingSessionStartupState.noLocalSession,
+          ),
           repositoryProvider.overrideWithValue(AgroRepository(database)),
           installationIdentityProvider.overrideWithValue(
             const InstallationIdentityInitialization(
