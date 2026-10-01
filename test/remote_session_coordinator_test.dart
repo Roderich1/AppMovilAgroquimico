@@ -195,7 +195,9 @@ class _Harness {
         return _json(200, _context(session: 'session-2'));
       case _logoutPath:
         expect(request.method, 'POST');
-        expect(jsonDecode(request.body), {'refreshToken': _loginRefresh});
+        expect(jsonDecode(request.body), {
+          'refreshToken': anyOf(_loginRefresh, _newRefresh),
+        });
         return http.Response('', 204);
     }
     fail('Unexpected endpoint');
@@ -398,21 +400,72 @@ void main() {
       );
       expect(h.commit.calls, 0);
       expect(h.disk.quarantined, isTrue);
+      expect(
+        h.paths,
+        name == 'unrotated refresh'
+            ? [_refreshPath]
+            : [_refreshPath, _logoutPath],
+      );
     });
   }
 
-  test('failed or uncertain local commit never clears guard', () async {
-    for (final failure in [
-      const SecureSessionStorageException(SecureSessionFailure.writeFailed),
-      const SecureSessionCommitUncertainException(),
-    ]) {
+  for (final reason in [
+    SecureSessionFailure.invalidCandidate,
+    SecureSessionFailure.existingSessionUnreadable,
+    SecureSessionFailure.writeFailed,
+  ]) {
+    test('refresh definite $reason cleans new credential once', () async {
       final h = _Harness();
-      h.commit.failure = failure;
+      h.commit.failure = SecureSessionStorageException(reason);
       final result = await h.coordinator().refreshOnDemand();
       expect(result.phase, RemoteSessionPhase.requiresReauthentication);
+      expect(result.problem, RemoteSessionProblem.localCommitFailed);
+      expect(result.cleanupUnconfirmed, isFalse);
       expect(h.disk.quarantined, isTrue);
+      expect(h.commit.calls, 1);
       expect(h.events, isNot(contains('guard-clear')));
-    }
+      expect(h.paths, [_refreshPath, _logoutPath]);
+    });
+  }
+
+  test(
+    'refresh definite failure reports failed cleanup without retry',
+    () async {
+      final h = _Harness();
+      h.commit.failure = const SecureSessionStorageException(
+        SecureSessionFailure.writeFailed,
+      );
+      h.overrides[_logoutPath] = (_) async =>
+          throw http.ClientException('lost');
+      final result = await h.coordinator().refreshOnDemand();
+      expect(result.problem, RemoteSessionProblem.localCommitFailed);
+      expect(result.cleanupUnconfirmed, isTrue);
+      expect(h.paths, [_refreshPath, _logoutPath]);
+      expect(h.disk.quarantined, isTrue);
+    },
+  );
+
+  test('refresh uncertain commit never logs out or retries', () async {
+    final h = _Harness();
+    h.commit.failure = const SecureSessionCommitUncertainException();
+    final result = await h.coordinator().refreshOnDemand();
+    expect(result.problem, RemoteSessionProblem.localCommitUnknown);
+    expect(h.paths, [_refreshPath]);
+    expect(h.disk.quarantined, isTrue);
+    expect(h.events, isNot(contains('guard-clear')));
+  });
+
+  test('refresh context mismatch reports failed new-token cleanup', () async {
+    final h = _Harness();
+    h.overrides[_refreshPath] = (_) async =>
+        _json(200, _response(context: _context(account: 'other')));
+    h.overrides[_logoutPath] = (_) async => throw http.ClientException('lost');
+    final result = await h.coordinator().refreshOnDemand();
+    expect(result.problem, RemoteSessionProblem.contextMismatch);
+    expect(result.cleanupUnconfirmed, isTrue);
+    expect(h.paths, [_refreshPath, _logoutPath]);
+    expect(h.commit.calls, 0);
+    expect(h.disk.quarantined, isTrue);
   });
 
   test(
@@ -514,24 +567,56 @@ void main() {
     expect(h.commit.calls, 0);
   });
 
-  test('reauth commit failure or uncertainty keeps guard', () async {
-    for (final failure in [
-      const SecureSessionStorageException(SecureSessionFailure.writeFailed),
-      const SecureSessionCommitUncertainException(),
-    ]) {
+  for (final reason in [
+    SecureSessionFailure.invalidCandidate,
+    SecureSessionFailure.existingSessionUnreadable,
+    SecureSessionFailure.writeFailed,
+  ]) {
+    test('reauth definite $reason cleans new login once', () async {
       final h = _Harness()..disk.quarantined = true;
-      h.commit.failure = failure;
-      expect(
-        (await h.coordinator().reauthenticate(
-          email: 'farmer@example.test',
-          password: _password,
-        )).phase,
-        RemoteSessionPhase.requiresReauthentication,
+      h.commit.failure = SecureSessionStorageException(reason);
+      final result = await h.coordinator().reauthenticate(
+        email: 'farmer@example.test',
+        password: _password,
       );
+      expect(result.phase, RemoteSessionPhase.requiresReauthentication);
+      expect(result.problem, RemoteSessionProblem.localCommitFailed);
+      expect(result.cleanupUnconfirmed, isFalse);
       expect(h.disk.quarantined, isTrue);
+      expect(h.commit.calls, 1);
       expect(h.events, isNot(contains('guard-clear')));
-      expect(h.paths, [_loginPath, _bindPath, _mePath]);
-    }
+      expect(h.paths, [_loginPath, _bindPath, _mePath, _logoutPath]);
+    });
+  }
+
+  test('reauth definite failure reports failed cleanup', () async {
+    final h = _Harness()..disk.quarantined = true;
+    h.commit.failure = const SecureSessionStorageException(
+      SecureSessionFailure.writeFailed,
+    );
+    h.overrides[_logoutPath] = (_) async => throw http.ClientException('lost');
+    final result = await h.coordinator().reauthenticate(
+      email: 'farmer@example.test',
+      password: _password,
+    );
+    expect(result.phase, RemoteSessionPhase.requiresReauthentication);
+    expect(result.problem, RemoteSessionProblem.localCommitFailed);
+    expect(result.cleanupUnconfirmed, isTrue);
+    expect(h.paths, [_loginPath, _bindPath, _mePath, _logoutPath]);
+    expect(h.disk.quarantined, isTrue);
+  });
+
+  test('reauth uncertain commit never logs out', () async {
+    final h = _Harness()..disk.quarantined = true;
+    h.commit.failure = const SecureSessionCommitUncertainException();
+    final result = await h.coordinator().reauthenticate(
+      email: 'farmer@example.test',
+      password: _password,
+    );
+    expect(result.problem, RemoteSessionProblem.localCommitUnknown);
+    expect(h.paths, [_loginPath, _bindPath, _mePath]);
+    expect(h.disk.quarantined, isTrue);
+    expect(h.events, isNot(contains('guard-clear')));
   });
 
   test(

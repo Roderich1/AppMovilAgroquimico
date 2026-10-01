@@ -111,10 +111,13 @@ class RemoteSessionCoordinator {
     _emit(const RemoteSessionState(RemoteSessionPhase.refreshing));
     var mayHaveSent = false;
     var committing = false;
+    var rotatedRefreshKnown = false;
+    AuthV2Api? api;
+    V2AuthResponse? response;
     try {
       final stored = await _requireStoredSession();
       // Constructing the API validates HTTPS before quarantine or network.
-      final api = _apiFactory();
+      api = _apiFactory();
       if (await _guard.isQuarantined()) {
         throw const _RemoteAbort(
           RemoteSessionPhase.requiresReauthentication,
@@ -131,7 +134,8 @@ class RemoteSessionCoordinator {
       }
       // From this point the old token is never eligible for another request.
       mayHaveSent = true;
-      final response = await api.refresh(stored.refreshToken);
+      response = await api.refresh(stored.refreshToken);
+      rotatedRefreshKnown = response.refreshToken != stored.refreshToken;
       _validateRefresh(response, stored);
       committing = true;
       await _secureSession.commitAndVerify(
@@ -151,12 +155,44 @@ class RemoteSessionCoordinator {
         const RemoteSessionState(RemoteSessionPhase.remoteAvailable),
       );
     } on _RemoteAbort catch (error) {
-      return _emit(RemoteSessionState(error.phase, problem: error.problem));
+      final unconfirmed =
+          error.problem == RemoteSessionProblem.contextMismatch &&
+              rotatedRefreshKnown &&
+              api != null &&
+              response != null
+          ? await _cleanupKnownRemoteCredential(api, response.refreshToken)
+          : false;
+      return _emit(
+        RemoteSessionState(
+          error.phase,
+          problem: error.problem,
+          cleanupUnconfirmed: unconfirmed,
+        ),
+      );
     } on SecureSessionCommitOutcomeUnknown {
       return _emit(
         const RemoteSessionState(
           RemoteSessionPhase.requiresReauthentication,
           problem: RemoteSessionProblem.localCommitUnknown,
+        ),
+      );
+    } on SecureSessionStorageException catch (error) {
+      if (!_definitelyFailedCommit(error)) {
+        return _emit(
+          const RemoteSessionState(
+            RemoteSessionPhase.requiresReauthentication,
+            problem: RemoteSessionProblem.localCommitUnknown,
+          ),
+        );
+      }
+      final unconfirmed = api != null && response != null
+          ? await _cleanupKnownRemoteCredential(api, response.refreshToken)
+          : false;
+      return _emit(
+        RemoteSessionState(
+          RemoteSessionPhase.requiresReauthentication,
+          problem: RemoteSessionProblem.localCommitFailed,
+          cleanupUnconfirmed: unconfirmed,
         ),
       );
     } on AuthApiException catch (error) {
@@ -191,7 +227,7 @@ class RemoteSessionCoordinator {
               ? RemoteSessionPhase.requiresReauthentication
               : RemoteSessionPhase.guardUnavailable,
           problem: committing
-              ? RemoteSessionProblem.localCommitFailed
+              ? RemoteSessionProblem.localCommitUnknown
               : RemoteSessionProblem.guardFailure,
         ),
       );
@@ -267,6 +303,25 @@ class RemoteSessionCoordinator {
           problem: RemoteSessionProblem.localCommitUnknown,
         ),
       );
+    } on SecureSessionStorageException catch (error) {
+      if (!_definitelyFailedCommit(error)) {
+        return _emit(
+          const RemoteSessionState(
+            RemoteSessionPhase.requiresReauthentication,
+            problem: RemoteSessionProblem.localCommitUnknown,
+          ),
+        );
+      }
+      final unconfirmed = api != null && login != null
+          ? await _cleanupKnownRemoteCredential(api, login.refreshToken)
+          : false;
+      return _emit(
+        RemoteSessionState(
+          RemoteSessionPhase.requiresReauthentication,
+          problem: RemoteSessionProblem.localCommitFailed,
+          cleanupUnconfirmed: unconfirmed,
+        ),
+      );
     } on AuthApiException catch (error) {
       final unknown =
           error.kind == AuthApiErrorKind.network ||
@@ -307,7 +362,7 @@ class RemoteSessionCoordinator {
           problem: stage == 'preflight' || stage == 'guard' || stage == 'clear'
               ? RemoteSessionProblem.guardFailure
               : committing
-              ? RemoteSessionProblem.localCommitFailed
+              ? RemoteSessionProblem.localCommitUnknown
               : RemoteSessionProblem.remoteOutcomeUnknown,
           cleanupUnconfirmed: unconfirmed,
         ),
@@ -415,8 +470,20 @@ class RemoteSessionCoordinator {
     bool committing,
   ) async {
     if (api == null || login == null || committing) return false;
+    return _cleanupKnownRemoteCredential(api, login.refreshToken);
+  }
+
+  bool _definitelyFailedCommit(SecureSessionStorageException error) =>
+      error.reason == SecureSessionFailure.invalidCandidate ||
+      error.reason == SecureSessionFailure.existingSessionUnreadable ||
+      error.reason == SecureSessionFailure.writeFailed;
+
+  Future<bool> _cleanupKnownRemoteCredential(
+    AuthV2Api api,
+    String refreshToken,
+  ) async {
     try {
-      await api.logout(refreshToken: login.refreshToken);
+      await api.logout(refreshToken: refreshToken);
       return false;
     } on Object {
       return true;
