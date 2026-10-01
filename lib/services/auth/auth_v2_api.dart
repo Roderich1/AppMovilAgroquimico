@@ -57,7 +57,7 @@ class AuthV2Api {
     return V2AuthContext.fromJson(response.requireJsonObject());
   }
 
-  /// BODY transport only. Rotation orchestration and secure storage belong to #20.
+  /// BODY transport only. #22 owns rotation orchestration; #20 owns storage.
   Future<V2AuthResponse> refresh(String refreshToken) async {
     final response = await _http.request(
       'POST',
