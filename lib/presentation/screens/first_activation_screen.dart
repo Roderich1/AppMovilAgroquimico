@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../data/installation_identity_initializer.dart';
+import '../../services/auth/existing_session_providers.dart';
 import '../../services/auth/first_activation_coordinator.dart';
 import '../../services/auth/first_activation_providers.dart';
 
@@ -33,6 +34,7 @@ class _FirstActivationScreenState extends ConsumerState<FirstActivationScreen> {
   Future<void> _submit() async {
     if (_submitting ||
         _navigated ||
+        !ref.read(effectiveLocalSessionProvider).allowsFirstActivation ||
         ref.read(firstActivationProvider).isCompleted ||
         !_formKey.currentState!.validate()) {
       return;
@@ -57,6 +59,39 @@ class _FirstActivationScreenState extends ConsumerState<FirstActivationScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final existingSession = ref.watch(effectiveLocalSessionProvider);
+    if (!existingSession.allowsFirstActivation) {
+      return Scaffold(
+        appBar: AppBar(title: const Text('Activar cuenta')),
+        body: SafeArea(
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 480),
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.shield_outlined, size: 54),
+                    const SizedBox(height: 16),
+                    Text(
+                      existingSession.safeMessage!,
+                      key: const Key('existing-session-blocks-activation'),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 20),
+                    FilledButton(
+                      onPressed: () => context.go('/'),
+                      child: const Text('Continuar con datos locales'),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+    }
     final state = ref.watch(firstActivationProvider);
     if (state.isCompleted) {
       return Scaffold(

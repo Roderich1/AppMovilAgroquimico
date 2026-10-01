@@ -7,6 +7,8 @@ import '../../data/typed_reads.dart';
 import '../../domain/models.dart';
 import '../../domain/money.dart';
 import '../../domain/read_models.dart';
+import '../../services/auth/existing_session_providers.dart';
+import '../../services/auth/existing_session_startup.dart';
 import '../widgets/common.dart';
 
 typedef _DashboardData = ({
@@ -57,7 +59,13 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   }
 
   @override
-  Widget build(BuildContext context) => PageFrame(
+  Widget build(BuildContext context) =>
+      _build(context, ref.watch(effectiveLocalSessionProvider));
+
+  Widget _build(
+    BuildContext context,
+    ExistingSessionStartupState existingSession,
+  ) => PageFrame(
     title: 'Inicio',
     subtitle: 'Almacén y cuentas de un vistazo.',
     action: IconButton.filledTonal(
@@ -120,12 +128,18 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            OutlinedButton.icon(
-              key: const Key('open-first-activation'),
-              onPressed: () => context.push('/activar'),
-              icon: const Icon(Icons.verified_user_outlined),
-              label: const Text('Activar cuenta en línea'),
-            ),
+            if (existingSession == ExistingSessionStartupState.noLocalSession)
+              OutlinedButton.icon(
+                key: const Key('open-first-activation'),
+                onPressed: () => context.push('/activar'),
+                icon: const Icon(Icons.verified_user_outlined),
+                label: const Text('Activar cuenta en línea'),
+              )
+            else
+              Text(
+                existingSession.safeMessage!,
+                key: const Key('local-session-status'),
+              ),
             const SizedBox(height: 10),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
