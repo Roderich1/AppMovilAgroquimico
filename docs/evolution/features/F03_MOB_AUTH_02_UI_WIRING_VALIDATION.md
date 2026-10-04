@@ -173,3 +173,166 @@ no se capturaron ni emplearon credenciales reales. La ausencia de crash se
 observó en pantalla durante DEVICE-B, sin afirmar una auditoría completa de
 logs. `E2E_MOBILE_BACKEND = BLOCKED_ENVIRONMENT` y
 `EXISTING_SESSION_AFTER_RESTART = #21 / NOT_IMPLEMENTED` permanecen sin cambios.
+
+## E2E Mobile→Backend after integration
+
+Medición física del **2026-10-04** (America/La_Paz), posterior a la integración.
+Esta sección reemplaza el bloqueo ambiental para el recorrido nominal medido;
+los resultados anteriores conservan su fecha y alcance histórico. No cierra
+#19 ni GATE-F03 #23 y queda pendiente de auditoría independiente.
+
+### Entorno y reproducción
+
+- Mobile exacto: `18b9de3bc0f9702ed22863f933cf93cd691ee491`; baseline de
+  **690 tests**, sin cambios funcionales durante esta medición.
+- Backend exacto: `a09876106dd696868217b301a9abf9125ac6d01d`.
+- Dispositivo: POCO X5 Pro 5G (`22101320G`), Android 12 / API 31,
+  `arm64-v8a`; ADB autorizado, identificado únicamente como `cc14…`.
+- PostgreSQL 16 en container y volumen exclusivos, DB `agro_f03_e2e`, puerto
+  local alternativo 55432. No se utilizaron bases ni datos reales del sindicato.
+  Se ejecutaron `npm ci`, Prisma generate, las cuatro migraciones mediante
+  `prisma migrate deploy`, build, build de seed y seed sobre esta DB efímera.
+  Se conservaron schema, migraciones y dependencias del SHA contractual.
+- Se eligió el primer agricultor de `farmersSeed`. Antes del login, SQL confirmó
+  User activo/AGRICULTOR, Member activo/AGRICULTOR y Tenant activo. La contraseña
+  demo se obtuvo del seed y se introdujo en un campo enmascarado; no se incluye
+  en este documento ni en GitHub. No hubo login adicional de preflight.
+- Backend local, secretos JWT y contraseña PostgreSQL temporales en memoria.
+  Health local y health HTTPS devolvieron **200** antes de instalar la copia.
+  Un túnel temporal cloudflared entregó un origin HTTPS público confiable:
+  `HTTPS_EPHEMERAL_ORIGIN_REDACTED`. Android lo aceptó durante las cuatro
+  operaciones reales, con la validación TLS y origin-only productivas intactas.
+  No se introdujeron certificados alternativos ni bypass TLS.
+- Worktrees aislados desde ambos SHAs. Sólo para la build se añadieron suffix
+  `.f03auth02e2e` y etiqueta `Agrocuentas F03 E2E`. El origin se pasó mediante
+  `--dart-define=AGRO_API_BASE_URL`, nunca como modificación de source.
+  APK debug SHA-256:
+  `3BDCDC6746EC72FC9BFCD8A14053CC884D9027A992771E4F0660548E8254B208`.
+- Package de prueba: `com.comunidad.agro.agroquimicos.f03auth02e2e`.
+  Instalación **Success**, inicialmente sin sesión precargada, con identidad
+  de instalación F02-B y SQLite propios. Coexistió con el package normal
+  `com.comunidad.agro.agroquimicos`, al que no se instaló ni limpió nada.
+
+Se utilizó la composición productiva Flutter, `InstallationClientIdStore` y
+`SecureSessionStore.android`, transporte HTTPS, AuthV2Controller/Nest y
+PostgreSQL reales. Un proxy local temporal transparente reenvió las peticiones
+al Backend exacto y conservó únicamente método, ruta y status para observar la
+secuencia; no simuló respuestas, no inspeccionó payloads y no registró headers.
+No hubo harness de sesión ni mocks en este recorrido.
+
+### DEVICE-D — activación nominal real
+
+Desde Inicio se observó **Activar cuenta en línea**, se abrió la pantalla
+productiva `/activar`, se introdujeron las credenciales seed y se pulsó una vez
+**Activar**. La secuencia HTTP observada fue:
+
+| Operación | Ruta real | Status | Clasificación |
+|---|---|---|---|
+| Login BODY | `POST /api/v1/auth/v2/login` | 200 | `LOGIN_200 = PASS` |
+| Registrar instalación | `POST /api/v1/auth/clients` | 201 | `CLIENT_REGISTER_201 = PASS` |
+| Vincular sesión | `POST /api/v1/auth/v2/session/client` | 201 | `SESSION_BIND_201 = PASS` |
+| Contexto autenticado | `GET /api/v1/auth/v2/me` | 200 | `ME_200 = PASS` |
+
+No hubo 429 ni repetición del login. Las fases fueron demasiado rápidas para
+documentar cada label como observado. Al terminar, la UI navegó a Inicio y
+mostró **Cuenta vinculada en este dispositivo. El estado en línea aún no fue
+verificado.**; ya no ofreció primera activación. Las consultas del Dashboard y
+la pantalla Personas abrieron SQLite; se comprobó la existencia de
+`agroquimicos_v2.db` dentro del package aislado.
+
+La composición real sólo emite `completed` después de `commitAndVerify` y
+reconcilia su resultado local. Se confirmó el commit Android mediante el
+resultado de UI, la presencia de los archivos del namespace cifrado y del
+puntero durable (sin leer credenciales), y la recuperación física posterior de
+DEVICE-E. La navegación productiva limpia `_password` antes de `context.go('/')`,
+como se comprobó en el source exacto. Tras navegar ya no había campo de password;
+su valor vacío no se inspeccionó directamente después de abandonar la pantalla.
+No se publica una captura del formulario con las credenciales.
+
+La consulta SQL posterior, sin devolver IDs ni hashes, confirmó:
+
+| Comprobación | Resultado |
+|---|---|
+| User AGRICULTOR, Member y Tenant activos | PASS |
+| ClientRegistration para el Member de prueba | **1** |
+| `CLIENT_REGISTRATION_ACTIVE` | PASS |
+| AuthSession activa | PASS |
+| `clientRegistrationId` no nulo y asociado a esa instalación/Member | PASS |
+| `SESSION_BOUND_TO_REGISTRATION` | PASS |
+| `REFRESH_TRANSPORT_BODY` | PASS |
+
+`DEVICE-D_COMPLETED_REAL = PASS`.
+`E2E_MOBILE_BACKEND_NOMINAL = PASS`.
+
+### DEVICE-E — force-stop después de la activación real
+
+Sin reinstalar ni precargar una sesión, se desactivaron datos móviles y Wi-Fi.
+Se verificó su estado **0/0** y se ejecutó force-stop únicamente del package
+E2E; se confirmó que el proceso había terminado. Después se abrió la copia
+mediante su launcher normal, todavía offline.
+
+Tras completar startup, Inicio mostró nuevamente la cuenta vinculada local,
+la acción **Verificar acceso en línea** y el mensaje de estado remoto todavía
+no verificado. Primera activación siguió ausente. Dashboard/SQLite estuvieron
+disponibles y no hubo crash. El observador HTTP no recibió nuevas peticiones
+durante esta reapertura. Los archivos del almacén cifrado, del puntero y de
+identidad no-backup permanecieron presentes; no se imprimió su contenido.
+No se creó un marcador SQLite adicional: la comprobación cubre reapertura de
+la base y sus consultas, no persistencia de una nueva transacción de negocio.
+
+`DEVICE-E_FORCE_STOP_AFTER_REAL_ACTIVATION = PASS`.
+Esto acredita recuperación de la sesión local realmente creada en D; no
+demuestra refresh remoto ni autorización Backend vigente al reabrir offline.
+
+### Matriz vigente y límites
+
+| Caso | Resultado | Alcance |
+|---|---|---|
+| DEVICE-A | PASS histórico | Pantalla y entrada, medición del 2026-09-30 conservada. |
+| DEVICE-B | PASS histórico | Configuración ausente y password vacío, medición del 2026-09-30 conservada. |
+| DEVICE-C | NOT_MEASURED | No se interrumpió una activación en curso; la ventana nominal fue breve y no se alteró el producto para provocarla. |
+| DEVICE-D | PASS | Primera activación física, HTTPS/Nest/PostgreSQL y commit Android reales. |
+| DEVICE-E | PASS | Recuperación local offline después de force-stop de la sesión creada en D. |
+| DEVICE-F | NOT_MEASURED | Dashboard no ofrece activar tras D; no se identificó una entrada productiva disponible para repetir `/activar` en ese runtime. |
+| `SAME_RUNTIME_REACTIVATION` | BLOCKED_AUTOMATED | La regresión automatizada previa sigue siendo evidencia propia; no se fabricó un PASS físico. |
+| `E2E_MOBILE_BACKEND_NOMINAL` | PASS | Sólo la secuencia nominal de primera activación descrita arriba. |
+
+No se midieron en esta ejecución pérdida de red transaccional, reactivación
+física en el mismo runtime, refresh real ni revocación real. Tampoco Auto
+Backup, D2D, pérdida física de energía o concurrencia multi-isolate. D/E no
+cambian las clasificaciones DEVICE de #22 ni autorizan producción.
+
+### Privacidad, limpieza y gobierno
+
+El análisis en memoria de logcat del UID exclusivo de la copia abarcó
+activación y reapertura (**238 líneas**) y encontró **0** coincidencias de la
+contraseña seed, patrones JWT, UUID completos, asignaciones de nombres
+sensibles y señales `FATAL EXCEPTION`/`Unhandled Exception`. Se publican
+únicamente estos resultados sanitizados. Este scan acotado no es una prueba
+general de ausencia de filtración. La evidencia versionada y los textos de
+GitHub no contienen password, JWT, refresh, hostname del túnel, serial completo
+ni IDs internos. Los outputs locales de herramientas de preparación no se
+publican como artefactos ni logs de evidencia.
+
+Al terminar se detuvieron túnel, proxy y Backend; se verificaron **0** procesos
+cloudflared y **0** listeners de los dos puertos Backend/proxy temporales. Se
+eliminaron exclusivamente el container y volumen PostgreSQL E2E, destruyendo
+los datos demo, y la copia Android E2E. Los contenedores ajenos siguieron
+activos y el package normal permaneció instalado. Se restauraron datos móviles
+**1**, Wi-Fi **0** y modo avión **0**, conforme al estado inicial.
+
+Se retiraron suffix, etiqueta, APK, proxy, capturas y binario temporal del
+túnel. Se restauró el artefacto incremental generado por el build Backend.
+Ambos worktrees mostraron `git status --short`, `git diff` y `git diff --cached`
+vacíos antes de crear la rama documental. No se publicó ningún cambio
+funcional, de dependencias, schema, migraciones o workflow.
+
+Entrega: rama `evidence/f03-mob-auth-02-e2e-activation`, PR documental **DRAFT**
+con únicamente este informe. La CI normal de esa PR debe verificarse y
+registrarse en su descripción antes del comentario de trazabilidad en #19.
+#19 permanece **OPEN**, sin normalizar sus checkboxes, Project
+**In Review / Partial / N/A**. #23 permanece **OPEN**, sin modificación:
+#18 ✓, #19 ☐, #20 ✓, #21 ✓, #22 ✓, criterio final ☐.
+
+`F03_MOB_AUTH_02_E2E_NOMINAL_PASS_READY_FOR_AUDIT`.
+Próxima acción: `INDEPENDENT_AUDIT_F03_MOB_AUTH_02_E2E`.
