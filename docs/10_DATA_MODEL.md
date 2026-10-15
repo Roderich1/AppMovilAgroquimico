@@ -525,3 +525,39 @@ consentimiento sería peor que mantener la divergencia y dejar constancia.
 | Migración real en Pixel 8 | al restaurar un respaldo `.db` de esquema v5: `user_version` 5 a 6, `integrity_check ok`, índice creado como único, estados normalizados a 4 `APPLIED` y 1 `PLANNED`, sin anomalías |
 
 Las migraciones históricas (v1 a v5) **no se tocaron**.
+
+---
+
+# Actualización 2026-10-15 — Esquema v7 (F04-BUG-01, #73)
+
+`AppDatabase.schemaVersion` pasa de **6 a 7**.
+
+## Qué cambia
+
+| Cambio | Detalle |
+|---|---|
+| Tablas, columnas e índices | ninguno: el esquema de v7 es el mismo que el de v6 |
+| **Datos** | los movimientos `TRANSFER_REVERSAL_IN` / `TRANSFER_REVERSAL_OUT` con `product_id` distinto al de su lote toman el `product_id` de su lote |
+| Filas borradas | **ninguna** |
+
+Hasta v6, `reverseTransfer` asignaba a todos los movimientos de reversión el `product_id` de la
+cabecera `transfers`, que en una transferencia multiproducto solo guarda el primer producto. Desde
+v7, cada movimiento de reversión toma el producto de su lote (origen para `TRANSFER_REVERSAL_IN`,
+destino para `TRANSFER_REVERSAL_OUT`).
+
+## Migración v6 a v7
+
+`_upgradeToV7` ejecuta `AppDatabase.repairTransferReversalProducts`: un único `UPDATE` que solo
+toca filas `TRANSFER_REVERSAL_*` con `lot_id` cuyo `product_id` difiere del de su lote. Es
+idempotente: sobre una base sin el defecto, o ya reparada, no cambia ninguna fila. Si repara
+alguna, anota el número en `app_settings` bajo `schema_v7_transfer_reversal_repair`, con el mismo
+criterio de constancia que v5 y v6.
+
+## Verificación
+
+| Comprobación | Resultado |
+|---|---|
+| `f04_bug_01_reverse_transfer_test.dart` grupo *migración a v7* | una base v6 sembrada con el defecto queda reparada, solo cambia el `product_id` de las reversiones descuadradas y los saldos por producto cuadran; otra ejecución no cambia filas; un movimiento descuadrado que no es de reversión no se toca; una base v6 sin el defecto migra sin cambios ni registro; una base nueva nace en v7 |
+| `schema_equivalence_test.dart` | sigue verificando que una base migrada queda con el mismo esquema que una creada desde cero |
+
+Las migraciones históricas (v1 a v6) **no se tocaron**.
