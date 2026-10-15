@@ -53,6 +53,12 @@ cd tool/f03_res_01 && source ./config.sh && source ./secrets.sh
 
 ## 3. Caso E-1 — desactivación por el Administrador
 
+> **Criterio de PASS (E-1 y E-2).** Lo que cuenta es el **401 del refresh de la sesión existente de la app** (`POST /api/v1/auth/v2/refresh 401` en `check.sh requests`) y la reacción de la app: cuarentena, sin segundo intento, sin `registerClient`, SQLite intacto.
+>
+> Lo siguiente **no** sustituye ese criterio:
+> - el `HTTP 200` de `revoke.sh e1` y el `HTTP 201` de `revoke.sh e2`, que sólo confirman la acción administrativa;
+> - un **login** 401 de `check.sh login`, que es otra petición y otra sesión.
+
 1. `m=$(./check.sh mark)`; `./revoke.sh e1`. Esperado: `HTTP 200`.
 2. En la app: «Verificar acceso en línea».
 3. `./check.sh requests "$m"`. Esperado: un `POST /api/v1/auth/v2/refresh 401` y ningún segundo refresh ni `POST /api/v1/auth/clients`.
@@ -73,6 +79,20 @@ cd tool/f03_res_01 && source ./config.sh && source ./secrets.sh
 4. `m=$(./check.sh mark)`; `./revoke.sh e2`. Esperado: `HTTP 201` y `registros ACTIVE revocados: 1`. La revocación es irreversible para esa instalación.
 5. En la app: «Verificar acceso en línea». Mismas comprobaciones que E-1 (401, sin segundo intento ni `registerClient`, marcador intacto).
 6. Repetir la reapertura sin red (paso 4).
+
+## Validación de servidor previa (opcional, sin teléfono ni túnel)
+
+`./up.sh && ./server_refresh_401_check.sh && ./down.sh`
+
+Comprueba contra la API local (sin exponerla) que una sesión **existente** creada por curl:
+- recibe refresh 200 antes de E-1 y 401 después;
+- ligada a un registro de cliente, recibe refresh 200 antes de E-2 y 401 después.
+
+Valida el lado del servidor; **no** sustituye el ensayo en el teléfono. Resultado del 2026-10-15 en `docs/evidence/F03_RES_01_PREPARACION.md`.
+
+## Nota sobre el SHA Mobile
+
+Si el ensayo usa un Mobile que ya incluye la política de activación (#76, PR #77/#78), después de activar hay que elegir el titular antes de crear el marcador. Anotar en la evidencia qué SHA se usó y si incluía esa política.
 
 ## 6. Logcat y cierre
 

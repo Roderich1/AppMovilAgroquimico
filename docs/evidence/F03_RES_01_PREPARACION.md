@@ -69,6 +69,29 @@ Resumen de peticiones de la ejecución 4, tal como lo registró el observador (m
       1 POST /api/v1/auth/v2/refresh 200
 ```
 
+### Alcance de las ejecuciones 3 y 4 (aclaración del 2026-10-15)
+
+En la ejecución 3, el «login D tras E-1: 401» es un **login nuevo**. Demuestra que la desactivación surte efecto, pero **no** es el 401 del refresh de una sesión existente que exige el caso E. Tampoco el 201 de la revocación demuestra el rechazo posterior: sólo confirma la acción administrativa.
+
+### Ejecución 5: refresh 401 sobre sesiones existentes (servidor, sin túnel)
+
+`up.sh` + `server_refresh_401_check.sh` + `down.sh`, contra `http://127.0.0.1:3100`, sin exponer la API. Las sesiones las crea curl, no la app.
+
+| Paso | Resultado |
+|---|---|
+| E-1: refresh previo de la sesión existente de D | HTTP 200 |
+| E-1: desactivación de D por el Administrador | HTTP 200 |
+| E-1: refresh de **la misma sesión** tras E-1 | **HTTP 401** |
+| Estado D | usuario y Member inactivos; la sesión sigue ACTIVE en la base (el rechazo viene de la cuenta inactiva); refresh tokens `total=2, consumidos=1, revocados=1` |
+| E-2: sesión de E2 ligada a un registro de cliente | HTTP 201 |
+| E-2: refresh previo de la sesión ligada | HTTP 200 |
+| E-2: revocación del registro | HTTP 201 |
+| E-2: refresh de **la misma sesión ligada** tras E-2 | **HTTP 401** |
+| Estado E2 | sesión REVOKED = 1, registro de cliente REVOKED = 1, refresh tokens `total=2, consumidos=1, revocados=2` |
+| `down.sh` | contenedor y volumen eliminados; sin escucha en 3100/3101; 0 procesos `cloudflared` |
+
+Esto valida el comportamiento del servidor ante sesiones existentes. **No** acredita los casos D, E-1 ni E-2 de #71: falta la petición de refresh de la app en el teléfono y su reacción. Siguen `NOT_MEASURED`.
+
 ## Pendiente para la ejecución
 
 - Compilar la APK aislada con el origen del día e instalarla junto a la app normal.
