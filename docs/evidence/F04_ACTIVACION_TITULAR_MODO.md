@@ -72,13 +72,14 @@ Cada mutación se aplicó en `lib/`. Después se ejecutaron los cinco archivos `
 | O2 se aplica la transición sin re-evaluar el bloqueo | detectada: 1 |
 | P1 transferencias admitidas en modo propio | detectada: 1 |
 | P2 compras o aplicaciones de otra persona en modo propio | detectada: 3 |
-| B1 un administrador de pagos puede ser titular | detectada: 1 |
+| B1 un administrador de pagos puede ser titular | detectada: 1 (regla cambiada el 2026-10-15: un ADMIN puede serlo con confirmación explícita; ver [F04_CORRECCIONES_REVISION.md](F04_CORRECCIONES_REVISION.md)) |
 | B2 cambio de titular con cola pendiente | detectada: 1 |
 
 ## Limitaciones de esta parte
 
 - El arranque, el router y la interfaz todavía no usan la compuerta: `repositoryProvider` construye el repositorio sin restricción hasta la parte 2.
 - Las guardas de modo leen la modalidad al inicio de cada escritura, fuera de su transacción. En este dispositivo, con un solo usuario y transacciones serializadas por sqflite, no hay carrera práctica; queda declarado.
+  - **Nota del 2026-10-15:** esta afirmación era incorrecta. La carrera se reprodujo (R1) y se corrigió en `731750e`; ver [F04_CORRECCIONES_REVISION.md](F04_CORRECCIONES_REVISION.md).
 - `SyncQueueInspector` devuelve 0 hasta que exista la outbox de F05 (v9). Las pruebas del bloqueo por cola usan un doble.
 - La restauración de respaldos (`BackupService`) no pasa por la compuerta: reemplaza la base completa y la clasificación posterior decide (F08).
 - Sin pruebas en dispositivo.
