@@ -5,6 +5,7 @@ import '../../app.dart';
 import '../../data/agro_repository.dart';
 import '../../domain/models.dart';
 import '../../domain/money.dart';
+import '../../domain/person_roles.dart';
 import '../widgets/adaptive_entity_picker.dart';
 import '../widgets/common.dart';
 
@@ -45,9 +46,17 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
       throw BusinessRuleException(
         'Active una campaña antes de registrar aplicaciones.',
       );
+    // Quién puede aplicar según su rol privado, el titular y la modalidad: el
+    // titular registrado como administrador de pagos también aplica en sus
+    // chacos. Sólo se ofrecen chacos cuyo dueño puede aplicar.
+    final people = await repo.peopleFor(PersonPurpose.applicator);
+    final applicators = {for (final person in people) person['id']};
     final result = (
-      people: (await repo.people()).where((p) => p['role'] != 'ADMIN').toList(),
-      farms: await repo.farms(),
+      people: people,
+      farms: [
+        for (final farm in await repo.farms())
+          if (applicators.contains(farm['owner_person_id'])) farm,
+      ],
       campaign: active,
     );
     if (widget.planId != null) {
@@ -151,9 +160,20 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
     if (personId != owner) {
       final catalogsValue = _latestCatalogs;
       if (catalogsValue != null) {
-        await selectPerson(
-          catalogsValue.people.firstWhere((p) => p['id'] == owner),
-        );
+        // Con los chacos ya filtrados por quien puede aplicar no debería
+        // faltar el dueño; si faltara, `firstWhere` lanzaría StateError en la
+        // interfaz. Se avisa en su lugar.
+        final ownerRow = catalogsValue.people
+            .where((p) => p['id'] == owner)
+            .firstOrNull;
+        if (ownerRow == null) {
+          showError(
+            context,
+            'El dueño de este chaco no puede registrar aplicaciones.',
+          );
+          return;
+        }
+        await selectPerson(ownerRow);
       }
     }
     if (mounted)

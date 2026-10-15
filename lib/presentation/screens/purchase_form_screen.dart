@@ -7,6 +7,7 @@ import 'package:image_picker/image_picker.dart';
 import '../../app.dart';
 import '../../domain/models.dart';
 import '../../domain/money.dart';
+import '../../domain/person_roles.dart';
 import '../widgets/adaptive_entity_picker.dart';
 import '../widgets/common.dart';
 
@@ -125,11 +126,14 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
 
   Future<List<List<Map<String, Object?>>>> _loadCatalogs() async {
     final repo = ref.read(repositoryProvider);
+    // Asignación y pagador según rol privado, titular y modalidad: en modo
+    // propio sólo el titular, también como pagador.
     final result = await Future.wait([
       repo.suppliers(),
       repo.campaigns(),
       repo.products(),
-      repo.people(),
+      repo.peopleFor(PersonPurpose.purchaseAllocation),
+      repo.peopleFor(PersonPurpose.providerPayer),
     ]);
     final active = result[1].where((row) => row['status'] == 'ACTIVE');
     campaignId = active.isEmpty ? null : active.first['id'] as int;
@@ -304,9 +308,7 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
           final campaigns = snapshot.data![1];
           final products = snapshot.data![2];
           final people = snapshot.data![3];
-          final admins = people
-              .where((person) => person['role'] == 'ADMIN')
-              .toList();
+          final admins = snapshot.data![4];
           return CustomScrollView(
             slivers: [
               SliverAppBar(

@@ -166,4 +166,67 @@ void main() {
       expect(result.session, ExistingSessionStartupState.noLocalSession);
     },
   );
+
+  group('ámbito de la sesión para la política de activación (#76)', () {
+    test(
+      'sólo una sesión legible expone Member y tenant, sin credenciales',
+      () async {
+        final (state, scope) = await ExistingSessionStartup(
+          identity: ready,
+          readLocalSession: () async =>
+              SessionReadResult(SessionReadStatus.available, session: _session),
+        ).loadDetailed();
+        expect(state, ExistingSessionStartupState.localSessionAvailable);
+        expect(scope?.memberId, 'synthetic-member-id');
+        expect(scope?.tenantId, 'synthetic-tenant-id');
+        expect(scope.toString(), isNot(contains('synthetic')));
+      },
+    );
+
+    for (final read in [
+      const SessionReadResult(SessionReadStatus.absent),
+      const SessionReadResult(SessionReadStatus.corrupt),
+      const SessionReadResult(SessionReadStatus.unavailable),
+      const SessionReadResult(SessionReadStatus.incompatible),
+      const SessionReadResult(SessionReadStatus.available),
+    ]) {
+      test('${read.status} sin sesión legible no expone ámbito', () async {
+        final (_, scope) = await ExistingSessionStartup(
+          identity: ready,
+          readLocalSession: () async => read,
+        ).loadDetailed();
+        expect(scope, isNull);
+      });
+    }
+
+    test(
+      'sólo el estado available expone ámbito, aunque traiga datos de sesión',
+      () async {
+        for (final status in [
+          SessionReadStatus.corrupt,
+          SessionReadStatus.unavailable,
+          SessionReadStatus.incompatible,
+        ]) {
+          final (_, scope) = await ExistingSessionStartup(
+            identity: ready,
+            readLocalSession: () async =>
+                SessionReadResult(status, session: _session),
+          ).loadDetailed();
+          expect(scope, isNull, reason: '$status');
+        }
+      },
+    );
+
+    test(
+      'una lectura que falla no expone ámbito ni se trata como ausente',
+      () async {
+        final (state, scope) = await ExistingSessionStartup(
+          identity: ready,
+          readLocalSession: () async => throw StateError('keystore'),
+        ).loadDetailed();
+        expect(state, ExistingSessionStartupState.unavailable);
+        expect(scope, isNull);
+      },
+    );
+  });
 }

@@ -16,6 +16,8 @@ import 'package:go_router/go_router.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+import 'support/f04_app_access.dart';
+
 /// Pantalla de reportes (Lote H): selección, filtros, vacío, progreso, éxito,
 /// error y navegación atrás.
 void main() {
@@ -94,6 +96,7 @@ void main() {
       ProviderScope(
         overrides: [
           repositoryProvider.overrideWithValue(repo),
+          activatedInstallationForTests(),
           reportStorageProvider.overrideWithValue(override ?? storage),
         ],
         child: MaterialApp(
@@ -308,6 +311,7 @@ void main() {
         ProviderScope(
           overrides: [
             repositoryProvider.overrideWithValue(repo),
+            activatedInstallationForTests(),
             reportStorageProvider.overrideWithValue(storage),
           ],
           child: const AgroApp(),
@@ -364,6 +368,7 @@ void main() {
         ProviderScope(
           overrides: [
             repositoryProvider.overrideWithValue(repo),
+            activatedInstallationForTests(),
             reportStorageProvider.overrideWithValue(storage),
           ],
           child: MaterialApp.router(routerConfig: router),
@@ -439,6 +444,7 @@ void main() {
         ProviderScope(
           overrides: [
             repositoryProvider.overrideWithValue(repo),
+            activatedInstallationForTests(),
             reportStorageProvider.overrideWithValue(storage),
           ],
           child: MaterialApp(
@@ -503,6 +509,7 @@ void main() {
         ProviderScope(
           overrides: [
             repositoryProvider.overrideWithValue(repo),
+            activatedInstallationForTests(),
             reportStorageProvider.overrideWithValue(storage),
           ],
           child: MaterialApp(

@@ -10,6 +10,8 @@ import '../../data/typed_reads.dart';
 import '../../domain/money.dart';
 import '../../domain/read_models.dart';
 import '../../domain/reports/report_composer.dart';
+import '../../domain/restore_ownership.dart';
+import '../../guarded_restore.dart';
 import '../widgets/common.dart';
 
 class SettlementsScreen extends ConsumerStatefulWidget {
@@ -284,10 +286,13 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
     );
   }
 
-  /// Restauración: valida el archivo, avisa de que reemplaza todo y solo
-  /// entonces sustituye la base. La copia previa se conserva siempre.
+  /// Restauración: valida el archivo, comprueba de quién es, avisa de que
+  /// reemplaza todo y sólo entonces sustituye la base, en exclusiva y
+  /// recalculando la autorización (`GuardedRestore`). La copia previa se
+  /// conserva siempre.
   Future<void> _restore() async {
     final service = ref.read(backupServiceProvider);
+    final guarded = ref.read(guardedRestoreProvider);
     final List<File> backups;
     try {
       backups = await service.listAvailableBackups();
@@ -345,6 +350,21 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
       return;
     }
 
+    // De quién es la copia, antes de pedir confirmación. Una copia ajena o
+    // ilegible no llega a ofrecerse (y la restauración lo vuelve a comprobar).
+    final RestoreOwnershipVerdict ownership;
+    try {
+      ownership = await guarded.preview(chosen.path);
+    } on Object catch (error) {
+      if (mounted) showError(context, error);
+      return;
+    }
+    if (!mounted) return;
+    if (!ownership.accepted) {
+      showError(context, ownership.message);
+      return;
+    }
+
     // Qué trae exactamente el archivo, antes de reemplazar nada. El formato
     // histórico sólo guarda la base: conviene saberlo ANTES de aceptar.
     final contents = validation.isLegacyWithoutPhotos
@@ -360,7 +380,8 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
       detail:
           '${p.basename(chosen.path)}\n'
           'Esquema versión ${validation.schemaVersion}\n'
-          '$contents\n\n'
+          '$contents\n'
+          '${ownership.message}\n\n'
           'TODOS los datos actuales se reemplazarán por los del respaldo. '
           'Se guardará automáticamente una copia de los datos actuales por si '
           'necesita volver atrás.',
@@ -368,15 +389,22 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
     );
     if (!confirmed || !mounted) return;
 
+    // El aviso sobrevive a la navegación: si la base restaurada no habilita
+    // operaciones, el router lleva a la pantalla de acceso.
+    final messenger = ScaffoldMessenger.of(context);
     try {
-      final result = await service.restore(chosen.path);
+      final result = (await guarded.restore(chosen.path)).result;
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            'Respaldo restaurado (${result.restoredAttachments} '
+            'fotografía(s)). Copia de los datos anteriores: '
+            '${result.safetyCopyPath}',
+          ),
+        ),
+      );
       if (!mounted) return;
       _refresh();
-      showSuccess(
-        context,
-        'Respaldo restaurado (${result.restoredAttachments} fotografía(s)). '
-        'Copia de los datos anteriores: ${result.safetyCopyPath}',
-      );
       if (result.warnings.isNotEmpty) {
         await _showNotices('Restauración', result.warnings);
       }

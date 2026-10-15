@@ -525,3 +525,82 @@ consentimiento sería peor que mantener la divergencia y dejar constancia.
 | Migración real en Pixel 8 | al restaurar un respaldo `.db` de esquema v5: `user_version` 5 a 6, `integrity_check ok`, índice creado como único, estados normalizados a 4 `APPLIED` y 1 `PLANNED`, sin anomalías |
 
 Las migraciones históricas (v1 a v5) **no se tocaron**.
+
+---
+
+# Actualización 2026-10-15 — Esquema v7 (F04-BUG-01, #73)
+
+`AppDatabase.schemaVersion` pasa de **6 a 7**.
+
+## Qué cambia
+
+| Cambio | Detalle |
+|---|---|
+| Tablas, columnas e índices | ninguno: el esquema de v7 es el mismo que el de v6 |
+| **Datos** | los movimientos `TRANSFER_REVERSAL_IN` / `TRANSFER_REVERSAL_OUT` con `product_id` distinto al de su lote toman el `product_id` de su lote |
+| Filas borradas | **ninguna** |
+
+Hasta v6, `reverseTransfer` asignaba a todos los movimientos de reversión el `product_id` de la
+cabecera `transfers`, que en una transferencia multiproducto solo guarda el primer producto. Desde
+v7, cada movimiento de reversión toma el producto de su lote (origen para `TRANSFER_REVERSAL_IN`,
+destino para `TRANSFER_REVERSAL_OUT`).
+
+## Migración v6 a v7
+
+`_upgradeToV7` ejecuta `AppDatabase.repairTransferReversalProducts`: un único `UPDATE` que solo
+toca filas `TRANSFER_REVERSAL_*` con `lot_id` cuyo `product_id` difiere del de su lote. Es
+idempotente: sobre una base sin el defecto, o ya reparada, no cambia ninguna fila. Si repara
+alguna, anota el número en `app_settings` bajo `schema_v7_transfer_reversal_repair`, con el mismo
+criterio de constancia que v5 y v6.
+
+## Verificación
+
+| Comprobación | Resultado |
+|---|---|
+| `f04_bug_01_reverse_transfer_test.dart` grupo *migración a v7* | una base v6 sembrada con el defecto queda reparada, solo cambia el `product_id` de las reversiones descuadradas y los saldos por producto cuadran; otra ejecución no cambia filas; un movimiento descuadrado que no es de reversión no se toca; una base v6 sin el defecto migra sin cambios ni registro; una base nueva nace en v7 |
+| `schema_equivalence_test.dart` | sigue verificando que una base migrada queda con el mismo esquema que una creada desde cero |
+
+Las migraciones históricas (v1 a v6) **no se tocaron**.
+
+# Actualización 2026-10-15 — Esquema v8 (política de activación, titular y modalidad)
+
+`AppDatabase.schemaVersion` pasa de **7 a 8**. Se construye sobre v7 (#73, PR #75).
+
+## Qué cambia
+
+| Cambio | Detalle |
+|---|---|
+| Tabla nueva `owner_bindings` | vínculo del titular local (`person_id`) con su Member y tenant (`member_id`, `tenant_id`), `owner_role` (`FAMILY` / `ADMIN`), `bound_at`, `ended_at`, `end_reason` (`OWNER_CHANGED`) |
+| Índice `idx_owner_bindings_single_active` | único parcial: como máximo un vínculo con `ended_at IS NULL` |
+| Disparadores | `trg_owner_bindings_no_delete` (sin borrado) y `trg_owner_bindings_close_only` (sólo se puede cerrar un vínculo activo; persona, Member, tenant, rol aceptado y fecha no cambian) |
+| `app_settings` | `install_origin` (`NEW_UNDER_POLICY` en `onCreate`; `LEGACY_PRE_POLICY` al migrar desde v7 o anterior), `activated_installation_ref`, `operation_mode` (`PERSONAL` / `SHARED`; sin la clave rige `SHARED`), `operation_mode_changed_at` |
+| Filas existentes | **ninguna** se modifica ni se borra |
+
+Referencias guardadas y su justificación:
+
+| Referencia | Para qué | Lo que no es |
+|---|---|---|
+| `member_id`, `tenant_id` | Comprobar localmente que la sesión vigente es del mismo ámbito que el titular. Es el ámbito de la clave de intención F05 §5 (tenant, Member) y de C34/C38 | No es credencial ni prueba de identidad: tras restaurar se revalida contra la sesión |
+| `activated_installation_ref` | Distinguir la misma instalación ya activada de una base restaurada en otra | Es un SHA-256 con prefijo de dominio del `installationClientId`, no el identificador |
+| `owner_role` | Dejar constancia del rol privado con el que se aceptó al titular. `ADMIN` (el agricultor histórico registrado como administrador de pagos) sólo se acepta con confirmación explícita | No es el rol central de la cuenta (AGRICULTOR, ADMINISTRADOR, DIRECTIVA) ni un permiso; no cambia `persons.role` |
+| `account_id` | **No se guarda**: la identidad de negocio es el Member (v1.5 §3.11.5) | — |
+
+Contraseñas, tokens y sesiones siguen sólo en el almacenamiento seguro y fuera de los respaldos.
+
+## Migración v7 a v8
+
+`_upgradeToV8` crea la tabla, el índice y los disparadores si faltan, e inserta `install_origin =
+LEGACY_PRE_POLICY` con `ConflictAlgorithm.ignore`. La marca depende del camino (creación o
+migración), no de si la base tiene filas: una base v7 vacía también queda como histórica. No crea
+ningún vínculo ni atribuye datos a ninguna cuenta.
+
+## Verificación
+
+| Comprobación | Resultado |
+|---|---|
+| `f04_install_policy_migration_test.dart` | base nueva v8 marcada NEW; v7 con datos migra a LEGACY con todas las tablas previas idénticas fila por fila; v7 vacía también es LEGACY; base nueva con datos sigue NEW; reapertura sin cambios; mismos disparadores en base nueva y migrada |
+| `f04_owner_binding_test.dart` | un familiar activo puede ser titular; un ADMIN exige confirmación y un tercero se rechaza, sin cambiar roles; sin vínculo por nombre; el motor impide reasignar (cada columna, también junto a un cierre válido), reabrir o borrar vínculos y tener dos activos |
+| `f04_historical_admin_owner_test.dart` | base v7 real con el agricultor como ADMIN: el vínculo confirmado no cambia ninguna otra fila, no duplica la persona y conserva rol y política MANUAL; el titular ADMIN compra, aplica, transfiere y paga en compartido, y compra, paga y aplica en propio, con cantidades y cuentas comprobadas |
+| `schema_equivalence_test.dart` | sigue verificando que una base migrada desde v3 queda con el mismo esquema que una nueva |
+
+Las migraciones históricas (v1 a v7) **no se tocaron**.

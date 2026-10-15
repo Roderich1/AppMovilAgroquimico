@@ -14,6 +14,9 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+import 'support/f04_app_access.dart';
+import 'support/f04_mode_fixtures.dart';
+
 class _NeverCommit implements SecureSessionCommitPort {
   @override
   Future<void> commitAndVerify(SessionCommitCandidate candidate) async =>
@@ -39,11 +42,18 @@ void main() {
       );
       addTearDown(database.close);
       final repository = AgroRepository(database);
+      // Política #76: base de una instalación ya activada en esta
+      // instalación. Es el caso de reapertura sin red que protege esta prueba.
+      await tester.runAsync(() => seedActivatedInstallation(database));
+      final readable =
+          state == ExistingSessionStartupState.localSessionAvailable ||
+          state == ExistingSessionStartupState.localSessionExpired;
       await tester.pumpWidget(
         ProviderScope(
           overrides: [
             repositoryProvider.overrideWithValue(repository),
             existingSessionStartupProvider.overrideWithValue(state),
+            ...startupAccessOverrides(sessionScope: readable ? memberA : null),
             authHttpTransportProvider.overrideWithValue(client),
             secureSessionCommitProvider.overrideWithValue(_NeverCommit()),
           ],

@@ -6,6 +6,8 @@ import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart' as mobile;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+import 'database_replacement.dart';
+
 class AppDatabase {
   AppDatabase({DatabaseFactory? factory, String? path})
     : _factory = factory,
@@ -16,7 +18,11 @@ class AppDatabase {
   /// Toda base, creada desde cero o migrada desde cualquier versión anterior,
   /// debe terminar con el mismo esquema. `test/schema_equivalence_test.dart`
   /// lo verifica automáticamente.
-  static const int schemaVersion = 6;
+  static const int schemaVersion = 8;
+
+  /// Primera versión con `owner_bindings` e `install_origin`: una base
+  /// anterior es histórica y no declara titular.
+  static const int ownerBindingsSinceVersion = 8;
 
   /// Clave en `app_settings` donde se registra que la migración a v5 no pudo
   /// imponer la unicidad por existir filas duplicadas previas. Su presencia
@@ -29,12 +35,69 @@ class AppDatabase {
   /// revisar; no se borra ninguna aplicación.
   static const String planReuseAnomalyKey = 'schema_v6_plan_reuse_anomaly';
 
+  /// Clave en `app_settings` donde se registra cuántos movimientos
+  /// `TRANSFER_REVERSAL_*` reparó la migración a v7 (F04-BUG-01). Solo se
+  /// escribe si se reparó al menos uno.
+  static const String transferReversalRepairKey =
+      'schema_v7_transfer_reversal_repair';
+
+  /// Clave en `app_settings` con el origen de la base respecto de la política
+  /// de primera activación (v8). La escribe el esquema, no el contenido: una
+  /// base creada por esta versión nace con [installOriginNew]; una que llega
+  /// migrada desde v7 o anterior recibe [installOriginLegacy]. Nunca se infiere
+  /// de si la base tiene filas.
+  static const String installOriginKey = 'install_origin';
+  static const String installOriginNew = 'NEW_UNDER_POLICY';
+  static const String installOriginLegacy = 'LEGACY_PRE_POLICY';
+
+  /// Resumen de un solo sentido de la instalación donde se activó por última
+  /// vez esta base (ver `installationReference`). No es el installationClientId.
+  static const String activatedInstallationKey = 'activated_installation_ref';
+
+  /// Modalidad vigente (`PERSONAL` | `SHARED`); sin la clave rige `SHARED`.
+  static const String operationModeKey = 'operation_mode';
+  static const String operationModeChangedAtKey = 'operation_mode_changed_at';
+
+  /// Vínculo del titular con su Member (v8). Filas de solo agregado: un
+  /// vínculo sólo puede cerrarse una vez; nunca se borra ni se reescribe.
+  /// `owner_role` es el rol privado con el que se aceptó al titular (ADMIN
+  /// sólo con confirmación explícita); no es el rol central de la cuenta.
+  static const List<String> ownerBindingSchema = <String>[
+    '''CREATE TABLE owner_bindings (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        person_id INTEGER NOT NULL REFERENCES persons(id),
+        member_id TEXT NOT NULL, tenant_id TEXT NOT NULL,
+        owner_role TEXT NOT NULL CHECK(owner_role IN ('FAMILY','ADMIN')),
+        bound_at TEXT NOT NULL, ended_at TEXT,
+        end_reason TEXT CHECK(end_reason IN ('OWNER_CHANGED')),
+        CHECK((ended_at IS NULL) = (end_reason IS NULL)))''',
+    'CREATE UNIQUE INDEX idx_owner_bindings_single_active '
+        'ON owner_bindings((1)) WHERE ended_at IS NULL',
+    '''CREATE TRIGGER trg_owner_bindings_no_delete BEFORE DELETE ON owner_bindings
+      BEGIN SELECT RAISE(ABORT, 'owner_bindings no admite borrado'); END''',
+    '''CREATE TRIGGER trg_owner_bindings_close_only BEFORE UPDATE ON owner_bindings
+      WHEN OLD.ended_at IS NOT NULL OR NEW.ended_at IS NULL
+        OR NEW.id IS NOT OLD.id OR NEW.person_id IS NOT OLD.person_id
+        OR NEW.member_id IS NOT OLD.member_id OR NEW.tenant_id IS NOT OLD.tenant_id
+        OR NEW.owner_role IS NOT OLD.owner_role OR NEW.bound_at IS NOT OLD.bound_at
+      BEGIN SELECT RAISE(ABORT, 'owner_bindings: solo se puede cerrar un vínculo activo'); END''',
+  ];
+
   final DatabaseFactory? _factory;
   final String? _customPath;
   Database? _db;
   String? _path;
 
-  Future<Database> get database async => _db ??= await _open();
+  /// Exclusión entre escrituras y sustitución de la base (restaurar). Todo
+  /// lo que escribe en esta base pasa por [DatabaseReplacementGuard.write].
+  final DatabaseReplacementGuard replacement = DatabaseReplacementGuard();
+
+  Future<Database> get database async {
+    // Durante una sustitución no se reabre el archivo a medio copiar.
+    await replacement.whenReadable();
+    return _db ??= await _open();
+  }
+
   String? get openedPath => _path;
 
   /// Fábrica efectiva para esta plataforma (o la inyectada en tests).
@@ -206,6 +269,14 @@ class AppDatabase {
     for (final statement in statements) {
       await db.execute(statement);
     }
+    for (final statement in ownerBindingSchema) {
+      await db.execute(statement);
+    }
+    // Una base creada por esta versión nace bajo la política de activación.
+    await db.insert('app_settings', {
+      'key': installOriginKey,
+      'value': installOriginNew,
+    });
   }
 
   Future<void> _upgradeSchema(
@@ -343,7 +414,86 @@ class AppDatabase {
     if (oldVersion < 6) {
       await _upgradeToV6(db);
     }
+    if (oldVersion < 7) {
+      await _upgradeToV7(db);
+    }
+    if (oldVersion < 8) {
+      await _upgradeToV8(db);
+    }
   }
+
+  /// Migración a la versión 8 — **política de activación y vínculo de
+  /// titular** (F03 / F04-MODE).
+  ///
+  /// Toda base que llega aquí existía antes de la política: se marca
+  /// [installOriginLegacy] para tratarla como histórica (compatibilidad
+  /// explícita), aunque esté vacía. No se crea ningún vínculo de titular ni se
+  /// atribuye nada a ninguna cuenta; eso exige una elección explícita después.
+  /// No modifica ninguna fila existente.
+  Future<void> _upgradeToV8(Database db) async {
+    final existingTables = (await db.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type='table'",
+    )).map((row) => row['name'] as String).toSet();
+    if (!existingTables.contains('owner_bindings')) {
+      for (final statement in ownerBindingSchema) {
+        await db.execute(statement);
+      }
+    }
+    if (!existingTables.contains('app_settings')) {
+      await db.execute(
+        'CREATE TABLE app_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL)',
+      );
+    }
+    await db.insert('app_settings', {
+      'key': installOriginKey,
+      'value': installOriginLegacy,
+    }, conflictAlgorithm: ConflictAlgorithm.ignore);
+  }
+
+  /// Migración a la versión 7 — **reparación de reversiones de transferencia**
+  /// (F04-BUG-01).
+  ///
+  /// Hasta v6, `reverseTransfer` asignaba a todos los movimientos
+  /// `TRANSFER_REVERSAL_IN` / `TRANSFER_REVERSAL_OUT` el `product_id` de la
+  /// cabecera `transfers`, que solo guarda el primer producto. En una
+  /// transferencia multiproducto eso descuadraba los saldos por producto.
+  ///
+  /// No cambia el esquema: una base nueva ya nace con la versión 7 y sin
+  /// movimientos que reparar. Solo corrige datos, con
+  /// [repairTransferReversalProducts], y deja constancia en `app_settings`
+  /// de cuántas filas reparó.
+  Future<void> _upgradeToV7(Database db) async {
+    final existingTables = (await db.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type='table'",
+    )).map((row) => row['name'] as String).toSet();
+
+    if (!existingTables.contains('inventory_movements') ||
+        !existingTables.contains('inventory_lots')) {
+      return;
+    }
+
+    final repaired = await repairTransferReversalProducts(db);
+    if (repaired > 0 && existingTables.contains('app_settings')) {
+      await db.insert('app_settings', {
+        'key': transferReversalRepairKey,
+        'value': '$repaired',
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+    }
+  }
+
+  /// Asigna a cada movimiento `TRANSFER_REVERSAL_*` el `product_id` de su
+  /// lote cuando difiere de él. Devuelve cuántas filas cambió.
+  ///
+  /// Es idempotente: sobre una base ya reparada no encuentra diferencias y
+  /// no toca ninguna fila. El resto de movimientos no se modifica.
+  static Future<int> repairTransferReversalProducts(DatabaseExecutor db) =>
+      db.rawUpdate('''UPDATE inventory_movements
+        SET product_id = (SELECT l.product_id FROM inventory_lots l
+          WHERE l.id = inventory_movements.lot_id)
+        WHERE type IN ('TRANSFER_REVERSAL_IN', 'TRANSFER_REVERSAL_OUT')
+          AND lot_id IS NOT NULL
+          AND product_id <> (SELECT l.product_id FROM inventory_lots l
+            WHERE l.id = inventory_movements.lot_id)''');
 
   /// Migración a la versión 6 — **un plan se aplica una sola vez**.
   ///

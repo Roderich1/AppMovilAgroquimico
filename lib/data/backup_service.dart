@@ -8,8 +8,14 @@ import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart'
     show Database, OpenDatabaseOptions, Sqflite;
 
+import '../domain/installation_access.dart';
+import '../domain/restore_ownership.dart';
 import 'app_database.dart';
+import 'database_replacement.dart';
 import 'invoice_storage.dart';
+
+export '../domain/restore_ownership.dart'
+    show BackupOwnership, RestoreRejection;
 
 /// Formato de un archivo de respaldo.
 enum BackupFormat {
@@ -587,6 +593,75 @@ class BackupService {
     }
   }
 
+  /// Titular que declara una base candidata, sin modificarla. Una base
+  /// anterior a la política (esquema < 8) no tiene vínculo: es histórica. Si
+  /// no se puede leer, falla con [BackupOwnershipException]: no se restaura
+  /// una copia cuya propiedad no se pudo comprobar.
+  Future<BackupOwnership> readOwnership(String databasePath) async {
+    Database? candidate;
+    try {
+      candidate = await appDatabase.resolvedFactory.openDatabase(
+        databasePath,
+        options: OpenDatabaseOptions(readOnly: true, singleInstance: false),
+      );
+      final version =
+          Sqflite.firstIntValue(
+            await candidate.rawQuery('PRAGMA user_version'),
+          ) ??
+          0;
+      if (version < AppDatabase.ownerBindingsSinceVersion) {
+        return const BackupOwnership.historical();
+      }
+      final settings = {
+        for (final row in await candidate.query('app_settings'))
+          row['key']! as String: row['value'] as String?,
+      };
+      final active = await candidate.query(
+        'owner_bindings',
+        columns: ['member_id', 'tenant_id'],
+        where: 'ended_at IS NULL',
+      );
+      if (active.length > 1) throw const BackupOwnershipException();
+      return BackupOwnership(
+        origin:
+            settings[AppDatabase.installOriginKey] ==
+                AppDatabase.installOriginNew
+            ? InstallOrigin.newUnderPolicy
+            : InstallOrigin.legacyPrePolicy,
+        binding: active.isEmpty
+            ? null
+            : OwnerScope(
+                memberId: active.single['member_id']! as String,
+                tenantId: active.single['tenant_id']! as String,
+              ),
+        activatedInstallationRef:
+            settings[AppDatabase.activatedInstallationKey],
+      );
+    } on BackupOwnershipException {
+      rethrow;
+    } on Object {
+      throw const BackupOwnershipException();
+    } finally {
+      await candidate?.close();
+    }
+  }
+
+  /// [readOwnership] de un archivo de respaldo (cualquiera de los dos
+  /// formatos), para avisar antes de confirmar. No modifica nada.
+  Future<BackupOwnership> inspectOwnership(String path) async {
+    final validation = await validate(path);
+    if (!validation.isValid) throw BackupException(validation.problem!);
+    if (validation.format != BackupFormat.container) {
+      return readOwnership(path);
+    }
+    final extracted = await _extract(path);
+    try {
+      return await readOwnership(p.join(extracted.path, _databaseName));
+    } finally {
+      await _deleteQuietly(extracted);
+    }
+  }
+
   /// Reemplaza los datos actuales por los del respaldo.
   ///
   /// Secuencia: validar el archivo → guardar una copia de seguridad de lo que
@@ -597,7 +672,29 @@ class BackupService {
   ///
   /// Ante cualquier fallo se deshace **todo**: nunca queda una base nueva con
   /// las fotos viejas ni al revés.
-  Future<BackupRestoreResult> restore(String path) async {
+  ///
+  /// Todo ocurre en exclusiva ([DatabaseReplacementGuard.replace]): las
+  /// escrituras en curso terminan antes y ninguna nueva entra hasta el final.
+  /// Antes de tocar nada se lee el titular que declara la base del respaldo y
+  /// se entrega a [verifyOwnership]; si lo rechaza, o si no se puede leer, la
+  /// base y las fotografías actuales quedan intactas.
+  ///
+  /// [afterReplace] sólo lo usan las pruebas (a través de `GuardedRestore`):
+  /// se ejecuta con la base ya sustituida y antes de terminar, y si falla se
+  /// deshace todo.
+  Future<BackupRestoreResult> restore(
+    String path, {
+    Future<void> Function(BackupOwnership ownership)? verifyOwnership,
+    Future<void> Function()? afterReplace,
+  }) => appDatabase.replacement.replace(
+    () => _restoreExclusively(path, verifyOwnership, afterReplace),
+  );
+
+  Future<BackupRestoreResult> _restoreExclusively(
+    String path,
+    Future<void> Function(BackupOwnership ownership)? verifyOwnership,
+    Future<void> Function()? afterReplace,
+  ) async {
     final validation = await validate(path);
     if (!validation.isValid) {
       throw BackupException(validation.problem!);
@@ -617,6 +714,16 @@ class BackupService {
     final databaseSource = extracted == null
         ? path
         : p.join(extracted.path, _databaseName);
+
+    // La propiedad se comprueba sobre la misma base que se va a copiar y
+    // antes de guardar, cerrar o reemplazar nada.
+    try {
+      final ownership = await readOwnership(databaseSource);
+      if (verifyOwnership != null) await verifyOwnership(ownership);
+    } on Object {
+      if (extracted != null) await _deleteQuietly(extracted);
+      rethrow;
+    }
 
     // El formato histórico no trae fotografías y no las toca: no hay motivo
     // para resolver siquiera dónde viven.
@@ -692,6 +799,7 @@ class BackupService {
         );
       }
 
+      if (afterReplace != null) await afterReplace();
       return BackupRestoreResult(
         safetyCopyPath: safetyCopy,
         format: validation.format,
@@ -699,8 +807,12 @@ class BackupService {
         warnings: warnings,
       );
     } on Object {
-      // Deshacer el conjunto: base y fotografías vuelven a como estaban.
+      // Deshacer el conjunto: base y fotografías vuelven a como estaban. Los
+      // diarios son de la base restaurada y no deben aplicarse a la anterior.
       await appDatabase.close();
+      for (final suffix in const ['-wal', '-shm']) {
+        await _deleteQuietly(File('$target$suffix'));
+      }
       if (hadPrevious) {
         await File(safetyCopy).copy(target);
       } else {
@@ -788,4 +900,19 @@ class BackupException implements Exception {
   final String message;
   @override
   String toString() => message;
+}
+
+/// No se pudo leer de quién es la copia: no se restaura.
+class BackupOwnershipException extends BackupException {
+  const BackupOwnershipException([
+    super.message =
+        'No se pudo comprobar el titular de esta copia. No se restauró; sus '
+        'datos actuales se conservan.',
+  ]);
+}
+
+/// La copia es de otro titular (o de una activación sin terminar).
+class BackupOwnershipRejectedException extends BackupException {
+  const BackupOwnershipRejectedException(super.message, this.rejection);
+  final RestoreRejection rejection;
 }
