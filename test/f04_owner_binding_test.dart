@@ -38,7 +38,7 @@ void main() {
 
   group('elección explícita del titular', () {
     test(
-      'vincular un familiar guarda sólo persona, Member, tenant y fecha',
+      'vincular un familiar guarda sólo persona, Member, tenant, rol y fecha',
       () async {
         final household = await seedHousehold(repo);
         final binding = await store.bindExistingPerson(
@@ -48,18 +48,22 @@ void main() {
         );
         expect(binding.personId, household.titular);
         expect(binding.scope, memberA);
+        expect(binding.ownerRole, PersonRole.family);
         final db = await database.database;
         final row = (await db.query('owner_bindings')).single;
-        // Sin cuenta, tokens, contraseñas ni installationClientId.
+        // Sin cuenta, tokens, contraseñas ni installationClientId; el rol es
+        // el privado de negocio, no el rol central de la cuenta.
         expect(row.keys.toSet(), {
           'id',
           'person_id',
           'member_id',
           'tenant_id',
+          'owner_role',
           'bound_at',
           'ended_at',
           'end_reason',
         });
+        expect(row['owner_role'], 'FAMILY');
         expect(
           (await settings(db))[AppDatabase.activatedInstallationKey],
           installationHere,
@@ -67,19 +71,34 @@ void main() {
       },
     );
 
-    test('un administrador de pagos o un tercero no pueden ser titular; los roles no cambian', () async {
+    test('un administrador de pagos exige confirmación y un tercero no puede ser titular; los roles no cambian', () async {
       final household = await seedHousehold(repo);
       final admin = await repo.addPerson(name: 'Paga', role: PersonRole.admin);
       final db = await database.database;
       final before = await dumpTables(db);
-      for (final person in [admin, household.thirdParty]) {
+      await expectLater(
+        store.bindExistingPerson(
+          personId: admin,
+          scope: memberA,
+          installationRef: installationHere,
+        ),
+        throwsA(isA<OwnerAdministratorConfirmationRequired>()),
+      );
+      for (final confirm in [false, true]) {
         await expectLater(
           store.bindExistingPerson(
-            personId: person,
+            personId: household.thirdParty,
             scope: memberA,
             installationRef: installationHere,
+            confirmAdministrator: confirm,
           ),
-          throwsA(isA<OwnerBindingException>()),
+          throwsA(
+            isA<OwnerBindingException>().having(
+              (e) => e,
+              'no pide confirmación',
+              isNot(isA<OwnerAdministratorConfirmationRequired>()),
+            ),
+          ),
         );
       }
       expect(await dumpTables(db), before);
@@ -168,29 +187,39 @@ void main() {
       );
     }
 
-    test(
-      'no se puede reasignar persona, Member o tenant ni borrar el vínculo',
-      () async {
-        final binding = await bound();
-        final db = await database.database;
-        for (final change in <Map<String, Object?>>[
-          {'person_id': binding.personId + 1},
-          {'member_id': memberB.memberId},
-          {'tenant_id': memberAOtherTenant.tenantId},
-          {'bound_at': '2000-01-01T00:00:00.000Z'},
+    test('no se puede reasignar persona, Member, tenant o rol aceptado ni borrar el vínculo', () async {
+      final binding = await bound();
+      final db = await database.database;
+      const close = {
+        'ended_at': '2026-10-15T00:00:00.000Z',
+        'end_reason': 'OWNER_CHANGED',
+      };
+      for (final change in <Map<String, Object?>>[
+        {'person_id': binding.personId + 1},
+        {'member_id': memberB.memberId},
+        {'tenant_id': memberAOtherTenant.tenantId},
+        {'owner_role': PersonRole.admin.code},
+        {'bound_at': '2000-01-01T00:00:00.000Z'},
+      ]) {
+        // Solo, y también junto a un cierre válido: así lo rechaza la
+        // comprobación de esa columna y no sólo la de "vínculo activo".
+        for (final update in [
+          change,
+          {...change, ...close},
         ]) {
           await expectLater(
-            db.update('owner_bindings', change),
+            db.update('owner_bindings', update),
             throwsA(isA<DatabaseException>()),
+            reason: '$update',
           );
         }
-        await expectLater(
-          db.delete('owner_bindings'),
-          throwsA(isA<DatabaseException>()),
-        );
-        expect((await store.activeBinding())!.scope, memberA);
-      },
-    );
+      }
+      await expectLater(
+        db.delete('owner_bindings'),
+        throwsA(isA<DatabaseException>()),
+      );
+      expect((await store.activeBinding())!.scope, memberA);
+    });
 
     test('un vínculo cerrado no se reabre ni se vuelve a cerrar', () async {
       final binding = await bound();
@@ -213,14 +242,22 @@ void main() {
     test('nunca hay dos vínculos activos', () async {
       final binding = await bound();
       final db = await database.database;
+      // Fila completa y válida: sólo el índice de un único activo la rechaza.
       await expectLater(
         db.insert('owner_bindings', {
           'person_id': binding.personId,
           'member_id': memberA.memberId,
           'tenant_id': memberA.tenantId,
+          'owner_role': PersonRole.family.code,
           'bound_at': '2026-10-15T00:00:00.000Z',
         }),
-        throwsA(isA<DatabaseException>()),
+        throwsA(
+          isA<DatabaseException>().having(
+            (e) => e.toString(),
+            'causa',
+            contains('UNIQUE'),
+          ),
+        ),
       );
     });
   });
