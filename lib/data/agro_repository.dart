@@ -1,12 +1,17 @@
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
-import 'package:sqflite/sqflite.dart' show Database, DatabaseExecutor, Sqflite;
+import 'package:sqflite/sqflite.dart'
+    show Database, DatabaseExecutor, Sqflite, Transaction;
 
 import '../domain/models.dart';
 import '../domain/money.dart';
+import '../domain/operation_mode.dart';
+import '../domain/person_roles.dart';
 import 'app_database.dart';
+import 'farmer_operation_gate.dart';
 import 'invoice_storage.dart';
+import 'operation_mode_store.dart';
 
 class BusinessRuleException implements Exception {
   BusinessRuleException(this.message);
@@ -24,19 +29,106 @@ class CampaignConflictException extends BusinessRuleException {
   final String activeCampaignName;
 }
 
+/// Se lanza cuando la modalidad propia (PERSONAL) no admite la operación.
+class PersonalModeRestrictionException extends BusinessRuleException {
+  PersonalModeRestrictionException(super.message);
+}
+
+/// Modalidad y titular vigentes, leídos dentro de la transacción que escribe.
+typedef WriteContext = ({OperationMode mode, int? ownerPersonId});
+
 class AgroRepository {
-  AgroRepository(this.appDatabase);
+  AgroRepository(
+    this.appDatabase, {
+    FarmerOperationGate gate = const FarmerOperationGate.unrestricted(),
+  }) : _gate = gate;
   final AppDatabase appDatabase;
+  final FarmerOperationGate _gate;
 
   Future<Database> get _db => appDatabase.database;
   String _date(DateTime date) => date.toUtc().toIso8601String();
+
+  /// Toda escritura del agricultor pasa por aquí: primero la política de
+  /// activación y después, **dentro de la misma transacción que escribe**, la
+  /// modalidad y el titular vigentes. Leerlos antes, fuera de ella, dejaba que
+  /// un cambio de modalidad (también transaccional) se confirmara entre la
+  /// lectura y la escritura: una compra iniciada en compartido podía asignar
+  /// existencias a un tercero después del paso a propio.
+  Future<T> _write<T>(
+    Future<T> Function(Transaction txn, WriteContext context) body,
+  ) async {
+    _gate.ensureAllowed();
+    return (await _db).transaction(
+      (txn) async => body(txn, await _readWriteContext(txn)),
+    );
+  }
+
+  Future<WriteContext> _readWriteContext(DatabaseExecutor txn) async {
+    final mode = await OperationModeStore(appDatabase).current(txn);
+    final owner = await txn.query(
+      'owner_bindings',
+      columns: ['person_id'],
+      where: 'ended_at IS NULL',
+    );
+    final ownerPersonId = owner.isEmpty
+        ? null
+        : owner.single['person_id'] as int;
+    if (mode == OperationMode.personal && ownerPersonId == null) {
+      throw PersonalModeRestrictionException(
+        'El inventario propio necesita un titular vinculado.',
+      );
+    }
+    return (mode: mode, ownerPersonId: ownerPersonId);
+  }
+
+  /// En modo propio, la persona responsable sólo puede ser el titular.
+  void _requireOwnerInPersonal(
+    WriteContext context,
+    Iterable<int> personIds,
+    String message,
+  ) {
+    if (context.mode != OperationMode.personal) return;
+    if (personIds.any((id) => id != context.ownerPersonId)) {
+      throw PersonalModeRestrictionException(message);
+    }
+  }
+
+  /// Las transferencias entre responsables no existen en modo propio
+  /// (RF-06: el modo compartido habilita responsables y transferencias).
+  void _rejectTransferInPersonal(WriteContext context) {
+    if (context.mode == OperationMode.personal) {
+      throw PersonalModeRestrictionException(
+        'En inventario propio no hay transferencias entre responsables.',
+      );
+    }
+  }
+
+  Future<void> _requireOwnerFarmInPersonal(
+    DatabaseExecutor txn,
+    WriteContext context,
+    int farmId,
+  ) async {
+    if (context.mode != OperationMode.personal) return;
+    final farm = await txn.query(
+      'farms',
+      columns: ['owner_person_id'],
+      where: 'id=?',
+      whereArgs: [farmId],
+    );
+    if (farm.isNotEmpty &&
+        farm.single['owner_person_id'] != context.ownerPersonId) {
+      throw PersonalModeRestrictionException(
+        'En inventario propio sólo se usan los chacos del titular.',
+      );
+    }
+  }
 
   Future<int> addPerson({
     required String name,
     required PersonRole role,
     SettlementPolicy? policy,
     String? phone,
-  }) async {
+  }) {
     final effective =
         policy ??
         switch (role) {
@@ -44,13 +136,15 @@ class AgroRepository {
           PersonRole.family => SettlementPolicy.byActualUsage,
           PersonRole.thirdParty => SettlementPolicy.byPurchaseAllocation,
         };
-    return (await _db).insert('persons', {
-      'name': name.trim(),
-      'role': role.code,
-      'settlement_policy': effective.code,
-      'phone': phone,
-      'created_at': _date(DateTime.now()),
-    });
+    return _write(
+      (txn, _) => txn.insert('persons', {
+        'name': name.trim(),
+        'role': role.code,
+        'settlement_policy': effective.code,
+        'phone': phone,
+        'created_at': _date(DateTime.now()),
+      }),
+    );
   }
 
   Future<int> addFarm({
@@ -58,20 +152,23 @@ class AgroRepository {
     required String name,
     required int areaM2,
     String? location,
-  }) => _db.then(
-    (db) => db.insert('farms', {
+  }) => _write((txn, context) {
+    _requireOwnerInPersonal(context, [
+      ownerId,
+    ], 'En inventario propio los chacos pertenecen al titular.');
+    return txn.insert('farms', {
       'owner_person_id': ownerId,
       'name': name.trim(),
       'area_m2': areaM2,
       'location': location,
-    }),
-  );
+    });
+  });
 
   Future<int> addCampaign({
     required String name,
     required DateTime start,
     DateTime? end,
-  }) async => (await _db).transaction((txn) async {
+  }) => _write((txn, _) async {
     final active =
         Sqflite.firstIntValue(
           await txn.rawQuery(
@@ -101,7 +198,7 @@ class AgroRepository {
     int campaignId, {
     bool closeCurrent = false,
   }) async {
-    await (await _db).transaction((txn) async {
+    await _write((txn, _) async {
       final target = await txn.query(
         'campaigns',
         where: 'id=?',
@@ -159,7 +256,7 @@ class AgroRepository {
   }
 
   Future<void> closeCampaign(int campaignId) async {
-    await (await _db).transaction((txn) async {
+    await _write((txn, _) async {
       final changed = await txn.update(
         'campaigns',
         {'status': 'CLOSED', 'end_date': _date(DateTime.now())},
@@ -241,8 +338,8 @@ class AgroRepository {
     required String name,
     String? activeIngredient,
     String unit = 'L',
-  }) => _db.then(
-    (db) => db.insert('products', {
+  }) => _write(
+    (txn, _) => txn.insert('products', {
       'name': name.trim(),
       'active_ingredient': activeIngredient,
       'unit': unit,
@@ -254,8 +351,8 @@ class AgroRepository {
     required String name,
     String? phone,
     String? notes,
-  }) => _db.then(
-    (db) => db.insert('suppliers', {
+  }) => _write(
+    (txn, _) => txn.insert('suppliers', {
       'name': name.trim(),
       'phone': phone,
       'notes': notes,
@@ -301,7 +398,8 @@ class AgroRepository {
     if (items.any((item) => item.doseBasePerHa <= 0)) {
       throw BusinessRuleException('Todas las dosis deben ser mayores a cero.');
     }
-    return (await _db).transaction((txn) async {
+    return _write((txn, context) async {
+      await _requireOwnerFarmInPersonal(txn, context, farmId);
       await _ensureCampaignActive(txn, campaignId);
       final planId = await txn.insert('application_plans', {
         'farm_id': farmId,
@@ -369,7 +467,11 @@ class AgroRepository {
       );
     }
 
-    return (await _db).transaction((txn) async {
+    return _write((txn, context) async {
+      _requireOwnerInPersonal(context, [
+        for (final item in draft.items)
+          for (final allocation in item.allocations) allocation.personId,
+      ], 'En inventario propio la compra se asigna sólo al titular.');
       await _ensureCampaignActive(txn, draft.campaignId);
       final purchaseId = await txn.insert('purchases', {
         'supplier_id': draft.supplierId,
@@ -477,7 +579,10 @@ class AgroRepository {
   }) async {
     if (amountBobMinor <= 0)
       throw BusinessRuleException('El pago debe ser mayor a cero.');
-    return (await _db).transaction((txn) async {
+    return _write((txn, context) async {
+      _requireOwnerInPersonal(context, [
+        payerPersonId,
+      ], 'En inventario propio el pago al proveedor lo registra el titular.');
       final purchase = (await txn.query(
         'purchases',
         where: 'id = ? AND reversed_at IS NULL',
@@ -518,7 +623,11 @@ class AgroRepository {
         'No repita productos dentro de la aplicación.',
       );
     }
-    return (await _db).transaction((txn) async {
+    return _write((txn, context) async {
+      _requireOwnerInPersonal(context, [
+        draft.personId,
+      ], 'En inventario propio la aplicación la realiza el titular.');
+      await _requireOwnerFarmInPersonal(txn, context, draft.farmId);
       await _ensureCampaignActive(txn, draft.campaignId);
       // **Un plan se aplica una sola vez** (UIBUG-045). La comprobación vive
       // dentro de la transacción, así que un doble toque o una llamada
@@ -669,7 +778,10 @@ class AgroRepository {
   }) async {
     if (amountBobMinor <= 0)
       throw BusinessRuleException('El importe debe ser mayor a cero.');
-    return (await _db).transaction((txn) async {
+    return _write((txn, context) async {
+      _requireOwnerInPersonal(context, [
+        personId,
+      ], 'En inventario propio sólo se registran pagos del titular.');
       final paymentId = await txn.insert('account_transactions', {
         'person_id': personId,
         'campaign_id': campaignId,
@@ -706,7 +818,7 @@ class AgroRepository {
   }
 
   Future<void> reverseApplication(int applicationId, {String? reason}) async {
-    await (await _db).transaction((txn) async {
+    await _write((txn, _) async {
       final rows = await txn.query(
         'applications',
         where: 'id = ? AND reversed_at IS NULL',
@@ -775,7 +887,7 @@ class AgroRepository {
   }
 
   Future<void> reversePurchase(int purchaseId, {String? reason}) async {
-    await (await _db).transaction((txn) async {
+    await _write((txn, _) async {
       final consumed =
           Sqflite.firstIntValue(
             await txn.rawQuery(
@@ -874,6 +986,8 @@ class AgroRepository {
     DateTime? date,
     String? notes,
   }) async {
+    // La compuerta y la modalidad se comprueban dentro de la transferencia,
+    // en la misma transacción que escribe.
     final source = await (await _db).query(
       'inventory_lots',
       columns: ['product_id', 'owner_person_id'],
@@ -943,7 +1057,8 @@ class AgroRepository {
         'No repita productos dentro de la transferencia.',
       );
     }
-    return (await _db).transaction((txn) async {
+    return _write((txn, context) async {
+      _rejectTransferInPersonal(context);
       final movementDate = _date(date ?? DateTime.now());
       final transferId = await txn.insert('transfers', {
         'product_id': validItems.first.productId,
@@ -1055,7 +1170,7 @@ class AgroRepository {
   }
 
   Future<void> reverseTransfer(int transferId, {String? reason}) async {
-    await (await _db).transaction((txn) async {
+    await _write((txn, _) async {
       final transfers = await txn.query(
         'transfers',
         where: "id=? AND status='CONFIRMED' AND reversed_at IS NULL",
@@ -1179,39 +1294,83 @@ class AgroRepository {
     if (!allowed.contains(table)) throw ArgumentError('Catálogo no permitido.');
     if (name.trim().isEmpty)
       throw BusinessRuleException('El nombre no puede estar vacío.');
-    await (await _db).update(
-      table,
-      {'name': name.trim()},
-      where: 'id=?',
-      whereArgs: [id],
+    await _write(
+      (txn, _) => txn.update(
+        table,
+        {'name': name.trim()},
+        where: 'id=?',
+        whereArgs: [id],
+      ),
     );
   }
 
   Future<void> archiveCatalog(String table, int id) async {
     const activeTables = {'persons', 'farms', 'products', 'suppliers'};
-    if (activeTables.contains(table)) {
-      await (await _db).update(
+    if (!activeTables.contains(table) && table != 'campaigns') {
+      throw ArgumentError('Catálogo no permitido.');
+    }
+    await _write((txn, context) async {
+      if (table == 'persons' && id == context.ownerPersonId) {
+        throw BusinessRuleException(
+          'El titular vinculado no se puede archivar.',
+        );
+      }
+      await txn.update(
         table,
-        {'active': 0},
+        activeTables.contains(table) ? {'active': 0} : {'status': 'CLOSED'},
         where: 'id=?',
         whereArgs: [id],
       );
-      return;
-    }
-    if (table == 'campaigns') {
-      await (await _db).update(
-        table,
-        {'status': 'CLOSED'},
-        where: 'id=?',
-        whereArgs: [id],
-      );
-      return;
-    }
-    throw ArgumentError('Catálogo no permitido.');
+    });
   }
 
   Future<List<Map<String, Object?>>> people() async =>
       (await _db).query('persons', where: 'active=1', orderBy: 'name');
+
+  /// Modalidad y titular vigentes, en una sola consulta.
+  static const _contextColumns =
+      '(SELECT value FROM app_settings WHERE key=?) context_mode, '
+      '(SELECT person_id FROM owner_bindings WHERE ended_at IS NULL) '
+      'context_owner';
+
+  /// Modalidad y titular vigentes, sólo para presentar opciones. Cada
+  /// escritura los vuelve a leer dentro de su propia transacción.
+  Future<WriteContext> operatingContext() async {
+    final row = (await (await _db).rawQuery('SELECT $_contextColumns', [
+      AppDatabase.operationModeKey,
+    ])).single;
+    return (
+      mode: OperationMode.fromCode(row['context_mode'] as String?),
+      ownerPersonId: row['context_owner'] as int?,
+    );
+  }
+
+  /// Personas activas que pueden cumplir [purpose] según el titular y la
+  /// modalidad (`person_roles.dart`). Una sola consulta: personas, modalidad
+  /// y titular se leen juntos.
+  Future<List<Map<String, Object?>>> peopleFor(PersonPurpose purpose) async {
+    final rows = await (await _db).rawQuery(
+      'SELECT p.*, $_contextColumns FROM persons p '
+      'WHERE p.active=1 ORDER BY p.name',
+      [AppDatabase.operationModeKey],
+    );
+    if (rows.isEmpty) return const [];
+    final mode = OperationMode.fromCode(rows.first['context_mode'] as String?);
+    final owner = rows.first['context_owner'] as int?;
+    return eligiblePeople(
+      [
+        for (final row in rows)
+          {
+            for (final entry in row.entries)
+              if (!entry.key.startsWith('context_')) entry.key: entry.value,
+          },
+      ],
+      purpose,
+      ownerPersonId: owner,
+      mode: mode,
+    );
+  }
+
   Future<List<Map<String, Object?>>> products() async =>
       (await _db).query('products', where: 'active=1', orderBy: 'name');
   Future<List<Map<String, Object?>>> suppliers() async =>
@@ -1734,6 +1893,8 @@ class AgroRepository {
   }
 
   Future<String> storeInvoiceImage(String sourcePath) async {
+    // Sólo copia un archivo: basta la compuerta, no hay contexto de modalidad.
+    _gate.ensureAllowed();
     // La carpeta la decide `invoice_storage.dart`, que es también donde la
     // busca `BackupService` para meterla en el respaldo y devolverla al
     // restaurar.
