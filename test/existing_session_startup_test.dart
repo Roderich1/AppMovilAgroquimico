@@ -200,6 +200,24 @@ void main() {
     }
 
     test(
+      'sólo el estado available expone ámbito, aunque traiga datos de sesión',
+      () async {
+        for (final status in [
+          SessionReadStatus.corrupt,
+          SessionReadStatus.unavailable,
+          SessionReadStatus.incompatible,
+        ]) {
+          final (_, scope) = await ExistingSessionStartup(
+            identity: ready,
+            readLocalSession: () async =>
+                SessionReadResult(status, session: _session),
+          ).loadDetailed();
+          expect(scope, isNull, reason: '$status');
+        }
+      },
+    );
+
+    test(
       'una lectura que falla no expone ámbito ni se trata como ausente',
       () async {
         final (state, scope) = await ExistingSessionStartup(
