@@ -88,3 +88,96 @@ Cada mutación se aplicó en `lib/`. Después se ejecutaron los cinco archivos `
 - Pruebas automatizadas: ejecutadas con Claude Code el 2026-10-15.
 - Revisión de Roderich Rendón: pendiente.
 - Revisión del tutor: se registra aparte en GOV-01.
+
+---
+
+# Parte 2: arranque, router e interfaz
+
+| Elemento | Valor |
+|---|---|
+| Fecha | 2026-10-15 |
+| Rama | `feat/f04-activacion-arranque-ui` (sobre `b90c6289ec29608b45acaef9663aadbb66f0f07d`, parte 1) |
+| Commits verificados | `5f112a1920516e48df8550ddf5e76b2ce3ef3ee7` (implementación) y `c89057c91fe8d5e2520f832c79d7d10f62a452d8` (prueba añadida tras la mutación R7) |
+| Tipo de prueba | Pruebas de host y de widgets (`flutter test`), con base sqflite real y sesión segura sustituida; sin dispositivo |
+| Ejecución | Pruebas automatizadas ejecutadas con Claude Code en el entorno de desarrollo |
+
+## Qué se conecta
+
+- **Arranque.** `bootstrapExistingSession` devuelve el ámbito de la sesión sólo si es `available`, y sólo en memoria. `main.dart` calcula `installationReference` si la identidad está lista.
+- **`InstallationAccessController`.**
+  - Calcula el estado A–F.
+  - Tras una activación en esta ejecución relee la sesión segura.
+  - Si el mismo Member reactiva en otra instalación, registra la instalación.
+  - Ante cualquier error falla cerrado (estado `null`) y ofrece reintentar. Nunca escribe datos de negocio.
+- **`repositoryProvider`.** Instala `FarmerOperationGate`: con el estado `null` o bloqueado, toda escritura se rechaza.
+- **Router.**
+  - Sin estado o bloqueado: `/acceso`.
+  - Activación sin titular: sólo `/titular`.
+  - Estados que operan: libre.
+- **Pantallas.**
+  - Acceso: mensaje y acción permitida; nunca restablece nada.
+  - Titular: elección explícita de un familiar o alta, y modalidad inicial.
+  - Modo de uso: bloqueos, consecuencias y confirmación.
+- **Activación.** «Continuar con datos locales» sólo aparece si ya se puede operar; si no, «Continuar» lleva a `/acceso`.
+
+## Pruebas que cambian de expectativa (requisito anterior → política)
+
+| Prueba | Antes | Ahora |
+|---|---|---|
+| `first_activation_screen_test`: `real app dashboard exposes activation route` | Base nueva sin sesión → Dashboard | **Reemplazada** por «nueva instalación (#76)»: no abre el Dashboard; la escritura directa al repositorio se rechaza sin cambios; una ruta de formulario vuelve a `/acceso`; desde ahí se abre la activación |
+| `first_activation_screen_test`: `successful activation updates local binding state in the same runtime` | Activar → Dashboard y escritura | **Reemplazada** por «activación correcta (#76)»: tras activar, el estado es «activada sin titular» con escrituras bloqueadas; se crea el titular; luego Dashboard, vínculo con Member/tenant y escritura habilitada; la activación no se repite |
+| `first_activation_screen_test`: `local SQLite remains writable after authentication failure` | Escribía en otra base sin relación | **Reemplazada** por «authentication failure does not touch the SQLite domain»: volcado idéntico antes y después del fallo |
+| `existing_session_screen_test` (6 estados de sesión) | Base nueva | Base de una instalación **ya activada** (titular y misma instalación); las aserciones se mantienen. Es el caso de reapertura sin red que protege |
+| `remote_session_screen_test` (7) | Base nueva | Instalación ya activada del Member A; aserciones sin cambios |
+| `navigation_test`, `hierarchical_navigation_test`, `purchases_access_test`, `reports_screen_test`, `widget_test` | Sin compuerta | Override explícito `activatedInstallationForTests()`; no tratan la activación |
+
+## Pruebas nuevas de la parte 2 (22 casos)
+
+| Archivo | Cubre |
+|---|---|
+| `f04_activation_app_policy_test.dart` (15) | Base histórica: abre el Dashboard, opera y no se vincula sola. Base histórica con sesión legible: titular elegido explícitamente, roles intactos. Activada con sesión ilegible: opera, con aviso. Reapertura sin red con sesión expirada: no escribe nada al abrir. Base restaurada de otra instalación: `/acceso`, escritura rechazada, volcado idéntico. Sesión de otro Member: `/acceso`, sin «Elegir titular», volcado idéntico. Base nueva con sesión dañada: no se ofrece activar ni se borra nada. Repositorio de la app falla cerrado mientras se evalúa. Modo de uso: bloqueo con existencias de terceros sin cambios; sin terceros pide confirmación y pasa a propio con datos de negocio idénticos. `accessRedirect` (4). La app instala la compuerta real |
+| `existing_session_startup_test.dart` (+7) | Sólo una sesión `available` expone Member y tenant, sin credenciales; los estados ilegibles, una lectura fallida y una lectura no `available` con datos de sesión no exponen ámbito |
+
+## Resultados (sobre `c89057c`)
+
+| Comando | Resultado |
+|---|---|
+| `dart format --output=none --set-exit-if-changed lib test` | PASS, 132 archivos, 0 cambiados |
+| `flutter analyze` | PASS, `No issues found!` |
+| `flutter test` | PASS 785/785 (63 s de reloj) |
+
+### Fallos observados durante la construcción
+
+| Paso | Observación | Resolución |
+|---|---|---|
+| Primera suite con la compuerta | 35 fallos en 8 archivos que montan la app: el `redirect` y la compuerta aplicaban la política real | Overrides explícitos y pruebas reescritas (tabla anterior) |
+| `purchases_access_test`: «ninguna ruta declarada queda sin origen» | `/acceso` sólo se alcanzaba por `redirect`; luego, con un ternario, la guarda no lo veía | Navegación literal `context.go('/acceso')`. La guarda no se modificó |
+| Pruebas de app nuevas | `pumpAndSettle` no termina con sqflite real; el toque fallaba fuera de la pantalla de prueba; la espera salía antes de construir la ruta nueva | Espera con `runAsync`, `ensureVisible` y un mínimo de vueltas |
+| `redirect` | Desde `/acceso` no se pasaba a `/titular` al quedar la activación sin titular | Regla explícita: activación sin titular → sólo `/titular` |
+
+### Mutaciones (sobre `5f112a1`)
+
+Archivos ejecutados: `f04_activation_app_policy_test`, `first_activation_screen_test`, `existing_session_screen_test`, `remote_session_screen_test`, `existing_session_startup_test`. La restauración se hizo con `git checkout HEAD -- lib`, con `git status` vacío después de cada mutación.
+
+| Mutación | Resultado |
+|---|---|
+| R1 sin `redirect` | detectada: 5 fallos |
+| R2 `repositoryProvider` sin compuerta | detectada: 7 |
+| R3 se ignora el ámbito de la sesión del arranque | detectada: 3 |
+| R4 no se relee la sesión tras activar | detectada: 1 |
+| R5 la compuerta deja pasar mientras el estado es `null` | detectada: 2 |
+| R6 «Elegir titular» sin sesión legible | detectada: 1 |
+| R7 el arranque expone el ámbito de una lectura no `available` | **sobrevivió** en `5f112a1` (las pruebas sólo usaban lecturas sin sesión). Se añadió la prueba de `c89057c` y quedó detectada: 1 |
+
+## Limitaciones de la parte 2
+
+- Sin ejecución en dispositivo: el flujo real de activación en el POCO se verifica con #71 o en una ejecución coordinada.
+- Sesión dañada sin activar (F) y sesión de otro Member: la pantalla muestra la condición sin una salida automática. No se añadió un restablecimiento (criterio B); el tratamiento explícito queda como decisión.
+- MODE-03 (#26) no está incluido: la interfaz en modo propio todavía muestra los selectores y el menú de transferencias. El repositorio rechaza esas operaciones.
+- La restauración de respaldos no recalcula el estado hasta reabrir la app (F08).
+
+## Revisiones (parte 2)
+
+- Pruebas automatizadas: ejecutadas con Claude Code el 2026-10-15.
+- Revisión de Roderich Rendón: pendiente.
+- Revisión del tutor: se registra aparte en GOV-01.
