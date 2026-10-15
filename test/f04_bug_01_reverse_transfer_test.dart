@@ -111,6 +111,28 @@ void main() {
     WHERE m.type IN ('TRANSFER_REVERSAL_IN','TRANSFER_REVERSAL_OUT')
       AND m.product_id <> l.product_id''');
 
+  /// Saldo de cada lote (suma de sus movimientos).
+  Future<Map<int, int>> saldosPorLote(DatabaseExecutor db) async => {
+    for (final row in await db.rawQuery(
+      '''SELECT l.id, COALESCE(SUM(m.quantity_signed),0) saldo
+      FROM inventory_lots l LEFT JOIN inventory_movements m ON m.lot_id=l.id
+      GROUP BY l.id''',
+    ))
+      row['id']! as int: row['saldo']! as int,
+  };
+
+  /// Saldo por (responsable, producto) de todas las combinaciones con filas.
+  Future<Map<(int, int), int>> saldosPersonaProducto(
+    DatabaseExecutor db,
+  ) async => {
+    for (final row in await db.rawQuery(
+      '''SELECT owner_person_id persona, product_id producto,
+      SUM(quantity_signed) saldo
+      FROM inventory_movements GROUP BY owner_person_id, product_id''',
+    ))
+      (row['persona']! as int, row['producto']! as int): row['saldo']! as int,
+  };
+
   Future<int> transferirTres(
     AgroRepository repo,
     int owner,
@@ -168,6 +190,136 @@ void main() {
         [transfer],
       )).map((row) => row['product_id']! as int).toSet();
       expect(productosRevertidos, s.products.toSet());
+    });
+
+    test('revertir 3 productos: cada fila con su lote, responsable, cantidad y producto; lotes y estados', () async {
+      final s = await escenario(inMemoryDatabasePath);
+      addTearDown(s.database.close);
+      final db = await s.database.database;
+      final lotesAntes = await saldosPorLote(db);
+      final personaProductoAntes = await saldosPersonaProducto(db);
+
+      final transfer = await transferirTres(
+        s.repo,
+        s.owner,
+        s.receiver,
+        s.products,
+      );
+      final lineas = await db.query(
+        'transfer_lot_items',
+        where: 'transfer_id=?',
+        whereArgs: [transfer],
+        orderBy: 'id',
+      );
+      final productoDeLote = {
+        for (final row in await db.query('inventory_lots'))
+          row['id']! as int: row['product_id']! as int,
+      };
+      // Cada lote destino conserva el producto de su lote origen.
+      for (final item in lineas) {
+        expect(
+          productoDeLote[item['destination_lot_id']],
+          productoDeLote[item['source_lot_id']],
+        );
+      }
+
+      await s.repo.reverseTransfer(transfer);
+
+      // Por cada línea, una entrada al origen y una salida del destino, con el
+      // responsable de cada lado y el producto de su propio lote.
+      final reversiones = await db.query(
+        'inventory_movements',
+        where: "reference_type='TRANSFER_REVERSAL' AND reference_id=?",
+        whereArgs: [transfer],
+        orderBy: 'id',
+      );
+      expect(
+        reversiones.map(
+          (row) => (
+            row['type'],
+            row['lot_id'],
+            row['owner_person_id'],
+            row['quantity_signed'],
+            row['product_id'],
+          ),
+        ),
+        [
+          for (final item in lineas) ...[
+            (
+              'TRANSFER_REVERSAL_IN',
+              item['source_lot_id'],
+              s.owner,
+              item['quantity_base'],
+              productoDeLote[item['source_lot_id']],
+            ),
+            (
+              'TRANSFER_REVERSAL_OUT',
+              item['destination_lot_id'],
+              s.receiver,
+              -(item['quantity_base']! as int),
+              productoDeLote[item['destination_lot_id']],
+            ),
+          ],
+        ],
+      );
+
+      // Los lotes previos vuelven a su saldo y los lotes destino quedan en 0.
+      final lotesDespues = await saldosPorLote(db);
+      for (final lote in lotesAntes.entries) {
+        expect(lotesDespues[lote.key], lote.value, reason: 'lote ${lote.key}');
+      }
+      for (final item in lineas) {
+        expect(lotesDespues[item['destination_lot_id']], 0);
+      }
+
+      // Responsable × producto: el origen recupera lo previo y el destino
+      // queda en 0 en cada producto.
+      final personaProductoDespues = await saldosPersonaProducto(db);
+      for (final saldo in personaProductoAntes.entries) {
+        expect(personaProductoDespues[saldo.key], saldo.value);
+      }
+      for (final product in s.products) {
+        expect(personaProductoDespues[(s.receiver, product)] ?? 0, 0);
+      }
+
+      // Estados y relaciones: cabecera y lotes destino revertidos, líneas sin
+      // cambios.
+      final cabecera = (await db.query(
+        'transfers',
+        where: 'id=?',
+        whereArgs: [transfer],
+      )).single;
+      expect(cabecera['status'], 'REVERSED');
+      expect(cabecera['reversed_at'], isNotNull);
+      expect(
+        await db.query(
+          'transfer_lot_items',
+          where: 'transfer_id=?',
+          whereArgs: [transfer],
+          orderBy: 'id',
+        ),
+        lineas,
+      );
+      final destinos = await db.query(
+        'inventory_lots',
+        where:
+            'id IN (SELECT destination_lot_id FROM transfer_lot_items '
+            'WHERE transfer_id=?)',
+        whereArgs: [transfer],
+      );
+      expect(destinos, hasLength(lineas.length));
+      expect(
+        destinos.map((row) => row['reversed_at']),
+        everyElement(isNotNull),
+      );
+
+      // Una segunda reversión se rechaza y no escribe movimientos.
+      final totalMovimientos = (await db.query('inventory_movements')).length;
+      await expectLater(
+        s.repo.reverseTransfer(transfer),
+        throwsA(isA<BusinessRuleException>()),
+      );
+      expect((await db.query('inventory_movements')).length, totalMovimientos);
     });
 
     test('regresión: una transferencia de un solo producto se revierte igual que antes', () async {
