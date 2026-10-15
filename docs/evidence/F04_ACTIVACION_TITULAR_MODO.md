@@ -82,6 +82,7 @@ Cada mutación se aplicó en `lib/`. Después se ejecutaron los cinco archivos `
   - **Nota del 2026-10-15:** esta afirmación era incorrecta. La carrera se reprodujo (R1) y se corrigió en `731750e`; ver [F04_CORRECCIONES_REVISION.md](F04_CORRECCIONES_REVISION.md).
 - `SyncQueueInspector` devuelve 0 hasta que exista la outbox de F05 (v9). Las pruebas del bloqueo por cola usan un doble.
 - La restauración de respaldos (`BackupService`) no pasa por la compuerta: reemplaza la base completa y la clasificación posterior decide (F08).
+  - **Nota del 2026-10-15:** la clasificación posterior no se recalculaba y una copia de otro Member quedaba autorizada (R3). Corregido en `812fe49` (exclusión, propiedad previa y recálculo); ver [F04_CORRECCIONES_REVISION.md](F04_CORRECCIONES_REVISION.md), parte B.
 - Sin pruebas en dispositivo.
 
 ## Revisiones
@@ -176,6 +177,7 @@ Archivos ejecutados: `f04_activation_app_policy_test`, `first_activation_screen_
 - Sesión dañada sin activar (F) y sesión de otro Member: la pantalla muestra la condición sin una salida automática. No se añadió un restablecimiento (criterio B); el tratamiento explícito queda como decisión.
 - MODE-03 (#26) no está incluido: la interfaz en modo propio todavía muestra los selectores y el menú de transferencias. El repositorio rechaza esas operaciones.
 - La restauración de respaldos no recalcula el estado hasta reabrir la app (F08).
+  - **Nota del 2026-10-15:** esta limitación era un defecto (R3). Corregido en `812fe49`; ver [F04_CORRECCIONES_REVISION.md](F04_CORRECCIONES_REVISION.md), parte B.
 
 ## Revisiones (parte 2)
 
