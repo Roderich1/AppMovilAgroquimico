@@ -232,6 +232,26 @@ void main() {
       },
     );
 
+    test('pago al proveedor registrado por otra persona', () async {
+      final repo = household.repo;
+      final purchase = (await repo.purchases()).single['id']! as int;
+      await rejectedWithoutChanges(
+        () => repo.addProviderPayment(
+          purchaseId: purchase,
+          payerPersonId: household.relative,
+          amountBobMinor: 100,
+          method: 'CASH',
+        ),
+      );
+      // El titular sí registra su pago, aunque sea familiar y no ADMIN.
+      await repo.addProviderPayment(
+        purchaseId: purchase,
+        payerPersonId: household.titular,
+        amountBobMinor: 100,
+        method: 'CASH',
+      );
+    });
+
     test('chaco, plan y pago de cuenta de otra persona', () async {
       final repo = household.repo;
       await rejectedWithoutChanges(

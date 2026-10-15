@@ -3,6 +3,7 @@ import 'package:sqflite/sqflite.dart' show ConflictAlgorithm, DatabaseExecutor;
 import '../domain/installation_access.dart';
 import '../domain/models.dart';
 import '../domain/operation_mode.dart';
+import '../domain/person_roles.dart';
 import 'agro_repository.dart' show BusinessRuleException;
 import 'app_database.dart';
 
@@ -13,6 +14,7 @@ class OwnerBinding {
     required this.id,
     required this.personId,
     required this.scope,
+    required this.ownerRole,
     required this.boundAt,
     this.endedAt,
     this.endReason,
@@ -21,6 +23,9 @@ class OwnerBinding {
   final int id;
   final int personId;
   final OwnerScope scope;
+
+  /// Rol privado con el que se aceptó al titular (no el rol central).
+  final PersonRole ownerRole;
   final String boundAt;
   final String? endedAt;
   final String? endReason;
@@ -34,6 +39,7 @@ class OwnerBinding {
       memberId: row['member_id']! as String,
       tenantId: row['tenant_id']! as String,
     ),
+    ownerRole: personRoleFromCode(row['owner_role'])!,
     boundAt: row['bound_at']! as String,
     endedAt: row['ended_at'] as String?,
     endReason: row['end_reason'] as String?,
@@ -58,13 +64,25 @@ class OwnerBindingException extends BusinessRuleException {
   OwnerBindingException(super.message);
 }
 
+/// La persona figura como administradora de pagos: puede ser titular sólo si
+/// se confirma explícitamente que es el agricultor propietario.
+class OwnerAdministratorConfirmationRequired extends OwnerBindingException {
+  OwnerAdministratorConfirmationRequired()
+    : super(
+        'Esta persona figura como administradora de pagos. Confirme que es el '
+        'agricultor titular: conserva su rol, sus movimientos y sus reglas de '
+        'cobro, y no se crea otra persona.',
+      );
+}
+
 final RegExp _uuid = RegExp(
   r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
 );
 
 /// Lee y escribe las marcas locales de la política de activación y el
 /// vínculo de titular. Nunca deduce el titular por nombre o teléfono, nunca
-/// cambia roles de personas y nunca reasigna operaciones.
+/// cambia roles de personas y nunca reasigna operaciones. El rol privado de
+/// negocio (`persons.role`) no se confunde con el rol central de la cuenta.
 class OwnerBindingStore {
   OwnerBindingStore(this._database, {DateTime Function()? clock})
     : _clock = clock ?? DateTime.now;
@@ -133,7 +151,12 @@ class OwnerBindingStore {
     }
   }
 
-  Future<void> _requireEligibleOwner(DatabaseExecutor db, int personId) async {
+  /// Devuelve el rol privado con el que queda el titular. No lo modifica.
+  Future<PersonRole> _requireEligibleOwner(
+    DatabaseExecutor db,
+    int personId, {
+    required bool confirmAdministrator,
+  }) async {
     final rows = await db.query(
       'persons',
       columns: ['role', 'active'],
@@ -146,12 +169,19 @@ class OwnerBindingStore {
     if (rows.single['active'] != 1) {
       throw OwnerBindingException('La persona elegida está archivada.');
     }
-    if (rows.single['role'] != PersonRole.family.code) {
+    final role = personRoleFromCode(rows.single['role']);
+    final eligibility = role == null ? null : ownerEligibility(role);
+    if (eligibility == null || eligibility == OwnerEligibility.notEligible) {
       throw OwnerBindingException(
-        'El titular debe ser una persona de la familia, no un administrador '
-        'de pagos ni un tercero. Los roles no se cambian automáticamente.',
+        'Un tercero no puede ser el titular de estos datos. Los roles no se '
+        'cambian automáticamente.',
       );
     }
+    if (eligibility == OwnerEligibility.requiresAdministratorConfirmation &&
+        !confirmAdministrator) {
+      throw OwnerAdministratorConfirmationRequired();
+    }
+    return role!;
   }
 
   Future<void> _writeActivatedInstallation(
@@ -163,11 +193,13 @@ class OwnerBindingStore {
   }, conflictAlgorithm: ConflictAlgorithm.replace);
 
   /// Vincula una persona existente como titular del Member autenticado.
-  /// Sólo con la sesión legible del mismo contexto y sin vínculo previo.
+  /// Sólo con la sesión legible del mismo contexto y sin vínculo previo. Un
+  /// administrador de pagos exige [confirmAdministrator].
   Future<OwnerBinding> bindExistingPerson({
     required int personId,
     required OwnerScope scope,
     required String installationRef,
+    bool confirmAdministrator = false,
   }) async {
     _validateScope(scope);
     final db = await _database.database;
@@ -175,11 +207,16 @@ class OwnerBindingStore {
       if (await activeBinding(txn) != null) {
         throw OwnerBindingException('Ya existe un titular vinculado.');
       }
-      await _requireEligibleOwner(txn, personId);
+      final role = await _requireEligibleOwner(
+        txn,
+        personId,
+        confirmAdministrator: confirmAdministrator,
+      );
       await txn.insert('owner_bindings', {
         'person_id': personId,
         'member_id': scope.memberId,
         'tenant_id': scope.tenantId,
+        'owner_role': role.code,
         'bound_at': _now(),
       });
       await _writeActivatedInstallation(txn, installationRef);
@@ -214,6 +251,7 @@ class OwnerBindingStore {
         'person_id': personId,
         'member_id': scope.memberId,
         'tenant_id': scope.tenantId,
+        'owner_role': PersonRole.family.code,
         'bound_at': _now(),
       });
       await _writeActivatedInstallation(txn, installationRef);
@@ -246,6 +284,7 @@ class OwnerBindingStore {
     required int newPersonId,
     required OwnerScope sessionScope,
     SyncQueueInspector queue = const NoSyncQueueYet(),
+    bool confirmAdministrator = false,
   }) async {
     final db = await _database.database;
     await db.transaction((txn) async {
@@ -275,7 +314,11 @@ class OwnerBindingStore {
           'No se pueden reasignar a otro titular.',
         );
       }
-      await _requireEligibleOwner(txn, newPersonId);
+      final role = await _requireEligibleOwner(
+        txn,
+        newPersonId,
+        confirmAdministrator: confirmAdministrator,
+      );
       await txn.update(
         'owner_bindings',
         {'ended_at': _now(), 'end_reason': 'OWNER_CHANGED'},
@@ -286,6 +329,7 @@ class OwnerBindingStore {
         'person_id': newPersonId,
         'member_id': current.scope.memberId,
         'tenant_id': current.scope.tenantId,
+        'owner_role': role.code,
         'bound_at': _now(),
       });
     });

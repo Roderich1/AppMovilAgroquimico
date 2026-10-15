@@ -54,11 +54,14 @@ class AppDatabase {
 
   /// Vínculo del titular con su Member (v8). Filas de solo agregado: un
   /// vínculo sólo puede cerrarse una vez; nunca se borra ni se reescribe.
+  /// `owner_role` es el rol privado con el que se aceptó al titular (ADMIN
+  /// sólo con confirmación explícita); no es el rol central de la cuenta.
   static const List<String> ownerBindingSchema = <String>[
     '''CREATE TABLE owner_bindings (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         person_id INTEGER NOT NULL REFERENCES persons(id),
         member_id TEXT NOT NULL, tenant_id TEXT NOT NULL,
+        owner_role TEXT NOT NULL CHECK(owner_role IN ('FAMILY','ADMIN')),
         bound_at TEXT NOT NULL, ended_at TEXT,
         end_reason TEXT CHECK(end_reason IN ('OWNER_CHANGED')),
         CHECK((ended_at IS NULL) = (end_reason IS NULL)))''',
@@ -70,7 +73,7 @@ class AppDatabase {
       WHEN OLD.ended_at IS NOT NULL OR NEW.ended_at IS NULL
         OR NEW.id IS NOT OLD.id OR NEW.person_id IS NOT OLD.person_id
         OR NEW.member_id IS NOT OLD.member_id OR NEW.tenant_id IS NOT OLD.tenant_id
-        OR NEW.bound_at IS NOT OLD.bound_at
+        OR NEW.owner_role IS NOT OLD.owner_role OR NEW.bound_at IS NOT OLD.bound_at
       BEGIN SELECT RAISE(ABORT, 'owner_bindings: solo se puede cerrar un vínculo activo'); END''',
   ];
 
