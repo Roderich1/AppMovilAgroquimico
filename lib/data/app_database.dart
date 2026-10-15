@@ -16,7 +16,7 @@ class AppDatabase {
   /// Toda base, creada desde cero o migrada desde cualquier versión anterior,
   /// debe terminar con el mismo esquema. `test/schema_equivalence_test.dart`
   /// lo verifica automáticamente.
-  static const int schemaVersion = 6;
+  static const int schemaVersion = 7;
 
   /// Clave en `app_settings` donde se registra que la migración a v5 no pudo
   /// imponer la unicidad por existir filas duplicadas previas. Su presencia
@@ -28,6 +28,12 @@ class AppDatabase {
   /// imponer la unicidad. Su presencia indica datos que el propietario debe
   /// revisar; no se borra ninguna aplicación.
   static const String planReuseAnomalyKey = 'schema_v6_plan_reuse_anomaly';
+
+  /// Clave en `app_settings` donde se registra cuántos movimientos
+  /// `TRANSFER_REVERSAL_*` reparó la migración a v7 (F04-BUG-01). Solo se
+  /// escribe si se reparó al menos uno.
+  static const String transferReversalRepairKey =
+      'schema_v7_transfer_reversal_repair';
 
   final DatabaseFactory? _factory;
   final String? _customPath;
@@ -343,7 +349,55 @@ class AppDatabase {
     if (oldVersion < 6) {
       await _upgradeToV6(db);
     }
+    if (oldVersion < 7) {
+      await _upgradeToV7(db);
+    }
   }
+
+  /// Migración a la versión 7 — **reparación de reversiones de transferencia**
+  /// (F04-BUG-01).
+  ///
+  /// Hasta v6, `reverseTransfer` asignaba a todos los movimientos
+  /// `TRANSFER_REVERSAL_IN` / `TRANSFER_REVERSAL_OUT` el `product_id` de la
+  /// cabecera `transfers`, que solo guarda el primer producto. En una
+  /// transferencia multiproducto eso descuadraba los saldos por producto.
+  ///
+  /// No cambia el esquema: una base nueva ya nace con la versión 7 y sin
+  /// movimientos que reparar. Solo corrige datos, con
+  /// [repairTransferReversalProducts], y deja constancia en `app_settings`
+  /// de cuántas filas reparó.
+  Future<void> _upgradeToV7(Database db) async {
+    final existingTables = (await db.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type='table'",
+    )).map((row) => row['name'] as String).toSet();
+
+    if (!existingTables.contains('inventory_movements') ||
+        !existingTables.contains('inventory_lots')) {
+      return;
+    }
+
+    final repaired = await repairTransferReversalProducts(db);
+    if (repaired > 0 && existingTables.contains('app_settings')) {
+      await db.insert('app_settings', {
+        'key': transferReversalRepairKey,
+        'value': '$repaired',
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+    }
+  }
+
+  /// Asigna a cada movimiento `TRANSFER_REVERSAL_*` el `product_id` de su
+  /// lote cuando difiere de él. Devuelve cuántas filas cambió.
+  ///
+  /// Es idempotente: sobre una base ya reparada no encuentra diferencias y
+  /// no toca ninguna fila. El resto de movimientos no se modifica.
+  static Future<int> repairTransferReversalProducts(DatabaseExecutor db) =>
+      db.rawUpdate('''UPDATE inventory_movements
+        SET product_id = (SELECT l.product_id FROM inventory_lots l
+          WHERE l.id = inventory_movements.lot_id)
+        WHERE type IN ('TRANSFER_REVERSAL_IN', 'TRANSFER_REVERSAL_OUT')
+          AND lot_id IS NOT NULL
+          AND product_id <> (SELECT l.product_id FROM inventory_lots l
+            WHERE l.id = inventory_movements.lot_id)''');
 
   /// Migración a la versión 6 — **un plan se aplica una sola vez**.
   ///

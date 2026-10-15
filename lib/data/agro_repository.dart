@@ -1067,11 +1067,17 @@ class AgroRepository {
         );
       }
       final transfer = transfers.single;
-      final items = await txn.query(
-        'transfer_lot_items',
-        where: 'transfer_id=?',
-        whereArgs: [transferId],
-        orderBy: 'id',
+      // F04-BUG-01: el producto de cada movimiento de reversión sale de su
+      // lote, nunca de `transfers.product_id`, que solo guarda el primer
+      // producto de una transferencia multiproducto.
+      final items = await txn.rawQuery(
+        '''SELECT i.*, source.product_id source_product_id,
+        destination.product_id destination_product_id
+        FROM transfer_lot_items i
+        JOIN inventory_lots source ON source.id=i.source_lot_id
+        JOIN inventory_lots destination ON destination.id=i.destination_lot_id
+        WHERE i.transfer_id=? ORDER BY i.id''',
+        [transferId],
       );
       for (final item in items) {
         final available =
@@ -1094,12 +1100,14 @@ class AgroRepository {
         for (final movement in <Map<String, Object?>>[
           {
             'lot_id': item['source_lot_id'],
+            'product_id': item['source_product_id'],
             'owner_person_id': transfer['from_person_id'],
             'quantity_signed': quantity,
             'type': 'TRANSFER_REVERSAL_IN',
           },
           {
             'lot_id': item['destination_lot_id'],
+            'product_id': item['destination_product_id'],
             'owner_person_id': transfer['to_person_id'],
             'quantity_signed': -quantity,
             'type': 'TRANSFER_REVERSAL_OUT',
@@ -1107,7 +1115,6 @@ class AgroRepository {
         ]) {
           await txn.insert('inventory_movements', {
             ...movement,
-            'product_id': transfer['product_id'],
             'movement_date': reversedAt,
             'reference_type': 'TRANSFER_REVERSAL',
             'reference_id': transferId,

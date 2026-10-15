@@ -316,11 +316,11 @@ void main() {
       expect(await dump(), before);
     });
 
-    test('el esquema sigue en la versión 6', () async {
+    test('el esquema sigue en la versión 7', () async {
       final db = await database.database;
       await service.export(valid(ReportKind.inventory, ReportFormat.pdf));
       final version = await db.rawQuery('PRAGMA user_version');
-      expect(version.first.values.first, 6);
+      expect(version.first.values.first, 7);
     });
   });
 
