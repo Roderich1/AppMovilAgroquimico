@@ -260,20 +260,22 @@ void main() {
   });
 
   group('migración a v7: reparación de reversiones', () {
-    /// Base v6 con una transferencia de 3 productos revertida con la regla
-    /// anterior: todos los movimientos `TRANSFER_REVERSAL_*` llevan el
-    /// producto de la cabecera. El esquema de v6 y v7 es el mismo; solo
-    /// cambian los datos y `user_version`.
+    /// Base v6 con una transferencia de 3 productos revertida. Con
+    /// [conDefecto], la reversión queda como la dejaba la regla anterior:
+    /// todos los movimientos `TRANSFER_REVERSAL_*` llevan el producto de la
+    /// cabecera. Sin él, queda correcta. El esquema de v6 y v7 es el mismo;
+    /// solo cambian los datos y `user_version`.
     Future<
       ({
         String path,
         int owner,
         int receiver,
         List<int> products,
+        int transfer,
         int reescritas,
       })
     >
-    baseV6ConDefecto() async {
+    baseV6({bool conDefecto = true}) async {
       final directory = await Directory.systemTemp.createTemp('agro_v7_');
       addTearDown(() => directory.delete(recursive: true));
       final path = p.join(directory.path, 'v6.db');
@@ -289,12 +291,14 @@ void main() {
       final db = await s.database.database;
       // Reproduce lo que escribía `reverseTransfer` hasta v6: el producto de
       // la cabecera en todos los movimientos de reversión.
-      final reescritas = await db.rawUpdate(
-        '''UPDATE inventory_movements SET product_id =
-          (SELECT t.product_id FROM transfers t WHERE t.id=reference_id)
-        WHERE reference_type='TRANSFER_REVERSAL' AND reference_id=?''',
-        [transfer],
-      );
+      final reescritas = conDefecto
+          ? await db.rawUpdate(
+              '''UPDATE inventory_movements SET product_id =
+                (SELECT t.product_id FROM transfers t WHERE t.id=reference_id)
+              WHERE reference_type='TRANSFER_REVERSAL' AND reference_id=?''',
+              [transfer],
+            )
+          : 0;
       await db.execute('PRAGMA user_version = 6');
       await s.database.close();
       return (
@@ -302,6 +306,7 @@ void main() {
         owner: s.owner,
         receiver: s.receiver,
         products: s.products,
+        transfer: transfer,
         reescritas: reescritas,
       );
     }
@@ -312,7 +317,7 @@ void main() {
     test(
       'la base v6 sembrada tiene el defecto: saldos descuadrados por producto',
       () async {
-        final seed = await baseV6ConDefecto();
+        final seed = await baseV6();
         final legacy = await databaseFactoryFfi.openDatabase(seed.path);
         addTearDown(legacy.close);
         expect(
@@ -334,7 +339,7 @@ void main() {
     test(
       'abrir la base v6 con AppDatabase repara los movimientos y cuadra saldos',
       () async {
-        final seed = await baseV6ConDefecto();
+        final seed = await baseV6();
 
         final legacy = await databaseFactoryFfi.openDatabase(seed.path);
         final antes = await movimientos(legacy);
@@ -397,7 +402,7 @@ void main() {
     test(
       'la reparación es idempotente: otra ejecución no cambia filas',
       () async {
-        final seed = await baseV6ConDefecto();
+        final seed = await baseV6();
         final migrated = AppDatabase(
           factory: databaseFactoryFfi,
           path: seed.path,
@@ -446,5 +451,92 @@ void main() {
         );
       },
     );
+
+    test('la reparación solo toca movimientos TRANSFER_REVERSAL_*: otro movimiento descuadrado no cambia', () async {
+      final seed = await baseV6();
+
+      // Un movimiento que no es de reversión (la salida de la transferencia
+      // del segundo producto) se descuadra a propósito. La migración v7 no
+      // debe corregirlo: su alcance son solo las reversiones.
+      final legacy = await databaseFactoryFfi.openDatabase(seed.path);
+      final ajeno = (await legacy.query(
+        'inventory_movements',
+        where: "type='TRANSFER_OUT' AND reference_id=? AND product_id=?",
+        whereArgs: [seed.transfer, seed.products[1]],
+      )).single;
+      await legacy.update(
+        'inventory_movements',
+        {'product_id': seed.products[0]},
+        where: 'id=?',
+        whereArgs: [ajeno['id']],
+      );
+      final antes = await movimientos(legacy);
+      final descuadradas = (await reversionesDescuadradas(legacy))
+          .map((row) => row['id'])
+          .toSet();
+      expect(descuadradas, hasLength(4));
+      await legacy.close();
+
+      final migrated = AppDatabase(
+        factory: databaseFactoryFfi,
+        path: seed.path,
+      );
+      addTearDown(migrated.close);
+      final db = await migrated.database;
+
+      final despues = await movimientos(db);
+      expect(despues, hasLength(antes.length));
+      for (var i = 0; i < antes.length; i++) {
+        if (descuadradas.contains(antes[i]['id'])) continue;
+        expect(despues[i], antes[i]);
+      }
+      final ajenoDespues = despues.singleWhere(
+        (row) => row['id'] == ajeno['id'],
+      );
+      expect(ajenoDespues['type'], 'TRANSFER_OUT');
+      expect(ajenoDespues['product_id'], seed.products[0]);
+      expect(
+        (await db.query(
+          'app_settings',
+          where: 'key=?',
+          whereArgs: [AppDatabase.transferReversalRepairKey],
+        )).single['value'],
+        '4',
+      );
+    });
+
+    test('una base v6 sin el defecto migra a v7 sin cambiar filas ni registrar nada', () async {
+      final seed = await baseV6(conDefecto: false);
+      expect(seed.reescritas, 0);
+
+      final legacy = await databaseFactoryFfi.openDatabase(seed.path);
+      expect(
+        (await legacy.rawQuery('PRAGMA user_version')).first.values.first,
+        6,
+      );
+      expect(await reversionesDescuadradas(legacy), isEmpty);
+      final antes = await movimientos(legacy);
+      final ajustesAntes = await legacy.query('app_settings', orderBy: 'key');
+      await legacy.close();
+
+      final migrated = AppDatabase(
+        factory: databaseFactoryFfi,
+        path: seed.path,
+      );
+      addTearDown(migrated.close);
+      final db = await migrated.database;
+
+      expect((await db.rawQuery('PRAGMA user_version')).first.values.first, 7);
+      expect(await movimientos(db), antes);
+      expect(await db.query('app_settings', orderBy: 'key'), ajustesAntes);
+      expect(
+        await db.query(
+          'app_settings',
+          where: 'key=?',
+          whereArgs: [AppDatabase.transferReversalRepairKey],
+        ),
+        isEmpty,
+      );
+    });
   });
 }
