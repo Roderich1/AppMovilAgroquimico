@@ -1327,30 +1327,47 @@ class AgroRepository {
   Future<List<Map<String, Object?>>> people() async =>
       (await _db).query('persons', where: 'active=1', orderBy: 'name');
 
+  /// Modalidad y titular vigentes, en una sola consulta.
+  static const _contextColumns =
+      '(SELECT value FROM app_settings WHERE key=?) context_mode, '
+      '(SELECT person_id FROM owner_bindings WHERE ended_at IS NULL) '
+      'context_owner';
+
   /// Modalidad y titular vigentes, sólo para presentar opciones. Cada
   /// escritura los vuelve a leer dentro de su propia transacción.
   Future<WriteContext> operatingContext() async {
-    final db = await _db;
-    final owner = await db.query(
-      'owner_bindings',
-      columns: ['person_id'],
-      where: 'ended_at IS NULL',
-    );
+    final row = (await (await _db).rawQuery('SELECT $_contextColumns', [
+      AppDatabase.operationModeKey,
+    ])).single;
     return (
-      mode: await OperationModeStore(appDatabase).current(db),
-      ownerPersonId: owner.isEmpty ? null : owner.single['person_id'] as int,
+      mode: OperationMode.fromCode(row['context_mode'] as String?),
+      ownerPersonId: row['context_owner'] as int?,
     );
   }
 
   /// Personas activas que pueden cumplir [purpose] según el titular y la
-  /// modalidad (`person_roles.dart`).
+  /// modalidad (`person_roles.dart`). Una sola consulta: personas, modalidad
+  /// y titular se leen juntos.
   Future<List<Map<String, Object?>>> peopleFor(PersonPurpose purpose) async {
-    final context = await operatingContext();
+    final rows = await (await _db).rawQuery(
+      'SELECT p.*, $_contextColumns FROM persons p '
+      'WHERE p.active=1 ORDER BY p.name',
+      [AppDatabase.operationModeKey],
+    );
+    if (rows.isEmpty) return const [];
+    final mode = OperationMode.fromCode(rows.first['context_mode'] as String?);
+    final owner = rows.first['context_owner'] as int?;
     return eligiblePeople(
-      await people(),
+      [
+        for (final row in rows)
+          {
+            for (final entry in row.entries)
+              if (!entry.key.startsWith('context_')) entry.key: entry.value,
+          },
+      ],
       purpose,
-      ownerPersonId: context.ownerPersonId,
-      mode: context.mode,
+      ownerPersonId: owner,
+      mode: mode,
     );
   }
 

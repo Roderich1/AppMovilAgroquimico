@@ -290,6 +290,11 @@ void main() {
         son,
         neighbor,
       });
+      // Mismas filas, mismo orden y sin columnas añadidas por la consulta.
+      expect(
+        await repo.peopleFor(PersonPurpose.purchaseAllocation),
+        await repo.people(),
+      );
 
       final purchase = await household.buy(farmer, 2000);
       final application = await household.apply(
