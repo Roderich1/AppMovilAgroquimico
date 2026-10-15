@@ -4,9 +4,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'support/f04_app_access.dart';
+
 void main() {
   testWidgets('muestra la navegación principal', (tester) async {
-    await tester.pumpWidget(const ProviderScope(child: AgroApp()));
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [activatedInstallationForTests()],
+        child: const AgroApp(),
+      ),
+    );
     await tester.pump();
     expect(find.text('Inicio'), findsWidgets);
     expect(find.text('Operaciones'), findsWidgets);

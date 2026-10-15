@@ -63,6 +63,13 @@ class OperationsScreen extends StatelessWidget {
             isForm: false,
           ),
           (
+            title: 'Modo de uso',
+            subtitle: 'Inventario propio o compartido',
+            path: '/modo',
+            icon: Icons.tune_outlined,
+            isForm: false,
+          ),
+          (
             title: 'Administrar datos',
             subtitle: 'Campañas, chacos, productos y proveedores',
             path: '/catalogos',

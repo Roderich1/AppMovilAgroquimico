@@ -1,4 +1,5 @@
-import 'package:sqflite/sqflite.dart' show ConflictAlgorithm, DatabaseExecutor;
+import 'package:sqflite/sqflite.dart'
+    show ConflictAlgorithm, DatabaseExecutor, Transaction;
 
 import '../domain/installation_access.dart';
 import '../domain/models.dart';
@@ -91,6 +92,13 @@ class OwnerBindingStore {
   final DateTime Function() _clock;
 
   String _now() => _clock().toUtc().toIso8601String();
+
+  /// Toda escritura del vínculo pasa por la exclusión de sustitución: no
+  /// entra mientras se restaura un respaldo.
+  Future<void> _transaction(Future<void> Function(Transaction txn) body) =>
+      _database.replacement.write(
+        () async => (await _database.database).transaction(body),
+      );
 
   Future<OwnerBinding?> activeBinding([DatabaseExecutor? executor]) async {
     final db = executor ?? await _database.database;
@@ -202,8 +210,7 @@ class OwnerBindingStore {
     bool confirmAdministrator = false,
   }) async {
     _validateScope(scope);
-    final db = await _database.database;
-    await db.transaction((txn) async {
+    await _transaction((txn) async {
       if (await activeBinding(txn) != null) {
         throw OwnerBindingException('Ya existe un titular vinculado.');
       }
@@ -235,8 +242,7 @@ class OwnerBindingStore {
     if (name.trim().isEmpty) {
       throw OwnerBindingException('Indique el nombre del titular.');
     }
-    final db = await _database.database;
-    await db.transaction((txn) async {
+    await _transaction((txn) async {
       if (await activeBinding(txn) != null) {
         throw OwnerBindingException('Ya existe un titular vinculado.');
       }
@@ -265,8 +271,7 @@ class OwnerBindingStore {
     required OwnerScope sessionScope,
     required String installationRef,
   }) async {
-    final db = await _database.database;
-    await db.transaction((txn) async {
+    await _transaction((txn) async {
       final binding = await activeBinding(txn);
       if (binding == null || binding.scope != sessionScope) {
         throw OwnerBindingException(
@@ -286,8 +291,7 @@ class OwnerBindingStore {
     SyncQueueInspector queue = const NoSyncQueueYet(),
     bool confirmAdministrator = false,
   }) async {
-    final db = await _database.database;
-    await db.transaction((txn) async {
+    await _transaction((txn) async {
       final current = await activeBinding(txn);
       if (current == null) {
         throw OwnerBindingException('No hay titular vinculado.');

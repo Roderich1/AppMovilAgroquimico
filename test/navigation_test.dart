@@ -7,6 +7,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+import 'support/f04_app_access.dart';
+
 /// Pruebas de navegación sobre la aplicación REAL (`AgroApp` + `GoRouter`).
 ///
 /// Existen porque `back_navigation_test.dart` solo prueba una réplica aislada
@@ -60,7 +62,10 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
     await tester.pumpWidget(
       ProviderScope(
-        overrides: [repositoryProvider.overrideWithValue(repo)],
+        overrides: [
+          repositoryProvider.overrideWithValue(repo),
+          activatedInstallationForTests(),
+        ],
         child: const AgroApp(),
       ),
     );

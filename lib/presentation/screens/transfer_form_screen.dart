@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../app.dart';
 import '../../domain/models.dart';
 import '../../domain/money.dart';
+import '../../domain/person_roles.dart';
 import '../widgets/adaptive_entity_picker.dart';
 import '../widgets/common.dart';
 
@@ -24,7 +25,11 @@ class _TransferFormScreenState extends ConsumerState<TransferFormScreen> {
   @override
   void initState() {
     super.initState();
-    peopleFuture = ref.read(repositoryProvider).people();
+    // Origen y destino posibles según rol privado, titular y modalidad: el
+    // titular registrado como administrador de pagos también transfiere.
+    peopleFuture = ref
+        .read(repositoryProvider)
+        .peopleFor(PersonPurpose.transferParty);
   }
 
   @override
@@ -237,9 +242,7 @@ class _TransferFormScreenState extends ConsumerState<TransferFormScreen> {
             );
           if (!snapshot.hasData)
             return const Center(child: CircularProgressIndicator());
-          final people = snapshot.data!
-              .where((p) => p['role'] != 'ADMIN')
-              .toList();
+          final people = snapshot.data!;
           final origin = people.where((p) => p['id'] == fromId).firstOrNull;
           final destination = people.where((p) => p['id'] == toId).firstOrNull;
           final query = search.text.trim().toLowerCase();

@@ -54,14 +54,18 @@ class AgroRepository {
   /// un cambio de modalidad (también transaccional) se confirmara entre la
   /// lectura y la escritura: una compra iniciada en compartido podía asignar
   /// existencias a un tercero después del paso a propio.
+  ///
+  /// La compuerta se consulta ya dentro de la exclusión de sustitución: una
+  /// restauración no puede colarse entre esa autorización y la transacción, y
+  /// mientras se restaura ninguna escritura entra.
   Future<T> _write<T>(
     Future<T> Function(Transaction txn, WriteContext context) body,
-  ) async {
+  ) => appDatabase.replacement.write(() async {
     _gate.ensureAllowed();
     return (await _db).transaction(
       (txn) async => body(txn, await _readWriteContext(txn)),
     );
-  }
+  });
 
   Future<WriteContext> _readWriteContext(DatabaseExecutor txn) async {
     final mode = await OperationModeStore(appDatabase).current(txn);
@@ -1892,21 +1896,24 @@ class AgroRepository {
     );
   }
 
-  Future<String> storeInvoiceImage(String sourcePath) async {
-    // Sólo copia un archivo: basta la compuerta, no hay contexto de modalidad.
-    _gate.ensureAllowed();
-    // La carpeta la decide `invoice_storage.dart`, que es también donde la
-    // busca `BackupService` para meterla en el respaldo y devolverla al
-    // restaurar.
-    final invoices = await resolveInvoicesDirectory();
-    final extension = p.extension(sourcePath).isEmpty
-        ? '.jpg'
-        : p.extension(sourcePath);
-    final target = p.join(
-      invoices.path,
-      'invoice_${DateTime.now().microsecondsSinceEpoch}$extension',
-    );
-    await File(sourcePath).copy(target);
-    return target;
-  }
+  /// Sólo copia un archivo: basta la compuerta, no hay contexto de modalidad.
+  /// También queda excluida mientras se restaura, porque la restauración
+  /// reemplaza la carpeta de fotografías.
+  Future<String> storeInvoiceImage(String sourcePath) =>
+      appDatabase.replacement.write(() async {
+        _gate.ensureAllowed();
+        // La carpeta la decide `invoice_storage.dart`, que es también donde la
+        // busca `BackupService` para meterla en el respaldo y devolverla al
+        // restaurar.
+        final invoices = await resolveInvoicesDirectory();
+        final extension = p.extension(sourcePath).isEmpty
+            ? '.jpg'
+            : p.extension(sourcePath);
+        final target = p.join(
+          invoices.path,
+          'invoice_${DateTime.now().microsecondsSinceEpoch}$extension',
+        );
+        await File(sourcePath).copy(target);
+        return target;
+      });
 }

@@ -18,6 +18,9 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+import 'support/f04_app_access.dart';
+import 'support/f04_mode_fixtures.dart';
+
 class _Guard implements RefreshGuard {
   _Guard(this.quarantined);
   bool quarantined;
@@ -89,6 +92,8 @@ void main() {
       );
       addTearDown(db.close);
       final repository = AgroRepository(db);
+      // Política #76: instalación ya activada del Member A.
+      await tester.runAsync(() => seedActivatedInstallation(db));
       var calls = 0;
       final client = MockClient((http.Request request) async {
         calls++;
@@ -102,6 +107,7 @@ void main() {
             existingSessionStartupProvider.overrideWithValue(
               ExistingSessionStartupState.localSessionAvailable,
             ),
+            ...startupAccessOverrides(sessionScope: memberA),
             refreshGuardProvider.overrideWithValue(_Guard(true)),
             remoteSessionProvider.overrideWith(
               () => _FixedRemoteController(phase),
@@ -185,6 +191,8 @@ void main() {
       path: inMemoryDatabasePath,
     );
     addTearDown(db.close);
+    // Política #76: instalación ya activada del Member A.
+    await tester.runAsync(() => seedActivatedInstallation(db));
     var calls = 0;
     final client = MockClient((http.Request request) async {
       calls++;
@@ -196,6 +204,7 @@ void main() {
       ProviderScope(
         overrides: [
           repositoryProvider.overrideWithValue(AgroRepository(db)),
+          ...startupAccessOverrides(sessionScope: memberA),
           existingSessionStartupProvider.overrideWithValue(
             ExistingSessionStartupState.localSessionAvailable,
           ),

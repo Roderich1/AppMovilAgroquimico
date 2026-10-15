@@ -84,6 +84,98 @@ Cada mutación se aplicó con un reemplazo exacto en `lib/`. Después se ejecuta
 - En compartido el pagador sigue siendo sólo `ADMIN` (regla existente). Una instalación nueva cuyo titular es familiar necesita una persona administradora para pagar en compartido.
 - Sin pruebas en dispositivo.
 
+## Parte B — #78 (arranque, interfaz y restauración)
+
+### B.1 Hallazgo y reproducción
+
+| Id | Hallazgo | Reproducción sobre `abfcd26` (#78 con las correcciones de #77) |
+|---|---|---|
+| R3 | Restaurar desde Liquidación refrescaba los datos, pero no recalculaba `installationAccessProvider`; además no comprobaba de quién era la copia ni excluía escrituras durante la sustitución | Base vinculada a A, sesión legible de A, restauración de una copia vinculada a B por el mismo camino que la pantalla. Resultado: `vínculo=B estado=InstallationAccessState.activated reclasificado=InstallationAccessState.identityMismatch errorEscritura=null`. A escribió sobre los datos de B con la autorización anterior |
+
+Comando: `flutter test test/zz_repro_test.dart`, con un archivo temporal que se borró después de ejecutar. Las regresiones de B.3 recorren el camino real.
+
+### B.2 Corrección
+
+- **Exclusión** (`lib/data/database_replacement.dart`, en `AppDatabase.replacement`):
+  - Las escrituras en curso terminan antes de sustituir la base.
+  - Durante la sustitución ninguna escritura nueva entra (`DatabaseReplacementInProgressException`): repositorio, modalidad, vínculo de titular y copia de fotografías.
+  - Las lecturas esperan a que termine.
+  - La compuerta del repositorio se consulta ya dentro de la exclusión.
+- **Propiedad antes de reemplazar** (`BackupService.readOwnership`/`inspectOwnership` y `lib/domain/restore_ownership.dart`):
+  - Se lee el titular que declara la base del respaldo, la misma que se va a copiar.
+  - Se rechaza una copia de otro Member o tenant (frente al vínculo actual o a la sesión legible).
+  - Se rechaza una de una activación sin terminar.
+  - Se rechaza una cuya propiedad no se puede leer.
+  - La base y las fotografías actuales quedan intactas y no se crea copia previa.
+  - Una copia anterior a v8 se restaura como histórica, sin titular.
+  - Sin sesión legible, una copia del mismo Member activada en otra instalación queda en `restoredRequiresActivation`: restaurar no demuestra identidad.
+- **Recálculo** (`GuardedRestore`, `InstallationAccessController.recomputeAfterReplacement`):
+  - La autorización se recalcula con la base resultante dentro de la exclusión, antes de volver a admitir escrituras.
+  - Si falla, el estado queda `null` y la compuerta falla cerrada. Nunca se conserva la autorización de la base anterior.
+  - También se recalcula tras un rechazo o un rollback.
+- **Restaurar no publica ni reasigna intenciones.** No crea ni modifica vínculos. Sólo registra la instalación actual cuando la sesión legible es del mismo Member que el vínculo restaurado (reactivación). Aún no hay cola F05; su tratamiento al restaurar queda para v9.
+- **Interfaz.**
+  - Liquidación muestra de quién es la copia antes de pedir confirmación y no ofrece restaurar una ajena.
+  - El titular ofrece al agricultor histórico ADMIN con su rol privado visible y una casilla de confirmación explícita.
+  - Aplicación, transferencia, compra, pago al proveedor y alta de chacos usan `peopleFor`.
+
+Commit: `812fe4995621c2ae0ed3a5f49101fe65ec71d62d`.
+
+**Corrección de una afirmación mía durante el trabajo.** Dije que el formulario de aplicación lanzaba `StateError` al elegir un chaco cuyo dueño es ADMIN. Por el flujo normal no ocurre: el selector de chaco se habilita al elegir persona y filtra por ella. El defecto real era que el titular ADMIN no aparecía como persona que aplica. El `firstWhere` se volvió defensivo igualmente.
+
+### B.3 Pruebas nuevas
+
+| Archivo | Casos | Qué comprueba |
+|---|---|---|
+| `f04_restore_authorization_test.dart` | 13 | Recorrido real con base en archivo, `BackupService`, controlador de acceso real y `GuardedRestore`. Misma cuenta: contenido del respaldo fila por fila, vínculo intacto, instalación registrada, copia previa idéntica a la base anterior y escritura posterior en la base restaurada. Otro Member y otro tenant: rechazo, volcado idéntico, sin copia previa, autorización y escrituras conservadas. Base histórica sin vínculo con sesión de B: la copia de A se rechaza. Propiedad ilegible: rechazo. Copia v7: histórica, sin titular. Sin sesión: `restoredRequiresActivation` y escrituras bloqueadas. Contenedor `.agrobackup`. Recálculo fallido: estado `null`, escritura bloqueada como pendiente y recuperación al reintentar. Rollback: base anterior idéntica y autorización recalculada. Durante la sustitución se rechazan escritura, modalidad, titular y fotografía, y la lectura espera y ve la base restaurada. `BackupService.restore` es exclusivo por sí solo. Una escritura en curso queda en la copia previa |
+| `f04_restore_ownership_rules_test.dart` | 11 | Regla pura de propiedad (misma cuenta, otro Member o tenant con cualquier sesión, sin vínculo actual, sin sesión, histórica, activación incompleta, ámbito de una sesión ilegible) y `DatabaseReplacementGuard` (rechazo y admisión interna, espera de escrituras, lecturas que esperan, sin sustitución desde una escritura ni doble, liberación tras fallo) |
+| `f04_admin_owner_restore_ui_test.dart` | 6 | App real: el agricultor histórico ADMIN se ofrece con su rol, un tercero no; sin la casilla no se vincula; con ella, vínculo ADMIN y personas idénticas. En propio con titular ADMIN, la aplicación ofrece sólo al titular y su chaco. En compartido, la transferencia lo ofrece y otro ADMIN sigue fuera. En propio con titular familiar, el titular paga en el formulario de compra y en Compras, y otro ADMIN no. Restaurar desde Liquidación: la copia de otro Member se rechaza sin pedir confirmación ni tocar nada; la del mismo Member avisa, restaura y queda `activated` |
+
+**Fallos observados durante el trabajo:**
+
+- Seis pruebas existentes de formularios (`regression_widget_test`, `responsive_v5_test`) quedaron cargando. Su arnés sólo concede un intervalo de E/S real y `peopleFor` hacía tres consultas encadenadas. Se corrigió el código (`8e52fe1`, una sola consulta), no las pruebas.
+- Dos pruebas nuevas de la exclusión «no terminaban». Esperar desde la zona de la prueba un futuro fallido creado en `Zone.root` lo provoca incluso con una función trivial, así que era el arnés. Las pruebas usan ahora la zona de la prueba capturada antes de sustituir.
+- En la prueba del titular, el botón quedaba fuera de la superficie de 800×600. Se usa una superficie más alta.
+
+### B.4 Resultados
+
+| Sobre | Comando | Resultado |
+|---|---|---|
+| `812fe49` | `dart format --output=none --set-exit-if-changed lib test` | 141 archivos, 0 cambiados |
+| `812fe49` | `flutter analyze` | `No issues found!` |
+| `812fe49` | `flutter test` | PASS 832/832 (785 de la parte 2 + 17 de la parte A + 30 de la parte B) |
+
+### B.5 Mutaciones
+
+Mismo procedimiento que en A.5. Se ejecutaron las cuatro pruebas F04 de interfaz y restauración (`f04_restore_ownership_rules_test`, `f04_restore_authorization_test`, `f04_admin_owner_restore_ui_test` y `f04_activation_app_policy_test`). La primera tanda corrió sobre el árbol de trabajo antes de añadir la prueba de B7; la final, sobre `812fe49`.
+
+| Mutación | Resultado |
+|---|---|
+| B1 la restauración no comprueba la propiedad | detectada: 3 fallos |
+| B2 tras restaurar se conserva el estado anterior (el defecto R3) | detectada: 4 |
+| B3 si el recálculo falla se conserva la autorización anterior | detectada: 1 |
+| B4 las escrituras entran durante la sustitución | detectada: 3 |
+| B5 la sustitución no espera a las escrituras en curso | detectada: 1 |
+| B6 las lecturas no esperan a la sustitución | detectada: 1 |
+| B7 `BackupService.restore` sin exclusión propia | detectada: 1 (en la primera tanda sobrevivió; ver abajo) |
+| B8 toda copia se lee como histórica (vínculo ignorado) | detectada: 6 |
+| B9 se acepta una copia de una activación sin terminar | detectada: 1 |
+| B10 Liquidación no rechaza en la vista previa | detectada: 1 |
+| B11 la pantalla del titular sólo ofrece familiares | detectada: 1 |
+| B12 se vincula al ADMIN sin la casilla (las dos capas) | detectada: 1 |
+| B13 aplicación con el filtro anterior | detectada: 1 |
+| B14 transferencia con el filtro anterior | detectada: 1 |
+| B15 pagador del formulario de compra sólo ADMIN | detectada: 1 |
+| B16 pagador de Compras sólo ADMIN | detectada: 1 |
+
+**Observado en la primera tanda:** B7 (`BackupService.restore` sin exclusión propia) **sobrevivió**. Ninguna prueba llamaba al servicio sin `GuardedRestore`, que ya envuelve la sustitución. Se añadió esa prueba y quedó detectada.
+
+### B.6 Limitaciones de la parte B
+
+- La compuerta se consulta dentro de la exclusión sin esperas intermedias. No hay mutación que lo pruebe aislado, porque entre la comprobación y la transacción no queda ninguna espera que se pueda intercalar.
+- La exportación de respaldos no usa la exclusión (sin cambios): copia tras un checkpoint.
+- Sin pruebas en dispositivo de la restauración ni de las pantallas nuevas.
+
 ## Revisiones
 
 - Pruebas automatizadas: ejecutadas con Claude Code el 2026-10-15 (resultados arriba) y en el CI de GitHub del PR.
