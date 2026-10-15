@@ -2,6 +2,7 @@ import 'dart:async';
 
 import '../../data/installation_client_id_store.dart';
 import '../../data/installation_identity_initializer.dart';
+import '../../domain/installation_access.dart';
 import 'secure_session_store.dart';
 
 /// Local-only classification. It never contains a credential or account ID.
@@ -47,43 +48,61 @@ class ExistingSessionStartup {
   final Future<SessionReadResult> Function() readLocalSession;
   final Duration readTimeout;
 
-  Future<ExistingSessionStartupState> load() async {
+  Future<ExistingSessionStartupState> load() async => (await loadDetailed()).$1;
+
+  /// Igual que [load], y además el ámbito (Member, tenant) de la sesión si es
+  /// legible. El ámbito no es credencial; sólo queda en memoria.
+  Future<(ExistingSessionStartupState, OwnerScope?)> loadDetailed() async {
     if (identity.status == InstallationIdentityStatus.corrupt) {
-      return ExistingSessionStartupState.corrupt;
+      return (ExistingSessionStartupState.corrupt, null);
     }
     if (identity.status == InstallationIdentityStatus.unavailable) {
-      return ExistingSessionStartupState.unavailable;
+      return (ExistingSessionStartupState.unavailable, null);
     }
 
     try {
       final result = await readLocalSession().timeout(readTimeout);
-      return switch (result.status) {
-        SessionReadStatus.absent => ExistingSessionStartupState.noLocalSession,
-        SessionReadStatus.available =>
-          result.session == null
-              ? ExistingSessionStartupState.corrupt
-              : result.expiredLocally
-              ? ExistingSessionStartupState.localSessionExpired
-              : ExistingSessionStartupState.localSessionAvailable,
-        SessionReadStatus.corrupt => ExistingSessionStartupState.corrupt,
-        SessionReadStatus.unavailable =>
-          ExistingSessionStartupState.unavailable,
-        SessionReadStatus.incompatible =>
-          ExistingSessionStartupState.incompatible,
-      };
+      final session = result.session;
+      final scope =
+          result.status == SessionReadStatus.available && session != null
+          ? OwnerScope(memberId: session.memberId, tenantId: session.tenantId)
+          : null;
+      return (_classify(result), scope);
     } on Object {
       // A slow/failed Keystore read never blocks the SQLite domain or becomes
       // a false "no session" result. No exception text is exposed or logged.
-      return ExistingSessionStartupState.unavailable;
+      return (ExistingSessionStartupState.unavailable, null);
     }
   }
+
+  static ExistingSessionStartupState _classify(
+    SessionReadResult result,
+  ) => switch (result.status) {
+    SessionReadStatus.absent => ExistingSessionStartupState.noLocalSession,
+    SessionReadStatus.available =>
+      result.session == null
+          ? ExistingSessionStartupState.corrupt
+          : result.expiredLocally
+          ? ExistingSessionStartupState.localSessionExpired
+          : ExistingSessionStartupState.localSessionAvailable,
+    SessionReadStatus.corrupt => ExistingSessionStartupState.corrupt,
+    SessionReadStatus.unavailable => ExistingSessionStartupState.unavailable,
+    SessionReadStatus.incompatible => ExistingSessionStartupState.incompatible,
+  };
 }
 
 class ExistingSessionBootstrapResult {
-  const ExistingSessionBootstrapResult(this.identity, this.session);
+  const ExistingSessionBootstrapResult(
+    this.identity,
+    this.session, {
+    this.scope,
+  });
 
   final InstallationIdentityInitialization identity;
   final ExistingSessionStartupState session;
+
+  /// Ámbito de la sesión legible (sólo memoria; null si no es legible).
+  final OwnerScope? scope;
 }
 
 typedef InstallationIdentityLoader =
@@ -107,7 +126,7 @@ Future<ExistingSessionBootstrapResult> bootstrapExistingSession({
       await (initializeIdentity ??
           (store) =>
               initializeInstallationIdentity(store: store))(identityStore);
-  final session = await ExistingSessionStartup(
+  final (session, scope) = await ExistingSessionStartup(
     identity: identity,
     readLocalSession: () =>
         (readSession ??
@@ -115,6 +134,6 @@ Future<ExistingSessionBootstrapResult> bootstrapExistingSession({
             SecureSessionStore.android(identityStore: store)
                 .read())(identityStore),
     readTimeout: readTimeout,
-  ).load();
-  return ExistingSessionBootstrapResult(identity, session);
+  ).loadDetailed();
+  return ExistingSessionBootstrapResult(identity, session, scope: scope);
 }

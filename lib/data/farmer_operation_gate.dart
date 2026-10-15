@@ -3,9 +3,16 @@ import 'agro_repository.dart' show BusinessRuleException;
 
 /// Se lanza cuando la política de activación no habilita operaciones locales.
 class FarmerOperationBlockedException extends BusinessRuleException {
-  FarmerOperationBlockedException(this.state) : super(state.message);
+  FarmerOperationBlockedException(InstallationAccessState this.state)
+    : super(state.message);
 
-  final InstallationAccessState state;
+  /// El estado de la instalación todavía se está evaluando.
+  FarmerOperationBlockedException.pending()
+    : state = null,
+      super('Verificando el estado de la instalación. Intente de nuevo.');
+
+  /// null mientras se evalúa.
+  final InstallationAccessState? state;
 }
 
 /// Compuerta de dominio de la política de activación. [AgroRepository] la
@@ -18,16 +25,20 @@ class FarmerOperationGate {
   const FarmerOperationGate.unrestricted() : _read = null;
 
   /// Lee el estado vigente en cada escritura (cambia tras activar o vincular).
-  const FarmerOperationGate(InstallationAccessState Function() read)
+  /// Un estado null (aún en evaluación) falla cerrado.
+  const FarmerOperationGate(InstallationAccessState? Function() read)
     : _read = read;
 
-  final InstallationAccessState Function()? _read;
+  final InstallationAccessState? Function()? _read;
 
   bool get isUnrestricted => _read == null;
 
   void ensureAllowed() {
-    final state = _read?.call();
-    if (state != null && !state.allowsFarmerOperations) {
+    final read = _read;
+    if (read == null) return;
+    final state = read();
+    if (state == null) throw FarmerOperationBlockedException.pending();
+    if (!state.allowsFarmerOperations) {
       throw FarmerOperationBlockedException(state);
     }
   }

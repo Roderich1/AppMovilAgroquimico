@@ -6,7 +6,9 @@ import '../../app.dart';
 import '../../data/typed_reads.dart';
 import '../../domain/models.dart';
 import '../../domain/money.dart';
+import '../../domain/installation_access.dart';
 import '../../domain/read_models.dart';
+import '../../installation_access.dart';
 import '../../services/auth/existing_session_providers.dart';
 import '../../services/auth/existing_session_startup.dart';
 import '../../services/auth/remote_session_coordinator.dart';
@@ -147,6 +149,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                 existingSession ==
                     ExistingSessionStartupState.localSessionExpired)
               const _RemoteSessionControls(),
+            const _InstallationAccessNotice(),
             const SizedBox(height: 10),
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
@@ -550,4 +553,35 @@ class _InventoryCards extends StatelessWidget {
       ),
     ],
   );
+}
+
+/// Aviso de la política de activación (#76) cuando la instalación opera en
+/// compatibilidad o sin sesión, y acceso a la elección explícita del titular.
+class _InstallationAccessNotice extends ConsumerWidget {
+  const _InstallationAccessNotice();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final access = ref.watch(installationAccessProvider);
+    if (access == null || access == InstallationAccessState.activated) {
+      return const SizedBox.shrink();
+    }
+    final scope = ref.read(installationAccessProvider.notifier).sessionScope;
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(access.message, key: const Key('installation-access-notice')),
+          if (access.allowsOwnerBinding && scope != null)
+            TextButton.icon(
+              key: const Key('dashboard-choose-owner'),
+              onPressed: () => context.push('/titular'),
+              icon: const Icon(Icons.person_pin_outlined),
+              label: const Text('Elegir titular'),
+            ),
+        ],
+      ),
+    );
+  }
 }

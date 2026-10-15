@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../data/installation_identity_initializer.dart';
+import '../../installation_access.dart';
 import '../../services/auth/existing_session_providers.dart';
 import '../../services/auth/first_activation_coordinator.dart';
 import '../../services/auth/first_activation_providers.dart';
@@ -59,6 +60,13 @@ class _FirstActivationScreenState extends ConsumerState<FirstActivationScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Con la política de activación (#76), «Continuar con datos locales» sólo
+    // se ofrece si la instalación ya puede operar localmente.
+    final canOperate =
+        ref.watch(installationAccessProvider)?.allowsFarmerOperations ?? false;
+    final leaveLabel = canOperate ? 'Continuar con datos locales' : 'Continuar';
+    // Sin operación local habilitada, el destino es la pantalla de acceso.
+    void leave() => canOperate ? context.go('/') : context.go('/acceso');
     final existingSession = ref.watch(effectiveLocalSessionProvider);
     if (!existingSession.allowsFirstActivation) {
       return Scaffold(
@@ -80,10 +88,7 @@ class _FirstActivationScreenState extends ConsumerState<FirstActivationScreen> {
                       textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: 20),
-                    FilledButton(
-                      onPressed: () => context.go('/'),
-                      child: const Text('Continuar con datos locales'),
-                    ),
+                    FilledButton(onPressed: leave, child: Text(leaveLabel)),
                   ],
                 ),
               ),
@@ -114,10 +119,7 @@ class _FirstActivationScreenState extends ConsumerState<FirstActivationScreen> {
                       textAlign: TextAlign.center,
                     ),
                     const SizedBox(height: 20),
-                    FilledButton(
-                      onPressed: () => context.go('/'),
-                      child: const Text('Continuar con datos locales'),
-                    ),
+                    FilledButton(onPressed: leave, child: Text(leaveLabel)),
                   ],
                 ),
               ),
@@ -164,9 +166,14 @@ class _FirstActivationScreenState extends ConsumerState<FirstActivationScreen> {
                     textAlign: TextAlign.center,
                   ),
                   const SizedBox(height: 12),
-                  const Text(
-                    'Vincule esta instalación con su cuenta. Sus datos locales '
-                    'permanecen disponibles aunque la activación no finalice.',
+                  Text(
+                    canOperate
+                        ? 'Vincule esta instalación con su cuenta. Sus datos '
+                              'locales permanecen disponibles aunque la '
+                              'activación no finalice.'
+                        : 'Vincule esta instalación con su cuenta para empezar '
+                              'a registrar. No se borra ningún dato.',
+                    key: const Key('activation-intro'),
                     textAlign: TextAlign.center,
                   ),
                   const SizedBox(height: 24),
@@ -255,10 +262,7 @@ class _FirstActivationScreenState extends ConsumerState<FirstActivationScreen> {
                       child: const Text('Cancelar activación'),
                     ),
                   if (!busy)
-                    TextButton(
-                      onPressed: () => context.go('/'),
-                      child: const Text('Continuar con datos locales'),
-                    ),
+                    TextButton(onPressed: leave, child: Text(leaveLabel)),
                 ],
               ),
             ),

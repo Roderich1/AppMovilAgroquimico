@@ -5,8 +5,12 @@ import 'package:go_router/go_router.dart';
 import 'data/agro_repository.dart';
 import 'data/app_database.dart';
 import 'data/backup_service.dart';
+import 'data/farmer_operation_gate.dart';
+import 'domain/installation_access.dart';
+import 'installation_access.dart';
 import 'domain/reports/report_composer.dart';
 import 'presentation/app_shell.dart';
+import 'presentation/screens/access_status_screen.dart';
 import 'presentation/screens/applications_screen.dart';
 import 'presentation/screens/application_form_screen.dart';
 import 'presentation/screens/catalogs_screen.dart';
@@ -16,7 +20,9 @@ import 'presentation/screens/reauthentication_screen.dart';
 import 'presentation/screens/farm_logbook_screen.dart';
 import 'presentation/screens/inventory_detail_screen.dart';
 import 'presentation/screens/inventory_screen.dart';
+import 'presentation/screens/operation_mode_screen.dart';
 import 'presentation/screens/operations_screen.dart';
+import 'presentation/screens/owner_setup_screen.dart';
 import 'presentation/screens/person_detail_screen.dart';
 import 'presentation/screens/persons_screen.dart';
 import 'presentation/screens/planning_screen.dart';
@@ -36,8 +42,14 @@ final databaseProvider = Provider<AppDatabase>((ref) {
   return database;
 });
 
+/// El repositorio de la app aplica la política de activación en cada
+/// escritura (#76). Las pruebas que no tratan la activación sobrescriben este
+/// proveedor con un repositorio sin restricción.
 final repositoryProvider = Provider<AgroRepository>(
-  (ref) => AgroRepository(ref.watch(databaseProvider)),
+  (ref) => AgroRepository(
+    ref.watch(databaseProvider),
+    gate: FarmerOperationGate(() => ref.read(installationAccessProvider)),
+  ),
 );
 
 final backupServiceProvider = Provider<BackupService>(
@@ -57,9 +69,38 @@ final reportExportServiceProvider = Provider<ReportExportService>(
   ),
 );
 
-final routerProvider = Provider<GoRouter>(
-  (ref) => GoRouter(
+/// Rutas que se pueden abrir aunque la instalación no pueda operar.
+const _accessRoutes = {'/acceso', '/activar', '/titular', '/reauth'};
+
+/// Compuerta de navegación de la política de activación (#76). La compuerta
+/// de dominio está en el repositorio; ésta sólo evita mostrar pantallas que
+/// fallarían.
+String? accessRedirect(InstallationAccessState? access, String path) {
+  if (access == null) return _accessRoutes.contains(path) ? null : '/acceso';
+  if (access.allowsFarmerOperations) return path == '/acceso' ? '/' : null;
+  // Activación incompleta: el único paso pendiente es elegir el titular.
+  if (access == InstallationAccessState.activationPendingOwner) {
+    return path == '/titular' ? null : '/titular';
+  }
+  // Resto de estados bloqueados: la pantalla de acceso y, si corresponde, la
+  // activación o la reautenticación. El titular no se elige en estos estados.
+  return _accessRoutes.contains(path) && path != '/titular' ? null : '/acceso';
+}
+
+final routerProvider = Provider<GoRouter>((ref) {
+  final accessChanges = ValueNotifier<InstallationAccessState?>(
+    ref.read(installationAccessProvider),
+  );
+  ref.listen(
+    installationAccessProvider,
+    (_, next) => accessChanges.value = next,
+  );
+  ref.onDispose(accessChanges.dispose);
+  return GoRouter(
     initialLocation: '/',
+    refreshListenable: accessChanges,
+    redirect: (_, state) =>
+        accessRedirect(ref.read(installationAccessProvider), state.uri.path),
     routes: [
       ShellRoute(
         builder: (context, state, child) =>
@@ -133,6 +174,9 @@ final routerProvider = Provider<GoRouter>(
           ),
         ],
       ),
+      GoRoute(path: '/acceso', builder: (_, __) => const AccessStatusScreen()),
+      GoRoute(path: '/titular', builder: (_, __) => const OwnerSetupScreen()),
+      GoRoute(path: '/modo', builder: (_, __) => const OperationModeScreen()),
       GoRoute(
         path: '/activar',
         builder: (_, __) => const FirstActivationScreen(),
@@ -160,8 +204,8 @@ final routerProvider = Provider<GoRouter>(
         builder: (_, __) => const PlanFormScreen(),
       ),
     ],
-  ),
-);
+  );
+});
 
 class AgroApp extends ConsumerWidget {
   const AgroApp({super.key});

@@ -4,10 +4,14 @@ import 'dart:io';
 
 import 'package:agroquimicos/app.dart';
 import 'package:agroquimicos/data/agro_repository.dart';
+import 'package:agroquimicos/data/farmer_operation_gate.dart';
 import 'package:agroquimicos/data/app_database.dart';
 import 'package:agroquimicos/data/installation_client_id_store.dart';
 import 'package:agroquimicos/data/installation_identity_initializer.dart';
+import 'package:agroquimicos/domain/installation_access.dart';
 import 'package:agroquimicos/domain/models.dart';
+import 'package:agroquimicos/installation_access.dart';
+import 'package:agroquimicos/presentation/screens/dashboard_screen.dart';
 import 'package:agroquimicos/presentation/screens/first_activation_screen.dart';
 import 'package:agroquimicos/services/auth/api_endpoint_config.dart';
 import 'package:agroquimicos/services/auth/auth_http_client.dart';
@@ -24,6 +28,9 @@ import 'package:go_router/go_router.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+
+import 'support/f04_app_access.dart';
+import 'support/f04_mode_fixtures.dart';
 
 const _clientId = '550e8400-e29b-41d4-a716-446655440000';
 const _registrationId = '550e8400-e29b-41d4-a716-446655440001';
@@ -196,6 +203,10 @@ Future<_Fixture> _mount(
         path: '/activar',
         builder: (_, __) => const FirstActivationScreen(),
       ),
+      GoRoute(
+        path: '/acceso',
+        builder: (_, __) => const Scaffold(body: Text('Acceso')),
+      ),
     ],
   );
   addTearDown(router.dispose);
@@ -206,6 +217,9 @@ Future<_Fixture> _mount(
         existingSessionStartupProvider.overrideWithValue(
           ExistingSessionStartupState.noLocalSession,
         ),
+        // Política #76: estas pruebas montan sólo la pantalla de activación
+        // de una instalación nueva, que todavía no puede operar localmente.
+        fixedInstallationAccess(InstallationAccessState.newRequiresActivation),
         installationIdentityProvider.overrideWithValue(
           InstallationIdentityInitialization(identity),
         ),
@@ -530,9 +544,11 @@ void main() {
       find.byKey(const Key('existing-session-blocks-activation')),
       findsOneWidget,
     );
-    await tester.tap(find.text('Continuar con datos locales'));
+    // Política #76: sin operación local habilitada se continúa hacia la
+    // pantalla de acceso (allí la app real pide elegir el titular).
+    await tester.tap(find.text('Continuar'));
     await tester.pumpAndSettle();
-    expect(fixture.router.routeInformationProvider.value.uri.path, '/');
+    expect(fixture.router.routeInformationProvider.value.uri.path, '/acceso');
   });
 
   testWidgets('secure commit failure never navigates', (tester) async {
@@ -649,39 +665,69 @@ void main() {
     expect(find.text(_access), findsNothing);
   });
 
-  testWidgets('local SQLite remains writable after authentication failure', (
+  testWidgets('authentication failure does not touch the SQLite domain', (
     tester,
   ) async {
-    final backend = _Backend()..loginStatus = 401;
-    await _mount(tester, backend: backend);
-    await _fill(tester);
-    await _submit(tester);
-    await _flush(tester);
-    final id = await tester.runAsync(() async {
-      final database = AppDatabase(
-        factory: databaseFactoryFfi,
-        path: inMemoryDatabasePath,
-      );
-      addTearDown(database.close);
-      return AgroRepository(database)
-          .addPerson(name: 'Persona local', role: PersonRole.family);
-    });
-    expect(id, greaterThan(0));
-  });
-
-  testWidgets('real app dashboard exposes activation route', (tester) async {
+    // Política #76: una instalación nueva no opera hasta activarse, pero un
+    // fallo de autenticación nunca borra ni modifica los datos existentes.
     final database = AppDatabase(
       factory: databaseFactoryFfi,
       path: inMemoryDatabasePath,
     );
     addTearDown(database.close);
-    await tester.pumpWidget(
-      ProviderScope(
+    final before = await tester.runAsync(() async {
+      await AgroRepository(database)
+          .addPerson(name: 'Persona local', role: PersonRole.family);
+      return dumpTables(await database.database);
+    });
+    final backend = _Backend()..loginStatus = 401;
+    await _mount(tester, backend: backend);
+    await _fill(tester);
+    await _submit(tester);
+    await _flush(tester);
+    final after = await tester.runAsync(
+      () async => dumpTables(await database.database),
+    );
+    expect(after, before);
+  });
+
+  Future<void> waitFor(WidgetTester tester, Finder finder) async {
+    for (var i = 0; i < 40; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 20)),
+      );
+      await tester.pump(const Duration(milliseconds: 20));
+      if (finder.evaluate().isNotEmpty) return;
+    }
+  }
+
+  Future<Object?> attempt(
+    WidgetTester tester,
+    Future<Object?> Function() call,
+  ) => tester.runAsync<Object?>(() async {
+    try {
+      await call();
+      return null;
+    } on Object catch (error) {
+      return error;
+    }
+  });
+
+  testWidgets(
+    'nueva instalación (#76): el arranque no abre el Dashboard y bloquea escrituras hasta activar',
+    (tester) async {
+      final database = AppDatabase(
+        factory: databaseFactoryFfi,
+        path: inMemoryDatabasePath,
+      );
+      addTearDown(database.close);
+      final container = ProviderContainer(
         overrides: [
           existingSessionStartupProvider.overrideWithValue(
             ExistingSessionStartupState.noLocalSession,
           ),
-          repositoryProvider.overrideWithValue(AgroRepository(database)),
+          databaseProvider.overrideWithValue(database),
+          ...startupAccessOverrides(),
           installationIdentityProvider.overrideWithValue(
             const InstallationIdentityInitialization(
               InstallationIdentityStatus.ready,
@@ -689,36 +735,64 @@ void main() {
           ),
           secureSessionCommitProvider.overrideWithValue(_CommitPort()),
         ],
-        child: const AgroApp(),
-      ),
-    );
-    for (var i = 0; i < 20; i++) {
-      await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 20)),
       );
-      await tester.pump(const Duration(milliseconds: 20));
-      if (find
-          .byKey(const Key('open-first-activation'))
-          .evaluate()
-          .isNotEmpty) {
-        break;
-      }
-    }
-    expect(find.byKey(const Key('open-first-activation')), findsOneWidget);
-    await tester.tap(find.byKey(const Key('open-first-activation')));
-    await tester.pumpAndSettle();
-    expect(find.text('Primera activación'), findsOneWidget);
-  });
+      addTearDown(container.dispose);
+      await tester.pumpWidget(
+        UncontrolledProviderScope(container: container, child: const AgroApp()),
+      );
+      await waitFor(tester, find.byKey(const Key('access-status-message')));
+      expect(
+        container.read(installationAccessProvider),
+        InstallationAccessState.newRequiresActivation,
+      );
+      expect(find.byType(DashboardScreen), findsNothing);
+      expect(
+        tester
+            .widget<Text>(find.byKey(const Key('access-status-message')))
+            .data,
+        InstallationAccessState.newRequiresActivation.message,
+      );
+
+      // La compuerta de dominio rechaza la escritura aunque se llame directo.
+      final before = await tester.runAsync(
+        () async => dumpTables(await database.database),
+      );
+      expect(
+        await attempt(
+          tester,
+          () => container
+              .read(repositoryProvider)
+              .addPerson(name: 'X', role: PersonRole.family),
+        ),
+        isA<FarmerOperationBlockedException>(),
+      );
+      expect(
+        await tester.runAsync(() async => dumpTables(await database.database)),
+        before,
+      );
+
+      // Una ruta directa de formulario también vuelve a la pantalla de acceso.
+      container.read(routerProvider).go('/compras/nueva');
+      await tester.pumpAndSettle();
+      expect(
+        container.read(routerProvider).routeInformationProvider.value.uri.path,
+        '/acceso',
+      );
+
+      await tester.tap(find.byKey(const Key('access-activate')));
+      await tester.pumpAndSettle();
+      expect(find.text('Primera activación'), findsOneWidget);
+    },
+  );
 
   testWidgets(
-    'successful activation updates local binding state in the same runtime',
+    'activación correcta (#76): exige elegir el titular y después habilita la operación local',
     (tester) async {
       final database = AppDatabase(
         factory: databaseFactoryFfi,
         path: inMemoryDatabasePath,
       );
       addTearDown(database.close);
-      final repository = AgroRepository(database);
       final backend = _Backend();
       final secure = _CommitPort();
       final client = MockClient(backend.respond);
@@ -728,7 +802,10 @@ void main() {
           existingSessionStartupProvider.overrideWithValue(
             ExistingSessionStartupState.noLocalSession,
           ),
-          repositoryProvider.overrideWithValue(repository),
+          databaseProvider.overrideWithValue(database),
+          // Tras activar, la sesión segura se relee: aquí devuelve el ámbito
+          // del Member A en lugar del almacenamiento Android.
+          ...startupAccessOverrides(rereadSession: () async => memberA),
           installationIdentityProvider.overrideWithValue(
             const InstallationIdentityInitialization(
               InstallationIdentityStatus.ready,
@@ -746,36 +823,14 @@ void main() {
       await tester.pumpWidget(
         UncontrolledProviderScope(container: container, child: const AgroApp()),
       );
-      for (var i = 0; i < 25; i++) {
-        await tester.runAsync(
-          () => Future<void>.delayed(const Duration(milliseconds: 20)),
-        );
-        await tester.pump(const Duration(milliseconds: 20));
-        if (find
-            .byKey(const Key('open-first-activation'))
-            .evaluate()
-            .isNotEmpty) {
-          break;
-        }
-      }
-      expect(
-        container.read(effectiveLocalSessionProvider),
-        ExistingSessionStartupState.noLocalSession,
-      );
-      expect(find.byKey(const Key('open-first-activation')), findsOneWidget);
+      await waitFor(tester, find.byKey(const Key('access-activate')));
       expect(backend.paths, isEmpty);
-
-      await tester.tap(find.byKey(const Key('open-first-activation')));
+      await tester.tap(find.byKey(const Key('access-activate')));
       await tester.pumpAndSettle();
       await _fill(tester);
       await _submit(tester);
       await _flush(tester);
       expect(container.read(firstActivationProvider).isCompleted, isTrue);
-      expect(container.read(runtimeSecureCommitCompletedProvider), isTrue);
-      expect(
-        container.read(effectiveLocalSessionProvider),
-        ExistingSessionStartupState.localSessionAvailable,
-      );
       expect(secure.calls, 1);
       expect(backend.paths, [
         '/api/v1/auth/v2/login',
@@ -785,33 +840,50 @@ void main() {
       ]);
       final firstPaths = List<String>.of(backend.paths);
 
-      for (var i = 0; i < 25; i++) {
-        await tester.runAsync(
-          () => Future<void>.delayed(const Duration(milliseconds: 20)),
-        );
-        await tester.pump(const Duration(milliseconds: 20));
-        if (find
-            .byKey(const Key('local-session-status'))
-            .evaluate()
-            .isNotEmpty) {
-          break;
-        }
-      }
+      // Activación incompleta hasta elegir el titular.
+      await waitFor(tester, find.byKey(const Key('owner-confirm')));
       expect(
-        container.read(routerProvider).routeInformationProvider.value.uri.path,
-        '/',
+        container.read(installationAccessProvider),
+        InstallationAccessState.activationPendingOwner,
       );
-      expect(find.byKey(const Key('open-first-activation')), findsNothing);
-      expect(find.byKey(const Key('local-session-status')), findsOneWidget);
       expect(
-        tester.widget<Text>(find.byKey(const Key('local-session-status'))).data,
-        ExistingSessionStartupState.localSessionAvailable.safeMessage,
-      );
-      final id = await tester.runAsync(
-        () => repository.addPerson(
-          name: 'Persona local',
-          role: PersonRole.family,
+        await attempt(
+          tester,
+          () =>
+              container.read(repositoryProvider).addProduct(name: 'Glifosato'),
         ),
+        isA<FarmerOperationBlockedException>(),
+      );
+
+      await tester.tap(find.byKey(const Key('owner-create-new')));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(const Key('owner-new-name')), 'Juana');
+      await tester.tap(find.byKey(const Key('owner-confirm')));
+      await waitFor(tester, find.byKey(const Key('local-session-status')));
+
+      expect(
+        container.read(installationAccessProvider),
+        InstallationAccessState.activated,
+      );
+      expect(find.byType(DashboardScreen), findsOneWidget);
+      final bindings = await tester.runAsync(
+        () async => (await database.database).rawQuery(
+          'SELECT b.member_id, b.tenant_id, p.name, p.role '
+          'FROM owner_bindings b JOIN persons p ON p.id = b.person_id',
+        ),
+      );
+      expect(bindings, [
+        {
+          'member_id': memberA.memberId,
+          'tenant_id': memberA.tenantId,
+          'name': 'Juana',
+          'role': 'FAMILY',
+        },
+      ]);
+      final id = await tester.runAsync(
+        () => container
+            .read(repositoryProvider)
+            .addPerson(name: 'Persona local', role: PersonRole.family),
       );
       expect(id, greaterThan(0));
 
@@ -821,8 +893,6 @@ void main() {
         find.byKey(const Key('existing-session-blocks-activation')),
         findsOneWidget,
       );
-      expect(find.byKey(const Key('activation-submit')), findsNothing);
-      expect(find.byKey(const Key('activation-password')), findsNothing);
       expect(backend.paths, firstPaths);
       expect(secure.calls, 1);
       for (final secret in [_password, _access, _refresh, _registrationId]) {

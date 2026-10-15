@@ -22,6 +22,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+import 'support/f04_app_access.dart';
+
 void main() {
   sqfliteFfiInit();
 
@@ -61,7 +63,10 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
     await tester.pumpWidget(
       ProviderScope(
-        overrides: [repositoryProvider.overrideWithValue(repo)],
+        overrides: [
+          repositoryProvider.overrideWithValue(repo),
+          activatedInstallationForTests(),
+        ],
         child: const AgroApp(),
       ),
     );
