@@ -1,4 +1,4 @@
-# ADR-002 — Renumeración de fases F08/F09
+# BE-ADR-002 — Renumeración de fases F08/F09 (réplica de la ADR-002 de Backend-Web)
 
 - **Estado:** Aceptada
 - **Fecha:** 2026-10-15
