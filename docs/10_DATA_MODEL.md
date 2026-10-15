@@ -561,3 +561,44 @@ criterio de constancia que v5 y v6.
 | `schema_equivalence_test.dart` | sigue verificando que una base migrada queda con el mismo esquema que una creada desde cero |
 
 Las migraciones históricas (v1 a v6) **no se tocaron**.
+
+# Actualización 2026-10-15 — Esquema v8 (política de activación, titular y modalidad)
+
+`AppDatabase.schemaVersion` pasa de **7 a 8**. Se construye sobre v7 (#73, PR #75).
+
+## Qué cambia
+
+| Cambio | Detalle |
+|---|---|
+| Tabla nueva `owner_bindings` | vínculo del titular local (`person_id`) con su Member y tenant (`member_id`, `tenant_id`), `bound_at`, `ended_at`, `end_reason` (`OWNER_CHANGED`) |
+| Índice `idx_owner_bindings_single_active` | único parcial: como máximo un vínculo con `ended_at IS NULL` |
+| Disparadores | `trg_owner_bindings_no_delete` (sin borrado) y `trg_owner_bindings_close_only` (sólo se puede cerrar un vínculo activo; persona, Member, tenant y fecha no cambian) |
+| `app_settings` | `install_origin` (`NEW_UNDER_POLICY` en `onCreate`; `LEGACY_PRE_POLICY` al migrar desde v7 o anterior), `activated_installation_ref`, `operation_mode` (`PERSONAL` / `SHARED`; sin la clave rige `SHARED`), `operation_mode_changed_at` |
+| Filas existentes | **ninguna** se modifica ni se borra |
+
+Referencias guardadas y su justificación:
+
+| Referencia | Para qué | Lo que no es |
+|---|---|---|
+| `member_id`, `tenant_id` | Comprobar localmente que la sesión vigente es del mismo ámbito que el titular. Es el ámbito de la clave de intención F05 §5 (tenant, Member) y de C34/C38 | No es credencial ni prueba de identidad: tras restaurar se revalida contra la sesión |
+| `activated_installation_ref` | Distinguir la misma instalación ya activada de una base restaurada en otra | Es un SHA-256 con prefijo de dominio del `installationClientId`, no el identificador |
+| `account_id` | **No se guarda**: la identidad de negocio es el Member (v1.5 §3.11.5) | — |
+
+Contraseñas, tokens y sesiones siguen sólo en el almacenamiento seguro y fuera de los respaldos.
+
+## Migración v7 a v8
+
+`_upgradeToV8` crea la tabla, el índice y los disparadores si faltan, e inserta `install_origin =
+LEGACY_PRE_POLICY` con `ConflictAlgorithm.ignore`. La marca depende del camino (creación o
+migración), no de si la base tiene filas: una base v7 vacía también queda como histórica. No crea
+ningún vínculo ni atribuye datos a ninguna cuenta.
+
+## Verificación
+
+| Comprobación | Resultado |
+|---|---|
+| `f04_install_policy_migration_test.dart` | base nueva v8 marcada NEW; v7 con datos migra a LEGACY con todas las tablas previas idénticas fila por fila; v7 vacía también es LEGACY; base nueva con datos sigue NEW; reapertura sin cambios; mismos disparadores en base nueva y migrada |
+| `f04_owner_binding_test.dart` | sólo un familiar activo puede ser titular, sin cambiar roles; sin vínculo por nombre; el motor impide reasignar, reabrir o borrar vínculos y tener dos activos |
+| `schema_equivalence_test.dart` | sigue verificando que una base migrada desde v3 queda con el mismo esquema que una nueva |
+
+Las migraciones históricas (v1 a v7) **no se tocaron**.

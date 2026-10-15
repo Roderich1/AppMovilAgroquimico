@@ -5,8 +5,11 @@ import 'package:sqflite/sqflite.dart' show Database, DatabaseExecutor, Sqflite;
 
 import '../domain/models.dart';
 import '../domain/money.dart';
+import '../domain/operation_mode.dart';
 import 'app_database.dart';
+import 'farmer_operation_gate.dart';
 import 'invoice_storage.dart';
+import 'operation_mode_store.dart';
 
 class BusinessRuleException implements Exception {
   BusinessRuleException(this.message);
@@ -24,12 +27,87 @@ class CampaignConflictException extends BusinessRuleException {
   final String activeCampaignName;
 }
 
+/// Se lanza cuando la modalidad propia (PERSONAL) no admite la operación.
+class PersonalModeRestrictionException extends BusinessRuleException {
+  PersonalModeRestrictionException(super.message);
+}
+
 class AgroRepository {
-  AgroRepository(this.appDatabase);
+  AgroRepository(
+    this.appDatabase, {
+    FarmerOperationGate gate = const FarmerOperationGate.unrestricted(),
+  }) : _gate = gate;
   final AppDatabase appDatabase;
+  final FarmerOperationGate _gate;
 
   Future<Database> get _db => appDatabase.database;
   String _date(DateTime date) => date.toUtc().toIso8601String();
+
+  /// Toda escritura del agricultor pasa por aquí: primero la política de
+  /// activación y después el contexto de modalidad. Devuelve la modalidad y
+  /// el titular vigentes para las guardas de modo propio.
+  Future<({OperationMode mode, int? ownerPersonId})> _guardWrite() async {
+    _gate.ensureAllowed();
+    final db = await _db;
+    final mode = await OperationModeStore(appDatabase).current(db);
+    final owner = await db.query(
+      'owner_bindings',
+      columns: ['person_id'],
+      where: 'ended_at IS NULL',
+    );
+    final ownerPersonId = owner.isEmpty
+        ? null
+        : owner.single['person_id'] as int;
+    if (mode == OperationMode.personal && ownerPersonId == null) {
+      throw PersonalModeRestrictionException(
+        'El inventario propio necesita un titular vinculado.',
+      );
+    }
+    return (mode: mode, ownerPersonId: ownerPersonId);
+  }
+
+  /// En modo propio, la persona responsable sólo puede ser el titular.
+  void _requireOwnerInPersonal(
+    ({OperationMode mode, int? ownerPersonId}) context,
+    Iterable<int> personIds,
+    String message,
+  ) {
+    if (context.mode != OperationMode.personal) return;
+    if (personIds.any((id) => id != context.ownerPersonId)) {
+      throw PersonalModeRestrictionException(message);
+    }
+  }
+
+  /// Las transferencias entre responsables no existen en modo propio
+  /// (RF-06: el modo compartido habilita responsables y transferencias).
+  void _rejectTransferInPersonal(
+    ({OperationMode mode, int? ownerPersonId}) context,
+  ) {
+    if (context.mode == OperationMode.personal) {
+      throw PersonalModeRestrictionException(
+        'En inventario propio no hay transferencias entre responsables.',
+      );
+    }
+  }
+
+  Future<void> _requireOwnerFarmInPersonal(
+    ({OperationMode mode, int? ownerPersonId}) context,
+    int farmId,
+  ) async {
+    if (context.mode != OperationMode.personal) return;
+    final farm = await (await _db).query(
+      'farms',
+      columns: ['owner_person_id'],
+      where: 'id=?',
+      whereArgs: [farmId],
+    );
+    if (farm.isNotEmpty &&
+        farm.single['owner_person_id'] != context.ownerPersonId) {
+      throw PersonalModeRestrictionException(
+        'En inventario propio sólo se usan los chacos del titular.',
+      );
+    }
+  }
 
   Future<int> addPerson({
     required String name,
@@ -37,6 +115,7 @@ class AgroRepository {
     SettlementPolicy? policy,
     String? phone,
   }) async {
+    await _guardWrite();
     final effective =
         policy ??
         switch (role) {
@@ -58,16 +137,28 @@ class AgroRepository {
     required String name,
     required int areaM2,
     String? location,
-  }) => _db.then(
-    (db) => db.insert('farms', {
+  }) async {
+    _requireOwnerInPersonal(await _guardWrite(), [
+      ownerId,
+    ], 'En inventario propio los chacos pertenecen al titular.');
+    return (await _db).insert('farms', {
       'owner_person_id': ownerId,
       'name': name.trim(),
       'area_m2': areaM2,
       'location': location,
-    }),
-  );
+    });
+  }
 
   Future<int> addCampaign({
+    required String name,
+    required DateTime start,
+    DateTime? end,
+  }) async {
+    await _guardWrite();
+    return _insertCampaign(name: name, start: start, end: end);
+  }
+
+  Future<int> _insertCampaign({
     required String name,
     required DateTime start,
     DateTime? end,
@@ -101,6 +192,7 @@ class AgroRepository {
     int campaignId, {
     bool closeCurrent = false,
   }) async {
+    await _guardWrite();
     await (await _db).transaction((txn) async {
       final target = await txn.query(
         'campaigns',
@@ -159,6 +251,7 @@ class AgroRepository {
   }
 
   Future<void> closeCampaign(int campaignId) async {
+    await _guardWrite();
     await (await _db).transaction((txn) async {
       final changed = await txn.update(
         'campaigns',
@@ -241,26 +334,28 @@ class AgroRepository {
     required String name,
     String? activeIngredient,
     String unit = 'L',
-  }) => _db.then(
-    (db) => db.insert('products', {
+  }) async {
+    await _guardWrite();
+    return (await _db).insert('products', {
       'name': name.trim(),
       'active_ingredient': activeIngredient,
       'unit': unit,
       'base_unit': unit == 'L' ? 'ML' : 'G',
-    }),
-  );
+    });
+  }
 
   Future<int> addSupplier({
     required String name,
     String? phone,
     String? notes,
-  }) => _db.then(
-    (db) => db.insert('suppliers', {
+  }) async {
+    await _guardWrite();
+    return (await _db).insert('suppliers', {
       'name': name.trim(),
       'phone': phone,
       'notes': notes,
-    }),
-  );
+    });
+  }
 
   Future<int> addPlan({
     required int farmId,
@@ -289,6 +384,7 @@ class AgroRepository {
     DateTime? plannedDate,
     String? notes,
   }) async {
+    await _requireOwnerFarmInPersonal(await _guardWrite(), farmId);
     if (areaM2 <= 0 || items.isEmpty) {
       throw BusinessRuleException(
         'El plan necesita área y al menos un producto.',
@@ -328,6 +424,10 @@ class AgroRepository {
   }
 
   Future<int> confirmPurchase(PurchaseDraft draft) async {
+    _requireOwnerInPersonal(await _guardWrite(), [
+      for (final item in draft.items)
+        for (final allocation in item.allocations) allocation.personId,
+    ], 'En inventario propio la compra se asigna sólo al titular.');
     if (draft.items.isEmpty)
       throw BusinessRuleException('La compra necesita al menos un producto.');
     if (draft.items.map((item) => item.productId).toSet().length !=
@@ -475,6 +575,7 @@ class AgroRepository {
     required String method,
     DateTime? date,
   }) async {
+    await _guardWrite();
     if (amountBobMinor <= 0)
       throw BusinessRuleException('El pago debe ser mayor a cero.');
     return (await _db).transaction((txn) async {
@@ -508,6 +609,11 @@ class AgroRepository {
   }
 
   Future<int> confirmApplication(ApplicationDraft draft) async {
+    final context = await _guardWrite();
+    _requireOwnerInPersonal(context, [
+      draft.personId,
+    ], 'En inventario propio la aplicación la realiza el titular.');
+    await _requireOwnerFarmInPersonal(context, draft.farmId);
     if (draft.lines.isEmpty)
       throw BusinessRuleException(
         'La aplicación necesita al menos un producto.',
@@ -667,6 +773,9 @@ class AgroRepository {
     DateTime? date,
     String? notes,
   }) async {
+    _requireOwnerInPersonal(await _guardWrite(), [
+      personId,
+    ], 'En inventario propio sólo se registran pagos del titular.');
     if (amountBobMinor <= 0)
       throw BusinessRuleException('El importe debe ser mayor a cero.');
     return (await _db).transaction((txn) async {
@@ -706,6 +815,7 @@ class AgroRepository {
   }
 
   Future<void> reverseApplication(int applicationId, {String? reason}) async {
+    await _guardWrite();
     await (await _db).transaction((txn) async {
       final rows = await txn.query(
         'applications',
@@ -775,6 +885,7 @@ class AgroRepository {
   }
 
   Future<void> reversePurchase(int purchaseId, {String? reason}) async {
+    await _guardWrite();
     await (await _db).transaction((txn) async {
       final consumed =
           Sqflite.firstIntValue(
@@ -874,6 +985,7 @@ class AgroRepository {
     DateTime? date,
     String? notes,
   }) async {
+    _rejectTransferInPersonal(await _guardWrite());
     final source = await (await _db).query(
       'inventory_lots',
       columns: ['product_id', 'owner_person_id'],
@@ -926,6 +1038,7 @@ class AgroRepository {
     DateTime? date,
     String? notes,
   }) async {
+    _rejectTransferInPersonal(await _guardWrite());
     if (fromPersonId == toPersonId) {
       throw BusinessRuleException(
         'El origen y el destino deben ser diferentes.',
@@ -1055,6 +1168,7 @@ class AgroRepository {
   }
 
   Future<void> reverseTransfer(int transferId, {String? reason}) async {
+    await _guardWrite();
     await (await _db).transaction((txn) async {
       final transfers = await txn.query(
         'transfers',
@@ -1175,6 +1289,7 @@ class AgroRepository {
       _db.then((db) => db.query(table, orderBy: orderBy ?? 'id DESC'));
 
   Future<void> renameCatalog(String table, int id, String name) async {
+    await _guardWrite();
     const allowed = {'persons', 'farms', 'products', 'suppliers', 'campaigns'};
     if (!allowed.contains(table)) throw ArgumentError('Catálogo no permitido.');
     if (name.trim().isEmpty)
@@ -1188,6 +1303,10 @@ class AgroRepository {
   }
 
   Future<void> archiveCatalog(String table, int id) async {
+    final context = await _guardWrite();
+    if (table == 'persons' && id == context.ownerPersonId) {
+      throw BusinessRuleException('El titular vinculado no se puede archivar.');
+    }
     const activeTables = {'persons', 'farms', 'products', 'suppliers'};
     if (activeTables.contains(table)) {
       await (await _db).update(
@@ -1734,6 +1853,7 @@ class AgroRepository {
   }
 
   Future<String> storeInvoiceImage(String sourcePath) async {
+    await _guardWrite();
     // La carpeta la decide `invoice_storage.dart`, que es también donde la
     // busca `BackupService` para meterla en el respaldo y devolverla al
     // restaurar.

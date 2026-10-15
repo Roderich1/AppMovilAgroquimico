@@ -1,0 +1,34 @@
+import '../domain/installation_access.dart';
+import 'agro_repository.dart' show BusinessRuleException;
+
+/// Se lanza cuando la política de activación no habilita operaciones locales.
+class FarmerOperationBlockedException extends BusinessRuleException {
+  FarmerOperationBlockedException(this.state) : super(state.message);
+
+  final InstallationAccessState state;
+}
+
+/// Compuerta de dominio de la política de activación. [AgroRepository] la
+/// consulta al inicio de cada escritura, de modo que ocultar controles en la
+/// interfaz no deja una ruta directa para operar sin activación.
+class FarmerOperationGate {
+  /// Sin restricción: comportamiento anterior a la política. Lo usan las
+  /// pruebas del dominio que no tratan la activación; la app instala la
+  /// compuerta real en `repositoryProvider`.
+  const FarmerOperationGate.unrestricted() : _read = null;
+
+  /// Lee el estado vigente en cada escritura (cambia tras activar o vincular).
+  const FarmerOperationGate(InstallationAccessState Function() read)
+    : _read = read;
+
+  final InstallationAccessState Function()? _read;
+
+  bool get isUnrestricted => _read == null;
+
+  void ensureAllowed() {
+    final state = _read?.call();
+    if (state != null && !state.allowsFarmerOperations) {
+      throw FarmerOperationBlockedException(state);
+    }
+  }
+}

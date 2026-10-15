@@ -512,7 +512,8 @@ void main() {
           (await db.rawQuery('PRAGMA user_version')).first.values.first,
           AppDatabase.schemaVersion,
         );
-        expect(AppDatabase.schemaVersion, 7);
+        // La reparación es de v7; versiones posteriores la conservan.
+        expect(AppDatabase.schemaVersion, greaterThanOrEqualTo(7));
         expect(await reversionesDescuadradas(db), isEmpty);
 
         // Solo cambian las filas reparadas, y solo en su producto.
@@ -580,29 +581,26 @@ void main() {
       },
     );
 
-    test(
-      'una base nueva nace en v7 sin nada que reparar ni registrar',
-      () async {
-        final database = AppDatabase(
-          factory: databaseFactoryFfi,
-          path: inMemoryDatabasePath,
-        );
-        addTearDown(database.close);
-        final db = await database.database;
-        expect(
-          (await db.rawQuery('PRAGMA user_version')).first.values.first,
-          7,
-        );
-        expect(
-          await db.query(
-            'app_settings',
-            where: 'key=?',
-            whereArgs: [AppDatabase.transferReversalRepairKey],
-          ),
-          isEmpty,
-        );
-      },
-    );
+    test('una base nueva nace en la versión actual sin nada que reparar ni registrar', () async {
+      final database = AppDatabase(
+        factory: databaseFactoryFfi,
+        path: inMemoryDatabasePath,
+      );
+      addTearDown(database.close);
+      final db = await database.database;
+      expect(
+        (await db.rawQuery('PRAGMA user_version')).first.values.first,
+        AppDatabase.schemaVersion,
+      );
+      expect(
+        await db.query(
+          'app_settings',
+          where: 'key=?',
+          whereArgs: [AppDatabase.transferReversalRepairKey],
+        ),
+        isEmpty,
+      );
+    });
 
     test('la reparación solo toca movimientos TRANSFER_REVERSAL_*: otro movimiento descuadrado no cambia', () async {
       final seed = await baseV6();
@@ -678,7 +676,10 @@ void main() {
       addTearDown(migrated.close);
       final db = await migrated.database;
 
-      expect((await db.rawQuery('PRAGMA user_version')).first.values.first, 7);
+      expect(
+        (await db.rawQuery('PRAGMA user_version')).first.values.first,
+        AppDatabase.schemaVersion,
+      );
       expect(await movimientos(db), antes);
       expect(await db.query('app_settings', orderBy: 'key'), ajustesAntes);
       expect(
