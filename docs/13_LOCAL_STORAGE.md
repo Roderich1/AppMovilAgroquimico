@@ -366,3 +366,14 @@ en otra carpeta; copia de seguridad previa; rollback a mitad; integridad posteri
 restaurar dos veces seguidas.
 
 Más `backup_service_test.dart` y `backup_android_semantics_test.dart`, que se conservan.
+
+
+## Actualización 2026-10-15 — Restauración protegida (F04, #76)
+
+`GuardedRestore` (`lib/guarded_restore.dart`) envuelve `BackupService.restore`:
+
+1. **Exclusión** (`DatabaseReplacementGuard`, en `AppDatabase.replacement`): las escrituras en curso terminan antes; durante la sustitución ninguna escritura nueva entra (`DatabaseReplacementInProgressException`) y las lecturas esperan. `BackupService.restore` es exclusivo también por sí solo.
+2. **Propiedad** antes de tocar nada: se lee el titular que declara la base del respaldo (`readOwnership`). Una copia de otro Member o tenant, una de una activación sin terminar o una cuya propiedad no se puede leer se rechaza, y la base y las fotografías actuales quedan intactas. Una copia anterior a v8 se restaura como histórica, sin titular.
+3. **Recálculo** de la autorización con la base resultante antes de volver a admitir escrituras. Si falla, el estado queda nulo y la compuerta falla cerrada; nunca se conserva la autorización de la base anterior.
+
+La pantalla de Cuentas muestra de quién es la copia antes de pedir confirmación. Restaurar no crea ni reasigna vínculos ni intenciones. Sólo registra la instalación actual cuando la sesión legible es del mismo Member que el vínculo restaurado.

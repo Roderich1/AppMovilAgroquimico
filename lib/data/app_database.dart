@@ -6,6 +6,8 @@ import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart' as mobile;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+import 'database_replacement.dart';
+
 class AppDatabase {
   AppDatabase({DatabaseFactory? factory, String? path})
     : _factory = factory,
@@ -17,6 +19,10 @@ class AppDatabase {
   /// debe terminar con el mismo esquema. `test/schema_equivalence_test.dart`
   /// lo verifica automáticamente.
   static const int schemaVersion = 8;
+
+  /// Primera versión con `owner_bindings` e `install_origin`: una base
+  /// anterior es histórica y no declara titular.
+  static const int ownerBindingsSinceVersion = 8;
 
   /// Clave en `app_settings` donde se registra que la migración a v5 no pudo
   /// imponer la unicidad por existir filas duplicadas previas. Su presencia
@@ -82,7 +88,16 @@ class AppDatabase {
   Database? _db;
   String? _path;
 
-  Future<Database> get database async => _db ??= await _open();
+  /// Exclusión entre escrituras y sustitución de la base (restaurar). Todo
+  /// lo que escribe en esta base pasa por [DatabaseReplacementGuard.write].
+  final DatabaseReplacementGuard replacement = DatabaseReplacementGuard();
+
+  Future<Database> get database async {
+    // Durante una sustitución no se reabre el archivo a medio copiar.
+    await replacement.whenReadable();
+    return _db ??= await _open();
+  }
+
   String? get openedPath => _path;
 
   /// Fábrica efectiva para esta plataforma (o la inyectada en tests).

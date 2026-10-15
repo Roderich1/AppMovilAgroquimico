@@ -103,33 +103,36 @@ class OperationModeStore {
         'Confirme el cambio de modalidad para continuar.',
       );
     }
-    final db = await _database.database;
     late ModeTransitionDecision decision;
-    await db.transaction((txn) async {
-      decision = await evaluate(target, txn);
-      if (!decision.allowed) {
-        throw ModeTransitionException(
-          decision.blocks.contains(ModeTransitionBlock.ownerRequired)
-              ? 'El inventario propio necesita un titular vinculado.'
-              : 'Hay existencias, planes o saldos de otras personas. '
-                    'Resuélvalos en modo compartido antes de pasar a propio.',
-          decision: decision,
-        );
-      }
-      if (decision.isNoop) return;
-      for (final entry in {
-        AppDatabase.operationModeKey: target.code,
-        AppDatabase.operationModeChangedAtKey: _clock()
-            .toUtc()
-            .toIso8601String(),
-      }.entries) {
-        await txn.insert('app_settings', {
-          'key': entry.key,
-          'value': entry.value,
-        }, conflictAlgorithm: ConflictAlgorithm.replace);
-      }
-      if (afterWrite != null) await afterWrite(txn);
-    });
+    // Fuera de una restauración: no cambia la modalidad de una base que se
+    // está sustituyendo.
+    await _database.replacement.write(
+      () async => (await _database.database).transaction((txn) async {
+        decision = await evaluate(target, txn);
+        if (!decision.allowed) {
+          throw ModeTransitionException(
+            decision.blocks.contains(ModeTransitionBlock.ownerRequired)
+                ? 'El inventario propio necesita un titular vinculado.'
+                : 'Hay existencias, planes o saldos de otras personas. '
+                      'Resuélvalos en modo compartido antes de pasar a propio.',
+            decision: decision,
+          );
+        }
+        if (decision.isNoop) return;
+        for (final entry in {
+          AppDatabase.operationModeKey: target.code,
+          AppDatabase.operationModeChangedAtKey: _clock()
+              .toUtc()
+              .toIso8601String(),
+        }.entries) {
+          await txn.insert('app_settings', {
+            'key': entry.key,
+            'value': entry.value,
+          }, conflictAlgorithm: ConflictAlgorithm.replace);
+        }
+        if (afterWrite != null) await afterWrite(txn);
+      }),
+    );
     return decision;
   }
 }

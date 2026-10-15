@@ -6,6 +6,7 @@ import '../../data/agro_repository.dart';
 import '../../data/typed_reads.dart';
 import '../../domain/models.dart';
 import '../../domain/money.dart';
+import '../../domain/person_roles.dart';
 import '../widgets/common.dart';
 
 class CatalogsScreen extends ConsumerStatefulWidget {
@@ -184,7 +185,8 @@ class _CatalogsScreenState extends ConsumerState<CatalogsScreen>
           if (result != null)
             await repo.addPerson(name: result.$1, role: result.$2);
         case 1:
-          final people = await repo.people();
+          // En modo propio los chacos son del titular.
+          final people = await repo.peopleFor(PersonPurpose.farmOwner);
           if (!mounted) return;
           final result = await showDialog<(int, String, int)?>(
             context: context,

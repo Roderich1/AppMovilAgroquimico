@@ -317,3 +317,21 @@ reglas decididas, limitaciones cerradas y presentación corregida.
 
 Funcionalidades explícitamente **fuera** de esta baseline y diferidas:
 [`46` sección 16](46_BASELINE_FINAL_FREEZE.md).
+
+
+# Actualización 2026-10-15 — Titular, rol privado y modalidad en los formularios (F04)
+
+Tres nociones distintas (`lib/domain/person_roles.dart`):
+
+- **Titular**: la persona local elegida por un Member (`owner_bindings`).
+- **Rol privado de negocio**: `persons.role`. `ADMIN` paga a los proveedores, tiene política `MANUAL` y no participa en la liquidación.
+- **Rol central de seguridad**: el de la cuenta en el sindicato (AGRICULTOR, ADMINISTRADOR, DIRECTIVA). No vive en `persons`.
+
+| Formulario | Compartido | Propio |
+|---|---|---|
+| Asignación de compra y dueño de chaco | todas las personas (sin cambios) | sólo el titular |
+| Pagador al proveedor | personas `ADMIN` (sin cambios) | sólo el titular, aunque sea familiar |
+| Aplicación | personas no `ADMIN`, **más el titular aunque sea `ADMIN`**; sólo chacos de quien puede aplicar | sólo el titular y sus chacos |
+| Transferencia | personas no `ADMIN`, **más el titular aunque sea `ADMIN`** | no hay transferencias |
+
+El agricultor histórico registrado como `ADMIN` puede ser titular con una confirmación explícita. Conserva su rol, su política `MANUAL` y sus movimientos, y no se crea otra persona. Un tercero no puede ser titular. Los formularios leen estas reglas con `AgroRepository.peopleFor`; el repositorio aplica las mismas guardas dentro de la transacción de cada escritura.

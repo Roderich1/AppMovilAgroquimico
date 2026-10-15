@@ -5,16 +5,18 @@ import 'package:go_router/go_router.dart';
 import '../../app.dart';
 import '../../data/operation_mode_store.dart';
 import '../../data/owner_binding_store.dart';
-import '../../domain/models.dart';
 import '../../domain/operation_mode.dart';
+import '../../domain/person_roles.dart';
 import '../../installation_access.dart';
 import '../widgets/common.dart';
 
 /// Elección explícita del titular tras activar (criterio C, CU-01, CU-05).
 ///
-/// El titular es la persona de la familia que representa al agricultor dueño
-/// del ámbito local. No se deduce por nombre ni teléfono, no se cambia el rol
-/// de nadie y nunca se elige solo.
+/// El titular es la persona local que representa al agricultor dueño del
+/// ámbito. No se deduce por nombre ni teléfono, no se cambia el rol de nadie y
+/// nunca se elige solo. El agricultor histórico registrado como administrador
+/// de pagos (rol privado ADMIN, no el ADMINISTRADOR del sindicato) se ofrece
+/// con una confirmación explícita: conserva su rol y sus movimientos.
 class OwnerSetupScreen extends ConsumerStatefulWidget {
   const OwnerSetupScreen({super.key});
 
@@ -27,12 +29,22 @@ class _OwnerSetupScreenState extends ConsumerState<OwnerSetupScreen> {
       .read(repositoryProvider)
       .people()
       .then(
-        (rows) =>
-            rows.where((row) => row['role'] == PersonRole.family.code).toList(),
+        (rows) => [
+          for (final row in rows)
+            if (_eligibility(row) != OwnerEligibility.notEligible) row,
+        ],
       );
   final _newName = TextEditingController();
   int? _selected;
+  bool _selectedIsAdministrator = false;
+  bool _administratorConfirmed = false;
   bool _createNew = false;
+
+  static OwnerEligibility _eligibility(Map<String, Object?> person) {
+    final role = personRoleFromCode(person['role']);
+    return role == null ? OwnerEligibility.notEligible : ownerEligibility(role);
+  }
+
   OperationMode _mode = OperationMode.shared;
   bool _saving = false;
 
@@ -61,6 +73,10 @@ class _OwnerSetupScreenState extends ConsumerState<OwnerSetupScreen> {
       showError(context, 'Elija el titular o cree uno nuevo.');
       return;
     }
+    if (!_createNew && _selectedIsAdministrator && !_administratorConfirmed) {
+      showError(context, OwnerAdministratorConfirmationRequired().message);
+      return;
+    }
     setState(() => _saving = true);
     final database = ref.read(repositoryProvider).appDatabase;
     final store = OwnerBindingStore(database);
@@ -76,6 +92,8 @@ class _OwnerSetupScreenState extends ConsumerState<OwnerSetupScreen> {
           personId: _selected!,
           scope: scope,
           installationRef: installationRef,
+          confirmAdministrator:
+              _selectedIsAdministrator && _administratorConfirmed,
         );
       }
       String? modeNotice;
@@ -114,9 +132,9 @@ class _OwnerSetupScreenState extends ConsumerState<OwnerSetupScreen> {
             padding: const EdgeInsets.all(20),
             children: [
               const Text(
-                'Elija la persona de la familia que es el agricultor dueño de '
-                'estos registros. Sólo se vincula con su cuenta del sindicato; '
-                'no se cambia el rol de ninguna persona.',
+                'Elija la persona que es el agricultor dueño de estos '
+                'registros. Sólo se vincula con su cuenta del sindicato; no se '
+                'cambia el rol de ninguna persona.',
               ),
               const SizedBox(height: 16),
               RadioGroup<int>(
@@ -124,6 +142,13 @@ class _OwnerSetupScreenState extends ConsumerState<OwnerSetupScreen> {
                 onChanged: (value) => setState(() {
                   _createNew = value == -1;
                   _selected = value == -1 ? null : value;
+                  _selectedIsAdministrator = candidates.any(
+                    (person) =>
+                        person['id'] == _selected &&
+                        _eligibility(person) ==
+                            OwnerEligibility.requiresAdministratorConfirmation,
+                  );
+                  _administratorConfirmed = false;
                 }),
                 child: Column(
                   children: [
@@ -132,6 +157,15 @@ class _OwnerSetupScreenState extends ConsumerState<OwnerSetupScreen> {
                         key: Key('owner-candidate-${person['id']}'),
                         value: person['id']! as int,
                         title: Text(person['name']! as String),
+                        subtitle:
+                            _eligibility(person) ==
+                                OwnerEligibility
+                                    .requiresAdministratorConfirmation
+                            ? const Text(
+                                'Administrador de pagos (rol de estos '
+                                'registros, no del sindicato)',
+                              )
+                            : null,
                       ),
                     const RadioListTile<int>(
                       key: Key('owner-create-new'),
@@ -141,6 +175,22 @@ class _OwnerSetupScreenState extends ConsumerState<OwnerSetupScreen> {
                   ],
                 ),
               ),
+              if (!_createNew && _selectedIsAdministrator)
+                CheckboxListTile(
+                  key: const Key('owner-confirm-administrator'),
+                  value: _administratorConfirmed,
+                  onChanged: (value) =>
+                      setState(() => _administratorConfirmed = value ?? false),
+                  title: const Text(
+                    'Confirmo que esta persona es el agricultor titular',
+                  ),
+                  subtitle: const Text(
+                    'Conserva su rol de administrador de pagos: sigue pagando a '
+                    'los proveedores, no se le cargan consumos y no entra en la '
+                    'liquidación. No se crea otra persona ni se mueve ningún '
+                    'registro.',
+                  ),
+                ),
               if (_createNew)
                 TextField(
                   key: const Key('owner-new-name'),

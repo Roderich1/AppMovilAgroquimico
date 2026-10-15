@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../app.dart';
 import '../../domain/money.dart';
+import '../../domain/person_roles.dart';
 import '../widgets/common.dart';
 
 class PurchasesScreen extends ConsumerStatefulWidget {
@@ -77,9 +78,8 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> {
 
   Future<void> _pay(Map<String, Object?> purchase) async {
     final repo = ref.read(repositoryProvider);
-    final admins = (await repo.people())
-        .where((p) => p['role'] == 'ADMIN')
-        .toList();
+    // En compartido pagan los administradores de pagos; en propio, el titular.
+    final admins = await repo.peopleFor(PersonPurpose.providerPayer);
     if (!mounted) return;
     if (admins.isEmpty) {
       showError(

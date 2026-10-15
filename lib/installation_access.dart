@@ -82,6 +82,22 @@ class InstallationAccessController extends Notifier<InstallationAccessState?> {
     }
   }
 
+  /// Tras sustituir la base (restaurar un respaldo): recalcula con la base
+  /// nueva. Si la comprobación falla, el estado queda null y la compuerta y el
+  /// router fallan cerrados: nunca se conserva la autorización de la base
+  /// anterior como si valiera para la restaurada.
+  Future<InstallationAccessState?> recomputeAfterReplacement() async {
+    try {
+      return await _evaluate(rereadSession: false);
+    } on Object catch (error) {
+      AppLog.error(
+        'No se pudo evaluar el acceso tras restaurar (${error.runtimeType})',
+      );
+      state = null;
+      return null;
+    }
+  }
+
   Future<InstallationAccessState> _evaluate({
     required bool rereadSession,
   }) async {
@@ -144,4 +160,7 @@ class FixedInstallationAccess extends InstallationAccessController {
   Future<InstallationAccessState?> refresh({
     bool rereadSession = false,
   }) async => fixed;
+
+  @override
+  Future<InstallationAccessState?> recomputeAfterReplacement() async => fixed;
 }
