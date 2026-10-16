@@ -100,6 +100,55 @@ Por eso, para los procesos examinados en la sesión de #71, la ausencia de refre
 
 Para dar el criterio por medido en #71 falta repetir E-1 o E-2 con el escaneo ampliado, o que Roderich acepte este complemento como suficiente.
 
+## Repetición de E-2 con escaneo ampliado (2026-10-16, 15:20–15:31 UTC)
+
+Sesión breve y aislada de la sesión A, con autorización delegada. Mide en el camino 401 lo que el addendum anterior dejó NOT_MEASURED. Los datos y resultados anteriores se conservan sin cambios.
+
+**Entorno nuevo**, para no tocar `agro_f03res01_pg`, `.f03res01` ni `.f06d4`:
+
+| Elemento | Valor |
+|---|---|
+| Dispositivo | POCO X5 Pro 5G `22101320G`, Android 12 (API 31), MIUI `V14.0.7.0.SMSMIXM`, `America/La_Paz` |
+| Copia aislada | Paquete nuevo `com.comunidad.agro.agroquimicos.f03e2b` («Agrocuentas F03-E2B»), depurable. APK sobre Mobile `55277847c1d39a63cc460d981bc5a6725a366968` (BASE_MOBILE_VALIDADA `caf158e` + corrección de #87; no cambia la autenticación ni el guard). SHA-256 `1cdc0cd4a3d99062f959550226596767c2dd616f62a8d79f46bc537fe2a0aef2` |
+| Backend | `main` `063437d3ebe7f10110a5faaeee3f052e7d89d100`, `NODE_ENV=production`, **admisión de Sync v1 cerrada** (no hace falta para E-2) |
+| Base | Contenedor nuevo `agro_a_e2_pg` (127.0.0.1:55445): 7 migraciones, seed y las 15 contraseñas rotadas |
+| Herramientas | `tool/f03_res_01` en `a271c1e`: entorno configurable y escaneo de logcat ampliado |
+| Transporte | Túnel HTTPS temporal (origen no publicado) hacia un observador de método, ruta y estado |
+| Cuenta | `maria.choque@agro.local` (E2), con una contraseña de un solo uso tecleada sin mostrarse |
+
+**Pasos y resultados:**
+
+| Paso | Observado | Resultado |
+|---|---|---|
+| Activación y titular | Correo tecleado en minúsculas (también comprueba #87). Peticiones: `POST auth/v2/login` 200, `POST auth/clients` 201, `POST auth/v2/session/client` 201, `GET auth/v2/me` 200. Titular «Titular E2B», modo compartido. Marcador `MARCADOR-E2B` en Catálogos (SQLite: `activo=1`) | Preparado |
+| Sesión existente válida antes de revocar | Una pulsación de «Verificar acceso en línea» a las 15:28:07: **1** `POST auth/v2/refresh` **200**. Slot `a` → `b` y guard `clear`. Central: sesión ACTIVE, refresh `total=2, consumidos=1, revocados=1`, registro ACTIVE. Pantalla: un solo mensaje, «Acceso en línea verificado para esta sesión.» | PASS |
+| **E-2: la propia cuenta revoca su registro** | `credential.sh run E2 ./revoke.sh e2` a las 15:28:27: `POST auth/clients/{id}/revoke` **201**, 1 registro revocado; la sesión auxiliar se cerró (204). Central: registro REVOKED, sesiones REVOKED, refresh `revocados=3` | Acción hecha |
+| **Refresh de la sesión revocada** | Una pulsación a las 15:28:31. Exactamente **1** `POST auth/v2/refresh` **401** (15:28:35), sin segundo refresh y sin `POST auth/clients`. Pantalla: «Se requiere volver a autenticar…» y «Volver a autenticar». Guard **`quarantined`**, slot `b` sin reescribir, marcador intacto. Sesiones `REVOKED`, ninguna `COMPROMISED`. 0 peticiones en los 60 s siguientes con la app abierta | **PASS** |
+| Reapertura sin red | force-stop (0 procesos), modo avión y apertura a las 15:30:04. Inicio y «Volver a autenticar»; guard `quarantined`; marcador intacto; 0 peticiones. Con la red encendida y la app abierta, 0 peticiones en 65 s | **PASS** |
+| **Logcat ampliado** | Buffer de 16 MiB desde las 15:23:47Z, antes de instalar. Líneas del UID de la copia entre 15:24:11Z y 15:30:11Z: 434. `logcat_scan.sh`: JWT 0, UUID completos 0, nombres sensibles 0, **valores opacos de 43+ caracteres 0**, **campos sin distinguir mayúsculas 0**, FATAL 0. Registro propio: 7 líneas, todo 0. Control positivo con valores sintéticos inventados: 1/1/1/3, lo esperado. No se guardó ni se publicó logcat crudo | **PASS** |
+
+**Capturas.** Las revisó Claude Code: sólo el correo sintético y pantallas sin datos. No se versionan.
+
+| Captura | SHA-256 |
+|---|---|
+| E2B-01-correo-minusculas | `e0b46fe7c92a4e0310837b311b8ed8146b5919a50812d1850bed4931a14c42e0` |
+| E2B-02-verificado-antes | `69f4edec669d61b346c0bc757ce032008a91f9b2e51f61310c98f3aa1e9e09ba` |
+| E2B-03-tras-401 | `dd03f5b69ede7b11d9c8540d1dfae3c92bc46920b9282f179e46acfb82aa114e` |
+| E2B-04-reapertura-sin-red | `150945c39b27269f23f16d6f3f98b8e8cdb9ae14999c7699bfcbdb4c81082ac0` |
+
+**Al terminar:**
+- túnel, observador y API detenidos;
+- `agro_a_e2_pg` detenido, con su volumen conservado (no se usó `down.sh`);
+- en el teléfono, buffer de logcat devuelto a 2 MiB (Android descartó las líneas del buffer circular del sistema) y `stay_on_while_plugged_in` de nuevo en 0;
+- la copia `.f03e2b` queda instalada y detenida;
+- la app normal sin cambios (2026-09-24), y `.f03res01` y `.f06d4` siguen instaladas.
+
+**Lo que esta repetición no cubre:**
+- E-1 (desactivación por el Administrador) no se repitió con el escaneo ampliado;
+- el escaneo de los procesos de la sesión del 2026-10-15 sigue NOT_MEASURED para refresh tokens opacos, porque su logcat no se conservó por diseño.
+
+Con esta repetición, el camino 401 de una sesión existente revocada sí queda medido con el escaneo ampliado.
+
 ## 7. Revisiones
 
 - Ejecución: Claude Code, 2026-10-15. Sin revisión humana todavía.
