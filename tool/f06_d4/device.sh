@@ -51,7 +51,7 @@ case "${1:-}" in
   seed)
     adb shell pm list packages | tr -d '\r' | grep -qx "package:$pkg" || { echo "copia aislada no instalada"; exit 1; }
     adb shell am force-stop "$pkg"
-    client_id="$(in_app cat no_backup/client_id | tr -d '\r\n')"
+    client_id="$(in_app cat no_backup/installation_identity/client_id | tr -d '\r\n')"
     [[ "$client_id" =~ ^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$ ]] ||
       { echo "la copia aún no creó su identidad de instalación: ábrala una vez"; exit 1; }
     ids="$(f06_psql "SELECT m.id || ' ' || m.\"tenantId\" FROM \"Member\" m JOIN \"User\" u ON u.id = m.\"userId\" WHERE u.email = '$F06_F1_EMAIL'" "$F06_DB_DEVICE")"
