@@ -59,6 +59,16 @@ List<int> deflatedZeros(int mebibytes) {
   return out.takeBytes();
 }
 
+/// CRC-32 de [mebibytes] MiB de ceros, sin tenerlos en memoria.
+int crc32OfZeros(int mebibytes) {
+  final zeros = Uint8List(1024 * 1024);
+  var crc = 0;
+  for (var i = 0; i < mebibytes; i++) {
+    crc = getCrc32(zeros, crc);
+  }
+  return crc;
+}
+
 /// Escribe un ZIP con [entries] en [path].
 Future<void> writeRawZip(String path, List<RawZipEntry> entries) async {
   final out = BytesBuilder(copy: false);

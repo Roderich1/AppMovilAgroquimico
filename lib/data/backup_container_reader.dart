@@ -17,20 +17,26 @@ import 'package:path/path.dart' as p;
 ///
 /// - [maxEntries] 5002: el manifiesto, la base y hasta 5000 fotografías de
 ///   factura (una por compra; un hogar registra decenas o cientos al año).
-/// - [maxEntryBytes] 256 MiB: la base más grande razonable. Las fotografías
-///   se guardan a 1800 px y calidad 82, es decir, pocos MB cada una.
-/// - [maxTotalBytes] 512 MiB: lo que se escribe en la carpeta temporal del
-///   teléfono antes de validar.
-/// - [maxContainerBytes] 513 MiB: un contenedor legítimo no ocupa más que su
-///   contenido expandido más las cabeceras. El servidor admite además sólo
-///   hasta `BACKUP_MAX_BYTES` (100 MiB por defecto).
+/// - [maxManifestBytes] 4 MiB: el manifiesto se lee entero en memoria para
+///   interpretarlo. Cada fotografía ocupa en él menos de 600 bytes (nombre de
+///   hasta 255, SHA-256, tamaño y compras), así que 5000 caben en unos 3 MB.
+/// - [maxEntryBytes] 128 MiB: la base más grande razonable (los datos de
+///   varios años de un hogar ocupan pocos MB). Las fotografías se guardan a
+///   1800 px y calidad 82, es decir, pocos MB cada una.
+/// - [maxTotalBytes] 256 MiB: lo que se escribe en la carpeta temporal del
+///   teléfono antes de validar. El servidor admite contenedores de hasta
+///   `BACKUP_MAX_BYTES` (100 MiB por defecto) y las fotografías no se
+///   comprimen: un contenedor legítimo se expande poco.
+/// - [maxContainerBytes] 257 MiB: un contenedor legítimo no ocupa más que su
+///   contenido expandido más las cabeceras.
 /// - [maxNameBytes] 255: el máximo habitual de un nombre de archivo.
 class BackupExtractionLimits {
   const BackupExtractionLimits({
-    this.maxContainerBytes = 513 * _mib,
+    this.maxContainerBytes = 257 * _mib,
     this.maxEntries = 5002,
-    this.maxEntryBytes = 256 * _mib,
-    this.maxTotalBytes = 512 * _mib,
+    this.maxManifestBytes = 4 * _mib,
+    this.maxEntryBytes = 128 * _mib,
+    this.maxTotalBytes = 256 * _mib,
     this.maxNameBytes = 255,
   });
 
@@ -39,6 +45,7 @@ class BackupExtractionLimits {
 
   final int maxContainerBytes;
   final int maxEntries;
+  final int maxManifestBytes;
   final int maxEntryBytes;
   final int maxTotalBytes;
   final int maxNameBytes;
@@ -97,7 +104,11 @@ class BackupContainerReader {
   static const _localSize = 30;
   static const _methodStored = 0;
   static const _methodDeflate = 8;
-  static const _chunk = 64 * 1024;
+
+  /// Bytes comprimidos por paso. Deflate expande como mucho unas 1000 veces,
+  /// así que cada paso produce a lo sumo unos 8 MiB, que se comprueban contra
+  /// los límites antes de guardarlos y se escriben de forma asíncrona.
+  static const _chunk = 8 * 1024;
 
   static const _tooLarge = BackupContainerRejected(
     'El respaldo supera los límites de tamaño admitidos y no se abrirá.',
@@ -113,6 +124,11 @@ class BackupContainerReader {
   ///
   /// Ante cualquier rechazo lanza [BackupContainerRejected] y puede dejar
   /// archivos parciales en [destination]: quien la creó la borra.
+  /// Límite de la entrada [name]: el manifiesto tiene uno propio y pequeño,
+  /// porque se lee entero en memoria.
+  int _limitFor(String name) =>
+      name == 'manifest.json' ? limits.maxManifestBytes : limits.maxEntryBytes;
+
   Future<void> extract(String path, Directory destination) async {
     final file = File(path);
     final length = await file.length();
@@ -124,7 +140,7 @@ class BackupContainerReader {
       var total = 0;
       for (final entry in entries) {
         if (entry.isDirectory) continue;
-        total += _extractEntry(
+        total += await _extractEntry(
           handle,
           entry,
           destination,
@@ -257,7 +273,7 @@ class BackupContainerReader {
         if (method == _methodStored && compressedSize != declaredSize) {
           throw _malformed;
         }
-        if (declaredSize > limits.maxEntryBytes) throw _tooLarge;
+        if (declaredSize > _limitFor(name)) throw _tooLarge;
         declaredTotal += declaredSize;
         if (declaredTotal > limits.maxTotalBytes) throw _tooLarge;
       }
@@ -298,15 +314,19 @@ class BackupContainerReader {
   }
 
   /// Extrae [entry] contando los bytes **reales** que produce el
-  /// descompresor. Corta en cuanto supera lo que declaró la entrada, el
-  /// límite por entrada o el total. Devuelve los bytes escritos.
-  int _extractEntry(
+  /// descompresor. Corta en cuanto supera lo que declaró la entrada, su límite
+  /// o el total. Devuelve los bytes escritos.
+  ///
+  /// Es asíncrona por pasos de [_chunk] bytes comprimidos: entre paso y paso
+  /// el hilo de la interfaz atiende otros eventos, así que un contenedor
+  /// grande no la congela.
+  Future<int> _extractEntry(
     RandomAccessFile handle,
     _Entry entry,
     Directory destination,
     int writtenBefore,
     int directoryOffset,
-  ) {
+  ) async {
     final local = _readAt(handle, entry.localHeaderOffset, _localSize);
     if (local.length < _localSize || _u32(local, 0) != _localSignature) {
       throw _malformed;
@@ -326,70 +346,96 @@ class BackupContainerReader {
         localExtraLength;
     if (dataStart + entry.compressedSize > directoryOffset) throw _malformed;
 
-    final entryLimit = entry.declaredSize < limits.maxEntryBytes
-        ? entry.declaredSize
-        : limits.maxEntryBytes;
+    final limit = _limitFor(entry.name);
+    final entryLimit = entry.declaredSize < limit ? entry.declaredSize : limit;
     final output = File(
       p.joinAll([destination.path, ...entry.name.split('/')]),
     );
-    output.parent.createSync(recursive: true);
-    final sink = output.openSync(mode: FileMode.writeOnly);
+    await output.parent.create(recursive: true);
+    final sink = await output.open(mode: FileMode.writeOnly);
     var written = 0;
     var crc = 0;
+    // Lo producido en el paso en curso, ya comprobado contra los límites.
+    final pending = <List<int>>[];
     void emit(List<int> chunk) {
       if (written + chunk.length > entryLimit ||
           writtenBefore + written + chunk.length > limits.maxTotalBytes) {
         throw _tooLarge;
       }
-      sink.writeFromSync(chunk);
+      pending.add(chunk);
       crc = getCrc32(chunk, crc);
       written += chunk.length;
     }
 
+    Future<void> flushPending() async {
+      for (final chunk in pending) {
+        await sink.writeFrom(chunk);
+      }
+      pending.clear();
+    }
+
+    ByteConversionSink? inflater;
+    var inflaterClosed = false;
     try {
-      handle.setPositionSync(dataStart);
+      var position = dataStart;
       var remaining = entry.compressedSize;
-      if (entry.method == _methodStored) {
-        while (remaining > 0) {
-          final chunk = handle.readSync(
-            remaining < _chunk ? remaining : _chunk,
-          );
-          if (chunk.isEmpty) throw _malformed;
-          emit(chunk);
-          remaining -= chunk.length;
-        }
-      } else {
-        final inflater = ZLibCodec(raw: true).decoder
+      if (entry.method != _methodStored) {
+        inflater = ZLibCodec(raw: true).decoder
             .startChunkedConversion(_EmitSink(emit));
+      }
+      while (remaining > 0) {
+        await handle.setPosition(position);
+        final chunk = await handle.read(
+          remaining < _chunk ? remaining : _chunk,
+        );
+        if (chunk.isEmpty) throw _malformed;
+        position += chunk.length;
+        remaining -= chunk.length;
+        if (inflater == null) {
+          emit(chunk);
+        } else {
+          _inflate(() => inflater!.add(chunk));
+        }
+        await flushPending();
+      }
+      if (inflater != null) {
+        inflaterClosed = true;
+        _inflate(inflater.close);
+        await flushPending();
+      }
+      await sink.flush();
+    } finally {
+      if (inflater != null && !inflaterClosed) {
+        // Rechazo a mitad: se cierra el descompresor para liberar su estado
+        // nativo. Un error al cerrar datos incompletos no cambia el rechazo.
         try {
-          while (remaining > 0) {
-            final chunk = handle.readSync(
-              remaining < _chunk ? remaining : _chunk,
-            );
-            if (chunk.isEmpty) throw _malformed;
-            inflater.add(chunk);
-            remaining -= chunk.length;
-          }
           inflater.close();
-        } on FormatException {
-          throw _malformed;
-        } on FileSystemException {
-          rethrow;
-        } on BackupContainerRejected {
-          rethrow;
-        } on Exception {
-          // `ZLibDecoder` señala los datos inválidos con excepciones propias.
-          throw _malformed;
+        } on Object {
+          // Ignorado a propósito.
         }
       }
-      sink.flushSync();
-    } finally {
-      sink.closeSync();
+      await sink.close();
     }
     if (written != entry.declaredSize || crc != entry.crc32) {
       throw _malformed;
     }
     return written;
+  }
+
+  /// Traduce los errores del descompresor a un rechazo controlado.
+  static void _inflate(void Function() step) {
+    try {
+      step();
+    } on BackupContainerRejected {
+      rethrow;
+    } on FileSystemException {
+      rethrow;
+    } on FormatException {
+      throw _malformed;
+    } on Exception {
+      // `ZLibDecoder` señala los datos inválidos con excepciones propias.
+      throw _malformed;
+    }
   }
 
   static Uint8List _readAt(RandomAccessFile handle, int offset, int count) {

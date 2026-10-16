@@ -10,6 +10,7 @@
 // (directorio central) y durante (bytes que salen del descompresor), rutas
 // con la forma del contenedor, limpieza de temporales y rechazo sin tocar la
 // base ni las fotos actuales.
+import 'dart:async';
 import 'dart:io';
 
 import 'package:agroquimicos/data/agro_repository.dart';
@@ -252,6 +253,80 @@ void main() {
     });
   });
 
+  group('manifiesto y extracción asíncrona', () {
+    test('un manifest.json grande, declarado con honestidad y por debajo del '
+        'límite general, se rechaza antes de extraerlo y leerlo', () async {
+      final (_, db) = await validParts();
+      // 64 MiB de ceros: menos que el límite por entrada (128 MiB) y mucho
+      // más que el del manifiesto (4 MiB). Unos 64 KB comprimidos.
+      final path = p.join(workspace.path, 'manifiesto_grande.agrobackup');
+      await writeRawZip(path, [
+        RawZipEntry(
+          'manifest.json',
+          compressed: deflatedZeros(64),
+          declaredSize: 64 * 1024 * 1024,
+          crc32: crc32OfZeros(64),
+        ),
+        RawZipEntry('database.db', data: db),
+      ]);
+      expect(File(path).lengthSync(), lessThan(1024 * 1024));
+      final (database, service) = await current();
+      final peakBefore = ProcessInfo.maxRss;
+      await expectRejectedUntouched(database, service, path, tooLarge);
+      final growth = ProcessInfo.maxRss - peakBefore;
+      expect(
+        growth,
+        lessThan(32 * 1024 * 1024),
+        reason: 'creció ${growth ~/ (1024 * 1024)} MiB',
+      );
+    });
+
+    test(
+      'la extracción cede el hilo: ninguna pausa ocupa más de un cuarto de la '
+      'extracción de una entrada grande',
+      () async {
+        final (manifest, _) = await validParts();
+        // 48 MiB poco comprimibles: muchos pasos de descompresión.
+        final noise = List<int>.generate(
+          48 * 1024 * 1024,
+          (i) => (i * 2654435761 >> 13) & 0xff,
+        );
+        final path = p.join(workspace.path, 'grande.agrobackup');
+        await writeRawZip(path, [
+          RawZipEntry('manifest.json', data: manifest),
+          RawZipEntry('database.db', data: noise),
+        ]);
+        final (_, service) = await current();
+        // Pausa más larga del hilo durante la extracción: con la versión
+        // síncrona era casi toda la extracción (un ANR posible en un teléfono
+        // lento); ahora cada paso es pequeño.
+        final clock = Stopwatch()..start();
+        var last = 0;
+        var longest = 0;
+        final timer = Timer.periodic(const Duration(milliseconds: 1), (_) {
+          final now = clock.elapsedMilliseconds;
+          if (now - last > longest) longest = now - last;
+          last = now;
+        });
+        try {
+          // El manifiesto no describe esta base: se rechaza tras extraerla.
+          final validation = await inTemp(() => service.validate(path));
+          expect(validation.isValid, isFalse);
+        } finally {
+          timer.cancel();
+        }
+        final total = clock.elapsedMilliseconds;
+        if (total - last > longest) longest = total - last;
+        expect(
+          longest * 4,
+          lessThan(total),
+          reason: 'pausa más larga ${longest}ms de ${total}ms',
+        );
+        expect(leftovers(), isEmpty);
+      },
+    );
+  });
+
   group('contenedor válido cercano a los límites', () {
     test('con los límites exactos se valida y se restaura; con uno menos en '
         'cualquiera de ellos se rechaza sin tocar nada', () async {
@@ -265,10 +340,10 @@ void main() {
       }
       final entries = files.length;
       final total = files.fold<int>(0, (sum, f) => sum + f.size);
-      final largest = files.fold<int>(
-        0,
-        (max, f) => f.size > max ? f.size : max,
-      );
+      final manifest = files.singleWhere((f) => f.name == 'manifest.json').size;
+      final largest = files
+          .where((f) => f.name != 'manifest.json')
+          .fold<int>(0, (max, f) => f.size > max ? f.size : max);
       final container = File(path).lengthSync();
       expect(entries, 5, reason: 'manifiesto, base y 3 fotos');
 
@@ -277,8 +352,10 @@ void main() {
         int dEntry = 0,
         int dTotal = 0,
         int dContainer = 0,
+        int dManifest = 0,
       }) => BackupExtractionLimits(
         maxEntries: entries - dEntries,
+        maxManifestBytes: manifest - dManifest,
         maxEntryBytes: largest - dEntry,
         maxTotalBytes: total - dTotal,
         maxContainerBytes: container - dContainer,
@@ -289,6 +366,7 @@ void main() {
         (exact(dEntry: 1), tooLarge),
         (exact(dTotal: 1), tooLarge),
         (exact(dContainer: 1), tooLarge),
+        (exact(dManifest: 1), tooLarge),
       ]) {
         final database = AppDatabase(
           factory: databaseFactoryFfi,
