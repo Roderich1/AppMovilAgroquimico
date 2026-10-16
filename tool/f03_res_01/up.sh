@@ -47,7 +47,7 @@ node "$here/rotate_passwords.cjs"
     JWT_EXPIRES_IN=15m JWT_REFRESH_EXPIRES_IN=7d COOKIE_SECURE=true \
     CORS_ORIGIN=http://127.0.0.1 \
     SYNC_V1_FINGERPRINT_KEY="${F03_SYNC_FINGERPRINT_KEY:-}" SYNC_V1_FINGERPRINT_KEY_VERSION=1 \
-    SYNC_V1_PRODUCTION_ADMISSION=enabled \
+    SYNC_V1_PRODUCTION_ADMISSION="${F03_SYNC_V1_ADMISSION:-enabled}" \
     nohup node dist/main.js > "$F03_RUN_DIR/api.log" 2>&1 &
   echo $! > "$F03_RUN_DIR/api.pid"
 )

@@ -143,6 +143,16 @@ void main() {
         expect(find.byKey(const Key('reauth-email')), findsOneWidget);
         expect(find.byKey(const Key('reauth-password')), findsOneWidget);
         expect(find.byKey(const Key('activation-submit')), findsNothing);
+        // #87: el correo llega al teclado sin autocapitalizar ni autocorregir.
+        await tester.showKeyboard(find.byKey(const Key('reauth-email')));
+        final args = tester.testTextInput.setClientArgs!;
+        expect(
+          (args['inputType']! as Map)['name'],
+          'TextInputType.emailAddress',
+        );
+        expect(args['autocorrect'], false);
+        expect(args['enableSuggestions'], false);
+        expect(args['textCapitalization'], 'TextCapitalization.none');
         await tester.enterText(
           find.byKey(const Key('reauth-email')),
           'farmer@example.test',

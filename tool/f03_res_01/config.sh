@@ -6,10 +6,12 @@
 : "${F03_CLOUDFLARED:?Defina F03_CLOUDFLARED con la ruta al cloudflared verificado}"
 
 F03_PG_IMAGE=postgres:16-alpine
-F03_PG_CONTAINER=agro_f03res01_pg
-F03_PG_VOLUME=agro_f03res01_pgdata
-F03_PG_PORT=55432
-F03_PG_DB=agro_f03res01
+# Otra prueba (p. ej. la repetición de E-2 del 2026-10-16) usa su propio
+# contenedor, volumen, puerto y base: los de F03-RES-01 se conservan intactos.
+F03_PG_CONTAINER="${F03_PG_CONTAINER:-agro_f03res01_pg}"
+F03_PG_VOLUME="${F03_PG_VOLUME:-agro_f03res01_pgdata}"
+F03_PG_PORT="${F03_PG_PORT:-55432}"
+F03_PG_DB="${F03_PG_DB:-agro_f03res01}"
 F03_API_PORT="${F03_API_PORT:-3100}"
 F03_OBSERVER_PORT="${F03_OBSERVER_PORT:-3101}" # proxy que registra método, ruta y estado; el túnel apunta aquí
 F03_RUN_DIR="${F03_RUN_DIR:-${TMPDIR:-/tmp}/agro_f03res01}"
