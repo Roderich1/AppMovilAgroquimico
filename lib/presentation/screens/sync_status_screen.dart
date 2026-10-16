@@ -82,6 +82,17 @@ class _SyncStatusScreenState extends ConsumerState<SyncStatusScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Un ciclo del worker que no se esperó aquí (el que lanza «Liberar», el
+    // temporizador o una reconexión) cambia el estado de las filas. Lo último
+    // de cada ciclo es publicar el resumen nuevo: entonces se relee la lista,
+    // como en Necesidades declaradas. Visto en el POCO: tras «Liberar», el
+    // resumen decía «Sincronizado» y la fila seguía «Pendiente (sin
+    // confirmar)» hasta volver a entrar.
+    ref.listen<SyncState>(syncControllerProvider, (previous, next) {
+      if (previous != null && !identical(previous.summary, next.summary)) {
+        _reload();
+      }
+    });
     final sync = ref.watch(syncControllerProvider);
     final summary = sync.summary;
     return PageFrame(
