@@ -13,11 +13,18 @@ class ApiEndpointConfig {
     '/api/v1/auth/v2/logout',
     '/api/v1/sync/v1/push',
     '/api/v1/sync/v1/references',
+    '/api/v1/me/backups',
   };
 
   /// Consulta owner-scoped de una operación: sólo un UUID v4 en minúsculas.
   static final _operationPath = RegExp(
     r'^/api/v1/sync/v1/operations/[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
+  );
+
+  /// Respaldo privado propio (F08): un id de servidor (UUID v4 en
+  /// minúsculas), opcionalmente seguido de `/content`.
+  static final _backupPath = RegExp(
+    r'^/api/v1/me/backups/[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}(/content)?$',
   );
 
   factory ApiEndpointConfig.fromEnvironment() {
@@ -35,7 +42,8 @@ class ApiEndpointConfig {
     // Exact raw-string matching also rejects encoded dot segments, alternative
     // spellings, query/fragment suffixes and authority/absolute references.
     if (!_allowedPaths.contains(absolutePath) &&
-        !_operationPath.hasMatch(absolutePath)) {
+        !_operationPath.hasMatch(absolutePath) &&
+        !_backupPath.hasMatch(absolutePath)) {
       throw const AuthApiException(AuthApiErrorKind.configuration);
     }
     final destination = origin.resolve(absolutePath);

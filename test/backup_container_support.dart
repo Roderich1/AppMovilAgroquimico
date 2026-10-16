@@ -105,3 +105,33 @@ Future<void> removeEntry(String path, String name) async {
     await staging.delete(recursive: true);
   }
 }
+
+/// Añade (o reemplaza) la entrada [name] del contenedor, para simular un
+/// paquete con contenido que el manifiesto no describe.
+Future<void> addEntry(String path, String name, List<int> bytes) async {
+  final input = InputFileStream(path);
+  final kept = <String, List<int>>{};
+  try {
+    for (final entry in ZipDecoder().decodeStream(input)) {
+      if (!entry.isFile) continue;
+      kept[entry.name] = entry.readBytes() ?? const [];
+    }
+  } finally {
+    input.closeSync();
+  }
+  kept[name] = bytes;
+
+  final staging = await Directory.systemTemp.createTemp('agro_rewrite_');
+  final encoder = ZipFileEncoder()..create(path);
+  try {
+    var index = 0;
+    for (final entry in kept.entries) {
+      final file = File(p.join(staging.path, '${index++}'));
+      await file.writeAsBytes(entry.value, flush: true);
+      await encoder.addFile(file, entry.key);
+    }
+  } finally {
+    await encoder.close();
+    await staging.delete(recursive: true);
+  }
+}

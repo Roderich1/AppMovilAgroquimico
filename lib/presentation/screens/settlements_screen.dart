@@ -419,10 +419,14 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
     subtitle: 'Cargos, pagos, adelantos y saldos sin borrar el historial.',
     action: PopupMenuButton<String>(
       tooltip: 'Copias de seguridad',
-      // La nube sugería sincronización remota y esta aplicación no tiene
-      // ninguna función de red: el respaldo es un archivo local (UIBUG-049).
+      // Carpeta, no nube (UIBUG-049): el menú es del respaldo local. La copia
+      // en el servidor (F08) es una entrada aparte y explícita del menú.
       icon: const Icon(Icons.folder_outlined),
-      onSelected: (value) => value == 'export' ? _backup() : _restore(),
+      onSelected: (value) => switch (value) {
+        'export' => _backup(),
+        'remote' => context.push('/respaldo-remoto'),
+        _ => _restore(),
+      },
       itemBuilder: (_) => const [
         PopupMenuItem(
           value: 'export',
@@ -436,6 +440,14 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
           child: ListTile(
             leading: Icon(Icons.restore_outlined),
             title: Text('Restaurar respaldo'),
+          ),
+        ),
+        // Copia privada en el servidor: acción explícita, no sincronización.
+        PopupMenuItem(
+          value: 'remote',
+          child: ListTile(
+            leading: Icon(Icons.cloud_outlined),
+            title: Text('Respaldo en la nube'),
           ),
         ),
       ],
