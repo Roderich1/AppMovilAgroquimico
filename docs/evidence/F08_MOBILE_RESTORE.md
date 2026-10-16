@@ -17,6 +17,7 @@
 | `f0f5227`, `2b3a0ce` | La comprobación previa verifica también la producción cerrada y el 415 sin eco en la API compilada. |
 | `7021177` | Evidencia de la primera revisión. **Su CI falló en `dart format`**: dos líneas en blanco en `test/backup_export_atomic_test.dart`, así que no llegaron a correr el análisis ni los tests en ese HEAD. |
 | `e5a1364` | Segunda revisión de A, descrita en §2c. |
+| (commit de evidencia de A, sobre `dc1b6eb`) | Resultado DEVICE del turno 2 del POCO, en §5 |
 
 Base: BASE_MOBILE_VALIDADA `caf158e0a0c8012082add22761ca9c6d56e6eb8f`, publicada por A tras resolver #86. La rama se creó desde ella.
 
@@ -169,21 +170,110 @@ Sobre `1663e92`, primera revisión: `flutter test` 1026/2 y suites de respaldo 1
   - salida PASS, con las tres transformaciones esperadas;
   - con una persona alterada a mano como control negativo, salida FAIL.
 
-## 5. Dispositivo: NOT_MEASURED
+## 5. Dispositivo: E2E en instalación limpia — PASS (2026-10-16, turno 2 de A)
 
-El E2E en una instalación limpia del POCO **no se ejecutó en esta sesión**. Sólo A usa adb. El procedimiento está en `tool/f08_bkp/README.md`:
-- paquete aislado nuevo `com.comunidad.agro.agroquimicos.f08bkp`;
-- contenedor y puertos propios;
-- 3 fotos de factura;
-- una intención ACKED y otra PENDING;
-- desinstalación y reinstalación **sólo** del paquete aislado;
-- restauración, comparación de todas las tablas y fotos, ninguna petición Sync al restaurar ni al reabrir, y liberación con verificación.
+**Antecedente.** Hasta este turno la fila DEVICE figuraba NOT_MEASURED. El ensayo lo ejecutó la sesión A, la única que usa adb, siguiendo `tool/f08_bkp/README.md` con los ajustes anotados abajo. Es una revisión técnica automatizada: no hubo inspección personal de Roderich ni revisión del tutor. GATE-F08 sigue **Pending**.
 
-La APK se compila al empezar el turno, porque lleva el origen HTTPS temporal. Su SHA-256 se registrará entonces.
+**Entorno:**
 
-**Alcance:** reinstalar en el mismo POCO prueba la recuperación en una instalación limpia. **No** demuestra un segundo modelo de teléfono.
+| Elemento | Valor |
+|---|---|
+| Dispositivo | POCO X5 Pro 5G `22101320G`, Android 12 (API 31), MIUI `V14.0.7.0.SMSMIXM`, zona `America/La_Paz` |
+| APK | paquete aislado **nuevo** `com.comunidad.agro.agroquimicos.f08bkp` («Agrocuentas F08-BKP»), Mobile **`dc1b6eb9ce764a0e69ea9816c568c9d5a7ab1aa0`** (el código es `e5a1364`), compilada a las 18:21:39–18:22:33Z con el origen HTTPS temporal. **SHA-256 `ba9d317fbd1f08584c9c3d1542355cea5d290f19565f4c9d3e801bd1f0735247`** |
+| Backend | `feat/f08-backups` en **`a45ab8354a72cb9752efdbbc7454cc06cdc9e7b9`**, compilado (`npm ci`, `prisma generate`, `build` y `build:seed`) y arrancado a las 17:34:41Z con `up.sh`: `NODE_ENV=production`, admisión de respaldos abierta **sólo** en este entorno desechable y 9 migraciones (la F08 con su nombre anterior `20261016161400`). |
+| Diferencia con lo integrado | Lo integrado es `ba51c70`, el merge de BE #114 sobre `8664f51`. En el módulo de respaldos sólo cambian el orden de la guarda 415 frente a CORS y la relectura previa al borrado si falla la marca AVAILABLE (`ee1445c`); a eso se suman el merge de `main` (F07) y el renombrado de la migración. Nada de eso está en el camino de este E2E. No se usó `ba51c70` porque su migración renombrada no es compatible con la base del entorno, y crear otro entorno habría exigido borrar el actual. |
+| Entorno desechable | `agro_c_f08e2e_pg` (127.0.0.1:55446), API 3113, observador 3116, carpeta `/c/Users/MSI/AppData/Local/Temp/agro_f08bkp` |
+| Cuenta | D (`juan.perez@agro.local`), sintética. Cada contraseña es de un solo uso (`credential.sh`) y nunca se imprimió ni se escribió |
+| Comprobación previa | `api_preflight.cjs` (MOB `7021177`) contra la API compilada, 17:35:05Z: **12/12 PASS**. Cubre el aislamiento por titular, el 403 al Administrador, el 415 sin eco con JSON y urlencoded, el 422 por SHA incorrecto, la eliminación y el almacenamiento vacío |
 
-Por eso #36 queda **abierta** (`Refs`, no `Closes`): su criterio exige evidencia DEVICE.
+**Recorrido (horas UTC):**
+
+| Paso | Observado | Resultado |
+|---|---|---|
+| Instalación original | Sólo `.f08bkp` (18:23Z). La app normal sigue con `firstInstallTime`/`lastUpdateTime` del 2026-09-24 13:04:32; `.f03res01`, `.f06d4` y `.f03e2b`, intactas | PASS |
+| Activación con D | Al primer intento: login 200, `auth/clients` 201, `session/client` 201 y `/me` 200. El correo se mantuvo en minúsculas (#87) | PASS |
+| Datos sintéticos | Proveedor, 2 productos (L y KG), campaña y chaco. **3 compras con foto de factura** (F08-001, F08-002 y F08-003; total 1.375,00 Bs). Una aplicación con 2 productos (160,00 Bs). Vínculos con el sindicato: campaña → «Campana Verano 2026», Glifosato F08 → «Glifosato 48 SL», Urea F08 → «Atrazina 90 WG» (`refresh` 200 y `GET /references` 200) | — |
+| Necesidad 1 | 12 L, `POST /sync/v1/push` 200 → **ACKED** (operación `884382c3`, 18:54:03Z) | PASS |
+| Necesidad 2 | 30 kg declarada **sin red** (modo avión). El worker la intentó y quedó **OUTCOME_UNKNOWN** (`NETWORK`, 1 intento, operación `4512b105`); Central no la recibió. Con el teléfono aún sin red se detuvo la app, para borrar el acceso en memoria. Con las radios de nuevo y la app reabierta sin acceso verificado: **0 peticiones en 75 s** | PASS |
+| Subida a la nube | 18:58:23–29Z: `refresh` 200, `POST /me/backups` **201** y `GET /me/backups` 200. Mensaje: «Respaldo subido y confirmado por el servidor (15 KB)». **Ningún push**: el fallo `hold-push-request`, armado como protección durante la subida, no se consumió | PASS |
+| Estado del servidor | 1 copia AVAILABLE «archivo íntegro» (15260 bytes, tamaño y SHA-256 iguales a los metadatos); staging vacío; Sync v1: journal 1 y contribuciones 1 | PASS |
+| Instantánea «antes» | 18:58:30Z, con la app detenida 1 s después del mensaje: 29 tablas, 3 compras, 3 fotos y outbox `ACKED`/`OUTCOME_UNKNOWN`. Se repitió por error con la app ya detenida; las huellas son idénticas | — |
+| Instalación limpia | `adb uninstall` **sólo** de `.f08bkp` (18:59:24Z). El primer `adb install` fue rechazado por MIUI con la pantalla bloqueada (`INSTALL_FAILED_USER_RESTRICTED`); tras desbloquear, la misma APK se instaló con `firstInstallTime` 19:00:20Z. La app normal no cambió | PASS |
+| Activación del mismo titular | 19:00:39Z: login 200, registro de cliente **nuevo** 201, `session/client` 201 y `/me` 200. Se creó un titular provisional | PASS |
+| Descarga y restauración | Lista: «Copia del 16/10/2026 14:58 · 15 KB · esquema 9 · SHA-256 960e1bb239e6…». La app **descargó y verificó el SHA-256 y validó la copia por dentro antes de pedir confirmación**: «verificada con SHA-256. Contiene la base de datos y 3 fotografía(s)». Restauración confirmada a las 19:03:46Z | PASS |
+| Restaurar no publica | Peticiones de toda la fase: login, `auth/clients`, `session/client`, `/me`, `refresh`, `GET /me/backups` y `GET /me/backups/{id}/content`. **Ningún `POST /sync/v1/push`** | PASS |
+| Reabrir no publica | La app se detuvo y se reabrió: **0 peticiones en 80 s**, más de un ciclo del worker | PASS |
+| Estado visible | Inicio: Compras 1.375,00 Bs y Familias por cobrar 160,00 Bs. Sincronización: «Sincronizado: 1», «Pausado: restauración: 1» y «Envíos pausados por una restauración. No se publican solos» | PASS |
+| Comparación `antes` / `despues` | 19:06:03Z, `device_snapshot.sh compare antes despues`: **Resultado: PASS**. Ver el detalle debajo | PASS |
+| Liberar con verificación | 19:06:45Z: «Liberar envíos restaurados» → `refresh` 200 (verificación del titular) y **un único** `POST /sync/v1/push` 200. La necesidad 2 queda ACKED con el **mismo** `operationId` `4512b105` (2 intentos), aceptada a las 19:06:47.775Z | PASS |
+| Central sin duplicados | `check.sh sync D`: journal `884382c3` APPLIED (18:54:03) y `4512b105` APPLIED (19:06:47). Una contribución ACTIVE por necesidad (secuencia 1, cantidades 12000 ML y 30000 G) | PASS |
+| Logcat | `logcat_scan.sh` (19:07:45Z), 477 líneas: JWT 0, UUID 0, contraseñas 0, campos sensibles 0, valores opacos de 43+ caracteres 0 y FATAL 0. Registro propio: 9 líneas, todo 0 | PASS |
+
+**Comparación de las instantáneas** (salida completa, sin valores):
+
+```
+IGUAL                    account_transactions — 1 filas
+IGUAL                    android_metadata — 1 filas
+TRANSFORMACIÓN ESPERADA  app_settings — claves cambiadas: ['activated_installation_ref']
+IGUAL                    application_consumptions — 2 filas
+IGUAL                    application_items — 2 filas
+IGUAL                    application_plan_items — 0 filas
+IGUAL                    application_plans — 0 filas
+IGUAL                    applications — 1 filas
+IGUAL                    campaign_bindings — 1 filas
+IGUAL                    campaigns — 1 filas
+IGUAL                    declared_need_versions — 2 filas
+IGUAL                    declared_needs — 2 filas
+IGUAL                    farms — 1 filas
+IGUAL                    inventory_lots — 3 filas
+IGUAL                    inventory_movements — 5 filas
+IGUAL                    owner_bindings — 1 filas
+IGUAL                    payment_allocations — 0 filas
+IGUAL                    persons — 1 filas
+IGUAL                    product_bindings — 2 filas
+IGUAL                    products — 2 filas
+IGUAL                    provider_payments — 0 filas
+IGUAL                    purchase_allocations — 3 filas
+IGUAL                    purchase_items — 3 filas
+IGUAL                    purchases — 3 filas
+IGUAL                    suppliers — 1 filas
+TRANSFORMACIÓN ESPERADA  sync_outbox — operación/cantidad/causalidad iguales=True; estados {'ACKED→ACKED': 1, 'OUTCOME_UNKNOWN→RESTORE_PAUSED': 1}
+IGUAL                    transfer_items — 0 filas
+IGUAL                    transfer_lot_items — 0 filas
+IGUAL                    transfers — 0 filas
+IGUAL                    fotos (nombre y SHA-256) — 3 → 3
+Resultado: PASS
+```
+
+- Los datos de negocio y las **tres fotografías** (por nombre y SHA-256 del archivo que guarda la app) son idénticos.
+- Las únicas diferencias son las transformaciones de seguridad previstas:
+  - la instalación nueva (`activated_installation_ref`);
+  - lo pendiente pasa a `RESTORE_PAUSED`, con la misma operación, cantidad y causalidad;
+  - lo ACKED se mantiene.
+- `purchases` queda IGUAL porque, en el mismo paquete, la carpeta de las fotos coincide.
+
+**Capturas** (revisadas por la sesión A: sólo pantallas de la app con datos sintéticos, sin barra de estado ni tokens; se conservan en `capturas/` de la carpeta del ensayo y no se publican):
+
+| Captura | SHA-256 |
+|---|---|
+| `F08B-01_copias_servidor.png`: lista de copias en el servidor | `dbbf8e61dc36f61a7178ad48b70e00491e7ac5b3a35c8c40105b66df641f7499` |
+| `F08B-02_pausado_restauracion.png`: «Pausado: restauración: 1» tras restaurar | `90d256445d7392d1da1b3288dfa76e3cd856d69a751fcd59ff0032c3b3d9f1e2` |
+| `F08B-03_liberado.png`: tras liberar | `abe0deff2c9c7d8389af71c2e6af44c934df5a40e0014a5ac1670d9773beb799` |
+
+**Ajustes al procedimiento y observaciones:**
+
+1. **La necesidad 2 no queda PENDING sino OUTCOME_UNKNOWN.** Con acceso verificado, el worker la intenta en cuanto se declara, aunque no haya red. Además, si al encender las radios la app conserva el acceso en memoria, la enviaría en su ciclo de 1 minuto. Por eso se detuvo la app todavía sin red. `snapshot.py` admite OUTCOME_UNKNOWN como estado enviable, y el resultado es el mismo: Central no la recibió hasta liberarla. Conviene corregir el README §1.4.
+2. **El selector recodifica la foto.** `ImagePicker` usa `imageQuality: 82` y `maxWidth: 1800`, así que la app guarda un JPEG de 600×800 distinto del PNG sintético de origen. La comparación se hace sobre los archivos que guarda la app.
+3. **Lista desfasada tras liberar.** Justo después de liberar, el resumen ya decía «Sincronizado: 2», pero la fila de la necesidad 2 seguía en «Pendiente (sin confirmar)» hasta salir y volver a entrar (`F08B-03`). Es un defecto de refresco de la interfaz, no del estado, para F10.
+4. **Cierre.** No se ejecutó `down.sh`. Se detuvieron la API, el observador y el túnel; `agro_c_f08e2e_pg` quedó **detenido con su volumen**, y la carpeta del ensayo se conserva con las instantáneas, el almacenamiento y las capturas. Se borraron del teléfono las tres imágenes sintéticas, cuyos originales siguen en el PC, y `stay_on` volvió a 0. `.f08bkp` queda instalada y detenida, con los datos restaurados.
+
+**No medido en el dispositivo:**
+- el rechazo de una copia ajena, alterada o incompatible;
+- el rollback ante un fallo a mitad de la restauración.
+
+Ambos están cubiertos por las pruebas automatizadas del §3. Tampoco se probó un segundo modelo de teléfono.
+
+**#36 sigue abierta** (`Refs`, no `Closes`). Su criterio pide un «teléfono nuevo o una condición equivalente aprobada». Que la reinstalación limpia en el mismo POCO valga como condición equivalente lo decide Roderich.
 
 ## 6. Limitaciones
 
