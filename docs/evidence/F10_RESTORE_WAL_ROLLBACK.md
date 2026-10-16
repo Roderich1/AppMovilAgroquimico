@@ -128,7 +128,11 @@ En los cinco casos la base actual quedó intacta.
 
 ## 7. Límites
 
-- **Sólo host.** No se sabe por estas pruebas si la base de la app en el POCO trabaja en WAL. En Android 9+, `SQLiteDatabase` aplica WAL de compatibilidad por defecto, pero no se midió. Se pide a A que lo registre en el turno (`PRAGMA journal_mode` y presencia de `-wal`).
+- **Sólo host. El modo WAL depende de la configuración** de la plataforma y de cómo se abra la base; no hay que suponerlo.
+  - **En el POCO medido no hay WAL.** Medición de la sesión A el 2026-10-16, hacia las 22:01Z, sólo lectura con `run-as`, en Android 12, MIUI 14, `sqflite`, paquete aislado `.f10bkp` compilado desde `main`. La base está en **diario de reversión**: cabecera, bytes 19–20 = `01 01`; existe `agroquimicos_v2.db-journal` (512 B) y no hay `-wal`.
+  - En ese teléfono, por tanto, el defecto **no se reproduce**: con diario de reversión, el archivo principal ya contiene todo lo confirmado.
+  - El defecto y su corrección **se demuestran en host con `journal_mode=WAL`** (§2). La corrección afecta a cualquier dispositivo o configuración en que la base trabaje en WAL.
+  - La versión anterior de esta evidencia decía que en Android 9+ `SQLiteDatabase` aplica WAL de compatibilidad por defecto. Con `sqflite`, en este POCO, no es así.
 - Un fallo **dentro** del rollback, como quedarse sin espacio al devolver la copia, no está cubierto por esta corrección. La copia previa verificada sigue en disco, junto a la base, como `<base>.previo-<fecha>.db`. Pero **la excepción no informa su ruta**: habría que localizarla en la carpeta de la base.
 - El caso del `-wal` no vacío se provoca con un hook de pruebas, porque la app usa una sola conexión. Representa un fallo del mecanismo, no un uso esperado.
 - La prueba del lector abierto usa una segunda conexión del motor de host. En el teléfono, la app abre una sola conexión, así que ese caso representa un fallo del mecanismo, no un uso esperado.
