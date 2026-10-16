@@ -189,6 +189,11 @@ class _FirstActivationScreenState extends ConsumerState<FirstActivationScreen> {
                               !blockedByIdentity &&
                               !needsReconciliation,
                           keyboardType: TextInputType.emailAddress,
+                          // #87: un correo no se capitaliza ni se autocorrige; el
+                          // teclado del POCO cambiaba «juan» por «Juan» y el login daba 401.
+                          textCapitalization: TextCapitalization.none,
+                          autocorrect: false,
+                          enableSuggestions: false,
                           autofillHints: const [AutofillHints.email],
                           decoration: const InputDecoration(
                             labelText: 'Correo',
