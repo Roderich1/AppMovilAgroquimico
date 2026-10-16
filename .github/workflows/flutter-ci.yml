@@ -2,7 +2,8 @@ name: Flutter CI
 
 # Puerta de calidad automática. Reproduce EXACTAMENTE los cuatro comandos que
 # la baseline exige en local (docs/46_BASELINE_FINAL_FREEZE.md):
-# formato, análisis, tests y build de release.
+# formato, análisis, tests y build de release. Además repite las pruebas de
+# fechas en la zona del piloto (#82), porque en UTC no pueden fallar.
 on:
   pull_request:
   push:
@@ -62,6 +63,15 @@ jobs:
 
       - name: Tests
         run: flutter test
+
+      # #82 y D3-DATE: las regresiones de fechas sólo discriminan fuera de UTC,
+      # y el runner corre en UTC. Se repiten en la zona del piloto; el
+      # centinela de date_display_test.dart falla si la zona no se aplicó.
+      - name: Tests de fechas en America/La_Paz
+        env:
+          TZ: America/La_Paz
+          AGRO_TZ_REGRESSION: America/La_Paz
+        run: flutter test test/declared_need_test.dart test/date_display_test.dart
 
       # Sin `android/key.properties` la build queda deliberadamente SIN firmar
       # (ver android/app/build.gradle.kts). CI **no** necesita el keystore: el
