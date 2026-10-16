@@ -1,5 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../sync/sync_access.dart';
 import 'auth_api_exception.dart';
 import 'first_activation_providers.dart';
 import 'refresh_guard.dart';
@@ -43,6 +44,8 @@ class RemoteSessionController extends Notifier<RemoteSessionState> {
         return ref.read(authV2ApiProvider);
       },
       onStateChanged: (next) => state = next,
+      // Sólo en memoria, para Sync v1 (nunca se persiste).
+      onAccessVerified: ref.read(syncAccessHolderProvider).accept,
     );
     return _coordinator.state;
   }

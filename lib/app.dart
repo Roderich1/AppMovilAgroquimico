@@ -14,7 +14,9 @@ import 'presentation/screens/access_status_screen.dart';
 import 'presentation/screens/applications_screen.dart';
 import 'presentation/screens/application_form_screen.dart';
 import 'presentation/screens/catalogs_screen.dart';
+import 'presentation/screens/central_binding_screen.dart';
 import 'presentation/screens/dashboard_screen.dart';
+import 'presentation/screens/declared_needs_screen.dart';
 import 'presentation/screens/first_activation_screen.dart';
 import 'presentation/screens/reauthentication_screen.dart';
 import 'presentation/screens/farm_logbook_screen.dart';
@@ -31,6 +33,7 @@ import 'presentation/screens/purchases_screen.dart';
 import 'presentation/screens/purchase_form_screen.dart';
 import 'presentation/screens/reports_screen.dart';
 import 'presentation/screens/settlements_screen.dart';
+import 'presentation/screens/sync_status_screen.dart';
 import 'presentation/screens/transfers_screen.dart';
 import 'presentation/screens/transfer_form_screen.dart';
 import 'services/reports/report_export_service.dart';
@@ -171,6 +174,18 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: '/transferencias',
             builder: (_, __) => const TransfersScreen(),
+          ),
+          GoRoute(
+            path: '/planificacion/necesidades',
+            builder: (_, __) => const DeclaredNeedsScreen(),
+          ),
+          GoRoute(
+            path: '/sincronizacion',
+            builder: (_, __) => const SyncStatusScreen(),
+          ),
+          GoRoute(
+            path: '/sindicato/vinculos',
+            builder: (_, __) => const CentralBindingScreen(),
           ),
         ],
       ),

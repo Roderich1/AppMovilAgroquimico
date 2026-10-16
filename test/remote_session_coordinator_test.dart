@@ -157,6 +157,10 @@ class _Harness {
   int reads = 0;
   bool configMissing = false;
 
+  /// Tokens entregados a Sync v1 y cuántos eventos había en ese momento.
+  final verified = <(String, String, String)>[];
+  int? verifiedAfterEvents;
+
   Future<http.Response> _respond(http.Request request) async {
     paths.add(request.url.path);
     events.add('http:${request.url.path}');
@@ -225,10 +229,53 @@ class _Harness {
       );
     },
     clock: () => DateTime.utc(2026, 10, 1),
+    onAccessVerified: (token, member, tenant) {
+      verified.add((token, member, tenant));
+      verifiedAfterEvents = events.length;
+    },
   );
 }
 
 void main() {
+  test(
+    'el access token sólo se entrega tras commit y guarda liberada',
+    () async {
+      final h = _Harness();
+      await h.coordinator().refreshOnDemand();
+      expect(h.verified.map((v) => v.$1), [_access]);
+      // Último evento: liberar la guarda; recién después se entrega.
+      expect(h.verifiedAfterEvents, h.events.length);
+      expect(h.events.last, 'guard-clear');
+
+      final r = _Harness()..disk.quarantined = true;
+      await r.coordinator().reauthenticate(
+        email: 'farmer@example.test',
+        password: _password,
+      );
+      expect(r.verified.map((v) => v.$1), [_access]);
+      expect(r.verifiedAfterEvents, r.events.length);
+    },
+  );
+
+  test('sin éxito no se entrega ningún token a Sync v1', () async {
+    final mismatch = _Harness();
+    mismatch.overrides[_refreshPath] = (_) async =>
+        _json(200, _response(context: _context(account: 'other')));
+    await mismatch.coordinator().refreshOnDemand();
+    expect(mismatch.verified, isEmpty);
+
+    final failedClear = _Harness();
+    failedClear.guard.failClear = true;
+    await failedClear.coordinator().refreshOnDemand();
+    expect(failedClear.verified, isEmpty);
+
+    final timeout = _Harness();
+    timeout.overrides[_refreshPath] = (_) async =>
+        throw http.ClientException('lost');
+    await timeout.coordinator().refreshOnDemand();
+    expect(timeout.verified, isEmpty);
+  });
+
   test(
     'refresh is on demand, quarantines before HTTP, commits before clear',
     () async {

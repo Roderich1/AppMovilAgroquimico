@@ -113,3 +113,37 @@ Compartir el archivo con el selector del sistema —para llevarlo fuera del tel�
 cable— es evolución diferida ([`46` sección 16](46_BASELINE_FINAL_FREEZE.md)).
 
 Detalle del formato: [`13_LOCAL_STORAGE`](13_LOCAL_STORAGE.md).
+
+---
+
+# Actualización 2026-10-15 — Sincronización F05 v1 (necesidad declarada)
+
+La app sigue siendo **local primero**: toda operación individual vive en SQLite y funciona
+sin red. Lo nuevo es que el agricultor puede **enviar al sindicato una proyección mínima**
+—por ahora, su necesidad declarada— según los contratos del Backend
+`F05_SYNC_V1_PUSH_ACK_CONTRACT.md` y `F06_COLLECTIVE_PROJECTION_CONTRACT.md`. Nada más
+cruza: ni compras, ni lotes, ni personas, ni costos, ni el respaldo.
+
+| Capacidad | Estado (v9) | Dónde |
+|---|---|---|
+| Cola de salida (*outbox*) | **Sí**: `sync_outbox`, escrita en la misma transacción que la necesidad declarada | `lib/data/sync/sync_outbox_store.dart` |
+| Identificador global | **Sólo la intención**: `operation_id` UUID v4 generado al confirmar y persistido. Las tablas locales conservan sus claves enteras | `lib/domain/sync/operation_id.dart` |
+| Reintentos | **Sí**: backoff exponencial con jitter completo (2 s, ×2, tope 15 min, mínimo 1 s), `max(backoff, Retry-After)` y presupuesto de 20 intentos por ciclo | `lib/services/sync/sync_worker.dart` |
+| Orden causal | Como máximo una intención en vuelo por contribución; la sucesora espera el ACK de su antecesora | `SyncOutboxStore.readyToSend` |
+| Conflictos | Sin LWW: un `CONFLICT` queda visible y **decide el agricultor** (enviar su valor o retirar), con el head y la referencia que muestra Central | `DeclaredNeedStore.resolveConflict` |
+| Disparadores | Al iniciar, tras encolar, «Sincronizar ahora» y cada minuto en primer plano. Sin trabajo en segundo plano | `SyncController`, `SyncLifecycle` |
+| Credencial | El access token vive **sólo en memoria** tras una verificación explícita (refresh o reautenticación). El worker nunca renueva por su cuenta; sin acceso vigente no hace llamadas de red | `lib/services/sync/sync_access.dart` |
+| Restauración | Las intenciones por enviar que trae una copia quedan `RESTORE_PAUSED` hasta que el titular las libere; restaurar no publica | `lib/guarded_restore.dart` |
+| Vínculo con el catálogo central | Explícito, por campaña y producto, con validación de dimensión (L↔L, KG↔KG) y sin coincidencia por nombre | `lib/data/sync/central_binding_store.dart` |
+
+Estados locales de una intención: `PENDING`, `SENDING`, `OUTCOME_UNKNOWN`, `ACKED`,
+`CONFLICT`, `REJECTED`, `FAILED`, `AUTH_PAUSED`, `OWNER_PAUSED`, `RESTORE_PAUSED`,
+`VERSION_MISMATCH` y `DISCARDED` (nunca salió y dejó de tener objeto). Sólo un ACK válido de
+aceptación (`APPLIED`/`ALREADY_APPLIED` con las siete claves, el mismo `operationId` y la
+hora del servidor) la marca como sincronizada.
+
+Una intención que ya salió del teléfono **no se modifica nunca** (lo impone un trigger):
+corregir una cantidad crea otra intención que la tiene por antecesora. Sólo una intención que
+nunca salió (`PENDING` con `attempts = 0`) puede reescribirse o descartarse.
+
+Pendiente: el total de consumo (`CONSUMPTION_TOTAL`) y su prueba de propiedad (F06, D4).

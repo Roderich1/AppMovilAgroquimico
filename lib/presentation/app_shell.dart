@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart'
+    show UncontrolledProviderScope;
 import 'package:go_router/go_router.dart';
 
 import 'widgets/common.dart';
+import 'widgets/sync_status_banner.dart';
 
 class AppShell extends StatelessWidget {
   const AppShell({super.key, required this.location, required this.child});
@@ -109,7 +112,16 @@ class AppShell extends StatelessWidget {
         // Sin FAB no hay nada que esquivar: reservar su alto dejaría un hueco
         // muerto al final de la página.
         bottomReserve: showFab ? fabReserve : 0,
-        child: child,
+        // Indicador de sincronización (RF-18). Sólo con estado de la app
+        // disponible; sin nada pendiente deja el contenido intacto.
+        child:
+            context
+                    .findAncestorWidgetOfExactType<
+                      UncontrolledProviderScope
+                    >() ==
+                null
+            ? child
+            : SyncAwareBody(child: child),
       ),
     );
     if (wide) {

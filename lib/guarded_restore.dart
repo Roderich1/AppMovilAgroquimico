@@ -11,14 +11,17 @@
 //      admitir escrituras. Si el recálculo falla, queda null (falla cerrado).
 // Una copia histórica sin vínculo se restaura como histórica: no se le
 // atribuye titular. Restaurar no publica ni reasigna intenciones: no escribe
-// vínculos ni colas; sólo registra la instalación actual si la sesión legible
-// es del mismo Member que el vínculo restaurado (reactivación).
+// vínculos; las intenciones por enviar que trae la copia quedan pausadas
+// (RESTORE_PAUSED) hasta que el titular las libere (F05 §11, F06 §8). Sólo
+// registra la instalación actual si la sesión legible es del mismo Member que
+// el vínculo restaurado (reactivación).
 import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'app.dart';
 import 'data/backup_service.dart';
 import 'data/owner_binding_store.dart';
+import 'data/sync/sync_outbox_store.dart';
 import 'domain/installation_access.dart';
 import 'domain/restore_ownership.dart';
 import 'installation_access.dart';
@@ -81,6 +84,12 @@ class GuardedRestore {
             }
           },
           afterReplace: afterReplace,
+        );
+        // Todavía en exclusiva: ninguna escritura ni el worker ven la base
+        // restaurada antes de que su cola quede pausada.
+        await SyncOutboxStore.pauseAfterRestore(
+          await database.database,
+          DateTime.now().toUtc().toIso8601String(),
         );
         return GuardedRestoreOutcome(
           result,

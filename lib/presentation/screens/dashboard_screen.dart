@@ -457,6 +457,12 @@ class _RemoteSessionControls extends ConsumerWidget {
               label: const Text('Verificar acceso en línea'),
             ),
           Text(remote.safeMessage, key: const Key('remote-session-status')),
+          TextButton.icon(
+            key: const Key('open-sync-status'),
+            onPressed: () => context.push('/sincronizacion'),
+            icon: const Icon(Icons.sync),
+            label: const Text('Sincronización con el sindicato'),
+          ),
         ],
       ),
     );

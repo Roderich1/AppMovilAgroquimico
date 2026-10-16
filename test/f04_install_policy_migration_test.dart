@@ -18,25 +18,36 @@ void main() {
       row['name']! as String,
   };
 
-  test(
-    'una base nueva nace en v8 marcada NEW_UNDER_POLICY y sin titular',
-    () async {
-      final database = openDb(inMemoryDatabasePath);
-      final db = await database.database;
-      expect(
-        (await db.rawQuery('PRAGMA user_version')).single.values.single,
-        8,
-      );
-      expect(await settings(db), {
-        AppDatabase.installOriginKey: AppDatabase.installOriginNew,
-      });
-      expect(await db.query('owner_bindings'), isEmpty);
-      expect(await triggers(db), {
-        'trg_owner_bindings_no_delete',
-        'trg_owner_bindings_close_only',
-      });
-    },
-  );
+  // Triggers de la sincronización F05 (v9): una base nueva y una migrada
+  // los tienen igual que los de owner_bindings.
+  const syncTriggers = {
+    'trg_sync_outbox_no_delete',
+    'trg_sync_outbox_identity',
+    'trg_sync_outbox_sent_immutable',
+    'trg_sync_outbox_acked_final',
+    'trg_declared_needs_no_delete',
+    'trg_declared_need_versions_no_delete',
+    'trg_declared_need_versions_no_update',
+  };
+
+  test('una base nueva nace en la versión vigente marcada NEW_UNDER_POLICY y sin titular', () async {
+    final database = openDb(inMemoryDatabasePath);
+    final db = await database.database;
+    expect(
+      (await db.rawQuery('PRAGMA user_version')).single.values.single,
+      // v9 (F05) se añadió después; la política sigue naciendo en v8.
+      AppDatabase.schemaVersion,
+    );
+    expect(await settings(db), {
+      AppDatabase.installOriginKey: AppDatabase.installOriginNew,
+    });
+    expect(await db.query('owner_bindings'), isEmpty);
+    expect(await triggers(db), {
+      'trg_owner_bindings_no_delete',
+      'trg_owner_bindings_close_only',
+      ...syncTriggers,
+    });
+  });
 
   test(
     'una base v7 con datos migra a LEGACY_PRE_POLICY sin cambiar ninguna fila',
@@ -66,13 +77,21 @@ void main() {
       final db = await migrated.database;
       expect(
         (await db.rawQuery('PRAGMA user_version')).single.values.single,
-        8,
+        // v9 (F05) se añadió después; la política sigue naciendo en v8.
+        AppDatabase.schemaVersion,
       );
       // Todas las tablas previas quedan idénticas, fila por fila.
       expect(
-        await dumpTables(db, except: {'owner_bindings', 'app_settings'}),
+        await dumpTables(
+          db,
+          except: {'owner_bindings', 'app_settings', ...syncTablesV9},
+        ),
         {...before}..remove('app_settings'),
       );
+      // Las tablas de la sincronización (v9) nacen vacías.
+      for (final table in syncTablesV9) {
+        expect(await db.query(table), isEmpty, reason: table);
+      }
       // app_settings sólo gana la marca de origen.
       expect(await settings(db), {
         ...settingsBefore,
@@ -83,6 +102,7 @@ void main() {
       expect(await triggers(db), {
         'trg_owner_bindings_no_delete',
         'trg_owner_bindings_close_only',
+        ...syncTriggers,
       });
     },
   );

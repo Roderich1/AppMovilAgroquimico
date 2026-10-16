@@ -6,6 +6,7 @@ import 'data/app_log.dart';
 import 'data/installation_client_id_store.dart';
 import 'domain/installation_access.dart';
 import 'installation_access.dart';
+import 'presentation/widgets/sync_lifecycle.dart';
 import 'services/auth/existing_session_providers.dart';
 import 'services/auth/existing_session_startup.dart';
 import 'services/auth/first_activation_providers.dart';
@@ -41,7 +42,7 @@ Future<void> main() async {
         startupSessionScopeProvider.overrideWithValue(bootstrap.scope),
         installationRefProvider.overrideWithValue(installationRef),
       ],
-      child: const AgroApp(),
+      child: const SyncLifecycle(child: AgroApp()),
     ),
   );
 }
