@@ -6,6 +6,7 @@ import '../../app.dart' show databaseProvider;
 import '../../data/farmer_operation_gate.dart';
 import '../../data/owner_binding_store.dart';
 import '../../data/sync/central_binding_store.dart';
+import '../../data/sync/consumption_publisher.dart';
 import '../../data/sync/declared_need_store.dart';
 import '../../data/sync/sync_outbox_store.dart';
 import '../../domain/sync/central_references.dart';
@@ -32,6 +33,10 @@ final centralBindingStoreProvider = Provider<CentralBindingStore>(
 
 final declaredNeedStoreProvider = Provider<DeclaredNeedStore>(
   (ref) => DeclaredNeedStore(ref.watch(databaseProvider), gate: _gate(ref)),
+);
+
+final consumptionPublisherProvider = Provider<ConsumptionPublisher>(
+  (ref) => ConsumptionPublisher(ref.watch(databaseProvider), gate: _gate(ref)),
 );
 
 /// Se construye sólo al enviar: sin URL configurada, falla cerrado.
