@@ -11,6 +11,7 @@
 // con fotografías. El WAL se controla con `wal_autocheckpoint=0`: así la
 // precondición («la transacción reciente sólo está en el WAL») se comprueba
 // en vez de suponerse.
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:agroquimicos/app.dart';
@@ -32,6 +33,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+import 'backup_container_support.dart';
 import 'support/f04_app_access.dart';
 import 'support/f04_mode_fixtures.dart';
 
@@ -378,6 +380,67 @@ void main() {
       await unopened.close();
       expect(await dumpFromDisk(crashed), before);
       expect(container.read(installationAccessProvider), isNotNull);
+    });
+
+    // Técnica para provocar en el teléfono un fallo **después** de empezar la
+    // sustitución (tool/f08_bkp/craft_negative.py, variante
+    // `fallo_tras_sustituir`): una copia coherente —manifiesto recalculado—
+    // cuya base no tiene `sync_outbox`. Pasa la validación (no es una tabla
+    // obligatoria) y la propiedad, y falla al pausar la outbox restaurada, ya
+    // con la base y las fotos sustituidas.
+    test('copia coherente sin sync_outbox: falla al pausar tras sustituir y el '
+        'rollback conserva la transacción reciente', () async {
+      final backup = await containerBackup();
+      final probe = await extractDatabaseFrom(backup);
+      final db = await databaseFactoryFfi.openDatabase(
+        probe,
+        options: OpenDatabaseOptions(singleInstance: false),
+      );
+      await db.execute('PRAGMA foreign_keys = OFF');
+      await db.execute('DROP TABLE sync_outbox');
+      await db.close();
+      final bytes = await File(probe).readAsBytes();
+      final manifest = jsonDecode(
+        utf8.decode(entryBytes(backup, 'manifest.json')!),
+      ) as Map<String, Object?>;
+      manifest['database'] = {
+        'name': 'database.db',
+        'bytes': bytes.length,
+        'sha256': sha256.convert(bytes).toString(),
+      };
+      await rewriteEntry(backup, 'database.db', bytes);
+      await rewriteEntry(
+        backup,
+        'manifest.json',
+        utf8.encode(jsonEncode(manifest)),
+      );
+
+      final (container, database, path) = await install();
+      await walWithoutAutocheckpoint(database);
+      await recentTransactionOnlyInWal(database, path);
+      final before = await dump(database);
+      final photosBefore = photosIn(invoices);
+
+      final service = container.read(backupServiceProvider);
+      expect((await service.validate(backup)).isValid, isTrue);
+      await expectLater(
+        container.read(guardedRestoreProvider).restore(backup),
+        throwsA(
+          isA<DatabaseException>().having(
+            (e) => '$e',
+            'error',
+            contains('sync_outbox'),
+          ),
+        ),
+      );
+      expect(await dump(database), before);
+      expect(photosIn(invoices), photosBefore);
+      expect(
+        container.read(installationAccessProvider),
+        InstallationAccessState.activated,
+      );
+      await database.close();
+      expect(await dumpFromDisk(path), before);
     });
   });
 
