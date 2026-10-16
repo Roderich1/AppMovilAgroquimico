@@ -123,6 +123,21 @@ async function main() {
   const adminList = await call('GET', '/api/v1/me/backups', { token: admin });
   check(`Administrador: HTTP ${adminList.status}`, adminList.status === 403);
 
+  // main.ts: ningún parser compartido lee el cuerpo de un respaldo.
+  const marker = `F08-PARSER-${crypto.randomUUID()}`;
+  for (const type of ['application/json', 'application/x-www-form-urlencoded']) {
+    const parsed = await call('POST', '/api/v1/me/backups', {
+      token: owner,
+      body: `{"x":"${marker}`,
+      headers: { 'Content-Type': type },
+    });
+    check(
+      `cuerpo ${type}: HTTP ${parsed.status}, 415 cerrado sin eco`,
+      parsed.status === 415 &&
+        parsed.bytes.toString('utf8') === JSON.stringify({ errorCode: 'UNSUPPORTED_MEDIA_TYPE' }),
+    );
+  }
+
   const mismatch = await upload(owner, crypto.randomBytes(1024), 'a'.repeat(64));
   check(`SHA-256 incorrecto: HTTP ${mismatch.status}`, mismatch.status === 422);
 
