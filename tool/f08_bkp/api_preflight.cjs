@@ -4,6 +4,9 @@
 // cliente, como la app. Imprime sólo códigos HTTP y comprobaciones sí/no:
 // ningún token, contraseña, id ni hash.
 //   node api_preflight.cjs <url-api>   (F03_* de secrets.sh en el entorno)
+//   node api_preflight.cjs <url-api> --expect-closed
+//       API arrancada con NODE_ENV=production y SIN BACKUP_PRODUCTION_ADMISSION:
+//       los respaldos deben responder 503 aunque la sesión sea válida.
 const crypto = require('node:crypto');
 const fs = require('node:fs');
 const path = require('node:path');
@@ -71,9 +74,22 @@ async function main() {
   const env = process.env;
   for (const name of ['F03_FARMER_D_EMAIL', 'F03_FARMER_D_PASSWORD', 'F03_FARMER_E2_EMAIL',
     'F03_FARMER_E2_PASSWORD', 'F03_ADMIN_EMAIL', 'F03_ADMIN_PASSWORD', 'BACKUP_STORAGE_DIR']) {
-    if (!env[name]) throw new Error(`falta ${name} en el entorno (export tras source config.sh)`);
+    if (!env[name] && name !== 'BACKUP_STORAGE_DIR') throw new Error(`falta ${name} en el entorno (export tras source config.sh)`);
   }
   const owner = await mobileSession(env.F03_FARMER_D_EMAIL, env.F03_FARMER_D_PASSWORD);
+  if (process.argv[3] === '--expect-closed') {
+    const list = await call('GET', '/api/v1/me/backups', { token: owner });
+    const put = await upload(owner, crypto.randomBytes(1024));
+    check(
+      `producción sin admisión: lista HTTP ${list.status}, subida HTTP ${put.status}`,
+      list.status === 503 && put.status === 503 &&
+        list.json?.errorCode === 'BACKUP_STORAGE_UNAVAILABLE',
+    );
+    const failed = results.filter((ok) => !ok).length;
+    console.log(failed === 0 ? 'Producción cerrada: PASS' : 'Producción cerrada: FAIL');
+    process.exitCode = failed === 0 ? 0 : 1;
+    return;
+  }
   const other = await mobileSession(env.F03_FARMER_E2_EMAIL, env.F03_FARMER_E2_PASSWORD);
   const admin = await mobileSession(env.F03_ADMIN_EMAIL, env.F03_ADMIN_PASSWORD);
 
