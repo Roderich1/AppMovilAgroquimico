@@ -128,10 +128,12 @@ class BackupService {
     Future<Directory> Function()? exportDirectory,
     @visibleForTesting Future<void> Function(File partial)? beforePublish,
     @visibleForTesting Future<void> Function(File partial)? afterSafetyCopy,
+    @visibleForTesting Future<void> Function()? afterCheckpoint,
   }) : _invoicesDir = invoicesDir ?? resolveInvoicesDirectory,
        _exportDirectory = exportDirectory ?? _defaultExportDirectory,
        _beforePublish = beforePublish,
-       _afterSafetyCopy = afterSafetyCopy;
+       _afterSafetyCopy = afterSafetyCopy,
+       _afterCheckpoint = afterCheckpoint;
 
   final AppDatabase appDatabase;
   final Future<Directory> Function() _invoicesDir;
@@ -144,6 +146,10 @@ class BackupService {
   /// Sólo pruebas: se ejecuta con la copia previa a restaurar ya escrita y
   /// antes de cotejarla con la base cerrada.
   final Future<void> Function(File partial)? _afterSafetyCopy;
+
+  /// Sólo pruebas: se ejecuta tras el checkpoint de la copia previa y antes
+  /// de cerrar la base.
+  final Future<void> Function()? _afterCheckpoint;
 
   static Future<Directory> _defaultExportDirectory() async =>
       await getDownloadsDirectory() ?? await getApplicationDocumentsDirectory();
@@ -212,7 +218,8 @@ class BackupService {
     // TRUNCATE hace lo mismo que FULL y además deja el `-wal` a cero, de modo
     // que copiar el archivo principal basta para tener la base completa.
     final result = await database.rawQuery('PRAGMA wal_checkpoint(TRUNCATE)');
-    final busy = result.isEmpty ? 1 : (result.first.values.first as int? ?? 1);
+    // Columnas: busy, log, checkpointed. Se lee por nombre.
+    final busy = result.isEmpty ? 1 : (result.first['busy'] as int? ?? 1);
     if (busy != 0) {
       // No se consolidó: copiar ahora produciría un respaldo incompleto en
       // silencio, que es peor que no tener respaldo.
@@ -1038,6 +1045,7 @@ class BackupService {
       return false;
     }
     await _consolidateForCopy(await appDatabase.database);
+    if (_afterCheckpoint != null) await _afterCheckpoint();
     await appDatabase.close();
 
     final wal = File('$target-wal');
