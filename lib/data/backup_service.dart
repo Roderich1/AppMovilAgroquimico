@@ -12,11 +12,13 @@ import 'package:sqflite/sqflite.dart'
 import '../domain/installation_access.dart';
 import '../domain/restore_ownership.dart';
 import 'app_database.dart';
+import 'backup_container_reader.dart';
 import 'database_replacement.dart';
 import 'invoice_storage.dart';
 
 export '../domain/restore_ownership.dart'
     show BackupOwnership, RestoreRejection;
+export 'backup_container_reader.dart' show BackupExtractionLimits;
 
 /// Formato de un archivo de respaldo.
 enum BackupFormat {
@@ -129,13 +131,16 @@ class BackupService {
     @visibleForTesting Future<void> Function(File partial)? beforePublish,
     @visibleForTesting Future<void> Function(File partial)? afterSafetyCopy,
     @visibleForTesting Future<void> Function()? afterCheckpoint,
-  }) : _invoicesDir = invoicesDir ?? resolveInvoicesDirectory,
+    BackupExtractionLimits extractionLimits = BackupExtractionLimits.standard,
+  }) : _containerReader = BackupContainerReader(extractionLimits),
+       _invoicesDir = invoicesDir ?? resolveInvoicesDirectory,
        _exportDirectory = exportDirectory ?? _defaultExportDirectory,
        _beforePublish = beforePublish,
        _afterSafetyCopy = afterSafetyCopy,
        _afterCheckpoint = afterCheckpoint;
 
   final AppDatabase appDatabase;
+  final BackupContainerReader _containerReader;
   final Future<Directory> Function() _invoicesDir;
   final Future<Directory> Function() _exportDirectory;
 
@@ -692,41 +697,28 @@ class BackupService {
     }
   }
 
-  /// Extrae el contenedor a una carpeta temporal.
+  /// Extrae el contenedor a una carpeta temporal, con límites de recursos
+  /// comprobados antes y durante la extracción ([BackupContainerReader]).
   ///
-  /// Rechaza rutas que salgan de la carpeta de destino: un ZIP puede contener
-  /// nombres como `../../algo`, y extraerlos escribiría fuera.
+  /// Rechaza rutas que salgan de la carpeta de destino o que no tengan la
+  /// forma del contenedor: un ZIP puede contener nombres como `../../algo`, y
+  /// extraerlos escribiría fuera. Ante cualquier rechazo borra lo extraído.
   Future<Directory> _extract(String path) async {
     final destination = await Directory.systemTemp.createTemp(
       'agro_backup_open_',
     );
-    final input = InputFileStream(path);
     try {
-      final archive = ZipDecoder().decodeStream(input);
-      for (final entry in archive) {
-        if (!entry.isFile) continue;
-        final normalized = p.normalize(entry.name).replaceAll('\\', '/');
-        if (normalized.startsWith('..') || p.isAbsolute(normalized)) {
-          throw const BackupException(
-            'El respaldo contiene rutas no permitidas y no se abrirá.',
-          );
-        }
-        final outputPath = p.join(destination.path, normalized);
-        await Directory(p.dirname(outputPath)).create(recursive: true);
-        await File(outputPath)
-            .writeAsBytes(entry.readBytes() ?? const [], flush: true);
-      }
+      await _containerReader.extract(path, destination);
       return destination;
-    } on BackupException {
+    } on BackupContainerRejected catch (error) {
       await _deleteQuietly(destination);
-      rethrow;
-    } on Exception catch (error) {
+      throw BackupException(error.message);
+    } on Object catch (error) {
       await _deleteQuietly(destination);
+      if (error is Error) rethrow;
       throw BackupException(
         'El archivo no se pudo abrir como respaldo: $error',
       );
-    } finally {
-      await input.close();
     }
   }
 
