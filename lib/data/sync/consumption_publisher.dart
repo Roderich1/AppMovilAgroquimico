@@ -63,11 +63,15 @@ class ConsumptionPreviewRow {
 
 class ConsumptionPreview {
   const ConsumptionPreview({
+    required this.ownerBindingId,
     required this.rows,
     required this.excludedLines,
     required this.excludedPairs,
   });
 
+  /// Vínculo de titular para el que se calculó: confirmar esta vista previa
+  /// no publica el consumo de otro titular.
+  final int ownerBindingId;
   final List<ConsumptionPreviewRow> rows;
   final Map<ConsumptionExclusion, int> excludedLines;
 
@@ -105,8 +109,10 @@ class ConsumptionPublisher {
   Future<ConsumptionPreview> preview() async =>
       _compute(await _database.database);
 
-  /// Encola lo que [confirmed] mostró. Si los totales cambiaron desde la
-  /// vista previa, no escribe nada y pide revisarla otra vez.
+  /// Encola lo que [confirmed] mostró. Si cambió cualquier cosa desde la
+  /// vista previa (titular, destino, cantidad, unidad, cambio o intención
+  /// previa), no escribe nada y pide revisarla otra vez. La comparación y la
+  /// escritura ocurren en la misma transacción.
   Future<int> publish(
     ConsumptionPreview confirmed,
   ) => _database.replacement.write(() async {
@@ -135,23 +141,27 @@ class ConsumptionPublisher {
     });
   });
 
-  /// El titular decide un conflicto enviando su total actual sobre el head
-  /// que Central mostró (F06 §6: el consumo lo recalcula Mobile).
+  /// El titular decide un conflicto enviando el total que vio en [row] sobre
+  /// el head que Central mostró (F06 §6: el consumo lo recalcula Mobile). Si
+  /// el total, su destino o la intención en conflicto cambiaron desde que se
+  /// mostró, no escribe nada.
   Future<void> resolveConflict({
     required ConsumptionPreviewRow row,
     required OperationView view,
   }) => _database.replacement.write(() async {
     _gate.ensureAllowed();
     await (await _database.database).transaction((txn) async {
-      final current = (await _compute(txn)).rows.where(
-        (candidate) =>
-            candidate.target.campaignRef == row.target.campaignRef &&
-            candidate.target.productRef == row.target.productRef,
-      );
+      final current = (await _compute(txn)).rows
+          .where(
+            (candidate) =>
+                _targetKey(candidate.target) == _targetKey(row.target),
+          )
+          .toList();
       final conflict = await SyncOutboxStore.latestEffective(txn, row.target);
       final contribution = view.contribution;
       final head = contribution?.headOperationId;
-      if (current.isEmpty ||
+      if (current.length != 1 ||
+          _rowKey(current.single) != _rowKey(row) ||
           current.single.change != ConsumptionChange.conflict ||
           conflict == null ||
           conflict.operationId != view.ack.operationId ||
@@ -187,13 +197,28 @@ class ConsumptionPublisher {
     });
   });
 
-  bool _sameProposal(ConsumptionPreview a, ConsumptionPreview b) {
-    String key(ConsumptionPreviewRow row) =>
-        '${row.target.campaignRef}|${row.target.productRef}|'
-        '${row.quantityBase}|${row.change.name}';
-    final left = a.rows.where((row) => row.sends).map(key).toSet();
-    final right = b.rows.where((row) => row.sends).map(key).toSet();
-    return left.length == right.length && left.containsAll(right);
+  /// Identidad completa de un destino de la outbox.
+  static String _targetKey(ContributionTarget target) =>
+      '${target.ownerBindingId}|${target.projectionType.code}|'
+      '${target.campaignRef}|${target.productRef}|${target.baseUnit.code}';
+
+  /// Lo que una fila propone: destino, cantidad en su unidad base, cambio e
+  /// intención previa sobre la que se planifica.
+  static String _rowKey(ConsumptionPreviewRow row) =>
+      '${_targetKey(row.target)}|${row.quantityBase}|${row.baseUnit.code}|'
+      '${row.change.name}|${row.prior?.operationId ?? '-'}';
+
+  /// Misma propuesta: mismo titular y las mismas filas, todas, no sólo las
+  /// que se envían (una fila que cambia de estado cambia lo que se confirmó).
+  static bool _sameProposal(ConsumptionPreview a, ConsumptionPreview b) {
+    if (a.ownerBindingId != b.ownerBindingId) return false;
+    final left = a.rows.map(_rowKey).toList()..sort();
+    final right = b.rows.map(_rowKey).toList()..sort();
+    if (left.length != right.length) return false;
+    for (var i = 0; i < left.length; i++) {
+      if (left[i] != right[i]) return false;
+    }
+    return true;
   }
 
   Future<ConsumptionPreview> _compute(DatabaseExecutor db) async {
@@ -349,6 +374,7 @@ class ConsumptionPublisher {
         row['id']! as int: row['name']! as String,
     };
     return ConsumptionPreview(
+      ownerBindingId: ownerBindingId,
       rows: rows,
       excludedLines: projection.excludedLines,
       excludedPairs: [
