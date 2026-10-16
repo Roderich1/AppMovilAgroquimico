@@ -127,9 +127,11 @@ class BackupService {
     Future<Directory> Function()? invoicesDir,
     Future<Directory> Function()? exportDirectory,
     @visibleForTesting Future<void> Function(File partial)? beforePublish,
+    @visibleForTesting Future<void> Function(File partial)? afterSafetyCopy,
   }) : _invoicesDir = invoicesDir ?? resolveInvoicesDirectory,
        _exportDirectory = exportDirectory ?? _defaultExportDirectory,
-       _beforePublish = beforePublish;
+       _beforePublish = beforePublish,
+       _afterSafetyCopy = afterSafetyCopy;
 
   final AppDatabase appDatabase;
   final Future<Directory> Function() _invoicesDir;
@@ -138,6 +140,10 @@ class BackupService {
   /// Sólo pruebas: se ejecuta con el archivo parcial ya escrito en el destino
   /// y antes de publicarlo; si falla, la exportación se aborta.
   final Future<void> Function(File partial)? _beforePublish;
+
+  /// Sólo pruebas: se ejecuta con la copia previa a restaurar ya escrita y
+  /// antes de cotejarla con la base cerrada.
+  final Future<void> Function(File partial)? _afterSafetyCopy;
 
   static Future<Directory> _defaultExportDirectory() async =>
       await getDownloadsDirectory() ?? await getApplicationDocumentsDirectory();
@@ -788,8 +794,9 @@ class BackupService {
 
   /// Reemplaza los datos actuales por los del respaldo.
   ///
-  /// Secuencia: validar el archivo → guardar una copia de seguridad de lo que
-  /// hay ahora (base **y** fotografías) → cerrar la base → sustituir → devolver
+  /// Secuencia: validar el archivo → consolidar y cerrar la base actual y
+  /// guardar una copia de seguridad completa y verificada de lo que hay ahora
+  /// (base **y** fotografías; [_secureCurrentDatabase]) → sustituir → devolver
   /// las fotografías a su sitio → reabrir (lo que dispara las migraciones si el
   /// respaldo era más antiguo) → reconstruir las rutas de las fotos →
   /// comprobar que la base resultante sirve.
@@ -897,27 +904,37 @@ class BackupService {
     final invoicesDirectory = isContainer ? await _invoicesDir() : null;
     final stamp = DateTime.now().toIso8601String().replaceAll(':', '-');
     final safetyCopy = '$target.previo-$stamp.db';
-    final current = File(target);
-    final hadPrevious = await current.exists();
 
-    // Copia de seguridad de las fotografías actuales, para poder deshacer el
-    // conjunto y no sólo la base.
     final invoicesBackup = invoicesDirectory == null
         ? null
         : Directory('${invoicesDirectory.path}.previo-$stamp');
-    final hadInvoices =
-        invoicesBackup != null &&
-        await _copyDirectory(invoicesDirectory!, invoicesBackup);
 
-    if (hadPrevious) await current.copy(safetyCopy);
-
-    // Se cierra la base antes de tocar el archivo.
-    await appDatabase.close();
+    // Preparación: copia previa completa de la base y de las fotografías. Si
+    // algo falla aquí **no empieza el reemplazo**: la base actual sigue como
+    // estaba y se descarta lo que se hubiera copiado a medias.
+    final bool hadPrevious;
+    final bool hadInvoices;
+    try {
+      hadPrevious = await _secureCurrentDatabase(target, safetyCopy);
+      // Copia de las fotografías actuales, para poder deshacer el conjunto y
+      // no sólo la base.
+      hadInvoices =
+          invoicesBackup != null &&
+          await _copyDirectory(invoicesDirectory!, invoicesBackup);
+    } on Object {
+      await _deleteQuietly(File(safetyCopy));
+      await _deleteQuietly(File('$safetyCopy$partialSuffix'));
+      if (invoicesBackup != null) await _deleteQuietly(invoicesBackup);
+      await _deleteQuietly(staged.directory);
+      rethrow;
+    }
 
     try {
       await File(databaseSource).copy(target);
-      // Se descartan los diarios de la base anterior: pertenecen a un archivo
-      // que ya no existe y corromperían la base restaurada.
+      // Se descartan los diarios del archivo anterior. Ya no guardan nada:
+      // [_secureCurrentDatabase] comprobó que el `-wal` quedó vacío tras el
+      // checkpoint y el cierre, y su contenido está en la copia previa. Si
+      // quedaran, corromperían la base restaurada.
       for (final suffix in const ['-wal', '-shm']) {
         final journal = File('$target$suffix');
         if (await journal.exists()) await journal.delete();
@@ -994,6 +1011,61 @@ class BackupService {
       await _deleteQuietly(staged.directory);
       if (invoicesBackup != null) await _deleteQuietly(invoicesBackup);
     }
+  }
+
+  /// Deja en [safetyCopy] una copia completa de la base actual y la cierra.
+  /// Devuelve si había una base que conservar.
+  ///
+  /// En modo WAL las últimas transacciones confirmadas pueden estar sólo en
+  /// `-wal`: copiar el archivo principal con la base abierta las perdería, y
+  /// el rollback devolvería esa copia incompleta. Por eso, ya en exclusiva:
+  ///
+  /// 1. se abre la base si no lo estaba (abrirla integra el `-wal` que haya
+  ///    dejado un cierre abrupto);
+  /// 2. checkpoint `TRUNCATE` ([_consolidateForCopy]), que falla si no se
+  ///    completa;
+  /// 3. se cierra y se comprueba que no queda nada en `-wal`;
+  /// 4. se copia el archivo principal a un `.part`, se fuerza a disco, se
+  ///    coteja su SHA-256 con el de la base cerrada y sólo entonces se
+  ///    renombra.
+  ///
+  /// Si un paso falla, la base no se ha sustituido; en los pasos 3 y 4 queda
+  /// cerrada y se reabre con normalidad en el siguiente acceso.
+  Future<bool> _secureCurrentDatabase(String target, String safetyCopy) async {
+    final current = File(target);
+    if (!await current.exists()) {
+      await appDatabase.close();
+      return false;
+    }
+    await _consolidateForCopy(await appDatabase.database);
+    await appDatabase.close();
+
+    final wal = File('$target-wal');
+    if (await wal.exists() && await wal.length() > 0) {
+      throw const BackupException(
+        'No se pudo cerrar la base de forma consistente antes de restaurar. '
+        'No se restauró; sus datos actuales se conservan.',
+      );
+    }
+
+    final partial = File('$safetyCopy$partialSuffix');
+    await current.copy(partial.path);
+    final handle = await partial.open(mode: FileMode.append);
+    try {
+      await handle.flush();
+    } finally {
+      await handle.close();
+    }
+    if (_afterSafetyCopy != null) await _afterSafetyCopy(partial);
+    if (await partial.length() != await current.length() ||
+        await sha256OfFile(partial) != await sha256OfFile(current)) {
+      throw const BackupException(
+        'No se pudo guardar una copia completa de sus datos actuales. No se '
+        'restauró; sus datos actuales se conservan.',
+      );
+    }
+    await partial.rename(safetyCopy);
+    return true;
   }
 
   /// Reapunta `purchases.invoice_image_path` a este dispositivo.

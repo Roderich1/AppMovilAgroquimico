@@ -442,5 +442,39 @@ void main() {
       // La app sigue operando sobre sus datos.
       await AgroRepository(database).addProduct(name: 'Después');
     });
+
+    test('la copia previa no coincide con la base cerrada: se descarta y no se '
+        'sustituye', () async {
+      final backup = await containerBackup();
+      final (container, database, path) = await install(
+        backupService: (db) => BackupService(
+          db,
+          afterSafetyCopy: (copy) async {
+            // Simula una copia incompleta o dañada por el almacenamiento.
+            final bytes = await copy.readAsBytes();
+            await copy.writeAsBytes(
+              bytes.sublist(0, bytes.length ~/ 2),
+              flush: true,
+            );
+          },
+        ),
+      );
+      await walWithoutAutocheckpoint(database);
+      await recentTransactionOnlyInWal(database, path);
+      final before = await dump(database);
+      final photosBefore = photosIn(invoices);
+
+      var replaced = false;
+      await expectLater(
+        container
+            .read(guardedRestoreProvider)
+            .restore(backup, afterReplace: () async => replaced = true),
+        throwsA(isA<BackupException>()),
+      );
+      expect(replaced, isFalse);
+      await expectUntouched(database, before, photosBefore);
+      await database.close();
+      expect(await dumpFromDisk(path), before);
+    });
   });
 }
