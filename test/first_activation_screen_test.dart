@@ -273,6 +273,19 @@ Future<void> _flush(WidgetTester tester) async {
 void main() {
   sqfliteFfiInit();
 
+  testWidgets(
+    '#87: el correo llega al teclado sin autocapitalizar ni autocorregir',
+    (tester) async {
+      await _mount(tester);
+      await tester.showKeyboard(find.byKey(const Key('activation-email')));
+      final args = tester.testTextInput.setClientArgs!;
+      expect((args['inputType']! as Map)['name'], 'TextInputType.emailAddress');
+      expect(args['autocorrect'], false);
+      expect(args['enableSuggestions'], false);
+      expect(args['textCapitalization'], 'TextCapitalization.none');
+    },
+  );
+
   testWidgets('empty form never starts activation', (tester) async {
     final fixture = await _mount(tester);
     await _submit(tester);
