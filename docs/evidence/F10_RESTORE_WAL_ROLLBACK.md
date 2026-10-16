@@ -15,6 +15,8 @@
 | `b4017a1` | Corrección en `lib/data/backup_service.dart` y una quinta prueba, que usa el hook nuevo `afterSafetyCopy` |
 | `ca74514` | Esta evidencia |
 | `5a73bea` | Sexta prueba: la técnica para provocar en el teléfono un fallo después de sustituir. Generador `tool/f08_bkp/craft_negative.py` para el turno del POCO |
+| `d1a6b34` | Evidencia de `5a73bea` |
+| `3552397` | Revisión de A: séptima prueba, que cubre el `-wal` no vacío tras cerrar con un hook de pruebas `afterCheckpoint`; `busy` se lee por nombre; se retira un `expect` que no podía fallar |
 
 ## 1. Defecto
 
@@ -44,6 +46,7 @@ Las transacciones recientes se perdían sin aviso. También tras una restauraci�
 | Restauración correcta | La copia `.previo` que se entrega contiene la transacción reciente |
 | Residuo `-wal` de un cierre abrupto, con la base sin abrir | Archivo principal y `-wal` copiados con la conexión abierta, como los deja un proceso terminado. El rollback no pierde nada |
 | La preparación falla (lector abierto) | Otra conexión mantiene una transacción de lectura. El checkpoint `TRUNCATE` devuelve busy y la restauración se rechaza con «No se pudo consolidar…» **sin cerrar ni sustituir**: datos y fotos iguales, sin copias a medias ni carpeta `invoices.previo-*`, acceso `activated`, y la app sigue escribiendo |
+| El `-wal` no queda vacío tras cerrar (`3552397`) | Con el hook `afterCheckpoint`, otra conexión escribe después del checkpoint y antes del cierre. Al cerrar la conexión de la app, esa transacción sigue en `-wal`. Resultado: «No se pudo cerrar la base de forma consistente…», sin copia previa ni sustitución, y la fila de la otra conexión se conserva |
 | La copia previa no coincide (`b4017a1`) | El hook trunca la copia; el cotejo de SHA-256 la rechaza y no se sustituye nada. También se compara al reabrir desde disco |
 | Copia coherente sin `sync_outbox` (`5a73bea`) | Sin hooks de prueba: el manifiesto se recalcula, así que la copia pasa la validación y el titular. Falla al pausar la outbox con la base y las fotos ya sustituidas. El rollback conserva todo, incluida la transacción reciente, también al reabrir. **Rojo con el servicio de `4f203c7`** (pierde filas: `inventory_lots`) y verde con la corrección. Es la técnica que se propone para el teléfono |
 
@@ -64,7 +67,7 @@ el checkpoint no puede completarse (lector abierto) … [E]
 00:02 +0 -4: Some tests failed.
 ```
 
-El último caso muestra algo peor que una pérdida silenciosa. Con otra conexión abierta, el código anterior sustituía la base, borraba diarios en uso y, al deshacer, **no podía devolver** la copia previa.
+El último caso falló en el host con `PathExistsException` (errno 183). **Eso es propio de Windows**: el host bloquea los archivos abiertos por la otra conexión, y en Android no ocurriría. Allí, el código anterior habría sobrescrito la base y borrado los diarios sin error, con la misma pérdida silenciosa que en los otros casos. Lo que demuestra este rojo es que el código anterior no rechazaba la preparación; no demuestra un modo de fallo propio de Android.
 
 ## 3. Corrección (`b4017a1`)
 
@@ -90,6 +93,7 @@ Después, el borrado de `-wal` y `-shm` antes de copiar la base restaurada sólo
 | Mutación sobre `b4017a1` | Resultado |
 |---|---|
 | Sin cotejar el SHA-256 de la copia previa | Falla «la copia previa no coincide…» (1 fallo, 4 pasan) |
+| Sin comprobar que `-wal` quedó vacío tras cerrar (`3552397`) | Falla «el -wal no queda vacío tras cerrar…» (1 fallo, 6 pasan) |
 | Sin el checkpoint previo; sólo cierre | Fallan «residuo WAL…» y «lector abierto» (2 fallos). Las dos primeras pruebas pasan, porque cerrar la última conexión ya hace el checkpoint: el cierre verificado por sí solo cubre la base abierta, pero no un `-wal` residual ni una conexión ajena |
 
 ## 5. Resultados
@@ -98,9 +102,9 @@ Después, el borrado de `-wal` y `-shm` antes de copiar la base restaurada sólo
 |---|---|
 | `dart format --output=none --set-exit-if-changed lib test` | exit 0 |
 | `flutter analyze` | `No issues found!` |
-| `flutter test test/f10_restore_wal_rollback_test.dart` | 5/5 en `b4017a1`; 6/6 en `5a73bea` |
-| Suites de respaldo y restauración: `f10_restore_wal_rollback`, `backup_service`, `backup_container`, `backup_android_semantics`, `backup_export_atomic`, `backup_restore_sha256`, `f04_restore_authorization`, `f04_restore_ownership_rules`, `f04_admin_owner_restore_ui` y `remote_backup_client` | **116/116** |
-| `flutter test`, suite completa en solitario | **1035 pasan, 2 omitidas, 0 fallos** |
+| `flutter test test/f10_restore_wal_rollback_test.dart` | 5/5 en `b4017a1`; 6/6 en `5a73bea`; **7/7 en `3552397`** |
+| Suites de respaldo y restauración: `f10_restore_wal_rollback`, `backup_service`, `backup_container`, `backup_android_semantics`, `backup_export_atomic`, `backup_restore_sha256`, `f04_restore_authorization`, `f04_restore_ownership_rules`, `f04_admin_owner_restore_ui` y `remote_backup_client` | 116/116 en `b4017a1`; **118/118 en `3552397`** |
+| `flutter test`, suite completa en solitario | 1035/2 en `b4017a1`; **1037 pasan, 2 omitidas, 0 fallos en `3552397`**. `flutter analyze` limpio |
 
 ## 6. Generador de variantes para el teléfono (`5a73bea`)
 
@@ -125,5 +129,6 @@ En los cinco casos la base actual quedó intacta.
 ## 7. Límites
 
 - **Sólo host.** No se sabe por estas pruebas si la base de la app en el POCO trabaja en WAL. En Android 9+, `SQLiteDatabase` aplica WAL de compatibilidad por defecto, pero no se midió. Se pide a A que lo registre en el turno (`PRAGMA journal_mode` y presencia de `-wal`).
-- Un fallo **dentro** del rollback, como quedarse sin espacio al devolver la copia, no está cubierto por esta corrección. La copia previa verificada sigue en disco y su ruta se conserva.
+- Un fallo **dentro** del rollback, como quedarse sin espacio al devolver la copia, no está cubierto por esta corrección. La copia previa verificada sigue en disco, junto a la base, como `<base>.previo-<fecha>.db`. Pero **la excepción no informa su ruta**: habría que localizarla en la carpeta de la base.
+- El caso del `-wal` no vacío se provoca con un hook de pruebas, porque la app usa una sola conexión. Representa un fallo del mecanismo, no un uso esperado.
 - La prueba del lector abierto usa una segunda conexión del motor de host. En el teléfono, la app abre una sola conexión, así que ese caso representa un fallo del mecanismo, no un uso esperado.
