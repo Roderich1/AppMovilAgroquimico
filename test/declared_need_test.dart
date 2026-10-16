@@ -176,6 +176,32 @@ void main() {
     expect(await fixture.outboxRows(), isEmpty);
   });
 
+  // Reproducido en el POCO el 2026-10-15: una campaña creada a las 21:38 en
+  // La Paz se guardó con el día UTC siguiente y no cubría la fecha de hoy.
+  // Sólo discrimina con una zona horaria distinta de UTC.
+  test(
+    'la campaña se compara por día local aunque sus fechas se guarden en UTC',
+    () async {
+      final db = await openDb(inMemoryDatabasePath).database;
+      final night = DateTime(2026, 10, 15, 23, 30);
+      final id = await db.insert('campaigns', {
+        'name': 'Creada de noche',
+        'start_date': night.toUtc().toIso8601String(),
+        'end_date': DateTime(2026, 10, 20, 0, 30).toUtc().toIso8601String(),
+        'status': 'ACTIVE',
+      });
+      Future<CampaignForDate> on(int day) =>
+          DeclaredNeedStore.campaignForDate(db, DateTime(2026, 10, day));
+      for (final day in [15, 20]) {
+        final covered = await on(day);
+        expect(covered.campaignId, id, reason: 'día $day');
+        expect(covered.problem, CampaignForDateProblem.notBound);
+      }
+      expect((await on(14)).problem, CampaignForDateProblem.none);
+      expect((await on(21)).problem, CampaignForDateProblem.none);
+    },
+  );
+
   test('una campaña sin vínculo vigente pide vincular', () async {
     final fixture = await seedSyncFixture(bindCatalog: false);
     final resolved = await fixture.needs.campaignFor(inCampaign);

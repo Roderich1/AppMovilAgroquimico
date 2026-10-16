@@ -189,6 +189,15 @@ class DeclaredNeedStore {
       '${date.month.toString().padLeft(2, '0')}-'
       '${date.day.toString().padLeft(2, '0')}';
 
+  /// Día local de una fecha guardada. `addCampaign` guarda instantes en UTC:
+  /// una campaña creada a las 21:00 en La Paz queda con el día UTC siguiente,
+  /// así que el día se toma en hora local, igual que la fecha de referencia.
+  static String _storedLocalDay(String stored) {
+    final parsed = DateTime.tryParse(stored);
+    if (parsed != null) return _day(parsed.toLocal());
+    return stored.length < 10 ? stored : stored.substring(0, 10);
+  }
+
   /// Campaña que corresponde a la fecha de referencia. Debe ser exactamente
   /// una y tener vínculo vigente; si no, no se asigna en silencio.
   static Future<CampaignForDate> campaignForDate(
@@ -196,11 +205,15 @@ class DeclaredNeedStore {
     DateTime date,
   ) async {
     final day = _day(date);
-    final rows = await db.rawQuery(
-      'SELECT id, name FROM campaigns WHERE substr(start_date,1,10) <= ? '
-      'AND (end_date IS NULL OR substr(end_date,1,10) >= ?) ORDER BY id',
-      [day, day],
-    );
+    final rows =
+        (await db.rawQuery(
+          'SELECT id, name, start_date, end_date FROM campaigns ORDER BY id',
+        )).where((row) {
+          final end = row['end_date'] as String?;
+          return _storedLocalDay(row['start_date']! as String).compareTo(day) <=
+                  0 &&
+              (end == null || _storedLocalDay(end).compareTo(day) >= 0);
+        }).toList();
     if (rows.isEmpty) {
       return const CampaignForDate(problem: CampaignForDateProblem.none);
     }
