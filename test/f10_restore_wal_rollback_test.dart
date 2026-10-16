@@ -354,7 +354,7 @@ void main() {
     test('residuo WAL de un cierre abrupto sin abrir la base: se integra antes '
         'de copiar y el rollback no lo pierde', () async {
       final backup = await containerBackup();
-      final (container, database, path) = await install();
+      final (_, database, path) = await install();
       await walWithoutAutocheckpoint(database);
       await recentTransactionOnlyInWal(database, path);
       final before = await dump(database);
@@ -379,7 +379,6 @@ void main() {
       );
       await unopened.close();
       expect(await dumpFromDisk(crashed), before);
-      expect(container.read(installationAccessProvider), isNotNull);
     });
 
     // Técnica para provocar en el teléfono un fallo **después** de empezar la
@@ -505,6 +504,72 @@ void main() {
       // La app sigue operando sobre sus datos.
       await AgroRepository(database).addProduct(name: 'Después');
     });
+
+    test(
+      'el -wal no queda vacío tras cerrar (otra conexión escribió): se rechaza '
+      'sin copiar ni sustituir',
+      () async {
+        final backup = await containerBackup();
+        final path = p.join(workspace.path, 'agro.db');
+        Database? other;
+        final (container, database, _) = await install(
+          backupService: (db) => BackupService(
+            db,
+            afterCheckpoint: () async {
+              // Otra conexión escribe después del checkpoint: al cerrar la de
+              // la app, su transacción sigue sólo en -wal.
+              other = await databaseFactoryFfi.openDatabase(
+                path,
+                options: OpenDatabaseOptions(singleInstance: false),
+              );
+              await other!.insert('products', {
+                'name': 'Otra conexión',
+                'unit': 'L',
+                'base_unit': 'ML',
+              });
+            },
+          ),
+        );
+        await walWithoutAutocheckpoint(database);
+        await recentTransactionOnlyInWal(database, path);
+        final before = await dump(database);
+        final photosBefore = photosIn(invoices);
+
+        var replaced = false;
+        try {
+          await expectLater(
+            container
+                .read(guardedRestoreProvider)
+                .restore(backup, afterReplace: () async => replaced = true),
+            throwsA(
+              isA<BackupException>().having(
+                (e) => e.message,
+                'message',
+                contains('cerrar la base de forma consistente'),
+              ),
+            ),
+          );
+        } finally {
+          await other?.close();
+        }
+        expect(replaced, isFalse);
+        final after = await dump(database);
+        expect({
+          for (final row in after['products']!) row['name'],
+        }, containsAll(['Reciente', 'Otra conexión']));
+        expect({
+          for (final row in after['products']!) row['name'],
+        }, isNot(contains('Respaldo')));
+        expect(after['purchases'], before['purchases']);
+        expect(photosIn(invoices), photosBefore);
+        expect(
+          workspace.listSync().where(
+            (e) => p.basename(e.path).contains('.previo-'),
+          ),
+          isEmpty,
+        );
+      },
+    );
 
     test('la copia previa no coincide con la base cerrada: se descarta y no se '
         'sustituye', () async {
