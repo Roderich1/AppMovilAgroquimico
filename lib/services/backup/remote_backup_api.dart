@@ -110,6 +110,10 @@ enum RemoteBackupErrorKind {
 
   /// Respuesta que no cumple el contrato: no se confía en ella.
   invalidResponse,
+
+  /// No se pudo escribir en el almacenamiento del teléfono (p. ej. sin
+  /// espacio). No dice nada de la integridad de la copia remota.
+  localStorage,
 }
 
 class RemoteBackupException implements Exception {
@@ -141,13 +145,26 @@ class RemoteBackupException implements Exception {
     RemoteBackupErrorKind.invalidResponse =>
       'El servidor respondió de forma inesperada. No se dio por confirmada '
           'la operación.',
+    RemoteBackupErrorKind.localStorage =>
+      'No se pudo guardar la copia en el teléfono (¿falta espacio?). Sus '
+          'datos actuales se conservan.',
   };
+
+  /// La operación pudo completarse en el servidor aunque no llegó respuesta.
+  bool get outcomeUncertain =>
+      kind == RemoteBackupErrorKind.network ||
+      kind == RemoteBackupErrorKind.unavailable;
 
   @override
   String toString() => message;
 }
 
 /// Cliente HTTP en streaming: los archivos no se cargan enteros en memoria.
+///
+/// Cada operación tiene un plazo total ([timeout], 5 min como el
+/// `requestTimeout` por defecto del servidor). Al vencer, la petición se
+/// **aborta** (no sólo se deja de esperar): una subida abandonada no sigue
+/// enviándose y el servidor la registra como incompleta.
 class RemoteBackupApi {
   RemoteBackupApi({
     required ApiEndpointConfig config,
@@ -162,9 +179,32 @@ class RemoteBackupApi {
 
   static const _base = '/api/v1/me/backups';
 
-  Future<List<RemoteBackupEntry>> list(String accessToken) async {
+  /// Margen tras el plazo para un transporte que no atienda la cancelación.
+  static const _grace = Duration(seconds: 5);
+
+  /// Ejecuta [run] con una señal de cancelación que se dispara al vencer el
+  /// plazo total de la operación.
+  Future<T> _bounded<T>(Future<T> Function(Future<void> abort) run) async {
+    final abort = Completer<void>();
+    final timer = Timer(timeout, () {
+      if (!abort.isCompleted) abort.complete();
+    });
+    try {
+      return await run(abort.future);
+    } finally {
+      timer.cancel();
+    }
+  }
+
+  Future<List<RemoteBackupEntry>> list(String accessToken) =>
+      _bounded((abort) => _list(accessToken, abort));
+
+  Future<List<RemoteBackupEntry>> _list(
+    String accessToken,
+    Future<void> abort,
+  ) async {
     final response = await _send(
-      http.Request('GET', _endpoint(_base)),
+      http.AbortableRequest('GET', _endpoint(_base), abortTrigger: abort),
       accessToken,
     );
     final body = await _jsonOf(response, expected: 200);
@@ -195,16 +235,33 @@ class RemoteBackupApi {
     required int formatVersion,
     required int schemaVersion,
     required String accessToken,
-  }) async {
+  }) => _bounded(
+    (abort) =>
+        _upload(file, sha256, formatVersion, schemaVersion, accessToken, abort),
+  );
+
+  Future<RemoteBackupEntry> _upload(
+    File file,
+    String sha256,
+    int formatVersion,
+    int schemaVersion,
+    String accessToken,
+    Future<void> abort,
+  ) async {
     final size = await file.length();
-    final request = http.StreamedRequest('POST', _endpoint(_base))
-      ..contentLength = size
-      ..headers.addAll({
-        'Content-Type': 'application/octet-stream',
-        'X-Content-SHA256': sha256,
-        'X-Backup-Format-Version': '$formatVersion',
-        'X-Backup-Schema-Version': '$schemaVersion',
-      });
+    final request =
+        http.AbortableStreamedRequest(
+            'POST',
+            _endpoint(_base),
+            abortTrigger: abort,
+          )
+          ..contentLength = size
+          ..headers.addAll({
+            'Content-Type': 'application/octet-stream',
+            'X-Content-SHA256': sha256,
+            'X-Backup-Format-Version': '$formatVersion',
+            'X-Backup-Schema-Version': '$schemaVersion',
+          });
     unawaited(
       file.openRead().pipe(request.sink).catchError((Object _) {
         // El envío falla por su lado; la respuesta (o su ausencia) decide.
@@ -228,13 +285,24 @@ class RemoteBackupApi {
     RemoteBackupEntry entry,
     Directory directory,
     String accessToken,
+  ) => _bounded((abort) => _download(entry, directory, accessToken, abort));
+
+  Future<File> _download(
+    RemoteBackupEntry entry,
+    Directory directory,
+    String accessToken,
+    Future<void> abort,
   ) async {
     await directory.create(recursive: true);
     final target = File(p.join(directory.path, '${entry.id}.agrobackup'));
     final partial = File('${target.path}.part');
     try {
       final response = await _send(
-        http.Request('GET', _endpoint('$_base/${entry.id}/content')),
+        http.AbortableRequest(
+          'GET',
+          _endpoint('$_base/${entry.id}/content'),
+          abortTrigger: abort,
+        ),
         accessToken,
       );
       if (response.statusCode != 200) {
@@ -273,6 +341,9 @@ class RemoteBackupApi {
     } on RemoteBackupException {
       await _deleteQuietly(partial);
       rethrow;
+    } on FileSystemException {
+      await _deleteQuietly(partial);
+      throw const RemoteBackupException(RemoteBackupErrorKind.localStorage);
     } on Exception {
       await _deleteQuietly(partial);
       // Corte a mitad de la descarga: la copia no llegó completa.
@@ -281,9 +352,20 @@ class RemoteBackupApi {
   }
 
   /// Elimina una copia remota propia. No toca ningún archivo local.
-  Future<void> delete(String id, String accessToken) async {
+  Future<void> delete(String id, String accessToken) =>
+      _bounded((abort) => _delete(id, accessToken, abort));
+
+  Future<void> _delete(
+    String id,
+    String accessToken,
+    Future<void> abort,
+  ) async {
     final response = await _send(
-      http.Request('DELETE', _endpoint('$_base/$id')),
+      http.AbortableRequest(
+        'DELETE',
+        _endpoint('$_base/$id'),
+        abortTrigger: abort,
+      ),
       accessToken,
     );
     if (response.statusCode == 204) {
@@ -312,7 +394,7 @@ class RemoteBackupApi {
         ? 'application/octet-stream, application/json'
         : 'application/json';
     try {
-      final response = await _client.send(request).timeout(timeout);
+      final response = await _client.send(request).timeout(timeout + _grace);
       if (response.statusCode >= 300 && response.statusCode < 400) {
         await response.stream.drain<void>().catchError((Object _) {});
         throw const RemoteBackupException(RemoteBackupErrorKind.unavailable);
@@ -334,7 +416,7 @@ class RemoteBackupApi {
   }) async {
     final List<int> bytes;
     try {
-      bytes = await response.stream.toBytes().timeout(timeout);
+      bytes = await response.stream.toBytes().timeout(timeout + _grace);
     } on Exception {
       throw const RemoteBackupException(RemoteBackupErrorKind.network);
     }

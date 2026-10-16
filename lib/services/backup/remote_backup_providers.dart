@@ -9,6 +9,7 @@ import '../../data/owner_binding_store.dart';
 import '../../guarded_restore.dart';
 import '../auth/auth_api_exception.dart';
 import '../auth/first_activation_providers.dart';
+import '../sync/sync_access.dart';
 import '../sync/sync_providers.dart';
 import 'remote_backup_api.dart';
 import 'remote_backup_service.dart';
@@ -39,5 +40,6 @@ final remoteBackupServiceProvider = Provider<RemoteBackupService>(
       ref.read(databaseProvider),
     ).activeBinding())?.scope,
     workDirectory: remoteBackupWorkDirectory,
+    onAccessRejected: () => ref.read(syncAccessHolderProvider).clear(),
   ),
 );

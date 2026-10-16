@@ -67,9 +67,14 @@ class _RemoteBackupScreenState extends ConsumerState<RemoteBackupScreen> {
       if (!mounted) return;
       showSuccess(
         context,
-        'Respaldo subido y confirmado por el servidor '
-        '(${_size(result.entry.sizeBytes)}).',
+        result.confirmedByListing
+            ? 'La respuesta no llegó, pero el servidor ya tiene esta copia '
+                  '(mismo SHA-256): no hace falta volver a subirla.'
+            : 'Respaldo subido y confirmado por el servidor '
+                  '(${_size(result.entry.sizeBytes)}).',
       );
+      // Una foto que ya no está en el teléfono no se oculta (#55).
+      await _showNotices('Respaldo', result.export.warnings);
       final entries = await ref.read(remoteBackupServiceProvider).list();
       if (mounted) setState(() => _entries = entries);
     });
@@ -119,7 +124,31 @@ class _RemoteBackupScreenState extends ConsumerState<RemoteBackupScreen> {
         ),
       ),
     );
+    await _showNotices('Restauración', outcome.result.warnings);
   });
+
+  /// Avisos de una operación que sí terminó: nunca se ocultan.
+  Future<void> _showNotices(String title, List<String> notices) async {
+    if (!mounted || notices.isEmpty) return;
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        icon: const Icon(Icons.warning_amber_outlined),
+        title: Text(title),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [for (final notice in notices) Text('· $notice')],
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Entendido'),
+          ),
+        ],
+      ),
+    );
+  }
 
   Future<void> _delete(RemoteBackupEntry entry) async {
     final confirmed = await confirmDestructiveAction(

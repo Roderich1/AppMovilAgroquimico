@@ -1,8 +1,7 @@
 // F08-BKP-05 (#36) y la parte crítica de #55 (RNF-10): el manifiesto guarda el
 // SHA-256 de `database.db`, pero la validación no lo contrastaba. Una base
 // SQLite íntegra pero distinta de la respaldada pasaba `integrity_check` y se
-// restauraba. También: una exportación interrumpida no deja nada que parezca
-// un respaldo.
+// restauraba. La exportación atómica está en backup_export_atomic_test.dart.
 //
 // Las manipulaciones son reales: se abre la base de dentro del contenedor, se
 // cambia una fila con SQL y se vuelve a empaquetar; el manifiesto queda como
@@ -108,14 +107,10 @@ void main() {
     return (database, repo);
   }
 
-  BackupService serviceFor(
-    AppDatabase database, {
-    Future<void> Function(File partial)? beforePublish,
-  }) => BackupService(
-    database,
-    invoicesDir: () async => invoices,
-    beforePublish: beforePublish,
-  );
+  // Sólo la API que ya existía en la base caf158e: así esta regresión se
+  // puede ejecutar también sobre el código anterior a la corrección (M5).
+  BackupService serviceFor(AppDatabase database) =>
+      BackupService(database, invoicesDir: () async => invoices);
 
   Map<String, Object?> manifestOf(String path) =>
       jsonDecode(utf8.decode(entryBytes(path, 'manifest.json')!))
@@ -326,83 +321,6 @@ void main() {
       );
       addTearDown(probe.close);
       expect((await serviceFor(probe).validate(path)).isValid, isFalse);
-    });
-  });
-
-  group('exportación atómica', () {
-    List<String> backupNames() => [
-      for (final entity in workspace.listSync())
-        if (entity is File &&
-            p.basename(entity.path).startsWith('agroquimicos_backup_'))
-          p.basename(entity.path),
-    ];
-
-    test('un fallo con el parcial ya escrito no deja ningún archivo', () async {
-      final (database, _) = await seeded('origen.db');
-      addTearDown(database.close);
-      final previous = (await serviceFor(database).export()).path;
-      final previousBytes = await File(previous).readAsBytes();
-
-      int? partialBytes;
-      await expectLater(
-        serviceFor(
-          database,
-          beforePublish: (partial) async {
-            partialBytes = await partial.length();
-            // El disco se llena o la app se interrumpe a mitad de la copia.
-            final handle = await partial.open(mode: FileMode.writeOnlyAppend);
-            await handle.truncate(partialBytes! ~/ 2);
-            await handle.close();
-            throw const FileSystemException('Sin espacio (simulado)');
-          },
-        ).export(),
-        throwsA(isA<FileSystemException>()),
-      );
-
-      expect(
-        partialBytes,
-        greaterThan(0),
-        reason: 'el fallo fue tras escribir',
-      );
-      expect(backupNames(), [p.basename(previous)]);
-      expect(await File(previous).readAsBytes(), previousBytes);
-      final listed = await serviceFor(database).listAvailableBackups();
-      expect(listed.map((f) => f.path), [previous]);
-    });
-
-    test('una copia truncada sin excepción no se publica', () async {
-      final (database, _) = await seeded('origen.db');
-      addTearDown(database.close);
-
-      await expectLater(
-        serviceFor(
-          database,
-          beforePublish: (partial) async {
-            final handle = await partial.open(mode: FileMode.writeOnlyAppend);
-            await handle.truncate(100);
-            await handle.close();
-          },
-        ).export(),
-        throwsA(isA<BackupException>()),
-      );
-      expect(backupNames(), isEmpty);
-    });
-
-    test('un parcial abandonado se descarta y nunca se lista', () async {
-      final stale = File(
-        pathFor('agroquimicos_backup_2026-01-01T00-00-00.agrobackup.part'),
-      );
-      await stale.writeAsBytes([1, 2, 3]);
-      final (database, _) = await seeded('origen.db');
-      addTearDown(database.close);
-      final service = serviceFor(database);
-      expect(await service.listAvailableBackups(), isEmpty);
-
-      final exported = (await service.export()).path;
-
-      expect(stale.existsSync(), isFalse);
-      expect(backupNames(), [p.basename(exported)]);
-      expect((await service.validate(exported)).isValid, isTrue);
     });
   });
 }

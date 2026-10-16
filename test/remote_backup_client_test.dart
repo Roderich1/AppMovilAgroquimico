@@ -105,6 +105,12 @@ class _FakeServer {
   /// Sin conexión.
   bool offline = false;
 
+  /// Guarda la subida y pierde la respuesta (el cliente no la recibe).
+  bool loseUploadResponse = false;
+
+  /// Responde 401/403 a todo.
+  int? rejectWith;
+
   String _id() {
     _next++;
     return '0000000${_next.toString().padLeft(1, '0')}-0000-4000-8000-'
@@ -120,6 +126,13 @@ class _FakeServer {
   late final client = MockClient.streaming((request, body) async {
     requests.add(request);
     if (offline) throw http.ClientException('sin red');
+    if (rejectWith != null) {
+      return _json(rejectWith!, {
+        'errorCode': rejectWith == 401
+            ? 'AUTH_REQUIRED'
+            : 'AUTH_CONTEXT_FORBIDDEN',
+      });
+    }
     expect(request.headers['Authorization'], 'Bearer $_token');
     final path = request.url.path;
     if (path == '/api/v1/me/backups' && request.method == 'GET') {
@@ -141,6 +154,9 @@ class _FakeServer {
         DateTime.utc(2026, 10, 16, 12, stored.length),
       );
       stored[entry.id] = entry;
+      if (loseUploadResponse) {
+        throw http.ClientException('respuesta perdida');
+      }
       final json = Map<String, Object?>.of(entry.json);
       if (misreportUpload) json['sha256'] = 'f' * 64;
       return _json(201, json);
@@ -237,20 +253,24 @@ class _Phone {
         if (f is File) p.basename(f.path): _hex(await f.readAsBytes()),
   };
 
-  RemoteBackupService service(_FakeServer server, OwnerScope session) =>
-      RemoteBackupService(
-        api: server.api,
-        access: () async => VerifiedAccess(
-          accessToken: _token,
-          scope: session,
-          obtainedAt: DateTime.now(),
-        ),
-        backups: container.read(backupServiceProvider),
-        restorer: container.read(guardedRestoreProvider),
-        ownerScope: () async =>
-            (await OwnerBindingStore(database).activeBinding())?.scope,
-        workDirectory: () async => Directory(p.join(directory.path, 'privado')),
-      );
+  RemoteBackupService service(
+    _FakeServer server,
+    OwnerScope session, {
+    void Function()? onAccessRejected,
+  }) => RemoteBackupService(
+    onAccessRejected: onAccessRejected,
+    api: server.api,
+    access: () async => VerifiedAccess(
+      accessToken: _token,
+      scope: session,
+      obtainedAt: DateTime.now(),
+    ),
+    backups: container.read(backupServiceProvider),
+    restorer: container.read(guardedRestoreProvider),
+    ownerScope: () async =>
+        (await OwnerBindingStore(database).activeBinding())?.scope,
+    workDirectory: () async => Directory(p.join(directory.path, 'privado')),
+  );
 }
 
 void main() {
@@ -321,7 +341,13 @@ void main() {
         ),
       ],
     );
-    addTearDown(container.dispose);
+    // build() lanza su propio refresh en una microtarea: se deja terminar
+    // antes de desmontar, aunque la prueba acabe enseguida.
+    addTearDown(() async {
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      await container.read(installationAccessProvider.notifier).refresh();
+      container.dispose();
+    });
     await container.read(installationAccessProvider.notifier).refresh();
     return _Phone(container, database, directory, invoices, syncRequests);
   }
@@ -681,6 +707,114 @@ void main() {
         ),
       );
     });
+  });
+
+  group('revisión: cancelación por plazo', _reviewTests);
+
+  group('revisión: acceso y subida incierta', () {
+    test('un 401 o 403 descarta el acceso en memoria; un 404 no', () async {
+      for (final (status, expected) in [(401, 1), (403, 1)]) {
+        final server = _FakeServer()..rejectWith = status;
+        final app = await phone(
+          'r$status',
+          session: memberA,
+          installationRef: installationHere,
+          seed: (db, invoices) => farmerData(db, invoices),
+        );
+        var cleared = 0;
+        await expectLater(
+          app
+              .service(server, memberA, onAccessRejected: () => cleared++)
+              .list(),
+          throwsA(isA<RemoteBackupException>()),
+        );
+        expect(cleared, expected, reason: '$status');
+      }
+      final server = _FakeServer();
+      final app = await phone(
+        'r404',
+        session: memberA,
+        installationRef: installationHere,
+        seed: (db, invoices) => farmerData(db, invoices),
+      );
+      var cleared = 0;
+      final missing = RemoteBackupEntry.validate(
+        _Stored(
+          '00000009-0000-4000-8000-000000000009',
+          Uint8List(4),
+          9,
+          DateTime.utc(2026),
+        ).json,
+      )!;
+      await expectLater(
+        app
+            .service(server, memberA, onAccessRejected: () => cleared++)
+            .delete(missing),
+        throwsA(isA<RemoteBackupException>()),
+      );
+      expect(cleared, 0);
+    });
+
+    test('respuesta de subida perdida: se lista, se reconoce el mismo SHA-256 y no se duplica', () async {
+      final server = _FakeServer()..loseUploadResponse = true;
+      final a = await phone(
+        'a',
+        session: memberA,
+        installationRef: installationHere,
+        seed: (db, invoices) => farmerData(db, invoices),
+      );
+      final result = await a.service(server, memberA).uploadNew();
+      expect(result.confirmedByListing, isTrue);
+      expect(server.stored, hasLength(1));
+      expect(result.entry.sha256, _hex(server.stored.values.single.bytes));
+      expect(server.requests.where((r) => r.method == 'POST'), hasLength(1));
+    });
+
+    test('sin red y sin copia en el servidor: el error se informa, no se da por subida', () async {
+      final server = _FakeServer()..offline = true;
+      final a = await phone(
+        'a',
+        session: memberA,
+        installationRef: installationHere,
+        seed: (db, invoices) => farmerData(db, invoices),
+      );
+      await expectLater(
+        a.service(server, memberA).uploadNew(),
+        throwsA(
+          isA<RemoteBackupException>().having(
+            (e) => e.kind,
+            'kind',
+            RemoteBackupErrorKind.network,
+          ),
+        ),
+      );
+    });
+
+    test(
+      'una preparación interrumpida no deja restos en la carpeta privada',
+      () async {
+        final server = _FakeServer();
+        final a = await phone(
+          'a',
+          session: memberA,
+          installationRef: installationHere,
+          seed: (db, invoices) => farmerData(db, invoices),
+        );
+        await a.service(server, memberA).uploadNew();
+        final privado = Directory(p.join(a.directory.path, 'privado'));
+        await privado.create();
+        await File(p.join(privado.path, 'resto.agrobackup.part'))
+            .writeAsBytes([1]);
+        final prepared = await a
+            .service(server, memberA)
+            .prepareRestore(server.stored.values.single.jsonEntry);
+        expect(privado.listSync().map((e) => p.basename(e.path)), [
+          p.basename(prepared.file.path),
+        ]);
+        await a.service(server, memberA).discard(prepared);
+        expect(privado.listSync(), isEmpty);
+      },
+    );
   });
 
   group('recuperación desde el servidor', () {
@@ -1084,6 +1218,65 @@ void main() {
         expect(owner.syncRequests, hasLength(1));
       },
     );
+  });
+}
+
+/// Transporte que nunca responde: sólo termina si se cancela la petición.
+class _HangingClient extends http.BaseClient {
+  bool aborted = false;
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    if (request case http.Abortable(:final abortTrigger?)) {
+      await abortTrigger;
+      aborted = true;
+      throw http.RequestAbortedException(request.url);
+    }
+    return Completer<http.StreamedResponse>().future;
+  }
+}
+
+void _reviewTests() {
+  late Directory workspace;
+
+  setUp(() async {
+    workspace = await Directory.systemTemp.createTemp('agro_f08_review_');
+    PathProviderPlatform.instance = _WorkspacePaths(workspace.path);
+  });
+  tearDown(() async {
+    try {
+      await workspace.delete(recursive: true);
+    } on FileSystemException {
+      // Temporal.
+    }
+  });
+
+  test('al vencer el plazo la subida se cancela de verdad, no sólo se deja de esperar', () async {
+    final hanging = _HangingClient();
+    final api = RemoteBackupApi(
+      config: ApiEndpointConfig(Uri.parse(_origin)),
+      client: hanging,
+      timeout: const Duration(milliseconds: 100),
+    );
+    final file = File(p.join(workspace.path, 'x.agrobackup'));
+    await file.writeAsBytes(List<int>.filled(1000, 1));
+    await expectLater(
+      api.upload(
+        file,
+        sha256: 'a' * 64,
+        formatVersion: 1,
+        schemaVersion: 9,
+        accessToken: _token,
+      ),
+      throwsA(
+        isA<RemoteBackupException>().having(
+          (e) => e.kind,
+          'kind',
+          RemoteBackupErrorKind.network,
+        ),
+      ),
+    );
+    expect(hanging.aborted, isTrue);
   });
 }
 
