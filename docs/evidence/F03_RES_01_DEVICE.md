@@ -76,6 +76,30 @@ Registro del observador de toda la sesión (hora, método, ruta enmascarada, est
 - En el teléfono las radios quedaron como al inicio (sin modo avión, Wi‑Fi y datos encendidos). `stay_on_while_plugged_in` vuelve a 0: durante la sesión estuvo en 2 y luego en 3.
 - La copia aislada sigue instalada (con la cuenta S de D3) para revisión. Se quita con `adb uninstall com.comunidad.agro.agroquimicos.f03res01`.
 
+## Addendum del 2026-10-16 — alcance del escaneo de logcat
+
+Al revisar este documento frente al criterio de logcat de #71 («no contiene refresh tokens, JWT ni el UUID completo de instalación»), aparecieron tres límites del escaneo de la fila «Logcat y registro propio»:
+
+- buscaba JWT y UUID, pero no valores opacos: el refresh token de Auth V2 es opaco (base64url), no un JWT;
+- los nombres de campo se buscaban distinguiendo mayúsculas (`refresh_?token|accessToken|password`), sin `authorization` ni `bearer`;
+- el buffer de 2 MiB pudo rotar entre pasos, y eso no se comprobó.
+
+Por eso, para los procesos examinados en la sesión de #71, la ausencia de refresh tokens en logcat queda **NOT_MEASURED**. La fila original no se modifica; su PASS vale para JWT, UUID y los nombres que buscó.
+
+**Complemento**, que no sustituye el criterio:
+
+- La sesión física de D4 ([F06_D4_DEVICE](F06_D4_DEVICE.md)) usó otra copia aislada (`.f06d4`), compilada sobre la rama D4, que parte de Mobile `main` `99adac3`.
+- Recorrió login, registro de cliente, enlace de sesión y un refresh 200.
+- Usó un escaneo ampliado:
+  - valores opacos de 43 o más caracteres;
+  - nombres sin distinguir mayúsculas, incluidos `authorization` y `bearer`;
+  - buffer de 16 MiB sin rotación;
+  - control positivo.
+- Resultado: 0 en todo (logcat 334 líneas; registro propio 10).
+- **No** recorrió los caminos 401 de E-1 y E-2.
+
+Para dar el criterio por medido en #71 falta repetir E-1 o E-2 con el escaneo ampliado, o que Roderich acepte este complemento como suficiente.
+
 ## 7. Revisiones
 
 - Ejecución: Claude Code, 2026-10-15. Sin revisión humana todavía.

@@ -10,8 +10,8 @@ F03_PG_CONTAINER=agro_f03res01_pg
 F03_PG_VOLUME=agro_f03res01_pgdata
 F03_PG_PORT=55432
 F03_PG_DB=agro_f03res01
-F03_API_PORT=3100
-F03_OBSERVER_PORT=3101 # proxy que registra método, ruta y estado; el túnel apunta aquí
+F03_API_PORT="${F03_API_PORT:-3100}"
+F03_OBSERVER_PORT="${F03_OBSERVER_PORT:-3101}" # proxy que registra método, ruta y estado; el túnel apunta aquí
 F03_RUN_DIR="${F03_RUN_DIR:-${TMPDIR:-/tmp}/agro_f03res01}"
 
 # Cuentas sintéticas del seed del Backend. Sus contraseñas se rotan al levantar
@@ -21,10 +21,11 @@ F03_FARMER_D_EMAIL=juan.perez@agro.local    # caso D y luego E-1
 F03_FARMER_E2_EMAIL=maria.choque@agro.local # caso E-2
 F03_FARMER_S_EMAIL=pedro.mamani@agro.local # E2E de D3 (sincronización)
 
-# Aplicación aislada: nunca la app normal.
-F03_APP_ID_SUFFIX=.f03res01
+# Aplicación aislada: nunca la app normal. Otra prueba (p. ej. F06 D4) puede fijar
+# otro sufijo y etiqueta en el entorno para tener su propia copia aislada.
+F03_APP_ID_SUFFIX="${F03_APP_ID_SUFFIX:-.f03res01}"
 F03_APP_PACKAGE="com.comunidad.agro.agroquimicos${F03_APP_ID_SUFFIX}"
-F03_APP_LABEL="Agrocuentas F03-RES-01"
+F03_APP_LABEL="${F03_APP_LABEL:-Agrocuentas F03-RES-01}"
 F03_DEVICE_DB=agroquimicos_v2.db
 F03_SHOTS_DIR="${F03_SHOTS_DIR:-$F03_RUN_DIR/capturas}" # fuera de cualquier worktree
 

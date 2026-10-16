@@ -1,0 +1,4 @@
+# Los scripts de bash, node y python deben conservar LF para ejecutarse en Git Bash.
+*.sh text eol=lf
+*.cjs text eol=lf
+*.py text eol=lf

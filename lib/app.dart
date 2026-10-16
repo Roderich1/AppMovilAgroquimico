@@ -15,6 +15,7 @@ import 'presentation/screens/applications_screen.dart';
 import 'presentation/screens/application_form_screen.dart';
 import 'presentation/screens/catalogs_screen.dart';
 import 'presentation/screens/central_binding_screen.dart';
+import 'presentation/screens/consumption_publish_screen.dart';
 import 'presentation/screens/dashboard_screen.dart';
 import 'presentation/screens/declared_needs_screen.dart';
 import 'presentation/screens/first_activation_screen.dart';
@@ -186,6 +187,10 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: '/sindicato/vinculos',
             builder: (_, __) => const CentralBindingScreen(),
+          ),
+          GoRoute(
+            path: '/sincronizacion/consumo',
+            builder: (_, __) => const ConsumptionPublishScreen(),
           ),
         ],
       ),

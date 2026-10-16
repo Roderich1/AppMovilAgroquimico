@@ -31,8 +31,9 @@ flutter build apk --debug --dart-define=AGRO_API_BASE_URL="$origin" > "$F03_RUN_
   || { tail -20 "$F03_RUN_DIR/apk_build.log"; exit 1; }
 apk=build/app/outputs/flutter-apk/app-debug.apk
 mkdir -p "$F03_RUN_DIR"
-cp "$apk" "$F03_RUN_DIR/agrocuentas-f03res01-debug.apk"
+out="$F03_RUN_DIR/agrocuentas${F03_APP_ID_SUFFIX//./-}-debug.apk" # .f03res01 → agrocuentas-f03res01-debug.apk
+cp "$apk" "$out"
 echo "APK aislada: paquete $F03_APP_PACKAGE, Mobile $sha"
-echo "SHA-256: $(sha256sum "$F03_RUN_DIR/agrocuentas-f03res01-debug.apk" | awk '{print $1}')"
+echo "SHA-256: $(sha256sum "$out" | awk '{print $1}')"
 git checkout -q -- "$gradle" "$manifest"; trap - EXIT
 [ -z "$(git status --porcelain)" ] && echo "worktree Mobile limpio tras la compilación"

@@ -162,6 +162,12 @@ class _SyncStatusScreenState extends ConsumerState<SyncStatusScreen> {
                 icon: const Icon(Icons.playlist_add_check),
                 label: const Text('Necesidades declaradas'),
               ),
+              OutlinedButton.icon(
+                key: const Key('open-consumption-publish'),
+                onPressed: () => context.push('/sincronizacion/consumo'),
+                icon: const Icon(Icons.water_drop_outlined),
+                label: const Text('Consumo para el sindicato'),
+              ),
             ],
           ),
           const SizedBox(height: 12),
