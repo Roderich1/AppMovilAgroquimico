@@ -12,6 +12,9 @@
 | `e89d8b3` | Cliente remoto, servicio, pantalla «Respaldo en la nube» y liberación de lo restaurado sólo con verificación del titular. |
 | `639e43e` | Merge de `main` `74d5539` (#88, #89). |
 | `ac6da48`, `e7a0432` | Arnés del E2E en instalación limpia (`tool/f08_bkp/`). |
+| `3668ad2` | Primera versión de esta evidencia. |
+| `1663e92` | Correcciones de la revisión de A (M1–M5 y menores), descritas en §2b. |
+| `f0f5227`, `2b3a0ce` | La comprobación previa verifica también la producción cerrada y el 415 sin eco en la API compilada. |
 
 Base: BASE_MOBILE_VALIDADA `caf158e0a0c8012082add22761ca9c6d56e6eb8f`, publicada por A tras resolver #86. La rama se creó desde ella.
 
@@ -25,11 +28,32 @@ Base: BASE_MOBILE_VALIDADA `caf158e0a0c8012082add22761ca9c6d56e6eb8f`, publicada
 | La exportación copiaba directamente al nombre definitivo | El paquete validado se copia a `.part` **en la carpeta de destino**. Se cotejan sus bytes, se fuerza a disco y se renombra; renombrar en el mismo directorio es atómico. Un fallo borra el parcial, y los parciales abandonados se descartan y nunca se listan. | Ídem |
 | `pauseAfterRestore` se ejecutaba después del tramo con rollback | Pasa a `prepareRestored`, dentro del tramo que se deshace si falla. | `remote_backup_client_test.dart`: la cola ya está pausada dentro de la sustitución |
 
-**Rojo antes de la corrección.** Se ejecutó sobre `caf158e` con sólo la exportación cambiada; la validación todavía era la original:
-- `flutter test test/backup_restore_sha256_test.dart --name 'SHA-256 de la base'`: **5 fallos**. Entre ellos, `restaurar una base alterada…` terminó con la base alterada **restaurada**.
-- La prueba de la foto intrusa también falló: se restauraban 2 fotos en vez de 1.
+**Rojo antes de la corrección (reproducible, revisión M5).** La primera ejecución en rojo se hizo durante el desarrollo, sobre un estado sin commit, así que no se usa como evidencia. Se repitió de forma reproducible:
 
-**Después de la corrección.** Las 82 pruebas de respaldo y restauración pasan. Las manipulaciones son reales: se abre la base dentro del contenedor, se ejecuta un `UPDATE` con SQL, se comprueba `integrity_check = ok` y se vuelve a empaquetar.
+```text
+git worktree add --detach <tmp> caf158e0a0c8012082add22761ca9c6d56e6eb8f
+git show 1663e92:test/backup_restore_sha256_test.dart > <tmp>/test/backup_restore_sha256_test.dart
+git show 1663e92:test/backup_container_support.dart   > <tmp>/test/backup_container_support.dart
+cd <tmp> && flutter pub get && flutter test test/backup_restore_sha256_test.dart
+-> exit 1; 6 fallos, 2 pasan:
+  [E] una base alterada con SQL válido se rechaza al validar
+  [E] restaurar una base alterada no toca la base ni las fotos actuales   (la base alterada se restauraba)
+  [E] un manifiesto sin SHA-256 de la base se rechaza
+  [E] un manifiesto sin descripción de la base se rechaza
+  [E] un tamaño declarado distinto del real se rechaza
+  [E] una fotografía no descrita en el manifiesto no se restaura          (se restauraban 2 en vez de 1)
+```
+
+Para que la prueba compile sobre la base, la exportación atómica, que necesita la API nueva, se separó en `test/backup_export_atomic_test.dart`.
+
+**Después de la corrección**, sobre `1663e920f30b0504f0efceeb35f56da1c9c6f228`:
+
+```text
+flutter test test/backup_restore_sha256_test.dart test/backup_export_atomic_test.dart test/backup_container_test.dart test/backup_service_test.dart test/backup_android_semantics_test.dart test/f04_restore_authorization_test.dart test/f04_restore_ownership_rules_test.dart test/f04_admin_owner_restore_ui_test.dart test/remote_backup_client_test.dart
+-> 00:16 +107: All tests passed!
+```
+
+Las manipulaciones son reales: se abre la base dentro del contenedor, se ejecuta un `UPDATE` con SQL, se comprueba `integrity_check = ok` y se vuelve a empaquetar.
 
 Se ajustó una prueba existente, «esquema futuro», que reescribía la base sin actualizar el manifiesto. Ahora actualiza también el manifiesto, porque así es un respaldo coherente de una app más nueva. Así sigue probando el esquema y no el SHA-256.
 
@@ -51,9 +75,30 @@ Se ajustó una prueba existente, «esquema futuro», que reescribía la base sin
 
 No se inventaron estados nuevos: se reutilizan `RESTORE_PAUSED`, `DatabaseReplacementGuard` y `recomputeAfterReplacement`. Las reglas de titular no cambian.
 
+## 2b. Correcciones de la revisión de A (`1663e92`)
+
+- **M1. Arnés.** `tool/f08_bkp/env.sh` asigna los valores sin condición. Si la shell ya tiene otro valor, por ejemplo la configuración de F03, aborta, para que `down.sh` nunca apunte a datos conservados. Se comprobó en tres casos:
+  - shell limpia: se carga;
+  - shell con `F03_PG_CONTAINER=agro_f03res01_pg`: aborta;
+  - script hijo que vuelve a cargarlo: se carga.
+
+  El README pide una shell nueva, cierra conservando el contenedor (decisión de A) e incluye la limpieza de imágenes e instantáneas.
+- **M2.** Un 401 o 403 de la API de respaldos descarta el acceso en memoria, igual que Sync. La siguiente acción vuelve a verificarlo.
+- **M3.** La pantalla en la nube muestra los avisos de la exportación (fotos que faltan) y de la restauración.
+- **M4.** Cada operación tiene un plazo total de 5 min, el mismo que el `requestTimeout` del servidor. Al vencer, la petición **se aborta** (`AbortableRequest` y `AbortableStreamedRequest` de `package:http` 1.6), no sólo se deja de esperar. Si la subida termina sin una respuesta fiable, se lista el servidor y se reconoce la copia con el mismo SHA-256 antes de que el agricultor reintente, sin volver a enviarla.
+- **Menores:**
+  - los errores de escritura en el teléfono (`localStorage`) ya no se presentan como un fallo de SHA-256;
+  - la carpeta privada se limpia antes de preparar una restauración;
+  - el comentario de UIBUG-049 está al día.
+
 ## 3. Pruebas
 
-`test/remote_backup_client_test.dart` tiene **20 casos**. El transporte es un `MockClient` que imita el contrato BE #39. La base, el contenedor, `GuardedRestore`, el controlador de acceso y la outbox son reales.
+`test/remote_backup_client_test.dart` tiene **25 casos**: los 20 iniciales y 5 de la revisión.
+- Cancelación real al vencer el plazo, con un transporte que sólo termina si se aborta.
+- Un 401 o 403 descarta el acceso en memoria; un 404 no.
+- Respuesta de subida perdida: se lista, se reconoce el mismo SHA-256 y no hay un segundo POST.
+- Sin red y sin copia en el servidor: se informa el error y no se da por subida.
+- Una preparación interrumpida no deja restos en la carpeta privada. El transporte es un `MockClient` que imita el contrato BE #39. La base, el contenedor, `GuardedRestore`, el controlador de acceso y la outbox son reales.
 
 - **Cliente:**
   - lista vacía;
@@ -80,16 +125,17 @@ No se inventaron estados nuevos: se reutilizan `RESTORE_PAUSED`, `DatabaseReplac
 
 El caso «otro Member» y el de «instalación nueva» reutilizan además las regresiones existentes de `f04_restore_authorization_test.dart`, todas en verde.
 
-| Comando, sobre el estado integrado (`e7a0432`, código igual al de `639e43e`) | Resultado |
+| Comando, sobre `1663e920f30b0504f0efceeb35f56da1c9c6f228` (con `main` `74d5539` integrado) | Resultado |
 |---|---|
-| `flutter analyze` | Sin problemas |
-| `flutter test` | **1021 pasan, 2 omitidas, 0 fallos** |
-| `flutter test test/remote_backup_client_test.dart` | 20/20 |
-| `flutter test test/backup_restore_sha256_test.dart test/backup_container_test.dart test/backup_service_test.dart test/backup_android_semantics_test.dart test/f04_restore_*` | 82/82 (antes del merge con `main`) |
+| `flutter analyze` | `No issues found!` |
+| `flutter test` | **1026 pasan, 2 omitidas, 0 fallos** |
+| Suites de respaldo y restauración (comando anterior) | **107/107** |
 
 ## 4. Comprobaciones fuera del teléfono
 
-- **API compilada.** `tool/f08_bkp/api_preflight.cjs` se ejecutó contra BE `feat/f08-backups` `9b0a2ba`, con `node dist/main.js`, `NODE_ENV=production` y entorno efímero propio. Resultado: **todo PASS**. Detalle en BE `docs/evidence/F08_BACKUP.md`.
+- **API compilada.** `tool/f08_bkp/api_preflight.cjs` se ejecutó contra BE `15c8cf4`, con `node dist/main.js`, `NODE_ENV=production` y entorno efímero propio. Versión del script: MOB `2b3a0ce`, SHA-256 `3670d68cc05d69afb714936d2a4b5b4d3b4f9143b0702e4c2327f15f902ef7b6`.
+  - Resultado: **todo PASS**, incluidos el 415 sin eco y la producción cerrada sin admisión (503).
+  - El comando y la salida completos están en BE `docs/evidence/F08_BACKUP.md`.
 - **Herramienta de comparación.** `tool/f08_bkp/snapshot.py` se probó con las bases reales que produce el caso «teléfono nuevo»:
   - salida PASS, con las tres transformaciones esperadas;
   - con una persona alterada a mano como control negativo, salida FAIL.
@@ -115,4 +161,9 @@ Por eso #36 queda **abierta** (`Refs`, no `Closes`): su criterio exige evidencia
 - El SHA-256 del manifiesto detecta daño y alteración, pero no es una firma. Contra la sustitución de la copia remota protege el hash registrado por el servidor, que se coteja antes de restaurar.
 - La copia remota no se cifra en el cliente, y el servidor no la cifra en reposo.
 - No hay respaldo automático ni programado: cada acción es explícita.
+- Si tras una subida incierta tampoco se puede listar (sin red), no se puede saber si la copia llegó. Un reintento del agricultor genera otro respaldo con otro SHA-256: puede quedar una copia más en el servidor, que ocupa cupo pero no sustituye ninguna.
+- Cada subida a la nube exporta además un respaldo local en Descargas, y no se borra. Se acumulan como cualquier respaldo local; su limpieza queda para F10.
+- Preexistentes, para F10:
+  - la copia de seguridad previa se toma antes de `close()` con la base en WAL;
+  - el ZIP se descomprime sin límite de tamaño.
 - Retención y reconciliación (BKP-06, BE #40) quedan diferidas a F10.
