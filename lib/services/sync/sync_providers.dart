@@ -197,15 +197,24 @@ class SyncController extends Notifier<SyncState> {
   }
 
   /// El titular libera las intenciones que llegaron con una restauración.
+  /// Exige el acceso verificado en línea de la cuenta del titular (lo
+  /// verifica si hace falta): sin esa verificación no se libera nada, y abrir
+  /// la app no lo hace por sí solo (F05 §11, F06 §8).
   Future<int> releaseRestored() async {
-    final access = ref.read(syncAccessHolderProvider).current;
     final owner = await OwnerBindingStore(ref.read(databaseProvider))
         .activeBinding();
     if (owner == null) {
       state = state.copyWith(message: blockerMessage(SyncBlocker.noOwner));
       return 0;
     }
-    if (access != null && access.scope != owner.scope) {
+    final VerifiedAccess access;
+    try {
+      access = await ensureAccess();
+    } on SyncAccessUnavailable catch (error) {
+      state = state.copyWith(message: error.message);
+      return 0;
+    }
+    if (access.scope != owner.scope) {
       state = state.copyWith(
         message: blockerMessage(SyncBlocker.ownerMismatch),
       );
@@ -220,8 +229,8 @@ class SyncController extends Notifier<SyncState> {
   }
 
   /// El acceso vigente, o el resultado de verificarlo ahora: lo pidió el
-  /// agricultor al abrir una función en línea.
-  Future<VerifiedAccess> _ensureAccess() async {
+  /// agricultor al abrir una función en línea (también el respaldo remoto).
+  Future<VerifiedAccess> ensureAccess() async {
     final current = ref.read(syncAccessHolderProvider).current;
     if (current != null) return current;
     final verified = await ref
@@ -238,7 +247,7 @@ class SyncController extends Notifier<SyncState> {
   /// Resultado y estado causal de una intención propia, para resolver un
   /// conflicto.
   Future<OperationView> operationView(String operationId) async {
-    final access = await _ensureAccess();
+    final access = await ensureAccess();
     try {
       return await ref
           .read(syncApiProvider)
@@ -254,7 +263,7 @@ class SyncController extends Notifier<SyncState> {
   /// Referencias centrales del tenant con el acceso vigente (lo verifica si
   /// hace falta). Revisa además los vínculos existentes.
   Future<CentralReferences> loadReferences() async {
-    final access = await _ensureAccess();
+    final access = await ensureAccess();
     try {
       final references = await ref
           .read(syncApiProvider)
