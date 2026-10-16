@@ -47,7 +47,7 @@ void main() {
         .toList();
     expect(preview.rows.length, consumption.length);
     expect(
-      {for (final row in preview.rows) row.quantityBase}.toList()..sort(),
+      [for (final row in preview.rows) row.quantityBase]..sort(),
       [for (final e in consumption) e.value.quantity!]..sort(),
     );
     for (final row in preview.rows) {
