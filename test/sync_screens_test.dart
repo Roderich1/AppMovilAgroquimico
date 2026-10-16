@@ -107,6 +107,74 @@ void main() {
     },
   );
 
+  // Reproducido en el POCO el 2026-10-15: el ACK llegó por el ciclo del
+  // temporizador y la lista siguió «Pendiente» hasta volver a entrar.
+  testWidgets(
+    'un ciclo del worker en segundo plano actualiza el estado de la lista',
+    (tester) async {
+      final access = SyncAccessHolder();
+      final client = MockClient((request) async {
+        final id = (jsonDecode(request.body) as Map)['operationId'] as String;
+        return http.Response(ackJson(id), 200);
+      });
+      final fixture = await pumpScreen(
+        tester,
+        const DeclaredNeedsScreen(),
+        overrides: [
+          syncAccessHolderProvider.overrideWithValue(access),
+          syncApiProvider.overrideWithValue(
+            SyncApi(
+              AuthHttpClient(
+                config: ApiEndpointConfig(
+                  Uri.parse('https://sindicato.example'),
+                ),
+                client: client,
+              ),
+            ),
+          ),
+        ],
+      );
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(DeclaredNeedsScreen)),
+      );
+      // Sin acceso verificado: la declaración queda pendiente.
+      await tester.tap(find.widgetWithText(FilledButton, 'Declarar'));
+      await settle(tester);
+      await tester.tap(find.text('Producto'));
+      await settle(tester);
+      await tester.tap(find.text('Herbicida local').last);
+      await settle(tester);
+      await tester.enterText(
+        find.widgetWithText(TextField, 'Cantidad total'),
+        '25',
+      );
+      await tester.tap(find.widgetWithText(FilledButton, 'Continuar'));
+      await settle(tester);
+      await tester.tap(find.widgetWithText(FilledButton, 'Declarar').last);
+      await settle(tester);
+      // El ciclo que disparó la propia pantalla termina sin acceso.
+      await tester.runAsync(() async {
+        while (container.read(syncControllerProvider).busy) {
+          await Future<void>.delayed(const Duration(milliseconds: 20));
+        }
+      });
+      await settle(tester);
+      expect(find.textContaining('25 L · Pendiente'), findsOneWidget);
+
+      // Llega el acceso y el temporizador dispara un ciclo fuera de la pantalla.
+      access.accept('token-sintetico', memberA.memberId, memberA.tenantId);
+      final report = await tester.runAsync(
+        () => container.read(syncControllerProvider.notifier).kick(),
+      );
+      expect(report?.accepted, 1);
+      await settle(tester);
+
+      final rows = (await tester.runAsync(fixture.outboxEntries))!;
+      expect(rows.single.status, OutboxStatus.acked);
+      expect(find.textContaining('25 L · Sincronizado'), findsOneWidget);
+    },
+  );
+
   testWidgets('cancelar la confirmación no declara nada', (tester) async {
     final fixture = await pumpScreen(tester, const DeclaredNeedsScreen());
     await tester.tap(find.widgetWithText(FilledButton, 'Declarar'));

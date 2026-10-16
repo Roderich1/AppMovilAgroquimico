@@ -41,14 +41,11 @@ class _DeclaredNeedsScreenState extends ConsumerState<DeclaredNeedsScreen> {
     ref.invalidate(syncSummaryProvider);
   }
 
-  /// Tras encolar: un ciclo del worker (sin acceso verificado no envía).
+  /// Tras encolar: un ciclo del worker (sin acceso verificado no envía). Al
+  /// terminar, la lista se relee desde el listener de `build`.
   void _afterEnqueue() {
     _reload();
-    unawaited(
-      ref.read(syncControllerProvider.notifier).kick().then((_) {
-        if (mounted) _reload();
-      }),
-    );
+    unawaited(ref.read(syncControllerProvider.notifier).kick());
   }
 
   Future<bool> _confirmDeclaration(String text) async =>
@@ -248,7 +245,21 @@ class _DeclaredNeedsScreenState extends ConsumerState<DeclaredNeedsScreen> {
   }
 
   @override
-  Widget build(BuildContext context) => PageFrame(
+  Widget build(BuildContext context) {
+    // Un ciclo del worker que no salió de esta pantalla (temporizador,
+    // reconexión, «Sincronizar ahora») también cambia el estado de envío. Lo
+    // último de cada ciclo es publicar el resumen nuevo: entonces se relee la
+    // lista. Visto en el POCO: la necesidad seguía «Pendiente» después del ACK
+    // hasta volver a entrar.
+    ref.listen<SyncState>(syncControllerProvider, (previous, next) {
+      if (previous != null && !identical(previous.summary, next.summary)) {
+        _reload();
+      }
+    });
+    return _page();
+  }
+
+  Widget _page() => PageFrame(
     title: 'Necesidad declarada',
     subtitle:
         'Lo que usted solicita al sindicato para una campaña. No cambia su '
