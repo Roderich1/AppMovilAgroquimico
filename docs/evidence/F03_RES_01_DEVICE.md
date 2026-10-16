@@ -52,7 +52,7 @@ Sesión física ejecutada con Claude Code el **2026-10-15 entre las 21:07 y las 
   - `ls -1` por `exec-out`;
   - URI de SQLite en Windows;
   - la huella del almacén cifrado: primero se hasheaba el archivo de claves y no los slots. Por eso no hay huellas por slot antes de D; el cambio de slot `a`→`b` y la hora del archivo acreditan la escritura.
-- **Hallazgo de interfaz, anterior a #80 (F03).** Tras D, el Dashboard muestra a la vez «El estado en línea aún no fue verificado.» (estado de arranque, `existing_session_startup.dart:23`) y «Acceso en línea verificado para esta sesión.». No cambia ningún criterio de #71. Se propone un issue aparte, como pide #71 para cualquier defecto.
+- **Hallazgo de interfaz, anterior a #80 (F03).** Tras D, el Dashboard muestra a la vez «El estado en línea aún no fue verificado.» (estado de arranque, `existing_session_startup.dart:23`) y «Acceso en línea verificado para esta sesión.». No cambia ningún criterio de #71. Issue aparte [#83](https://github.com/Roderich1/AppMovilAgroquimico/issues/83), como pide #71 para cualquier defecto.
 
 ## 5. Capturas
 
