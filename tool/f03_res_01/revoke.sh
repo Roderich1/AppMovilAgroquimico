@@ -3,6 +3,9 @@
 #   revoke.sh e1      E-1: el Administrador desactiva la cuenta D (PATCH users/{id}/deactivate)
 #   revoke.sh e2      E-2: la propia cuenta E2 revoca sus registros de cliente ACTIVE
 #                     (POST auth/clients/{id}/revoke). Irreversible para esa instalación.
+#   revoke.sh deactivate <D|E2|S|R>      #18 (C22): como E-1, para la cuenta indicada
+#   revoke.sh revoke-clients <D|E2|S|R>  #18 (C23): como E-2, para la cuenta indicada
+#                     (con su contraseña de un solo uso: credential.sh run <cuenta> ...)
 # Sólo muestra códigos HTTP y conteos. Cierra las sesiones de curl que abre.
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -54,5 +57,34 @@ case "${1:-}" in
     echo "registros ACTIVE revocados: $revoked"
     logout
     ;;
-  *) sed -n '2,6p' "$0"; exit 2 ;;
+  deactivate | revoke-clients)
+    case "${2:-}" in
+      D | E2 | S | R) who="$2" ;;
+      *) echo "cuenta: D, E2, S o R"; exit 2 ;;
+    esac
+    email_var="F03_FARMER_${who}_EMAIL"; email="${!email_var}"
+    if [ "$1" = deactivate ]; then
+      : "${F03_ADMIN_PASSWORD:?Ejecute: credential.sh run ADMIN ./revoke.sh deactivate <cuenta>}"
+      user_id=$(f03_psql "SELECT id FROM \"User\" WHERE email='$email'")
+      login "$F03_ADMIN_EMAIL" "$F03_ADMIN_PASSWORD"
+      code=$(curl -s -o /dev/null -w '%{http_code}' -X PATCH         -K - "$origin/api/v1/users/$user_id/deactivate" <<< "$(auth_config)")
+      echo "desactivación de la cuenta $who: HTTP $code"
+      logout
+    else
+      password_var="F03_FARMER_${who}_PASSWORD"
+      : "${!password_var:?Ejecute: credential.sh run <cuenta> ./revoke.sh revoke-clients <cuenta>}"
+      login "$email" "${!password_var}"
+      list=$(curl -s -K - "$origin/api/v1/auth/clients" <<< "$(auth_config)")
+      revoked=0
+      while read -r id status; do
+        [ "$status" = "ACTIVE" ] || continue
+        code=$(curl -s -o /dev/null -w '%{http_code}' -X POST -K -           "$origin/api/v1/auth/clients/$id/revoke" <<< "$(auth_config)")
+        echo "revocación de un registro de cliente de $who: HTTP $code"
+        revoked=$((revoked + 1))
+      done < <(node "$here/json.cjs" ids <<< "$list")
+      echo "registros ACTIVE revocados: $revoked"
+      logout
+    fi
+    ;;
+  *) sed -n '2,9p' "$0"; exit 2 ;;
 esac

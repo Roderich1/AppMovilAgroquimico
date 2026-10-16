@@ -18,6 +18,18 @@ La sesión física del 2026-10-15 ejecuta #71 y el E2E Mobile de D3 (PR MOB #80 
 
 Cuenta adicional del seed para D3: `pedro.mamani@agro.local` (S). Las de D y E2 quedan desactivada y revocada por los casos E.
 
+## Extensión del 2026-10-16: #18 (F05-SYNC-06) en F10
+
+Para la primera tanda física de #18 (sesión A). El resultado está en `docs/evidence/F05_SYNC_06_DEVICE_F10.md`.
+
+| Pieza | Uso |
+|---|---|
+| `fault.sh` (modos nuevos) | **Respuesta inyectada** para el próximo push. `ack-incomplete`, `ack-contradictory` y `ack-other-operation` reenvían a Central y entregan al teléfono un 200 con el ACK de Central alterado (sin `serverAcceptedAt`, otra `disposition` u otro `operationId`). `status-500-after` reenvía y entrega un 500 genérico; `status-500-before` no reenvía. Varias líneas = una por petición, en orden. **Mide la reacción del cliente, no la decisión de Central.** El observador altera el cuerpo sólo en memoria y no lo registra |
+| `decision_window.cjs` | C40 dentro de la **ventana de decisión**: bloquea con `FOR UPDATE` las sesiones ACTIVE de la cuenta y sus registros; el push del teléfono pasa el guard (lecturas sin bloqueo) y espera en el `FOR SHARE` de la revalidación; cuando `pg_stat_activity` muestra esa espera, revoca en la misma transacción y confirma. No cambia el código de Central. Hacer el refresh **antes** de bloquear: el refresh actualiza la sesión y esperaría al bloqueo |
+| `revoke.sh deactivate <cuenta>` / `revoke-clients <cuenta>` | E-1 y E-2 para cualquier cuenta del ensayo (C22, C23) |
+| Cuenta R | `rosa.vargas@agro.local`, otra cuenta del mismo tenant (C38) |
+| `tool/f10_s18/env.sh` | Entorno propio (contenedor, volumen, puertos y carpeta nuevos) y copia aislada `.f10s18a/b/c` según `F10_COPY`; aborta si la shell ya tiene otro valor |
+
 ## Componentes
 
 | Pieza | Valor preparado |

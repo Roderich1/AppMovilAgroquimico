@@ -11,7 +11,7 @@
 #   check.sh timeline [desde]  el mismo registro en orden, con hora
 #   check.sh ids <cuenta>      huellas de sesión, registro de cliente, Member y tenant
 #   check.sh sync <cuenta>     journal y contribuciones de Sync v1 de la cuenta (Central)
-# <cuenta>: D, E2 o S (E2E de D3).
+# <cuenta>: D, E2, S (E2E de D3) o R (#18 en F10).
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$here/config.sh"
@@ -21,6 +21,7 @@ account() {
     D) email="$F03_FARMER_D_EMAIL"; password="${F03_FARMER_D_PASSWORD:-}" ;;
     E2) email="$F03_FARMER_E2_EMAIL"; password="${F03_FARMER_E2_PASSWORD:-}" ;;
     S) email="$F03_FARMER_S_EMAIL"; password="${F03_FARMER_S_PASSWORD:-}" ;;
+    R) email="$F03_FARMER_R_EMAIL"; password="${F03_FARMER_R_PASSWORD:-}" ;;
     *) echo "cuenta desconocida: $1"; exit 2 ;;
   esac
 }
