@@ -164,7 +164,7 @@ Cada mutación es un reemplazo exacto en `lib/`. Se ejecutaron las suites indica
 - **Rechazos visibles.** Los rechazos quedan visibles en el indicador («Rechazado: n») de forma permanente, como historial.
 - **Sin segundo plano.** No hay sincronización en segundo plano, sólo en primer plano.
 - **Fecha de la campaña.** ~~Se compara la fecha local con la parte de fecha de los inicios y fines guardados en UTC. Es correcto en Bolivia (UTC−4).~~ **Esa afirmación era falsa.** En el POCO, una campaña creada a las 21:38 no cubría su propio día. Desde `023a47b` cada fecha guardada se convierte a día local antes de comparar (D3-DATE).
-- **Fechas mostradas.** `formatDate`, anterior a F05 y compartido, muestra el día UTC: por la noche, el último ACK y el historial salen con el día siguiente. Queda fuera del alcance de este PR (UTC-DISPLAY).
+- **Fechas mostradas.** `formatDate`, anterior a F05 y compartido, muestra el día UTC: por la noche, el último ACK y el historial salen con el día siguiente. Queda fuera del alcance de este PR (UTC-DISPLAY, [#82](https://github.com/Roderich1/AppMovilAgroquimico/issues/82)).
 - **Unidades.** Sólo L y KG (F06 §2).
 
 ## 6. Recorrido completo: simulado en host y medido en dispositivo
