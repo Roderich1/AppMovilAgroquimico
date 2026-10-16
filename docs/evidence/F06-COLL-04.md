@@ -1,0 +1,20 @@
+# Evidencia F06-COLL-04 — Registrar y sincronizar necesidad declarada (parte local)
+
+Issue [#34](https://github.com/Roderich1/AppMovilAgroquimico/issues/34). El detalle está en [F05_MOBILE_SYNC](F05_MOBILE_SYNC.md). Ejecutado con Claude Code el 2026-10-15 sobre `30c04b63a43dbd610414d81e58b2e5ad556a3dbe` (base `main` `3eecb2d`), en host y sin dispositivo.
+
+**Alcance de esta entrega:** registro local, versiones y encolado de la versión vigente. La verificación colectiva (consolidación en Central y Web, D4/F07) queda fuera; por eso el PR usa `Refs #34`.
+
+F06 §3: la necesidad sólo nace de una declaración expresa, con la confirmación «Declarar al sindicato: X L de … para …». No se infiere de planes, stock ni consumo, y `application_plans` no se toca.
+
+| Criterio | Prueba | Resultado |
+| --- | --- | --- |
+| Activado y sin conexión, declarar guarda la necesidad en la campaña de su fecha de referencia sin cambiar existencias | `declared_need_test.dart` «declarar sin conexión…» (volcado completo de las demás tablas igual) | PASS |
+| Modificar conserva la versión anterior; sólo la nueva queda vigente por agricultor, campaña y producto | «modificar conserva la versión anterior…»; `UNIQUE(owner_binding_id, campaign_id, product_id)` | PASS |
+| Retirar: deja de estar vigente, conserva el historial y queda pendiente de envío | «retirar: deja de estar vigente…» (CANCEL sin cantidad) | PASS |
+| Cero explícito es distinto de no declarar | «cero es una declaración explícita…» | PASS |
+| El contenido a enviar sólo lleva los campos autorizados | `need_sync_payload_test.dart` (envelope de seis claves; payload con la whitelist exacta; nada privado) | PASS |
+| Sin campaña determinable, no se asigna en silencio | «sin campaña determinable no se asigna en silencio» (ninguna o más de una); «una campaña sin vínculo vigente pide vincular» | PASS |
+
+Comandos: `flutter test test/declared_need_test.dart test/need_sync_payload_test.dart` y `flutter test` (947/947).
+
+Limitación: la necesidad pertenece al titular vinculado (contribución por Member, F06 §4). Sin titular no se declara.
