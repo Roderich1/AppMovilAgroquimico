@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # F03-RES-01 (#71) y E2E de D3: contraseñas de un solo uso, sin archivos.
-#   credential.sh type <ADMIN|D|E2|S>        asigna a la cuenta una contraseña nueva y la
+#   credential.sh type <ADMIN|D|E2|S|R>        asigna a la cuenta una contraseña nueva y la
 #                                            teclea en el campo enfocado del teléfono
-#   credential.sh run <ADMIN|D|E2|S> <cmd>   asigna una contraseña nueva y ejecuta <cmd> con
+#   credential.sh run <ADMIN|D|E2|S|R> <cmd>   asigna una contraseña nueva y ejecuta <cmd> con
 #                                            F03_<cuenta>_PASSWORD sólo en su entorno
 # La contraseña vive sólo en este proceso: no se imprime ni se escribe. Cada uso la
 # reemplaza, así que la anterior deja de servir. No cierra ni toca sesiones existentes.
@@ -16,6 +16,7 @@ case "$who" in
   D) email="$F03_FARMER_D_EMAIL"; var=F03_FARMER_D_PASSWORD ;;
   E2) email="$F03_FARMER_E2_EMAIL"; var=F03_FARMER_E2_PASSWORD ;;
   S) email="$F03_FARMER_S_EMAIL"; var=F03_FARMER_S_PASSWORD ;;
+  R) email="$F03_FARMER_R_EMAIL"; var=F03_FARMER_R_PASSWORD ;;
   *) sed -n '2,8p' "$0"; exit 2 ;;
 esac
 

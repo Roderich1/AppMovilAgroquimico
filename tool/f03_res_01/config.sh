@@ -22,6 +22,7 @@ F03_ADMIN_EMAIL=admin@agro.local
 F03_FARMER_D_EMAIL=juan.perez@agro.local    # caso D y luego E-1
 F03_FARMER_E2_EMAIL=maria.choque@agro.local # caso E-2
 F03_FARMER_S_EMAIL=pedro.mamani@agro.local # E2E de D3 (sincronización)
+F03_FARMER_R_EMAIL=rosa.vargas@agro.local  # #18 en F10: otra cuenta del mismo tenant (C38)
 
 # Aplicación aislada: nunca la app normal. Otra prueba (p. ej. F06 D4) puede fijar
 # otro sufijo y etiqueta en el entorno para tener su propia copia aislada.
