@@ -30,3 +30,5 @@ Además:
 Comandos: `flutter test test/central_reference_binding_test.dart test/migration_test.dart` y `flutter test` (947/947).
 
 No incluye CU-18: la reconciliación de denominaciones es de la Directiva en F07-REC-01.
+
+**Dispositivo (2026-10-15).** La vinculación explícita se midió en el POCO contra `GET /api/v1/sync/v1/references` real. Leer no vincula. Hay confirmación explícita. Las opciones que no admiten aportes y las de unidad distinta quedan deshabilitadas. Ver [F05_MOBILE_SYNC_DEVICE](F05_MOBILE_SYNC_DEVICE.md) §3.1.

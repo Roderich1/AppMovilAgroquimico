@@ -4,7 +4,7 @@ Issues: [#29](https://github.com/Roderich1/AppMovilAgroquimico/issues/29) (F05-S
 
 Contratos aplicados (Backend): `docs/architecture/F05_SYNC_V1_PUSH_ACK_CONTRACT.md`, `F05_SYNC_V1_RETRY_IDEMPOTENCY_MATRIX.md`, `F06_COLLECTIVE_PROJECTION_CONTRACT.md` y `F06_COLLECTIVE_PROJECTION_FIELD_MATRIX.md`. La matriz F06 se leyó completa antes de construir el productor: 8 filas ALLOW (`campaign_ref`, `product_ref`, `base_unit` y `quantity_base` para cada tipo) y 118 DENY.
 
-Ejecución con Claude Code el 2026-10-15 (America/La_Paz), en host Windows 11, Flutter 3.47.2 y Dart 3.13.2. **Sin dispositivo:** el E2E en el POCO queda `NOT_MEASURED` (§6). Esto no es un PASS de GATE-F05 (BE #19), que sigue Pending.
+Ejecución con Claude Code el 2026-10-15 (America/La_Paz), en host Windows 11, Flutter 3.47.2 y Dart 3.13.2. El E2E en el POCO contra el Backend real se ejecutó después, el 2026-10-15 entre las 21:07 y las 22:25: [F05_MOBILE_SYNC_DEVICE](F05_MOBILE_SYNC_DEVICE.md). §6 conserva el recorrido simulado de host. Esto no es un PASS de GATE-F05 (BE #19), que sigue Pending.
 
 ## 1. Identidad
 
@@ -13,7 +13,8 @@ Ejecución con Claude Code el 2026-10-15 (America/La_Paz), en host Windows 11, F
 | Base | `main` `3eecb2d7d8405e88c6550f7bb70f9095b55b4283` |
 | Rama | `feat/f05-outbox-sync-v1` (worktree `_wt/F05-MOB`) |
 | Commit de implementación | `30c04b63a43dbd610414d81e58b2e5ad556a3dbe` |
-| Backend de referencia | PR BE #109 (`feat/f05-sync-v1-push`, código `db87004`), sin fusionar |
+| Correcciones del E2E en el dispositivo | `023a47b3edb11a7f3e7e1e110c13eeef6f00ad6b` (D3-DATE: campaña por día local) y `5027a354fe0133bc49df398a58aaf4cb46a91a3b` (D3-LIST: la lista se refresca tras un ciclo en segundo plano). Ver [F05_MOBILE_SYNC_DEVICE](F05_MOBILE_SYNC_DEVICE.md) §4 |
+| Backend de referencia | PR BE #109 (`feat/f05-sync-v1-push`), sin fusionar: código `db87004` para las pruebas de host y `c2acbd4` (más la corrección de SonarCloud) en el dispositivo |
 | Datos | Sintéticos; ningún token real, contraseña ni clave en pruebas ni registros |
 
 ## 2. Diseño
@@ -83,6 +84,8 @@ Sólo crea tablas vacías. Ninguna tabla existente recibe columnas ni un identif
 | `30c04b6` | `dart format --output=none --set-exit-if-changed lib test` | 169 archivos, 0 cambios |
 | `30c04b6` | `flutter analyze` | sin issues |
 | `30c04b6` | `flutter test` | **947/947** |
+| `023a47b` | `dart format --output=none --set-exit-if-changed lib test`; `flutter analyze`; `flutter test` | 0 cambios; sin issues; **948/948**. Mutación (consulta anterior de `campaignForDate`): el test nuevo falla en America/La_Paz; restaurado byte a byte. CI run 38837189508 success |
+| `5027a35` | los mismos tres | 0 cambios; sin issues; **949/949**. Mutación (pantalla de `94e7d24`): el test nuevo falla («25 L · Sincronizado» no aparece); restaurado byte a byte |
 
 Pruebas nuevas o ampliadas (todas dentro de las 947):
 
@@ -150,20 +153,21 @@ Cada mutación es un reemplazo exacto en `lib/`. Se ejecutaron las suites indica
 | `sync_contributions` (espejo local) | Sin espejo. El antecesor sale de las intenciones aceptadas, y el head remoto de una resolución queda en la fila en conflicto | Evita dos fuentes de verdad locales |
 | 401: refresh desde el worker y un reintento | El worker no renueva. «Sincronizar ahora» verifica el acceso (acción explícita) y reintenta | F03: la rotación del refresh es una acción del agricultor. El contrato F05 dice «condicionado a refresh/reautenticación segura; no bucle auth» |
 | Conflicto: «reintentar con el valor actual o descartar» | «Enviar mi valor actual» o «Retirar mi declaración» | Un aporte CONTESTED no cuenta en el consolidado. Dejarlo sin resolver no es una opción neutra |
-| E2E en el POCO contra el Backend real | Recorrido **simulado** (Plan B) | Requiere D2 fusionado, un Backend accesible por HTTPS y el dispositivo |
+| E2E en el POCO contra el Backend real | Primero, recorrido **simulado** (Plan B). El 2026-10-15 se ejecutó en el POCO contra PR BE #109 sin fusionar, con un túnel HTTPS temporal ([F05_MOBILE_SYNC_DEVICE](F05_MOBILE_SYNC_DEVICE.md)) | El brief pedía D2 fusionado; para probar bastó un worktree limpio del PR |
 
 ## 5. Limitaciones declaradas
 
-- **Sin E2E en el dispositivo.** §6 deja `NOT_MEASURED` los pasos 1 a 5 del brief sobre el POCO y el Backend real. `ApiEndpointConfig` sólo admite HTTPS, así que hace falta un Backend con TLS accesible desde el teléfono.
+- **E2E en el dispositivo parcial respecto de la matriz.** Los pasos 1 a 7 de D3 pasaron en el POCO, pero de la matriz C01–C40 sólo C01–C04 quedan medidas en el dispositivo. Siguen NOT_MEASURED 401/403 en push, forks, ACK inválido, restore y relogin. `ApiEndpointConfig` sólo admite HTTPS.
 - **Sin consumo total.** No se produce `CONSUMPTION_TOTAL` ni su prueba de propiedad (D4, MOB #32/#33).
 - **Sin acceso tras activar.** El token no se obtiene en la primera activación: hay que verificar el acceso (o pulsar «Sincronizar ahora») antes del primer envío.
 - **Pausa por 403.** Lo pausado sólo se reanuda con «Sincronizar ahora» tras una verificación correcta del mismo titular.
 - **Rechazos visibles.** Los rechazos quedan visibles en el indicador («Rechazado: n») de forma permanente, como historial.
 - **Sin segundo plano.** No hay sincronización en segundo plano, sólo en primer plano.
-- **Fecha de la campaña.** Se compara la fecha local con la parte de fecha de los inicios y fines guardados en UTC. Es correcto en Bolivia (UTC−4).
+- **Fecha de la campaña.** ~~Se compara la fecha local con la parte de fecha de los inicios y fines guardados en UTC. Es correcto en Bolivia (UTC−4).~~ **Esa afirmación era falsa.** En el POCO, una campaña creada a las 21:38 no cubría su propio día. Desde `023a47b` cada fecha guardada se convierte a día local antes de comparar (D3-DATE).
+- **Fechas mostradas.** `formatDate`, anterior a F05 y compartido, muestra el día UTC: por la noche, el último ACK y el historial salen con el día siguiente. Queda fuera del alcance de este PR (UTC-DISPLAY).
 - **Unidades.** Sólo L y KG (F06 §2).
 
-## 6. Recorrido completo: simulado, no medido en dispositivo
+## 6. Recorrido completo: simulado en host y medido en dispositivo
 
 `test/sync_simulated_central_test.dart` reproduce los pasos 1 a 5 del brief contra un **Central simulado** en memoria. El simulador aplica:
 
@@ -174,18 +178,18 @@ Cada mutación es un reemplazo exacto en `lib/`. Se ejecutaron las suites indica
 
 **No es el Backend real ni el POCO.**
 
-| Paso del brief | Simulado (host) | Dispositivo + Backend real |
+| Paso del brief | Simulado (host) | Dispositivo + Backend real (2026-10-15, [detalle](F05_MOBILE_SYNC_DEVICE.md)) |
 | --- | --- | --- |
-| 1. Sin red: declarar → Pendiente | PASS (sin acceso no hay llamadas; estado PENDING) | NOT_MEASURED |
-| 2. En línea → Sincronizado; una contribución y un journal | PASS (1 y 1) | NOT_MEASURED |
-| 3. Respuesta perdida tras el commit → reintento ALREADY_APPLIED; conteos iguales | PASS (2 journals tras SUPERSEDE; sin duplicado; 2 intentos) | NOT_MEASURED |
-| 4. Cierre forzado durante el envío → mismo resultado | PASS (mismo `operationId` al reabrir) | NOT_MEASURED |
-| 5. Editar → SUPERSEDE; anular → CANCEL; estados coinciden | PASS (PUBLISH → SUPERSEDE → CANCEL, todo ACKED; Central CANCELLED sin cantidad) | NOT_MEASURED |
-| Extra: fork desde otro teléfono → CONFLICT → decisión del propietario | PASS (CONTESTED sin cantidad → resolución aceptada) | NOT_MEASURED |
+| 1. Sin red: declarar → Pendiente | PASS (sin acceso no hay llamadas; estado PENDING) | PASS (`023a47b`; y `5027a35` con PENDING y 0 intentos) |
+| 2. En línea → Sincronizado; una contribución y un journal | PASS (1 y 1) | PASS (`023a47b`) |
+| 3. Respuesta perdida tras el commit → reintento ALREADY_APPLIED; conteos iguales | PASS (2 journals tras SUPERSEDE; sin duplicado; 2 intentos) | PASS (`023a47b`: ALREADY_APPLIED, 1 journal para el ID) |
+| 4. Cierre forzado durante el envío → mismo resultado | PASS (mismo `operationId` al reabrir) | PASS (`023a47b`: SENDING persistido; verificación explícita; APPLIED una vez) |
+| 5. Editar → SUPERSEDE; anular → CANCEL; estados coinciden | PASS (PUBLISH → SUPERSEDE → CANCEL, todo ACKED; Central CANCELLED sin cantidad) | PASS (`023a47b` y `5027a35`) |
+| Extra: fork desde otro teléfono → CONFLICT → decisión del propietario | PASS (CONTESTED sin cantidad → resolución aceptada) | NOT_MEASURED (un solo teléfono) |
 
 ## 7. Revisiones
 
 - Pruebas automatizadas: Claude Code, 2026-10-15 (arriba).
 - Revisión de Roderich Rendón: pendiente.
 - Revisión del tutor: se registra aparte, por entregable o gate, en GOV-01.
-- GATE-F05 (BE #19): Pending. Su acta se redactará con el E2E en el dispositivo.
+- GATE-F05 (BE #19): Pending. El acta queda para después de que Roderich revise el E2E en el dispositivo.

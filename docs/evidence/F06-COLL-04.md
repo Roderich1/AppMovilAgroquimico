@@ -18,3 +18,5 @@ F06 §3: la necesidad sólo nace de una declaración expresa, con la confirmaci�
 Comandos: `flutter test test/declared_need_test.dart test/need_sync_payload_test.dart` y `flutter test` (947/947).
 
 Limitación: la necesidad pertenece al titular vinculado (contribución por Member, F06 §4). Sin titular no se declara.
+
+**Nota del 2026-10-15 (dispositivo).** El E2E en el POCO encontró un fallo de este criterio que las pruebas de host no veían. Una campaña creada después de las 20:00 en La Paz se guardaba con el día UTC siguiente y no cubría su propio día (D3-DATE). Se corrigió en `023a47b`, con un test de regresión, y se repitió en el dispositivo. Ver [F05_MOBILE_SYNC_DEVICE](F05_MOBILE_SYNC_DEVICE.md) §4.

@@ -15,3 +15,5 @@ Issue [#29](https://github.com/Roderich1/AppMovilAgroquimico/issues/29). El deta
 Comandos: `flutter test test/sync_global_ids_test.dart test/migration_test.dart test/schema_equivalence_test.dart` y `flutter test` (947/947).
 
 Documentación actualizada: `docs/14_OFFLINE_AND_SYNC.md` y `docs/10_DATA_MODEL.md`.
+
+**Dispositivo (2026-10-15).** Los 8 `operationId` generados en el POCO son los mismos 8 del journal de Central, sin duplicados. Ver [F05_MOBILE_SYNC_DEVICE](F05_MOBILE_SYNC_DEVICE.md) §3.

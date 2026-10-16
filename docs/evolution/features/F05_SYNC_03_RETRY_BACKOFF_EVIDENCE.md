@@ -23,3 +23,5 @@ Además: orden causal, sin acceso no hay llamadas de red, otra cuenta no publica
 Comandos: `flutter test test/sync_retry_worker_test.dart` y `flutter test` (947/947).
 
 El E2E en el POCO contra el Backend real queda **NOT_MEASURED**: un test automatizado no sustituye DEVICE.
+
+**Dispositivo (2026-10-15).** En el POCO, contra el Backend real, se midió el reintento con el mismo ID tras `TIMEOUT` (respuesta perdida después del commit: ALREADY_APPLIED), tras `NETWORK` y tras un cierre forzado (C01–C04). No se midió la distribución del jitter. Ver [F05_MOBILE_SYNC_DEVICE](../../evidence/F05_MOBILE_SYNC_DEVICE.md) §3.2.

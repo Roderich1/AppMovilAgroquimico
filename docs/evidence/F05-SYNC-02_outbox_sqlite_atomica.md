@@ -15,3 +15,5 @@ La outbox es `sync_outbox` (migración v9). La escriben `DeclaredNeedStore` y `S
 Además: una intención enviada no se modifica y ninguna se borra (trigger), y un ACK aceptado es definitivo (`outbox_repository_test.dart` «una intención enviada no se modifica ni se borra»).
 
 Comandos: `flutter test test/outbox_repository_test.dart test/migration_test.dart` y `flutter test` (947/947).
+
+**Dispositivo (2026-10-15).** En el POCO se midió que la intención persiste sin red y con la app muerta: SENDING tras un force-stop y OUTCOME_UNKNOWN al reabrir, con el mismo ID y un solo efecto en Central. Ver [F05_MOBILE_SYNC_DEVICE](F05_MOBILE_SYNC_DEVICE.md) §3.2.
