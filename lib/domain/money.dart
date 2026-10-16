@@ -58,9 +58,28 @@ String formatHectares(int areaM2) {
 /// La base guarda ISO (`2026-01-25`) y varias vistas lo mostraban tal cual
 /// (UIBUG-027). Si el texto no es una fecha reconocible se devuelve intacto en
 /// vez de romper la pantalla.
+///
+/// Hay dos clases de valor (#82):
+/// - **Fecha civil** (`aaaa-mm-dd`, sin hora): es un día del calendario y se
+///   muestra tal cual, sin zona horaria.
+/// - **Instante** (con hora; los que guarda la app terminan en `Z`): se
+///   muestra en el día **local** del teléfono. Formatearlo en UTC hacía que,
+///   después de las 20:00 en Bolivia, todo saliera con el día siguiente.
 String formatDate(Object? isoDate) {
   final text = '$isoDate';
-  final parsed = DateTime.tryParse(text);
+  final civil = _civilDate.firstMatch(text);
+  if (civil != null) {
+    final (year, month, day) = (
+      int.parse(civil[1]!),
+      int.parse(civil[2]!),
+      int.parse(civil[3]!),
+    );
+    final date = DateTime(year, month, day);
+    // `DateTime` normaliza (mes 13 → enero siguiente): eso no es una fecha.
+    final exists = date.month == month && date.day == day;
+    return exists ? '${civil[3]}/${civil[2]}/${civil[1]}' : text;
+  }
+  final parsed = DateTime.tryParse(text)?.toLocal();
   if (parsed == null) return text;
   // Patrón puramente numérico y **sin locale**: `DateFormat` con locale exige
   // `initializeDateFormatting`, que la aplicación no llama, y lanzaría
@@ -68,6 +87,8 @@ String formatDate(Object? isoDate) {
   // cuenta. `dd/MM/yyyy` da el mismo resultado en cualquier locale.
   return DateFormat('dd/MM/yyyy').format(parsed);
 }
+
+final _civilDate = RegExp(r'^(\d{4})-(\d{2})-(\d{2})$');
 
 /// Detalle FIFO legible a partir de la cadena `#lote: cantidadBase` que arma
 /// `agro_repository`.

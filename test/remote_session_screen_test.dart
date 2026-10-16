@@ -243,4 +243,91 @@ void main() {
     expect(guard.quarantined, isFalse);
     expect(calls, 0);
   });
+
+  // #83: el Dashboard mostraba a la vez «aún no fue verificado» y el estado
+  // remoto vigente (visto en el POCO el 2026-10-15). Debe haber un solo
+  // mensaje de estado de acceso.
+  group('un solo mensaje de estado de acceso (#83)', () {
+    const startupPending =
+        'Cuenta vinculada en este dispositivo. '
+        'El estado en línea aún no fue verificado.';
+    const idleRemote = 'El acceso en línea todavía no se verificó.';
+    const verified = 'Acceso en línea verificado para esta sesión.';
+    const reauth =
+        'Se requiere volver a autenticar para las funciones en línea. '
+        'Sus datos locales siguen disponibles.';
+
+    Future<void> pumpStatus(
+      WidgetTester tester, {
+      required RemoteSessionPhase phase,
+      required bool quarantined,
+    }) async {
+      final db = AppDatabase(
+        factory: databaseFactoryFfi,
+        path: inMemoryDatabasePath,
+      );
+      addTearDown(db.close);
+      await tester.runAsync(() => seedActivatedInstallation(db));
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            repositoryProvider.overrideWithValue(AgroRepository(db)),
+            existingSessionStartupProvider.overrideWithValue(
+              ExistingSessionStartupState.localSessionAvailable,
+            ),
+            ...startupAccessOverrides(sessionScope: memberA),
+            refreshGuardProvider.overrideWithValue(_Guard(quarantined)),
+            remoteSessionProvider.overrideWith(
+              () => _FixedRemoteController(phase),
+            ),
+          ],
+          child: const AgroApp(),
+        ),
+      );
+      await _settleDashboard(tester);
+      await tester.pumpAndSettle();
+    }
+
+    for (final (name, phase, quarantined, expected, button) in [
+      (
+        'arranque sin verificar',
+        RemoteSessionPhase.idle,
+        false,
+        startupPending,
+        'verify-online-access',
+      ),
+      (
+        'verificación correcta',
+        RemoteSessionPhase.remoteAvailable,
+        false,
+        verified,
+        'verify-online-access',
+      ),
+      (
+        'reautenticación requerida tras un 401',
+        RemoteSessionPhase.requiresReauthentication,
+        false,
+        reauth,
+        'open-reauthentication',
+      ),
+      (
+        'reapertura con el guard en cuarentena',
+        RemoteSessionPhase.idle,
+        true,
+        reauth,
+        'open-reauthentication',
+      ),
+    ]) {
+      testWidgets(name, (tester) async {
+        await pumpStatus(tester, phase: phase, quarantined: quarantined);
+        final status = find.byKey(const Key('local-session-status'));
+        expect(status, findsOneWidget);
+        expect(tester.widget<Text>(status).data, expected);
+        for (final other in [startupPending, idleRemote, verified, reauth]) {
+          if (other != expected) expect(find.text(other), findsNothing);
+        }
+        expect(find.byKey(Key(button)), findsOneWidget);
+      });
+    }
+  });
 }

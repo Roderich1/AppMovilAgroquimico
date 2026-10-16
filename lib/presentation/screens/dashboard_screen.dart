@@ -139,6 +139,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                 icon: const Icon(Icons.verified_user_outlined),
                 label: const Text('Activar cuenta en línea'),
               )
+            else if (_allowsRemote(existingSession))
+              _SessionStatus(existingSession)
             else
               Text(
                 existingSession.safeMessage!,
@@ -419,6 +421,49 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   );
 }
 
+bool _allowsRemote(ExistingSessionStartupState startup) =>
+    startup == ExistingSessionStartupState.localSessionAvailable ||
+    startup == ExistingSessionStartupState.localSessionExpired;
+
+/// Un solo mensaje de estado de acceso (#83). Antes se mostraban a la vez el
+/// estado de arranque («aún no fue verificado») y el remoto («verificado para
+/// esta sesión»). El de arranque vale mientras no haya actividad remota; un
+/// guard en cuarentena ya exige reautenticar, aunque no haya intento en este
+/// proceso.
+String sessionStatusMessage(
+  ExistingSessionStartupState startup,
+  RemoteSessionState remote, {
+  required AsyncValue<bool> guard,
+}) {
+  if (!_allowsRemote(startup)) return startup.safeMessage ?? '';
+  if (remote.phase != RemoteSessionPhase.idle) return remote.safeMessage;
+  if (guard.hasError) {
+    return const RemoteSessionState(RemoteSessionPhase.guardUnavailable)
+        .safeMessage;
+  }
+  if (guard.asData?.value == true) {
+    return const RemoteSessionState(RemoteSessionPhase.requiresReauthentication)
+        .safeMessage;
+  }
+  return startup.safeMessage!;
+}
+
+class _SessionStatus extends ConsumerWidget {
+  const _SessionStatus(this.startup);
+
+  final ExistingSessionStartupState startup;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) => Text(
+    sessionStatusMessage(
+      startup,
+      ref.watch(remoteSessionProvider),
+      guard: ref.watch(refreshGuardStateProvider),
+    ),
+    key: const Key('local-session-status'),
+  );
+}
+
 class _RemoteSessionControls extends ConsumerWidget {
   const _RemoteSessionControls();
 
@@ -456,7 +501,6 @@ class _RemoteSessionControls extends ConsumerWidget {
               icon: const Icon(Icons.cloud_done_outlined),
               label: const Text('Verificar acceso en línea'),
             ),
-          Text(remote.safeMessage, key: const Key('remote-session-status')),
           TextButton.icon(
             key: const Key('open-sync-status'),
             onPressed: () => context.push('/sincronizacion'),
