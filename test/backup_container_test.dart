@@ -6,6 +6,7 @@ import 'package:agroquimicos/data/agro_repository.dart';
 import 'package:agroquimicos/data/app_database.dart';
 import 'package:agroquimicos/data/backup_service.dart';
 import 'package:agroquimicos/domain/models.dart';
+import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 // Dependencia transitiva de `path_provider`: se usa sólo para sustituir la
@@ -367,10 +368,18 @@ void main() {
         'PRAGMA user_version = ${AppDatabase.schemaVersion + 1}',
       );
       await raw.close();
+      final newer = await File(extracted).readAsBytes();
+      await rewriteEntry(path, 'database.db', newer);
+      // Un respaldo de una versión más nueva es coherente: su manifiesto
+      // describe esa base. Así se prueba el esquema y no el SHA-256 (F08).
+      final manifest = manifestOf(path);
+      (manifest['database']! as Map<String, Object?>)
+        ..['bytes'] = newer.length
+        ..['sha256'] = sha256.convert(newer).toString();
       await rewriteEntry(
         path,
-        'database.db',
-        await File(extracted).readAsBytes(),
+        'manifest.json',
+        utf8.encode(jsonEncode(manifest)),
       );
 
       final validation = await service.validate(path);

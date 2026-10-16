@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:archive/archive_io.dart';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -121,11 +122,31 @@ class BackupRestoreResult {
 /// Los respaldos `.db` de versiones anteriores se siguen restaurando; la
 /// aplicación avisa de que ese formato no incluye fotografías.
 class BackupService {
-  BackupService(this.appDatabase, {Future<Directory> Function()? invoicesDir})
-    : _invoicesDir = invoicesDir ?? resolveInvoicesDirectory;
+  BackupService(
+    this.appDatabase, {
+    Future<Directory> Function()? invoicesDir,
+    Future<Directory> Function()? exportDirectory,
+    @visibleForTesting Future<void> Function(File partial)? beforePublish,
+  }) : _invoicesDir = invoicesDir ?? resolveInvoicesDirectory,
+       _exportDirectory = exportDirectory ?? _defaultExportDirectory,
+       _beforePublish = beforePublish;
 
   final AppDatabase appDatabase;
   final Future<Directory> Function() _invoicesDir;
+  final Future<Directory> Function() _exportDirectory;
+
+  /// Sólo pruebas: se ejecuta con el archivo parcial ya escrito en el destino
+  /// y antes de publicarlo; si falla, la exportación se aborta.
+  final Future<void> Function(File partial)? _beforePublish;
+
+  static Future<Directory> _defaultExportDirectory() async =>
+      await getDownloadsDirectory() ?? await getApplicationDocumentsDirectory();
+
+  /// SHA-256 (hex en minúsculas) del contenido de [file], leído por bloques.
+  static Future<String> sha256OfFile(File file) async =>
+      (await sha256.bind(file.openRead()).first).toString();
+
+  static final _sha256Hex = RegExp(r'^[0-9a-f]{64}$');
 
   /// Versión del contenedor. Sube sólo si cambia la forma del paquete; es
   /// independiente de la versión de esquema de SQLite que lleva dentro.
@@ -152,6 +173,10 @@ class BackupService {
 
   static const _fileNamePrefix = 'agroquimicos_backup_';
   static const containerExtension = '.agrobackup';
+
+  /// Sufijo del archivo mientras se escribe en el destino. No termina en
+  /// [containerExtension], así que [listAvailableBackups] nunca lo ofrece.
+  static const partialSuffix = '.part';
   static const _manifestName = 'manifest.json';
   static const _databaseName = 'database.db';
   static const _invoicesFolder = 'invoices';
@@ -304,15 +329,6 @@ class BackupService {
         flush: true,
       );
 
-      final directory =
-          await getDownloadsDirectory() ??
-          await getApplicationDocumentsDirectory();
-      final stamp = DateTime.now().toIso8601String().replaceAll(':', '-');
-      final target = p.join(
-        directory.path,
-        '$_fileNamePrefix$stamp$containerExtension',
-      );
-
       // Se empaqueta primero en la carpeta temporal: así el destino nunca ve
       // un archivo a medio escribir con nombre de respaldo.
       final packed = p.join(staging.path, 'packed$containerExtension');
@@ -339,7 +355,7 @@ class BackupService {
         );
       }
 
-      await File(packed).copy(target);
+      final target = await _publish(File(packed));
       return BackupExportResult(
         path: target,
         attachmentCount: attachments.length,
@@ -347,6 +363,67 @@ class BackupService {
       );
     } finally {
       await _deleteQuietly(staging);
+    }
+  }
+
+  /// Lleva el paquete validado [packed] a la carpeta de respaldos.
+  ///
+  /// La carpeta de destino suele estar en otro sistema de archivos que la
+  /// temporal, así que se copia primero a un archivo `.part` **en el mismo
+  /// directorio**, se comprueba que sus bytes son los del paquete validado, se
+  /// fuerza a disco y sólo entonces se renombra al nombre definitivo. Renombrar
+  /// dentro de un directorio es atómico: el nombre de respaldo aparece completo
+  /// o no aparece. Si algo falla, el parcial se borra y no queda nada que
+  /// parezca un respaldo.
+  Future<String> _publish(File packed) async {
+    final directory = await _exportDirectory();
+    await directory.create(recursive: true);
+    await _discardStalePartials(directory);
+    final stamp = DateTime.now().toIso8601String().replaceAll(':', '-');
+    var target = p.join(
+      directory.path,
+      '$_fileNamePrefix$stamp$containerExtension',
+    );
+    for (var n = 1; await File(target).exists(); n++) {
+      target = p.join(
+        directory.path,
+        '$_fileNamePrefix$stamp-$n$containerExtension',
+      );
+    }
+    final partial = File('$target$partialSuffix');
+    try {
+      await packed.copy(partial.path);
+      final handle = await partial.open(mode: FileMode.append);
+      try {
+        await handle.flush();
+      } finally {
+        await handle.close();
+      }
+      if (_beforePublish != null) await _beforePublish(partial);
+      if (await sha256OfFile(partial) != await sha256OfFile(packed)) {
+        throw const BackupException(
+          'El respaldo no se pudo copiar completo a su carpeta. No se guardó; '
+          'vuelva a intentarlo.',
+        );
+      }
+      await partial.rename(target);
+      return target;
+    } on Object {
+      await _deleteQuietly(partial);
+      rethrow;
+    }
+  }
+
+  /// Parciales que dejó una exportación interrumpida (p. ej. el sistema cerró
+  /// la app a mitad de la copia). Nunca se ofrecieron como respaldo.
+  Future<void> _discardStalePartials(Directory directory) async {
+    await for (final entity in directory.list()) {
+      final name = p.basename(entity.path);
+      if (entity is File &&
+          name.startsWith(_fileNamePrefix) &&
+          name.endsWith(partialSuffix)) {
+        await _deleteQuietly(entity);
+      }
     }
   }
 
@@ -414,78 +491,7 @@ class BackupService {
     Directory? extracted;
     try {
       extracted = await _extract(path);
-      final manifestFile = File(p.join(extracted.path, _manifestName));
-      if (!await manifestFile.exists()) {
-        return const BackupValidation.invalid(
-          'El archivo no es un respaldo de Agrocuentas (falta el manifiesto).',
-        );
-      }
-
-      final Map<String, Object?> manifest;
-      try {
-        manifest = jsonDecode(
-          await manifestFile.readAsString(),
-        ) as Map<String, Object?>;
-      } on Object {
-        return const BackupValidation.invalid(
-          'El manifiesto del respaldo está dañado y no se puede leer.',
-        );
-      }
-
-      if (manifest['application'] != 'agrocuentas') {
-        return const BackupValidation.invalid(
-          'El archivo no es un respaldo de Agrocuentas.',
-        );
-      }
-      final format = manifest['backupFormatVersion'];
-      if (format is! int || format > backupFormatVersion) {
-        return BackupValidation.invalid(
-          'El respaldo usa un formato más reciente (versión $format) que esta '
-          'aplicación (hasta $backupFormatVersion). Actualice la aplicación.',
-        );
-      }
-
-      final databaseFile = File(p.join(extracted.path, _databaseName));
-      if (!await databaseFile.exists()) {
-        return const BackupValidation.invalid(
-          'El respaldo no contiene la base de datos.',
-        );
-      }
-      final database = await _validateDatabaseFile(databaseFile.path);
-      if (!database.isValid) return database;
-
-      final attachments = (manifest['attachments'] as List? ?? const [])
-          .cast<Map<String, Object?>>();
-      for (final attachment in attachments) {
-        final name = attachment['name'] as String?;
-        if (name == null) {
-          return const BackupValidation.invalid(
-            'El manifiesto describe una fotografía sin nombre.',
-          );
-        }
-        final stored = File(p.join(extracted.path, _invoicesFolder, name));
-        if (!await stored.exists()) {
-          return BackupValidation.invalid(
-            'El respaldo anuncia la fotografía "$name" pero no la contiene.',
-          );
-        }
-        final expected = attachment['sha256'] as String?;
-        if (expected != null) {
-          final actual = sha256.convert(await stored.readAsBytes()).toString();
-          if (actual != expected) {
-            return BackupValidation.invalid(
-              'La fotografía "$name" del respaldo está dañada.',
-            );
-          }
-        }
-      }
-
-      return BackupValidation.valid(
-        version: database.schemaVersion!,
-        format: BackupFormat.container,
-        attachmentCount: attachments.length,
-        createdAt: DateTime.tryParse('${manifest['createdAt']}'),
-      );
+      return (await _validateExtracted(extracted)).validation;
     } on BackupException catch (error) {
       return BackupValidation.invalid(error.message);
     } on Exception catch (error) {
@@ -495,6 +501,124 @@ class BackupService {
     } finally {
       if (extracted != null) await _deleteQuietly(extracted);
     }
+  }
+
+  /// Comprueba un contenedor ya extraído: el manifiesto, la base contra el
+  /// tamaño y el SHA-256 que declara el manifiesto, y cada fotografía contra
+  /// el suyo. Devuelve además los nombres de las fotografías verificadas: son
+  /// las únicas que se restauran.
+  ///
+  /// El SHA-256 de la base detecta una base cambiada aunque siga siendo SQLite
+  /// íntegra (`integrity_check` no puede saberlo). No es una firma: protege de
+  /// daño y de una alteración que no reescriba también el manifiesto. Contra
+  /// eso, la copia remota se coteja además con el hash que registró el
+  /// servidor al recibirla.
+  Future<({BackupValidation validation, Set<String> attachments})>
+  _validateExtracted(Directory extracted) async {
+    ({BackupValidation validation, Set<String> attachments}) invalid(
+      String reason,
+    ) => (validation: BackupValidation.invalid(reason), attachments: const {});
+
+    final manifestFile = File(p.join(extracted.path, _manifestName));
+    if (!await manifestFile.exists()) {
+      return invalid(
+        'El archivo no es un respaldo de Agrocuentas (falta el manifiesto).',
+      );
+    }
+
+    final Map<String, Object?> manifest;
+    try {
+      manifest =
+          jsonDecode(await manifestFile.readAsString()) as Map<String, Object?>;
+    } on Object {
+      return invalid(
+        'El manifiesto del respaldo está dañado y no se puede leer.',
+      );
+    }
+
+    if (manifest['application'] != 'agrocuentas') {
+      return invalid('El archivo no es un respaldo de Agrocuentas.');
+    }
+    final format = manifest['backupFormatVersion'];
+    if (format is! int || format > backupFormatVersion) {
+      return invalid(
+        'El respaldo usa un formato más reciente (versión $format) que esta '
+        'aplicación (hasta $backupFormatVersion). Actualice la aplicación.',
+      );
+    }
+
+    final databaseFile = File(p.join(extracted.path, _databaseName));
+    if (!await databaseFile.exists()) {
+      return invalid('El respaldo no contiene la base de datos.');
+    }
+    final declared = manifest['database'];
+    final declaredSha = declared is Map ? declared['sha256'] : null;
+    final declaredBytes = declared is Map ? declared['bytes'] : null;
+    if (declared is! Map ||
+        declared['name'] != _databaseName ||
+        declaredSha is! String ||
+        !_sha256Hex.hasMatch(declaredSha) ||
+        declaredBytes is! int) {
+      return invalid(
+        'El manifiesto del respaldo no describe la integridad de la base de '
+        'datos. No se puede comprobar y no se restaurará.',
+      );
+    }
+    if (await databaseFile.length() != declaredBytes ||
+        await sha256OfFile(databaseFile) != declaredSha) {
+      return invalid(
+        'La base de datos del respaldo no coincide con su manifiesto (SHA-256): '
+        'está dañada o fue modificada. No se restaurará.',
+      );
+    }
+    final database = await _validateDatabaseFile(databaseFile.path);
+    if (!database.isValid) {
+      return (validation: database, attachments: const <String>{});
+    }
+
+    final rawAttachments = manifest['attachments'] ?? const <Object?>[];
+    if (rawAttachments is! List) {
+      return invalid('El manifiesto describe mal las fotografías.');
+    }
+    final verified = <String>{};
+    for (final attachment in rawAttachments) {
+      final name = attachment is Map ? attachment['name'] : null;
+      if (name is! String) {
+        return invalid('El manifiesto describe una fotografía sin nombre.');
+      }
+      // Sólo un nombre de archivo: nunca una ruta que salga de la carpeta de
+      // facturas al restaurar.
+      if (name.isEmpty ||
+          name == '.' ||
+          name == '..' ||
+          name.contains('/') ||
+          name.contains(r'\')) {
+        return invalid('El manifiesto describe una fotografía no permitida.');
+      }
+      final stored = File(p.join(extracted.path, _invoicesFolder, name));
+      if (!await stored.exists()) {
+        return invalid(
+          'El respaldo anuncia la fotografía "$name" pero no la contiene.',
+        );
+      }
+      final expected = (attachment as Map)['sha256'];
+      if (expected is! String ||
+          !_sha256Hex.hasMatch(expected) ||
+          await sha256OfFile(stored) != expected) {
+        return invalid('La fotografía "$name" del respaldo está dañada.');
+      }
+      verified.add(name);
+    }
+
+    return (
+      validation: BackupValidation.valid(
+        version: database.schemaVersion!,
+        format: BackupFormat.container,
+        attachmentCount: verified.length,
+        createdAt: DateTime.tryParse('${manifest['createdAt']}'),
+      ),
+      attachments: verified,
+    );
   }
 
   /// Valida una base SQLite suelta: el formato histórico, y también la base que
@@ -679,27 +803,73 @@ class BackupService {
   /// se entrega a [verifyOwnership]; si lo rechaza, o si no se puede leer, la
   /// base y las fotografías actuales quedan intactas.
   ///
-  /// [afterReplace] sólo lo usan las pruebas (a través de `GuardedRestore`):
-  /// se ejecuta con la base ya sustituida y antes de terminar, y si falla se
+  /// [prepareRestored] se ejecuta con la base restaurada ya abierta, dentro
+  /// del tramo que se deshace si falla: lo usa `GuardedRestore` para pausar
+  /// la outbox restaurada antes de que nadie más vea la base. [afterReplace]
+  /// sólo lo usan las pruebas: se ejecuta después y, si falla, también se
   /// deshace todo.
   Future<BackupRestoreResult> restore(
     String path, {
     Future<void> Function(BackupOwnership ownership)? verifyOwnership,
+    Future<void> Function(Database restored)? prepareRestored,
     Future<void> Function()? afterReplace,
   }) => appDatabase.replacement.replace(
-    () => _restoreExclusively(path, verifyOwnership, afterReplace),
+    () => _restoreExclusively(
+      path,
+      verifyOwnership,
+      prepareRestored,
+      afterReplace,
+    ),
   );
+
+  /// Copia privada y ya validada de un respaldo: se valida y se restaura la
+  /// **misma** copia, así que lo comprobado es exactamente lo que se copia
+  /// aunque el archivo original cambie entretanto.
+  Future<_StagedBackup> _stage(String path) async {
+    final file = File(path);
+    if (!await file.exists()) {
+      throw const BackupException('El archivo no existe.');
+    }
+    if (await file.length() == 0) {
+      throw const BackupException('El archivo está vacío.');
+    }
+    final isContainer = _looksLikeZip(await _firstBytes(file, 4));
+    final directory = isContainer
+        ? await _extract(path)
+        : await Directory.systemTemp.createTemp('agro_backup_open_');
+    try {
+      if (isContainer) {
+        final checked = await _validateExtracted(directory);
+        if (!checked.validation.isValid) {
+          throw BackupException(checked.validation.problem!);
+        }
+        return _StagedBackup(
+          directory,
+          p.join(directory.path, _databaseName),
+          checked.validation,
+          checked.attachments,
+        );
+      }
+      final copy = p.join(directory.path, _databaseName);
+      await file.copy(copy);
+      final validation = await _validateDatabaseFile(copy);
+      if (!validation.isValid) throw BackupException(validation.problem!);
+      return _StagedBackup(directory, copy, validation, const {});
+    } on BackupException {
+      await _deleteQuietly(directory);
+      rethrow;
+    } on Exception catch (error) {
+      await _deleteQuietly(directory);
+      throw BackupException('No se pudo leer el archivo de respaldo: $error');
+    }
+  }
 
   Future<BackupRestoreResult> _restoreExclusively(
     String path,
     Future<void> Function(BackupOwnership ownership)? verifyOwnership,
+    Future<void> Function(Database restored)? prepareRestored,
     Future<void> Function()? afterReplace,
   ) async {
-    final validation = await validate(path);
-    if (!validation.isValid) {
-      throw BackupException(validation.problem!);
-    }
-
     final target = await appDatabase.resolvePath();
     if (target == ':memory:') {
       throw const BackupException(
@@ -707,13 +877,10 @@ class BackupService {
       );
     }
 
-    Directory? extracted;
-    if (validation.format == BackupFormat.container) {
-      extracted = await _extract(path);
-    }
-    final databaseSource = extracted == null
-        ? path
-        : p.join(extracted.path, _databaseName);
+    final staged = await _stage(path);
+    final validation = staged.validation;
+    final databaseSource = staged.databasePath;
+    final isContainer = validation.format == BackupFormat.container;
 
     // La propiedad se comprueba sobre la misma base que se va a copiar y
     // antes de guardar, cerrar o reemplazar nada.
@@ -721,13 +888,13 @@ class BackupService {
       final ownership = await readOwnership(databaseSource);
       if (verifyOwnership != null) await verifyOwnership(ownership);
     } on Object {
-      if (extracted != null) await _deleteQuietly(extracted);
+      await _deleteQuietly(staged.directory);
       rethrow;
     }
 
     // El formato histórico no trae fotografías y no las toca: no hay motivo
     // para resolver siquiera dónde viven.
-    final invoicesDirectory = extracted == null ? null : await _invoicesDir();
+    final invoicesDirectory = isContainer ? await _invoicesDir() : null;
     final stamp = DateTime.now().toIso8601String().replaceAll(':', '-');
     final safetyCopy = '$target.previo-$stamp.db';
     final current = File(target);
@@ -756,18 +923,17 @@ class BackupService {
         if (await journal.exists()) await journal.delete();
       }
 
+      // Sólo las fotografías que describe el manifiesto y cuyo SHA-256 se
+      // comprobó; cualquier otro archivo del paquete se ignora.
       var restoredAttachments = 0;
       final restoredNames = <String>{};
-      if (extracted != null) {
-        final source = Directory(p.join(extracted.path, _invoicesFolder));
-        if (await source.exists()) {
-          await for (final entity in source.list()) {
-            if (entity is! File) continue;
-            final name = p.basename(entity.path);
-            await entity.copy(p.join(invoicesDirectory!.path, name));
-            restoredNames.add(name);
-            restoredAttachments++;
-          }
+      if (isContainer) {
+        await invoicesDirectory!.create(recursive: true);
+        for (final name in staged.attachments) {
+          await File(p.join(staged.directory.path, _invoicesFolder, name))
+              .copy(p.join(invoicesDirectory.path, name));
+          restoredNames.add(name);
+          restoredAttachments++;
         }
       }
 
@@ -799,6 +965,7 @@ class BackupService {
         );
       }
 
+      if (prepareRestored != null) await prepareRestored(restored);
       if (afterReplace != null) await afterReplace();
       return BackupRestoreResult(
         safetyCopyPath: safetyCopy,
@@ -824,7 +991,7 @@ class BackupService {
       }
       rethrow;
     } finally {
-      if (extracted != null) await _deleteQuietly(extracted);
+      await _deleteQuietly(staged.directory);
       if (invoicesBackup != null) await _deleteQuietly(invoicesBackup);
     }
   }
@@ -892,6 +1059,22 @@ class BackupService {
       // sistema la retiene, no debe convertirse en un fallo de la operación.
     }
   }
+}
+
+class _StagedBackup {
+  const _StagedBackup(
+    this.directory,
+    this.databasePath,
+    this.validation,
+    this.attachments,
+  );
+
+  final Directory directory;
+  final String databasePath;
+  final BackupValidation validation;
+
+  /// Fotografías verificadas contra el manifiesto.
+  final Set<String> attachments;
 }
 
 /// Error de negocio de la exportación o restauración, con mensaje presentable.

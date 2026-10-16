@@ -83,13 +83,14 @@ class GuardedRestore {
               );
             }
           },
+          // Todavía en exclusiva y dentro del tramo que se deshace: ninguna
+          // escritura ni el worker ven la base restaurada antes de que su
+          // cola quede pausada, y si pausarla falla vuelve la base anterior.
+          prepareRestored: (restored) => SyncOutboxStore.pauseAfterRestore(
+            restored,
+            DateTime.now().toUtc().toIso8601String(),
+          ),
           afterReplace: afterReplace,
-        );
-        // Todavía en exclusiva: ninguna escritura ni el worker ven la base
-        // restaurada antes de que su cola quede pausada.
-        await SyncOutboxStore.pauseAfterRestore(
-          await database.database,
-          DateTime.now().toUtc().toIso8601String(),
         );
         return GuardedRestoreOutcome(
           result,
