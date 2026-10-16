@@ -1,8 +1,22 @@
 # F03-RES-01 (#71) — Procedimiento del ensayo en dispositivo
 
-**Preparado, no ejecutado.** La ejecución física se coordina con Roderich. Se hace en una **app aislada** (`com.comunidad.agro.agroquimicos.f03res01`, «Agrocuentas F03-RES-01»), nunca en la app normal, que no se abre, desinstala ni modifica.
+**Ejecutado el 2026-10-15** (`docs/evidence/F03_RES_01_DEVICE.md`), en una sesión combinada con el E2E de D3. Se hace en una **app aislada** (`com.comunidad.agro.agroquimicos.f03res01`, «Agrocuentas F03-RES-01»), nunca en la app normal, que no se abre, desinstala ni modifica.
 
 Casos de #71: D (refresh real), E-1 (desactivación de la cuenta), E-2 (revocación del registro de cliente) y reapertura sin red tras E. No incluye cambios de código; un defecto encontrado se registra en un issue aparte.
+
+## Extensión del 2026-10-15: sesión combinada #71 + E2E de D3
+
+La sesión física del 2026-10-15 ejecuta #71 y el E2E Mobile de D3 (PR MOB #80 contra PR BE #109) con la misma app aislada y el mismo entorno. Añadidos:
+
+| Pieza | Uso |
+|---|---|
+| `credential.sh` | Contraseña de **un solo uso** por cuenta (`type` la teclea en el teléfono; `run` la pasa a un comando). Vive sólo en ese proceso: no hay secretos en archivos entre pasos. Ejemplos: `./credential.sh type D`, `./credential.sh run ADMIN ./revoke.sh e1`, `./credential.sh run E2 ./revoke.sh e2` |
+| `device.sh` | Radios (`net off\|on`), force-stop y apertura, lectura de la UI (`ui`, `tap`), capturas sin barra de estado (`shot`), slot activo, guard y huellas de identidad sin valores (`secure`), y consultas de sólo lectura sobre una copia temporal de SQLite (`db counts\|marker\|owner\|bindings\|outbox\|needs\|versions`) |
+| `fault.sh` | Fallo controlado en el observador para la próxima petición de push: `drop-push-response` (Central confirma el commit y la respuesta no llega) o `hold-push-request` (no llega a Central; se fuerza el cierre mientras espera) |
+| `check.sh ids\|sync\|timeline` | Huellas de sesión, registro, Member y tenant; journal y contribuciones de Sync v1 en Central; secuencia de peticiones con hora |
+| `up.sh` | Con Sync v1: clave de huella aleatoria y `SYNC_V1_PRODUCTION_ADMISSION=enabled` **sólo** en este entorno desechable |
+
+Cuenta adicional del seed para D3: `pedro.mamani@agro.local` (S). Las de D y E2 quedan desactivada y revocada por los casos E.
 
 ## Componentes
 

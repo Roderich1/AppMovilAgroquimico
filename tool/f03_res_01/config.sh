@@ -19,11 +19,14 @@ F03_RUN_DIR="${F03_RUN_DIR:-${TMPDIR:-/tmp}/agro_f03res01}"
 F03_ADMIN_EMAIL=admin@agro.local
 F03_FARMER_D_EMAIL=juan.perez@agro.local    # caso D y luego E-1
 F03_FARMER_E2_EMAIL=maria.choque@agro.local # caso E-2
+F03_FARMER_S_EMAIL=pedro.mamani@agro.local # E2E de D3 (sincronización)
 
 # Aplicación aislada: nunca la app normal.
 F03_APP_ID_SUFFIX=.f03res01
 F03_APP_PACKAGE="com.comunidad.agro.agroquimicos${F03_APP_ID_SUFFIX}"
 F03_APP_LABEL="Agrocuentas F03-RES-01"
+F03_DEVICE_DB=agroquimicos_v2.db
+F03_SHOTS_DIR="${F03_SHOTS_DIR:-$F03_RUN_DIR/capturas}" # fuera de cualquier worktree
 
 f03_api_local() { printf 'http://127.0.0.1:%s' "$F03_API_PORT"; }
 f03_origin() { cat "$F03_RUN_DIR/origin" 2>/dev/null; }

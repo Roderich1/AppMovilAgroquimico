@@ -97,3 +97,5 @@ Esto valida el comportamiento del servidor ante sesiones existentes. **No** acre
 - Compilar la APK aislada con el origen del día e instalarla junto a la app normal.
 - Ejecutar D, E-1, E-2 y la reapertura en el POCO. Registrar los datos del dispositivo y cada caso como PASS, FAIL o NOT_MEASURED.
 - Revisión de Roderich Rendón: pendiente. Revisión del tutor: se registra aparte en GOV-01.
+
+**Ejecución (2026-10-15, 21:07–21:36).** D, E-1, E-2 y las reaperturas se ejecutaron en el POCO: [F03_RES_01_DEVICE](F03_RES_01_DEVICE.md).

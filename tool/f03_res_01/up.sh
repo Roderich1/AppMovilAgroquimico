@@ -38,12 +38,16 @@ export F03_BE_DIR F03_ADMIN_EMAIL F03_FARMER_D_EMAIL F03_FARMER_E2_EMAIL
 node "$here/rotate_passwords.cjs"
 
 # Backend en segundo plano, con TTL por defecto (15m / 7d): no se acortan.
+# Sync v1 (E2E de D3): admisión abierta SÓLO en este entorno desechable y sintético;
+# en producción sigue cerrada hasta F10 (#45). Un Backend sin Sync v1 ignora estas variables.
 (
   cd "$F03_BE_DIR"
   NODE_ENV=production PORT="$F03_API_PORT" DATABASE_URL="$DATABASE_URL" \
     JWT_SECRET="$F03_JWT_SECRET" JWT_REFRESH_SECRET="$F03_JWT_REFRESH_SECRET" \
     JWT_EXPIRES_IN=15m JWT_REFRESH_EXPIRES_IN=7d COOKIE_SECURE=true \
     CORS_ORIGIN=http://127.0.0.1 \
+    SYNC_V1_FINGERPRINT_KEY="${F03_SYNC_FINGERPRINT_KEY:-}" SYNC_V1_FINGERPRINT_KEY_VERSION=1 \
+    SYNC_V1_PRODUCTION_ADMISSION=enabled \
     nohup node dist/main.js > "$F03_RUN_DIR/api.log" 2>&1 &
   echo $! > "$F03_RUN_DIR/api.pid"
 )

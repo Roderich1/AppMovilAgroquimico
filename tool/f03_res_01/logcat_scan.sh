@@ -15,5 +15,12 @@ done
 echo "líneas revisadas: $(wc -l <<< "$log")"
 echo "JWT: $(count 'eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}')"
 echo "UUID completos: $(count '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}')"
-echo "contraseñas del ensayo: $secret_hits"
+echo "contraseñas del ensayo: $secret_hits (las de credential.sh son de un solo uso y no se conservan: ver la línea siguiente)"
+echo "nombres de campos sensibles (refresh_token, accessToken, password): $(count 'refresh_?token|accessToken|password')"
 echo "FATAL/Unhandled: $(count 'FATAL|Unhandled Exception')"
+# Registro propio de la app aislada (app_flutter/agrocuentas.log): mismos conteos.
+own=$(MSYS_NO_PATHCONV=1 adb exec-out run-as "$F03_APP_PACKAGE" cat app_flutter/agrocuentas.log 2>/dev/null || true)
+echo "registro propio: líneas=$(grep -c . <<< "$own" || true)" \
+  "JWT=$(grep -c -E 'eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}' <<< "$own" || true)" \
+  "UUID=$(grep -c -E '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}' <<< "$own" || true)" \
+  "refresh/token/password=$(grep -c -i -E 'refresh_?token|accessToken|password' <<< "$own" || true)"
