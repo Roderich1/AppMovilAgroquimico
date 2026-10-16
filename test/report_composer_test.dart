@@ -68,10 +68,12 @@ void main() {
     });
 
     test('la fecha se presenta como dd/mm/aaaa', () {
-      expect(
-        const ReportDate('2026-03-01T00:00:00.000Z').csvText,
-        '01/03/2026',
-      );
+      // Antes el ejemplo era la medianoche UTC del 1 de marzo, que en Bolivia
+      // es el 28 de febrero a las 20:00. La app guarda instantes locales en
+      // UTC: el ejemplo realista es la medianoche local (#82).
+      final midnight = DateTime(2026, 3, 1).toUtc().toIso8601String();
+      expect(ReportDate(midnight).csvText, '01/03/2026');
+      expect(const ReportDate('2026-03-01').csvText, '01/03/2026');
     });
 
     test('una celda vacía no es un cero', () {
