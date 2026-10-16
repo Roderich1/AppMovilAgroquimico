@@ -33,6 +33,7 @@ El constructor lee el estado de la aplicación, no los movimientos. Una aplicaci
 | `test/consumption_projection_test.dart` | 6: multiproducto, reversión, familiar, sin vínculo o con vínculo inválido, int64, ausencia | PASS |
 | `test/collective_consumption_sync_test.dart` | 9: 3 totales y reversión; sólo lo que cambió, atómico y sin tocar el inventario; vista previa desactualizada; fallo atómico; compartido; envelope; worker y ACK; conflicto; sin titular | PASS |
 | `test/consumption_publish_screen_test.dart` | 2: vista previa, confirmación y cancelación sin escribir; nada que publicar | PASS |
+| `test/consumption_confirmation_test.dart` | 5: confirmación ligada al titular, al destino y a la intención previa; conflicto; restauración (ver abajo) | PASS |
 | `test/f06_dataset_test.dart` | 4: niveles SQLite y outbox de los tres agricultores del dataset frente al oráculo a mano; exclusiones | PASS |
 | Suite completa (`flutter test`, `c82f3fb`) | 971 pasan | PASS |
 
@@ -53,6 +54,61 @@ El constructor lee el estado de la aplicación, no los movimientos. Una aplicaci
   - X2: cuenta las revertidas;
   - X3: oráculo alterado;
   - X4: dataset sin una reversión.
+
+## Hallazgo de revisión del PR #86 y corrección (2026-10-16)
+
+**Hallazgo.** Salió de la revisión de código del PR.
+
+- `_sameProposal` comparaba sólo campaña, producto, cantidad y tipo de cambio de las filas que se envían. No comparaba el titular (`ownerBindingId`) ni la unidad.
+- `resolveConflict` filtraba sólo por campaña y producto, y enviaba el total vigente aunque fuera distinto del mostrado.
+
+**Escenario, alcanzable con APIs públicas.** `changeOwner` está permitido mientras el titular actual no tenga filas en la outbox. Por eso puede ocurrir antes de la primera publicación, con el mismo Member y tenant.
+
+1. En modo compartido, titular y familiar aplican 2500 ML del mismo producto y campaña.
+2. Se toma la vista previa del titular A.
+3. `changeOwner` cambia el titular a B.
+4. Se publica la vista previa confirmada para A.
+
+**Regresiones** en `test/consumption_confirmation_test.dart`, sobre SQLite real:
+
+| Prueba | Contra `1627dec` (14:55Z) | Con la corrección |
+|---|---|---|
+| Vista previa de un titular; cambio a otro con las mismas cantidades; publicar | **FALLA**: `publish` encoló 1 operación | PASS: `ConsumptionPublishException` y outbox vacía. Una vista previa nueva publica bajo el nuevo vínculo |
+| Vista previa vieja con el mismo total sobre otra intención previa (los envíos reciben ACK y se encadenan) | **FALLA**: encoló 1 | PASS: rechazo sin escribir |
+| `resolveConflict` con un total que cambió después de mostrarse | **FALLA**: envió el valor nuevo | PASS: rechazo sin escribir y conflicto sin resolver. Con la vista vigente envía ese valor |
+| Restauración en curso: `publish` se rechaza (`DatabaseReplacementInProgressException`) sin escribir | PASS (ya se cumplía) | PASS |
+| Con un conflicto pendiente, `changeOwner` se rechaza | PASS (invariante existente) | PASS |
+
+El último caso es el invariante que impide el escenario de cambio de titular dentro de `resolveConflict`: la outbox del titular tiene una fila en conflicto, así que el cambio de titular se rechaza.
+
+**Corrección** (`0448c8a`):
+
+- La vista previa guarda el vínculo de titular.
+- La propuesta se compara entera: todas las filas, no sólo las que se envían.
+- Cada fila se identifica por:
+  - su destino completo (titular, proyección, campaña, producto y unidad);
+  - la cantidad;
+  - el tipo de cambio;
+  - la intención previa sobre la que se planifica.
+- `resolveConflict` sólo envía si la fila vigente es idéntica a la confirmada.
+- No cambian la transacción única, la exclusión durante una restauración, las reglas de titular, la whitelist ni la outbox.
+
+**Mutaciones sobre la corrección** (restauración byte a byte verificada), todas detectadas:
+
+| Mutación | Resultado |
+|---|---|
+| N1: sin titular en la propuesta (semántica anterior) | detectada |
+| N2: `resolveConflict` sin comparar la fila confirmada | detectada |
+| N3: sin la cantidad | detectada |
+| N4: sin la intención previa | detectada |
+
+En la primera tanda N4 sobrevivió: ninguna prueba cubría ese caso. Se añadió la regresión de la vista previa vieja.
+
+**Verificación sobre `1afda3f`** (`main` `c21fc55` integrado con un merge, sin reescribir el historial publicado):
+
+- `dart format`: sin cambios; `flutter analyze`: sin issues.
+- `flutter test`: **989 pasan, 2 omitidas**.
+- Paso regional de #85 (`TZ=America/La_Paz AGRO_TZ_REGRESSION=America/La_Paz flutter test test/declared_need_test.dart test/date_display_test.dart`): **17/17**, centinela incluido.
 
 ## Contra Central
 
