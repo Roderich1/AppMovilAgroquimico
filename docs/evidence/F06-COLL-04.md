@@ -20,3 +20,13 @@ Comandos: `flutter test test/declared_need_test.dart test/need_sync_payload_test
 Limitación: la necesidad pertenece al titular vinculado (contribución por Member, F06 §4). Sin titular no se declara.
 
 **Nota del 2026-10-15 (dispositivo).** El E2E en el POCO encontró un fallo de este criterio que las pruebas de host no veían. Una campaña creada después de las 20:00 en La Paz se guardaba con el día UTC siguiente y no cubría su propio día (D3-DATE). Se corrigió en `023a47b`, con un test de regresión, y se repitió en el dispositivo. Ver [F05_MOBILE_SYNC_DEVICE](F05_MOBILE_SYNC_DEVICE.md) §4.
+
+**Nota del 2026-10-16 (D4, consolidación en Central).** La reconciliación del dataset controlado ejercitó las necesidades declaradas contra Central:
+
+- un cero explícito (F2, Urea) cuenta como aportante, y por eso la celda alcanza el umbral;
+- una retirada ya sincronizada llega como `CANCELLED` y no suma (F2, Glifosato);
+- ambas campañas se resuelven por fecha de referencia.
+
+Central coincidió con el oráculo a mano (26/26 aportaciones) y el agregado por celda dio diferencia 0 en las dos ejecuciones. Ver `Agro_Sindicato_Backend-Web/docs/evidence/F06_RECONCILIATION.md` y [`F06_RUN_20261016/`](F06_RUN_20261016/).
+
+Retirar una declaración **que nunca se envió** sólo la descarta en la outbox, y Central no llega a verla: es el comportamiento de D3. La vista Web de estas cifras es de F07 (#23–#25).
