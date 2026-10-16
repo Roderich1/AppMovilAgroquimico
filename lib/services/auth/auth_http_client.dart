@@ -7,10 +7,14 @@ import 'api_endpoint_config.dart';
 import 'auth_api_exception.dart';
 
 class AuthHttpResponse {
-  const AuthHttpResponse(this.statusCode, this.bodyBytes);
+  const AuthHttpResponse(this.statusCode, this.bodyBytes, {this.retryAfter});
 
   final int statusCode;
   final List<int> bodyBytes;
+
+  /// Único encabezado que se conserva: la demora que pide el servidor (Sync
+  /// v1, 429/503). Ningún otro encabezado sale de este límite.
+  final String? retryAfter;
 
   Map<String, dynamic> requireJsonObject() {
     try {
@@ -80,6 +84,10 @@ class AuthHttpClient {
         statusCode: response.statusCode,
       );
     }
-    return AuthHttpResponse(response.statusCode, response.bodyBytes);
+    return AuthHttpResponse(
+      response.statusCode,
+      response.bodyBytes,
+      retryAfter: response.headers['retry-after'],
+    );
   }
 }

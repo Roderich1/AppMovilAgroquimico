@@ -97,6 +97,17 @@ class _PlanningScreenState extends ConsumerState<PlanningScreen> {
         };
         return Column(
           children: [
+            // La necesidad declarada al sindicato es otra cosa que un plan
+            // (F06 §3): una intención expresa, no un cálculo de dosis.
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                key: const Key('open-declared-needs'),
+                onPressed: () => context.push('/planificacion/necesidades'),
+                icon: const Icon(Icons.playlist_add_check),
+                label: const Text('Necesidad declarada al sindicato'),
+              ),
+            ),
             DropdownButtonFormField<int?>(
               initialValue: campaignFilter,
               decoration: const InputDecoration(labelText: 'Campaña'),

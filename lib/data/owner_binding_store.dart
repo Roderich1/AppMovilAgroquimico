@@ -7,6 +7,7 @@ import '../domain/operation_mode.dart';
 import '../domain/person_roles.dart';
 import 'agro_repository.dart' show BusinessRuleException;
 import 'app_database.dart';
+import 'sync/sync_outbox_store.dart' show SyncOutboxInspector;
 
 /// Vínculo inmutable entre el titular local (una persona de `persons`) y el
 /// Member/tenant autenticado que lo eligió explícitamente.
@@ -47,18 +48,12 @@ class OwnerBinding {
   );
 }
 
-/// Operaciones de sincronización aún no asentadas de un vínculo. La outbox de
-/// F05 implementará este puerto; hasta entonces no existe ninguna.
+/// Intenciones de sincronización de un vínculo que cambiaron o pueden
+/// cambiar su contribución central. La implementa la outbox de F05
+/// (`SyncOutboxInspector`).
 abstract interface class SyncQueueInspector {
-  /// Filas PENDING, SENDING, OUTCOME_UNKNOWN, CONFLICT o ACKED del vínculo.
+  /// Filas del vínculo que no fueron rechazadas, fallidas ni descartadas.
   Future<int> operationsBoundTo(DatabaseExecutor db, int bindingId);
-}
-
-class NoSyncQueueYet implements SyncQueueInspector {
-  const NoSyncQueueYet();
-
-  @override
-  Future<int> operationsBoundTo(DatabaseExecutor db, int bindingId) async => 0;
 }
 
 class OwnerBindingException extends BusinessRuleException {
@@ -288,7 +283,7 @@ class OwnerBindingStore {
   Future<OwnerBinding> changeOwner({
     required int newPersonId,
     required OwnerScope sessionScope,
-    SyncQueueInspector queue = const NoSyncQueueYet(),
+    SyncQueueInspector queue = const SyncOutboxInspector(),
     bool confirmAdministrator = false,
   }) async {
     await _transaction((txn) async {

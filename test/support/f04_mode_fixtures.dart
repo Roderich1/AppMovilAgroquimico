@@ -151,8 +151,40 @@ Future<Household> seedHousehold(AgroRepository repo) async {
 
 /// Lleva una base creada con el esquema actual a un v7 exacto: v8 sólo añade
 /// `owner_bindings`, sus disparadores e índice y la marca `install_origin`.
+/// Tablas que añadió v9 (F05), en orden de borrado (dependientes primero).
+const syncTablesV9 = [
+  'declared_need_versions',
+  'declared_needs',
+  'sync_outbox',
+  'product_bindings',
+  'campaign_bindings',
+];
+
+/// Quita todo lo que añadió v9: tablas, índices y triggers.
+Future<void> dropSyncSchemaV9(DatabaseExecutor db) async {
+  final triggers = await db.rawQuery(
+    "SELECT name FROM sqlite_master WHERE type='trigger' AND "
+    "(name LIKE 'trg_sync_outbox_%' OR name LIKE 'trg_declared_need%')",
+  );
+  for (final row in triggers) {
+    await db.execute('DROP TRIGGER IF EXISTS "${row['name']}"');
+  }
+  for (final table in syncTablesV9) {
+    await db.execute('DROP TABLE IF EXISTS $table');
+  }
+}
+
+/// Deja una base creada con la versión actual exactamente como una v8.
+Future<void> downgradeToV8(String path) async {
+  final db = await databaseFactoryFfi.openDatabase(path);
+  await dropSyncSchemaV9(db);
+  await db.execute('PRAGMA user_version = 8');
+  await db.close();
+}
+
 Future<void> downgradeToV7(String path) async {
   final db = await databaseFactoryFfi.openDatabase(path);
+  await dropSyncSchemaV9(db);
   await db.execute('DROP TRIGGER IF EXISTS trg_owner_bindings_no_delete');
   await db.execute('DROP TRIGGER IF EXISTS trg_owner_bindings_close_only');
   await db.execute('DROP TABLE IF EXISTS owner_bindings');

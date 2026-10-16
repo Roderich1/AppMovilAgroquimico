@@ -18,11 +18,15 @@ class AppDatabase {
   /// Toda base, creada desde cero o migrada desde cualquier versión anterior,
   /// debe terminar con el mismo esquema. `test/schema_equivalence_test.dart`
   /// lo verifica automáticamente.
-  static const int schemaVersion = 8;
+  static const int schemaVersion = 9;
 
   /// Primera versión con `owner_bindings` e `install_origin`: una base
   /// anterior es histórica y no declara titular.
   static const int ownerBindingsSinceVersion = 8;
+
+  /// Primera versión con la sincronización F05 (vínculos centrales,
+  /// necesidad declarada y outbox).
+  static const int syncSinceVersion = 9;
 
   /// Clave en `app_settings` donde se registra que la migración a v5 no pudo
   /// imponer la unicidad por existir filas duplicadas previas. Su presencia
@@ -81,6 +85,125 @@ class AppDatabase {
         OR NEW.member_id IS NOT OLD.member_id OR NEW.tenant_id IS NOT OLD.tenant_id
         OR NEW.owner_role IS NOT OLD.owner_role OR NEW.bound_at IS NOT OLD.bound_at
       BEGIN SELECT RAISE(ABORT, 'owner_bindings: solo se puede cerrar un vínculo activo'); END''',
+  ];
+
+  /// Sincronización F05 (v9). Sólo se añaden tablas: ninguna clave local
+  /// cambia y ninguna tabla existente recibe un identificador global.
+  ///
+  /// - `campaign_bindings` / `product_bindings` (F05-SYNC-08): vínculo
+  ///   explícito de una campaña o un producto local con su referencia
+  ///   central del tenant. Sólo guardan la referencia, el nombre, la unidad y
+  ///   el estado necesarios para vincular. Una referencia central no se
+  ///   vincula a dos registros locales.
+  /// - `sync_outbox` (F05-SYNC-01/02): una fila por intención, con su
+  ///   `operation_id` UUID v4 y el vínculo de titular al que pertenece. Sólo
+  ///   lleva los cuatro campos de la whitelist F06 y la causalidad F05. Una
+  ///   intención que ya salió del teléfono no se modifica (trigger) y
+  ///   ninguna se borra.
+  /// - `declared_needs` / `declared_need_versions` (F06-COLL-04): una
+  ///   necesidad vigente por titular, campaña y producto, con su historial
+  ///   inmutable.
+  static const List<String> syncSchema = <String>[
+    '''CREATE TABLE campaign_bindings (
+        campaign_id INTEGER PRIMARY KEY REFERENCES campaigns(id),
+        tenant_id TEXT NOT NULL, campaign_ref TEXT NOT NULL,
+        central_name TEXT NOT NULL,
+        status TEXT NOT NULL CHECK(status IN ('VALID','INVALID')),
+        invalid_reason TEXT CHECK(invalid_reason IN ('REFERENCE_MISSING','NOT_ACCEPTING')),
+        bound_at TEXT NOT NULL, checked_at TEXT NOT NULL,
+        CHECK((status = 'VALID') = (invalid_reason IS NULL)))''',
+    'CREATE UNIQUE INDEX idx_campaign_bindings_ref '
+        'ON campaign_bindings(tenant_id, campaign_ref)',
+    '''CREATE TABLE product_bindings (
+        product_id INTEGER PRIMARY KEY REFERENCES products(id),
+        tenant_id TEXT NOT NULL, product_ref TEXT NOT NULL,
+        central_name TEXT NOT NULL, central_unit TEXT NOT NULL,
+        base_unit TEXT NOT NULL CHECK(base_unit IN ('ML','G')),
+        status TEXT NOT NULL CHECK(status IN ('VALID','INVALID')),
+        invalid_reason TEXT CHECK(invalid_reason IN ('REFERENCE_MISSING','INACTIVE','NOT_LINKABLE')),
+        bound_at TEXT NOT NULL, checked_at TEXT NOT NULL,
+        CHECK((status = 'VALID') = (invalid_reason IS NULL)))''',
+    'CREATE UNIQUE INDEX idx_product_bindings_ref '
+        'ON product_bindings(tenant_id, product_ref)',
+    '''CREATE TABLE sync_outbox (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        operation_id TEXT NOT NULL UNIQUE CHECK(length(operation_id) = 36),
+        owner_binding_id INTEGER NOT NULL REFERENCES owner_bindings(id),
+        projection_type TEXT NOT NULL CHECK(projection_type IN ('CONSUMPTION_TOTAL','DECLARED_NEED')),
+        action TEXT NOT NULL CHECK(action IN ('PUBLISH','SUPERSEDE','CANCEL')),
+        campaign_ref TEXT NOT NULL, product_ref TEXT NOT NULL,
+        base_unit TEXT NOT NULL CHECK(base_unit IN ('ML','G')),
+        quantity_base TEXT,
+        predecessor_operation_id TEXT,
+        predecessor_kind TEXT CHECK(predecessor_kind IN ('VALUE','CANCEL')),
+        reconciliation_reference TEXT,
+        status TEXT NOT NULL CHECK(status IN ('PENDING','SENDING','OUTCOME_UNKNOWN','ACKED','CONFLICT','REJECTED','FAILED','AUTH_PAUSED','OWNER_PAUSED','RESTORE_PAUSED','VERSION_MISMATCH','DISCARDED')),
+        attempts INTEGER NOT NULL DEFAULT 0 CHECK(attempts >= 0),
+        next_attempt_at TEXT, last_code TEXT,
+        ack_reconciliation_reference TEXT, server_accepted_at TEXT,
+        resolution_head_operation_id TEXT,
+        resolution_head_kind TEXT CHECK(resolution_head_kind IN ('VALUE','CANCEL')),
+        resolved_at TEXT,
+        created_at TEXT NOT NULL, updated_at TEXT NOT NULL, acked_at TEXT,
+        CHECK((action = 'CANCEL') = (quantity_base IS NULL)),
+        CHECK((predecessor_operation_id IS NULL) = (predecessor_kind IS NULL)),
+        CHECK(action = 'PUBLISH' OR predecessor_operation_id IS NOT NULL),
+        CHECK((status = 'ACKED') = (server_accepted_at IS NOT NULL)),
+        CHECK((resolution_head_operation_id IS NULL) = (resolution_head_kind IS NULL)),
+        CHECK((resolved_at IS NULL) = (resolution_head_operation_id IS NULL)),
+        CHECK(resolved_at IS NULL OR status = 'CONFLICT'))''',
+    'CREATE INDEX idx_sync_outbox_contribution ON sync_outbox('
+        'owner_binding_id, projection_type, campaign_ref, product_ref, base_unit, id)',
+    'CREATE INDEX idx_sync_outbox_status ON sync_outbox(status, next_attempt_at)',
+    '''CREATE TRIGGER trg_sync_outbox_no_delete BEFORE DELETE ON sync_outbox
+      BEGIN SELECT RAISE(ABORT, 'sync_outbox no admite borrado'); END''',
+    '''CREATE TRIGGER trg_sync_outbox_identity BEFORE UPDATE ON sync_outbox
+      WHEN NEW.id IS NOT OLD.id OR NEW.operation_id IS NOT OLD.operation_id
+        OR NEW.owner_binding_id IS NOT OLD.owner_binding_id
+        OR NEW.created_at IS NOT OLD.created_at OR NEW.attempts < OLD.attempts
+      BEGIN SELECT RAISE(ABORT, 'sync_outbox: la identidad de una intención no cambia'); END''',
+    '''CREATE TRIGGER trg_sync_outbox_sent_immutable BEFORE UPDATE ON sync_outbox
+      WHEN OLD.attempts > 0 AND (NEW.projection_type IS NOT OLD.projection_type
+        OR NEW.action IS NOT OLD.action OR NEW.campaign_ref IS NOT OLD.campaign_ref
+        OR NEW.product_ref IS NOT OLD.product_ref OR NEW.base_unit IS NOT OLD.base_unit
+        OR NEW.quantity_base IS NOT OLD.quantity_base
+        OR NEW.predecessor_operation_id IS NOT OLD.predecessor_operation_id
+        OR NEW.predecessor_kind IS NOT OLD.predecessor_kind
+        OR NEW.reconciliation_reference IS NOT OLD.reconciliation_reference)
+      BEGIN SELECT RAISE(ABORT, 'sync_outbox: una intención enviada no se modifica'); END''',
+    '''CREATE TRIGGER trg_sync_outbox_acked_final BEFORE UPDATE ON sync_outbox
+      WHEN OLD.status = 'ACKED' AND (NEW.status IS NOT 'ACKED'
+        OR NEW.server_accepted_at IS NOT OLD.server_accepted_at)
+      BEGIN SELECT RAISE(ABORT, 'sync_outbox: una aceptación es definitiva'); END''',
+    '''CREATE TABLE declared_needs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        owner_binding_id INTEGER NOT NULL REFERENCES owner_bindings(id),
+        campaign_id INTEGER NOT NULL REFERENCES campaigns(id),
+        product_id INTEGER NOT NULL REFERENCES products(id),
+        status TEXT NOT NULL CHECK(status IN ('ACTIVE','CANCELLED')),
+        quantity_base INTEGER CHECK(quantity_base >= 0),
+        reference_date TEXT NOT NULL,
+        current_version INTEGER NOT NULL CHECK(current_version >= 1),
+        updated_at TEXT NOT NULL,
+        UNIQUE(owner_binding_id, campaign_id, product_id),
+        CHECK((status = 'ACTIVE') = (quantity_base IS NOT NULL)))''',
+    '''CREATE TABLE declared_need_versions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        declared_need_id INTEGER NOT NULL REFERENCES declared_needs(id),
+        version INTEGER NOT NULL CHECK(version >= 1),
+        status TEXT NOT NULL CHECK(status IN ('ACTIVE','CANCELLED')),
+        quantity_base INTEGER CHECK(quantity_base >= 0),
+        reference_date TEXT NOT NULL,
+        operation_id TEXT REFERENCES sync_outbox(operation_id),
+        created_at TEXT NOT NULL,
+        UNIQUE(declared_need_id, version),
+        CHECK((status = 'ACTIVE') = (quantity_base IS NOT NULL)))''',
+    '''CREATE TRIGGER trg_declared_needs_no_delete BEFORE DELETE ON declared_needs
+      BEGIN SELECT RAISE(ABORT, 'declared_needs no admite borrado'); END''',
+    '''CREATE TRIGGER trg_declared_need_versions_no_delete BEFORE DELETE ON declared_need_versions
+      BEGIN SELECT RAISE(ABORT, 'declared_need_versions no admite borrado'); END''',
+    '''CREATE TRIGGER trg_declared_need_versions_no_update BEFORE UPDATE ON declared_need_versions
+      BEGIN SELECT RAISE(ABORT, 'declared_need_versions es un historial inmutable'); END''',
   ];
 
   final DatabaseFactory? _factory;
@@ -272,6 +395,9 @@ class AppDatabase {
     for (final statement in ownerBindingSchema) {
       await db.execute(statement);
     }
+    for (final statement in syncSchema) {
+      await db.execute(statement);
+    }
     // Una base creada por esta versión nace bajo la política de activación.
     await db.insert('app_settings', {
       'key': installOriginKey,
@@ -419,6 +545,26 @@ class AppDatabase {
     }
     if (oldVersion < 8) {
       await _upgradeToV8(db);
+    }
+    if (oldVersion < 9) {
+      await _upgradeToV9(db);
+    }
+  }
+
+  /// Migración a la versión 9 — **sincronización F05** (vínculos centrales,
+  /// necesidad declarada y outbox).
+  ///
+  /// Sólo crea tablas nuevas, vacías: no vincula nada por nombre, no crea
+  /// intenciones a partir de datos existentes y no toca ninguna fila. Una
+  /// base histórica no publica nada hasta que el titular vincule y declare
+  /// de forma explícita.
+  Future<void> _upgradeToV9(Database db) async {
+    final existingTables = (await db.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type='table'",
+    )).map((row) => row['name'] as String).toSet();
+    if (existingTables.contains('sync_outbox')) return;
+    for (final statement in syncSchema) {
+      await db.execute(statement);
     }
   }
 

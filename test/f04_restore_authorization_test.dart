@@ -19,6 +19,10 @@ import 'package:agroquimicos/data/database_replacement.dart';
 import 'package:agroquimicos/data/farmer_operation_gate.dart';
 import 'package:agroquimicos/data/operation_mode_store.dart';
 import 'package:agroquimicos/data/owner_binding_store.dart';
+import 'package:agroquimicos/data/sync/central_binding_store.dart';
+import 'package:agroquimicos/data/sync/declared_need_store.dart';
+import 'package:agroquimicos/data/sync/sync_outbox_store.dart';
+import 'package:agroquimicos/domain/sync/sync_types.dart';
 import 'package:agroquimicos/domain/installation_access.dart';
 import 'package:agroquimicos/domain/operation_mode.dart';
 import 'package:agroquimicos/guarded_restore.dart';
@@ -34,6 +38,8 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'support/f04_app_access.dart';
 import 'support/f04_mode_fixtures.dart';
+import 'support/f05_sync_fixtures.dart'
+    show centralCampaign, centralProduct, inCampaign;
 
 class _WorkspacePaths extends PathProviderPlatform {
   _WorkspacePaths(this.directory);
@@ -559,6 +565,86 @@ void main() {
         for (final entry in contents.entries)
           if (entry.key != 'app_settings') entry.key: entry.value,
       });
+    });
+  });
+
+  group('sincronización F05 y restauración', () {
+    test('restaurar no publica: las intenciones por enviar de la copia quedan pausadas', () async {
+      final app = await install('a', seed: (db) => boundTo(db, memberA));
+      final (backup, contents) = await backupOf('a_con_cola', (db) async {
+        await boundTo(db, memberA, installationRef: installationElsewhere);
+        final repo = AgroRepository(db);
+        // La campaña del hogar sembrado cubre la fecha de referencia.
+        final campaign = (await repo.activeCampaign())!['id']! as int;
+        final product = await repo.addProduct(name: 'Herbicida', unit: 'L');
+        final second = await repo.addProduct(name: 'Fungicida', unit: 'KG');
+        final bindings = CentralBindingStore(db);
+        await bindings.bindCampaign(
+          campaignId: campaign,
+          central: centralCampaign(),
+          tenantId: memberA.tenantId,
+        );
+        await bindings.bindProduct(
+          productId: product,
+          central: centralProduct(),
+          tenantId: memberA.tenantId,
+        );
+        await bindings.bindProduct(
+          productId: second,
+          central: centralProduct(
+            ref: '3a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d',
+            unit: 'KG',
+          ),
+          tenantId: memberA.tenantId,
+        );
+        final needs = DeclaredNeedStore(db);
+        final outbox = SyncOutboxStore(db);
+        await needs.declare(
+          referenceDate: inCampaign,
+          productId: product,
+          quantityBase: 1000,
+        );
+        // Una ya aceptada y otra que salió sin respuesta.
+        final accepted = await outbox.markSending(
+          (await outbox.entries()).single,
+        );
+        await outbox.recordAccepted(accepted, '2026-10-15T12:00:00.000Z');
+        await needs.declare(
+          referenceDate: inCampaign,
+          productId: second,
+          quantityBase: 500,
+        );
+        await outbox.markSending(
+          (await outbox.entries()).firstWhere((e) => e.attempts == 0),
+        );
+      });
+
+      await app.guarded.restore(backup);
+
+      final restored = await SyncOutboxStore(app.database).entries();
+      expect(restored, hasLength(2));
+      final byStatus = {for (final e in restored) e.status: e};
+      expect(byStatus.keys.toSet(), {
+        OutboxStatus.acked,
+        OutboxStatus.restorePaused,
+      });
+      // El resto de la copia llega tal cual.
+      expect(await app.dump(except: {'app_settings', 'sync_outbox'}), {
+        for (final entry in contents.entries)
+          if (entry.key != 'app_settings' && entry.key != 'sync_outbox')
+            entry.key: entry.value,
+      });
+      // Liberar las devuelve a la cola con el mismo contenido.
+      final binding = await OwnerBindingStore(app.database).activeBinding();
+      expect(
+        await SyncOutboxStore(app.database).releaseRestored(binding!.id),
+        1,
+      );
+      final released = (await SyncOutboxStore(
+        app.database,
+      ).entries()).firstWhere((e) => e.status != OutboxStatus.acked);
+      expect(released.status, OutboxStatus.outcomeUnknown);
+      expect(released.attempts, 1);
     });
   });
 }

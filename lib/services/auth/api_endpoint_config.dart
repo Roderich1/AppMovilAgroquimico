@@ -11,7 +11,14 @@ class ApiEndpointConfig {
     '/api/v1/auth/v2/me',
     '/api/v1/auth/v2/refresh',
     '/api/v1/auth/v2/logout',
+    '/api/v1/sync/v1/push',
+    '/api/v1/sync/v1/references',
   };
+
+  /// Consulta owner-scoped de una operación: sólo un UUID v4 en minúsculas.
+  static final _operationPath = RegExp(
+    r'^/api/v1/sync/v1/operations/[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$',
+  );
 
   factory ApiEndpointConfig.fromEnvironment() {
     const value = String.fromEnvironment('AGRO_API_BASE_URL');
@@ -27,7 +34,8 @@ class ApiEndpointConfig {
   Uri endpoint(String absolutePath) {
     // Exact raw-string matching also rejects encoded dot segments, alternative
     // spellings, query/fragment suffixes and authority/absolute references.
-    if (!_allowedPaths.contains(absolutePath)) {
+    if (!_allowedPaths.contains(absolutePath) &&
+        !_operationPath.hasMatch(absolutePath)) {
       throw const AuthApiException(AuthApiErrorKind.configuration);
     }
     final destination = origin.resolve(absolutePath);

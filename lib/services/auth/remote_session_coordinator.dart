@@ -68,6 +68,15 @@ class RemoteSessionState {
       'RemoteSessionState(${phase.name}, ${problem?.name}, cleanupUnconfirmed: $cleanupUnconfirmed)';
 }
 
+/// Recibe el access token V2 recién verificado y su contexto, sólo en
+/// memoria (Sync v1 lo usa mientras sea vigente). Nunca se persiste ni se
+/// registra.
+typedef AccessVerifiedCallback = void Function(
+  String accessToken,
+  String memberId,
+  String tenantId,
+);
+
 class _RemoteAbort implements Exception {
   const _RemoteAbort(this.phase, this.problem);
   final RemoteSessionPhase phase;
@@ -85,12 +94,14 @@ class RemoteSessionCoordinator {
     required AuthV2Api Function() apiFactory,
     DateTime Function()? clock,
     void Function(RemoteSessionState)? onStateChanged,
+    AccessVerifiedCallback? onAccessVerified,
   }) : _readSession = readSession,
        _secureSession = secureSession,
        _guard = guard,
        _apiFactory = apiFactory,
        _clock = clock ?? DateTime.now,
-       _onStateChanged = onStateChanged;
+       _onStateChanged = onStateChanged,
+       _onAccessVerified = onAccessVerified;
 
   final Future<SessionReadResult> Function() _readSession;
   final SecureSessionCommitPort _secureSession;
@@ -98,6 +109,7 @@ class RemoteSessionCoordinator {
   final AuthV2Api Function() _apiFactory;
   final DateTime Function() _clock;
   final void Function(RemoteSessionState)? _onStateChanged;
+  final AccessVerifiedCallback? _onAccessVerified;
   RemoteSessionState _state = const RemoteSessionState(RemoteSessionPhase.idle);
   bool _running = false;
   static bool _isolateRemoteOperationActive = false;
@@ -151,6 +163,7 @@ class RemoteSessionCoordinator {
           RemoteSessionProblem.guardFailure,
         );
       }
+      _verified(response.accessToken, stored);
       return _emit(
         const RemoteSessionState(RemoteSessionPhase.remoteAvailable),
       );
@@ -284,6 +297,7 @@ class RemoteSessionCoordinator {
       );
       stage = 'clear';
       await _guard.clear();
+      _verified(login.accessToken, stored);
       return _emit(
         const RemoteSessionState(RemoteSessionPhase.remoteAvailable),
       );
@@ -494,6 +508,15 @@ class RemoteSessionCoordinator {
     RemoteSessionPhase.requiresReauthentication,
     problem: RemoteSessionProblem.alreadyRunning,
   );
+
+  /// Sólo tras confirmar el commit y liberar la guarda.
+  void _verified(String accessToken, StoredSession stored) {
+    try {
+      _onAccessVerified?.call(accessToken, stored.memberId, stored.tenantId);
+    } on Object {
+      // Un consumidor del token no puede cambiar el resultado de seguridad.
+    }
+  }
 
   RemoteSessionState _emit(RemoteSessionState next) {
     _state = next;

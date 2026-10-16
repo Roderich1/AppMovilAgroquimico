@@ -343,6 +343,10 @@ unicidad. Fuera de ese caso la tabla sigue vacía.
 | **→ 3** | Cierra campañas activas sobrantes dejando la más reciente; crea `payment_allocations`, `transfers`, `transfer_lot_items`; crea 7 índices condicionados a la existencia de la tabla |
 | **→ 4** | Crea `transfer_items`; `ALTER transfer_lot_items` + `transfer_item_id`; `ALTER application_items` + `unit`, `variance_quantity_base`, `fifo_estimated_cost_bob_minor`, `notes`; `ALTER applications` + `treated_area_m2`, `plan_id`; crea 3 índices |
 | **→ 5** | **Corrige la divergencia de esquema**: recrea `idx_application_item_unique` e `idx_plan_item_unique` como `UNIQUE`, y crea `app_settings` si falta. No borra ni modifica datos |
+| **→ 6** | Un plan se aplica una sola vez: `COMPLETED` pasa a `APPLIED` e índice único parcial `idx_application_plan_single_use` (o no único con anomalía registrada si había reutilizaciones) |
+| **→ 7** | Repara el `product_id` de los movimientos `TRANSFER_REVERSAL_*` (F04-BUG-01). Sólo datos |
+| **→ 8** | Política de activación: `owner_bindings` (titular inmutable) e `install_origin = LEGACY_PRE_POLICY` para toda base anterior |
+| **→ 9** | Sincronización F05: crea vacías `campaign_bindings`, `product_bindings`, `sync_outbox`, `declared_needs` y `declared_need_versions`, con sus índices y triggers. No toca ninguna fila ni añade columnas a tablas existentes |
 
 Las migraciones v3 y v4 consultan `sqlite_master` antes de actuar, lo que las hace
 tolerantes a bases parcialmente formadas. Es una precaución razonable.
@@ -604,3 +608,19 @@ ningún vínculo ni atribuye datos a ninguna cuenta.
 | `schema_equivalence_test.dart` | sigue verificando que una base migrada desde v3 queda con el mismo esquema que una nueva |
 
 Las migraciones históricas (v1 a v7) **no se tocaron**.
+
+---
+
+## Actualización 2026-10-15 — Tablas de sincronización (v9)
+
+Sólo participan en la sincronización la **intención** y los **vínculos** con el catálogo central. Ninguna tabla operativa recibe un identificador global (contrato F05 §15: no globalizar los IDs de SQLite).
+
+| Tabla | Contenido | Reglas |
+|---|---|---|
+| `campaign_bindings` | Campaña local ↔ `campaign_ref` del tenant, nombre central, estado (`VALID`/`INVALID` con motivo), fechas | Una referencia central por campaña local y viceversa. Sólo con titular vinculado del mismo tenant |
+| `product_bindings` | Producto local ↔ `product_ref`, nombre y unidad centrales, `base_unit`, estado | Dimensión igual a la local; sin conversión ni densidad |
+| `sync_outbox` | `operation_id` UUID v4, `owner_binding_id`, tipo, acción, las cuatro referencias/cantidad de la whitelist F06, causalidad, estado, intentos, último código y recibo | Sin borrado; una intención enviada es inmutable; un `ACKED` es definitivo |
+| `declared_needs` | Necesidad vigente por titular, campaña y producto (o anulada) | Sin borrado. Cero es una declaración válida |
+| `declared_need_versions` | Historial de cada cambio, con la intención que lo transporta | Inmutable |
+
+La cantidad se guarda en unidades base enteras (ML/G) y viaja como decimal en texto, sin pasar por `double`.

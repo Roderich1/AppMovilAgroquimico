@@ -152,3 +152,54 @@ NumericInputResult parseNumericInput(String raw) {
   }
   return NumericInputResult._(NumericInputStatus.valid, parsed, null);
 }
+
+/// Mayor cantidad en unidades base que se envía al sindicato (int64 de
+/// SQLite y del contrato F05 §4).
+const int maxBaseQuantity = 9223372036854775807;
+
+/// Resultado de [parseBaseQuantity]: [base] no es null si y sólo si
+/// [message] es null.
+class BaseQuantityResult {
+  const BaseQuantityResult._(this.base, this.message);
+
+  /// Cantidad exacta en ML o G.
+  final int? base;
+  final String? message;
+
+  bool get isValid => base != null;
+}
+
+/// Convierte una cantidad tecleada en L o KG a unidades base (ML o G, ×1000)
+/// **con aritmética entera**, sin pasar por `double` (F06 §2: sin fracciones
+/// de unidad base ni redondeos silenciosos). Sigue el convenio es-BO de
+/// [parseNumericInput] y rechaza lo que éste rechaza. Un cuarto decimal
+/// distinto de cero sería una fracción de ML o G y se rechaza en lugar de
+/// redondearse. Cero es una cantidad válida.
+BaseQuantityResult parseBaseQuantity(String raw) {
+  final checked = parseNumericInput(raw);
+  if (!checked.isValid) {
+    return BaseQuantityResult._(
+      null,
+      checked.message ?? 'Indique la cantidad.',
+    );
+  }
+  final text = raw.replaceAll(' ', ' ').replaceAll(' ', ' ').trim();
+  final digits = _groupedDot.hasMatch(text)
+      ? text.replaceAll('.', '')
+      : text.replaceAll(' ', '');
+  final parts = digits.split(',');
+  final fraction = parts.length == 2 ? parts[1] : '';
+  if (fraction.length > 3 && fraction.substring(3).contains(RegExp('[1-9]'))) {
+    return const BaseQuantityResult._(
+      null,
+      'Use como máximo tres decimales: la unidad mínima es 1 ML o 1 G.',
+    );
+  }
+  final scaled =
+      BigInt.parse(parts[0]) * BigInt.from(1000) +
+      BigInt.parse(fraction.padRight(3, '0').substring(0, 3));
+  if (scaled > BigInt.from(maxBaseQuantity)) {
+    return const BaseQuantityResult._(null, 'La cantidad es demasiado grande.');
+  }
+  return BaseQuantityResult._(scaled.toInt(), null);
+}
