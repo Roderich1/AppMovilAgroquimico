@@ -926,6 +926,20 @@ class AgroRepository {
               ),
             ) ??
             0;
+        // F04-BUG-02: el lote destino de una transferencia hereda el
+        // `purchase_item_id` de su origen. Si esa transferencia ya se revirtió,
+        // el lote quedó anulado y en saldo 0: no hay nada que restituir y no
+        // debe bloquear la reversión. Un lote anulado con saldo distinto de 0
+        // sería un estado inconsistente: se rechaza en lugar de ignorarlo.
+        if (lot['reversed_at'] != null) {
+          if (available != 0) {
+            throw BusinessRuleException(
+              'Un lote anulado de esta compra conserva saldo; revise sus '
+              'movimientos antes de revertir.',
+            );
+          }
+          continue;
+        }
         if (available != lot['initial_quantity_base'])
           throw BusinessRuleException(
             'El lote fue transferido o ajustado; requiere reversión consistente previa.',
