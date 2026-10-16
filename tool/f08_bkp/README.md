@@ -46,7 +46,9 @@ El titular del ensayo es la cuenta D (`juan.perez@agro.local`). Su contraseña e
    - Una aplicación.
    - En Sindicato › Vínculos, vincular la campaña y dos productos.
    - Declarar la **necesidad 1** y pulsar «Sincronizar ahora»; debe quedar ACKED.
-   - Con las radios apagadas (`./device.sh net off`), declarar la **necesidad 2** y volver a encenderlas sin sincronizar; debe quedar PENDING.
+   - Con las radios apagadas (`./device.sh net off`), declarar la **necesidad 2**.
+     - Si la app tiene el acceso verificado en memoria, el worker la intenta y queda **OUTCOME_UNKNOWN** (`NETWORK`, 1 intento), no PENDING. Ocurrió así en el turno 2. Sin acceso verificado queda PENDING. Las dos son válidas para el ensayo; se anota cuál fue.
+     - Para que no salga al volver la red, **detener la app sin red** (`./device.sh stop`) antes de encender las radios. Así se borra el acceso en memoria. Abrir la app después, sin verificar, no envía nada (comprobarlo con `./check.sh requests`).
 5. Ir a Liquidación › Copias de seguridad › **Respaldo en la nube** › «Subir respaldo» y confirmar. El mensaje debe indicar que el servidor confirmó la copia.
 6. Ejecutar `../f08_bkp/server_state.sh`. Esperado: 1 AVAILABLE con «archivo íntegro» y staging vacío.
 7. Ejecutar `../f08_bkp/device_snapshot.sh antes` sin tocar nada más en la app.
@@ -65,15 +67,15 @@ El titular del ensayo es la cuenta D (`juan.perez@agro.local`). Su contraseña e
 9. Ejecutar `../f08_bkp/device_snapshot.sh despues`.
 10. Ejecutar `../f08_bkp/device_snapshot.sh compare antes despues`. Esperado `Resultado: PASS`, con IGUAL en todas las tablas y las fotos (las 3, por nombre y SHA-256), salvo las transformaciones previstas por el protocolo:
     - `app_settings`: sólo `activated_installation_ref`.
-    - `sync_outbox`: ACKED se mantiene; PENDING pasa a RESTORE_PAUSED, con la misma operación, cantidad y causalidad.
+    - `sync_outbox`: ACKED se mantiene; lo enviable (PENDING u OUTCOME_UNKNOWN) pasa a RESTORE_PAUSED, con la misma operación, cantidad y causalidad. `compare` sólo admite cambios en `status` y `updated_at`.
     - `purchases`: sólo cambia la carpeta de `invoice_image_path`.
 
 ## 3. Reanudar con la verificación del titular
 
 1. En Sincronización › «Liberar envíos restaurados», confirmar. La app verifica el acceso en línea de la cuenta del titular.
-2. Ejecutar `./check.sh requests "$m"`. Esperado: un único `POST /api/v1/sync/v1/push 200`, el de la necesidad 2.
+2. Ejecutar `./check.sh requests "$m"`. Esperado: un único `POST /api/v1/sync/v1/push 200`, el de la necesidad 2, con su **mismo `operationId`**. Si estaba OUTCOME_UNKNOWN, liberar la devuelve a OUTCOME_UNKNOWN (ya tuvo un intento) y se reenvía el mismo sobre.
 3. Ejecutar `./check.sh sync`. La contribución de la necesidad 1 no se duplica y la de la necesidad 2 queda una sola vez.
-4. En la app, la necesidad 2 debe aparecer como ACKED.
+4. En la app, la necesidad 2 debe aparecer como «Sincronizado» en la lista de Sincronización **sin salir de la pantalla**, no sólo en el resumen (corregido en F10).
 
 ## 4. Cierre
 
