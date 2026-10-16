@@ -15,6 +15,8 @@
 | `3668ad2` | Primera versión de esta evidencia. |
 | `1663e92` | Correcciones de la revisión de A (M1–M5 y menores), descritas en §2b. |
 | `f0f5227`, `2b3a0ce` | La comprobación previa verifica también la producción cerrada y el 415 sin eco en la API compilada. |
+| `7021177` | Evidencia de la primera revisión. **Su CI falló en `dart format`**: dos líneas en blanco en `test/backup_export_atomic_test.dart`, así que no llegaron a correr el análisis ni los tests en ese HEAD. |
+| `e5a1364` | Segunda revisión de A, descrita en §2c. |
 
 Base: BASE_MOBILE_VALIDADA `caf158e0a0c8012082add22761ca9c6d56e6eb8f`, publicada por A tras resolver #86. La rama se creó desde ella.
 
@@ -91,6 +93,28 @@ No se inventaron estados nuevos: se reutilizan `RESTORE_PAUSED`, `DatabaseReplac
   - la carpeta privada se limpia antes de preparar una restauración;
   - el comentario de UIBUG-049 está al día.
 
+## 2c. Segunda revisión de A (`e5a1364`)
+
+- **Formato.** Corregido. Antes de publicar se ejecuta la misma comprobación que la CI: `dart format --output=none --set-exit-if-changed lib test`.
+- **Plazo de la descarga.** El plazo total de 5 min de `7021177` interrumpía descargas válidas grandes en redes lentas. Ahora la descarga tiene:
+  - un plazo **por inactividad** de 1 min sin recibir bytes;
+  - un **tope total proporcional al tamaño declarado**: 5 min más el tamaño a 16 KiB/s, unos 128 kbit/s; con 100 MB, algo menos de dos horas.
+
+  Ninguna espera es ilimitada y, al vencer, la petición se aborta. El aborto, el corte o la falta de respuesta se informan como **error de red**. Sólo una discrepancia real de tamaño o de SHA-256 se informa como integridad.
+- **Cierre del arnés:**
+  - `env.sh` valida todas las variables antes de exportar ninguna; ante un conflicto no cambia nada;
+  - el nuevo `tool/f08_bkp/down.sh` carga `env.sh` y comprueba que el contenedor y el volumen son los de F08 antes de delegar;
+  - el README advierte que nunca se use directamente el `down.sh` de F03.
+
+  Comprobado: con un conflicto en una variable posterior no queda nada asignado, y con una shell de F03 el `down.sh` de F08 se niega.
+- **Comprobación previa:** exige `BACKUP_STORAGE_DIR` en el modo normal.
+- **Pruebas nuevas:**
+  - una descarga lenta pero continua, más larga que el plazo de inactividad, termina;
+  - una descarga detenida se aborta, con error de red y sin archivo;
+  - una descarga que progresa pero supera el tope se aborta;
+  - los avisos de la exportación llegan al resultado de la subida (M3, a nivel de servicio).
+- **Sin cambiar:** la subida mantiene el plazo total de 5 min, el mismo corte que aplica el servidor (BE `F08_BACKUP.md`, limitación del plazo de subida).
+
 ## 3. Pruebas
 
 `test/remote_backup_client_test.dart` tiene **25 casos**: los 20 iniciales y 5 de la revisión.
@@ -125,11 +149,16 @@ No se inventaron estados nuevos: se reutilizan `RESTORE_PAUSED`, `DatabaseReplac
 
 El caso «otro Member» y el de «instalación nueva» reutilizan además las regresiones existentes de `f04_restore_authorization_test.dart`, todas en verde.
 
-| Comando, sobre `1663e920f30b0504f0efceeb35f56da1c9c6f228` (con `main` `74d5539` integrado) | Resultado |
+| Comando, sobre `e5a13649569aea579463c7bf151f8eb7cae7b9d0` (con `main` `74d5539` integrado) | Resultado |
 |---|---|
+| `dart format --output=none --set-exit-if-changed lib test` | exit 0 |
 | `flutter analyze` | `No issues found!` |
-| `flutter test` | **1026 pasan, 2 omitidas, 0 fallos** |
-| Suites de respaldo y restauración (comando anterior) | **107/107** |
+| `flutter test` | **1030 pasan, 2 omitidas, 0 fallos** |
+| Suites de respaldo y restauración (comando de §1) | **111/111** |
+
+**Ejecución anterior con fallos.** Una ejecución de `flutter test` sobre el mismo HEAD, a la vez que las suites del Backend, dio **2 fallos** en `f04_activation_app_policy_test.dart` y `f04_admin_owner_restore_ui_test.dart`. En ambos casos fue `PathAccessException` al borrar un directorio temporal, porque otro proceso retenía un archivo (Windows). Repetidas solas pasaron (21/21), y la suite completa en solitario dio el resultado de la tabla. Se registra como fallo de entorno, no de código.
+
+Sobre `1663e92`, primera revisión: `flutter test` 1026/2 y suites de respaldo 107/107.
 
 ## 4. Comprobaciones fuera del teléfono
 
