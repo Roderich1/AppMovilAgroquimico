@@ -657,7 +657,7 @@ void main() {
             isA<RemoteBackupException>().having(
               (e) => e.kind,
               'kind',
-              RemoteBackupErrorKind.integrity,
+              RemoteBackupErrorKind.network,
             ),
           ),
         );
@@ -768,6 +768,22 @@ void main() {
       expect(server.stored, hasLength(1));
       expect(result.entry.sha256, _hex(server.stored.values.single.bytes));
       expect(server.requests.where((r) => r.method == 'POST'), hasLength(1));
+    });
+
+    test('los avisos de la exportación (foto que falta) llegan al resultado de la subida', () async {
+      final server = _FakeServer();
+      final a = await phone(
+        'a',
+        session: memberA,
+        installationRef: installationHere,
+        seed: (db, invoices) => farmerData(db, invoices),
+      );
+      for (final photo in a.invoices.listSync().whereType<File>()) {
+        photo.deleteSync();
+      }
+      final result = await a.service(server, memberA).uploadNew();
+      expect(result.export.warnings, isNotEmpty);
+      expect(result.export.warnings.single, contains('fotografía'));
     });
 
     test('sin red y sin copia en el servidor: el error se informa, no se da por subida', () async {
@@ -978,14 +994,25 @@ void main() {
       expect(server.requests, isEmpty);
     });
 
-    for (final (name, breakIt) in <(String, void Function(_FakeServer))>[
-      ('bytes alterados en la descarga', (s) => s.corruptBody = true),
-      ('corte a mitad de la descarga', (s) => s.truncateBody = true),
-      (
-        'SHA-256 de los metadatos distinto',
-        (s) => s.stored.values.single.declaredSha = 'd' * 64,
-      ),
-    ]) {
+    for (final (name, breakIt, kind)
+        in <(String, void Function(_FakeServer), RemoteBackupErrorKind)>[
+          (
+            'bytes alterados en la descarga',
+            (s) => s.corruptBody = true,
+            RemoteBackupErrorKind.integrity,
+          ),
+          // Un corte no es un fallo de integridad de la copia: es la red.
+          (
+            'corte a mitad de la descarga',
+            (s) => s.truncateBody = true,
+            RemoteBackupErrorKind.network,
+          ),
+          (
+            'SHA-256 de los metadatos distinto',
+            (s) => s.stored.values.single.declaredSha = 'd' * 64,
+            RemoteBackupErrorKind.integrity,
+          ),
+        ]) {
       test('$name: no se restaura y los datos vigentes se conservan', () async {
         final server = _FakeServer();
         final a = await phone(
@@ -1006,11 +1033,7 @@ void main() {
         await expectLater(
           a.service(server, memberA).prepareRestore(entry),
           throwsA(
-            isA<RemoteBackupException>().having(
-              (e) => e.kind,
-              'kind',
-              RemoteBackupErrorKind.integrity,
-            ),
+            isA<RemoteBackupException>().having((e) => e.kind, 'kind', kind),
           ),
         );
         expect(await a.dump(), before);
@@ -1236,6 +1259,51 @@ class _HangingClient extends http.BaseClient {
   }
 }
 
+/// Sirve [bytes] en 10 bloques, uno cada [every]; con [stallAfter] deja de
+/// enviar tras ese número de bloques. Atiende la cancelación de la petición.
+class _SlowClient extends http.BaseClient {
+  _SlowClient(this.bytes, {required this.every, this.stallAfter});
+  final List<int> bytes;
+  final Duration every;
+  final int? stallAfter;
+  bool aborted = false;
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    final controller = StreamController<List<int>>();
+    if (request case http.Abortable(:final abortTrigger?)) {
+      unawaited(
+        abortTrigger.then((_) {
+          aborted = true;
+          if (!controller.isClosed) {
+            controller.addError(http.RequestAbortedException(request.url));
+            controller.close();
+          }
+        }),
+      );
+    }
+    final size = (bytes.length / 10).ceil();
+    unawaited(() async {
+      for (var i = 0; i * size < bytes.length; i++) {
+        if (stallAfter != null && i >= stallAfter!) return;
+        await Future<void>.delayed(every);
+        if (controller.isClosed) return;
+        final end = (i + 1) * size > bytes.length
+            ? bytes.length
+            : (i + 1) * size;
+        controller.add(bytes.sublist(i * size, end));
+      }
+      if (!controller.isClosed) await controller.close();
+    }());
+    return http.StreamedResponse(
+      controller.stream,
+      200,
+      contentLength: bytes.length,
+      headers: {'x-content-sha256': _hex(bytes)},
+    );
+  }
+}
+
 void _reviewTests() {
   late Directory workspace;
 
@@ -1249,6 +1317,88 @@ void _reviewTests() {
     } on FileSystemException {
       // Temporal.
     }
+  });
+
+  RemoteBackupEntry entryFor(List<int> bytes) => RemoteBackupEntry.validate(
+    _Stored(
+      '00000001-0000-4000-8000-000000000001',
+      Uint8List.fromList(bytes),
+      9,
+      DateTime.utc(2026),
+    ).json,
+  )!;
+
+  test('una descarga lenta pero continua termina aunque dure más que el plazo de inactividad', () async {
+    final bytes = List<int>.generate(10 * 1024, (i) => i % 256);
+    final api = RemoteBackupApi(
+      config: ApiEndpointConfig(Uri.parse(_origin)),
+      client: _SlowClient(bytes, every: const Duration(milliseconds: 60)),
+      timeout: const Duration(milliseconds: 150),
+      idleTimeout: const Duration(milliseconds: 150),
+      // Tope: 150 ms + 10 KiB a 8 KiB/s ≈ 1,4 s, por encima de los ~600 ms.
+      minDownloadBytesPerSecond: 8 * 1024,
+    );
+    final watch = Stopwatch()..start();
+    final file = await api.download(
+      entryFor(bytes),
+      Directory(p.join(workspace.path, 'lenta')),
+      _token,
+    );
+    expect(watch.elapsed, greaterThan(const Duration(milliseconds: 300)));
+    expect(await file.readAsBytes(), bytes);
+  });
+
+  test('una descarga que progresa pero supera el tope proporcional al tamaño se aborta', () async {
+    final bytes = List<int>.generate(10 * 1024, (i) => i % 256);
+    final client = _SlowClient(bytes, every: const Duration(milliseconds: 60));
+    final api = RemoteBackupApi(
+      config: ApiEndpointConfig(Uri.parse(_origin)),
+      client: client,
+      timeout: const Duration(milliseconds: 100),
+      idleTimeout: const Duration(seconds: 5),
+      // 10 KiB a 100 KiB/s = 100 ms: tope 200 ms frente a ~600 ms de envío.
+      minDownloadBytesPerSecond: 100 * 1024,
+    );
+    final into = Directory(p.join(workspace.path, 'tope'));
+    await expectLater(
+      api.download(entryFor(bytes), into, _token),
+      throwsA(
+        isA<RemoteBackupException>().having(
+          (e) => e.kind,
+          'kind',
+          RemoteBackupErrorKind.network,
+        ),
+      ),
+    );
+    expect(client.aborted, isTrue);
+    expect(into.listSync(), isEmpty);
+  });
+
+  test('una descarga detenida se aborta por inactividad: error de red y sin archivo', () async {
+    final bytes = List<int>.generate(10 * 1024, (i) => i % 256);
+    final client = _SlowClient(
+      bytes,
+      every: const Duration(milliseconds: 20),
+      stallAfter: 3,
+    );
+    final api = RemoteBackupApi(
+      config: ApiEndpointConfig(Uri.parse(_origin)),
+      client: client,
+      idleTimeout: const Duration(milliseconds: 150),
+    );
+    final into = Directory(p.join(workspace.path, 'detenida'));
+    await expectLater(
+      api.download(entryFor(bytes), into, _token),
+      throwsA(
+        isA<RemoteBackupException>().having(
+          (e) => e.kind,
+          'kind',
+          RemoteBackupErrorKind.network,
+        ),
+      ),
+    );
+    expect(client.aborted, isTrue);
+    expect(into.listSync(), isEmpty);
   });
 
   test('al vencer el plazo la subida se cancela de verdad, no sólo se deja de esperar', () async {

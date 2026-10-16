@@ -18,7 +18,6 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-
 class _WorkspacePathProvider extends PathProviderPlatform {
   _WorkspacePathProvider(this.directory);
   final String directory;

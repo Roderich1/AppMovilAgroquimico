@@ -161,21 +161,34 @@ class RemoteBackupException implements Exception {
 
 /// Cliente HTTP en streaming: los archivos no se cargan enteros en memoria.
 ///
-/// Cada operación tiene un plazo total ([timeout], 5 min como el
-/// `requestTimeout` por defecto del servidor). Al vencer, la petición se
-/// **aborta** (no sólo se deja de esperar): una subida abandonada no sigue
-/// enviándose y el servidor la registra como incompleta.
+/// Plazos: la lista, la subida y la eliminación tienen un plazo total
+/// ([timeout], 5 min como el `requestTimeout` por defecto del servidor, que
+/// corta igualmente una subida más larga). La descarga, en cambio, tiene un
+/// plazo por **inactividad** ([idleTimeout]) y un **tope total proporcional
+/// al tamaño declarado** ([timeout] más el tiempo de transferir la copia a
+/// [minDownloadBytesPerSecond]): una copia grande en una red lenta se
+/// descarga mientras progrese, pero ninguna espera es ilimitada. Al vencer
+/// cualquier plazo, la petición se **aborta** (no sólo se deja de esperar):
+/// una subida abandonada no sigue enviándose y el servidor la registra como
+/// incompleta.
 class RemoteBackupApi {
   RemoteBackupApi({
     required ApiEndpointConfig config,
     required http.Client client,
     this.timeout = const Duration(minutes: 5),
+    this.idleTimeout = const Duration(minutes: 1),
+    this.minDownloadBytesPerSecond = 16 * 1024,
   }) : _config = config,
        _client = client;
 
   final ApiEndpointConfig _config;
   final http.Client _client;
   final Duration timeout;
+  final Duration idleTimeout;
+
+  /// Ritmo medio mínimo que se tolera en una descarga: 16 KiB/s (unos
+  /// 128 kbit/s). Con él, 100 MB caben en algo menos de dos horas.
+  final int minDownloadBytesPerSecond;
 
   static const _base = '/api/v1/me/backups';
 
@@ -285,18 +298,54 @@ class RemoteBackupApi {
     RemoteBackupEntry entry,
     Directory directory,
     String accessToken,
-  ) => _bounded((abort) => _download(entry, directory, accessToken, abort));
+  ) async {
+    // El plazo se rearma con cada bloque recibido: sólo vence si la
+    // transferencia se detiene, no por ser larga.
+    final abort = Completer<void>();
+    void fire() {
+      if (!abort.isCompleted) abort.complete();
+    }
+
+    Timer? idle;
+    void touch() {
+      idle?.cancel();
+      idle = Timer(idleTimeout, fire);
+    }
+
+    final cap = Timer(
+      timeout +
+          Duration(
+            milliseconds: (entry.sizeBytes * 1000 / minDownloadBytesPerSecond)
+                .ceil(),
+          ),
+      fire,
+    );
+    touch();
+    try {
+      return await _download(
+        entry,
+        directory,
+        accessToken,
+        abort.future,
+        touch,
+      );
+    } finally {
+      idle?.cancel();
+      cap.cancel();
+    }
+  }
 
   Future<File> _download(
     RemoteBackupEntry entry,
     Directory directory,
     String accessToken,
     Future<void> abort,
+    void Function() touch,
   ) async {
-    await directory.create(recursive: true);
     final target = File(p.join(directory.path, '${entry.id}.agrobackup'));
     final partial = File('${target.path}.part');
     try {
+      await directory.create(recursive: true);
       final response = await _send(
         http.AbortableRequest(
           'GET',
@@ -320,7 +369,10 @@ class RemoteBackupApi {
       final hasher = sha256.startChunkedConversion(digest);
       var received = 0;
       try {
-        await for (final chunk in response.stream.timeout(timeout)) {
+        await for (final chunk in response.stream.timeout(
+          idleTimeout + _grace,
+        )) {
+          touch();
           received += chunk.length;
           if (received > entry.sizeBytes) {
             throw const RemoteBackupException(RemoteBackupErrorKind.integrity);
@@ -346,8 +398,9 @@ class RemoteBackupApi {
       throw const RemoteBackupException(RemoteBackupErrorKind.localStorage);
     } on Exception {
       await _deleteQuietly(partial);
-      // Corte a mitad de la descarga: la copia no llegó completa.
-      throw const RemoteBackupException(RemoteBackupErrorKind.integrity);
+      // Conexión cortada, abortada por inactividad o sin respuesta: la copia
+      // no llegó, pero eso no es un fallo de integridad de la copia.
+      throw const RemoteBackupException(RemoteBackupErrorKind.network);
     }
   }
 

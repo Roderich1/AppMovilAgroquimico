@@ -17,7 +17,9 @@ Procedimiento para el turno de POCO que asigna la sesión A. **Sólo A usa adb, 
 
 ## 0. Entorno (una shell Git Bash **nueva**)
 
-Use una shell que **no** haya cargado antes la configuración de F03-RES-01, D4 o E-2. Si `env.sh` encuentra otro valor ya asignado a alguna de sus variables, aborta. Así evita que `down.sh` apunte a un contenedor o volumen conservado de otro ensayo.
+Use una shell que **no** haya cargado antes la configuración de F03-RES-01, D4 o E-2. `env.sh` valida todas sus variables antes de exportar ninguna; si alguna ya tiene otro valor, aborta sin cambiar nada.
+
+> **Atención.** Para cerrar, use **siempre `tool/f08_bkp/down.sh`**, nunca `tool/f03_res_01/down.sh` directamente. En una shell sin `env.sh` cargado, el de F03 apuntaría al contenedor y al volumen **conservados** de F03-RES-01 (`agro_f03res01_pg`) y los borraría. El de F08 carga `env.sh`, comprueba que el contenedor y el volumen son `agro_c_f08e2e_pg` y `agro_c_f08e2e_pgdata` y sólo entonces delega.
 
 `env.sh` abre la admisión de respaldos (`BACKUP_PRODUCTION_ADMISSION=enabled`) **sólo** en este entorno desechable y sintético. `up.sh` arranca la API con `NODE_ENV=production`, donde los respaldos están cerrados por defecto.
 
@@ -78,7 +80,7 @@ El titular del ensayo es la cuenta D (`juan.perez@agro.local`). Su contraseña e
 - Ejecutar `./logcat_scan.sh`. Sólo imprime conteos de JWT, UUID, contraseñas y FATAL; todos deben ser 0.
 - Detener la API, el observador y el túnel. Lo que se conserva o se borra lo decide A:
   - **Conservar** (decisión de A para el turno 2): `docker stop agro_c_f08e2e_pg` y mantener el volumen y `$F03_RUN_DIR`, con el almacenamiento de respaldos y las instantáneas.
-  - **Eliminar** cuando ya no hagan falta: `./down.sh` borra sólo `agro_c_f08e2e_pg` y su volumen. Después hay que borrar `$BACKUP_STORAGE_DIR` y `$F03_RUN_DIR/snap_*`; los `dump.json` contienen datos sintéticos de negocio.
+  - **Eliminar** cuando ya no hagan falta: `../f08_bkp/down.sh` (nunca el `down.sh` de F03) borra sólo `agro_c_f08e2e_pg` y su volumen. Después hay que borrar `$BACKUP_STORAGE_DIR` y `$F03_RUN_DIR/snap_*`; los `dump.json` contienen datos sintéticos de negocio.
 - Borrar las imágenes sintéticas del teléfono: `MSYS_NO_PATHCONV=1 adb shell rm -r /sdcard/Pictures/f08`.
 - Restaurar las radios y el ajuste `stay_on`.
 - Dejar el paquete aislado detenido o desinstalarlo, a decisión de A. La app normal no se toca.

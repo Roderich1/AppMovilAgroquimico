@@ -74,7 +74,9 @@ async function main() {
   const env = process.env;
   for (const name of ['F03_FARMER_D_EMAIL', 'F03_FARMER_D_PASSWORD', 'F03_FARMER_E2_EMAIL',
     'F03_FARMER_E2_PASSWORD', 'F03_ADMIN_EMAIL', 'F03_ADMIN_PASSWORD', 'BACKUP_STORAGE_DIR']) {
-    if (!env[name] && name !== 'BACKUP_STORAGE_DIR') throw new Error(`falta ${name} en el entorno (export tras source config.sh)`);
+    // El modo --expect-closed no usa el almacenamiento; el normal sí.
+    if (name === 'BACKUP_STORAGE_DIR' && process.argv[3] === '--expect-closed') continue;
+    if (!env[name]) throw new Error(`falta ${name} en el entorno (export tras source config.sh)`);
   }
   const owner = await mobileSession(env.F03_FARMER_D_EMAIL, env.F03_FARMER_D_PASSWORD);
   if (process.argv[3] === '--expect-closed') {
