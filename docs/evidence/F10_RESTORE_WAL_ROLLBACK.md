@@ -13,6 +13,8 @@
 | `4f203c7` | Base: `main` Mobile tras el merge de #90 |
 | `50d7dd7` | Regresión `test/f10_restore_wal_rollback_test.dart`: 4 pruebas, **en rojo sobre el código de `4f203c7`** |
 | `b4017a1` | Corrección en `lib/data/backup_service.dart` y una quinta prueba, que usa el hook nuevo `afterSafetyCopy` |
+| `ca74514` | Esta evidencia |
+| `5a73bea` | Sexta prueba: la técnica para provocar en el teléfono un fallo después de sustituir. Generador `tool/f08_bkp/craft_negative.py` para el turno del POCO |
 
 ## 1. Defecto
 
@@ -43,6 +45,7 @@ Las transacciones recientes se perdían sin aviso. También tras una restauraci�
 | Residuo `-wal` de un cierre abrupto, con la base sin abrir | Archivo principal y `-wal` copiados con la conexión abierta, como los deja un proceso terminado. El rollback no pierde nada |
 | La preparación falla (lector abierto) | Otra conexión mantiene una transacción de lectura. El checkpoint `TRUNCATE` devuelve busy y la restauración se rechaza con «No se pudo consolidar…» **sin cerrar ni sustituir**: datos y fotos iguales, sin copias a medias ni carpeta `invoices.previo-*`, acceso `activated`, y la app sigue escribiendo |
 | La copia previa no coincide (`b4017a1`) | El hook trunca la copia; el cotejo de SHA-256 la rechaza y no se sustituye nada. También se compara al reabrir desde disco |
+| Copia coherente sin `sync_outbox` (`5a73bea`) | Sin hooks de prueba: el manifiesto se recalcula, así que la copia pasa la validación y el titular. Falla al pausar la outbox con la base y las fotos ya sustituidas. El rollback conserva todo, incluida la transacción reciente, también al reabrir. **Rojo con el servicio de `4f203c7`** (pierde filas: `inventory_lots`) y verde con la corrección. Es la técnica que se propone para el teléfono |
 
 **Rojo sobre el código de `4f203c7`**, con las 4 primeras pruebas y el comando `flutter test test/f10_restore_wal_rollback_test.dart`, el 2026-10-16:
 
@@ -95,11 +98,31 @@ Después, el borrado de `-wal` y `-shm` antes de copiar la base restaurada sólo
 |---|---|
 | `dart format --output=none --set-exit-if-changed lib test` | exit 0 |
 | `flutter analyze` | `No issues found!` |
-| `flutter test test/f10_restore_wal_rollback_test.dart` | 5/5 |
+| `flutter test test/f10_restore_wal_rollback_test.dart` | 5/5 en `b4017a1`; 6/6 en `5a73bea` |
 | Suites de respaldo y restauración: `f10_restore_wal_rollback`, `backup_service`, `backup_container`, `backup_android_semantics`, `backup_export_atomic`, `backup_restore_sha256`, `f04_restore_authorization`, `f04_restore_ownership_rules`, `f04_admin_owner_restore_ui` y `remote_backup_client` | **116/116** |
 | `flutter test`, suite completa en solitario | **1035 pasan, 2 omitidas, 0 fallos** |
 
-## 6. Límites
+## 6. Generador de variantes para el teléfono (`5a73bea`)
+
+`python -I -X utf8 tool/f08_bkp/craft_negative.py <origen.agrobackup> <salida>` parte de una copia exportada por la propia app. Escribe, con el prefijo que la app lista:
+- `F10-alterada`: un byte de la base cambiado y el manifiesto intacto;
+- `F10-ajena`: el vínculo activo apunta a otro Member, con el manifiesto recalculado;
+- `F10-fallo_tras_sustituir`: la base sin `sync_outbox`, con el manifiesto recalculado;
+- `F10-bomba`: unos 300 KB que se expanden a 300 MiB y declaran 1000 bytes.
+
+**Comprobado en host el 2026-10-16** con `BackupService`, con #91 y #92 aplicados, contra una base actual:
+
+| Variante | Resultado |
+|---|---|
+| Origen | Válido, titular `aaaaaaaa…` |
+| Alterada | No válida: «no coincide con su manifiesto (SHA-256)» |
+| Ajena | Válida, titular `bbbbbbbb…`; la restauración se rechaza por titular |
+| Fallo tras sustituir | Válida; la restauración falla con «no such table» al pausar |
+| Bomba | No válida: «supera los límites» (requiere #92) |
+
+En los cinco casos la base actual quedó intacta.
+
+## 7. Límites
 
 - **Sólo host.** No se sabe por estas pruebas si la base de la app en el POCO trabaja en WAL. En Android 9+, `SQLiteDatabase` aplica WAL de compatibilidad por defecto, pero no se midió. Se pide a A que lo registre en el turno (`PRAGMA journal_mode` y presencia de `-wal`).
 - Un fallo **dentro** del rollback, como quedarse sin espacio al devolver la copia, no está cubierto por esta corrección. La copia previa verificada sigue en disco y su ruta se conserva.
