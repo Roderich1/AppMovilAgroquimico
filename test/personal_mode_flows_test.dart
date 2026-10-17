@@ -145,6 +145,35 @@ void main() {
       expect(c.read(routerProvider).canPop(), isFalse);
     });
 
+    testWidgets('Transferencias abierta desde la tarjeta de Operaciones '
+        '(push) al pasar a propio: deja de ofrecer acciones y vuelve a '
+        'Operaciones', (tester) async {
+      // Con push go_router no cambia la ruta base (/operaciones), así que el
+      // redirect no la cierra: es la propia pantalla la que se defiende.
+      final s = await activatedHousehold(tester, 'push');
+      final c = await pumpModeApp(tester, s.database);
+      c.read(routerProvider).go('/operaciones');
+      await settle(tester);
+      await tester.tap(find.text('Transferencias'));
+      await settle(tester);
+      expect(find.byType(TransfersScreen), findsOneWidget);
+      expect(find.text('Nueva'), findsOneWidget);
+
+      await switchModeBehindScreen(
+        tester,
+        c,
+        s.database,
+        OperationMode.personal,
+      );
+      expect(find.byKey(const Key('shared-only-notice')), findsOneWidget);
+      expect(find.text('Nueva'), findsNothing);
+      await tester.tap(find.text('Volver a Operaciones'));
+      await settle(tester);
+      expect(currentPath(c), '/operaciones');
+      expect(find.byType(TransfersScreen), findsNothing);
+      expect(find.text('Ahora: inventario propio'), findsOneWidget);
+    });
+
     testWidgets('si la pantalla de transferencias llegara a mostrarse en '
         'propio, no ofrece acciones', (tester) async {
       // Defensa de la propia pantalla, independiente del router.
@@ -305,6 +334,51 @@ void main() {
       await settle(tester);
       expect(find.text('Propietario'), findsNothing);
       expect(find.byKey(const Key('farm-personal-owner')), findsOneWidget);
+    });
+
+    testWidgets('liquidación: pagos y adelantos sólo del titular', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(800, 2400));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final s = await activatedHousehold(tester, 'liquidacion');
+      await tester.runAsync(
+        () =>
+            OperationModeStore(s.database)
+                .apply(OperationMode.personal, confirmed: true),
+      );
+      final c = await pumpModeApp(tester, s.database);
+      c.read(routerProvider).go('/liquidacion');
+      await settle(tester);
+
+      Future<List<String>> menuOf(String name) async {
+        final card = find.ancestor(
+          of: find.text(name),
+          matching: find.byType(Card),
+        );
+        await tester.tap(
+          find.descendant(
+            of: card.first,
+            matching: find.byType(PopupMenuButton<String>),
+          ),
+        );
+        await settle(tester);
+        final items = [
+          for (final item in tester.widgetList<PopupMenuItem<String>>(
+            find.byType(PopupMenuItem<String>),
+          ))
+            if (item.enabled) item.value ?? '',
+        ];
+        await tester.tapAt(const Offset(5, 5));
+        await settle(tester);
+        return items;
+      }
+
+      expect(await menuOf('Titular'), containsAll(['pay', 'advance']));
+      final relative = await menuOf('Hermana');
+      expect(relative, containsAll(['detail', 'export']));
+      expect(relative, isNot(contains('pay')));
+      expect(relative, isNot(contains('advance')));
     });
 
     testWidgets('un formulario abierto cuando cambia la modalidad avisa y no '

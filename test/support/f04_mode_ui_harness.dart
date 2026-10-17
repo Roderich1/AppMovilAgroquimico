@@ -101,6 +101,8 @@ Future<ProviderContainer> pumpModeApp(
   return container;
 }
 
+/// Ruta base del router. Con `push`, go_router no la cambia: una pantalla
+/// apilada no aparece aquí.
 String currentPath(ProviderContainer c) =>
     c.read(routerProvider).routeInformationProvider.value.uri.path;
 
