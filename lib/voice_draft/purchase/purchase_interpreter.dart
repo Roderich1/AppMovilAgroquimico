@@ -32,10 +32,15 @@ final class PurchaseInterpretation {
     required this.draft,
     required this.outcome,
     this.otherIntent,
+    this.ignoredRecipient,
   });
 
   final VoicePurchaseDraft draft;
   final VoicePatchOutcome outcome;
+
+  /// En inventario propio la compra es del titular, sin elegir persona (como
+  /// en el formulario): una persona dictada se ignora y se informa.
+  final String? ignoredRecipient;
 
   /// Si el dictado parece otra operación (aplicación, plan, pago o
   /// consulta), no se aplicó nada y esto lo dice.
@@ -84,7 +89,10 @@ PurchaseInterpretation interpretPurchase(
   }
 
   final recipient = _recipient(words);
-  if (recipient != null) {
+  String? ignoredRecipient;
+  if (recipient != null && catalog.personalOwner != null) {
+    ignoredRecipient = recipient;
+  } else if (recipient != null) {
     final (field, o) = mergeField(
       draft.recipient,
       entryField(resolveName(recipient, catalog.people), 'persona'),
@@ -139,7 +147,11 @@ PurchaseInterpretation interpretPurchase(
     }
   }
 
-  return PurchaseInterpretation(draft: draft, outcome: outcome);
+  return PurchaseInterpretation(
+    draft: draft,
+    outcome: outcome,
+    ignoredRecipient: ignoredRecipient,
+  );
 }
 
 /// Nombre que sigue a una palabra clave («proveedor es Agro Norte»).

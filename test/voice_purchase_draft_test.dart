@@ -438,49 +438,57 @@ void main() {
       },
     );
 
-    test('PERSONAL: la compra va al titular y otra persona bloquea', () async {
-      await OwnerBindingStore(database).bindExistingPerson(
-        personId: household.titular,
-        scope: memberA,
-        installationRef: installationHere,
-      );
-      await OperationModeStore(database)
-          .apply(OperationMode.personal, confirmed: true);
-      final catalog = await gateway.purchaseCatalog();
-      expect(catalog.people.map((p) => p.id), [household.titular]);
+    test(
+      'PERSONAL: la compra es del titular y una persona dictada se ignora',
+      () async {
+        await OwnerBindingStore(database).bindExistingPerson(
+          personId: household.titular,
+          scope: memberA,
+          installationRef: installationHere,
+        );
+        await OperationModeStore(database)
+            .apply(OperationMode.personal, confirmed: true);
+        final catalog = await gateway.purchaseCatalog();
+        expect(catalog.people.map((p) => p.id), [household.titular]);
+        expect(catalog.personalOwner?.id, household.titular);
+        expect(catalog.loadedMode, OperationMode.personal);
 
-      final db = await database.database;
-      final before = await dumpTables(db);
-      final blocked = interpretPurchase(
-        dictation,
-        VoicePurchaseDraft.start(catalog),
-        catalog,
-      ).draft;
-      expect(blocked.recipient.isResolved, isFalse);
-      expect(blocked.blockers, isNotEmpty);
-      expect(await dumpTables(db), before);
-
-      final controller = VoiceDraftController<VoicePurchaseDraft, int>(
-        initial: VoicePurchaseDraft.start(catalog),
-        commit: gateway.confirmPurchase,
-      );
-      addTearDown(controller.dispose);
-      controller.applyVoice((current) {
+        // Como el formulario de #26, en propio no se elige persona: «todo para
+        // Hermana» no cambia la persona y se informa; nada se escribe.
+        final db = await database.database;
+        final before = await dumpTables(db);
         final r = interpretPurchase(
-          'compra de cincuenta litros de Bellator a 186 bolivianos el litro, '
-          'proveedor Agro Norte',
-          current,
+          dictation,
+          VoicePurchaseDraft.start(catalog),
           catalog,
         );
-        return (r.draft, r.outcome);
-      });
-      expect(controller.draft.recipient.origin, FieldOrigin.preset);
-      expect(await controller.confirm(), isNotNull);
-      final lots = await db.query('inventory_lots');
-      expect(lots.map((l) => l['owner_person_id']).toSet(), {
-        household.titular,
-      });
-    });
+        expect(r.ignoredRecipient, 'hermana');
+        expect(r.draft.recipient.value?.id, household.titular);
+        expect(r.draft.recipient.origin, FieldOrigin.preset);
+        expect(await dumpTables(db), before);
+
+        final controller = VoiceDraftController<VoicePurchaseDraft, int>(
+          initial: VoicePurchaseDraft.start(catalog),
+          commit: gateway.confirmPurchase,
+        );
+        addTearDown(controller.dispose);
+        controller.applyVoice((current) {
+          final r = interpretPurchase(
+            'compra de cincuenta litros de Bellator a 186 bolivianos el litro, '
+            'proveedor Agro Norte',
+            current,
+            catalog,
+          );
+          return (r.draft, r.outcome);
+        });
+        expect(controller.draft.recipient.origin, FieldOrigin.preset);
+        expect(await controller.confirm(), isNotNull);
+        final lots = await db.query('inventory_lots');
+        expect(lots.map((l) => l['owner_person_id']).toSet(), {
+          household.titular,
+        });
+      },
+    );
   });
 }
 

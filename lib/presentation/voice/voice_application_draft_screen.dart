@@ -21,7 +21,9 @@ import '../../voice_draft/core/draft_field.dart';
 import '../../voice_draft/core/voice_draft_controller.dart';
 import '../../voice_draft/interpretation/voice_intent.dart';
 import '../../voice_draft/text/units.dart';
+import '../../operation_mode_controller.dart';
 import '../widgets/common.dart';
+import '../widgets/mode_notice.dart';
 import 'voice_draft_gateway.dart';
 import 'voice_draft_widgets.dart';
 
@@ -321,10 +323,20 @@ class _VoiceApplicationDraftScreenState
     final editable = controller.phase == DraftPhase.editing;
     final theme = Theme.of(context);
     final mismatches = _visibleMismatches(d);
+    // La modalidad cambió con la pantalla abierta: las opciones se leyeron
+    // con la anterior. Como los formularios, se avisa y no se confirma.
+    final modeChanged = modeChangedSince(
+      catalog.loadedMode,
+      ref.watch(operationModeProvider),
+    );
     return Column(
       key: const Key('voz-borrador-aplicacion'),
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        if (modeChanged) ...[
+          const ModeChangedNotice(),
+          const SizedBox(height: 8),
+        ],
         Text('Borrador', style: theme.textTheme.titleMedium),
         const SizedBox(height: 8),
         DraftFieldRow(
@@ -423,7 +435,8 @@ class _VoiceApplicationDraftScreenState
             ),
             FilledButton.icon(
               key: const Key('voz-registrar'),
-              onPressed: controller.canConfirm && mismatches.isEmpty
+              onPressed:
+                  controller.canConfirm && mismatches.isEmpty && !modeChanged
                   ? _confirm
                   : null,
               icon: controller.phase == DraftPhase.confirming

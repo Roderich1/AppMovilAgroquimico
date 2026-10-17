@@ -6,6 +6,7 @@
 /// D-F09-2: sin «Crear nuevo» desde la voz).
 library;
 
+import '../../domain/operation_mode.dart';
 import '../text/normalize.dart';
 import '../text/units.dart';
 
@@ -47,6 +48,8 @@ final class VoiceCatalog {
     this.people = const [],
     this.activeCampaign,
     this.farmOwners = const {},
+    this.loadedMode,
+    this.personalOwner,
   });
 
   final List<CatalogEntry> products;
@@ -66,6 +69,15 @@ final class VoiceCatalog {
   /// formulario de aplicación, el dueño del chaco es quien aplica y de su
   /// inventario sale el producto.
   final Map<int, CatalogEntry> farmOwners;
+
+  /// Modalidad con que se leyeron estas opciones (#26). Si la vigente cambia
+  /// con la pantalla abierta, el borrador no se puede confirmar: hay que
+  /// volver a abrirla, como los formularios (`modeChangedSince`).
+  final OperationMode? loadedMode;
+
+  /// En inventario propio, el titular: la compra se le asigna sin elegir
+  /// persona, como en el formulario. `null` en compartido.
+  final CatalogEntry? personalOwner;
 }
 
 enum ResolutionState { resolved, ambiguous, missing }

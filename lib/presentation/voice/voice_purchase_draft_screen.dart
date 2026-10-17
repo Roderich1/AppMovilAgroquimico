@@ -26,7 +26,9 @@ import '../../voice_draft/interpretation/voice_intent.dart';
 import '../../voice_draft/purchase/purchase_interpreter.dart';
 import '../../voice_draft/purchase/voice_purchase_draft.dart';
 import '../../voice_draft/text/units.dart';
+import '../../operation_mode_controller.dart';
 import '../widgets/common.dart';
+import '../widgets/mode_notice.dart';
 import 'voice_draft_gateway.dart';
 import 'voice_draft_widgets.dart';
 
@@ -52,6 +54,9 @@ class _VoicePurchaseDraftScreenState
   String? _loadError;
 
   final VoiceSegmentFeed _feed = VoiceSegmentFeed();
+
+  /// Persona dictada que se ignoró por estar en inventario propio.
+  String? _ignoredRecipient;
   final List<String> _applied = [];
   VoiceIntent? _otherIntent;
 
@@ -181,13 +186,16 @@ class _VoicePurchaseDraftScreenState
     );
     if (fresh != null) {
       VoiceIntent? other;
+      String? ignored;
       final accepted = draft!.applyVoice((current) {
         final r = interpretPurchase(fresh, current, catalog!);
         other = r.otherIntent;
+        ignored = r.ignoredRecipient;
         return (r.draft, r.outcome);
       });
       if (accepted) {
         _otherIntent = other;
+        if (ignored != null) _ignoredRecipient = ignored;
         if (other == null) _applied.add(fresh);
       }
     }
@@ -322,10 +330,20 @@ class _VoicePurchaseDraftScreenState
     final editable = controller.phase == DraftPhase.editing;
     final theme = Theme.of(context);
     final mismatches = _visibleMismatches(d);
+    // La modalidad cambió con la pantalla abierta: las opciones se leyeron
+    // con la anterior. Como los formularios, se avisa y no se confirma.
+    final modeChanged = modeChangedSince(
+      catalog.loadedMode,
+      ref.watch(operationModeProvider),
+    );
     return Column(
       key: const Key('voz-borrador-compra'),
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        if (modeChanged) ...[
+          const ModeChangedNotice(),
+          const SizedBox(height: 8),
+        ],
         Text('Borrador', style: theme.textTheme.titleMedium),
         const SizedBox(height: 8),
         DraftFieldRow(
@@ -358,24 +376,34 @@ class _VoicePurchaseDraftScreenState
             ),
           ),
         ),
-        DraftFieldRow(
-          label: 'Recibe la compra',
-          field: d.recipient,
-          child: CatalogEntryPicker(
-            key: const Key('voz-borrador-persona'),
-            entries: catalog.people,
+        if (catalog.personalOwner != null)
+          Padding(
+            key: const Key('voz-titular'),
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: Text(
+              'Inventario propio: la compra es de ${catalog.personalOwner!.name}'
+              '${_ignoredRecipient == null ? '' : '. Se ignoró «$_ignoredRecipient»: aquí no se elige persona'}.',
+            ),
+          )
+        else
+          DraftFieldRow(
+            label: 'Recibe la compra',
             field: d.recipient,
-            enabled: editable,
-            onPick: (entry) => controller.editManually(
-              (c) => c.copyWith(
-                recipient: DraftField.resolved(
-                  entry,
-                  origin: FieldOrigin.manual,
+            child: CatalogEntryPicker(
+              key: const Key('voz-borrador-persona'),
+              entries: catalog.people,
+              field: d.recipient,
+              enabled: editable,
+              onPick: (entry) => controller.editManually(
+                (c) => c.copyWith(
+                  recipient: DraftField.resolved(
+                    entry,
+                    origin: FieldOrigin.manual,
+                  ),
                 ),
               ),
             ),
           ),
-        ),
         for (var i = 0; i < d.lines.length; i++)
           _lineCard(context, controller, catalog, i, d.lines[i], editable),
         Align(
@@ -452,7 +480,8 @@ class _VoicePurchaseDraftScreenState
             ),
             FilledButton.icon(
               key: const Key('voz-registrar'),
-              onPressed: controller.canConfirm && mismatches.isEmpty
+              onPressed:
+                  controller.canConfirm && mismatches.isEmpty && !modeChanged
                   ? _confirm
                   : null,
               icon: controller.phase == DraftPhase.confirming
