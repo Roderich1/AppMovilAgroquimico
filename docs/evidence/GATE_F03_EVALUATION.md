@@ -68,7 +68,7 @@ No se convierten en PASS:
 3. **`Evidence = Verified`** (sólo con archivo verificable):
    - #71 (`F03_RES_01_DEVICE.md`), si se acepta el residual de E-1;
    - #18–#22 siguen Partial: sus evidencias están en `docs/evolution/features/` y #18 tiene huecos de prueba;
-   - #83 necesita un añadido con el SHA medido.
+   - #83: el añadido con la versión medida y la observación en el teléfono va en este mismo PR (`F03_BUG_01.md`); queda para Roderich si pasa a Verified.
 
 ## Revisiones
 
