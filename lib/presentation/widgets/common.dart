@@ -97,10 +97,27 @@ class PageFrame extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        title,
-                        style: Theme.of(context).textTheme.headlineSmall
-                            ?.copyWith(fontWeight: FontWeight.w700),
+                      // **#97 — el título no se parte dentro de una palabra.**
+                      // Con el título y la acción en una fila, la acción
+                      // dejaba al título el ancho sobrante: «Sincronización»
+                      // salía «Sincronizació / n» en el POCO aun al 100 %. En
+                      // un `Wrap` el título conserva su ancho y, si no caben
+                      // los dos, la acción baja a la línea siguiente: no se
+                      // oculta ni se reduce la escala del texto.
+                      Wrap(
+                        alignment: WrapAlignment.spaceBetween,
+                        crossAxisAlignment: WrapCrossAlignment.center,
+                        spacing: 12,
+                        runSpacing: 8,
+                        children: [
+                          Text(
+                            title,
+                            key: const Key('page-frame-title'),
+                            style: Theme.of(context).textTheme.headlineSmall
+                                ?.copyWith(fontWeight: FontWeight.w700),
+                          ),
+                          if (action != null) action!,
+                        ],
                       ),
                       if (subtitle != null) ...[
                         const SizedBox(height: 4),
@@ -112,7 +129,6 @@ class PageFrame extends StatelessWidget {
                     ],
                   ),
                 ),
-                if (action != null) action!,
               ],
             ),
           ),
