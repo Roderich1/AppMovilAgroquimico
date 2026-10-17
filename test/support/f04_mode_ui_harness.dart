@@ -22,6 +22,7 @@ import 'package:agroquimicos/services/auth/remote_session_coordinator.dart';
 import 'package:agroquimicos/services/auth/remote_session_providers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/testing.dart';
 
@@ -71,9 +72,12 @@ Future<ProviderContainer> pumpModeApp(
   ExistingSessionStartupState session =
       ExistingSessionStartupState.localSessionAvailable,
   OwnerScope? scope = memberA,
+  // Overrides adicionales de una prueba (por ejemplo, el puerto de voz fake).
+  List<Override> extraOverrides = const [],
 }) async {
   final container = ProviderContainer(
     overrides: [
+      ...extraOverrides,
       databaseProvider.overrideWithValue(database),
       existingSessionStartupProvider.overrideWithValue(session),
       ...startupAccessOverrides(sessionScope: scope),
