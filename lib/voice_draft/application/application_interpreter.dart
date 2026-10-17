@@ -8,8 +8,11 @@
 /// - el área tratada: «en dos hectáreas».
 ///
 /// Volver a nombrar un producto corrige su cantidad. Nada de lo dictado
-/// sobrescribe un campo corregido a mano. «Aplicar la planificación…» no se
-/// atiende aquí (decisión pendiente D-F09-4): se avisa y no se cambia nada.
+/// sobrescribe un campo corregido a mano.
+///
+/// «Aplicar la planificación del chaco Sur» (D-F09-4) resuelve el chaco y
+/// **ofrece** sus planes pendientes de la campaña activa; no elige ninguno,
+/// aunque haya uno solo. El plan se elige en la pantalla ([selectPlan]).
 library;
 
 import '../catalog/voice_catalog.dart';
@@ -33,7 +36,7 @@ final class ApplicationInterpretation {
   final VoicePatchOutcome outcome;
   final VoiceIntent? otherIntent;
 
-  /// Se pidió aplicar una planificación: no se aplicó nada.
+  /// Se pidió aplicar una planificación: se ofrecieron sus planes, sin elegir.
   final bool planRequested;
 }
 
@@ -51,20 +54,14 @@ ApplicationInterpretation interpretApplication(
       otherIntent: intent,
     );
   }
-  if (words.any(
+  final planRequested = words.any(
     (w) => const {
       'plan',
       'planificacion',
       'planificado',
       'planificada',
     }.contains(w),
-  )) {
-    return ApplicationInterpretation(
-      draft: current,
-      outcome: const VoicePatchOutcome(),
-      planRequested: true,
-    );
-  }
+  );
 
   var draft = current;
   var outcome = const VoicePatchOutcome();
@@ -117,8 +114,116 @@ ApplicationInterpretation interpretApplication(
       outcome += const VoicePatchOutcome(applied: 1);
     }
   }
-  return ApplicationInterpretation(draft: draft, outcome: outcome);
+  if (planRequested) draft = offerPlans(draft, catalog);
+  return ApplicationInterpretation(
+    draft: draft,
+    outcome: outcome,
+    planRequested: planRequested,
+  );
 }
+
+/// Ofrece los planes pendientes del chaco elegido, **sin elegir ninguno**:
+/// el campo queda ambiguo con las opciones (aunque sea una) o faltante si no
+/// hay. Si ya hay un plan elegido para este chaco, no se toca.
+VoiceApplicationDraft offerPlans(
+  VoiceApplicationDraft draft,
+  VoiceCatalog catalog,
+) {
+  final farm = draft.farm.isResolved ? draft.farm.value : null;
+  if (farm == null) {
+    return draft.copyWith(
+      plan: const DraftField.missing(
+        message: 'Diga o elija el chaco del plan que se aplica.',
+      ),
+    );
+  }
+  if (draft.planData != null && draft.planData!.farmId == farm.id) {
+    return draft;
+  }
+  final options = catalog.plansFor(farm.id, draft.campaign.value?.id);
+  return draft.copyWith(
+    plan: options.isEmpty
+        ? DraftField.missing(
+            message:
+                'No hay planes pendientes de la campaña activa para '
+                '${farm.name}.',
+          )
+        : DraftField.ambiguous(
+            candidates: [for (final o in options) o.entry],
+            heard: 'planificación de ${farm.name}',
+            message: 'Elija el plan que se aplica.',
+          ),
+  );
+}
+
+/// Selección **explícita** del plan (toque del usuario). Sólo acepta un plan
+/// pendiente del chaco elegido; si no, no cambia nada. Las líneas pasan a ser
+/// las del plan: la cantidad real se propone igual a la planeada, salvo que
+/// ya se hubiera dicho o escrito para ese producto.
+VoiceApplicationDraft selectPlan(
+  VoiceApplicationDraft draft,
+  int planId,
+  VoiceCatalog catalog,
+) {
+  final farm = draft.farm.isResolved ? draft.farm.value : null;
+  final plan = farm == null
+      ? null
+      : catalog
+            .plansFor(farm.id, draft.campaign.value?.id)
+            .where((p) => p.id == planId)
+            .firstOrNull;
+  if (plan == null) return draft;
+  var next = draft;
+  var key = next.nextLineKey;
+  final lines = <VoiceApplicationLine>[];
+  for (final item in plan.items) {
+    final said = next.lines
+        .where((l) => l.product.value?.id == item.product.id && !l.fromPlan)
+        .firstOrNull;
+    final unit = item.product.unit == CatalogUnit.kilogram
+        ? SpokenUnit.kilogram
+        : SpokenUnit.liter;
+    lines.add(
+      VoiceApplicationLine(
+        key: said?.key ?? key++,
+        product: DraftField.resolved(item.product, origin: FieldOrigin.preset),
+        quantity: said != null && said.quantity.isResolved
+            ? said.quantity
+            : DraftField.resolved(
+                SpokenAmount(item.requiredBase, unit),
+                origin: FieldOrigin.preset,
+              ),
+        plannedBase: item.requiredBase,
+        doseBasePerHa: item.doseBasePerHa,
+      ),
+    );
+  }
+  // Lo dicho que no está en el plan se conserva visible y bloquea.
+  for (final l in next.lines) {
+    if (plan.items.every((i) => i.product.id != l.product.value?.id)) {
+      lines.add(l.copyWith(clearPlan: true));
+    }
+  }
+  next = next.copyWith(
+    plan: DraftField.resolved(plan.entry, origin: FieldOrigin.manual),
+    planData: plan,
+    lines: lines,
+    nextLineKey: key,
+  );
+  if (!next.area.isManual) {
+    next = next.copyWith(
+      area: DraftField.resolved(plan.areaM2, origin: FieldOrigin.preset),
+    );
+  }
+  return next;
+}
+
+/// Quitar el plan: se vuelve a una aplicación libre; las líneas se conservan
+/// sin planeado ni dosis.
+VoiceApplicationDraft clearPlan(VoiceApplicationDraft draft) => draft.copyWith(
+  clearPlan: true,
+  lines: [for (final l in draft.lines) l.copyWith(clearPlan: true)],
+);
 
 /// Tras cambiar el chaco: su dueño pasa a ser quien aplica (o nadie, si no
 /// puede aplicar), el stock leído deja de valer y se propone el área del
@@ -129,6 +234,11 @@ VoiceApplicationDraft selectFarm(
 ) {
   final farm = draft.farm.isResolved ? draft.farm.value : null;
   final owner = farm == null ? null : catalog.farmOwners[farm.id];
+  // Un plan es de un chaco: al cambiar de chaco, el plan elegido se quita
+  // (y se vuelven a ofrecer los del chaco nuevo si se había pedido uno).
+  if (draft.planData != null && draft.planData!.farmId != farm?.id) {
+    draft = offerPlans(clearPlan(draft).copyWith(plan: draft.plan), catalog);
+  }
   var next = draft.copyWith(
     person: owner,
     clearPerson: owner == null,

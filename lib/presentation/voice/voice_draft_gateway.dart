@@ -109,8 +109,9 @@ class VoiceDraftGateway {
         if (applicators.containsKey(farm['owner_person_id'])) farm,
     ];
     final campaign = await _repo.activeCampaign();
+    final products = await _products();
     return VoiceCatalog(
-      products: await _products(),
+      products: products,
       farms: [
         for (final row in farms)
           CatalogEntry(
@@ -119,6 +120,13 @@ class VoiceDraftGateway {
             areaM2: row['area_m2'] as int?,
           ),
       ],
+      pendingPlans: campaign == null
+          ? const []
+          : await _pendingPlans(
+              campaignId: campaign['id']! as int,
+              farmIds: {for (final row in farms) row['id']! as int},
+              products: products,
+            ),
       people: applicators.values.toList(growable: false),
       farmOwners: {
         for (final row in farms)
@@ -127,6 +135,60 @@ class VoiceDraftGateway {
       activeCampaign: campaign == null ? null : _entry(campaign),
       loadedMode: read.context.mode,
     );
+  }
+
+  /// Planes pendientes de la campaña activa en los chacos que se ofrecen
+  /// (D-F09-4), con las mismas lecturas que Planificación y el formulario
+  /// («Aplicar este plan»): `plans()` y `planForApplication()`. Sólo lectura;
+  /// el repositorio vuelve a comprobar al escribir que el plan no esté
+  /// aplicado.
+  Future<List<PendingPlan>> _pendingPlans({
+    required int campaignId,
+    required Set<int> farmIds,
+    required List<CatalogEntry> products,
+  }) async {
+    final dates = <int, String?>{
+      for (final row in await _repo.plans())
+        if (row['campaign_id'] == campaignId)
+          row['plan_id']! as int: row['planned_date'] as String?,
+    };
+    final ids = dates.keys;
+    final byId = {for (final p in products) p.id: p};
+    final out = <PendingPlan>[];
+    for (final id in ids) {
+      final rows = await _repo.planForApplication(id);
+      if (rows.isEmpty) continue;
+      final head = rows.first;
+      if (head['campaign_id'] != campaignId ||
+          !farmIds.contains(head['farm_id'])) {
+        continue;
+      }
+      out.add(
+        PendingPlan(
+          id: id,
+          campaignId: campaignId,
+          farmId: head['farm_id']! as int,
+          areaM2: head['area_m2']! as int,
+          plannedDate: dates[id],
+          items: [
+            for (final row in rows)
+              PendingPlanItem(
+                product:
+                    byId[row['product_id']] ??
+                    CatalogEntry(
+                      id: row['product_id']! as int,
+                      name: row['product_name']! as String,
+                      unit: CatalogUnit.fromCode(row['unit'] as String?),
+                    ),
+                doseBasePerHa: row['dose_base_per_ha']! as int,
+                requiredBase: row['required_quantity_base']! as int,
+              ),
+          ],
+        ),
+      );
+    }
+    out.sort((a, b) => a.id.compareTo(b.id));
+    return out;
   }
 
   /// Stock disponible de [personId] por producto, en unidad base. Sólo

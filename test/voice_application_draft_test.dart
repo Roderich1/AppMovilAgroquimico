@@ -151,16 +151,23 @@ void main() {
       expect(r.outcome.keptManual, 1);
     });
 
-    test('aplicar una planificación no se atiende y no cambia nada', () {
-      final start = VoiceApplicationDraft.start(catalog);
-      final r = interpretApplication(
-        'quiero aplicar la planificación del chaco Sur',
-        start,
-        catalog,
-      );
-      expect(r.planRequested, isTrue);
-      expect(identical(r.draft, start), isTrue);
-    });
+    test(
+      'aplicar una planificación pide elegir el plan y no elige ninguno',
+      () {
+        // D-F09-4: el detalle está en voice_plan_application_draft_test.dart.
+        final start = VoiceApplicationDraft.start(catalog);
+        final r = interpretApplication(
+          'quiero aplicar la planificación del chaco Sur',
+          start,
+          catalog,
+        );
+        expect(r.planRequested, isTrue);
+        expect(r.draft.plan, isNotNull);
+        expect(r.draft.plan!.isResolved, isFalse);
+        expect(r.draft.planData, isNull);
+        expect(r.draft.blockers, isNotEmpty);
+      },
+    );
 
     test('otra operación no cambia el borrador', () {
       final start = VoiceApplicationDraft.start(catalog);

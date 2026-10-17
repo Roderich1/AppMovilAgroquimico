@@ -50,7 +50,6 @@ class _VoiceApplicationDraftScreenState
   final VoiceSegmentFeed _feed = VoiceSegmentFeed();
   final List<String> _applied = [];
   VoiceIntent? _otherIntent;
-  bool _planRequested = false;
   int? _stockRequestedFor;
   final Map<String, TextEditingController> _fields = {};
 
@@ -142,17 +141,14 @@ class _VoiceApplicationDraftScreenState
     );
     if (fresh != null) {
       VoiceIntent? other;
-      var plan = false;
       final accepted = draft!.applyVoice((current) {
         final r = interpretApplication(fresh, current, catalog!);
         other = r.otherIntent;
-        plan = r.planRequested;
         return (r.draft, r.outcome);
       });
       if (accepted) {
         _otherIntent = other;
-        _planRequested = plan;
-        if (other == null && !plan) _applied.add(fresh);
+        if (other == null) _applied.add(fresh);
       }
     }
     setState(() {});
@@ -301,18 +297,6 @@ class _VoiceApplicationDraftScreenState
               intent: _otherIntent!,
               current: 'aplicación',
             ),
-          if (_planRequested)
-            const Card(
-              key: Key('voz-plan-no-disponible'),
-              child: Padding(
-                padding: EdgeInsets.all(12),
-                child: Text(
-                  'Aplicar una planificación por voz no está disponible. No se '
-                  'cambió el borrador: aplique el plan desde Planificación, o '
-                  'dicte los productos aplicados.',
-                ),
-              ),
-            ),
           if (_applied.isNotEmpty) VoiceAppliedPanel(applied: _applied),
           const SizedBox(height: 12),
           if (_loadError != null)
@@ -416,6 +400,7 @@ class _VoiceApplicationDraftScreenState
             },
           ),
         ),
+        _planSection(controller, catalog, d, editable),
         for (var i = 0; i < d.lines.length; i++)
           _lineCard(context, controller, catalog, d, i, d.lines[i], editable),
         Align(
@@ -581,9 +566,68 @@ class _VoiceApplicationDraftScreenState
                         '${after < 0 ? ' (insuficiente)' : ''}',
               key: Key('voz-stock-${line.key}'),
             ),
+            if (line.fromPlan)
+              Text(
+                'Planeado ${formatQuantity(line.plannedBase!, unitLabel)}'
+                '${line.differenceBase == null ? '' : ' · diferencia ${line.differenceBase! >= 0 ? '+' : '−'}${formatQuantity(line.differenceBase!.abs(), unitLabel)}'}',
+                key: Key('voz-planeado-${line.key}'),
+              ),
           ],
         ),
       ),
+    );
+  }
+
+  /// Plan pendiente (D-F09-4): se ofrece si el chaco tiene planes pendientes
+  /// de la campaña activa o si se pidió por voz. **Se elige siempre a mano**,
+  /// aunque haya uno solo; nunca se elige solo.
+  Widget _planSection(
+    VoiceDraftController<VoiceApplicationDraft, int> controller,
+    VoiceCatalog catalog,
+    VoiceApplicationDraft d,
+    bool editable,
+  ) {
+    final farm = d.farm.isResolved ? d.farm.value : null;
+    final options = farm == null
+        ? const <PendingPlan>[]
+        : catalog.plansFor(farm.id, d.campaign.value?.id);
+    if (d.plan == null && options.isEmpty) return const SizedBox.shrink();
+    final picker = CatalogEntryPicker(
+      key: const Key('voz-plan-elegir'),
+      entries: [for (final o in options) o.entry],
+      field: d.plan ?? const DraftField<CatalogEntry>.missing(),
+      enabled: editable && options.isNotEmpty,
+      onPick: (entry) =>
+          controller.editManually((c) => selectPlan(c, entry.id, catalog)),
+    );
+    return Column(
+      key: const Key('voz-plan'),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (d.plan == null) ...[
+          // No se pidió: es opcional y no bloquea.
+          Text(
+            '${farm?.name ?? 'Este chaco'} tiene ${options.length} plan'
+            '${options.length == 1 ? '' : 'es'} pendiente'
+            '${options.length == 1 ? '' : 's'}. Puede aplicar uno en vez de '
+            'una aplicación libre:',
+          ),
+          picker,
+        ] else
+          DraftFieldRow(label: 'Plan pendiente', field: d.plan!, child: picker),
+        if (d.planData != null)
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              key: const Key('voz-plan-quitar'),
+              onPressed: editable
+                  ? () => controller.editManually(clearPlan)
+                  : null,
+              icon: const Icon(Icons.link_off),
+              label: const Text('Quitar el plan (aplicación libre)'),
+            ),
+          ),
+      ],
     );
   }
 }
