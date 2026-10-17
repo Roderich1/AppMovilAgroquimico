@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../app.dart';
@@ -386,6 +387,33 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
               SliverAppBar(
                 pinned: true,
                 title: const Text('Nueva compra'),
+                actions: [
+                  // F09: la misma operación por voz. Si el formulario tiene
+                  // cambios, se pregunta antes de descartarlos.
+                  IconButton(
+                    key: const Key('form-dictar'),
+                    tooltip: 'Dictar con voz',
+                    icon: const Icon(Icons.mic_none_outlined),
+                    onPressed: saving
+                        ? null
+                        : () async {
+                            if (dirty &&
+                                !await confirmDestructiveAction(
+                                  context,
+                                  title: '¿Descartar cambios?',
+                                  detail:
+                                      'Lo escrito en el formulario no se '
+                                      'guardó. Se abrirá el borrador por voz.',
+                                  confirmLabel: 'Descartar y dictar',
+                                )) {
+                              return;
+                            }
+                            if (!context.mounted) return;
+                            setState(() => dirty = false);
+                            context.pushReplacement('/compras/voz');
+                          },
+                  ),
+                ],
                 leading: IconButton(
                   icon: const Icon(Icons.arrow_back),
                   onPressed: saving ? null : _close,

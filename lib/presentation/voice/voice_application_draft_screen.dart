@@ -21,7 +21,9 @@ import '../../voice_draft/core/draft_field.dart';
 import '../../voice_draft/core/voice_draft_controller.dart';
 import '../../voice_draft/interpretation/voice_intent.dart';
 import '../../voice_draft/text/units.dart';
+import '../../operation_mode_controller.dart';
 import '../widgets/common.dart';
+import '../widgets/mode_notice.dart';
 import 'voice_draft_gateway.dart';
 import 'voice_draft_widgets.dart';
 
@@ -205,6 +207,27 @@ class _VoiceApplicationDraftScreenState
         (d != null && (d.lines.isNotEmpty || d.farm.isResolved));
   }
 
+  /// Pasar al formulario manual sustituye esta pantalla: con un borrador
+  /// empezado se pregunta antes, y el borrador se descarta sin escribir.
+  Future<void> _openManualForm() async {
+    final open = widget.onOpenManualForm;
+    if (open == null || _draft?.phase == DraftPhase.confirming) return;
+    if (_hasWork &&
+        !await confirmDestructiveAction(
+          context,
+          title: '¿Descartar el borrador?',
+          detail: 'No se registró nada. Se abrirá el formulario manual vacío.',
+          confirmLabel: 'Descartar y abrir el formulario',
+        )) {
+      return;
+    }
+    _draft?.discard();
+    await _session.discard();
+    if (!mounted) return;
+    setState(() => _leaving = true);
+    open();
+  }
+
   Future<void> _onBack() async {
     if (_draft?.phase == DraftPhase.confirming) return;
     final discard = await confirmDestructiveAction(
@@ -302,7 +325,7 @@ class _VoiceApplicationDraftScreenState
             const SizedBox(height: 8),
             TextButton.icon(
               key: const Key('voz-borrador-manual'),
-              onPressed: widget.onOpenManualForm,
+              onPressed: _openManualForm,
               icon: const Icon(Icons.edit_note_outlined),
               label: const Text('Usar el formulario manual'),
             ),
@@ -321,10 +344,20 @@ class _VoiceApplicationDraftScreenState
     final editable = controller.phase == DraftPhase.editing;
     final theme = Theme.of(context);
     final mismatches = _visibleMismatches(d);
+    // La modalidad cambió con la pantalla abierta: las opciones se leyeron
+    // con la anterior. Como los formularios, se avisa y no se confirma.
+    final modeChanged = modeChangedSince(
+      catalog.loadedMode,
+      ref.watch(operationModeProvider),
+    );
     return Column(
       key: const Key('voz-borrador-aplicacion'),
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        if (modeChanged) ...[
+          const ModeChangedNotice(),
+          const SizedBox(height: 8),
+        ],
         Text('Borrador', style: theme.textTheme.titleMedium),
         const SizedBox(height: 8),
         DraftFieldRow(
@@ -423,7 +456,8 @@ class _VoiceApplicationDraftScreenState
             ),
             FilledButton.icon(
               key: const Key('voz-registrar'),
-              onPressed: controller.canConfirm && mismatches.isEmpty
+              onPressed:
+                  controller.canConfirm && mismatches.isEmpty && !modeChanged
                   ? _confirm
                   : null,
               icon: controller.phase == DraftPhase.confirming

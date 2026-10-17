@@ -37,16 +37,27 @@ class VoiceDraftGateway {
   /// formularios al enviar. Las pruebas lo fijan.
   final DateTime Function() _clock;
 
-  /// Catálogos para un borrador de compra.
+  /// Catálogos para un borrador de compra, con la misma lectura que el
+  /// formulario (`peopleAndContextFor(purchaseAllocation)`): personas,
+  /// modalidad y titular en una consulta. En inventario propio la compra es
+  /// del titular, sin elegir persona.
   Future<VoiceCatalog> purchaseCatalog() async {
     final suppliers = await _repo.suppliers();
-    final people = await _repo.peopleFor(PersonPurpose.purchaseAllocation);
+    final read = await _repo.peopleAndContextFor(
+      PersonPurpose.purchaseAllocation,
+    );
     final campaign = await _repo.activeCampaign();
+    final people = [for (final row in read.people) _entry(row)];
+    final owner = read.context.mode == OperationMode.personal
+        ? people.where((p) => p.id == read.context.ownerPersonId).firstOrNull
+        : null;
     return VoiceCatalog(
       products: await _products(),
       suppliers: [for (final row in suppliers) _entry(row)],
-      people: [for (final row in people) _entry(row)],
+      people: owner == null ? people : [owner],
       activeCampaign: campaign == null ? null : _entry(campaign),
+      loadedMode: read.context.mode,
+      personalOwner: owner,
     );
   }
 
@@ -54,25 +65,24 @@ class VoiceDraftGateway {
   Future<int> confirmPurchase(VoicePurchaseDraft draft) =>
       _repo.confirmPurchase(draft.toDomain(at: _clock()));
 
-  /// Catálogos para un borrador de planificación. En PERSONAL sólo se ofrecen
-  /// los chacos del titular; el repositorio vuelve a comprobarlo al escribir.
+  /// Catálogos para un borrador de planificación, con la misma lectura que
+  /// el formulario (`farmsAndContext`): en propio sólo los chacos del
+  /// titular. El repositorio vuelve a comprobarlo al escribir.
   Future<VoiceCatalog> planCatalog() async {
-    final context = await _repo.operatingContext();
-    final farms = await _repo.farms();
+    final read = await _repo.farmsAndContext();
     final campaign = await _repo.activeCampaign();
     return VoiceCatalog(
       products: await _products(),
       farms: [
-        for (final row in farms)
-          if (context.mode != OperationMode.personal ||
-              row['owner_person_id'] == context.ownerPersonId)
-            CatalogEntry(
-              id: row['id']! as int,
-              name: row['name']! as String,
-              areaM2: row['area_m2'] as int?,
-            ),
+        for (final row in read.farms)
+          CatalogEntry(
+            id: row['id']! as int,
+            name: row['name']! as String,
+            areaM2: row['area_m2'] as int?,
+          ),
       ],
       activeCampaign: campaign == null ? null : _entry(campaign),
+      loadedMode: read.context.mode,
     );
   }
 
@@ -91,7 +101,8 @@ class VoiceDraftGateway {
   /// formulario: personas que pueden aplicar (`peopleFor(applicator)`) y sólo
   /// los chacos cuyo dueño puede aplicar. El dueño del chaco es quien aplica.
   Future<VoiceCatalog> applicationCatalog() async {
-    final people = await _repo.peopleFor(PersonPurpose.applicator);
+    final read = await _repo.peopleAndContextFor(PersonPurpose.applicator);
+    final people = read.people;
     final applicators = {for (final p in people) p['id']! as int: _entry(p)};
     final farms = [
       for (final farm in await _repo.farms())
@@ -114,6 +125,7 @@ class VoiceDraftGateway {
           row['id']! as int: applicators[row['owner_person_id']]!,
       },
       activeCampaign: campaign == null ? null : _entry(campaign),
+      loadedMode: read.context.mode,
     );
   }
 

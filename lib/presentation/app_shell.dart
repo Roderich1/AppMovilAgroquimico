@@ -44,6 +44,7 @@ class AppShell extends StatelessWidget {
     '/aplicaciones',
     '/transferencias',
     '/reportes',
+    '/voz',
   };
 
   /// Rutas de detalle que no son destinos propios: heredan el destino desde el
@@ -59,7 +60,16 @@ class AppShell extends StatelessWidget {
   /// Planificación, Compra, Aplicación, Pago y Transferencia. Retirarlo aquí no
   /// quita ninguna función —esos cinco destinos siguen en Operaciones y en la
   /// barra inferior— y deja una sola acción primaria por pantalla.
-  static const _routesWithoutGlobalFab = <String>{'/catalogos'};
+  ///
+  /// En las pantallas de voz el micrófono ya es la acción primaria y el FAB
+  /// taparía «Registrar».
+  static const _routesWithoutGlobalFab = <String>{
+    '/catalogos',
+    '/voz',
+    '/compras/voz',
+    '/planificacion/voz',
+    '/aplicaciones/voz',
+  };
 
   /// Si esta ruta oculta el FAB global.
   bool get hidesGlobalFab => _routesWithoutGlobalFab.contains(location);

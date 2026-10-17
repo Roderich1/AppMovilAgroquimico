@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../app.dart';
 import '../../data/agro_repository.dart';
@@ -199,6 +200,33 @@ class _PlanFormScreenState extends ConsumerState<PlanFormScreen> {
     child: Scaffold(
       appBar: AppBar(
         title: const Text('Nueva planificación'),
+        actions: [
+          // F09: la misma operación por voz. Si el formulario tiene
+          // cambios, se pregunta antes de descartarlos.
+          IconButton(
+            key: const Key('form-dictar'),
+            tooltip: 'Dictar con voz',
+            icon: const Icon(Icons.mic_none_outlined),
+            onPressed: saving
+                ? null
+                : () async {
+                    if (dirty &&
+                        !await confirmDestructiveAction(
+                          context,
+                          title: '¿Descartar cambios?',
+                          detail:
+                              'Lo escrito en el formulario no se '
+                              'guardó. Se abrirá el borrador por voz.',
+                          confirmLabel: 'Descartar y dictar',
+                        )) {
+                      return;
+                    }
+                    if (!context.mounted) return;
+                    setState(() => dirty = false);
+                    context.pushReplacement('/planificacion/voz');
+                  },
+          ),
+        ],
         leading: IconButton(
           onPressed: saving ? null : close,
           icon: const Icon(Icons.arrow_back),

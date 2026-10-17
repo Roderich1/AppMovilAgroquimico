@@ -42,6 +42,10 @@ import 'presentation/screens/transfers_screen.dart';
 import 'presentation/screens/transfer_form_screen.dart';
 import 'services/reports/report_export_service.dart';
 import 'services/reports/report_storage.dart';
+import 'presentation/voice/voice_application_draft_screen.dart';
+import 'presentation/voice/voice_entry_screen.dart';
+import 'presentation/voice/voice_plan_draft_screen.dart';
+import 'presentation/voice/voice_purchase_draft_screen.dart';
 
 final databaseProvider = Provider<AppDatabase>((ref) {
   final database = AppDatabase();
@@ -213,6 +217,34 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: '/respaldo-remoto',
             builder: (_, __) => const RemoteBackupScreen(),
+          ),
+          // F09. La voz vive DENTRO del shell, como los subdestinos de
+          // Operaciones: se llega apilando y Atrás vuelve. Cada borrador
+          // ofrece su formulario manual, que lo sustituye (el borrador se
+          // descarta sin escribir).
+          GoRoute(
+            path: voiceEntryPath,
+            builder: (_, __) => const VoiceEntryScreen(),
+          ),
+          GoRoute(
+            path: voicePurchasePath,
+            builder: (context, __) => VoicePurchaseDraftScreen(
+              onOpenManualForm: () => context.pushReplacement('/compras/nueva'),
+            ),
+          ),
+          GoRoute(
+            path: voicePlanPath,
+            builder: (context, __) => VoicePlanDraftScreen(
+              onOpenManualForm: () =>
+                  context.pushReplacement('/planificacion/nueva'),
+            ),
+          ),
+          GoRoute(
+            path: voiceApplicationPath,
+            builder: (context, __) => VoiceApplicationDraftScreen(
+              onOpenManualForm: () =>
+                  context.pushReplacement('/aplicaciones/nueva'),
+            ),
           ),
         ],
       ),
