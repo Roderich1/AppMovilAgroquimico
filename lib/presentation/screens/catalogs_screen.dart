@@ -6,7 +6,9 @@ import '../../data/agro_repository.dart';
 import '../../data/typed_reads.dart';
 import '../../domain/models.dart';
 import '../../domain/money.dart';
+import '../../domain/operation_mode.dart';
 import '../../domain/person_roles.dart';
+import '../../operation_mode_controller.dart';
 import '../widgets/common.dart';
 
 class CatalogsScreen extends ConsumerStatefulWidget {
@@ -178,6 +180,9 @@ class _CatalogsScreenState extends ConsumerState<CatalogsScreen>
     try {
       switch (tabs.index) {
         case 0:
+          // En propio no se agregan responsables (#26); el botón no se
+          // muestra, pero la regla no depende de él.
+          if (_personal) return;
           final result = await showDialog<(String, PersonRole)?>(
             context: context,
             builder: (_) => const _PersonDialog(),
@@ -185,12 +190,19 @@ class _CatalogsScreenState extends ConsumerState<CatalogsScreen>
           if (result != null)
             await repo.addPerson(name: result.$1, role: result.$2);
         case 1:
-          // En modo propio los chacos son del titular.
+          // En modo propio los chacos son del titular, que se aplica sin
+          // elegirlo (#26).
           final people = await repo.peopleFor(PersonPurpose.farmOwner);
+          final operating = await repo.operatingContext();
           if (!mounted) return;
           final result = await showDialog<(int, String, int)?>(
             context: context,
-            builder: (_) => _FarmDialog(people: people),
+            builder: (_) => _FarmDialog(
+              people: people,
+              fixedOwner:
+                  operating.mode == OperationMode.personal &&
+                  people.length == 1,
+            ),
           );
           if (result != null)
             await repo.addFarm(
@@ -247,8 +259,16 @@ class _CatalogsScreenState extends ConsumerState<CatalogsScreen>
     _ => 'Agregar campaña',
   };
 
+  bool get _personal =>
+      ref.read(operationModeProvider) == OperationMode.personal;
+
   @override
-  Widget build(BuildContext context) => PageFrame(
+  Widget build(BuildContext context) {
+    final personal = ref.watch(operationModeProvider) == OperationMode.personal;
+    return _page(context, personal);
+  }
+
+  Widget _page(BuildContext context, bool personal) => PageFrame(
     title: 'Catálogos',
     subtitle: 'Personas, chacos, insumos y campañas.',
     // **UIBUG-047 — jerarquía de acciones en `/catalogos`.** La pantalla
@@ -259,11 +279,15 @@ class _CatalogsScreenState extends ConsumerState<CatalogsScreen>
     // sólo ofrece atajos a Planificación, Compra, Aplicación, Pago y
     // Transferencia, todos alcanzables desde Operaciones y la barra inferior,
     // y ninguno crea entradas de catálogo.
-    action: FilledButton.icon(
-      onPressed: _add,
-      icon: const Icon(Icons.add),
-      label: Text(_addLabel),
-    ),
+    // En propio no se agregan responsables: la sección Personas queda para
+    // consultar y corregir nombres (#26).
+    action: personal && tabs.index == 0
+        ? null
+        : FilledButton.icon(
+            onPressed: _add,
+            icon: const Icon(Icons.add),
+            label: Text(_addLabel),
+          ),
     child: Column(
       children: [
         TextField(
@@ -299,6 +323,20 @@ class _CatalogsScreenState extends ConsumerState<CatalogsScreen>
           ),
         ),
         const SizedBox(height: 12),
+        if (personal && tabs.index == 0) ...[
+          const Card(
+            key: Key('catalogs-personal-persons-notice'),
+            child: Padding(
+              padding: EdgeInsets.all(14),
+              child: Text(
+                'Inventario propio: registra sólo el titular. Para agregar '
+                'responsables, cambie a inventario compartido en Modo de uso. '
+                'Las personas ya registradas y su historial se conservan.',
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
         // Sin altura fija: la lista participa del scroll de la página, así
         // que su última fila siempre es alcanzable (UIBUG-018).
         Builder(
@@ -559,8 +597,11 @@ class _PersonDialogState extends State<_PersonDialog> {
 }
 
 class _FarmDialog extends StatefulWidget {
-  const _FarmDialog({required this.people});
+  const _FarmDialog({required this.people, this.fixedOwner = false});
   final List<Map<String, Object?>> people;
+
+  /// En inventario propio el chaco es del titular: no se elige (#26).
+  final bool fixedOwner;
   @override
   State<_FarmDialog> createState() => _FarmDialogState();
 }
@@ -569,7 +610,9 @@ class _FarmDialogState extends State<_FarmDialog> {
   final name = TextEditingController();
   final area = TextEditingController();
   final formKey = GlobalKey<FormState>();
-  int? owner;
+  late int? owner = widget.fixedOwner
+      ? widget.people.single['id']! as int
+      : null;
   @override
   void dispose() {
     name.dispose();
@@ -594,20 +637,29 @@ class _FarmDialogState extends State<_FarmDialog> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          DropdownButtonFormField<int>(
-            initialValue: owner,
-            decoration: const InputDecoration(labelText: 'Propietario'),
-            items: [
-              for (final row in widget.people)
-                DropdownMenuItem(
-                  value: row['id']! as int,
-                  child: Text(row['name']! as String),
-                ),
-            ],
-            onChanged: (value) => setState(() => owner = value),
-            validator: (value) =>
-                value == null ? 'Elija un propietario.' : null,
-          ),
+          if (widget.fixedOwner)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                'Propietario: ${widget.people.single['name']} (titular)',
+                key: const Key('farm-personal-owner'),
+              ),
+            )
+          else
+            DropdownButtonFormField<int>(
+              initialValue: owner,
+              decoration: const InputDecoration(labelText: 'Propietario'),
+              items: [
+                for (final row in widget.people)
+                  DropdownMenuItem(
+                    value: row['id']! as int,
+                    child: Text(row['name']! as String),
+                  ),
+              ],
+              onChanged: (value) => setState(() => owner = value),
+              validator: (value) =>
+                  value == null ? 'Elija un propietario.' : null,
+            ),
           const SizedBox(height: 12),
           TextFormField(
             controller: name,

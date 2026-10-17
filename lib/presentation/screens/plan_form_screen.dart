@@ -5,8 +5,11 @@ import '../../app.dart';
 import '../../data/agro_repository.dart';
 import '../../domain/models.dart';
 import '../../domain/money.dart';
+import '../../domain/operation_mode.dart';
+import '../../operation_mode_controller.dart';
 import '../widgets/adaptive_entity_picker.dart';
 import '../widgets/common.dart';
+import '../widgets/mode_notice.dart';
 
 typedef _PlanCatalogs = ({
   Map<String, Object?> campaign,
@@ -28,6 +31,9 @@ class _PlanFormScreenState extends ConsumerState<PlanFormScreen> {
   final lines = <_PlanLine>[];
   Map<int, int> ownerStock = {};
   bool dirty = false, saving = false;
+
+  /// Modalidad con la que se cargaron los chacos (#26).
+  OperationMode? loadedMode;
   @override
   void initState() {
     super.initState();
@@ -39,11 +45,10 @@ class _PlanFormScreenState extends ConsumerState<PlanFormScreen> {
     final active = await r.activeCampaign();
     if (active == null)
       throw BusinessRuleException('Active una campaña antes de planificar.');
-    return (
-      campaign: active,
-      farms: await r.farms(),
-      products: await r.products(),
-    );
+    // En propio sólo los chacos del titular; modalidad en la misma consulta.
+    final farms = await r.farmsAndContext();
+    loadedMode = farms.context.mode;
+    return (campaign: active, farms: farms.farms, products: await r.products());
   }
 
   @override
@@ -205,7 +210,16 @@ class _PlanFormScreenState extends ConsumerState<PlanFormScreen> {
           child: FutureBuilder<_PlanCatalogs>(
             future: future,
             builder: (context, s) => FilledButton.icon(
-              onPressed: saving || !s.hasData ? null : () => submit(s.data!),
+              key: const Key('plan-confirm'),
+              onPressed:
+                  saving ||
+                      !s.hasData ||
+                      modeChangedSince(
+                        loadedMode,
+                        ref.watch(operationModeProvider),
+                      )
+                  ? null
+                  : () => submit(s.data!),
               icon: const Icon(Icons.check),
               label: const Text('Guardar planificación'),
             ),
@@ -231,6 +245,13 @@ class _PlanFormScreenState extends ConsumerState<PlanFormScreen> {
             child: ListView(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
               children: [
+                if (modeChangedSince(
+                  loadedMode,
+                  ref.watch(operationModeProvider),
+                )) ...[
+                  const ModeChangedNotice(),
+                  const SizedBox(height: 12),
+                ],
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(

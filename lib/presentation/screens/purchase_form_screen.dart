@@ -7,9 +7,12 @@ import 'package:image_picker/image_picker.dart';
 import '../../app.dart';
 import '../../domain/models.dart';
 import '../../domain/money.dart';
+import '../../domain/operation_mode.dart';
 import '../../domain/person_roles.dart';
+import '../../operation_mode_controller.dart';
 import '../widgets/adaptive_entity_picker.dart';
 import '../widgets/common.dart';
+import '../widgets/mode_notice.dart';
 
 class PurchaseFormScreen extends ConsumerStatefulWidget {
   const PurchaseFormScreen({super.key});
@@ -78,6 +81,13 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
   int? campaignId;
   bool payProvider = false;
   int? payerId;
+
+  /// Modalidad con la que se cargaron las personas (#26).
+  OperationMode? loadedMode;
+
+  /// En inventario propio, el titular: recibe todo lo comprado y paga al
+  /// proveedor sin que se elija persona (#26). Nulo en compartido.
+  int? personalOwnerId;
   XFile? invoiceImage;
   bool saving = false;
   bool dirty = false;
@@ -128,15 +138,25 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
     final repo = ref.read(repositoryProvider);
     // Asignación y pagador según rol privado, titular y modalidad: en modo
     // propio sólo el titular, también como pagador.
+    // La modalidad y el titular llegan en la misma consulta que las
+    // personas de la asignación.
+    final allocation = repo.peopleAndContextFor(
+      PersonPurpose.purchaseAllocation,
+    );
     final result = await Future.wait([
       repo.suppliers(),
       repo.campaigns(),
       repo.products(),
-      repo.peopleFor(PersonPurpose.purchaseAllocation),
+      allocation.then((value) => value.people),
       repo.peopleFor(PersonPurpose.providerPayer),
     ]);
+    final operating = (await allocation).context;
     final active = result[1].where((row) => row['status'] == 'ACTIVE');
     campaignId = active.isEmpty ? null : active.first['id'] as int;
+    loadedMode = operating.mode;
+    personalOwnerId = operating.mode == OperationMode.personal
+        ? operating.ownerPersonId
+        : null;
     return result;
   }
 
@@ -201,6 +221,8 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
         );
         return;
       }
+      // En propio todo es del titular: no hay reparto que comprobar.
+      if (personalOwnerId != null) continue;
       if (line.allocations.any((allocation) => allocation.personId == null)) {
         showError(context, 'Seleccione la persona de cada asignación.');
         return;
@@ -215,7 +237,8 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
         return;
       }
     }
-    if (payProvider && payerId == null) {
+    final payer = personalOwnerId ?? payerId;
+    if (payProvider && payer == null) {
       showError(context, 'Seleccione quién paga al proveedor.');
       return;
     }
@@ -247,13 +270,21 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
                 currency: line.currency,
                 originalUnitPriceMinor: line.priceMinor,
                 exchangeRateScaled: line.exchangeRateScaled,
-                allocations: [
-                  for (final allocation in line.allocations)
-                    AllocationDraft(
-                      personId: allocation.personId!,
-                      quantityBase: tryParseBase(allocation.quantity.text) ?? 0,
-                    ),
-                ],
+                allocations: personalOwnerId != null
+                    ? [
+                        AllocationDraft(
+                          personId: personalOwnerId!,
+                          quantityBase: line.quantityBase,
+                        ),
+                      ]
+                    : [
+                        for (final allocation in line.allocations)
+                          AllocationDraft(
+                            personId: allocation.personId!,
+                            quantityBase:
+                                tryParseBase(allocation.quantity.text) ?? 0,
+                          ),
+                      ],
               ),
           ],
         ),
@@ -261,7 +292,7 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
       if (payProvider) {
         await repo.addProviderPayment(
           purchaseId: purchaseId,
-          payerPersonId: payerId!,
+          payerPersonId: payer!,
           amountBobMinor: totalBob,
           method: 'TRANSFER',
         );
@@ -309,6 +340,16 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
           final products = snapshot.data![2];
           final people = snapshot.data![3];
           final admins = snapshot.data![4];
+          final modeChanged = modeChangedSince(
+            loadedMode,
+            ref.watch(operationModeProvider),
+          );
+          final ownerName = personalOwnerId == null
+              ? null
+              : people
+                    .where((row) => row['id'] == personalOwnerId)
+                    .firstOrNull?['name']
+                    ?.toString();
           return CustomScrollView(
             slivers: [
               SliverAppBar(
@@ -320,7 +361,10 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
                 ),
                 actions: [
                   TextButton.icon(
-                    onPressed: saving ? null : () => _confirm(people),
+                    key: const Key('purchase-confirm'),
+                    onPressed: saving || modeChanged
+                        ? null
+                        : () => _confirm(people),
                     icon: saving
                         ? const SizedBox.square(
                             dimension: 16,
@@ -345,6 +389,10 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
                 ),
                 sliver: SliverList.list(
                   children: [
+                    if (modeChanged) ...[
+                      const ModeChangedNotice(),
+                      const SizedBox(height: 12),
+                    ],
                     _Section(
                       title: 'Factura',
                       child: Column(
@@ -450,6 +498,9 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
                           line: lines[index],
                           products: products,
                           people: people,
+                          personalOwnerName: personalOwnerId == null
+                              ? null
+                              : ownerName ?? 'Titular',
                           usedProductIds: {
                             for (final other in lines)
                               if (!identical(other, lines[index]) &&
@@ -482,7 +533,16 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
                                 payerId = admins.single['id']! as int;
                             }),
                           ),
-                          if (payProvider)
+                          // En propio paga el titular: no se elige pagador.
+                          if (payProvider && personalOwnerId != null)
+                            Align(
+                              alignment: Alignment.centerLeft,
+                              child: Text(
+                                'Paga el titular: ${ownerName ?? 'Titular'}',
+                                key: const Key('purchase-personal-payer'),
+                              ),
+                            )
+                          else if (payProvider)
                             _dropdown(
                               'Pagador',
                               admins,
@@ -614,10 +674,14 @@ class _LineCard extends StatelessWidget {
     required this.usedProductIds,
     required this.onChanged,
     this.onRemove,
+    this.personalOwnerName,
   });
   final int index;
   final _PurchaseLineEditor line;
   final List<Map<String, Object?>> products, people;
+
+  /// En inventario propio, el titular que recibe la línea entera (#26).
+  final String? personalOwnerName;
   final Set<int> usedProductIds;
   final VoidCallback onChanged;
   final VoidCallback? onRemove;
@@ -640,6 +704,7 @@ class _LineCard extends StatelessWidget {
   /// igual `_confirm`—; cambia lo que la tarjeta declara.
   String get _allocationStatus {
     if (line.quantityBase <= 0) return 'Pendiente de cantidad';
+    if (personalOwnerName != null) return 'Para el titular';
     if (line.allocations.any((allocation) => allocation.personId == null)) {
       return 'Pendiente de persona';
     }
@@ -781,85 +846,97 @@ class _LineCard extends StatelessWidget {
             ),
           ),
           const Divider(height: 24),
-          Row(
-            children: [
-              const Expanded(
-                child: Text(
-                  'Asignaciones',
-                  style: TextStyle(fontWeight: FontWeight.w700),
+          // En propio la línea entera es del titular: no hay reparto (#26).
+          if (personalOwnerName != null)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                'Para el titular: $personalOwnerName',
+                key: Key('purchase-personal-allocation-$index'),
+              ),
+            )
+          else ...[
+            Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    'Asignaciones',
+                    style: TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                ),
+                TextButton.icon(
+                  onPressed: () {
+                    line.allocations.add(_AllocationEditor());
+                    onChanged();
+                  },
+                  icon: const Icon(Icons.add),
+                  label: const Text('Persona'),
+                ),
+              ],
+            ),
+            for (
+              var allocationIndex = 0;
+              allocationIndex < line.allocations.length;
+              allocationIndex++
+            )
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Row(
+                  children: [
+                    Expanded(
+                      flex: 3,
+                      child: AdaptiveEntityPicker<Map<String, Object?>>(
+                        label: 'Persona',
+                        items: people,
+                        value: people
+                            .where(
+                              (person) =>
+                                  person['id'] ==
+                                  line.allocations[allocationIndex].personId,
+                            )
+                            .firstOrNull,
+                        labelOf: (person) => person['name']! as String,
+                        secondaryOf: (person) =>
+                            personRoleLabel(person['role']),
+                        onChanged: (person) {
+                          line.allocations[allocationIndex].personId =
+                              person?['id'] as int?;
+                          onChanged();
+                        },
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      flex: 2,
+                      child: TextField(
+                        controller: line.allocations[allocationIndex].quantity,
+                        onChanged: (_) => onChanged(),
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        // La etiqueta era la unidad a secas, y sin producto
+                        // elegido quedaba vacía: un recuadro sin nombre junto a
+                        // un selector de persona (UIBUG-038). Ahora el campo
+                        // dice qué es, y la unidad acompaña como sufijo cuando
+                        // se conoce.
+                        decoration: InputDecoration(
+                          labelText: 'Cantidad',
+                          suffixText: unit.isEmpty ? null : unit,
+                        ),
+                      ),
+                    ),
+                    if (line.allocations.length > 1)
+                      IconButton(
+                        onPressed: () {
+                          line.allocations.removeAt(allocationIndex).dispose();
+                          onChanged();
+                        },
+                        icon: const Icon(Icons.close),
+                      ),
+                  ],
                 ),
               ),
-              TextButton.icon(
-                onPressed: () {
-                  line.allocations.add(_AllocationEditor());
-                  onChanged();
-                },
-                icon: const Icon(Icons.add),
-                label: const Text('Persona'),
-              ),
-            ],
-          ),
-          for (
-            var allocationIndex = 0;
-            allocationIndex < line.allocations.length;
-            allocationIndex++
-          )
-            Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: Row(
-                children: [
-                  Expanded(
-                    flex: 3,
-                    child: AdaptiveEntityPicker<Map<String, Object?>>(
-                      label: 'Persona',
-                      items: people,
-                      value: people
-                          .where(
-                            (person) =>
-                                person['id'] ==
-                                line.allocations[allocationIndex].personId,
-                          )
-                          .firstOrNull,
-                      labelOf: (person) => person['name']! as String,
-                      secondaryOf: (person) => personRoleLabel(person['role']),
-                      onChanged: (person) {
-                        line.allocations[allocationIndex].personId =
-                            person?['id'] as int?;
-                        onChanged();
-                      },
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    flex: 2,
-                    child: TextField(
-                      controller: line.allocations[allocationIndex].quantity,
-                      onChanged: (_) => onChanged(),
-                      keyboardType: const TextInputType.numberWithOptions(
-                        decimal: true,
-                      ),
-                      // La etiqueta era la unidad a secas, y sin producto
-                      // elegido quedaba vacía: un recuadro sin nombre junto a
-                      // un selector de persona (UIBUG-038). Ahora el campo
-                      // dice qué es, y la unidad acompaña como sufijo cuando
-                      // se conoce.
-                      decoration: InputDecoration(
-                        labelText: 'Cantidad',
-                        suffixText: unit.isEmpty ? null : unit,
-                      ),
-                    ),
-                  ),
-                  if (line.allocations.length > 1)
-                    IconButton(
-                      onPressed: () {
-                        line.allocations.removeAt(allocationIndex).dispose();
-                        onChanged();
-                      },
-                      icon: const Icon(Icons.close),
-                    ),
-                ],
-              ),
-            ),
+          ],
         ],
       ),
     );

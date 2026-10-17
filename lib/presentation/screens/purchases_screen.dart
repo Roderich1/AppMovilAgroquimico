@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../app.dart';
 import '../../domain/money.dart';
+import '../../domain/operation_mode.dart';
 import '../../domain/person_roles.dart';
 import '../widgets/common.dart';
 
@@ -80,6 +81,7 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> {
     final repo = ref.read(repositoryProvider);
     // En compartido pagan los administradores de pagos; en propio, el titular.
     final admins = await repo.peopleFor(PersonPurpose.providerPayer);
+    final operating = await repo.operatingContext();
     if (!mounted) return;
     if (admins.isEmpty) {
       showError(
@@ -97,6 +99,8 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> {
         people: admins,
         maxMinor: remaining,
         title: 'Pago al proveedor',
+        fixedPayer:
+            operating.mode == OperationMode.personal && admins.length == 1,
       ),
     );
     if (result == null) return;
@@ -298,16 +302,22 @@ class _PaymentDialog extends StatefulWidget {
     required this.people,
     required this.maxMinor,
     required this.title,
+    this.fixedPayer = false,
   });
   final List<Map<String, Object?>> people;
   final int maxMinor;
   final String title;
+
+  /// En inventario propio paga el titular: no se elige pagador (#26).
+  final bool fixedPayer;
   @override
   State<_PaymentDialog> createState() => _PaymentDialogState();
 }
 
 class _PaymentDialogState extends State<_PaymentDialog> {
-  int? person;
+  late int? person = widget.fixedPayer
+      ? widget.people.single['id']! as int
+      : null;
   // Se precarga con el convenio es-BO que la propia aplicacion acepta.
   // `toStringAsFixed` producia "20000.00", que con la regla de entrada
   // centralizada (UIBUG-003) es un formato invalido: el punto es separador de
@@ -327,18 +337,27 @@ class _PaymentDialogState extends State<_PaymentDialog> {
     content: Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        DropdownButtonFormField<int>(
-          initialValue: person,
-          decoration: const InputDecoration(labelText: 'Pagador'),
-          items: [
-            for (final p in widget.people)
-              DropdownMenuItem(
-                value: p['id']! as int,
-                child: Text(p['name']! as String),
-              ),
-          ],
-          onChanged: (value) => setState(() => person = value),
-        ),
+        if (widget.fixedPayer)
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              'Paga el titular: ${widget.people.single['name']}',
+              key: const Key('payment-personal-payer'),
+            ),
+          )
+        else
+          DropdownButtonFormField<int>(
+            initialValue: person,
+            decoration: const InputDecoration(labelText: 'Pagador'),
+            items: [
+              for (final p in widget.people)
+                DropdownMenuItem(
+                  value: p['id']! as int,
+                  child: Text(p['name']! as String),
+                ),
+            ],
+            onChanged: (value) => setState(() => person = value),
+          ),
         const SizedBox(height: 12),
         TextField(
           controller: amount,
