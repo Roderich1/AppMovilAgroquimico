@@ -21,6 +21,8 @@ import 'support/f04_mode_fixtures.dart';
 void main() {
   sqfliteFfiInit();
 
+  // Instante de la confirmación: el formulario usa DateTime.now() al enviar y
+  // el gateway, su reloj (aquí fijo).
   final now = DateTime(2026, 10, 17, 9);
   const bellator = CatalogEntry(
     id: 1,
@@ -50,7 +52,7 @@ void main() {
     VoiceApplicationDraft? current,
   }) => interpretApplication(
     text,
-    current ?? VoiceApplicationDraft.start(catalog, now),
+    current ?? VoiceApplicationDraft.start(catalog),
     catalog,
   ).draft;
 
@@ -142,7 +144,7 @@ void main() {
     });
 
     test('aplicar una planificación no se atiende y no cambia nada', () {
-      final start = VoiceApplicationDraft.start(catalog, now);
+      final start = VoiceApplicationDraft.start(catalog);
       final r = interpretApplication(
         'quiero aplicar la planificación del chaco Sur',
         start,
@@ -153,7 +155,7 @@ void main() {
     });
 
     test('otra operación no cambia el borrador', () {
-      final start = VoiceApplicationDraft.start(catalog, now);
+      final start = VoiceApplicationDraft.start(catalog);
       final r = interpretApplication(
         'compré dos litros de Bellator',
         start,
@@ -174,7 +176,7 @@ void main() {
       final repo = AgroRepository(database);
       household = await seedHousehold(repo);
       await household.buy(household.titular, 5000);
-      gateway = VoiceDraftGateway(repo);
+      gateway = VoiceDraftGateway(repo, clock: () => now);
     });
 
     const dictation =
@@ -183,7 +185,7 @@ void main() {
     Future<VoiceDraftController<VoiceApplicationDraft, int>> openDraft() async {
       final catalog = await gateway.applicationCatalog();
       final controller = VoiceDraftController<VoiceApplicationDraft, int>(
-        initial: VoiceApplicationDraft.start(catalog, now),
+        initial: VoiceApplicationDraft.start(catalog),
         commit: gateway.confirmApplication,
       );
       addTearDown(controller.dispose);

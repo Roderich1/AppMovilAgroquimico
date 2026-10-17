@@ -68,7 +68,6 @@ final class SpokenAmount {
 final class VoiceApplicationDraft implements VoiceDraft<VoiceApplicationDraft> {
   const VoiceApplicationDraft({
     required this.campaign,
-    required this.appliedAt,
     this.farm = const DraftField.missing(message: 'Falta el chaco.'),
     this.person,
     this.area = const DraftField.missing(message: 'Falta el área tratada.'),
@@ -78,7 +77,7 @@ final class VoiceApplicationDraft implements VoiceDraft<VoiceApplicationDraft> {
     this.nextLineKey = 1,
   });
 
-  factory VoiceApplicationDraft.start(VoiceCatalog catalog, DateTime now) =>
+  factory VoiceApplicationDraft.start(VoiceCatalog catalog) =>
       VoiceApplicationDraft(
         campaign: catalog.activeCampaign == null
             ? const DraftField.missing(
@@ -88,13 +87,9 @@ final class VoiceApplicationDraft implements VoiceDraft<VoiceApplicationDraft> {
                 catalog.activeCampaign!,
                 origin: FieldOrigin.preset,
               ),
-        appliedAt: now,
       );
 
   final DraftField<CatalogEntry> campaign;
-
-  /// Momento de la aplicación: ahora, como el formulario.
-  final DateTime appliedAt;
 
   final DraftField<CatalogEntry> farm;
 
@@ -132,7 +127,6 @@ final class VoiceApplicationDraft implements VoiceDraft<VoiceApplicationDraft> {
     int? nextLineKey,
   }) => VoiceApplicationDraft(
     campaign: campaign ?? this.campaign,
-    appliedAt: appliedAt,
     farm: farm ?? this.farm,
     person: clearPerson ? null : (person ?? this.person),
     area: area ?? this.area,
@@ -237,7 +231,11 @@ final class VoiceApplicationDraft implements VoiceDraft<VoiceApplicationDraft> {
 
   /// El mismo `ApplicationDraft` que arma el formulario sin plan: sin dosis,
   /// la cantidad teórica es 0, como en el formulario con la dosis vacía.
-  ApplicationDraft toDomain() {
+  ///
+  /// [at] es el instante de la confirmación, como `DateTime.now()` en el
+  /// formulario al enviar; no el de abrir el borrador (mismo criterio que la
+  /// compra, B-100-1).
+  ApplicationDraft toDomain({required DateTime at}) {
     if (blockers.isNotEmpty) {
       throw StateError('El borrador tiene bloqueos y no se puede convertir.');
     }
@@ -245,7 +243,7 @@ final class VoiceApplicationDraft implements VoiceDraft<VoiceApplicationDraft> {
       personId: person!.id,
       farmId: farm.value!.id,
       campaignId: campaign.value!.id,
-      appliedAt: appliedAt,
+      appliedAt: at,
       notes: '',
       treatedAreaM2: area.value!,
       lines: [

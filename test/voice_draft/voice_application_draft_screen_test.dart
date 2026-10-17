@@ -153,4 +153,21 @@ void main() {
     );
     expect(find.textContaining('quedaría 3,5 L'), findsOneWidget);
   });
+
+  testWidgets('Atrás con una aplicación empezada pregunta y no registra', (
+    tester,
+  ) async {
+    await pumpScreen(
+      tester,
+      script: const [FakeTurn(segment: full, endsOnStop: true)],
+    );
+    await tap(tester, const Key('voz-boton-microfono'));
+    await tap(tester, const Key('voz-boton-microfono'));
+    await tester.binding.handlePopRoute();
+    await drain(tester);
+    expect(find.text('¿Descartar el borrador?'), findsOneWidget);
+    await tester.tap(find.text('Descartar'));
+    await drain(tester);
+    expect(await applications(tester), 0);
+  });
 }

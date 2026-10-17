@@ -21,7 +21,6 @@ void main() {
 
   late AppDatabase database;
   late VoiceDraftGateway gateway;
-  final now = DateTime(2026, 10, 17, 9);
 
   setUp(() async {
     database = openDb(inMemoryDatabasePath);
@@ -49,7 +48,7 @@ void main() {
   Future<dynamic> purchase() async {
     final catalog = await gateway.purchaseCatalog();
     final c = VoiceDraftController<VoicePurchaseDraft, int>(
-      initial: VoicePurchaseDraft.start(catalog, now),
+      initial: VoicePurchaseDraft.start(catalog),
       commit: gateway.confirmPurchase,
     );
     for (final text in const [
@@ -86,7 +85,7 @@ void main() {
   Future<dynamic> application() async {
     final catalog = await gateway.applicationCatalog();
     final c = VoiceDraftController<VoiceApplicationDraft, int>(
-      initial: VoiceApplicationDraft.start(catalog, now),
+      initial: VoiceApplicationDraft.start(catalog),
       commit: gateway.confirmApplication,
     );
     c.applyVoice((d) {

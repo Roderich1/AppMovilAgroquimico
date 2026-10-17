@@ -127,7 +127,7 @@ class VoiceDraftGateway {
   /// Registra la aplicación con `confirmApplication()`, la autoridad de FIFO,
   /// costo, movimientos y stock, como el formulario.
   Future<int> confirmApplication(VoiceApplicationDraft draft) =>
-      _repo.confirmApplication(draft.toDomain());
+      _repo.confirmApplication(draft.toDomain(at: _clock()));
 
   Future<List<CatalogEntry>> _products() async => [
     for (final row in await _repo.products())
