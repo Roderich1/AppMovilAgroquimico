@@ -55,7 +55,8 @@ Aplicar un plan sí pasa por la regla, porque crea una aplicación. La voz tambi
 - `232fc25`: código, diálogos y fixtures;
 - `297d045`: prueba de activación;
 - `13f0933`: imports;
-- `85929c2`: revisión de B sobre `6554be7`. Las necesidades declaradas cuentan como registros fechados de su campaña, y el cierre no admite un fin futuro.
+- `85929c2`: revisión de B sobre `6554be7`. Las necesidades declaradas cuentan como registros fechados de su campaña, y el cierre no admite un fin futuro;
+- `f37200d`: revisión de B sobre `d932e61`. Si la campaña activa todavía no empezó, el diálogo de cierre propone y admite como fin su día de inicio.
 
 | Archivo | Cambio |
 |---|---|
@@ -70,7 +71,7 @@ Aplicar un plan sí pasa por la regla, porque crea una aplicación. La voz tambi
   - rechazo de «ninguna», «ambigua» (solape heredado) y «cerrada», y de «planificada», en compra y aplicación, con el volcado de **todas** las tablas idéntico;
   - FIFO con lotes del mismo día: sale antes el de la mañana, aunque se registrara después;
   - calendario: no se intercala ni se repite un inicio; un fin anterior al inicio se rechaza; el alta no deja operaciones fuera; cierre con fin elegido (inclusivo, no antes del inicio, sin dejar operaciones fuera); base heredada al activar; activar conserva el fin ya fijado; propuesta de inicio. Además, el alta y el cierre no dejan fuera una **necesidad declarada ni sus versiones** (F05), y el cierre no admite un **fin futuro**.
-- `test/f04_campaign_dialogs_ui_test.dart`, 3 casos: el alta propone hoy y la anterior termina el día previo; el cierre pide el fin y lo guarda; un fin ya fijado se muestra y no cambia.
+- `test/f04_campaign_dialogs_ui_test.dart`, 4 casos: el alta propone hoy y la anterior termina el día previo; el cierre pide el fin y lo guarda; un fin ya fijado se muestra y no cambia; una campaña activa que todavía no empezó se cierra con su día de inicio como fin.
 
 **Fixtures ajustadas.** Sólo cambian datos que creaban períodos solapados, que RF-03 prohíbe. Las aserciones son las mismas, salvo la de `report_reads`, que se traslada:
 
@@ -99,13 +100,14 @@ Aplicar un plan sí pasa por la regla, porque crea una aplicación. La voz tambi
 
 | Comando | Sobre | Resultado |
 |---|---|---|
-| `flutter test` (suite completa) | `85929c2` | **1420 pasan, 2 omitidas, 0 fallos** |
+| `flutter test` (suite completa) | `f37200d` | **1421 pasan, 2 omitidas, 0 fallos** |
+| `flutter test` (suite completa) | `85929c2` | 1420 pasan, 2 omitidas |
 | `flutter test` (suite completa, antes de la revisión) | `297d045` | 1418 pasan, 2 omitidas |
 | `flutter analyze lib test` | `85929c2` | `No issues found!` (en `297d045` había 2 imports sin uso en la prueba nueva, que `13f0933` quita) |
 | `dart format --set-exit-if-changed lib test` | `85929c2` | exit 0 |
 | `flutter test` de las dos pruebas nuevas | `85929c2` | 18 pasan |
 
-La CI del PR corre sobre su HEAD exacto y consta en el PR.
+**CI (GitHub Actions):** 39058618715 sobre `d932e61`: SUCCESS, 1419 pasan y 3 omitidas (dato de B). La CI del HEAD final consta en el PR. En CI se omite una prueba más que en local, por plataforma.
 
 ## 4. Límites y decisiones para Roderich
 
@@ -123,5 +125,5 @@ La CI del PR corre sobre su HEAD exacto y consta en el PR.
 ## 5. Revisiones
 
 - **Regla:** sesión B, sobre `27bd501`. NO LISTO en un punto (el rechazo de una campaña cerrada como «lectura de §3.11.13»), que se declara ahora como D-F04-C1 y como incumplimiento de RF-03 en esa parte. Los demás puntos, LISTO. Los riesgos (a)–(f) se recogen en §2 y §4.
-- **Código y pruebas:** sesión B, sobre `6554be7`. LISTO, con un hallazgo medio (las necesidades declaradas no contaban como registros fechados) y dos menores (fin futuro; `end` ignorado si ya hay fin). Corregidos o documentados en `85929c2`. El delta está pendiente de su verificación.
+- **Código y pruebas:** sesión B, sobre `6554be7`. LISTO, con un hallazgo medio (las necesidades declaradas no contaban como registros fechados) y dos menores (fin futuro; `end` ignorado si ya hay fin). Corregidos o documentados en `85929c2`. **Delta `6554be7..d932e61`: LISTO**, con la CI 39058618715 en verde y un menor nuevo (cerrar una campaña activa que aún no empezó), corregido en `f37200d`.
 - **Revisión de Roderich Rendón:** pendiente. GATE-F04 sigue **Pending**.
