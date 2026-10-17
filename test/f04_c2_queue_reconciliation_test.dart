@@ -21,6 +21,7 @@ import 'dart:math';
 
 import 'package:agroquimicos/data/app_database.dart';
 import 'package:agroquimicos/data/sync/central_binding_store.dart';
+import 'package:agroquimicos/domain/campaign_calendar.dart';
 import 'package:agroquimicos/data/sync/declared_need_store.dart';
 import 'package:agroquimicos/data/sync/sync_outbox_store.dart';
 import 'package:agroquimicos/domain/sync/central_references.dart';
@@ -488,6 +489,44 @@ void main() {
         1,
       );
     });
+  });
+
+  test('periodHold falla cerrado: sin período central o sin período local, retiene', () {
+    CampaignBinding binding({String? start, String? end}) => CampaignBinding(
+      campaignId: 1,
+      tenantId: memberA.tenantId,
+      campaignRef: campaignRef,
+      centralName: 'Central',
+      centralStartDay: start,
+      centralEndDay: end,
+      status: start == null ? BindingStatus.invalid : BindingStatus.valid,
+      invalidReason: start == null
+          ? BindingInvalidReason.periodUnverified
+          : null,
+      boundAt: '2026-10-17T00:00:00.000Z',
+      checkedAt: '2026-10-17T00:00:00.000Z',
+    );
+    final local = CampaignPeriod(
+      id: 1,
+      name: 'Local',
+      status: 'ACTIVE',
+      startDay: '2026-09-01',
+      endDay: '2026-10-31',
+    );
+    expect(binding().periodHold(local), isTrue, reason: 'sin central');
+    expect(
+      binding(start: '2026-09-01').periodHold(null),
+      isTrue,
+      reason: 'sin local legible: no se demuestra nada',
+    );
+    expect(
+      binding(start: '2026-09-01', end: '2026-10-31').periodHold(local),
+      isFalse,
+    );
+    expect(
+      binding(start: '2026-09-01', end: '2026-10-30').periodHold(local),
+      isTrue,
+    );
   });
 
   group('C2-R2: selección y marcado no son una sola decisión', () {

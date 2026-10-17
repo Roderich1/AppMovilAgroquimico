@@ -97,12 +97,13 @@ class CampaignBinding {
 
   /// D-F04-C2 (C2-R1): la compatibilidad temporal **no está demostrada** para
   /// [local], sea cual sea el motivo de invalidez guardado. Sin período
-  /// central conocido no se puede comprobar; con él, el local tiene que caber.
-  /// Decide la retención de la cola, aparte del motivo que se muestra.
+  /// central conocido, o sin período local (campaña que no se pudo leer), no
+  /// se puede comprobar y se retiene: falla cerrado. Con los dos, el local
+  /// tiene que caber. Decide la retención de la cola, aparte del motivo que
+  /// se muestra.
   bool periodHold(CampaignPeriod? local) {
     final central = centralPeriod;
-    if (central == null) return true;
-    if (local == null) return false;
+    if (central == null || local == null) return true;
     return periodMismatch(local, central) != null;
   }
 
