@@ -27,3 +27,12 @@ El criterio del autor para `Verified` (el CI ejecuta `flutter analyze` y `flutte
 Mejora registrada para F10 (no bloquea): automatizar la comprobación de que el workflow conserva esos pasos y de que la versión fijada de Flutter coincide con la baseline.
 
 Verificado el 2026-10-15 con Claude Code en el equipo del autor, consultando las ejecuciones anteriores. La verificación del autor (Roderich Rendón) queda registrada al aprobar el PR; la revisión del tutor se registra aparte en GOV-01.
+
+## Nota añadida el 2026-10-17 (sesión A, tras la revisión de la sesión C)
+
+No cambia lo registrado el 2026-10-15.
+
+- **#57 sigue Partial** y este PR no la cierra. La conclusión de arriba sobre el CI se mantiene, pero `REC_MOBILE_BASELINE.md` da su cobertura de pruebas como «partial (tests)», y su sección de #57 deja pendientes: ninguna automatización comprueba el workflow; `docs/46` no registra el SHA del tag; y el tag `v1.0.0-base-stable` (`bd3289f`) no coincide con el merge `f4c6510` de #4, que no está en `main`.
+- **La ejecución 38728787229** de la tabla corrió sobre `5d57fcc`, un commit que no está en ninguna rama. Su árbol es idéntico al de `0ab6043`: es la versión anterior a la reescritura del historial que retiró las líneas de atribución.
+- El CI de la cabeza de este PR es la ejecución 39042305677 (`bf9b93d`, success), y después la del HEAD final.
+
