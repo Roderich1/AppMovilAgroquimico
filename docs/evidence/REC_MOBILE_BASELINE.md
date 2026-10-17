@@ -229,6 +229,6 @@ Lo de arriba se registró el 2026-10-15 sobre `278cbd3` y **no se reescribe**. L
 **Revisión de la sesión C (2026-10-17) antes de integrar.** Cambia lo que cierra este PR, no lo registrado:
 - **#57 no se cierra.** La tabla dice «partial (tests)». Siguen los pendientes de su sección: ninguna automatización comprueba el workflow; `docs/46` no da el SHA del tag; y el tag `v1.0.0-base-stable` (`bd3289f`) no coincide con el merge `f4c6510` de #4, que no está en `main`.
 - **#52 no se cierra.** Sólo 2 de los 5 reportes comparan contenido, así que «full» no se sostiene.
-- **`REC_021_CI.md`** cita la ejecución 38728787229 sobre `5d57fcc`, un commit que no está en ninguna rama. Su árbol es idéntico al de `0ab6043`: es la versión anterior a la reescritura del historial que retiró las líneas de atribución.
+- **`REC_021_CI.md`** cita la ejecución 38728787229 sobre `5d57fcc`, un commit que no está en ninguna rama. Su árbol es idéntico al de `0ab6043`: es la versión anterior a la reescritura del historial que retiró las líneas de atribución. El CI de la cabeza de este PR es la ejecución 39042305677 (`bf9b93d`, success).
 - Se cierran con este PR **#38, #41, #42 y #54**, cuya cobertura «full» se sostiene.
 
