@@ -30,22 +30,94 @@ Las fuentes **no se contradicen**. Lo que choca con ellas es la implementación 
    - **exactamente una y es la activa del borrador** → se registra;
    - **ninguna** → rechazo explícito: «La fecha dd/mm/aaaa no está dentro de ninguna campaña…»;
    - **más de una** → rechazo explícito: calendario solapado (sólo puede venir de datos anteriores a esta regla);
-   - **una, pero no la activa** (cerrada o planificada) → rechazo explícito con su nombre: las operaciones de un período cerrado requieren revisión (§3.11.13); no se reabre ni se reasigna.
+   - **una, pero no la activa** (cerrada o planificada) → rechazo explícito que nombra esa campaña y dice que «no se registra en otra campaña»; no invita a cambiar la activa, no se reabre ni se reasigna. Para una campaña **cerrada** el rechazo es una **salvaguarda provisional**, no la lectura de §3.11.13: ver §4, D-F04-C1.
    Toda la comprobación ocurre dentro de la transacción, antes de escribir: un rechazo no deja cabecera, líneas, lotes, consumos, movimientos ni cuentas.
 3. **El calendario se mantiene sin solapes, en el momento en que cambia y sin mover operaciones:**
    - **Alta de campaña.** La nueva debe empezar **después** del inicio de todas las existentes (las campañas se agregan en orden; no se intercalan). Si la anterior está abierta, su fin pasa a ser el día anterior al inicio de la nueva. Si esa campaña anterior ya tiene operaciones en ese día o después, el alta se rechaza, sin cambios. Si la anterior tiene un fin fijado y la nueva empieza antes o en ese día, se rechaza.
    - **Activar** sólo cambia estados. Ya no borra el `fin` de la campaña activada ni pone «hoy» como fin de la cerrada. Para bases anteriores a esta regla, si la campaña que se cierra sigue abierta, su fin pasa a ser el día anterior al inicio de la activada, con las mismas condiciones; si no se puede, se rechaza sin cambios.
-   - **Cerrar sin sucesora.** Si la campaña está abierta, su fin pasa a ser hoy. Se rechaza si tiene operaciones con fecha posterior a hoy. Si ya tenía fin, se conserva.
-4. **Diálogo de alta.** Pide la fecha de inicio. Por defecto propone hoy, o el día siguiente al fin de la última campaña si ese día es posterior. El repositorio vuelve a validar.
+   - **Cerrar sin sucesora.** Si la campaña está abierta, el usuario **elige el fin** (hoy por defecto). Se rechaza si el fin es anterior al inicio o si alguna operación tiene una fecha posterior a ese fin. Si ya tenía fin (lo fijó el alta de la siguiente), se conserva. *(Revisión de B: el «fin = hoy» fijo de la primera versión era un fin arbitrario.)*
+4. **Diálogos.** El alta pide la fecha de inicio: propone hoy, o un día posterior si el orden del calendario lo exige. El cierre de una campaña abierta pide la fecha de fin. El repositorio vuelve a validar.
 5. **Histórico.** No se migra ni se reasigna ninguna fila. Un solapamiento heredado no se corrige solo: sus días quedan como «ambiguos» y la operación nueva en esos días se rechaza de forma explícita.
 
 **Fuera de alcance (sin cambio):**
 - planes, porque no son operaciones con fecha efectiva (su `planned_date` es opcional);
 - pagos, que cruzan campañas a propósito (saldo por persona);
-- transferencias, que no llevan campaña;
+- **transferencias:** RN-15 las nombra, pero en el modelo no llevan campaña. Se declara como límite;
 - reversiones, que no reclasifican.
-Aplicar un plan sí pasa por la regla, porque crea una aplicación.
+Aplicar un plan sí pasa por la regla, porque crea una aplicación. La voz también, porque confirma por el mismo repositorio.
 
-## 3. Pendiente
+**Autoridad de las fechas.** Es un ajuste de la gestión local de campañas que ya existía (REC #41: alta, activación y cierre en Catálogos), no una autoridad nueva. Hoy las fechas son locales, aunque la campaña esté vinculada a una central (ver D-F04-C2).
 
-Implementación, pruebas (host) y resultados: se completan en este mismo archivo cuando estén. Nada de esto es DEVICE.
+## 3. Implementación y resultados (HOST; nada de esto es DEVICE)
+
+**Commits** (rama `feat/f04-campana-fecha-efectiva`):
+- `27bd501`: regla;
+- `232fc25`: código, diálogos y fixtures;
+- `297d045`: prueba de activación;
+- `13f0933`: imports.
+
+| Archivo | Cambio |
+|---|---|
+| `lib/domain/campaign_calendar.dart` (nuevo) | Día local, período inclusivo, solape. Misma lectura que `DeclaredNeedStore.campaignForDate` (F05), que no se toca |
+| `lib/data/agro_repository.dart` | `_ensureEffectiveDateInCampaign` en `confirmPurchase` y `confirmApplication`, dentro de la transacción y antes de escribir. `CampaignDateException` (`none`, `ambiguous`, `closed`, `planned`) y `CampaignCalendarException`. Cambian `addCampaign` (orden y fin de la anterior), `activateCampaign` (sólo estados; caso heredado) y `closeCampaign(end:)`. Nuevo `suggestedCampaignStart` |
+| `lib/presentation/screens/catalogs_screen.dart` | Diálogo de alta con «Empieza el» y diálogo de cierre con «Termina el» |
+
+**Pruebas nuevas:**
+- `test/f04_campaign_effective_date_test.dart`, 13 casos:
+  - límites inclusivos en día local (primer y último minuto) en los dos modos;
+  - compra y aplicación **multiproducto** en propio y en compartido, conservadas tras cerrar y reabrir la base, con la campaña y la **fecha completa**;
+  - rechazo de «ninguna», «ambigua» (solape heredado) y «cerrada», y de «planificada», en compra y aplicación, con el volcado de **todas** las tablas idéntico;
+  - FIFO con lotes del mismo día: sale antes el de la mañana, aunque se registrara después;
+  - calendario: no se intercala ni se repite un inicio; un fin anterior al inicio se rechaza; el alta no deja operaciones fuera; cierre con fin elegido (inclusivo, no antes del inicio, sin dejar operaciones fuera); base heredada al activar; activar conserva el fin ya fijado; propuesta de inicio.
+- `test/f04_campaign_dialogs_ui_test.dart`, 3 casos: el alta propone hoy y la anterior termina el día previo; el cierre pide el fin y lo guarda; un fin ya fijado se muestra y no cambia.
+
+**Fixtures ajustadas.** Sólo cambian datos que creaban períodos solapados, que RF-03 prohíbe. Las aserciones son las mismas, salvo la de `report_reads`, que se traslada:
+
+| Prueba | Antes | Ahora |
+|---|---|---|
+| `campaign_lifecycle_test` («CLOSED es terminal») | Cerraba con fin = hoy y daba de alta otra que empezaba antes | Cierre con fin anterior al alta siguiente |
+| `campaign_lifecycle_ui_test` | Ídem | Ídem |
+| `v5_domain_test` («catálogo, stock y deuda…») | «Invierno» desde junio, con operaciones de hoy en «Primavera» | «Invierno» desde mañana |
+| `declared_need_test` («sin campaña determinable…») | Fabricaba el solape con `addCampaign` | El solape es una fila heredada insertada a mano. La prueba de F05 sigue igual |
+| `report_reads_characterization_test` (`end_date` nulo) | La campaña 1 seguía abierta | La 1 tiene fin y la 2, abierta, conserva `end_date` nulo |
+
+**Mutaciones** (`camp_mutations.py`, en el scratchpad de la sesión). Las 15 se detectan:
+- sin comprobar la fecha en compra o en aplicación;
+- fin o inicio exclusivos;
+- día UTC en vez de local (sólo discrimina con una zona distinta de UTC; esta máquina está en America/La_Paz);
+- aceptar una fecha ambigua si incluye la activa;
+- alta sin orden o sin control de operaciones;
+- cierre sin control de operaciones o ignorando el fin elegido;
+- activar volviendo a abrir la activada, o sin control de solape;
+- fin = día de inicio de la nueva;
+- diálogos que no pasan la fecha.
+
+**Resultados en local** (Windows 11, Flutter 3.47.2, America/La_Paz):
+
+| Comando | Sobre | Resultado |
+|---|---|---|
+| `flutter test` (suite completa) | `297d045` | **1418 pasan, 2 omitidas, 0 fallos** |
+| `flutter analyze lib test` | `13f0933` | `No issues found!` (en `297d045` había 2 imports sin uso en la prueba nueva, que `13f0933` quita) |
+| `dart format --set-exit-if-changed lib test` | `13f0933` | exit 0 |
+| `flutter test` de las dos pruebas nuevas | `13f0933` | 16 pasan |
+
+`13f0933` sólo quita esos dos imports respecto de `297d045`. La CI del PR corre sobre su HEAD exacto y consta en el PR.
+
+## 4. Límites y decisiones para Roderich
+
+- **D-F04-C1: registros tardíos de un período cerrado.** RF-03, en su criterio, dice «registros tardíos quedan asociadas al período correcto»; Cap. III §3.11.13, «requerirán revisión, conservando su historia». Hoy se **rechazan** como salvaguarda, así que esa parte de **RF-03 no está cumplida**. Opciones:
+  - (A) un estado «requiere revisión»: la operación se guarda en la campaña cerrada de su fecha, visible, sin reabrir, sin reasignar y sin publicarse a Central. Antes hay que decidir quién revisa, qué resultados tiene y qué efecto tiene en el inventario. Las fuentes no lo definen y no se construyó por intuición;
+  - (B) aceptar el rechazo como límite del alcance académico.
+- **D-F04-C2: período local frente al central.** `CentralBindingStore` lee las fechas de la campaña central, pero no comprueba que el período local quepa en ellas. Si no cabe, el consumo publicado por `campaign_ref` puede llevar días fuera del período central (contra RN-15). Afecta a los vínculos futuros y también al **consumo ya publicado** con fechas locales que no caben. Opciones:
+  - comprobarlo al vincular y señalar lo ya publicado (F05);
+  - o aceptarlo como límite.
+- **Un período pasado que no está en el calendario no se puede representar:** las campañas se agregan en orden, así que sus registros tardíos caen en «ninguna».
+- **Solapes heredados:** no se corrigen solos. Sus días quedan como «ambiguos».
+- **Transferencias:** sin campaña en el modelo.
+- **Sólo host:** el teléfono no ejecutó esta regla. La sesión física del 2026-10-17 fue anterior.
+
+## 5. Revisiones
+
+- **Regla:** sesión B, sobre `27bd501`. NO LISTO en un punto (el rechazo de una campaña cerrada como «lectura de §3.11.13»), que se declara ahora como D-F04-C1 y como incumplimiento de RF-03 en esa parte. Los demás puntos, LISTO. Los riesgos (a)–(f) se recogen en §2 y §4.
+- **Código y pruebas:** revisión técnica de la sesión B, pendiente sobre el HEAD del PR.
+- **Revisión de Roderich Rendón:** pendiente. GATE-F04 sigue **Pending**.
