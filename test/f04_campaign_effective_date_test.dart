@@ -165,6 +165,19 @@ void main() {
     await s.reopen();
     expect(await s.endDay(s.summer), '2026-06-30');
     expect(await s.endDay(s.winter), isNull);
+
+    // Dos siguientes en orden: la primera queda con su fin fijado por la
+    // segunda, y activarla no se lo borra.
+    final spring = await s.repo.addCampaign(
+      name: 'Primavera',
+      start: DateTime(2026, 12, 1),
+    );
+    await s.repo.addCampaign(name: 'Otoño', start: DateTime(2027, 3, 1));
+    expect(await s.endDay(s.winter), '2026-11-30');
+    expect(await s.endDay(spring), '2027-02-28');
+    await s.repo.activateCampaign(spring, closeCurrent: true);
+    expect(await s.endDay(spring), '2027-02-28');
+    expect(await s.endDay(s.winter), '2026-11-30');
   });
 
   for (final personal in [false, true]) {
