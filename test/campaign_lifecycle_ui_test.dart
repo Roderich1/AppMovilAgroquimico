@@ -36,7 +36,9 @@ void main() {
       name: 'Campana Vieja',
       start: DateTime.utc(2025, 1, 1),
     );
-    await repo.closeCampaign(closed);
+    // RN-16: la cerrada termina antes de que empiece la activa (antes el
+    // cierre ponía «hoy» y los dos períodos se solapaban).
+    await repo.closeCampaign(closed, end: DateTime(2025, 12, 30));
     await repo.addCampaign(name: 'Campana Activa', start: DateTime.utc(2026));
     await repo.addCampaign(
       name: 'Campana Planificada',

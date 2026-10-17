@@ -221,9 +221,11 @@ void main() {
     final debtBefore = (await repo.settlements()).firstWhere(
       (r) => r['id'] == source,
     )['balance'];
+    // RN-15/RN-16: «Primavera» ya tiene operaciones de hoy, así que la
+    // siguiente empieza después; antes empezaba en junio y solapaba.
     final winter = await repo.addCampaign(
       name: 'Invierno',
-      start: DateTime.utc(2026, 6),
+      start: DateTime.now().add(const Duration(days: 1)),
     );
     await repo.activateCampaign(winter, closeCurrent: true);
     expect((await repo.products()).any((r) => r['id'] == p), isTrue);

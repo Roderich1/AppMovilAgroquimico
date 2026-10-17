@@ -293,7 +293,13 @@ void main() {
       expect(row['name'], 'Campaña 1');
       expect(row['status'], 'ACTIVE');
       expect(row['start_date'], isA<String>());
-      expect(row['end_date'], isNull);
+      // RN-16: el alta de la campaña 2 fija el fin de la 1; la última sigue
+      // abierta, con `end_date` nulo.
+      expect(row['end_date'], isA<String>());
+      final last = (await repo.campaigns()).firstWhere(
+        (r) => r['id'] == campaign2,
+      );
+      expect(last['end_date'], isNull);
     });
   });
 
