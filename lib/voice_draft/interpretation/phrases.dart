@@ -31,6 +31,26 @@ DraftField<CatalogEntry> entryField(Resolution r, String what) =>
       ),
     };
 
+/// Una cantidad que llega justo después de otro número dicho («uno cinco
+/// litros»): no se sabe cuál de los dos se quiso decir. La cantidad queda
+/// inválida con ese motivo, en vez de tomar sólo el último (revisión de A,
+/// M-2).
+DraftField<T>? consecutiveNumbers<T>(
+  List<String> words,
+  SpokenNumber n,
+  String unitWord,
+) {
+  if (n.start == 0) return null;
+  final previous = readNumberAt(words, n.start - 1);
+  if (previous == null || previous.end != n.start) return null;
+  return DraftField.invalid(
+    message:
+        'Se oyeron dos números seguidos («${words[n.start - 1]} ${n.heard}»). '
+        'Escriba la cantidad o vuelva a dictarla.',
+    heard: '${words[n.start - 1]} ${n.heard} $unitWord',
+  );
+}
+
 /// ¿Empieza en [i] una cantidad («dos litros», «tres hectáreas»)?
 bool startsQuantity(List<String> words, int i) {
   final n = readNumberAt(words, i);

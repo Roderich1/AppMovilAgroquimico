@@ -65,6 +65,15 @@ void main() {
   ).draft;
 
   group('interpretación del dictado', () {
+    test('dos números seguidos dejan la cantidad inválida (M-2)', () {
+      final d = interpret('compra de uno cinco litros de Bellator');
+      final q = d.lines.single.quantity;
+      expect(q.status, FieldStatus.invalid);
+      expect(q.message, contains('dos números seguidos'));
+      expect(q.heard, 'uno cinco litros');
+      expect(d.blockers, isNotEmpty);
+    });
+
     test('el ejemplo de EVO-017: cuatro líneas, proveedor y persona', () {
       final d = interpret(
         'Quiero registrar compra: cincuenta litros de Bellator a ciento '

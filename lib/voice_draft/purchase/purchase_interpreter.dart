@@ -271,18 +271,20 @@ List<_HeardLine> _lines(List<String> words) {
       continue;
     }
     final line = _HeardLine(productWords.join(' '));
-    line.quantity = !n.isValid
-        ? DraftField.invalid(message: n.invalidMessage!, heard: n.heard)
-        : n.thousandths <= 0
-        ? DraftField.invalid(
-            message: 'La cantidad debe ser mayor a cero.',
-            heard: n.heard,
-          )
-        : DraftField.resolved(
-            SpokenQuantity(n.thousandths, unit),
-            origin: FieldOrigin.voice,
-            heard: '${n.heard} ${words[n.end]}',
-          );
+    line.quantity =
+        consecutiveNumbers<SpokenQuantity>(words, n, words[n.end]) ??
+        (!n.isValid
+            ? DraftField.invalid(message: n.invalidMessage!, heard: n.heard)
+            : n.thousandths <= 0
+            ? DraftField.invalid(
+                message: 'La cantidad debe ser mayor a cero.',
+                heard: n.heard,
+              )
+            : DraftField.resolved(
+                SpokenQuantity(n.thousandths, unit),
+                origin: FieldOrigin.voice,
+                heard: '${n.heard} ${words[n.end]}',
+              ));
 
     // Precio.
     if (j < words.length && const {'a', 'al', 'por'}.contains(words[j])) {

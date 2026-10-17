@@ -42,6 +42,12 @@ void main() {
       final created = AgroRepository(database);
       final household = await seedHousehold(created);
       await household.buy(household.titular, 5000);
+      // Un chaco cuya área no es múltiplo de 100 m² (M-1).
+      await created.addFarm(
+        ownerId: household.titular,
+        name: 'Impar',
+        areaM2: 12345,
+      );
       return created;
     }))!;
     port = FakeSpeechTranscriptionPort(script: script, repeatLast: false);
@@ -170,4 +176,35 @@ void main() {
     await drain(tester);
     expect(await applications(tester), 0);
   });
+
+  testWidgets(
+    'un área que no es múltiplo de 100 m² se ve exacta y no bloquea',
+    (tester) async {
+      await pumpScreen(
+        tester,
+        script: const [
+          FakeTurn(
+            segment: 'apliqué dos litros de Glifosato en el chaco Impar',
+            endsOnStop: true,
+          ),
+        ],
+      );
+      await tap(tester, const Key('voz-boton-microfono'));
+      await tap(tester, const Key('voz-boton-microfono'));
+      expect(
+        tester
+            .widget<TextField>(find.byKey(const Key('voz-area')))
+            .controller!
+            .text,
+        '1,2345',
+      );
+      expect(find.textContaining('no coincide'), findsNothing);
+      expect(
+        tester
+            .widget<ButtonStyleButton>(find.byKey(const Key('voz-registrar')))
+            .onPressed,
+        isNotNull,
+      );
+    },
+  );
 }

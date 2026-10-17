@@ -57,6 +57,14 @@ void main() {
   ).draft;
 
   group('interpretación del dictado', () {
+    test('dos números seguidos dejan la cantidad inválida (M-2)', () {
+      final d = interpret(
+        'apliqué uno cinco litros de Bellator en el chaco Sur',
+      );
+      expect(d.lines.single.quantity.status, FieldStatus.invalid);
+      expect(d.lines.single.quantity.message, contains('dos números seguidos'));
+    });
+
     test('varias líneas; el chaco fija quién aplica y propone su área', () {
       final d = interpret(
         'apliqué dos litros de Bellator y tres kilos de Expansive en el '

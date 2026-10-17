@@ -50,6 +50,14 @@ void main() {
       ).draft;
 
   group('interpretación del dictado', () {
+    test('dos números seguidos dejan la dosis inválida (M-2)', () {
+      final d = interpret(
+        'planificar el chaco Sur con uno dos litros por hectárea de Bellator',
+      );
+      expect(d.lines.single.dose.status, FieldStatus.invalid);
+      expect(d.blockers, isNotEmpty);
+    });
+
     test('chaco, área propuesta y dos productos con su dosis', () {
       final d = interpret(
         'Quiero planificar el chaco Sur con dos litros por hectárea de '

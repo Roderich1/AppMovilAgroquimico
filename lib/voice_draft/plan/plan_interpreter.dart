@@ -193,21 +193,23 @@ List<_HeardDose> _doses(List<String> words) {
       product = before.join(' ');
     }
     final heard = '${n.heard} ${words[n.end]} por ${words[n.end + 2]}';
-    final dose = !n.isValid
-        ? DraftField<SpokenDose>.invalid(
-            message: n.invalidMessage!,
-            heard: heard,
-          )
-        : n.thousandths <= 0
-        ? DraftField<SpokenDose>.invalid(
-            message: 'La dosis debe ser mayor a cero.',
-            heard: heard,
-          )
-        : DraftField.resolved(
-            SpokenDose(n.thousandths, unit),
-            origin: FieldOrigin.voice,
-            heard: heard,
-          );
+    final dose =
+        consecutiveNumbers<SpokenDose>(words, n, words[n.end]) ??
+        (!n.isValid
+            ? DraftField<SpokenDose>.invalid(
+                message: n.invalidMessage!,
+                heard: heard,
+              )
+            : n.thousandths <= 0
+            ? DraftField<SpokenDose>.invalid(
+                message: 'La dosis debe ser mayor a cero.',
+                heard: heard,
+              )
+            : DraftField.resolved(
+                SpokenDose(n.thousandths, unit),
+                origin: FieldOrigin.voice,
+                heard: heard,
+              ));
     if (product.isNotEmpty) out.add(_HeardDose(product, dose));
     lastEnd = j;
     i = j > i ? j : i + 1;

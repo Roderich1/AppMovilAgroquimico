@@ -165,9 +165,10 @@ class _VoiceApplicationDraftScreenState
     if (c.text != value) c.text = value;
   }
 
+  /// Con 4 decimales de hectárea el texto es el área exacta en m² (M-1).
   static String _areaText(VoiceApplicationDraft d) => d.area.value == null
       ? (d.area.heard ?? '')
-      : formatForInput(d.area.value! / 10000, maxDecimals: 2);
+      : formatForInput(d.area.value! / 10000, maxDecimals: 4);
 
   static String _quantityText(VoiceApplicationLine line) =>
       line.quantityBase == null

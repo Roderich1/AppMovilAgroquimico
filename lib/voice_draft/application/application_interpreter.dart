@@ -199,18 +199,19 @@ List<_HeardLine> _lines(List<String> words) {
       out.add(
         _HeardLine(
           product.join(' '),
-          !n.isValid
-              ? DraftField.invalid(message: n.invalidMessage!, heard: heard)
-              : n.thousandths <= 0
-              ? DraftField.invalid(
-                  message: 'La cantidad debe ser mayor a cero.',
-                  heard: heard,
-                )
-              : DraftField.resolved(
-                  SpokenAmount(n.thousandths, unit),
-                  origin: FieldOrigin.voice,
-                  heard: heard,
-                ),
+          consecutiveNumbers<SpokenAmount>(words, n, words[n.end]) ??
+              (!n.isValid
+                  ? DraftField.invalid(message: n.invalidMessage!, heard: heard)
+                  : n.thousandths <= 0
+                  ? DraftField.invalid(
+                      message: 'La cantidad debe ser mayor a cero.',
+                      heard: heard,
+                    )
+                  : DraftField.resolved(
+                      SpokenAmount(n.thousandths, unit),
+                      origin: FieldOrigin.voice,
+                      heard: heard,
+                    )),
         ),
       );
     }
