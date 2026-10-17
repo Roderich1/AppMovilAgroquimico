@@ -25,6 +25,7 @@ import 'data/sync/sync_outbox_store.dart';
 import 'domain/installation_access.dart';
 import 'domain/restore_ownership.dart';
 import 'installation_access.dart';
+import 'operation_mode_controller.dart';
 import 'services/auth/existing_session_providers.dart';
 
 class GuardedRestoreOutcome {
@@ -69,40 +70,45 @@ class GuardedRestore {
     final database = _ref.read(databaseProvider);
     final backup = _ref.read(backupServiceProvider);
     final access = _ref.read(installationAccessProvider.notifier);
-    return database.replacement.replace(() async {
-      final context = await _context();
-      try {
-        final result = await backup.restore(
-          path,
-          verifyOwnership: (ownership) async {
-            final verdict = evaluateRestoreOwnership(ownership, context);
-            if (!verdict.accepted) {
-              throw BackupOwnershipRejectedException(
-                verdict.message,
-                verdict.rejection!,
-              );
-            }
-          },
-          // Todavía en exclusiva y dentro del tramo que se deshace: ninguna
-          // escritura ni el worker ven la base restaurada antes de que su
-          // cola quede pausada, y si pausarla falla vuelve la base anterior.
-          prepareRestored: (restored) => SyncOutboxStore.pauseAfterRestore(
-            restored,
-            DateTime.now().toUtc().toIso8601String(),
-          ),
-          afterReplace: afterReplace,
-        );
-        return GuardedRestoreOutcome(
-          result,
-          await access.recomputeAfterReplacement(),
-        );
-      } on Object {
-        // Rechazada o deshecha: la base es la anterior, pero la autorización
-        // se recalcula igualmente antes de volver a admitir escrituras.
-        await access.recomputeAfterReplacement();
-        rethrow;
-      }
-    });
+    final modes = _ref.read(operationModeProvider.notifier);
+    // La copia puede traer otra modalidad: tras sustituir (o deshacer), la
+    // navegación y los formularios vuelven a leerla (#26).
+    return database.replacement
+        .replace(() async {
+          final context = await _context();
+          try {
+            final result = await backup.restore(
+              path,
+              verifyOwnership: (ownership) async {
+                final verdict = evaluateRestoreOwnership(ownership, context);
+                if (!verdict.accepted) {
+                  throw BackupOwnershipRejectedException(
+                    verdict.message,
+                    verdict.rejection!,
+                  );
+                }
+              },
+              // Todavía en exclusiva y dentro del tramo que se deshace: ninguna
+              // escritura ni el worker ven la base restaurada antes de que su
+              // cola quede pausada, y si pausarla falla vuelve la base anterior.
+              prepareRestored: (restored) => SyncOutboxStore.pauseAfterRestore(
+                restored,
+                DateTime.now().toUtc().toIso8601String(),
+              ),
+              afterReplace: afterReplace,
+            );
+            return GuardedRestoreOutcome(
+              result,
+              await access.recomputeAfterReplacement(),
+            );
+          } on Object {
+            // Rechazada o deshecha: la base es la anterior, pero la autorización
+            // se recalcula igualmente antes de volver a admitir escrituras.
+            await access.recomputeAfterReplacement();
+            rethrow;
+          }
+        })
+        .whenComplete(modes.reload);
   }
 }
 

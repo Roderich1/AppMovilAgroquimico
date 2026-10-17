@@ -4,7 +4,10 @@ import 'package:go_router/go_router.dart';
 
 import '../../app.dart';
 import '../../domain/money.dart';
+import '../../domain/operation_mode.dart';
+import '../../operation_mode_controller.dart';
 import '../widgets/common.dart';
+import '../widgets/mode_notice.dart';
 
 class TransfersScreen extends ConsumerStatefulWidget {
   const TransfersScreen({super.key});
@@ -48,7 +51,15 @@ class _TransfersScreenState extends ConsumerState<TransfersScreen> {
   }
 
   @override
-  Widget build(BuildContext context) => PageFrame(
+  Widget build(BuildContext context) =>
+      // La ruta ya no se abre en inventario propio; si la pantalla quedó
+      // abierta debajo de otra al cambiar de modalidad, deja de ofrecer
+      // acciones (#26).
+      ref.watch(operationModeProvider) == OperationMode.personal
+      ? SharedOnlyNotice(onBack: () => context.go('/operaciones'))
+      : _list(context);
+
+  Widget _list(BuildContext context) => PageFrame(
     title: 'Transferencias',
     subtitle: 'Operaciones multiproducto con trazabilidad FIFO.',
     action: FilledButton.icon(

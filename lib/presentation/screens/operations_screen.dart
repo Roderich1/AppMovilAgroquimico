@@ -1,17 +1,23 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../domain/operation_mode.dart';
+import '../../operation_mode_controller.dart';
 import '../widgets/common.dart';
 
-class OperationsScreen extends StatelessWidget {
+class OperationsScreen extends ConsumerWidget {
   const OperationsScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    // En inventario propio no hay transferencias entre responsables (#26).
+    final mode = ref.watch(operationModeProvider);
+    final personal = mode == OperationMode.personal;
     // `isForm` marca las rutas declaradas FUERA del ShellRoute. Deben apilarse
     // con `push`; navegar a ellas con `go` reemplaza la pila y deja el botón
     // atrás del formulario sin ninguna página a la que volver.
-    const actions =
+    final actions =
         <
           ({
             String title,
@@ -48,13 +54,14 @@ class OperationsScreen extends StatelessWidget {
             icon: Icons.agriculture_outlined,
             isForm: false,
           ),
-          (
-            title: 'Transferencias',
-            subtitle: 'Historial y movimiento de stock entre personas',
-            path: '/transferencias',
-            icon: Icons.swap_horiz,
-            isForm: false,
-          ),
+          if (!personal)
+            (
+              title: 'Transferencias',
+              subtitle: 'Historial y movimiento de stock entre personas',
+              path: '/transferencias',
+              icon: Icons.swap_horiz,
+              isForm: false,
+            ),
           (
             title: 'Reportes',
             subtitle: 'Exportar inventario, costos y cuentas a CSV o PDF',
@@ -64,7 +71,11 @@ class OperationsScreen extends StatelessWidget {
           ),
           (
             title: 'Modo de uso',
-            subtitle: 'Inventario propio o compartido',
+            subtitle: switch (mode) {
+              OperationMode.personal => 'Ahora: inventario propio',
+              OperationMode.shared => 'Ahora: inventario compartido',
+              null => 'Inventario propio o compartido',
+            },
             path: '/modo',
             icon: Icons.tune_outlined,
             isForm: false,
@@ -79,7 +90,10 @@ class OperationsScreen extends StatelessWidget {
         ];
     return PageFrame(
       title: 'Operaciones',
-      subtitle: 'Acciones del trabajo diario.',
+      subtitle: personal
+          ? 'Acciones del trabajo diario. Inventario propio: registra sólo '
+                'el titular y no hay transferencias.'
+          : 'Acciones del trabajo diario.',
       child: LayoutBuilder(
         builder: (context, constraints) {
           final width = constraints.maxWidth >= 700
