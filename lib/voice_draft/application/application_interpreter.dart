@@ -263,9 +263,62 @@ final class _HeardLine {
   final DraftField<SpokenAmount> quantity;
 }
 
-/// `cantidad unidad de producto`.
+/// Palabras de relleno entre el producto y la cantidad en una corrección
+/// («de Bellator **en realidad usamos** diez litros», EVO-018).
+const _correctionFillers = {
+  'en',
+  'realidad',
+  'verdad',
+  'solo',
+  'nomas',
+  'al',
+  'final',
+  'se',
+  'uso',
+  'usamos',
+  'use',
+  'usaron',
+  'usado',
+  'fue',
+  'fueron',
+  'puse',
+  'pusimos',
+  'gastamos',
+  'aplicamos',
+  'aplique',
+  'aplico',
+};
+
+/// El producto de «de Bellator en realidad usamos diez litros»: `de`
+/// seguido del producto, sólo relleno hasta la cantidad y nada de una línea
+/// anterior en medio. Si no, null.
+String? _productBefore(List<String> words, int quantityStart, int from) {
+  const stops = {',', 'y', 'a', 'por', 'con', 'chaco', 'parcela'};
+  for (var k = quantityStart - 1; k >= from; k--) {
+    final w = words[k];
+    if (stops.contains(w)) return null;
+    if (w != 'de' && w != 'del') continue;
+    final product = <String>[];
+    var m = k + 1;
+    while (m < quantityStart &&
+        !_correctionFillers.contains(words[m]) &&
+        !stops.contains(words[m])) {
+      product.add(words[m]);
+      m++;
+    }
+    for (; m < quantityStart; m++) {
+      if (!_correctionFillers.contains(words[m])) return null;
+    }
+    return product.isEmpty ? null : product.join(' ');
+  }
+  return null;
+}
+
+/// `cantidad unidad de producto`, o `de producto … cantidad unidad` para
+/// corregir una línea (EVO-018).
 List<_HeardLine> _lines(List<String> words) {
   final out = <_HeardLine>[];
+  var consumed = 0;
   var i = 0;
   while (i < words.length) {
     final n = readNumberAt(words, i);
@@ -304,7 +357,12 @@ List<_HeardLine> _lines(List<String> words) {
       product.add(words[j]);
       j++;
     }
+    if (product.isEmpty) {
+      final before = _productBefore(words, i, consumed);
+      if (before != null) product.add(before);
+    }
     if (product.isNotEmpty) {
+      consumed = j;
       final heard = '${n.heard} ${words[n.end]}';
       out.add(
         _HeardLine(

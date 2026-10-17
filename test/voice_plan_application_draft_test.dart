@@ -183,6 +183,57 @@ void main() {
       expect(line.differenceBase, 1000);
     });
 
+    test(
+      '«De Bellator en realidad usamos diez litros» corrige sólo Bellator',
+      () {
+        final catalog = catalogWith([plan(101, 12)]);
+        var d = dictate('aplicar la planificación del chaco Sur', catalog);
+        d = selectPlan(d, 101, catalog);
+        d = dictate(
+          'De Bellator en realidad usamos diez litros.',
+          catalog,
+          current: d,
+        );
+        expect(d.lines.map((l) => l.quantityBase), [10000, 1000]);
+        expect(d.lines.map((l) => l.plannedBase), [3000, 1000]);
+        expect(d.lines, hasLength(2));
+      },
+    );
+
+    test('el chaco dictado antes de la cantidad no se toma por producto', () {
+      final catalog = catalogWith(const []);
+      final d = dictate('en el chaco Sur dos litros', catalog);
+      expect(d.lines, isEmpty);
+    });
+
+    test('una real menor que la planeada da diferencia negativa', () {
+      final catalog = catalogWith([plan(101, 12)]);
+      var d = dictate('aplicar la planificación del chaco Sur', catalog);
+      d = selectPlan(d, 101, catalog);
+      d = dictate('de Bellator usamos dos litros', catalog, current: d);
+      final line = d.lines.firstWhere((l) => l.product.value == bellator);
+      expect(line.quantityBase, 2000);
+      expect(line.differenceBase, -1000);
+      expect(
+        d.lines.firstWhere((l) => l.product.value == expansive).quantityBase,
+        1000,
+      );
+    });
+
+    test('sin planes, la frase no se vuelve sola una aplicación libre', () {
+      final catalog = catalogWith(const []);
+      var d = dictate('aplicar la planificación del chaco Sur', catalog);
+      d = dictate(
+        'dos litros de Bellator',
+        catalog,
+        current: d,
+      ).withStock(jose.id, {1: 9000});
+      expect(d.plan!.status, FieldStatus.missing);
+      expect(d.blockers, isNotEmpty);
+      // Sólo quitando el plan, a mano, queda una aplicación libre.
+      expect(clearPlan(d).blockers, isEmpty);
+    });
+
     test('lo corregido a mano no lo cambia un dictado tardío', () {
       final catalog = catalogWith([plan(101, 12)]);
       var d = dictate('aplicar la planificación del chaco Sur', catalog);

@@ -251,7 +251,7 @@ void main() {
         await tap(tester, const Key('voz-boton-microfono'));
         await tap(tester, const Key('voz-boton-microfono'));
         expect(find.byKey(const Key('voz-plan')), findsOneWidget);
-        expect(find.byKey(const Key('voz-plan-quitar')), findsNothing);
+        expect(find.byKey(const Key('voz-planeado-1')), findsNothing);
         expect(
           tester
               .widget<ButtonStyleButton>(find.byKey(const Key('voz-registrar')))

@@ -615,7 +615,10 @@ class _VoiceApplicationDraftScreenState
           picker,
         ] else
           DraftFieldRow(label: 'Plan pendiente', field: d.plan!, child: picker),
-        if (d.planData != null)
+        // Volver a una aplicación libre es siempre una acción de la persona,
+        // también si no hay plan que elegir (EVO-018: la frase no se
+        // convierte sola en una aplicación libre).
+        if (d.plan != null)
           Align(
             alignment: Alignment.centerLeft,
             child: TextButton.icon(
