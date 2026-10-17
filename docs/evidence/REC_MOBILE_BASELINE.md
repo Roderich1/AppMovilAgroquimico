@@ -210,7 +210,7 @@ Evidence: **Partial**.
 
 Lo de arriba se registró el 2026-10-15 sobre `278cbd3` y **no se reescribe**. La sesión A añade esta nota antes de integrar el archivo.
 
-- **El recuento de 690 pruebas** coincide con la CI independiente 37231657078 sobre `278cbd3` («690 tests passed»). Los 56 del banco de voz los ejecutó localmente esa sesión; la CI no corre ese subpaquete.
+- **El recuento de 690 pruebas** coincide con la ejecución de GitHub Actions 37231657078 sobre `278cbd3` («690 tests passed»). Los 56 del banco de voz los ejecutó localmente esa sesión; la CI no corre ese subpaquete.
 - **Las listas «Pendiente por REC» se escribieron al revisar un worktree sin `docs/evidence/`.** Por eso repiten que este archivo «no existe en el worktree»: ese punto queda resuelto al integrarlo.
 - **El marcador `{{ORIGEN}}` (#53, punto 2)** es una plantilla que no se rellenó. Los resultados de esas rutas son los de la corrida completa de arriba (690 pruebas, 0 fallos); se deja como estaba para no alterar el registro.
 
@@ -220,9 +220,15 @@ Lo de arriba se registró el 2026-10-15 sobre `278cbd3` y **no se reescribe**. L
 |---|---|---|
 | #48 | 2: `reverseTransfer` multiproducto con el producto de la cabecera | F04-BUG-01, PR #75, merge `905e67c` (`F04_BUG_01.md`) |
 | #48 | 7: transferencias no limitadas al modo compartido | El repositorio las rechaza en propio desde #77. La interfaz las oculta desde #102 (merge `cf3d510`; `F04-MODE-03_flujos_modo_personal.md`) |
-| #50 | Revertir la compra tras revertir su transferencia (hallazgo) | F04-BUG-02, PR #79, merge `505c230` (`F04_BUG_02.md`, que incluye «la compra se revierte una sola vez») |
+| #50 | Revertir la compra tras revertir su transferencia (hallazgo) | F04-BUG-02, PR #79, merge `505c230` (`F04_BUG_02.md`; la prueba «… tras revertir una transferencia, la compra se revierte una sola vez» está en `test/f04_bug_02_reverse_purchase_after_transfer_test.dart`) |
 | #55 | 1: identidad y propiedad de la copia | Restauración protegida que comprueba Member y tenant antes de sustituir: `812fe49` (#78), `F04_CORRECCIONES_REVISION.md` parte B. En el teléfono: `F10_RESTORE_DEVICE.md`, caso C |
-| #55 | 2: un fallo de exportación no deja artefacto ni sustituye la copia válida | `6c6a1a2` (#90), `F08_MOBILE_RESTORE.md` §1 |
+| #55 | 2: un fallo de exportación no deja artefacto ni sustituye la copia válida | `6c6a1a2` (#90), `F08_MOBILE_RESTORE.md` §1 (107 pruebas en verde sobre `1663e92`) |
 
-**Sigue pendiente**, sin cambio respecto de arriba: el resto de cada lista, y en #55 el punto 3 (restaurar de verdad un esquema antiguo y comprobar la migración).
+**Sigue pendiente**, sin cambio respecto de arriba: el resto de cada lista, y en #55 el punto 3. Ese punto lo cubre MOB #106 (`rec_019_restore_legacy_schema_test.dart`) cuando se integre.
+
+**Revisión de la sesión C (2026-10-17) antes de integrar.** Cambia lo que cierra este PR, no lo registrado:
+- **#57 no se cierra.** La tabla dice «partial (tests)». Siguen los pendientes de su sección: ninguna automatización comprueba el workflow; `docs/46` no da el SHA del tag; y el tag `v1.0.0-base-stable` (`bd3289f`) no coincide con el merge `f4c6510` de #4, que no está en `main`.
+- **#52 no se cierra.** Sólo 2 de los 5 reportes comparan contenido, así que «full» no se sostiene.
+- **`REC_021_CI.md`** cita la ejecución 38728787229 sobre `5d57fcc`, un commit que no está en ninguna rama. Su árbol es idéntico al de `0ab6043`: es la versión anterior a la reescritura del historial que retiró las líneas de atribución.
+- Se cierran con este PR **#38, #41, #42 y #54**, cuya cobertura «full» se sostiene.
 
