@@ -212,6 +212,40 @@ def need(quantity):
     print("necesidad: " + label(row))
 
 
+def application(lines):
+    """Desde la lista de Aplicaciones: «Registrar», agrega los productos [(código, cantidad)…]
+    y toca «Confirmar aplicación». Devuelve el texto visible justo después (p. ej. el aviso
+    de rechazo), sin esperar a que desaparezca."""
+    button, _ = wait_for(r"^Registrar$")
+    tap(button["x"], button["y"], 2.5)
+    wait_for(r"^Nueva aplicación$")
+    for code, qty in lines:
+        hide_keyboard()
+        selector, _ = wait_for(r"Elegir producto Elegir producto")
+        tap(selector["x"], selector["y"], 1.5)
+        option, _ = wait_for(rf"^{re.escape(code)} Producto sintético .*FIFO")
+        tap(option["x"], option["y"], 1.5)
+        hide_keyboard()
+        nodes = dump()
+        header = find(nodes, rf"^{re.escape(code)} Producto sintético [0-9.,]+ (L|kg) real")
+        fields = [n for n in edits(nodes) if header and n["y"] > header["y"]]
+        if len(fields) < 2 or fields[1]["y"] > 2100:
+            adb("shell", "input", "swipe", "540", "1800", "540", "1000", "350")
+            time.sleep(0.8)
+            nodes = dump()
+            header = find(nodes, rf"^{re.escape(code)} Producto sintético [0-9.,]+ (L|kg) real")
+            fields = [n for n in edits(nodes) if n["y"] > header["y"]]
+        target = fields[1]  # [Dosis, Cantidad real, …]
+        tap(target["x"], target["y"], 0.8)
+        type_text(str(qty))
+    hide_keyboard()
+    confirm, _ = wait_for(r"^Confirmar aplicación$")
+    adb("shell", "input", "tap", str(confirm["x"]), str(confirm["y"]))
+    time.sleep(0.6)
+    seen = [label(n) for n in dump() if label(n)]
+    print(" | ".join(t for t in seen if re.search(r"Revise|stock|guardad|registrad|confirmad", t, re.I)) or "(sin aviso visible)")
+
+
 def main():
     cmd = sys.argv[1] if len(sys.argv) > 1 else "dump"
     if cmd == "dump":
@@ -226,6 +260,9 @@ def main():
         open_sync()
     elif cmd == "need":
         need(int(sys.argv[2]))
+    elif cmd == "application":
+        args = sys.argv[2:]
+        application([(args[i], args[i + 1]) for i in range(0, len(args), 2)])
     elif cmd == "purchase-form":
         purchase_form(*sys.argv[2:9])
     else:

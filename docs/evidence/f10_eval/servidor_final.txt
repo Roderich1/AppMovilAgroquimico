@@ -1,0 +1,8 @@
+== servidor al cerrar 2026-10-17T04:48:51Z
+D AVAILABLE 19 433547083
+E2 AVAILABLE 1 231916
+S AVAILABLE 1 1021882
+journal D: 12 entradas, FINAL=12
+journal S: 1 entradas, FINAL=1
+journal E2: 1 entradas, FINAL=1
+objetos en disco: 21; staging: 0

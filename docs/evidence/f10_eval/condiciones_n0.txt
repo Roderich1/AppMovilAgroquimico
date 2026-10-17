@@ -1,0 +1,28 @@
+== condiciones antes de R1-R3 (N0): 2026-10-17T01:49:14Z
+protocolo v1.1 7581af2; herramientas MOB feat/f10-eval-mobile 24ded8e; APK profile 93939041348bc102d5c38f158bf2b4bfb3ff588934f74ca9f91658e897022428 (MOB dff6802); BE ed069a6
+22101320G
+12
+31
+V14.0.7.0.SMSMIXM
+Physical size: 1080x2400
+Physical density: 440
+system show_touches=1
+system font_scale=1.0
+global stay_on_while_plugged_in=3
+global airplane_mode_on=1
+global low_power=0
+  AC powered: true
+  Max charging voltage: 5000000
+  status: 2
+  level: 15
+  voltage: 3700
+  temperature: 500
+Thermal Status: 0
+	CoolingDevice{mValue=3, mType=2, mName=thermal-cpufreq-4}
+	CoolingDevice{mValue=3, mType=2, mName=thermal-cpufreq-7}
+	CoolingDevice{mValue=0, mType=2, mName=thermal-cpufreq-0}
+conteos: compras=301 líneas_compra=602 aplicaciones=1000 líneas_aplicación=1000 movimientos=1614 fotos=0 outbox=0 acked=0 necesidades=0 integridad=ok
+13th Gen Intel(R) Core(TM) i7-13700HX
+CPU % 7
+RAM libre MB 7048
+Microsoft Windows 11 Home
