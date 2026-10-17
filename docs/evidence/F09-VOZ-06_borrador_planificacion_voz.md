@@ -51,7 +51,7 @@ Lo de §1 a §4 describe `fd9ee7d`, con la suite completa de 1327 pruebas. Despu
 
 | Commit | Qué |
 |---|---|
-| `a55d240`, `002c5d8` | Piezas comunes de pantalla y frases comunes (#16), sin cambio de comportamiento |
+| `a55d240` | Piezas comunes de pantalla (#16), sin cambio de comportamiento. Las frases comunes de los intérpretes (`002c5d8`) llegaron después, en #104 |
 | `84f0480` | Merge de las correcciones de la revisión de #99 y #100 |
 | `ab7e6ec` | Mismo patrón que la compra: `PopScope` y bloqueo si el área o una dosis visibles difieren del borrador. CI del PR: pass (run 39040063127), **1332 pasan, 3 omitidas** |
 | `eba7342` | **M-1** (revisión de A): el área propuesta se muestra con 4 decimales de hectárea. Con 2, un chaco de 12 345 m² se veía «1,23», no coincidía y bloqueaba «Crear plan». Prueba «un área que no es múltiplo de 100 m² se ve exacta y no bloquea»: con 2 decimales falla (`'1,23'` en vez de `'1,2345'`) |
