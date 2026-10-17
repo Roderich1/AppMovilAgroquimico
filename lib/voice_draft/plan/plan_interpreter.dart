@@ -15,6 +15,7 @@ library;
 
 import '../catalog/voice_catalog.dart';
 import '../core/draft_field.dart';
+import '../interpretation/phrases.dart';
 import '../interpretation/voice_intent.dart';
 import '../text/normalize.dart';
 import '../text/spanish_numbers.dart';
@@ -33,8 +34,6 @@ final class PlanInterpretation {
   final VoiceIntent? otherIntent;
 }
 
-const _hectare = {'hectarea', 'hectareas', 'ha'};
-const _farmWords = {'chaco', 'parcela'};
 const _boundary = {
   ',',
   'y',
@@ -75,32 +74,24 @@ PlanInterpretation interpretPlan(
   var draft = current;
   var outcome = const VoicePatchOutcome();
 
-  final area = _area(words);
+  final area = findArea(words);
   if (area != null) {
     final (field, o) = mergeField(draft.area, area);
     draft = draft.copyWith(area: field);
     outcome += o;
   }
 
-  final farm = _farm(words);
+  final farm = findFarm(words);
   if (farm != null) {
-    // «el chaco Titular» puede referirse a «Titular» o a «Chaco titular»: se
-    // prueba sin y con la palabra, y sólo vale una coincidencia exacta única.
-    var resolution = resolveName(farm.$2, catalog.farms);
-    if (resolution.state != ResolutionState.resolved) {
-      final withKeyword = resolveName('${farm.$1} ${farm.$2}', catalog.farms);
-      if (withKeyword.state == ResolutionState.resolved) {
-        resolution = withKeyword;
-      }
-    }
-    final (field, o) = mergeField(draft.farm, _entryField(resolution, 'chaco'));
+    final resolution = resolveFarm(farm, catalog.farms);
+    final (field, o) = mergeField(draft.farm, entryField(resolution, 'chaco'));
     draft = draft.copyWith(farm: field);
     outcome += o;
     draft = proposeFarmArea(draft);
   }
 
   for (final line in _doses(words)) {
-    final product = _entryField(
+    final product = entryField(
       resolveName(line.productHeard, catalog.products),
       'producto',
     );
@@ -146,78 +137,6 @@ VoicePlanDraft proposeFarmArea(VoicePlanDraft draft) {
   );
 }
 
-DraftField<CatalogEntry> _entryField(Resolution r, String what) =>
-    switch (r.state) {
-      ResolutionState.resolved => DraftField.resolved(
-        r.entry!,
-        origin: FieldOrigin.voice,
-        heard: r.heard,
-      ),
-      ResolutionState.ambiguous => DraftField.ambiguous(
-        candidates: r.candidates,
-        heard: r.heard,
-        message: 'Elija el $what entre las opciones.',
-      ),
-      ResolutionState.missing => DraftField.missing(
-        heard: r.heard,
-        message:
-            '«${r.heard}» no está en el catálogo. Elija uno existente; si es '
-            'nuevo, créelo primero en Catálogos.',
-      ),
-    };
-
-/// «el chaco Norte», «la parcela Los Limoncitos»: la palabra clave y el
-/// nombre que la sigue.
-(String, String)? _farm(List<String> words) {
-  for (var i = 0; i < words.length; i++) {
-    if (!_farmWords.contains(words[i])) continue;
-    final out = <String>[];
-    for (var j = i + 1; j < words.length; j++) {
-      final w = words[j];
-      if (const {',', 'y', 'con', 'en', 'para', 'a', 'al'}.contains(w)) break;
-      if (_startsQuantity(words, j)) break;
-      out.add(w);
-    }
-    if (out.isNotEmpty) return (words[i], out.join(' '));
-  }
-  return null;
-}
-
-/// «en cinco hectáreas»: un número seguido directamente de «hectáreas».
-DraftField<int>? _area(List<String> words) {
-  for (var i = 0; i < words.length; i++) {
-    final n = readNumberAt(words, i);
-    if (n == null ||
-        n.end >= words.length ||
-        !_hectare.contains(words[n.end])) {
-      continue;
-    }
-    // «por hectárea» es una dosis, no un área.
-    if (i > 0 && words[i - 1] == 'por') continue;
-    final heard = '${n.heard} ${words[n.end]}';
-    if (!n.isValid || n.thousandths <= 0) {
-      return DraftField.invalid(
-        message: n.invalidMessage ?? 'El área debe ser mayor a cero.',
-        heard: heard,
-      );
-    }
-    // 1 ha = 10 000 m²; las milésimas de hectárea son 10 m².
-    return DraftField.resolved(
-      n.thousandths * 10,
-      origin: FieldOrigin.voice,
-      heard: heard,
-    );
-  }
-  return null;
-}
-
-bool _startsQuantity(List<String> words, int i) {
-  final n = readNumberAt(words, i);
-  return n != null &&
-      n.end < words.length &&
-      (unitWord(words[n.end]) != null || _hectare.contains(words[n.end]));
-}
-
 final class _HeardDose {
   _HeardDose(this.productHeard, this.dose);
   final String productHeard;
@@ -241,7 +160,7 @@ List<_HeardDose> _doses(List<String> words) {
         unit != null &&
         n.end + 2 < words.length &&
         const {'por', 'x', 'cada'}.contains(words[n.end + 1]) &&
-        _hectare.contains(words[n.end + 2]);
+        hectareWords.contains(words[n.end + 2]);
     if (!perHa) {
       i = n.end > i ? n.end : i + 1;
       continue;
@@ -253,7 +172,7 @@ List<_HeardDose> _doses(List<String> words) {
       final after = <String>[];
       while (j < words.length &&
           !const {',', 'y', 'con', 'en', 'para'}.contains(words[j]) &&
-          !_startsQuantity(words, j)) {
+          !startsQuantity(words, j)) {
         after.add(words[j]);
         j++;
       }
