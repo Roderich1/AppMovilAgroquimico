@@ -5,9 +5,12 @@ import '../../app.dart';
 import '../../data/agro_repository.dart';
 import '../../domain/models.dart';
 import '../../domain/money.dart';
+import '../../domain/operation_mode.dart';
 import '../../domain/person_roles.dart';
+import '../../operation_mode_controller.dart';
 import '../widgets/adaptive_entity_picker.dart';
 import '../widgets/common.dart';
+import '../widgets/mode_notice.dart';
 
 typedef _ApplicationCatalogs = ({
   List<Map<String, Object?>> people,
@@ -33,6 +36,12 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
   Map<String, Object?>? productToAdd;
   bool dirty = false, saving = false, loadingStock = false;
 
+  /// Modalidad con la que se cargaron personas y chacos (#26).
+  OperationMode? loadedMode;
+
+  /// En inventario propio aplica el titular: no se elige persona (#26).
+  bool personalMode = false;
+
   @override
   void initState() {
     super.initState();
@@ -49,7 +58,15 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
     // Quién puede aplicar según su rol privado, el titular y la modalidad: el
     // titular registrado como administrador de pagos también aplica en sus
     // chacos. Sólo se ofrecen chacos cuyo dueño puede aplicar.
-    final people = await repo.peopleFor(PersonPurpose.applicator);
+    final applicatorRead = await repo.peopleAndContextFor(
+      PersonPurpose.applicator,
+    );
+    final people = applicatorRead.people;
+    final operating = applicatorRead.context;
+    loadedMode = operating.mode;
+    personalMode =
+        operating.mode == OperationMode.personal &&
+        operating.ownerPersonId != null;
     final applicators = {for (final person in people) person['id']};
     final result = (
       people: people,
@@ -98,6 +115,11 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
           quantityBase: item['required_quantity_base'] as int,
         );
       }
+    } else if (personalMode) {
+      // El titular se aplica internamente: sus existencias quedan listas y
+      // sólo falta elegir uno de sus chacos.
+      personId = operating.ownerPersonId;
+      stocks = await repo.availableProductsForOwner(personId!);
     }
     return result;
   }
@@ -338,7 +360,14 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
           child: FutureBuilder<_ApplicationCatalogs>(
             future: catalogs,
             builder: (context, snapshot) => FilledButton.icon(
-              onPressed: saving || !snapshot.hasData
+              key: const Key('application-confirm'),
+              onPressed:
+                  saving ||
+                      !snapshot.hasData ||
+                      modeChangedSince(
+                        loadedMode,
+                        ref.watch(operationModeProvider),
+                      )
                   ? null
                   : () => submit(snapshot.data!),
               icon: const Icon(Icons.check),
@@ -379,6 +408,13 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
             child: ListView(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
               children: [
+                if (modeChangedSince(
+                  loadedMode,
+                  ref.watch(operationModeProvider),
+                )) ...[
+                  const ModeChangedNotice(),
+                  const SizedBox(height: 12),
+                ],
                 Container(
                   padding: const EdgeInsets.all(12),
                   decoration: BoxDecoration(
@@ -395,13 +431,23 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
                   builder: (context, constraints) {
                     final wide = constraints.maxWidth >= 600;
                     final fields = [
-                      AdaptiveEntityPicker<Map<String, Object?>>(
-                        label: 'Persona',
-                        items: data.people,
-                        value: person,
-                        labelOf: (p) => p['name'] as String,
-                        onChanged: selectPerson,
-                      ),
+                      // En propio aplica el titular: se muestra, no se elige.
+                      if (personalMode)
+                        InputDecorator(
+                          key: const Key('application-personal-owner'),
+                          decoration: const InputDecoration(
+                            labelText: 'Aplica el titular',
+                          ),
+                          child: Text(person?['name']?.toString() ?? ''),
+                        )
+                      else
+                        AdaptiveEntityPicker<Map<String, Object?>>(
+                          label: 'Persona',
+                          items: data.people,
+                          value: person,
+                          labelOf: (p) => p['name'] as String,
+                          onChanged: selectPerson,
+                        ),
                       AdaptiveEntityPicker<Map<String, Object?>>(
                         label: 'Chaco',
                         items: farms,
