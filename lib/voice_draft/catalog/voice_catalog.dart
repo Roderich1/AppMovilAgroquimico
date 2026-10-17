@@ -11,13 +11,21 @@ import '../text/units.dart';
 
 /// Una entrada de catálogo: producto, proveedor, chaco, campaña o persona.
 final class CatalogEntry {
-  const CatalogEntry({required this.id, required this.name, this.unit});
+  const CatalogEntry({
+    required this.id,
+    required this.name,
+    this.unit,
+    this.areaM2,
+  });
 
   final int id;
   final String name;
 
   /// Sólo productos: unidad del catálogo.
   final CatalogUnit? unit;
+
+  /// Sólo chacos: superficie registrada, en m².
+  final int? areaM2;
 
   @override
   bool operator ==(Object other) =>

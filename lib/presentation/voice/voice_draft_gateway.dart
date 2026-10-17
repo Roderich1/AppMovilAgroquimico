@@ -15,8 +15,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app.dart';
 import '../../data/agro_repository.dart';
+import '../../domain/operation_mode.dart';
 import '../../domain/person_roles.dart';
 import '../../voice_draft/catalog/voice_catalog.dart';
+import '../../voice_draft/plan/voice_plan_draft.dart';
 import '../../voice_draft/purchase/voice_purchase_draft.dart';
 import '../../voice_draft/text/units.dart';
 
@@ -31,19 +33,11 @@ class VoiceDraftGateway {
 
   /// Catálogos para un borrador de compra.
   Future<VoiceCatalog> purchaseCatalog() async {
-    final products = await _repo.products();
     final suppliers = await _repo.suppliers();
     final people = await _repo.peopleFor(PersonPurpose.purchaseAllocation);
     final campaign = await _repo.activeCampaign();
     return VoiceCatalog(
-      products: [
-        for (final row in products)
-          CatalogEntry(
-            id: row['id']! as int,
-            name: row['name']! as String,
-            unit: CatalogUnit.fromCode(row['unit'] as String?),
-          ),
-      ],
+      products: await _products(),
       suppliers: [for (final row in suppliers) _entry(row)],
       people: [for (final row in people) _entry(row)],
       activeCampaign: campaign == null ? null : _entry(campaign),
@@ -53,6 +47,48 @@ class VoiceDraftGateway {
   /// Registra la compra con el caso de uso del formulario manual.
   Future<int> confirmPurchase(VoicePurchaseDraft draft) =>
       _repo.confirmPurchase(draft.toDomain());
+
+  /// Catálogos para un borrador de planificación. En PERSONAL sólo se ofrecen
+  /// los chacos del titular; el repositorio vuelve a comprobarlo al escribir.
+  Future<VoiceCatalog> planCatalog() async {
+    final context = await _repo.operatingContext();
+    final farms = await _repo.farms();
+    final campaign = await _repo.activeCampaign();
+    return VoiceCatalog(
+      products: await _products(),
+      farms: [
+        for (final row in farms)
+          if (context.mode != OperationMode.personal ||
+              row['owner_person_id'] == context.ownerPersonId)
+            CatalogEntry(
+              id: row['id']! as int,
+              name: row['name']! as String,
+              areaM2: row['area_m2'] as int?,
+            ),
+      ],
+      activeCampaign: campaign == null ? null : _entry(campaign),
+    );
+  }
+
+  /// Crea el plan con el caso de uso del formulario de planificación.
+  Future<int> confirmPlan(VoicePlanDraft draft) {
+    final plan = draft.toDomain();
+    return _repo.addPlanMulti(
+      farmId: plan.farmId,
+      campaignId: plan.campaignId,
+      areaM2: plan.areaM2,
+      items: plan.items,
+    );
+  }
+
+  Future<List<CatalogEntry>> _products() async => [
+    for (final row in await _repo.products())
+      CatalogEntry(
+        id: row['id']! as int,
+        name: row['name']! as String,
+        unit: CatalogUnit.fromCode(row['unit'] as String?),
+      ),
+  ];
 
   static CatalogEntry _entry(Map<String, Object?> row) =>
       CatalogEntry(id: row['id']! as int, name: row['name']! as String);
