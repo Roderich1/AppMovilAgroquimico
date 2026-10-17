@@ -17,6 +17,7 @@ import '../../app.dart';
 import '../../data/agro_repository.dart';
 import '../../domain/operation_mode.dart';
 import '../../domain/person_roles.dart';
+import '../../voice_draft/application/voice_application_draft.dart';
 import '../../voice_draft/catalog/voice_catalog.dart';
 import '../../voice_draft/plan/voice_plan_draft.dart';
 import '../../voice_draft/purchase/voice_purchase_draft.dart';
@@ -80,6 +81,48 @@ class VoiceDraftGateway {
       items: plan.items,
     );
   }
+
+  /// Catálogos para un borrador de aplicación, con el mismo filtro que el
+  /// formulario: personas que pueden aplicar (`peopleFor(applicator)`) y sólo
+  /// los chacos cuyo dueño puede aplicar. El dueño del chaco es quien aplica.
+  Future<VoiceCatalog> applicationCatalog() async {
+    final people = await _repo.peopleFor(PersonPurpose.applicator);
+    final applicators = {for (final p in people) p['id']! as int: _entry(p)};
+    final farms = [
+      for (final farm in await _repo.farms())
+        if (applicators.containsKey(farm['owner_person_id'])) farm,
+    ];
+    final campaign = await _repo.activeCampaign();
+    return VoiceCatalog(
+      products: await _products(),
+      farms: [
+        for (final row in farms)
+          CatalogEntry(
+            id: row['id']! as int,
+            name: row['name']! as String,
+            areaM2: row['area_m2'] as int?,
+          ),
+      ],
+      people: applicators.values.toList(growable: false),
+      farmOwners: {
+        for (final row in farms)
+          row['id']! as int: applicators[row['owner_person_id']]!,
+      },
+      activeCampaign: campaign == null ? null : _entry(campaign),
+    );
+  }
+
+  /// Stock disponible de [personId] por producto, en unidad base. Sólo
+  /// lectura: es la proyección que se muestra antes de confirmar.
+  Future<Map<int, int>> availableStock(int personId) async => {
+    for (final row in await _repo.availableProductsForOwner(personId))
+      row['product_id']! as int: row['available_base']! as int,
+  };
+
+  /// Registra la aplicación con `confirmApplication()`, la autoridad de FIFO,
+  /// costo, movimientos y stock, como el formulario.
+  Future<int> confirmApplication(VoiceApplicationDraft draft) =>
+      _repo.confirmApplication(draft.toDomain());
 
   Future<List<CatalogEntry>> _products() async => [
     for (final row in await _repo.products())
