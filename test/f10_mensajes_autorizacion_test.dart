@@ -65,6 +65,7 @@ void main() {
       expect(message, contains('se conservan'));
       expect(message, contains('copia de seguridad'));
       expect(message, contains('instalación nueva'));
+      expect(message, contains('libere'));
     });
 
     test('403: la acción explícita para reanudar es «Sincronizar ahora»', () {

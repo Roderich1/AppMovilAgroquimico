@@ -62,7 +62,7 @@ class RemoteSessionState {
     // y los envíos pausados siguen en el teléfono; una copia restaurada en
     // una instalación nueva los conserva y quedan pausados hasta que el
     // titular los libere.
-    RemoteSessionPhase.registrationRejected => 'La vinculación de este dispositivo no fue aceptada. Sus datos y sus envíos pausados se conservan en este teléfono. Si el sindicato desvinculó este dispositivo, no puede volver a vincularse: para enviarlos, haga una copia de seguridad y restáurela en una instalación nueva activada con la cuenta del titular.',
+    RemoteSessionPhase.registrationRejected => 'La vinculación de este dispositivo no fue aceptada. Sus datos y sus envíos pausados se conservan en este teléfono. Si el sindicato desvinculó este dispositivo, no puede volver a vincularse: para enviarlos, haga una copia de seguridad, restáurela en una instalación nueva activada con la cuenta del titular y libere allí los envíos restaurados.',
     RemoteSessionPhase.guardUnavailable => 'No se pudo verificar la protección de la sesión. Las funciones en línea permanecen bloqueadas.',
     RemoteSessionPhase.requiresReauthentication => switch (problem) {
       RemoteSessionProblem.invalidCredentials => 'Revise el correo y la contraseña. Sus datos locales siguen disponibles.',

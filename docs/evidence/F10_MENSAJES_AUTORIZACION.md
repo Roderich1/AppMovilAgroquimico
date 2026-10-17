@@ -12,7 +12,7 @@ Fuente: `docs/evidence/F05_SYNC_06_DEVICE_F10.md`, «Límites y observaciones»,
 
 | Caso | Lo observado | Defecto comprobado |
 |---|---|---|
-| C38 | Al volver a autenticar con **otra cuenta** (R en lugar de S), la app cerró esa sesión sin vincularla (logout 204, 0 push). Comportamiento correcto. | La pantalla sólo decía «Se requiere volver a autenticar…» y **no explicaba que la cuenta no es la del titular** |
+| C38 | Al volver a autenticar con **otra cuenta** (R en lugar de S), la app cerró esa sesión sin vincularla (logout 204, 0 push). Comportamiento correcto. | Según la evidencia de origen (C38), la captura «no muestra un mensaje que diga que la cuenta es otra; sólo el texto general «Verifique la misma cuenta…»». La línea de estado de esa pantalla mostraba, **según el código** de `dff6802` (no la captura), «Se requiere volver a autenticar…». **No se explicaba que la cuenta no es la del titular** |
 | C40 y C22 | Tras un `push 403`, la fila queda `AUTH_PAUSED` y «Verificar acceso en línea» no la reanuda: hace falta «Sincronizar ahora». Esto es por diseño (plan F05-SYNC-06, observación 2) | **Ninguna pantalla indicaba esa acción explícita**. El mensaje decía «Los envíos quedan pausados; nada se borró.» |
 | C23 | Registro del dispositivo revocado: `session/client` 404 y el mensaje «La vinculación de este dispositivo no fue aceptada. Se necesita revisión…». La intención siguió `AUTH_PAUSED`, sin pérdida | El mensaje **no decía que los datos se conservan ni cuál es el camino** |
 
@@ -34,7 +34,7 @@ Cada tramo está probado por separado:
 
 ## 3. Cambio
 
-Commits: `754aedb` (pruebas, rojo) y `e452916` (corrección).
+Commits: `754aedb` (pruebas, rojo), `e452916` (corrección), `cbbb5ea` (esta evidencia) y el commit de la revisión de A (mensaje de C23 con «libere» y cita de origen corregida).
 
 **Ninguna regla cambia:**
 - no hay refresh automático;
@@ -46,7 +46,7 @@ Commits: `754aedb` (pruebas, rojo) y `e452916` (corrección).
 
 | Archivo | Cambio |
 |---|---|
-| `remote_session_coordinator.dart` | Nuevo `RemoteSessionProblem.otherAccount`. `_validateLogin` comprueba **primero la identidad** (cuenta, Member y tenant frente a la sesión almacenada) y después el rol y el estado, así que una cuenta de Directiva distinta también se informa como otra cuenta. Mensaje: «Esa cuenta no es la vinculada a este teléfono. Los datos de este teléfono son de su titular y sólo se envían con la cuenta del titular: ingrese con esa cuenta. No se envió nada ni cambió el titular.» Un contexto inactivo conserva el mensaje general. Mensaje de `registrationRejected` con la conservación de los datos y el camino de §2 |
+| `remote_session_coordinator.dart` | Nuevo `RemoteSessionProblem.otherAccount`. `_validateLogin` comprueba **primero la identidad** (cuenta, Member y tenant frente a la sesión almacenada) y después el rol y el estado, así que una cuenta de Directiva distinta también se informa como otra cuenta. Mensaje: «Esa cuenta no es la vinculada a este teléfono. Los datos de este teléfono son de su titular y sólo se envían con la cuenta del titular: ingrese con esa cuenta. No se envió nada ni cambió el titular.» Un contexto inactivo conserva el mensaje general. Mensaje de `registrationRejected` con la conservación de los datos y el camino de §2, incluido liberar los envíos restaurados. Se muestra en todo `registrationRejected` (registro revocado, o `session/client` 401, 404 o 409), así que la parte del camino va condicionada: «Si el sindicato desvinculó este dispositivo…» |
 | `sync_providers.dart` | `SyncBlocker.forbidden`: «… No se reanudan solos: cuando el sindicato lo autorice, verifique el acceso con la cuenta del titular y pulse «Sincronizar ahora».» |
 | `sync_status_screen.dart` | Tarjeta «Envíos pausados por autorización» cuando hay filas `AUTH_PAUSED`. Es sólo texto: la acción sigue siendo el botón «Sincronizar ahora» |
 
@@ -65,6 +65,8 @@ Commits: `754aedb` (pruebas, rojo) y `e452916` (corrección).
 | `flutter analyze lib test` | `No issues found!` |
 | `flutter test test/f10_mensajes_autorizacion_test.dart test/remote_session_coordinator_test.dart test/remote_session_screen_test.dart test/sync_screens_test.dart` | 79/79 |
 | `flutter test`, suite completa | **1073 pasan, 2 omitidas, 0 fallos** |
+
+**Alcance de las pruebas nuevas:** cinco de las seis de `f10_mensajes_autorizacion_test.dart` comprueban **sólo textos**. El comportamiento lo cubren la prueba de pantalla de abajo y las pruebas del coordinador, que comprueban el problema `otherAccount`, el logout y que no hay commit.
 
 **La prueba de pantalla comprueba además** que abrir Sincronización con el acceso verificado **no envía nada** y deja la fila en `AUTH_PAUSED`. Sólo «Sincronizar ahora» la reanuda, con un único push del **mismo** `operationId`, hasta `ACKED`.
 
