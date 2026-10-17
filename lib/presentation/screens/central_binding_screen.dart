@@ -282,7 +282,7 @@ class _CentralBindingScreenState extends ConsumerState<CentralBindingScreen> {
               'al ${displayDay(pickedDay)}. La campaña no se cierra ni '
               'cambia de estado; sólo se fija su período. Se rechaza si deja '
               'fuera algún registro o solapa otra campaña.'
-              '${pastEnd ? '\n\nAtención: ese fin ya pasó. Desde hoy, las compras y aplicaciones nuevas no tendrán campaña y se rechazarán hasta que cree y active la siguiente.' : ''}',
+              '${pastEnd ? '\n\nAtención: ese fin ya pasó. Desde el día siguiente a ese fin, las compras y aplicaciones no tendrán campaña y se rechazarán hasta que cree y active la siguiente.' : ''}',
             ),
             actions: [
               TextButton(
