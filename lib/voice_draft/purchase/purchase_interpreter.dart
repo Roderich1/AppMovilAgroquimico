@@ -19,6 +19,7 @@ library;
 import '../../domain/models.dart';
 import '../catalog/voice_catalog.dart';
 import '../core/draft_field.dart';
+import '../interpretation/phrases.dart';
 import '../interpretation/voice_intent.dart';
 import '../text/normalize.dart';
 import '../text/spanish_numbers.dart';
@@ -76,7 +77,7 @@ PurchaseInterpretation interpretPurchase(
   if (supplier != null) {
     final (field, o) = mergeField(
       draft.supplier,
-      _entryField(resolveName(supplier, catalog.suppliers), 'proveedor'),
+      entryField(resolveName(supplier, catalog.suppliers), 'proveedor'),
     );
     draft = draft.copyWith(supplier: field);
     outcome += o;
@@ -86,7 +87,7 @@ PurchaseInterpretation interpretPurchase(
   if (recipient != null) {
     final (field, o) = mergeField(
       draft.recipient,
-      _entryField(resolveName(recipient, catalog.people), 'persona'),
+      entryField(resolveName(recipient, catalog.people), 'persona'),
     );
     draft = draft.copyWith(recipient: field);
     outcome += o;
@@ -100,7 +101,7 @@ PurchaseInterpretation interpretPurchase(
   }
 
   for (final line in _lines(words)) {
-    final product = _entryField(
+    final product = entryField(
       resolveName(line.productHeard, catalog.products),
       'producto',
     );
@@ -140,26 +141,6 @@ PurchaseInterpretation interpretPurchase(
 
   return PurchaseInterpretation(draft: draft, outcome: outcome);
 }
-
-DraftField<CatalogEntry> _entryField(Resolution r, String what) =>
-    switch (r.state) {
-      ResolutionState.resolved => DraftField.resolved(
-        r.entry!,
-        origin: FieldOrigin.voice,
-        heard: r.heard,
-      ),
-      ResolutionState.ambiguous => DraftField.ambiguous(
-        candidates: r.candidates,
-        heard: r.heard,
-        message: 'Elija el $what entre las opciones.',
-      ),
-      ResolutionState.missing => DraftField.missing(
-        heard: r.heard,
-        message:
-            '«${r.heard}» no está en el catálogo. Elija uno existente; si es '
-            'nuevo, créelo primero en Catálogos.',
-      ),
-    };
 
 /// Nombre que sigue a una palabra clave («proveedor es Agro Norte»).
 String? _nameAfter(List<String> words, Set<String> keys) {
@@ -290,18 +271,20 @@ List<_HeardLine> _lines(List<String> words) {
       continue;
     }
     final line = _HeardLine(productWords.join(' '));
-    line.quantity = !n.isValid
-        ? DraftField.invalid(message: n.invalidMessage!, heard: n.heard)
-        : n.thousandths <= 0
-        ? DraftField.invalid(
-            message: 'La cantidad debe ser mayor a cero.',
-            heard: n.heard,
-          )
-        : DraftField.resolved(
-            SpokenQuantity(n.thousandths, unit),
-            origin: FieldOrigin.voice,
-            heard: '${n.heard} ${words[n.end]}',
-          );
+    line.quantity =
+        consecutiveNumbers<SpokenQuantity>(words, n, words[n.end]) ??
+        (!n.isValid
+            ? DraftField.invalid(message: n.invalidMessage!, heard: n.heard)
+            : n.thousandths <= 0
+            ? DraftField.invalid(
+                message: 'La cantidad debe ser mayor a cero.',
+                heard: n.heard,
+              )
+            : DraftField.resolved(
+                SpokenQuantity(n.thousandths, unit),
+                origin: FieldOrigin.voice,
+                heard: '${n.heard} ${words[n.end]}',
+              ));
 
     // Precio.
     if (j < words.length && const {'a', 'al', 'por'}.contains(words[j])) {

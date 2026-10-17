@@ -46,6 +46,7 @@ final class VoiceCatalog {
     this.farms = const [],
     this.people = const [],
     this.activeCampaign,
+    this.farmOwners = const {},
   });
 
   final List<CatalogEntry> products;
@@ -60,6 +61,11 @@ final class VoiceCatalog {
 
   /// Campaña activa, si hay. El borrador la propone y la muestra.
   final CatalogEntry? activeCampaign;
+
+  /// Dueño de cada chaco (por id del chaco), sólo si puede aplicar. Como en el
+  /// formulario de aplicación, el dueño del chaco es quien aplica y de su
+  /// inventario sale el producto.
+  final Map<int, CatalogEntry> farmOwners;
 }
 
 enum ResolutionState { resolved, ambiguous, missing }
