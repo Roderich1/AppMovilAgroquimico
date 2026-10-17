@@ -76,6 +76,46 @@ class OperationModeStore {
     );
   }
 
+  /// Nombres de lo que bloquea el paso a propio, para que la pantalla diga
+  /// qué resolver (#25). Sólo lee.
+  Future<
+    ({
+      List<String> withStock,
+      List<String> planFarmOwners,
+      List<String> withBalance,
+    })
+  >
+  describe(ThirdPartyActivity activity) async {
+    final db = await _database.database;
+    Future<List<String>> names(Set<int> ids) async => ids.isEmpty
+        ? const []
+        : [
+            for (final row in await db.query(
+              'persons',
+              columns: ['name'],
+              where: 'id IN (${List.filled(ids.length, '?').join(',')})',
+              whereArgs: ids.toList(),
+              orderBy: 'name',
+            ))
+              row['name']! as String,
+          ];
+    final plans = activity.openPlanIds.isEmpty
+        ? const <Map<String, Object?>>[]
+        : await db.rawQuery(
+            'SELECT DISTINCT p.name FROM application_plans ap '
+            'JOIN farms f ON f.id = ap.farm_id '
+            'JOIN persons p ON p.id = f.owner_person_id '
+            'WHERE ap.id IN (${List.filled(activity.openPlanIds.length, '?').join(',')}) '
+            'ORDER BY p.name',
+            activity.openPlanIds.toList(),
+          );
+    return (
+      withStock: await names(activity.personsWithStock),
+      planFarmOwners: [for (final row in plans) row['name']! as String],
+      withBalance: await names(activity.personsWithAccountBalance),
+    );
+  }
+
   Future<ModeTransitionDecision> evaluate(
     OperationMode target, [
     DatabaseExecutor? executor,

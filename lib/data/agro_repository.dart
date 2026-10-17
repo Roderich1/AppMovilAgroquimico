@@ -822,7 +822,7 @@ class AgroRepository {
   }
 
   Future<void> reverseApplication(int applicationId, {String? reason}) async {
-    await _write((txn, _) async {
+    await _write((txn, context) async {
       final rows = await txn.query(
         'applications',
         where: 'id = ? AND reversed_at IS NULL',
@@ -833,6 +833,14 @@ class AgroRepository {
           'La aplicación ya fue revertida o no existe.',
         );
       final application = rows.single;
+      // Revertir devuelve existencias y cargos a quien aplicó. En modo propio
+      // eso crearía actividad de otra persona (#26/#27).
+      _requireOwnerInPersonal(
+        context,
+        [application['person_id']! as int],
+        'En inventario propio sólo se revierten aplicaciones del titular. '
+        'Para revertir la de otra persona, cambie a inventario compartido.',
+      );
       final consumptions = await txn.rawQuery(
         '''SELECT c.*, i.product_id FROM application_consumptions c
         JOIN application_items i ON i.id = c.application_item_id WHERE i.application_id = ? AND c.reversed_at IS NULL''',
@@ -1188,7 +1196,10 @@ class AgroRepository {
   }
 
   Future<void> reverseTransfer(int transferId, {String? reason}) async {
-    await _write((txn, _) async {
+    await _write((txn, context) async {
+      // Revertir mueve existencias entre responsables: en modo propio no hay
+      // transferencias, tampoco para deshacerlas (#26/#27).
+      _rejectTransferInPersonal(context);
       final transfers = await txn.query(
         'transfers',
         where: "id=? AND status='CONFIRMED' AND reversed_at IS NULL",
@@ -1366,26 +1377,36 @@ class AgroRepository {
   /// Personas activas que pueden cumplir [purpose] según el titular y la
   /// modalidad (`person_roles.dart`). Una sola consulta: personas, modalidad
   /// y titular se leen juntos.
-  Future<List<Map<String, Object?>>> peopleFor(PersonPurpose purpose) async {
+  Future<List<Map<String, Object?>>> peopleFor(PersonPurpose purpose) async =>
+      (await peopleAndContextFor(purpose)).people;
+
+  /// Como [peopleFor], y además la modalidad y el titular con que se
+  /// filtró, para que el formulario sepa si debe ocultar la elección de
+  /// persona (#26). Sigue siendo una sola consulta.
+  Future<({List<Map<String, Object?>> people, WriteContext context})>
+  peopleAndContextFor(PersonPurpose purpose) async {
     final rows = await (await _db).rawQuery(
-      'SELECT p.*, $_contextColumns FROM persons p '
-      'WHERE p.active=1 ORDER BY p.name',
+      'SELECT $_contextColumns, p.* FROM (SELECT 1) '
+      'LEFT JOIN persons p ON p.active=1 ORDER BY p.name',
       [AppDatabase.operationModeKey],
     );
-    if (rows.isEmpty) return const [];
     final mode = OperationMode.fromCode(rows.first['context_mode'] as String?);
     final owner = rows.first['context_owner'] as int?;
-    return eligiblePeople(
-      [
-        for (final row in rows)
-          {
-            for (final entry in row.entries)
-              if (!entry.key.startsWith('context_')) entry.key: entry.value,
-          },
-      ],
-      purpose,
-      ownerPersonId: owner,
-      mode: mode,
+    return (
+      people: eligiblePeople(
+        [
+          for (final row in rows)
+            if (row['id'] != null)
+              {
+                for (final entry in row.entries)
+                  if (!entry.key.startsWith('context_')) entry.key: entry.value,
+              },
+        ],
+        purpose,
+        ownerPersonId: owner,
+        mode: mode,
+      ),
+      context: (mode: mode, ownerPersonId: owner),
     );
   }
 
@@ -1398,6 +1419,34 @@ class AgroRepository {
   Future<List<Map<String, Object?>>> farms() async => (await _db).rawQuery(
     'SELECT f.*, p.name owner_name FROM farms f JOIN persons p ON p.id=f.owner_person_id WHERE f.active=1 ORDER BY f.name',
   );
+
+  /// Chacos que se pueden planificar o aplicar según la modalidad: en propio,
+  /// sólo los del titular (#26). Una sola consulta con modalidad y titular.
+  Future<({List<Map<String, Object?>> farms, WriteContext context})>
+  farmsAndContext() async {
+    final rows = await (await _db).rawQuery(
+      'SELECT $_contextColumns, f.*, p.name owner_name FROM (SELECT 1) '
+      'LEFT JOIN (farms f JOIN persons p ON p.id=f.owner_person_id) '
+      'ON f.active=1 ORDER BY f.name',
+      [AppDatabase.operationModeKey],
+    );
+    final mode = OperationMode.fromCode(rows.first['context_mode'] as String?);
+    final owner = rows.first['context_owner'] as int?;
+    return (
+      farms: [
+        for (final row in rows)
+          if (row['id'] != null &&
+              (mode != OperationMode.personal ||
+                  row['owner_person_id'] == owner))
+            {
+              for (final entry in row.entries)
+                if (!entry.key.startsWith('context_')) entry.key: entry.value,
+            },
+      ],
+      context: (mode: mode, ownerPersonId: owner),
+    );
+  }
+
   Future<List<Map<String, Object?>>> purchases({int limit = 200}) async =>
       (await _db).rawQuery(
         '''SELECT p.*, s.name supplier_name, c.name campaign_name,
