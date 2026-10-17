@@ -56,3 +56,9 @@
 - **Resultados** (sin suite completa durante la ventana física de A):
   - `flutter analyze`: sin avisos.
   - Pruebas focalizadas de borradores, gate y guardas: **133 pasan**.
+
+## 6. Revisión de A sobre la pila (2026-10-17), sobre `bec85a92ceb637bd3abcf33bc60ad5e87caaa66b`
+
+- **M-1:** el área propuesta se muestra con 4 decimales de hectárea. Con 2, un chaco de 12 345 m² («1,23») bloqueaba «Registrar» por la comprobación de coherencia. Prueba: «un área que no es múltiplo de 100 m² se ve exacta y no bloquea».
+- **M-2:** si una cantidad llega justo después de otro número dicho («uno cinco litros»), queda inválida con el motivo y bloquea, en lugar de tomar sólo el último número. Aplicado en compra, planificación y aplicación, con una prueba en cada intérprete.
+- **Resultados:** pruebas focalizadas de borradores, pantallas y gate, **119 pasan**. La suite completa la ejecuta la CI de esta cabeza.
