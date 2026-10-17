@@ -11,11 +11,18 @@
 /// `lib/voice_draft/` no importa este archivo ni la base de datos.
 library;
 
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../app.dart';
 import '../../data/agro_repository.dart';
 import '../../domain/person_roles.dart';
 import '../../voice_draft/catalog/voice_catalog.dart';
 import '../../voice_draft/purchase/voice_purchase_draft.dart';
 import '../../voice_draft/text/units.dart';
+
+final voiceDraftGatewayProvider = Provider<VoiceDraftGateway>(
+  (ref) => VoiceDraftGateway(ref.watch(repositoryProvider)),
+);
 
 class VoiceDraftGateway {
   VoiceDraftGateway(this._repo);

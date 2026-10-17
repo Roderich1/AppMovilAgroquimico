@@ -14,7 +14,6 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../app.dart';
 import '../../domain/models.dart';
 import '../../domain/money.dart';
 import '../../voice/session/voice_session_controller.dart';
@@ -29,10 +28,7 @@ import '../../voice_draft/purchase/voice_purchase_draft.dart';
 import '../../voice_draft/text/units.dart';
 import '../widgets/common.dart';
 import 'voice_draft_gateway.dart';
-
-final voiceDraftGatewayProvider = Provider<VoiceDraftGateway>(
-  (ref) => VoiceDraftGateway(ref.watch(repositoryProvider)),
-);
+import 'voice_draft_widgets.dart';
 
 class VoicePurchaseDraftScreen extends ConsumerStatefulWidget {
   const VoicePurchaseDraftScreen({super.key, this.onOpenManualForm});
@@ -55,9 +51,7 @@ class _VoicePurchaseDraftScreenState
   VoiceDraftController<VoicePurchaseDraft, int>? _draft;
   String? _loadError;
 
-  /// Texto de la sesión ya interpretado. Sólo crece: lo nuevo es lo que se
-  /// interpreta.
-  String _consumed = '';
+  final VoiceSegmentFeed _feed = VoiceSegmentFeed();
   final List<String> _applied = [];
   VoiceIntent? _otherIntent;
 
@@ -133,30 +127,23 @@ class _VoicePurchaseDraftScreenState
   /// no se interpreta nunca.
   void _onSession() {
     if (!mounted) return;
-    final committed = _session.snapshot.committedText;
     final draft = _draft;
     final catalog = _catalog;
-    if (draft != null &&
-        catalog != null &&
-        committed.length > _consumed.length &&
-        committed.startsWith(_consumed)) {
-      final fresh = committed.substring(_consumed.length).trim();
-      _consumed = committed;
-      if (fresh.isNotEmpty) {
-        VoiceIntent? other;
-        final accepted = draft.applyVoice((current) {
-          final r = interpretPurchase(fresh, current, catalog);
-          other = r.otherIntent;
-          return (r.draft, r.outcome);
-        });
-        if (accepted) {
-          _otherIntent = other;
-          if (other == null) _applied.add(fresh);
-        }
+    final fresh = _feed.take(
+      _session.snapshot.committedText,
+      ready: draft != null && catalog != null,
+    );
+    if (fresh != null) {
+      VoiceIntent? other;
+      final accepted = draft!.applyVoice((current) {
+        final r = interpretPurchase(fresh, current, catalog!);
+        other = r.otherIntent;
+        return (r.draft, r.outcome);
+      });
+      if (accepted) {
+        _otherIntent = other;
+        if (other == null) _applied.add(fresh);
       }
-    } else if (!committed.startsWith(_consumed)) {
-      // La sesión se descartó o se reinició: se sigue desde su texto actual.
-      _consumed = committed;
     }
     setState(() {});
   }
@@ -208,12 +195,16 @@ class _VoicePurchaseDraftScreenState
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const _DraftNotice(),
+          const VoiceDraftNotice(
+            confirmLabel: 'Registrar compra',
+            catalogs: 'Los productos, proveedores y personas',
+          ),
           const SizedBox(height: 12),
           VoiceListeningPanel(session: _session),
           const SizedBox(height: 12),
-          if (_otherIntent != null) _OtherIntentBanner(intent: _otherIntent!),
-          if (_applied.isNotEmpty) _AppliedPanel(applied: _applied),
+          if (_otherIntent != null)
+            VoiceOtherIntentBanner(intent: _otherIntent!, current: 'compra'),
+          if (_applied.isNotEmpty) VoiceAppliedPanel(applied: _applied),
           const SizedBox(height: 12),
           if (_loadError != null)
             Text(_loadError!, key: const Key('voz-borrador-error-carga'))
@@ -249,15 +240,15 @@ class _VoicePurchaseDraftScreenState
       children: [
         Text('Borrador', style: theme.textTheme.titleMedium),
         const SizedBox(height: 8),
-        _FieldRow(
+        DraftFieldRow(
           label: 'Campaña',
           field: d.campaign,
           child: Text(d.campaign.value?.name ?? '—'),
         ),
-        _FieldRow(
+        DraftFieldRow(
           label: 'Proveedor',
           field: d.supplier,
-          child: _EntryPicker(
+          child: CatalogEntryPicker(
             key: const Key('voz-borrador-proveedor'),
             entries: catalog.suppliers,
             field: d.supplier,
@@ -272,10 +263,10 @@ class _VoicePurchaseDraftScreenState
             ),
           ),
         ),
-        _FieldRow(
+        DraftFieldRow(
           label: 'Recibe la compra',
           field: d.recipient,
-          child: _EntryPicker(
+          child: CatalogEntryPicker(
             key: const Key('voz-borrador-persona'),
             entries: catalog.people,
             field: d.recipient,
@@ -304,7 +295,7 @@ class _VoicePurchaseDraftScreenState
           ),
         ),
         if (d.lines.any((l) => l.currency.value == CurrencyCode.usd))
-          _FieldRow(
+          DraftFieldRow(
             label: 'Tipo de cambio (Bs por USD)',
             field: d.exchangeRate,
             child: _numberField(
@@ -346,7 +337,7 @@ class _VoicePurchaseDraftScreenState
         ),
         if (controller.blockers.isNotEmpty) ...[
           const SizedBox(height: 8),
-          _BlockersPanel(blockers: controller.blockers),
+          VoiceBlockersPanel(blockers: controller.blockers),
         ],
         if (controller.error != null) ...[
           const SizedBox(height: 8),
@@ -430,10 +421,10 @@ class _VoicePurchaseDraftScreenState
                 ),
               ],
             ),
-            _FieldRow(
+            DraftFieldRow(
               label: 'Producto',
               field: line.product,
-              child: _EntryPicker(
+              child: CatalogEntryPicker(
                 key: Key('voz-producto-${line.key}'),
                 entries: catalog.products,
                 field: line.product,
@@ -448,7 +439,7 @@ class _VoicePurchaseDraftScreenState
                 ),
               ),
             ),
-            _FieldRow(
+            DraftFieldRow(
               label: 'Cantidad ($unitLabel)',
               field: line.quantity,
               child: _numberField(
@@ -480,7 +471,7 @@ class _VoicePurchaseDraftScreenState
                 },
               ),
             ),
-            _FieldRow(
+            DraftFieldRow(
               label: 'Precio por $unitLabel',
               field: line.price,
               child: Column(
@@ -531,7 +522,7 @@ class _VoicePurchaseDraftScreenState
                 ],
               ),
             ),
-            _FieldRow(
+            DraftFieldRow(
               label: 'Moneda',
               field: line.currency,
               child: SegmentedButton<CurrencyCode>(
@@ -577,189 +568,4 @@ class _VoicePurchaseDraftScreenState
     keyboardType: const TextInputType.numberWithOptions(decimal: true),
     onChanged: onChanged,
   );
-}
-
-class _DraftNotice extends StatelessWidget {
-  const _DraftNotice();
-
-  @override
-  Widget build(BuildContext context) => Card(
-    child: Padding(
-      padding: const EdgeInsets.all(12),
-      child: Text(
-        'La voz sólo prepara un borrador. Nada se registra hasta que usted '
-        'revise y pulse «Registrar compra». Lo que corrija a mano no lo cambia '
-        'la voz. Los productos, proveedores y personas se buscan en sus '
-        'catálogos; si falta uno, créelo antes en Catálogos.',
-        style: Theme.of(context).textTheme.bodyMedium,
-      ),
-    ),
-  );
-}
-
-class _AppliedPanel extends StatelessWidget {
-  const _AppliedPanel({required this.applied});
-  final List<String> applied;
-
-  @override
-  Widget build(BuildContext context) => Container(
-    key: const Key('voz-aplicado'),
-    padding: const EdgeInsets.all(12),
-    decoration: BoxDecoration(
-      border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
-      borderRadius: BorderRadius.circular(8),
-    ),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Ya aplicado al borrador',
-          style: Theme.of(context).textTheme.labelMedium,
-        ),
-        for (final text in applied.reversed.take(3)) Text('«$text»'),
-      ],
-    ),
-  );
-}
-
-class _OtherIntentBanner extends StatelessWidget {
-  const _OtherIntentBanner({required this.intent});
-  final VoiceIntent intent;
-
-  @override
-  Widget build(BuildContext context) => Card(
-    key: const Key('voz-otra-intencion'),
-    color: Theme.of(context).colorScheme.tertiaryContainer,
-    child: Padding(
-      padding: const EdgeInsets.all(12),
-      child: Text(switch (intent) {
-        VoiceIntent.application || VoiceIntent.plan =>
-          'Eso parece otra operación. No se cambió este borrador de compra: '
-              'regístrela desde su propia pantalla.',
-        VoiceIntent.unsupported =>
-          'Los pagos y las consultas por voz no están disponibles. No se cambió '
-              'el borrador.',
-        _ =>
-          'La frase mezcla varias operaciones. No se cambió el borrador: dicte '
-              'una sola compra.',
-      }),
-    ),
-  );
-}
-
-class _BlockersPanel extends StatelessWidget {
-  const _BlockersPanel({required this.blockers});
-  final List<String> blockers;
-
-  @override
-  Widget build(BuildContext context) => Container(
-    key: const Key('voz-bloqueos'),
-    padding: const EdgeInsets.all(12),
-    decoration: BoxDecoration(
-      color: Theme.of(context).colorScheme.errorContainer,
-      borderRadius: BorderRadius.circular(8),
-    ),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text('Para registrar falta:'),
-        for (final b in blockers) Text('• $b'),
-      ],
-    ),
-  );
-}
-
-/// Etiqueta, estado del campo y el control para corregirlo.
-class _FieldRow extends StatelessWidget {
-  const _FieldRow({
-    required this.label,
-    required this.field,
-    required this.child,
-  });
-
-  final String label;
-  final DraftField<Object?> field;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final (text, color) = switch (field.status) {
-      FieldStatus.resolved => (
-        switch (field.origin) {
-          FieldOrigin.manual => 'Corregido a mano',
-          FieldOrigin.preset => 'Propuesto',
-          _ => 'Dictado',
-        },
-        scheme.primary,
-      ),
-      FieldStatus.ambiguous => ('Ambiguo: elija', scheme.tertiary),
-      FieldStatus.missing => ('Falta', scheme.error),
-      FieldStatus.invalid => ('No válido', scheme.error),
-    };
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            children: [
-              Expanded(child: Text(label)),
-              Text(text, style: TextStyle(color: color)),
-            ],
-          ),
-          if (field.heard != null && !field.isResolved)
-            Text(
-              'Oído: «${field.heard}»',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          if (field.message != null && !field.isResolved)
-            Text(field.message!, style: Theme.of(context).textTheme.bodySmall),
-          const SizedBox(height: 4),
-          child,
-        ],
-      ),
-    );
-  }
-}
-
-/// Elegir una entrada **existente** del catálogo. Las opciones del campo
-/// ambiguo van primero.
-class _EntryPicker extends StatelessWidget {
-  const _EntryPicker({
-    super.key,
-    required this.entries,
-    required this.field,
-    required this.enabled,
-    required this.onPick,
-  });
-
-  final List<CatalogEntry> entries;
-  final DraftField<CatalogEntry> field;
-  final bool enabled;
-  final ValueChanged<CatalogEntry> onPick;
-
-  @override
-  Widget build(BuildContext context) {
-    final ordered = [
-      ...field.candidates,
-      for (final e in entries)
-        if (!field.candidates.contains(e)) e,
-    ];
-    final selected = field.isResolved ? field.value : null;
-    return DropdownButton<CatalogEntry>(
-      isExpanded: true,
-      value: ordered.contains(selected) ? selected : null,
-      hint: const Text('Elegir'),
-      items: [
-        for (final e in ordered)
-          DropdownMenuItem(value: e, child: Text(e.name)),
-      ],
-      onChanged: enabled
-          ? (value) {
-              if (value != null) onPick(value);
-            }
-          : null,
-    );
-  }
 }
