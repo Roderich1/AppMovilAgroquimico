@@ -67,11 +67,12 @@ jobs:
       # #82 y D3-DATE: las regresiones de fechas sólo discriminan fuera de UTC,
       # y el runner corre en UTC. Se repiten en la zona del piloto; el
       # centinela de date_display_test.dart falla si la zona no se aplicó.
+      # D-F04-C2: el día civil central (UTC) frente al día local también.
       - name: Tests de fechas en America/La_Paz
         env:
           TZ: America/La_Paz
           AGRO_TZ_REGRESSION: America/La_Paz
-        run: flutter test test/declared_need_test.dart test/date_display_test.dart
+        run: flutter test test/declared_need_test.dart test/date_display_test.dart test/f04_c2_campaign_period_test.dart
 
       # Sin `android/key.properties` la build queda deliberadamente SIN firmar
       # (ver android/app/build.gradle.kts). CI **no** necesita el keystore: el
