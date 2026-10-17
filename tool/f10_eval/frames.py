@@ -72,6 +72,8 @@ def main():
     ap.add_argument("--start", choices=["touch", "launch"], required=True)
     ap.add_argument("--tap", help="X,Y del toque en píxeles de pantalla")
     ap.add_argument("--tap-box", type=int, default=72, help="lado de la región del toque")
+    ap.add_argument("--start-roi", help="X,Y,W,H donde se detecta el contacto (p. ej., la barra de "
+                    "pointer_location); sustituye a la región alrededor de --tap")
     ap.add_argument("--end-roi", required=True, help="X,Y,W,H de la región del estado final")
     ap.add_argument("--scale", type=int, default=4)
     ap.add_argument("--start-threshold", type=float, default=6.0)
@@ -86,10 +88,14 @@ def main():
     if args.start == "touch":
         if not args.tap:
             sys.exit("--tap es obligatorio con --start touch")
-        tx, ty = (round(int(v) * k) for v in args.tap.split(","))
-        half = round(args.tap_box * k) // 2
-        sx, sy = max(0, tx - half), max(0, ty - half)
-        start_crop = (sx, sy, min(2 * half, width - sx), min(2 * half, height - sy))
+        if args.start_roi:
+            rx, ry, rw, rh = (round(int(v) * k) for v in args.start_roi.split(","))
+            start_crop = (rx, ry, min(rw, width - rx), min(rh, height - ry))
+        else:
+            tx, ty = (round(int(v) * k) for v in args.tap.split(","))
+            half = round(args.tap_box * k) // 2
+            sx, sy = max(0, tx - half), max(0, ty - half)
+            start_crop = (sx, sy, min(2 * half, width - sx), min(2 * half, height - sy))
         start_frames = frames(args.video, start_crop, 1)
     else:
         start_crop = (0, 0, width, height)
@@ -123,7 +129,7 @@ def main():
         "duration_ms": round((pts[end] - pts[start]) * 1000, 1),
         "end_settled_on_last_frame": end == n - 1,
         "video_last_s": round(pts[n - 1], 6),
-        "params": {"tap": args.tap, "tap_box": args.tap_box, "end_roi": args.end_roi,
+        "params": {"tap": args.tap, "tap_box": args.tap_box, "start_roi": args.start_roi, "end_roi": args.end_roi,
                    "scale": args.scale, "video_px_per_screen_px": round(k, 4), "start_threshold": args.start_threshold,
                    "tolerance": args.tolerance},
     }

@@ -165,6 +165,53 @@ def purchase_form(supplier, p1, q1, c1, p2, q2, c2):
     print(f"listo: {label(total) if total else 'total no visible'}; confirmar en {confirm['x']},{confirm['y']}")
 
 
+def open_sync():
+    """Desde Inicio (o cualquier pantalla con el acceso), abre Sincronización."""
+    hit, _ = wait_for(r"^Sincronización con el sindicato$|^Sincronizar ahora$", 10)
+    if "Sincronizar ahora" not in label(hit):
+        tap(hit["x"], hit["y"], 2.5)
+        wait_for(r"^Sincronizar ahora$", 8)
+    print("sincronización abierta")
+
+
+def need(quantity):
+    """Declara (o cambia) la necesidad de DSV-001 en la campaña DSV con `quantity` L.
+    Parte de Sincronización o de Necesidades; deja la lista de Necesidades a la vista."""
+    hit, _ = wait_for(r"^Necesidades declaradas$|^Necesidad declarada$", 8)
+    if label(hit) == "Necesidades declaradas":
+        tap(hit["x"], hit["y"], 2.5)
+        wait_for(r"^Necesidad declarada$", 8)
+    nodes = dump()
+    options = find(nodes, r"^Opciones de la necesidad$")
+    if options:
+        tap(options["x"], options["y"], 1.2)
+        item, _ = wait_for(r"^(Cambiar cantidad…|Declarar de nuevo…)$")
+        tap(item["x"], item["y"], 1.5)
+        wait_for(r"^Nueva cantidad total$")
+        field = edits(dump())[0]
+        tap(field["x"], field["y"], 0.6)
+        adb("shell", "input", "keyevent", "KEYCODE_MOVE_END")
+        for _ in range(12):
+            adb("shell", "input", "keyevent", "KEYCODE_DEL")
+    else:
+        button = find(nodes, r"^Declarar$")
+        tap(button["x"], button["y"], 2.0)
+        product, _ = wait_for(r"^Producto")
+        tap(product["x"], product["y"], 1.5)
+        option, _ = wait_for(r"^DSV-001 Producto sintético$")
+        tap(option["x"], option["y"], 1.2)
+        field = edits(dump())[0]
+        tap(field["x"], field["y"], 0.6)
+    type_text(str(quantity))
+    hide_keyboard()
+    go, _ = wait_for(r"^Continuar$")
+    tap(go["x"], go["y"], 1.5)
+    confirm, _ = wait_for(r"^Declarar$")
+    tap(confirm["x"], confirm["y"], 2.5)
+    row, _ = wait_for(rf"DSV-001 Producto sintético · Campaña DSV 2025-2026 {quantity} L", 8)
+    print("necesidad: " + label(row))
+
+
 def main():
     cmd = sys.argv[1] if len(sys.argv) > 1 else "dump"
     if cmd == "dump":
@@ -175,6 +222,10 @@ def main():
     elif cmd == "find":
         n = find(dump(), sys.argv[2])
         print(f"{n['x']} {n['y']}" if n else "")
+    elif cmd == "open-sync":
+        open_sync()
+    elif cmd == "need":
+        need(int(sys.argv[2]))
     elif cmd == "purchase-form":
         purchase_form(*sys.argv[2:9])
     else:

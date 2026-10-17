@@ -4,13 +4,14 @@
 # fin con frames.py y añade una fila al CSV crudo. Nada se descarta: un error queda en la
 # fila con su causa. Las preparaciones (abrir pantallas, rellenar el formulario) no se miden.
 #   series_n0.sh r1 <primera-rep> <última-rep>   (rep 0 = calentamiento, anotado aparte)
-#   series_n0.sh r2 <primera-rep> <última-rep>
+#   series_n0.sh r2 <primera-rep> <última-rep>    (serie R2-a: toque instantáneo; ver r2b)
+#   series_n0.sh r2b <primera-rep> <última-rep>   (R2-b: toque sostenido y contacto visible)
 #   series_n0.sh r3 <primera-rep> <última-rep>
 # Requiere: source del entorno (env.sh + config.sh), ANDROID_SERIAL del POCO, modo avión
-# activo y show_touches=1. Escribe en $F03_RUN_DIR/series/ (fuera de cualquier worktree).
+# activo y pointer_location=1 (show_touches no aparece en la grabación de este MIUI). Escribe en $F03_RUN_DIR/series/ (fuera de cualquier worktree).
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-serie="${1:?r1|r2|r3}"; first="${2:?primera}"; last="${3:?última}"
+serie="${1:?r1|r2|r2b|r3}"; first="${2:?primera}"; last="${3:?última}"
 : "${F03_APP_PACKAGE:?cargue el entorno}" "${ANDROID_SERIAL:?fije ANDROID_SERIAL}"
 out="$F03_RUN_DIR/series/$serie"; mkdir -p "$out/video" "$out/frames"
 csv="$F03_RUN_DIR/series/${serie}.csv"
@@ -33,12 +34,12 @@ for rep in $(seq "$first" "$last"); do
       total=$(echo "$log" | sed -n -E 's/.*TotalTime: ([0-9]+).*/\1/p')
       roi="0,700,1080,1350"; mode=(--start launch)
       ;;
-    r2)
+    r2|r2b)
       read -r p0 l0 < <(counts)
       py ui.py purchase-form "Proveedor DSV 1" DSV-002 10 50 DSV-003 5 40 > /dev/null
       xy=$(py ui.py find "^Confirmar$")
       log=$(bash "$here/record_tap.sh" "$name" ${xy% *} ${xy#* } 6 "$out/video")
-      roi="0,300,1080,1750"; mode=(--start touch --tap "${xy/ /,}")
+      roi="0,760,1080,760"; mode=(--start touch --tap "${xy/ /,}" --start-roi 760,94,320,35)
       sleep 1
       read -r p1 l1 < <(counts)
       check="compras ${p0}->${p1} lineas ${l0}->${l1}"
@@ -48,7 +49,7 @@ for rep in $(seq "$first" "$last"); do
       adb shell input tap 540 2113; sleep 2   # pestaña Inventario
       xy=$(py ui.py find "^DSV-001 Producto sintético Físico")
       log=$(bash "$here/record_tap.sh" "$name" ${xy% *} ${xy#* } 5 "$out/video")
-      roi="0,300,1080,1750"; mode=(--start touch --tap "${xy/ /,}")
+      roi="0,300,1080,1750"; mode=(--start touch --tap "${xy/ /,}" --start-roi 760,94,320,35)
       seen=$(py ui.py find "Distribución por persona")
       [ -n "$seen" ] && check="detalle DSV-001 visible" || err="no se abrió el detalle"
       adb shell input keyevent KEYCODE_BACK; sleep 1.5

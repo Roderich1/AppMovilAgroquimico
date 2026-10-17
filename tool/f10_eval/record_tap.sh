@@ -2,7 +2,7 @@
 # Evaluación F10 (protocolo v1.0 §1.6): graba la pantalla, inyecta un toque y trae el vídeo.
 #   record_tap.sh <nombre> <x> <y> <segundos-de-grabación> [<carpeta-destino>]
 #   record_tap.sh <nombre> launch <componente> <segundos> [<carpeta>]   (R1: am start -W)
-# El toque se ve en el vídeo por show_touches=1 (lo activa y restaura el operador).
+# El toque se ve en el vídeo con pointer_location=1 (lo activa y restaura el operador).
 # Imprime la hora UTC del toque o de la orden y, en R1, el TotalTime de am start.
 # Respeta ANDROID_SERIAL. No toca ningún paquete distinto del indicado.
 set -euo pipefail
@@ -21,7 +21,9 @@ if [ "$a" = "launch" ]; then
   echo
 else
   echo "toque_utc=$(date -u +%FT%T.%3NZ)"
-  adb shell input tap "$a" "$b"
+  # Toque sostenido TAP_HOLD_MS (80 ms por defecto): con pointer_location=1 el contacto se ve
+  # en el vídeo desde el primer cuadro (en este MIUI show_touches no aparece en la grabación).
+  adb shell input swipe "$a" "$b" "$a" "$b" "${TAP_HOLD_MS:-80}"
 fi
 wait "$rec" || true
 sleep 0.5
