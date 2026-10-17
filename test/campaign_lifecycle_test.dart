@@ -110,7 +110,8 @@ void main() {
         name: 'Verano',
         start: DateTime.utc(2026, 1, 1),
       );
-      await repo.closeCampaign(closed);
+      // RN-16: fin antes del inicio de «Invierno», que se da de alta después.
+      await repo.closeCampaign(closed, end: DateTime(2026, 5, 30));
     });
 
     test('el repositorio rechaza reactivarla', () async {
