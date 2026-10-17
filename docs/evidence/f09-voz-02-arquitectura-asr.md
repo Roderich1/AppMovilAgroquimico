@@ -28,7 +28,7 @@ Teléfono: POCO X5 Pro 5G, Android 12 / API 31, en modo avión verificado. Corpu
 | Memoria pico | 158 MiB | 276 MiB | 328 MiB |
 | Peso añadido al APK | 0 B | +41 063 516 B | +68 618 468 B |
 | Latencia tras detener, p50 | 17 ms | 1228 ms | 2944 ms |
-| Productos reconocidos | 5/17 | peor | peor |
+| Productos reconocidos | 5/17 | 3/16 | 3/17 |
 
 **No medido (`NOT_MEASURED`, se conserva así):**
 - falsa aceptación;
