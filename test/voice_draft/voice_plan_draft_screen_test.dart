@@ -152,4 +152,21 @@ void main() {
     );
     expect(find.textContaining('Necesita 1,5 L'), findsOneWidget);
   });
+
+  testWidgets('Atrás con un plan empezado pregunta y no crea nada', (
+    tester,
+  ) async {
+    await pumpScreen(
+      tester,
+      script: const [FakeTurn(segment: full, endsOnStop: true)],
+    );
+    await tap(tester, const Key('voz-boton-microfono'));
+    await tap(tester, const Key('voz-boton-microfono'));
+    await tester.binding.handlePopRoute();
+    await drain(tester);
+    expect(find.text('¿Descartar el borrador?'), findsOneWidget);
+    await tester.tap(find.text('Descartar'));
+    await drain(tester);
+    expect(await plans(tester), 0);
+  });
 }

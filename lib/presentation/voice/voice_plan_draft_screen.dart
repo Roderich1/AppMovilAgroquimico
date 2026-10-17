@@ -148,13 +148,37 @@ class _VoicePlanDraftScreenState extends ConsumerState<VoicePlanDraftScreen>
       ? (line.dose.heard ?? '')
       : formatForInput(line.doseBasePerHa! / baseUnitsPerMajor);
 
+  /// Campos resueltos cuyo texto visible no dice lo mismo que el borrador:
+  /// si hay alguno, no se confirma (mismo criterio que la compra).
+  List<String> _visibleMismatches(VoicePlanDraft d) {
+    final out = <String>[];
+    final area = _fields['area'];
+    if (area != null && d.area.isResolved) {
+      final ha = tryParseDecimal(area.text);
+      if ((ha == null ? null : (ha * 10000).round()) != d.area.value) {
+        out.add('El área visible no coincide con el borrador.');
+      }
+    }
+    for (var i = 0; i < d.lines.length; i++) {
+      final l = d.lines[i];
+      final c = _fields['d${l.key}'];
+      if (c != null &&
+          l.dose.isResolved &&
+          tryParseBase(c.text) != l.doseBasePerHa) {
+        out.add('Producto ${i + 1}: la dosis visible no coincide.');
+      }
+    }
+    return out;
+  }
+
   Future<void> _confirm() async {
     final draft = _draft;
-    if (draft == null) return;
+    if (draft == null || _visibleMismatches(draft.draft).isNotEmpty) return;
     final id = await draft.confirm();
     if (id == null || !mounted) return;
     await _session.discard();
     if (!mounted) return;
+    setState(() => _leaving = true);
     ScaffoldMessenger.of(context)
         .showSnackBar(SnackBar(content: Text('Plan creado (n.º $id).')));
     Navigator.of(context).maybePop(id);
@@ -163,13 +187,49 @@ class _VoicePlanDraftScreenState extends ConsumerState<VoicePlanDraftScreen>
   Future<void> _cancel() async {
     _draft?.discard();
     await _session.discard();
-    if (mounted) Navigator.of(context).maybePop();
+    if (!mounted) return;
+    setState(() => _leaving = true);
+    Navigator.of(context).maybePop();
+  }
+
+  bool _leaving = false;
+
+  bool get _hasWork {
+    final d = _draft?.draft;
+    return _applied.isNotEmpty ||
+        (d != null && (d.lines.isNotEmpty || d.farm.isResolved));
+  }
+
+  Future<void> _onBack() async {
+    if (_draft?.phase == DraftPhase.confirming) return;
+    final discard = await confirmDestructiveAction(
+      context,
+      title: '¿Descartar el borrador?',
+      detail: 'No se creó ningún plan. Lo dictado y lo corregido se pierden.',
+      confirmLabel: 'Descartar',
+    );
+    if (discard && mounted) await _cancel();
   }
 
   @override
   Widget build(BuildContext context) {
     final draft = _draft;
     final catalog = _catalog;
+    final confirming = draft?.phase == DraftPhase.confirming;
+    return PopScope(
+      canPop: _leaving || (!confirming && !_hasWork),
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _onBack();
+      },
+      child: _buildPage(context, draft, catalog),
+    );
+  }
+
+  Widget _buildPage(
+    BuildContext context,
+    VoiceDraftController<VoicePlanDraft, int>? draft,
+    VoiceCatalog? catalog,
+  ) {
     return PageFrame(
       title: 'Planificación por voz',
       subtitle: 'Dicte el plan, revíselo y créelo con un toque.',
@@ -218,6 +278,7 @@ class _VoicePlanDraftScreenState extends ConsumerState<VoicePlanDraftScreen>
     final d = controller.draft;
     final editable = controller.phase == DraftPhase.editing;
     final theme = Theme.of(context);
+    final mismatches = _visibleMismatches(d);
     return Column(
       key: const Key('voz-borrador-plan'),
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -285,9 +346,9 @@ class _VoicePlanDraftScreenState extends ConsumerState<VoicePlanDraftScreen>
             label: const Text('Añadir producto a mano'),
           ),
         ),
-        if (controller.blockers.isNotEmpty) ...[
+        if (controller.blockers.isNotEmpty || mismatches.isNotEmpty) ...[
           const SizedBox(height: 8),
-          VoiceBlockersPanel(blockers: controller.blockers),
+          VoiceBlockersPanel(blockers: [...controller.blockers, ...mismatches]),
         ],
         if (controller.error != null) ...[
           const SizedBox(height: 8),
@@ -312,7 +373,9 @@ class _VoicePlanDraftScreenState extends ConsumerState<VoicePlanDraftScreen>
             ),
             FilledButton.icon(
               key: const Key('voz-registrar'),
-              onPressed: controller.canConfirm ? _confirm : null,
+              onPressed: controller.canConfirm && mismatches.isEmpty
+                  ? _confirm
+                  : null,
               icon: controller.phase == DraftPhase.confirming
                   ? const SizedBox.square(
                       dimension: 16,
