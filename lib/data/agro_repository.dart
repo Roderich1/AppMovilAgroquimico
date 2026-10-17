@@ -299,8 +299,10 @@ class AgroRepository {
       CampaignPeriod.fromRow(row),
   ];
 
-  /// Último día local con una compra o una aplicación de la campaña,
-  /// revertidas incluidas: también son historia de esa campaña.
+  /// Último día local con un registro fechado de la campaña: compras y
+  /// aplicaciones (revertidas incluidas, también son su historia) y
+  /// necesidades declaradas de F05 con todas sus versiones, que se publican
+  /// con la referencia de esa campaña (revisión de B sobre #110).
   Future<String?> _lastOperationDay(
     DatabaseExecutor executor,
     int campaignId,
@@ -317,6 +319,18 @@ class AgroRepository {
         columns: ['applied_at AS day'],
         where: 'campaign_id=?',
         whereArgs: [campaignId],
+      ),
+      ...await executor.query(
+        'declared_needs',
+        columns: ['reference_date AS day'],
+        where: 'campaign_id=?',
+        whereArgs: [campaignId],
+      ),
+      ...await executor.rawQuery(
+        'SELECT v.reference_date AS day FROM declared_need_versions v '
+        'JOIN declared_needs n ON n.id = v.declared_need_id '
+        'WHERE n.campaign_id=?',
+        [campaignId],
       ),
     ];
     String? last;
@@ -458,9 +472,10 @@ class AgroRepository {
   }
 
   /// Cierre sin sucesora. Si el período sigue abierto, termina en [end]
-  /// (por defecto, hoy), que el usuario elige y no puede ser anterior al
-  /// inicio. Un fin ya fijado al dar de alta la siguiente se conserva. Se
-  /// rechaza si alguna operación quedaría después del fin.
+  /// (por defecto, hoy), que el usuario elige: no antes del inicio ni después
+  /// de hoy. Si el alta de la siguiente ya fijó el fin, se conserva y [end]
+  /// no se usa (el diálogo no lo pide en ese caso). Se rechaza si algún
+  /// registro fechado de la campaña quedaría después del fin.
   Future<void> closeCampaign(int campaignId, {DateTime? end}) async {
     await _write((txn, _) async {
       final rows = await txn.query(
@@ -481,6 +496,20 @@ class AgroRepository {
             'El fin (${displayDay(endDay)}) no puede ser anterior al inicio '
             'de «${period.name}» (${displayDay(period.startDay)}). No se '
             'cerró.',
+          );
+        }
+        // Un fin futuro dejaría los días entre hoy y ese fin como de una
+        // campaña cerrada (revisión de B sobre #110): se admite hasta hoy, o
+        // hasta el inicio si la campaña todavía no empezó.
+        final today = localDay(DateTime.now());
+        final latestEnd = today.compareTo(period.startDay) < 0
+            ? period.startDay
+            : today;
+        if (endDay.compareTo(latestEnd) > 0) {
+          throw CampaignCalendarException(
+            'El fin (${displayDay(endDay)}) no puede ser posterior al '
+            '${displayDay(latestEnd)}: los días siguientes quedarían en una '
+            'campaña cerrada. No se cerró.',
           );
         }
         final last = await _lastOperationDay(txn, campaignId);

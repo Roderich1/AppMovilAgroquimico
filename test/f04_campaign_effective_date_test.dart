@@ -442,6 +442,62 @@ void main() {
       },
     );
 
+    test('el alta y el cierre tampoco dejan fuera una necesidad declarada ni '
+        'sus versiones', () async {
+      final s = await seed('needs', personal: true);
+      final db = await s.db;
+      final binding = (await db.query('owner_bindings', limit: 1)).single;
+      final need = await db.insert('declared_needs', {
+        'owner_binding_id': binding['id'],
+        'campaign_id': s.winter,
+        'product_id': s.p1,
+        'status': 'ACTIVE',
+        'quantity_base': 1000,
+        'reference_date': '2026-09-20',
+        'current_version': 1,
+        'updated_at': DateTime(2026, 9, 20).toUtc().toIso8601String(),
+      });
+      var before = await s.dump();
+      await expectLater(
+        s.repo.addCampaign(name: 'Pronto', start: DateTime(2026, 9, 20)),
+        calendarRejection('20/09/2026'),
+      );
+      expect(await s.dump(), before);
+      await db.insert('declared_need_versions', {
+        'declared_need_id': need,
+        'version': 1,
+        'status': 'ACTIVE',
+        'quantity_base': 1000,
+        'reference_date': '2026-09-25',
+        'created_at': DateTime(2026, 9, 25).toUtc().toIso8601String(),
+      });
+      before = await s.dump();
+      await expectLater(
+        s.repo.addCampaign(name: 'Pronto', start: DateTime(2026, 9, 22)),
+        calendarRejection('25/09/2026'),
+      );
+      await expectLater(
+        s.repo.closeCampaign(s.winter, end: DateTime(2026, 9, 24)),
+        calendarRejection('25/09/2026'),
+      );
+      expect(await s.dump(), before);
+      await s.repo.addCampaign(name: 'Después', start: DateTime(2026, 9, 26));
+      expect(await s.endDay(s.winter), '2026-09-25');
+    });
+
+    test('el cierre no admite un fin futuro', () async {
+      final s = await seed('future-end');
+      final before = await s.dump();
+      await expectLater(
+        s.repo.closeCampaign(
+          s.winter,
+          end: DateTime.now().add(const Duration(days: 2)),
+        ),
+        calendarRejection('no puede ser posterior'),
+      );
+      expect(await s.dump(), before);
+    });
+
     test('la propuesta de inicio respeta el orden del calendario', () async {
       final s = await seed('suggest');
       final today = localDay(DateTime.now());

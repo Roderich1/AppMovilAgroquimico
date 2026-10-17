@@ -157,7 +157,9 @@ class _CatalogsScreenState extends ConsumerState<CatalogsScreen>
                           context: dialogContext,
                           initialDate: end,
                           firstDate: DateTime(2000),
-                          lastDate: DateTime(2100),
+                          // Un fin futuro no se admite (el repositorio lo
+                          // rechaza también).
+                          lastDate: DateTime.now(),
                         );
                         if (picked != null) setDialogState(() => end = picked);
                       },
