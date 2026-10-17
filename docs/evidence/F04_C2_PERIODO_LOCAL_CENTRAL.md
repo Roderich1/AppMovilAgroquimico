@@ -73,6 +73,7 @@ Archivo principal: `test/f04_c2_campaign_period_test.dart` (28 pruebas; la CI lo
 | Fecha civil frente a timestamp; America/La_Paz | grupo «fecha civil frente a instante» + paso regional de la CI |
 | Migración: actualización y recuperación | grupo «migración v9 → v10» (actualización con mismo esquema que una base nueva; restauración de una copia v9 con `BackupService`) |
 | Fallo previo | `f04_c2_period_regression_test.dart` sobre `ec69ae8` |
+| Pantalla «Fijar fin previsto…» (revisión de A sobre #116) | `test/f04_c2_binding_screen_test.dart` (2 pruebas de widget): la fecha elegida en el selector llega a `setCampaignEnd` y el vínculo pasa de `PERIOD_INCOMPATIBLE` a VALID sin cambiar el estado; un fin ya pasado se advierte antes de confirmar; un fin que deja registros fuera muestra «tiene registros del dd/mm/aaaa» y no escribe nada (volcado completo igual). **Mutación comprobada:** pasar la fecha inicial del selector en vez de la elegida hace fallar la primera prueba (`Expected: '2026-10-15' / Actual: '2026-10-31'`) |
 
 ### Resultados (HOST, Windows 11, zona del sistema −04:00)
 
@@ -86,7 +87,14 @@ Archivo principal: `test/f04_c2_campaign_period_test.dart` (28 pruebas; la CI lo
 | `flutter analyze lib test` | la rama | `No issues found!` |
 | `dart format --set-exit-if-changed lib test` | la rama | exit 0 |
 
-**CI (GitHub Actions) sobre el HEAD del PR:** se registra en el PR y se añade aquí cuando termine.
+| `flutter test test/f04_c2_binding_screen_test.dart` | la rama (tras la revisión de A) | 2 pasan; con la mutación «fecha inicial en vez de la elegida», 1 falla |
+
+**CI (GitHub Actions):** run [39067645517](https://github.com/Roderich1/AppMovilAgroquimico/actions/runs/39067645517) sobre `3596985` (primer HEAD del PR, antes de la prueba de pantalla): **SUCCESS** (formato, análisis, suite completa, fechas en America/La_Paz y build de release). La CI del HEAD final se registra en el PR.
+
+### Revisión
+
+- **Sesión A sobre `3596985`:** LISTO, con un hallazgo medio (prueba de pantalla de «Fijar fin previsto…», añadida) y uno menor (fin anterior a hoy en la campaña activa, advertido en el diálogo y declarado en §5). A revisa el HEAD final tras el rebase sobre el `main` que resulte del PR de C.
+- **Revisión de Roderich Rendón:** pendiente. GATE-F04 y GATE-F06 siguen **Pending**.
 
 ### Pruebas existentes que cambiaron
 
@@ -107,7 +115,8 @@ Archivo principal: `test/f04_c2_campaign_period_test.dart` (28 pruebas; la CI lo
 - **Intenciones que ya salieron alguna vez** no se retienen: son la misma intención (idempotencia); si Central las acepta, el total aceptado pasa a «requiere revisión» como cualquier otro.
 - **Un total aceptado bajo un período incompatible** sólo admite la retirada (`CANCEL`) o corregir el período local sin dejar registros fuera. Si las operaciones locales caen fuera del período central, no hay resolución permitida distinta de retirar: queda bloqueado y explícito. No se emite SQL ni se reasigna.
 - **«Fijar fin previsto…»** está sólo en «Vincular con el sindicato»; Catálogos (`catalogs_screen.dart`, de A) no cambió.
-- **Pantallas** verificadas por las pruebas de almacén y por las pruebas de pantalla existentes (`sync_screens_test.dart`, `consumption_publish_screen_test.dart`, `f10_mensajes_autorizacion_test.dart`); no se añadieron pruebas de widget nuevas para la tarjeta de revisión ni para «Fijar fin previsto…».
+- **Fin anterior a hoy en la campaña activa.** `setCampaignEnd` lo admite (no rompe ninguna invariante: fin ≥ inicio, sin solapes, ningún registro fuera), pero desde ese día las compras y aplicaciones nuevas caen en «ninguna campaña» y se rechazan hasta crear y activar la siguiente. El diálogo lo advierte antes de confirmar («Atención: ese fin ya pasó…»); la prueba de pantalla lo comprueba. Revisión de A sobre #116, hallazgo menor.
+- **Pantallas:** «Fijar fin previsto…» tiene prueba de widget (`f04_c2_binding_screen_test.dart`). La tarjeta de revisión se comprueba dentro de esas pruebas (aparece y desaparece); «Retirar del sindicato» y «Envíos retenidos» se verifican en el almacén (`withdraw`, `heldForPeriod`) y no tienen prueba de widget propia.
 - **Rendimiento:** `campaignBindingOf` lee además el período local (una consulta más por lectura). El resumen de la cola y el worker sólo miran los vínculos cuando hay intenciones que nunca salieron.
 
 ## 6. Decisiones que siguen con Roderich

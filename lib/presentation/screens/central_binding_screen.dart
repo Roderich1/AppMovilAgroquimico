@@ -263,6 +263,15 @@ class _CentralBindingScreenState extends ConsumerState<CentralBindingScreen> {
           '${centralEnd == null ? '' : ' (sindicato: hasta el ${displayDay(centralEnd)})'}',
     );
     if (picked == null || !mounted) return;
+    final pickedDay = localDay(picked);
+    // Un fin ya pasado en la campaña activa deja los días siguientes sin
+    // campaña: las compras y aplicaciones nuevas se rechazarán hasta que se
+    // cree y active la siguiente (revisión de A sobre #116). Se advierte
+    // antes de confirmar; el repositorio lo admite porque no rompe ninguna
+    // invariante.
+    final pastEnd =
+        local.status == 'ACTIVE' &&
+        pickedDay.compareTo(localDay(DateTime.now())) < 0;
     final confirmed =
         await showDialog<bool>(
           context: context,
@@ -270,9 +279,10 @@ class _CentralBindingScreenState extends ConsumerState<CentralBindingScreen> {
             title: const Text('Fijar fin previsto'),
             content: Text(
               '«${local.name}» pasará a ir del ${displayDay(local.startDay)} '
-              'al ${displayDay(localDay(picked))}. La campaña no se cierra ni '
+              'al ${displayDay(pickedDay)}. La campaña no se cierra ni '
               'cambia de estado; sólo se fija su período. Se rechaza si deja '
-              'fuera algún registro o solapa otra campaña.',
+              'fuera algún registro o solapa otra campaña.'
+              '${pastEnd ? '\n\nAtención: ese fin ya pasó. Desde hoy, las compras y aplicaciones nuevas no tendrán campaña y se rechazarán hasta que cree y active la siguiente.' : ''}',
             ),
             actions: [
               TextButton(
