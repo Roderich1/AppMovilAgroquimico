@@ -4,6 +4,7 @@ import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart'
     show Database, DatabaseExecutor, Sqflite, Transaction;
 
+import '../domain/campaign_calendar.dart';
 import '../domain/models.dart';
 import '../domain/money.dart';
 import '../domain/operation_mode.dart';
@@ -27,6 +28,36 @@ class CampaignConflictException extends BusinessRuleException {
       );
   final int activeCampaignId;
   final String activeCampaignName;
+}
+
+/// Por qué la fecha efectiva de una operación no permite registrarla en la
+/// campaña del borrador (RN-15, RN-16, RF-03).
+enum CampaignDateProblem {
+  /// Ninguna campaña contiene la fecha.
+  none,
+
+  /// Más de una campaña contiene la fecha: calendario solapado heredado.
+  ambiguous,
+
+  /// La fecha es de una campaña cerrada (Cap. III §3.11.13: requiere
+  /// revisión). Su registro asociado está pendiente de decisión: D-F04-C1.
+  closed,
+
+  /// La fecha es de una campaña planificada, todavía no activa.
+  planned,
+}
+
+/// La operación no se registra: su fecha efectiva no clasifica en la campaña
+/// activa. Nunca se asigna a otra campaña en silencio.
+class CampaignDateException extends BusinessRuleException {
+  CampaignDateException(this.problem, super.message);
+  final CampaignDateProblem problem;
+}
+
+/// Un cambio del calendario de campañas solaparía períodos o dejaría
+/// operaciones fuera del período de su campaña. No se aplica nada.
+class CampaignCalendarException extends BusinessRuleException {
+  CampaignCalendarException(super.message);
 }
 
 /// Se lanza cuando la modalidad propia (PERSONAL) no admite la operación.
@@ -168,11 +199,58 @@ class AgroRepository {
     });
   });
 
+  /// Alta de campaña (RN-16: los períodos no se solapan).
+  ///
+  /// Las campañas se agregan en orden: la nueva empieza después del inicio
+  /// de todas las existentes. Si la última sigue abierta, termina el día
+  /// anterior al inicio de la nueva, siempre que eso no deje fuera ninguna de
+  /// sus operaciones; si las dejaría, se rechaza sin cambios.
   Future<int> addCampaign({
     required String name,
     required DateTime start,
     DateTime? end,
   }) => _write((txn, _) async {
+    final trimmed = name.trim();
+    final startDay = localDay(start);
+    final endDay = end == null ? null : localDay(end);
+    if (endDay != null && endDay.compareTo(startDay) < 0) {
+      throw CampaignCalendarException(
+        'La fecha de fin no puede ser anterior a la de inicio.',
+      );
+    }
+    final periods = await _campaignPeriods(txn);
+    CampaignPeriod? latest;
+    for (final period in periods) {
+      if (latest == null || period.startDay.compareTo(latest.startDay) > 0) {
+        latest = period;
+      }
+    }
+    if (latest != null && latest.startDay.compareTo(startDay) >= 0) {
+      throw CampaignCalendarException(
+        'La campaña nueva debe empezar después del '
+        '${displayDay(latest.startDay)}, inicio de «${latest.name}». '
+        'Las campañas se agregan en orden y sus períodos no se solapan.',
+      );
+    }
+    final proposed = CampaignPeriod(
+      id: -1,
+      name: trimmed,
+      status: 'PLANNED',
+      startDay: startDay,
+      endDay: endDay,
+    );
+    for (final period in periods) {
+      if (period.id == latest?.id && period.endDay == null) continue;
+      if (period.overlaps(proposed)) {
+        throw CampaignCalendarException(
+          'El período propuesto (${proposed.describe}) se solapa con '
+          '«${period.name}» (${period.describe}).',
+        );
+      }
+    }
+    if (latest != null && latest.endDay == null) {
+      await _endOpenCampaignBefore(txn, latest, startDay, trimmed);
+    }
     final active =
         Sqflite.firstIntValue(
           await txn.rawQuery(
@@ -181,12 +259,99 @@ class AgroRepository {
         ) ??
         0;
     return txn.insert('campaigns', {
-      'name': name.trim(),
+      'name': trimmed,
       'start_date': _date(start),
       'end_date': end == null ? null : _date(end),
       'status': active == 0 ? 'ACTIVE' : 'PLANNED',
     });
   });
+
+  /// Inicio que propone el alta: hoy, salvo que el orden del calendario
+  /// exija uno posterior (después del inicio y del fin fijado de cada
+  /// campaña). Es sólo una propuesta: el usuario la cambia y [addCampaign]
+  /// vuelve a validar.
+  Future<DateTime> suggestedCampaignStart() async {
+    final periods = await _campaignPeriods(await _db);
+    var day = localDay(DateTime.now());
+    var changed = true;
+    while (changed) {
+      changed = false;
+      for (final period in periods) {
+        for (final bound in [period.startDay, period.endDay]) {
+          if (bound != null && bound.compareTo(day) >= 0) {
+            day = nextLocalDay(bound);
+            changed = true;
+          }
+        }
+      }
+    }
+    return startOfLocalDay(day);
+  }
+
+  Future<List<CampaignPeriod>> _campaignPeriods(
+    DatabaseExecutor executor,
+  ) async => [
+    for (final row in await executor.query(
+      'campaigns',
+      columns: ['id', 'name', 'status', 'start_date', 'end_date'],
+      orderBy: 'id',
+    ))
+      CampaignPeriod.fromRow(row),
+  ];
+
+  /// Último día local con una compra o una aplicación de la campaña,
+  /// revertidas incluidas: también son historia de esa campaña.
+  Future<String?> _lastOperationDay(
+    DatabaseExecutor executor,
+    int campaignId,
+  ) async {
+    final rows = [
+      ...await executor.query(
+        'purchases',
+        columns: ['purchase_date AS day'],
+        where: 'campaign_id=?',
+        whereArgs: [campaignId],
+      ),
+      ...await executor.query(
+        'applications',
+        columns: ['applied_at AS day'],
+        where: 'campaign_id=?',
+        whereArgs: [campaignId],
+      ),
+    ];
+    String? last;
+    for (final row in rows) {
+      final day = storedLocalDay(row['day']! as String);
+      if (last == null || day.compareTo(last) > 0) last = day;
+    }
+    return last;
+  }
+
+  /// Cierra el período abierto de [open] el día anterior a [nextStartDay].
+  /// Las operaciones no cambian de campaña: si alguna cae en ese día o
+  /// después, se rechaza.
+  Future<void> _endOpenCampaignBefore(
+    DatabaseExecutor executor,
+    CampaignPeriod open,
+    String nextStartDay,
+    String nextName,
+  ) async {
+    final last = await _lastOperationDay(executor, open.id);
+    if (last != null && last.compareTo(nextStartDay) >= 0) {
+      throw CampaignCalendarException(
+        '«${open.name}» tiene operaciones del ${displayDay(last)}, que no es '
+        'anterior al inicio de «$nextName» (${displayDay(nextStartDay)}). '
+        'Las operaciones no se cambian de campaña: el inicio de la campaña '
+        'nueva tiene que ser posterior a esa fecha.',
+      );
+    }
+    await executor.update(
+      'campaigns',
+      {'end_date': _date(startOfLocalDay(previousLocalDay(nextStartDay)))},
+      where: 'id=?',
+      whereArgs: [open.id],
+    );
+  }
 
   Future<Map<String, Object?>?> activeCampaign() async {
     final rows = await (await _db).query(
@@ -242,33 +407,98 @@ class AgroRepository {
           active.single['name']! as String,
         );
       }
+      // Activar sólo cambia estados: los períodos se fijan al dar de alta la
+      // campaña (RN-16). Antes se borraba el fin de la activada y se ponía
+      // «hoy» como fin de la cerrada, lo que solapaba el día del cambio.
+      final periods = await _campaignPeriods(txn);
+      final targetPeriod = periods.firstWhere((p) => p.id == campaignId);
       if (active.isNotEmpty) {
+        final closing = periods.firstWhere((p) => p.id == active.single['id']);
+        // Base anterior a esta regla: la campaña activa sigue abierta.
+        if (closing.endDay == null) {
+          if (targetPeriod.startDay.compareTo(closing.startDay) <= 0) {
+            throw CampaignCalendarException(
+              '«${targetPeriod.name}» empieza el '
+              '${displayDay(targetPeriod.startDay)}, no después del inicio de '
+              '«${closing.name}» (${displayDay(closing.startDay)}): sus '
+              'períodos se solaparían. No se activó.',
+            );
+          }
+          await _endOpenCampaignBefore(
+            txn,
+            closing,
+            targetPeriod.startDay,
+            targetPeriod.name,
+          );
+        }
         await txn.update(
           'campaigns',
-          {'status': 'CLOSED', 'end_date': _date(DateTime.now())},
+          {'status': 'CLOSED'},
           where: 'id=?',
-          whereArgs: [active.single['id']],
+          whereArgs: [closing.id],
         );
+      }
+      final current = await _campaignPeriods(txn);
+      final activated = current.firstWhere((p) => p.id == campaignId);
+      for (final other in current) {
+        if (other.id != campaignId && other.overlaps(activated)) {
+          throw CampaignCalendarException(
+            'El período de «${activated.name}» (${activated.describe}) se solapa '
+            'con «${other.name}» (${other.describe}). No se activó.',
+          );
+        }
       }
       await txn.update(
         'campaigns',
-        {'status': 'ACTIVE', 'end_date': null},
+        {'status': 'ACTIVE'},
         where: 'id=?',
         whereArgs: [campaignId],
       );
     });
   }
 
-  Future<void> closeCampaign(int campaignId) async {
+  /// Cierre sin sucesora. Si el período sigue abierto, termina en [end]
+  /// (por defecto, hoy), que el usuario elige y no puede ser anterior al
+  /// inicio. Un fin ya fijado al dar de alta la siguiente se conserva. Se
+  /// rechaza si alguna operación quedaría después del fin.
+  Future<void> closeCampaign(int campaignId, {DateTime? end}) async {
     await _write((txn, _) async {
-      final changed = await txn.update(
+      final rows = await txn.query(
         'campaigns',
-        {'status': 'CLOSED', 'end_date': _date(DateTime.now())},
+        columns: ['id', 'name', 'status', 'start_date', 'end_date'],
         where: "id=? AND status='ACTIVE'",
         whereArgs: [campaignId],
+        limit: 1,
       );
-      if (changed == 0)
+      if (rows.isEmpty)
         throw BusinessRuleException('Solo una campaña activa puede cerrarse.');
+      final period = CampaignPeriod.fromRow(rows.single);
+      final values = <String, Object?>{'status': 'CLOSED'};
+      if (period.endDay == null) {
+        final endDay = localDay(end ?? DateTime.now());
+        if (endDay.compareTo(period.startDay) < 0) {
+          throw CampaignCalendarException(
+            'El fin (${displayDay(endDay)}) no puede ser anterior al inicio '
+            'de «${period.name}» (${displayDay(period.startDay)}). No se '
+            'cerró.',
+          );
+        }
+        final last = await _lastOperationDay(txn, campaignId);
+        if (last != null && last.compareTo(endDay) > 0) {
+          throw CampaignCalendarException(
+            '«${period.name}» tiene operaciones del ${displayDay(last)}, '
+            'posteriores al fin elegido (${displayDay(endDay)}). Las '
+            'operaciones no se cambian de campaña: no se cerró.',
+          );
+        }
+        values['end_date'] = _date(startOfLocalDay(endDay));
+      }
+      await txn.update(
+        'campaigns',
+        values,
+        where: 'id=?',
+        whereArgs: [campaignId],
+      );
     });
   }
 
@@ -318,6 +548,56 @@ class AgroRepository {
         'Cree un plan nuevo si necesita repetir la aplicación.',
       );
     }
+  }
+
+  /// La fecha efectiva de una compra o aplicación tiene que clasificar en la
+  /// campaña del borrador, que es la activa (RN-15, RN-16, RF-03). Se lee
+  /// dentro de la transacción que escribe, antes de escribir: un rechazo no
+  /// deja nada. Nunca se elige otra campaña en silencio, y el mensaje nombra
+  /// la campaña de la fecha sin invitar a registrar en otra.
+  Future<void> _ensureEffectiveDateInCampaign(
+    DatabaseExecutor executor,
+    int campaignId,
+    DateTime effective,
+  ) async {
+    final day = localDay(effective);
+    final periods = await _campaignPeriods(executor);
+    final containing = campaignsContaining(periods, day);
+    if (containing.length == 1 && containing.single.id == campaignId) return;
+    final when = displayDay(day);
+    if (containing.isEmpty) {
+      final own = periods.where((p) => p.id == campaignId).firstOrNull;
+      throw CampaignDateException(
+        CampaignDateProblem.none,
+        'La fecha $when no está dentro de ninguna campaña'
+        '${own == null ? '' : ' («${own.name}» va ${own.describe})'}. '
+        'Revise la fecha. No se registró nada.',
+      );
+    }
+    if (containing.length > 1) {
+      throw CampaignDateException(
+        CampaignDateProblem.ambiguous,
+        'La fecha $when está en más de una campaña '
+        '(${containing.map((p) => '«${p.name}»').join(', ')}): sus períodos '
+        'se solapan y no se puede saber a cuál corresponde. No se registró '
+        'nada.',
+      );
+    }
+    final other = containing.single;
+    if (other.status == 'PLANNED') {
+      throw CampaignDateException(
+        CampaignDateProblem.planned,
+        'La fecha $when corresponde a «${other.name}» (${other.describe}), '
+        'que todavía no está activa. No se registra en otra campaña. No se '
+        'registró nada.',
+      );
+    }
+    throw CampaignDateException(
+      CampaignDateProblem.closed,
+      'La fecha $when corresponde a la campaña cerrada «${other.name}» '
+      '(${other.describe}). Una operación de un período cerrado requiere '
+      'revisión y no se registra en otra campaña. No se registró nada.',
+    );
   }
 
   Future<void> _ensureCampaignActive(
@@ -477,6 +757,11 @@ class AgroRepository {
           for (final allocation in item.allocations) allocation.personId,
       ], 'En inventario propio la compra se asigna sólo al titular.');
       await _ensureCampaignActive(txn, draft.campaignId);
+      await _ensureEffectiveDateInCampaign(
+        txn,
+        draft.campaignId,
+        draft.purchaseDate,
+      );
       final purchaseId = await txn.insert('purchases', {
         'supplier_id': draft.supplierId,
         'campaign_id': draft.campaignId,
@@ -633,6 +918,11 @@ class AgroRepository {
       ], 'En inventario propio la aplicación la realiza el titular.');
       await _requireOwnerFarmInPersonal(txn, context, draft.farmId);
       await _ensureCampaignActive(txn, draft.campaignId);
+      await _ensureEffectiveDateInCampaign(
+        txn,
+        draft.campaignId,
+        draft.appliedAt,
+      );
       // **Un plan se aplica una sola vez** (UIBUG-045). La comprobación vive
       // dentro de la transacción, así que un doble toque o una llamada
       // repetida no pueden colarse entre la lectura y la escritura; el índice

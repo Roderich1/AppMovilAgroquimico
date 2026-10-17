@@ -158,11 +158,14 @@ void main() {
       ),
       throwsA(isA<DeclaredNeedException>()),
     );
-    // Dos campañas cubren la fecha.
-    await fixture.repo.addCampaign(
-      name: 'Otra campaña',
-      start: DateTime(2026, 10, 1),
-    );
+    // Dos campañas cubren la fecha. `addCampaign` ya no permite solapar
+    // (RN-16), así que el solape es una fila heredada, como en una base
+    // anterior a esa regla.
+    await (await fixture.database.database).insert('campaigns', {
+      'name': 'Otra campaña',
+      'start_date': DateTime(2026, 10, 1).toUtc().toIso8601String(),
+      'status': 'PLANNED',
+    });
     final ambiguous = await fixture.needs.campaignFor(inCampaign);
     expect(ambiguous.problem, CampaignForDateProblem.ambiguous);
     await expectLater(

@@ -126,45 +126,84 @@ class _CatalogsScreenState extends ConsumerState<CatalogsScreen>
       } else if (action == 'close') {
         final summary = await repo.campaignCloseSummaryTyped(row['id'] as int);
         if (!mounted) return;
+        // Fin del período (RN-16; «las fechas concretas son configuración»):
+        // si la campaña sigue abierta se elige, hoy por defecto. Si ya lo fijó
+        // el alta de la siguiente, se conserva.
+        final fixedEnd = row['end_date'] as String?;
+        var end = DateTime.now();
         final confirm = await showDialog<bool>(
           context: context,
-          builder: (dialogContext) => AlertDialog(
-            title: Text('¿Cerrar ${row['name']}?'),
-            // Cerrar dejó de ser reversible desde la aplicación (UIBUG-059),
-            // así que la confirmación tiene que decirlo antes, no después:
-            // qué campaña, desde cuándo, qué deja de admitir y que no podrá
-            // reactivarse.
-            content: Text(
-              'Periodo: desde ${formatDate(row['start_date'])}.\n\n'
-              'Compras: ${summary.purchasesCount} · aplicaciones: ${summary.applicationsCount}\n'
-              'Planes pendientes: ${summary.pendingPlans}\n'
-              'Saldo por cobrar: ${formatBob(summary.receivableBobMinor)}\n\n'
-              'La campaña dejará de admitir nuevas compras, aplicaciones, '
-              'transferencias y planes.\n\n'
-              'Una campaña cerrada NO se puede volver a activar desde la '
-              'aplicación. Si necesita seguir operando, cree una campaña '
-              'nueva.\n\n'
-              'El inventario físico no se elimina y seguirá disponible en la próxima campaña.',
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(dialogContext, false),
-                child: const Text('Cancelar'),
+          builder: (dialogContext) => StatefulBuilder(
+            builder: (dialogContext, setDialogState) => AlertDialog(
+              title: Text('¿Cerrar ${row['name']}?'),
+              // Cerrar dejó de ser reversible desde la aplicación (UIBUG-059),
+              // así que la confirmación tiene que decirlo antes, no después:
+              // qué campaña, desde cuándo, qué deja de admitir y que no podrá
+              // reactivarse.
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (fixedEnd == null)
+                    ListTile(
+                      key: const Key('campaign-close-end'),
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.event_outlined),
+                      title: const Text('Termina el'),
+                      subtitle: Text(formatDate(end.toIso8601String())),
+                      trailing: const Text('Cambiar'),
+                      onTap: () async {
+                        final picked = await showDatePicker(
+                          context: dialogContext,
+                          initialDate: end,
+                          firstDate: DateTime(2000),
+                          lastDate: DateTime(2100),
+                        );
+                        if (picked != null) setDialogState(() => end = picked);
+                      },
+                    ),
+                  Text(
+                    'Periodo: desde ${formatDate(row['start_date'])}'
+                    '${fixedEnd == null ? '' : ' hasta ${formatDate(fixedEnd)}'}.\n\n'
+                    'Compras: ${summary.purchasesCount} · aplicaciones: ${summary.applicationsCount}\n'
+                    'Planes pendientes: ${summary.pendingPlans}\n'
+                    'Saldo por cobrar: ${formatBob(summary.receivableBobMinor)}\n\n'
+                    'La campaña dejará de admitir nuevas compras, aplicaciones, '
+                    'transferencias y planes.\n\n'
+                    'Una campaña cerrada NO se puede volver a activar desde la '
+                    'aplicación. Si necesita seguir operando, cree una campaña '
+                    'nueva.\n\n'
+                    'El inventario físico no se elimina y seguirá disponible en la próxima campaña.',
+                  ),
+                ],
               ),
-              FilledButton(
-                // Mismo criterio visual de acción irreversible que las
-                // reversiones (UIBUG-033).
-                style: FilledButton.styleFrom(
-                  backgroundColor: Theme.of(dialogContext).colorScheme.error,
-                  foregroundColor: Theme.of(dialogContext).colorScheme.onError,
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext, false),
+                  child: const Text('Cancelar'),
                 ),
-                onPressed: () => Navigator.pop(dialogContext, true),
-                child: const Text('Cerrar definitivamente'),
-              ),
-            ],
+                FilledButton(
+                  // Mismo criterio visual de acción irreversible que las
+                  // reversiones (UIBUG-033).
+                  style: FilledButton.styleFrom(
+                    backgroundColor: Theme.of(dialogContext).colorScheme.error,
+                    foregroundColor: Theme.of(dialogContext)
+                        .colorScheme
+                        .onError,
+                  ),
+                  onPressed: () => Navigator.pop(dialogContext, true),
+                  child: const Text('Cerrar definitivamente'),
+                ),
+              ],
+            ),
           ),
         );
-        if (confirm == true) await repo.closeCampaign(row['id'] as int);
+        if (confirm == true) {
+          await repo.closeCampaign(
+            row['id'] as int,
+            end: fixedEnd == null ? end : null,
+          );
+        }
       } else {
         await _edit(row);
         return;
@@ -231,15 +270,16 @@ class _CatalogsScreenState extends ConsumerState<CatalogsScreen>
           );
           if (name != null) await repo.addSupplier(name: name);
         case 4:
-          final name = await showDialog<String?>(
+          // RN-16: el inicio se elige (antes era siempre el día de alta) y el
+          // repositorio comprueba que no solape ni deje operaciones fuera.
+          final suggested = await repo.suggestedCampaignStart();
+          if (!mounted) return;
+          final result = await showDialog<(String, DateTime)?>(
             context: context,
-            builder: (_) => const _NameDialog(
-              title: 'Nueva campaña',
-              label: 'Nombre de campaña',
-            ),
+            builder: (_) => _CampaignDialog(suggestedStart: suggested),
           );
-          if (name != null)
-            await repo.addCampaign(name: name, start: DateTime.now());
+          if (result != null)
+            await repo.addCampaign(name: result.$1, start: result.$2);
       }
       _refresh();
     } catch (error) {
@@ -517,6 +557,85 @@ class _NameDialogState extends State<_NameDialog> {
         decoration: InputDecoration(labelText: widget.label),
         validator: (value) => _requiredText(value, widget.label.toLowerCase()),
         onFieldSubmitted: (_) => _save(),
+      ),
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: const Text('Cancelar'),
+      ),
+      FilledButton(onPressed: _save, child: const Text('Guardar')),
+    ],
+  );
+}
+
+/// Alta de campaña: nombre y día de inicio (RN-15, RN-16).
+class _CampaignDialog extends StatefulWidget {
+  const _CampaignDialog({required this.suggestedStart});
+  final DateTime suggestedStart;
+  @override
+  State<_CampaignDialog> createState() => _CampaignDialogState();
+}
+
+class _CampaignDialogState extends State<_CampaignDialog> {
+  final name = TextEditingController();
+  final formKey = GlobalKey<FormState>();
+  late DateTime start = widget.suggestedStart;
+
+  @override
+  void dispose() {
+    name.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pickStart() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: start,
+      firstDate: DateTime(2000),
+      lastDate: DateTime(2100),
+    );
+    if (picked != null) setState(() => start = picked);
+  }
+
+  void _save() {
+    if (!formKey.currentState!.validate()) return;
+    Navigator.pop(context, (name.text.trim(), start));
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('Nueva campaña'),
+    content: Form(
+      key: formKey,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          TextFormField(
+            key: const Key('campaign-name'),
+            controller: name,
+            autofocus: true,
+            decoration: const InputDecoration(labelText: 'Nombre de campaña'),
+            validator: (value) => _requiredText(value, 'nombre de campaña'),
+          ),
+          const SizedBox(height: 12),
+          ListTile(
+            key: const Key('campaign-start'),
+            contentPadding: EdgeInsets.zero,
+            leading: const Icon(Icons.event_outlined),
+            title: const Text('Empieza el'),
+            subtitle: Text(formatDate(start.toIso8601String())),
+            trailing: const Text('Cambiar'),
+            onTap: _pickStart,
+          ),
+          const Text(
+            'Las compras y aplicaciones se ubican en la campaña por su fecha. '
+            'Si la campaña anterior sigue abierta, terminará el día anterior a '
+            'este inicio; las operaciones desde ese día serán de la campaña '
+            'nueva, que habrá que activar para registrarlas.',
+          ),
+        ],
       ),
     ),
     actions: [
