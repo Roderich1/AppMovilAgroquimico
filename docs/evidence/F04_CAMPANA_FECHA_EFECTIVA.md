@@ -54,7 +54,8 @@ Aplicar un plan sí pasa por la regla, porque crea una aplicación. La voz tambi
 - `27bd501`: regla;
 - `232fc25`: código, diálogos y fixtures;
 - `297d045`: prueba de activación;
-- `13f0933`: imports.
+- `13f0933`: imports;
+- `85929c2`: revisión de B sobre `6554be7`. Las necesidades declaradas cuentan como registros fechados de su campaña, y el cierre no admite un fin futuro.
 
 | Archivo | Cambio |
 |---|---|
@@ -63,12 +64,12 @@ Aplicar un plan sí pasa por la regla, porque crea una aplicación. La voz tambi
 | `lib/presentation/screens/catalogs_screen.dart` | Diálogo de alta con «Empieza el» y diálogo de cierre con «Termina el» |
 
 **Pruebas nuevas:**
-- `test/f04_campaign_effective_date_test.dart`, 13 casos:
+- `test/f04_campaign_effective_date_test.dart`, 15 casos:
   - límites inclusivos en día local (primer y último minuto) en los dos modos;
   - compra y aplicación **multiproducto** en propio y en compartido, conservadas tras cerrar y reabrir la base, con la campaña y la **fecha completa**;
   - rechazo de «ninguna», «ambigua» (solape heredado) y «cerrada», y de «planificada», en compra y aplicación, con el volcado de **todas** las tablas idéntico;
   - FIFO con lotes del mismo día: sale antes el de la mañana, aunque se registrara después;
-  - calendario: no se intercala ni se repite un inicio; un fin anterior al inicio se rechaza; el alta no deja operaciones fuera; cierre con fin elegido (inclusivo, no antes del inicio, sin dejar operaciones fuera); base heredada al activar; activar conserva el fin ya fijado; propuesta de inicio.
+  - calendario: no se intercala ni se repite un inicio; un fin anterior al inicio se rechaza; el alta no deja operaciones fuera; cierre con fin elegido (inclusivo, no antes del inicio, sin dejar operaciones fuera); base heredada al activar; activar conserva el fin ya fijado; propuesta de inicio. Además, el alta y el cierre no dejan fuera una **necesidad declarada ni sus versiones** (F05), y el cierre no admite un **fin futuro**.
 - `test/f04_campaign_dialogs_ui_test.dart`, 3 casos: el alta propone hoy y la anterior termina el día previo; el cierre pide el fin y lo guarda; un fin ya fijado se muestra y no cambia.
 
 **Fixtures ajustadas.** Sólo cambian datos que creaban períodos solapados, que RF-03 prohíbe. Las aserciones son las mismas, salvo la de `report_reads`, que se traslada:
@@ -81,7 +82,7 @@ Aplicar un plan sí pasa por la regla, porque crea una aplicación. La voz tambi
 | `declared_need_test` («sin campaña determinable…») | Fabricaba el solape con `addCampaign` | El solape es una fila heredada insertada a mano. La prueba de F05 sigue igual |
 | `report_reads_characterization_test` (`end_date` nulo) | La campaña 1 seguía abierta | La 1 tiene fin y la 2, abierta, conserva `end_date` nulo |
 
-**Mutaciones** (`camp_mutations.py`, en el scratchpad de la sesión). Las 15 se detectan:
+**Mutaciones** (`camp_mutations.py`, en el scratchpad de la sesión), sobre `85929c2`. Las 18 se detectan:
 - sin comprobar la fecha en compra o en aplicación;
 - fin o inicio exclusivos;
 - día UTC en vez de local (sólo discrimina con una zona distinta de UTC; esta máquina está en America/La_Paz);
@@ -90,18 +91,21 @@ Aplicar un plan sí pasa por la regla, porque crea una aplicación. La voz tambi
 - cierre sin control de operaciones o ignorando el fin elegido;
 - activar volviendo a abrir la activada, o sin control de solape;
 - fin = día de inicio de la nueva;
-- diálogos que no pasan la fecha.
+- diálogos que no pasan la fecha;
+- sin las necesidades declaradas o sin sus versiones;
+- cierre que admite un fin futuro.
 
 **Resultados en local** (Windows 11, Flutter 3.47.2, America/La_Paz):
 
 | Comando | Sobre | Resultado |
 |---|---|---|
-| `flutter test` (suite completa) | `297d045` | **1418 pasan, 2 omitidas, 0 fallos** |
-| `flutter analyze lib test` | `13f0933` | `No issues found!` (en `297d045` había 2 imports sin uso en la prueba nueva, que `13f0933` quita) |
-| `dart format --set-exit-if-changed lib test` | `13f0933` | exit 0 |
-| `flutter test` de las dos pruebas nuevas | `13f0933` | 16 pasan |
+| `flutter test` (suite completa) | `85929c2` | **1420 pasan, 2 omitidas, 0 fallos** |
+| `flutter test` (suite completa, antes de la revisión) | `297d045` | 1418 pasan, 2 omitidas |
+| `flutter analyze lib test` | `85929c2` | `No issues found!` (en `297d045` había 2 imports sin uso en la prueba nueva, que `13f0933` quita) |
+| `dart format --set-exit-if-changed lib test` | `85929c2` | exit 0 |
+| `flutter test` de las dos pruebas nuevas | `85929c2` | 18 pasan |
 
-`13f0933` sólo quita esos dos imports respecto de `297d045`. La CI del PR corre sobre su HEAD exacto y consta en el PR.
+La CI del PR corre sobre su HEAD exacto y consta en el PR.
 
 ## 4. Límites y decisiones para Roderich
 
@@ -119,5 +123,5 @@ Aplicar un plan sí pasa por la regla, porque crea una aplicación. La voz tambi
 ## 5. Revisiones
 
 - **Regla:** sesión B, sobre `27bd501`. NO LISTO en un punto (el rechazo de una campaña cerrada como «lectura de §3.11.13»), que se declara ahora como D-F04-C1 y como incumplimiento de RF-03 en esa parte. Los demás puntos, LISTO. Los riesgos (a)–(f) se recogen en §2 y §4.
-- **Código y pruebas:** revisión técnica de la sesión B, pendiente sobre el HEAD del PR.
+- **Código y pruebas:** sesión B, sobre `6554be7`. LISTO, con un hallazgo medio (las necesidades declaradas no contaban como registros fechados) y dos menores (fin futuro; `end` ignorado si ya hay fin). Corregidos o documentados en `85929c2`. El delta está pendiente de su verificación.
 - **Revisión de Roderich Rendón:** pendiente. GATE-F04 sigue **Pending**.
