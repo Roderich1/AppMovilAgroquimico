@@ -424,6 +424,43 @@ void main() {
     );
 
     test(
+      'stock consumido entre la vista y la confirmación: falla sin efectos',
+      () async {
+        final controller = await openWithPlan();
+        // Otra aplicación libre deja 500 de Bellator; el plan pide 1000.
+        await repo.confirmApplication(
+          ApplicationDraft(
+            personId: household.titular,
+            farmId: household.titularFarm,
+            campaignId: household.campaign,
+            appliedAt: now,
+            notes: '',
+            treatedAreaM2: 10000,
+            lines: [
+              ApplicationLineDraft(
+                productId: bellatorId,
+                quantityBase: 4500,
+                treatedAreaM2: 10000,
+              ),
+            ],
+          ),
+        );
+        final db = await database.database;
+        final before = await dumpTables(db);
+        expect(await controller.confirm(), isNull);
+        expect(controller.phase, DraftPhase.editing);
+        expect(controller.error, isNotNull);
+        expect(await dumpTables(db), before);
+        final plan = await db.query(
+          'application_plans',
+          where: 'id=?',
+          whereArgs: [planId],
+        );
+        expect(plan.single['status'], 'PLANNED');
+      },
+    );
+
+    test(
       'plan ya aplicado antes de confirmar: falla sin efectos y sigue editable',
       () async {
         final controller = await openWithPlan();
