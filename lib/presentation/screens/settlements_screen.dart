@@ -427,8 +427,10 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Si la modalidad cambia con la pantalla abierta (p. ej. al restaurar),
-    // se recargan los datos y con ellos el titular que decide el menú (#26).
+    // Defensivo: si la modalidad cambia con la pantalla abierta (p. ej. al
+    // restaurar una copia con otro titular), se recargan los datos y con ellos
+    // el titular que decide el menú (#26). Hoy el menú ya cambia sin esto,
+    // porque `personal` sale de ref.watch y el titular se leyó al cargar.
     ref.listen(operationModeProvider, (previous, next) {
       if (previous != next) _refresh();
     });

@@ -381,8 +381,10 @@ void main() {
       expect(relative, isNot(contains('advance')));
     });
 
-    testWidgets('liquidación abierta al pasar a propio: se recarga y deja de '
-        'ofrecer pagos a otras personas', (tester) async {
+    testWidgets('liquidación abierta al pasar a propio: deja de ofrecer pagos '
+        'a otras personas', (tester) async {
+      // Comportamiento visible. La recarga por cambio de modalidad es
+      // defensiva y esta prueba no la distingue (revisión de la sesión C).
       await tester.binding.setSurfaceSize(const Size(800, 2400));
       addTearDown(() => tester.binding.setSurfaceSize(null));
       final s = await activatedHousehold(tester, 'liquidacion_abierta');
