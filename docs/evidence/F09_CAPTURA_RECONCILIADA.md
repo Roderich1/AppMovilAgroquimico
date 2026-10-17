@@ -1,6 +1,8 @@
 # F09 — Captura por voz reconciliada con main (EVO-009, PR #8)
 
-- **Origen:** Live. Se reconcilia una rama anterior: los 9 commits del PR #8 (HEAD `534d6b06553ca4eac8d11c07672b9c357371e66e`, de 2026-09-06), aplicados por cherry-pick con `-x`.
+- **Origen:**
+  - **Carry-over / Reconstructed:** la captura. Es el trabajo del PR #8, de 2026-09-06 (HEAD `534d6b06553ca4eac8d11c07672b9c357371e66e`), y sus 9 commits se aplican por cherry-pick con `-x`.
+  - **Live:** la reconciliación con main y su verificación (2026-10-17).
 - **Fecha real:** 2026-10-17 (America/La_Paz).
 - **Base:** Mobile `main` `ce5678f89449453c60c3f1889cd6e973f09f6548`.
 - **Rama:** `feat/f09-captura-voz`. **Commit verificado:** `c45f71f3a908c16d6557f6f57b2b2d492dcb983f`.
@@ -16,6 +18,12 @@
 | `e47ff27` pantalla | `c12c1f4` | **Sin** la ruta `/voz`, la tarjeta de Operaciones ni el FAB oculto (`app.dart`, `app_shell.dart` y `operations_screen.dart`), que A tiene reservados para F04. La prueba «entrada desde Operaciones» va con esa conexión, en un commit aparte |
 | `4198608`, `4181bb4`, `7b7f5af`, `d262010`, `ce4d1bc` y `534d6b0` | `2464e36`, `0d07e51`, `fe0d25f`, `bd4777c`, `6d7abf3` y `3888a28` | Ninguno; se aplicaron sin conflicto |
 | — | `c45f71f` | Reconciliación de la afirmación sobre `INTERNET` (§2) |
+
+**Línea `-x` editada a mano en dos commits.** En `8f8fe4a` y `c12c1f4` la línea «(cherry picked from commit …)» se reescribió al resolver el conflicto, para decir qué cambió:
+- `8f8fe4a` dice «(cherry picked from commit 37e3622, con conflictos resueltos)». El commit de origen completo es `37e36229936c4b0d38c99f65d025183ed4727957`.
+- `c12c1f4` dice «(cherry picked from commit e47ff27, sin la conexión del shell)». El commit de origen completo es `e47ff279c67107c6a2276332c900f13d60813c1a`.
+
+El mensaje de `8f8fe4a` corrige además la frase original «No se declara INTERNET». El de `c12c1f4` explica que la ruta, la tarjeta y el FAB se dejan para el turno de integración. Los demás commits conservan la línea `-x` que pone git, con el SHA completo. **No se reescribe el historial publicado:** los SHA completos quedan aquí.
 
 **No se tocó:** activación, sesión, compuertas de operación, sincronización, respaldos, esquema, migraciones, FIFO, `confirmPurchase()`, `confirmApplication()` ni `pubspec.yaml`.
 
