@@ -177,7 +177,12 @@ class SyncWorker {
               activeBindingId: owner.id,
               now: _clock(),
             );
-      final reservedForQueries = min(uncertain.length, queryCap);
+      // Nunca se reserva todo el presupuesto: el envío corre al menos una vez
+      // por ciclo aunque budget sea 1 (revisión de A sobre 95eef73).
+      final reservedForQueries = max(
+        0,
+        min(uncertain.length, min(queryCap, budget - 1)),
+      );
       // 1. Envío normal, con presupuesto reservado para las consultas. Lo que
       //    al marcarlo resulte retenido (C2-R2) se excluye del resto del
       //    ciclo sin contarlo como intento.

@@ -674,6 +674,66 @@ void main() {
     });
   });
 
+  test('C2-R3, borde: con budget 1 y una incierta, el envío de la campaña compatible sigue corriendo', () async {
+    final h = await harness();
+    final fixture = h.fixture;
+    await declare(fixture, 2000);
+    h.central.dropNextPost = true;
+    await h.worker.run();
+    expect((await h.single()).status, OutboxStatus.outcomeUnknown);
+    final other = await fixture.repo.addCampaign(
+      name: 'Otra local',
+      start: DateTime(2026, 12, 1),
+    );
+    await fixture.bindings.bindCampaign(
+      campaignId: other,
+      central: centralCampaign(ref: otherCampaignRef, name: 'Otra central'),
+      tenantId: memberA.tenantId,
+    );
+    await fixture.needs.declare(
+      referenceDate: DateTime(2026, 12, 15),
+      productId: fixture.litreProductId,
+      quantityBase: 7000,
+    );
+    await fixture.bindings.refreshFrom(
+      CentralReferences([
+        centralCampaign(endDate: _civil('2026-10-31')),
+        centralCampaign(ref: otherCampaignRef, name: 'Otra central'),
+      ], referencesWith().products),
+      memberA.tenantId,
+    );
+    final one = SyncWorker(
+      outbox: h.outbox,
+      owners: fixture.owners,
+      api: () => SyncApi(
+        AuthHttpClient(
+          config: ApiEndpointConfig(Uri.parse('https://sindicato.example')),
+          client: h.central.client,
+        ),
+        clock: () => h.clock,
+      ),
+      access: h.access,
+      budget: 1,
+      random: Random(7),
+      clock: () => h.clock,
+    );
+    h.later();
+    final first = await one.run();
+    expect(first.sent, 1, reason: 'el envío no se queda sin presupuesto');
+    expect(first.accepted, 1);
+    expect(first.queried, 0);
+    expect(
+      (h.central.posts.last['payload'] as Map)['campaign_ref'],
+      otherCampaignRef,
+    );
+    // Sin nada que enviar, el único intento del ciclo concilia.
+    h.clock = h.clock.add(const Duration(minutes: 1));
+    final second = await one.run();
+    expect(second.sent, 0);
+    expect(second.queried, 1);
+    expect(h.central.gets, 1);
+  });
+
   group('7. el camino compatible no cambia', () {
     test(
       'reintento normal tras un fallo: mismo operationId, aceptado',
