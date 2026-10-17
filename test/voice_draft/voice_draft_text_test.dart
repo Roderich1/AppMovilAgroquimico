@@ -44,6 +44,17 @@ void main() {
       expect(n.invalidMessage, isNotNull);
     });
 
+    test('dos números dichos seguidos no se suman («uno cinco»)', () {
+      final words = tokenize('uno cinco litros');
+      final first = readNumberAt(words, 0)!;
+      expect(first.thousandths, 1000);
+      expect(first.end, 1);
+      expect(number('cinco tres'), 5000);
+      expect(number('veinte cinco'), 20000);
+      expect(number('cien doscientos'), 100000);
+      expect(number('dos mil tres mil'), 2003000);
+    });
+
     test('la «y» sólo une decenas con unidades', () {
       final words = tokenize('cincuenta litros y doce kilos');
       final first = readNumberAt(words, 0)!;

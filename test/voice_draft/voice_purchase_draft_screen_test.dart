@@ -2,6 +2,7 @@ import 'package:agroquimicos/app.dart';
 import 'package:agroquimicos/data/agro_repository.dart';
 import 'package:agroquimicos/data/app_database.dart';
 import 'package:agroquimicos/presentation/voice/voice_purchase_draft_screen.dart';
+import 'package:agroquimicos/voice/port/speech_transcription_port.dart';
 import 'package:agroquimicos/voice/voice_providers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -38,6 +39,7 @@ void main() {
   Future<void> pumpScreen(
     WidgetTester tester, {
     required List<FakeTurn> script,
+    bool repeatLast = false,
   }) async {
     final repo = (await tester.runAsync(() async {
       database = openDb(inMemoryDatabasePath);
@@ -47,7 +49,7 @@ void main() {
       await created.addProduct(name: 'Bellator');
       return created;
     }))!;
-    port = FakeSpeechTranscriptionPort(script: script, repeatLast: false);
+    port = FakeSpeechTranscriptionPort(script: script, repeatLast: repeatLast);
     tester.view.physicalSize = const Size(500, 2400);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
@@ -239,4 +241,104 @@ void main() {
     expect(registerEnabled(tester), isFalse);
     expect(await count(tester, 'products'), 2);
   });
+
+  testWidgets(
+    'un tipo de cambio dictado después se ve y es lo que se escribe',
+    (tester) async {
+      await pumpScreen(
+        tester,
+        script: const [
+          FakeTurn(
+            segment:
+                'compra de diez litros de Bellator a 25 dólares el litro, '
+                'proveedor Agro Norte, todo para Hermana',
+            endsOnStop: true,
+          ),
+          FakeTurn(segment: 'tipo de cambio 6,96', endsOnStop: true),
+        ],
+      );
+      await tap(tester, const Key('voz-boton-microfono'));
+      await tap(tester, const Key('voz-boton-microfono'));
+      // El campo aparece vacío y bloquea.
+      expect(find.byKey(const Key('voz-tipo-cambio')), findsOneWidget);
+      expect(registerEnabled(tester), isFalse);
+
+      await tap(tester, const Key('voz-boton-microfono'));
+      await tap(tester, const Key('voz-boton-microfono'));
+      expect(
+        tester
+            .widget<TextField>(find.byKey(const Key('voz-tipo-cambio')))
+            .controller!
+            .text,
+        '6,96',
+      );
+      expect(registerEnabled(tester), isTrue);
+
+      await tap(tester, const Key('voz-registrar'));
+      final items = (await tester.runAsync(
+        () async => (await database.database).query('purchase_items'),
+      ))!;
+      expect(items.single['exchange_rate_scaled'], 6960000);
+    },
+  );
+
+  testWidgets('Atrás con un borrador empezado pregunta antes de descartar', (
+    tester,
+  ) async {
+    await pumpScreen(
+      tester,
+      script: const [
+        FakeTurn(segment: full, endsOnStop: true),
+        FakeTurn(partials: ['y otra'], endsOnStop: true),
+      ],
+    );
+    final before = await dump(tester);
+    await tap(tester, const Key('voz-boton-microfono'));
+    await tap(tester, const Key('voz-boton-microfono'));
+    await tap(tester, const Key('voz-boton-microfono'));
+    expect(port.microphoneOpen, isTrue);
+
+    await tester.binding.handlePopRoute();
+    await drain(tester);
+    expect(find.text('¿Descartar el borrador?'), findsOneWidget);
+    await tester.tap(find.text('Descartar'));
+    await drain(tester);
+    expect(port.microphoneOpen, isFalse);
+    expect(await dump(tester), before);
+  });
+
+  testWidgets(
+    'aceptado el reconocedor del sistema, el aviso de Internet queda',
+    (tester) async {
+      await pumpScreen(
+        tester,
+        script: const [
+          FakeTurn(
+            acceptsRoute: TranscriptionEngineRoute.systemDefault,
+            failDetail: 'android-error-12',
+            segment: full,
+            endsOnStop: true,
+          ),
+        ],
+        // Cada idioma de la lista es un turno: el mismo fallo para todos.
+        repeatLast: true,
+      );
+      await tester.ensureVisible(find.byKey(const Key('voz-boton-microfono')));
+      await tester.tap(find.byKey(const Key('voz-boton-microfono')));
+      for (var i = 0; i < 40; i++) {
+        await tester.pump(const Duration(milliseconds: 20));
+      }
+      await drain(tester);
+      expect(find.byKey(const Key('voz-aviso-servicio-sistema')), findsNothing);
+      await tap(tester, const Key('voz-usar-servicio-sistema'));
+      for (var i = 0; i < 20; i++) {
+        await tester.pump(const Duration(milliseconds: 20));
+      }
+      expect(
+        find.byKey(const Key('voz-aviso-servicio-sistema')),
+        findsOneWidget,
+      );
+      expect(find.textContaining('podría usar Internet'), findsWidgets);
+    },
+  );
 }
