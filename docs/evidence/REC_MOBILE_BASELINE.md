@@ -205,3 +205,24 @@ No cubre: (a) No hay ningún archivo de evidencia en docs/evidence/: el director
 (g) Quedan fuera del alcance de #18 el almacenamiento seguro (#20, secure_session_store_test.dart), el refresh y la reautenticación (#22, refresh_guard_test.dart y remote_session_coordinator_test.dart), la UI de activación (#19) y la apertura offline (#21).
 
 Evidence: **Partial**.
+
+## Estado posterior en `main` (nota añadida el 2026-10-17)
+
+Lo de arriba se registró el 2026-10-15 sobre `278cbd3` y **no se reescribe**. La sesión A añade esta nota antes de integrar el archivo.
+
+- **El recuento de 690 pruebas** coincide con la CI independiente 37231657078 sobre `278cbd3` («690 tests passed»). Los 56 del banco de voz los ejecutó localmente esa sesión; la CI no corre ese subpaquete.
+- **Las listas «Pendiente por REC» se escribieron al revisar un worktree sin `docs/evidence/`.** Por eso repiten que este archivo «no existe en el worktree»: ese punto queda resuelto al integrarlo.
+- **El marcador `{{ORIGEN}}` (#53, punto 2)** es una plantilla que no se rellenó. Los resultados de esas rutas son los de la corrida completa de arriba (690 pruebas, 0 fallos); se deja como estaba para no alterar el registro.
+
+**Resuelto después del 2026-10-15, en `main`:**
+
+| REC | Punto de arriba | Resolución |
+|---|---|---|
+| #48 | 2: `reverseTransfer` multiproducto con el producto de la cabecera | F04-BUG-01, PR #75, merge `905e67c` (`F04_BUG_01.md`) |
+| #48 | 7: transferencias no limitadas al modo compartido | El repositorio las rechaza en propio desde #77. La interfaz las oculta desde #102 (merge `cf3d510`; `F04-MODE-03_flujos_modo_personal.md`) |
+| #50 | Revertir la compra tras revertir su transferencia (hallazgo) | F04-BUG-02, PR #79, merge `505c230` (`F04_BUG_02.md`, que incluye «la compra se revierte una sola vez») |
+| #55 | 1: identidad y propiedad de la copia | Restauración protegida que comprueba Member y tenant antes de sustituir: `812fe49` (#78), `F04_CORRECCIONES_REVISION.md` parte B. En el teléfono: `F10_RESTORE_DEVICE.md`, caso C |
+| #55 | 2: un fallo de exportación no deja artefacto ni sustituye la copia válida | `6c6a1a2` (#90), `F08_MOBILE_RESTORE.md` §1 |
+
+**Sigue pendiente**, sin cambio respecto de arriba: el resto de cada lista, y en #55 el punto 3 (restaurar de verdad un esquema antiguo y comprobar la migración).
+
