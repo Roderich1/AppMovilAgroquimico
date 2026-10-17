@@ -140,9 +140,12 @@ class _VoicePlanDraftScreenState extends ConsumerState<VoicePlanDraftScreen>
     if (c.text != value) c.text = value;
   }
 
+  /// Con 4 decimales de hectárea el texto representa el área exacta en m²:
+  /// con 2, un chaco de 12 345 m² se vería «1,23» y no coincidiría con lo
+  /// que se escribe (revisión de A, M-1).
   static String _areaText(VoicePlanDraft d) => d.area.value == null
       ? (d.area.heard ?? '')
-      : formatForInput(d.area.value! / 10000, maxDecimals: 2);
+      : formatForInput(d.area.value! / 10000, maxDecimals: 4);
 
   static String _doseText(VoicePlanLine line) => line.doseBasePerHa == null
       ? (line.dose.heard ?? '')
