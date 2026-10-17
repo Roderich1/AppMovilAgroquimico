@@ -22,7 +22,7 @@ Se conservan; no se reescriben.
 
 | # | Criterio | Evidencia | Procedencia | Estado |
 |---|---|---|---|---|
-| 1 | #18 AUTH-01 con evidencia suficiente | Cliente HTTP y autenticación. `test/auth_v2_api_test.dart` (20), en CI hasta hoy (main 1072 → 1091). El extremo a extremo y el DEVICE vienen de #19 y #71 | CI + DEVICE indirecto | Cumplido para el gate. Hueco declarado: 403/404 y `ApiEndpointConfig.fromEnvironment` sin prueba |
+| 1 | #18 AUTH-01 con evidencia suficiente | Cliente HTTP y autenticación. `test/auth_v2_api_test.dart` (20), en CI hasta hoy (main `ce5678f`: 1072 pasan; `cf3d510`: 1090 pasan y 3 omitidas). El extremo a extremo y el DEVICE vienen de #19 y #71 | CI + DEVICE indirecto | Cumplido para el gate. Hueco declarado: 403/404 y `ApiEndpointConfig.fromEnvironment` sin prueba |
 | 2 | #19 AUTH-02 | Primera activación y vínculo: `docs/evolution/features/F03_MOB_AUTH_02_UI_WIRING_VALIDATION.md` (POCO, `18b9de3`, D y E PASS). Activaciones reales posteriores: #71 y P3 de la sesión de hoy (login 200, registro 201, sesión 201, me 200) | DEVICE | Cumplido. Residuales: 19-C (corte de red durante la activación) y 19-F |
 | 3 | #20 AUTH-03 | Almacén seguro: `F03_MOB_AUTH_03_DEVICE_VALIDATION.md` (POCO, `d34a5e2`). Hoy (P13) una sesión cifrada ilegible no borra nada ni se trata como instalación nueva | DEVICE | Cumplido. Residuales: Auto Backup, D2D y corte de energía |
 | 4 | #21 AUTH-04 | Apertura posterior sin red: `F03_MOB_AUTH_04_OFFLINE_STARTUP.md` (21-A…D en `8ca7ec5`). Reaperturas sin red en #71 y hoy (P6, P7, P11 tras vencer el token de acceso) | DEVICE | Cumplido. Residual: 21-E (almacén corrupto del sistema) |
