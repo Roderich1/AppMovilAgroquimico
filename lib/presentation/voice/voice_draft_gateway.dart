@@ -27,9 +27,14 @@ final voiceDraftGatewayProvider = Provider<VoiceDraftGateway>(
 );
 
 class VoiceDraftGateway {
-  VoiceDraftGateway(this._repo);
+  VoiceDraftGateway(this._repo, {DateTime Function()? clock})
+    : _clock = clock ?? DateTime.now;
 
   final AgroRepository _repo;
+
+  /// Reloj de la confirmación: el mismo `DateTime.now()` que usan los
+  /// formularios al enviar. Las pruebas lo fijan.
+  final DateTime Function() _clock;
 
   /// Catálogos para un borrador de compra.
   Future<VoiceCatalog> purchaseCatalog() async {
@@ -46,7 +51,7 @@ class VoiceDraftGateway {
 
   /// Registra la compra con el caso de uso del formulario manual.
   Future<int> confirmPurchase(VoicePurchaseDraft draft) =>
-      _repo.confirmPurchase(draft.toDomain());
+      _repo.confirmPurchase(draft.toDomain(at: _clock()));
 
   /// Catálogos para un borrador de planificación. En PERSONAL sólo se ofrecen
   /// los chacos del titular; el repositorio vuelve a comprobarlo al escribir.

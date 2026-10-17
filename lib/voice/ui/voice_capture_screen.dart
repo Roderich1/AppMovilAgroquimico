@@ -202,6 +202,23 @@ class VoiceListeningPanel extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        // Aceptado el reconocedor del sistema, el aviso de que puede usar
+        // Internet no desaparece mientras se dicta (revisión de A sobre #100).
+        if (snapshot.route == TranscriptionEngineRoute.systemDefault) ...[
+          Card(
+            key: const Key('voz-aviso-servicio-sistema'),
+            color: Theme.of(context).colorScheme.tertiaryContainer,
+            child: const Padding(
+              padding: EdgeInsets.all(12),
+              child: Text(
+                'Se está usando el servicio de reconocimiento del teléfono, '
+                'que podría usar Internet para transcribir. La aplicación no '
+                'envía tu voz ni lo que dictas a ningún servidor.',
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
         _MicrophoneButton(
           snapshot: snapshot,
           onStart: session.startListening,
@@ -275,15 +292,17 @@ class _NoticeCard extends StatelessWidget {
           const SizedBox(height: 8),
           Text(
             snapshot.route == TranscriptionEngineRoute.systemDefault
-                // Autorizado por el usuario: la aplicación sigue sin enviar
-                // nada, pero el servicio del teléfono puede usar Internet y
-                // decirlo es la mitad del trato.
+                // Autorizado por el usuario: la voz de la aplicación sigue sin
+                // enviar nada, pero el servicio del teléfono puede usar
+                // Internet y decirlo es la mitad del trato. La aplicación sí
+                // usa la red para la sesión y la sincronización (F03), así que
+                // la frase se acota a la voz.
                 ? 'El reconocimiento lo hace el servicio de voz de tu '
                       'teléfono, con preferencia sin conexión. La aplicación no '
-                      'envía nada a ningún servidor, pero ese servicio del '
-                      'sistema sí podría usar Internet.'
+                      'envía tu voz ni lo que dictas a ningún servidor, pero '
+                      'ese servicio del sistema sí podría usar Internet.'
                 : 'El reconocimiento lo hace tu propio teléfono. La aplicación '
-                      'no envía nada a ningún servidor.',
+                      'no envía tu voz ni lo que dictas a ningún servidor.',
           ),
         ],
       ),

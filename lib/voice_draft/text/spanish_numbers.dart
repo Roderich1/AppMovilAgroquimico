@@ -148,12 +148,18 @@ SpokenNumber? readNumberAt(List<String> words, int start) {
   var total = 0;
   var group = 0;
   var any = false;
+  // Lo que puede seguir dentro de un mismo grupo de tres cifras: centenas,
+  // después decenas o un número de 1 a 29, y nada más. Así «uno cinco» no se
+  // suma como 6: son dos números dichos seguidos y se lee sólo el primero.
+  var slot = 0; // 0 libre, 1 tras centenas, 2 tras decenas/unidades.
   while (i < words.length) {
     final w = words[i];
-    if (_hundreds.containsKey(w)) {
+    if (_hundreds.containsKey(w) && slot == 0) {
       group += _hundreds[w]!;
-    } else if (_tens.containsKey(w)) {
+      slot = 1;
+    } else if (_tens.containsKey(w) && slot < 2) {
       group += _tens[w]!;
+      slot = 2;
       // «cincuenta y cinco»: la «y» sólo une decenas con unidades.
       if (i + 2 < words.length &&
           words[i + 1] == 'y' &&
@@ -161,11 +167,13 @@ SpokenNumber? readNumberAt(List<String> words, int start) {
         group += _units[words[i + 2]]!;
         i += 2;
       }
-    } else if (_units.containsKey(w)) {
+    } else if (_units.containsKey(w) && slot < 2) {
       group += _units[w]!;
-    } else if (w == 'mil') {
-      total += (group == 0 ? 1 : group) * 1000;
+      slot = 2;
+    } else if (w == 'mil' && total == 0) {
+      total = (group == 0 ? 1 : group) * 1000;
       group = 0;
+      slot = 0;
     } else {
       break;
     }
