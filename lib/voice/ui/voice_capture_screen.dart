@@ -184,6 +184,56 @@ class _VoiceCaptureScreenState extends ConsumerState<VoiceCaptureScreen>
   }
 }
 
+/// La parte de escucha de esta pantalla, para reutilizarla en los borradores
+/// de voz (F09, #16): micrófono, estado, idioma, modo sin conexión, el
+/// consentimiento antes de usar el reconocedor del sistema, los errores y el
+/// texto **provisional**, que se muestra aparte y todavía no cuenta.
+///
+/// No entrega ni interpreta texto: quien lo usa decide qué hacer con los
+/// segmentos ya cerrados de [session].
+class VoiceListeningPanel extends StatelessWidget {
+  const VoiceListeningPanel({super.key, required this.session});
+
+  final VoiceSessionController session;
+
+  @override
+  Widget build(BuildContext context) {
+    final snapshot = session.snapshot;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _MicrophoneButton(
+          snapshot: snapshot,
+          onStart: session.startListening,
+          onStop: session.stopListening,
+        ),
+        const SizedBox(height: 12),
+        _StatusPanel(snapshot: snapshot),
+        const SizedBox(height: 12),
+        _LocalePanel(snapshot: snapshot),
+        const SizedBox(height: 12),
+        _OfflinePanel(snapshot: snapshot),
+        if (snapshot.routeFallbackOffered) ...[
+          const SizedBox(height: 12),
+          _RouteFallbackPanel(
+            snapshot: snapshot,
+            onAccept: session.useSystemRecognizer,
+            onDecline: session.declineSystemRecognizer,
+          ),
+        ] else if (snapshot.errorCode != null) ...[
+          const SizedBox(height: 12),
+          _ErrorPanel(
+            snapshot: snapshot,
+            onOpenSettings: session.openSystemSettings,
+          ),
+        ],
+        const SizedBox(height: 12),
+        _PartialPanel(snapshot: snapshot),
+      ],
+    );
+  }
+}
+
 /// Aviso de privacidad y permiso. Es desplazable porque lo es toda la pantalla.
 class _NoticeCard extends StatelessWidget {
   const _NoticeCard({required this.snapshot});
