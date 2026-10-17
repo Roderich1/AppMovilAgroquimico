@@ -89,7 +89,10 @@ Archivo principal: `test/f04_c2_campaign_period_test.dart` (28 pruebas; la CI lo
 
 | `flutter test test/f04_c2_binding_screen_test.dart` | la rama (tras la revisión de A) | 2 pasan; con la mutación «fecha inicial en vez de la elegida», 1 falla |
 
-**CI (GitHub Actions):** run [39067645517](https://github.com/Roderich1/AppMovilAgroquimico/actions/runs/39067645517) sobre `3596985` (primer HEAD del PR, antes de la prueba de pantalla): **SUCCESS** (formato, análisis, suite completa, fechas en America/La_Paz y build de release). La CI del HEAD final se registra en el PR.
+**CI (GitHub Actions):**
+- run [39067645517](https://github.com/Roderich1/AppMovilAgroquimico/actions/runs/39067645517) sobre `3596985` (primer HEAD del PR, antes de la prueba de pantalla): **SUCCESS**;
+- run [39069260220](https://github.com/Roderich1/AppMovilAgroquimico/actions/runs/39069260220) sobre `77a55ab` (con la prueba de pantalla): **SUCCESS**, 1478 pasan y 4 omitidas (en CI se omite una prueba más que en local, por plataforma); 45 en America/La_Paz; build de release.
+- **Rebase** sobre `main` `078d638` (que integra #115 de C, #113 y #114) el 2026-10-17, sin conflictos: los cuatro commits se aplicaron tal cual. La CI del HEAD rebasado se registra en el PR.
 
 ### Revisión
 
