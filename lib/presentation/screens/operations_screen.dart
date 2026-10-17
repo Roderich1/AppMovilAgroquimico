@@ -87,6 +87,15 @@ class OperationsScreen extends ConsumerWidget {
             icon: Icons.settings_outlined,
             isForm: false,
           ),
+          // F09, al final para no mover las demás tarjetas. No promete registrar nada por sí sola: lleva a borradores
+          // que se revisan y se confirman con un toque.
+          (
+            title: 'Registrar por voz',
+            subtitle: 'Dictar una compra, un plan o una aplicación y revisarlo',
+            path: '/voz',
+            icon: Icons.mic_none_outlined,
+            isForm: false,
+          ),
         ];
     return PageFrame(
       title: 'Operaciones',
