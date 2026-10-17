@@ -1,12 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../app.dart';
 import '../../domain/models.dart';
 import '../../domain/money.dart';
+import '../../domain/operation_mode.dart';
 import '../../domain/person_roles.dart';
+import '../../operation_mode_controller.dart';
 import '../widgets/adaptive_entity_picker.dart';
 import '../widgets/common.dart';
+import '../widgets/mode_notice.dart';
 
 class TransferFormScreen extends ConsumerStatefulWidget {
   const TransferFormScreen({super.key});
@@ -194,7 +198,15 @@ class _TransferFormScreenState extends ConsumerState<TransferFormScreen> {
   }
 
   @override
-  Widget build(BuildContext context) => PopScope(
+  Widget build(BuildContext context) =>
+      ref.watch(operationModeProvider) == OperationMode.personal
+      ? Scaffold(
+          appBar: AppBar(title: const Text('Nueva transferencia')),
+          body: SharedOnlyNotice(onBack: () => context.go('/operaciones')),
+        )
+      : _form(context);
+
+  Widget _form(BuildContext context) => PopScope(
     canPop: !dirty && !saving,
     onPopInvokedWithResult: (didPop, _) {
       if (!didPop && !saving) requestClose();

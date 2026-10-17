@@ -8,10 +8,12 @@ import 'package:path/path.dart' as p;
 import '../../app.dart';
 import '../../data/typed_reads.dart';
 import '../../domain/money.dart';
+import '../../domain/operation_mode.dart';
 import '../../domain/read_models.dart';
 import '../../domain/reports/report_composer.dart';
 import '../../domain/restore_ownership.dart';
 import '../../guarded_restore.dart';
+import '../../operation_mode_controller.dart';
 import '../widgets/common.dart';
 
 class SettlementsScreen extends ConsumerStatefulWidget {
@@ -33,6 +35,10 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
   int? selectedCampaignId;
   bool campaignInitialized = false;
   String personQuery = '';
+
+  /// Titular vigente, para no ofrecer en inventario propio pagos ni
+  /// adelantos a otras personas (#26). El repositorio los rechaza igual.
+  int? ownerPersonId;
   @override
   void initState() {
     super.initState();
@@ -49,18 +55,22 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
   >
   _load() async {
     final repo = ref.read(repositoryProvider);
+    // En paralelo con el resto: no añade una espera en cadena.
+    final operating = repo.operatingContext();
     final campaigns = await repo.campaignsTyped();
     if (!campaignInitialized) {
       final active = campaigns.where((row) => row.isActive);
       selectedCampaignId = active.isEmpty ? null : active.first.id;
       campaignInitialized = true;
     }
-    return (
+    final result = (
       await repo.settlementsTyped(campaignId: selectedCampaignId),
       await repo.farmCostReportTyped(campaignId: selectedCampaignId),
       await repo.productCostReportTyped(campaignId: selectedCampaignId),
       campaigns,
     );
+    ownerPersonId = (await operating).ownerPersonId;
+    return result;
   }
 
   void _refresh() {
@@ -466,6 +476,8 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
           return const Center(child: CircularProgressIndicator());
         final (settlements, farmCosts, productCosts, campaigns) =
             snapshot.data!;
+        final personal =
+            ref.watch(operationModeProvider) == OperationMode.personal;
         final visibleSettlements = settlements.where((row) {
           return personQuery.isEmpty || matchesSearch(row.name, personQuery);
         }).toList();
@@ -600,26 +612,37 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
                                 );
                             }
                           },
-                          itemBuilder: (_) => const [
-                            PopupMenuItem(
+                          itemBuilder: (_) => [
+                            const PopupMenuItem(
                               value: 'detail',
                               child: Text('Ver detalle cronológico'),
                             ),
                             // El estado de cuenta se exporta desde donde se
                             // consulta, no obligando a rehacer la selección
                             // de persona en otra pantalla.
-                            PopupMenuItem(
+                            const PopupMenuItem(
                               value: 'export',
                               child: Text('Exportar estado de cuenta'),
                             ),
-                            PopupMenuItem(
-                              value: 'pay',
-                              child: Text('Registrar pago'),
-                            ),
-                            PopupMenuItem(
-                              value: 'advance',
-                              child: Text('Registrar adelanto'),
-                            ),
+                            // En inventario propio sólo el titular registra
+                            // pagos y adelantos (#26): a otra persona se le
+                            // crearía un saldo que el paso a propio impide.
+                            if (!personal || row.personId == ownerPersonId) ...[
+                              const PopupMenuItem(
+                                value: 'pay',
+                                child: Text('Registrar pago'),
+                              ),
+                              const PopupMenuItem(
+                                value: 'advance',
+                                child: Text('Registrar adelanto'),
+                              ),
+                            ] else
+                              const PopupMenuItem(
+                                enabled: false,
+                                child: Text(
+                                  'Inventario propio: pagos sólo del titular',
+                                ),
+                              ),
                           ],
                         ),
                       ],

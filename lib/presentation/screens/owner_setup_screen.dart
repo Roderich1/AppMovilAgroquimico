@@ -8,7 +8,9 @@ import '../../data/owner_binding_store.dart';
 import '../../domain/operation_mode.dart';
 import '../../domain/person_roles.dart';
 import '../../installation_access.dart';
+import '../../operation_mode_controller.dart';
 import '../widgets/common.dart';
+import 'operation_mode_screen.dart' show operationModeExplanation;
 
 /// Elección explícita del titular tras activar (criterio C, CU-01, CU-05).
 ///
@@ -106,8 +108,17 @@ class _OwnerSetupScreenState extends ConsumerState<OwnerSetupScreen> {
         }
       }
       await controller.refresh();
+      await ref.read(operationModeProvider.notifier).reload();
       if (!mounted) return;
-      showSuccess(context, modeNotice ?? 'Titular vinculado.');
+      showSuccess(
+        context,
+        modeNotice ??
+            (_mode == OperationMode.personal
+                ? 'Titular vinculado. Usa inventario propio; puede cambiarlo '
+                      'en Operaciones › Modo de uso.'
+                : 'Titular vinculado. Usa inventario compartido; puede '
+                      'cambiarlo en Operaciones › Modo de uso.'),
+      );
       context.go('/');
     } on Object catch (error) {
       if (mounted) {
@@ -202,23 +213,33 @@ class _OwnerSetupScreenState extends ConsumerState<OwnerSetupScreen> {
                 'Modalidad de inventario',
                 style: Theme.of(context).textTheme.titleMedium,
               ),
+              const Text(
+                'Elija cómo se registra el inventario en este teléfono. Podrá '
+                'cambiarlo después en Operaciones › Modo de uso, sin perder '
+                'registros y sin conexión.',
+                key: Key('owner-mode-help'),
+              ),
               RadioGroup<OperationMode>(
                 groupValue: _mode,
                 onChanged: (value) =>
                     setState(() => _mode = value ?? OperationMode.shared),
-                child: const Column(
+                child: Column(
                   children: [
                     RadioListTile<OperationMode>(
-                      key: Key('owner-mode-shared'),
+                      key: const Key('owner-mode-shared'),
                       value: OperationMode.shared,
-                      title: Text('Compartido'),
-                      subtitle: Text('Varios responsables y transferencias'),
+                      title: const Text('Compartido'),
+                      subtitle: Text(
+                        operationModeExplanation(OperationMode.shared),
+                      ),
                     ),
                     RadioListTile<OperationMode>(
-                      key: Key('owner-mode-personal'),
+                      key: const Key('owner-mode-personal'),
                       value: OperationMode.personal,
-                      title: Text('Propio'),
-                      subtitle: Text('Sólo el titular registra'),
+                      title: const Text('Propio'),
+                      subtitle: Text(
+                        operationModeExplanation(OperationMode.personal),
+                      ),
                     ),
                   ],
                 ),

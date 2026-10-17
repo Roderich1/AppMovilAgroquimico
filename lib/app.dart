@@ -7,7 +7,9 @@ import 'data/app_database.dart';
 import 'data/backup_service.dart';
 import 'data/farmer_operation_gate.dart';
 import 'domain/installation_access.dart';
+import 'domain/operation_mode.dart';
 import 'installation_access.dart';
+import 'operation_mode_controller.dart';
 import 'domain/reports/report_composer.dart';
 import 'presentation/app_shell.dart';
 import 'presentation/screens/access_status_screen.dart';
@@ -101,15 +103,30 @@ final routerProvider = Provider<GoRouter>((ref) {
     (_, next) => accessChanges.value = next,
   );
   ref.onDispose(accessChanges.dispose);
+  // La modalidad se crea con el router para que se lea en paralelo con el
+  // acceso al arrancar, antes de mostrar el shell (#26).
+  final modeChanges = ValueNotifier<OperationMode?>(
+    ref.read(operationModeProvider),
+  );
+  ref.listen(operationModeProvider, (_, next) => modeChanges.value = next);
+  ref.onDispose(modeChanges.dispose);
+  Future.microtask(ref.read(operationModeProvider.notifier).reload);
   return GoRouter(
     initialLocation: '/',
-    refreshListenable: accessChanges,
+    refreshListenable: Listenable.merge([accessChanges, modeChanges]),
     redirect: (_, state) =>
-        accessRedirect(ref.read(installationAccessProvider), state.uri.path),
+        accessRedirect(ref.read(installationAccessProvider), state.uri.path) ??
+        operationModeRedirect(ref.read(operationModeProvider), state.uri.path),
     routes: [
       ShellRoute(
-        builder: (context, state, child) =>
-            AppShell(location: state.uri.path, child: child),
+        builder: (context, state, child) => Consumer(
+          builder: (context, ref, _) => AppShell(
+            location: state.uri.path,
+            transfersEnabled:
+                ref.watch(operationModeProvider) != OperationMode.personal,
+            child: child,
+          ),
+        ),
         routes: [
           GoRoute(path: '/', builder: (_, __) => const DashboardScreen()),
           GoRoute(

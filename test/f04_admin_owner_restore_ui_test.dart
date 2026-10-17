@@ -12,6 +12,7 @@ import 'package:agroquimicos/domain/installation_access.dart';
 import 'package:agroquimicos/domain/models.dart';
 import 'package:agroquimicos/domain/operation_mode.dart';
 import 'package:agroquimicos/installation_access.dart';
+import 'package:agroquimicos/operation_mode_controller.dart';
 import 'package:agroquimicos/presentation/screens/dashboard_screen.dart';
 import 'package:agroquimicos/presentation/widgets/adaptive_entity_picker.dart';
 import 'package:agroquimicos/services/auth/existing_session_providers.dart';
@@ -362,22 +363,26 @@ void main() {
       await tester.tap(find.byType(PopupMenuButton<String>).first);
       await settle(tester);
       await tester.tap(find.text('Registrar pago'));
-      await waitFor(tester, find.byType(DropdownButton<int>));
-      expect(
-        {
-          for (final item
-              in tester
-                      .widget<DropdownButton<int>>(
-                        find.byType(DropdownButton<int>),
-                      )
-                      .items ??
-                  const <DropdownMenuItem<int>>[])
-            item.value,
-        },
-        {ids!.titular},
-      );
-      Navigator.of(tester.element(find.byType(DropdownButton<int>))).pop();
+      // #26: en propio paga el titular sin elegirlo. Antes se comprobaba que
+      // el selector sólo ofreciera al titular; ahora no hay selector y el
+      // pago queda a su nombre, nunca al del otro administrador.
+      await waitFor(tester, find.byKey(const Key('payment-personal-payer')));
+      expect(find.byType(DropdownButton<int>), findsNothing);
+      expect(find.text('Paga el titular: Titular'), findsOneWidget);
+      expect(find.textContaining('Paga '), findsOneWidget);
+      await tester.tap(find.text('Registrar'));
       await settle(tester);
+      expect(
+        await tester.runAsync(
+          () async => (await database.database).query(
+            'provider_payments',
+            columns: ['payer_person_id'],
+          ),
+        ),
+        [
+          {'payer_person_id': ids!.titular},
+        ],
+      );
 
       c.read(routerProvider).push('/compras/nueva');
       await waitFor(tester, find.text('Registrar pago total ahora'));
@@ -385,7 +390,10 @@ void main() {
       await tester.ensureVisible(find.text('Registrar pago total ahora'));
       await tester.tap(find.text('Registrar pago total ahora'));
       await settle(tester);
-      expect(pickerIds(tester, 'Pagador'), {ids.titular});
+      expect(find.text('Pagador'), findsNothing);
+      expect(find.byKey(const Key('purchase-personal-payer')), findsOneWidget);
+      expect(find.text('Paga el titular: Titular'), findsOneWidget);
+      expect(ids.payer, isNot(ids.titular));
     },
   );
 
@@ -511,6 +519,40 @@ void main() {
         );
         expect(names, contains('Del respaldo'));
         expect(names, isNot(contains('Actual')));
+      },
+    );
+
+    testWidgets(
+      'una copia del mismo Member en inventario propio deja la navegación en propio sin reiniciar (#26)',
+      (tester) async {
+        final database = await currentOfA(tester);
+        await tester.runAsync(() async {
+          final path = p.join(workspace.path, 'propio.db');
+          final source = AppDatabase(factory: databaseFactoryFfi, path: path);
+          await seedActivatedInstallation(
+            source,
+            installationRef: installationElsewhere,
+          );
+          await OperationModeStore(source)
+              .apply(OperationMode.personal, confirmed: true);
+          await source.close();
+          await File(path)
+              .copy(p.join(workspace.path, 'agroquimicos_backup_propio.db'));
+        });
+        final c = await pumpApp(tester, database);
+        expect(c.read(operationModeProvider), OperationMode.shared);
+
+        await chooseBackup(tester, c, 'propio');
+        await waitFor(tester, find.text('¿Restaurar este respaldo?'));
+        await tester.tap(find.text('Restaurar'));
+        await waitFor(tester, find.textContaining('Respaldo restaurado'));
+        await settle(tester);
+
+        expect(c.read(operationModeProvider), OperationMode.personal);
+        c.read(routerProvider).go('/operaciones');
+        await settle(tester);
+        expect(find.text('Transferencias'), findsNothing);
+        expect(find.text('Ahora: inventario propio'), findsOneWidget);
       },
     );
   });
