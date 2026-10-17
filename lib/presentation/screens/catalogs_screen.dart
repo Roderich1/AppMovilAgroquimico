@@ -130,7 +130,12 @@ class _CatalogsScreenState extends ConsumerState<CatalogsScreen>
         // si la campaña sigue abierta se elige, hoy por defecto. Si ya lo fijó
         // el alta de la siguiente, se conserva.
         final fixedEnd = row['end_date'] as String?;
-        var end = DateTime.now();
+        // El fin más tardío admitido es hoy, o el inicio si la campaña todavía
+        // no empezó (revisión de B sobre #110); es también el que se propone.
+        final start = DateTime.parse(row['start_date']! as String).toLocal();
+        final now = DateTime.now();
+        final latestEnd = start.isAfter(now) ? start : now;
+        var end = latestEnd;
         final confirm = await showDialog<bool>(
           context: context,
           builder: (dialogContext) => StatefulBuilder(
@@ -159,7 +164,7 @@ class _CatalogsScreenState extends ConsumerState<CatalogsScreen>
                           firstDate: DateTime(2000),
                           // Un fin futuro no se admite (el repositorio lo
                           // rechaza también).
-                          lastDate: DateTime.now(),
+                          lastDate: latestEnd,
                         );
                         if (picked != null) setDialogState(() => end = picked);
                       },

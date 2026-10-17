@@ -30,6 +30,7 @@ void main() {
   Future<(AgroRepository, int)> open(
     WidgetTester tester, {
     bool withSuccessor = false,
+    DateTime? activeStart,
   }) async {
     await tester.binding.setSurfaceSize(const Size(393, 2400));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -41,7 +42,7 @@ void main() {
       final repo = AgroRepository(database);
       final active = await repo.addCampaign(
         name: 'Campana Activa',
-        start: DateTime(2026, 1, 1),
+        start: activeStart ?? DateTime(2026, 1, 1),
       );
       if (withSuccessor) {
         await repo.addCampaign(
@@ -151,5 +152,26 @@ void main() {
     final closed = await row(tester, repo, 'Campana Activa');
     expect(closed['status'], 'CLOSED');
     expect(closed['end_date'], before['end_date']);
+  });
+
+  testWidgets('una campaña activa que todavía no empezó se cierra desde el '
+      'diálogo: propone como fin su día de inicio', (tester) async {
+    final start = DateTime.now().add(const Duration(days: 10));
+    final (repo, _) = await open(tester, activeStart: start);
+    await openMenuOf(tester, 'Campana Activa');
+    await tester.tap(find.text('Cerrar'));
+    await settle(tester);
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('campaign-close-end')),
+        matching: find.text(formatDate(start.toIso8601String())),
+      ),
+      findsOneWidget,
+    );
+    await tester.tap(find.text('Cerrar definitivamente'));
+    await settle(tester);
+    final closed = await row(tester, repo, 'Campana Activa');
+    expect(closed['status'], 'CLOSED');
+    expect(storedLocalDay(closed['end_date']! as String), localDay(start));
   });
 }
