@@ -202,6 +202,23 @@ class VoiceListeningPanel extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
+        // Aceptado el reconocedor del sistema, el aviso de que puede usar
+        // Internet no desaparece mientras se dicta (revisión de A sobre #100).
+        if (snapshot.route == TranscriptionEngineRoute.systemDefault) ...[
+          Card(
+            key: const Key('voz-aviso-servicio-sistema'),
+            color: Theme.of(context).colorScheme.tertiaryContainer,
+            child: const Padding(
+              padding: EdgeInsets.all(12),
+              child: Text(
+                'Se está usando el servicio de reconocimiento del teléfono, '
+                'que podría usar Internet para transcribir. La aplicación no '
+                'envía tu voz ni lo que dictas a ningún servidor.',
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
         _MicrophoneButton(
           snapshot: snapshot,
           onStart: session.startListening,

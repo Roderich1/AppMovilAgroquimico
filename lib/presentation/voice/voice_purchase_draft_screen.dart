@@ -80,7 +80,7 @@ class _VoicePurchaseDraftScreenState
       final catalog = await _gateway.purchaseCatalog();
       if (!mounted) return;
       final draft = VoiceDraftController<VoicePurchaseDraft, int>(
-        initial: VoicePurchaseDraft.start(catalog, DateTime.now()),
+        initial: VoicePurchaseDraft.start(catalog),
         commit: _gateway.confirmPurchase,
         describeError: friendlyError,
       )..addListener(_onDraft);
@@ -123,10 +123,56 @@ class _VoicePurchaseDraftScreenState
   void _syncFields() {
     final draft = _draft?.draft;
     if (draft == null) return;
+    _sync('fx', _fxText(draft), draft.exchangeRate);
     for (final line in draft.lines) {
       _sync('q${line.key}', _quantityText(line), line.quantity);
       _sync('p${line.key}', _priceText(line), line.price);
     }
+  }
+
+  static String _fxText(VoicePurchaseDraft d) => d.exchangeRate.value == null
+      ? ''
+      : formatForInput(d.exchangeRate.value! / fxScale, maxDecimals: 6);
+
+  /// Campos cuyo texto visible no dice lo mismo que el borrador. Si hay
+  /// alguno, no se confirma: se escribiría algo distinto de lo que se ve
+  /// (revisión de A, B-100-2).
+  List<String> _visibleMismatches(VoicePurchaseDraft d) {
+    final out = <String>[];
+    // Sólo se comparan campos resueltos: los demás ya bloquean por sí mismos.
+    bool differs(
+      String id,
+      DraftField<Object?> field,
+      int? expected,
+      int? Function(String) parse,
+    ) {
+      final c = _fields[id];
+      if (c == null || !field.isResolved) return false;
+      return parse(c.text) != expected;
+    }
+
+    if (d.lines.any((l) => l.currency.value == CurrencyCode.usd) &&
+        differs(
+          'fx',
+          d.exchangeRate,
+          d.exchangeRate.isResolved ? d.exchangeRate.value : null,
+          (t) {
+            final v = tryParseDecimal(t);
+            return v == null ? null : (v * fxScale).round();
+          },
+        )) {
+      out.add('El tipo de cambio visible no coincide con el borrador.');
+    }
+    for (var i = 0; i < d.lines.length; i++) {
+      final l = d.lines[i];
+      if (differs('q${l.key}', l.quantity, l.quantityBase, tryParseBase)) {
+        out.add('Línea ${i + 1}: la cantidad visible no coincide.');
+      }
+      if (differs('p${l.key}', l.price, l.unitPriceMinor, tryParseMinor)) {
+        out.add('Línea ${i + 1}: el precio visible no coincide.');
+      }
+    }
+    return out;
   }
 
   /// Interpreta sólo lo cerrado y nuevo de la sesión. El texto provisional
@@ -181,11 +227,12 @@ class _VoicePurchaseDraftScreenState
 
   Future<void> _confirm() async {
     final draft = _draft;
-    if (draft == null) return;
+    if (draft == null || _visibleMismatches(draft.draft).isNotEmpty) return;
     final id = await draft.confirm();
     if (id == null || !mounted) return;
     await _session.discard();
     if (!mounted) return;
+    setState(() => _leaving = true);
     ScaffoldMessenger.of(context)
         .showSnackBar(SnackBar(content: Text('Compra registrada (n.º $id).')));
     Navigator.of(context).maybePop(id);
@@ -194,13 +241,53 @@ class _VoicePurchaseDraftScreenState
   Future<void> _cancel() async {
     _draft?.discard();
     await _session.discard();
-    if (mounted) Navigator.of(context).maybePop();
+    if (!mounted) return;
+    setState(() => _leaving = true);
+    Navigator.of(context).maybePop();
+  }
+
+  /// Ya se decidió salir: el siguiente «Atrás» no vuelve a preguntar.
+  bool _leaving = false;
+
+  /// Hay algo que se perdería al salir.
+  bool get _hasWork {
+    final d = _draft?.draft;
+    return _applied.isNotEmpty ||
+        (d != null && (d.lines.isNotEmpty || d.supplier.isResolved));
+  }
+
+  /// Atrás con un borrador empezado pregunta antes de descartarlo; durante
+  /// la escritura no se puede salir.
+  Future<void> _onBack() async {
+    if (_draft?.phase == DraftPhase.confirming) return;
+    final discard = await confirmDestructiveAction(
+      context,
+      title: '¿Descartar el borrador?',
+      detail: 'No se registró nada. Lo dictado y lo corregido se pierden.',
+      confirmLabel: 'Descartar',
+    );
+    if (discard && mounted) await _cancel();
   }
 
   @override
   Widget build(BuildContext context) {
     final draft = _draft;
     final catalog = _catalog;
+    final confirming = draft?.phase == DraftPhase.confirming;
+    return PopScope(
+      canPop: _leaving || (!confirming && !_hasWork),
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop) _onBack();
+      },
+      child: _buildPage(context, draft, catalog),
+    );
+  }
+
+  Widget _buildPage(
+    BuildContext context,
+    VoiceDraftController<VoicePurchaseDraft, int>? draft,
+    VoiceCatalog? catalog,
+  ) {
     return PageFrame(
       title: 'Compra por voz',
       subtitle:
@@ -243,6 +330,7 @@ class _VoicePurchaseDraftScreenState
     final d = controller.draft;
     final editable = controller.phase == DraftPhase.editing;
     final theme = Theme.of(context);
+    final mismatches = _visibleMismatches(d);
     return Column(
       key: const Key('voz-borrador-compra'),
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -253,6 +341,13 @@ class _VoicePurchaseDraftScreenState
           label: 'Campaña',
           field: d.campaign,
           child: Text(d.campaign.value?.name ?? '—'),
+        ),
+        const Padding(
+          key: Key('voz-fecha'),
+          padding: EdgeInsets.symmetric(vertical: 4),
+          child: Text(
+            'Fecha: hoy, con la hora en que confirme (como el formulario).',
+          ),
         ),
         _FieldRow(
           label: 'Proveedor',
@@ -310,12 +405,7 @@ class _VoicePurchaseDraftScreenState
             child: _numberField(
               id: 'fx',
               key: const Key('voz-tipo-cambio'),
-              value: d.exchangeRate.value == null
-                  ? ''
-                  : formatForInput(
-                      d.exchangeRate.value! / fxScale,
-                      maxDecimals: 6,
-                    ),
+              value: _fxText(d),
               field: d.exchangeRate,
               enabled: editable,
               onChanged: (text) {
@@ -344,9 +434,9 @@ class _VoicePurchaseDraftScreenState
           key: const Key('voz-total'),
           style: theme.textTheme.titleSmall,
         ),
-        if (controller.blockers.isNotEmpty) ...[
+        if (controller.blockers.isNotEmpty || mismatches.isNotEmpty) ...[
           const SizedBox(height: 8),
-          _BlockersPanel(blockers: controller.blockers),
+          _BlockersPanel(blockers: [...controller.blockers, ...mismatches]),
         ],
         if (controller.error != null) ...[
           const SizedBox(height: 8),
@@ -371,7 +461,9 @@ class _VoicePurchaseDraftScreenState
             ),
             FilledButton.icon(
               key: const Key('voz-registrar'),
-              onPressed: controller.canConfirm ? _confirm : null,
+              onPressed: controller.canConfirm && mismatches.isEmpty
+                  ? _confirm
+                  : null,
               icon: controller.phase == DraftPhase.confirming
                   ? const SizedBox.square(
                       dimension: 16,
