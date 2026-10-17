@@ -12,9 +12,7 @@ import 'package:agroquimicos/data/operation_mode_store.dart';
 import 'package:agroquimicos/data/owner_binding_store.dart';
 import 'package:agroquimicos/domain/campaign_calendar.dart';
 import 'package:agroquimicos/domain/models.dart';
-import 'package:agroquimicos/domain/money.dart';
 import 'package:agroquimicos/domain/operation_mode.dart';
-import 'package:agroquimicos/domain/person_roles.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
