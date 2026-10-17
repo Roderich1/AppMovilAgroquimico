@@ -2,7 +2,7 @@
 
 - **Fecha:** 2026-10-17. Redactada por la sesión A de Claude Code, por la delegación técnica de Roderich.
 - **Estado del gate: Pending.** Este documento **no** decide: la decisión es de Roderich, con confirmación explícita. La revisión del tutor se registra en GOV-01 (BE #105). **No se propone Passed por el número de pruebas.**
-- **Base:** Mobile `main` `cf3d510`, que integra MOB #102 (F04 #25/#26). #97 (MOB #103) es de F10-COMPAT y no condiciona este gate.
+- **Base:** Mobile `main` `cf3d510`, que integra MOB #102 (F04 #25/#26). Después entraron #103 (#97, `8103766`) y #107 (menores de Liquidación); ninguno cambia lo que evalúa esta acta. #97 es de F10-COMPAT y no condiciona este gate.
 - Trazabilidad (Cap. III v1.5): RF-03 a RF-13, RF-17, RF-31; RNF-01, RNF-02; CU-04 a CU-10, CU-17, CU-19.
 
 ## Tareas del gate (#24–#27)
@@ -14,7 +14,7 @@
 | #26 MODE-03: propio sin transferencias ni elección de responsables | **#102** | `F04-MODE-03_flujos_modo_personal.md` (14 casos, 16 mutaciones detectadas); DEVICE P4–P7 | Cumplida |
 | #27 MODE-04: transiciones seguras | #77 (atomicidad, bloqueo, carrera corregida) + **#102** (en propio no se revierte actividad de terceros) | `f04_operation_mode_test`, `f04_mode_race_test`; reversiones en `personal_mode_flows_test`; DEVICE P8 (negocio idéntico) y P9 (bloqueo con nombre, base idéntica) | Cumplida |
 
-**Discrepancia conservada.** #24 y #27 dicen «movimientos de terceros». Se aplica el criterio de la v1.5 y el D del 2026-10-15: bloquean los **datos activos** (existencias, planes abiertos y saldos), no el historial. Está declarada en `F04_ACTIVACION_TITULAR_MODO.md`. El prompt de Roderich del 2026-10-17 la llama «criterio aprobado de datos activos frente a texto antiguo de movimientos históricos».
+**Discrepancia conservada.** #24 y #27 dicen «movimientos de terceros». Se aplica la v1.5 (CU-05 A2/E1, RN-17) y el criterio D de la política de activación del 2026-10-15 (`F04_ACTIVACION_TITULAR_MODO.md`, tabla «Contraste con las fuentes»): bloquean los **datos activos** (existencias, planes abiertos y saldos), no el historial. Allí consta como discrepancia declarada. `_briefs/PLAN_TERMINAR_F01_F09_ANTES_F10_2026-10-17.md` §4 la llama «criterio aprobado de datos activos frente a texto antiguo de movimientos históricos».
 
 ## Criterios de #28
 
@@ -36,7 +36,7 @@
 ## Para decidir (Roderich)
 
 1. **GATE-F04:** Passed para el alcance académico, con los límites de arriba (incluida la campaña por fecha efectiva, no implementada), o Pending hasta resolverlos.
-2. **Cierres de #24, #25, #26 y #27** con este mapeo de evidencia.
+2. **#24, #25, #26 y #27 ya están cerradas** desde el 2026-10-17 a las 14:54Z. Las cerró la sesión A, con la cuenta Roderich1, con un comentario de mapeo de criterios en cada una y Done/Verified en el Project. Se apoyó en el plan del 2026-10-17 (§2, fila F04: «verificar y cerrar #24/#27») y en el prompt A (punto 2). Si Roderich no está de acuerdo, se reabren; no condicionan el gate.
 
 ## Revisiones
 
