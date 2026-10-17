@@ -323,6 +323,37 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
       if (!didPop && !saving) _close();
     },
     child: Scaffold(
+      // **#97 — «Confirmar» fuera de la barra superior.** Junto al título, con
+      // la fuente al 130 % el título se truncaba («Nueva com…»). Abajo y fijo,
+      // como en Aplicación y Planificación, el título cabe entero y la acción
+      // sigue siempre visible y con su texto.
+      bottomNavigationBar: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: FutureBuilder(
+            future: catalogs,
+            builder: (context, snapshot) => FilledButton.icon(
+              key: const Key('purchase-confirm'),
+              onPressed:
+                  saving ||
+                      !snapshot.hasData ||
+                      modeChangedSince(
+                        loadedMode,
+                        ref.watch(operationModeProvider),
+                      )
+                  ? null
+                  : () => _confirm(snapshot.data![3]),
+              icon: saving
+                  ? const SizedBox.square(
+                      dimension: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(Icons.check),
+              label: Text(saving ? 'Guardando…' : 'Confirmar compra'),
+            ),
+          ),
+        ),
+      ),
       body: FutureBuilder(
         future: catalogs,
         builder: (context, snapshot) {
@@ -359,22 +390,6 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
                   icon: const Icon(Icons.arrow_back),
                   onPressed: saving ? null : _close,
                 ),
-                actions: [
-                  TextButton.icon(
-                    key: const Key('purchase-confirm'),
-                    onPressed: saving || modeChanged
-                        ? null
-                        : () => _confirm(people),
-                    icon: saving
-                        ? const SizedBox.square(
-                            dimension: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Icon(Icons.check),
-                    label: const Text('Confirmar'),
-                  ),
-                  const SizedBox(width: 8),
-                ],
               ),
               SliverPadding(
                 // Los 120 px fijos no contaban el inset del sistema, así que
@@ -881,7 +896,16 @@ class _LineCard extends StatelessWidget {
             )
               Padding(
                 padding: const EdgeInsets.only(bottom: 8),
-                child: Row(
+                // **#97.** Persona y cantidad compartían una fila 3:2 y, con la
+                // fuente al 130 %, el nombre se truncaba («Titular F1…»). Si
+                // no caben con holgura, la persona va arriba a todo el ancho.
+                child: _AllocationRow(
+                  onRemove: line.allocations.length > 1
+                      ? () {
+                          line.allocations.removeAt(allocationIndex).dispose();
+                          onChanged();
+                        }
+                      : null,
                   children: [
                     Expanded(
                       flex: 3,
@@ -925,20 +949,55 @@ class _LineCard extends StatelessWidget {
                         ),
                       ),
                     ),
-                    if (line.allocations.length > 1)
-                      IconButton(
-                        onPressed: () {
-                          line.allocations.removeAt(allocationIndex).dispose();
-                          onChanged();
-                        },
-                        icon: const Icon(Icons.close),
-                      ),
                   ],
                 ),
               ),
           ],
         ],
       ),
+    );
+  }
+}
+
+/// Fila de una asignación: persona (flex 3) y cantidad (flex 2) cuando caben;
+/// si no, la persona arriba a todo el ancho y la cantidad debajo (#97).
+class _AllocationRow extends StatelessWidget {
+  const _AllocationRow({required this.children, this.onRemove});
+
+  /// `[Expanded(persona), SizedBox, Expanded(cantidad)]`.
+  final List<Widget> children;
+  final VoidCallback? onRemove;
+
+  /// Ancho a partir del cual persona y cantidad caben en una fila sin
+  /// truncar un nombre habitual, también con la fuente al 130 %.
+  static const double rowMinWidth = 480;
+
+  @override
+  Widget build(BuildContext context) {
+    final remove = onRemove == null
+        ? null
+        : IconButton(
+            tooltip: 'Quitar asignación',
+            onPressed: onRemove,
+            icon: const Icon(Icons.close),
+          );
+    final person = (children.first as Expanded).child;
+    final quantity = (children.last as Expanded).child;
+    return LayoutBuilder(
+      builder: (context, constraints) => constraints.maxWidth >= rowMinWidth
+          ? Row(children: [...children, ?remove])
+          : Column(
+              children: [
+                person,
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Expanded(child: quantity),
+                    ?remove,
+                  ],
+                ),
+              ],
+            ),
     );
   }
 }

@@ -401,7 +401,9 @@ void main() {
       expect(find.byKey(const Key('mode-changed-notice')), findsOneWidget);
       expect(
         tester
-            .widget<TextButton>(find.byKey(const Key('purchase-confirm')))
+            .widget<ButtonStyleButton>(
+              find.byKey(const Key('purchase-confirm')),
+            )
             .onPressed,
         isNull,
       );
