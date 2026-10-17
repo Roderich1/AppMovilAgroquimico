@@ -36,7 +36,7 @@
 ## Para decidir (Roderich)
 
 1. **GATE-F04:** Passed para el alcance académico, con los límites de arriba (incluida la campaña por fecha efectiva, no implementada), o Pending hasta resolverlos.
-2. **#24, #25, #26 y #27 ya están cerradas** desde el 2026-10-17 a las 14:54Z. Las cerró la sesión A, con la cuenta Roderich1, con un comentario de mapeo de criterios en cada una y Done/Verified en el Project. Se apoyó en el plan del 2026-10-17 (§2, fila F04: «verificar y cerrar #24/#27») y en el prompt A (punto 2). Si Roderich no está de acuerdo, se reabren; no condicionan el gate.
+2. **#24, #25, #26 y #27 ya están cerradas** desde el 2026-10-17 a las 14:54Z. Las cerró la sesión A, con la cuenta Roderich1, con un comentario de mapeo de criterios en cada una y Done/Verified en el Project. Para **#24 y #27** se apoyó en `_briefs/PLAN_TERMINAR_F01_F09_ANTES_F10_2026-10-17.md` (§2, fila F04: «verificar y cerrar #24/#27»). **#25 y #26 los cerró por criterio propio**: el mismo plan (§4, punto 2) pide completarlas («completa la elección comprensible…», «en PERSONAL oculta…») y sus criterios quedaron cumplidos en host y en el teléfono. El plan no pide expresamente cerrarlas. Si Roderich no está de acuerdo, se reabren; no condicionan el gate.
 
 ## Revisiones
 
