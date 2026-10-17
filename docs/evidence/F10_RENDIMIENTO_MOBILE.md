@@ -22,11 +22,11 @@
 | Backend | `main` **`ed069a695eb9f8bdc318bfd16efc0071fcdced25`**, compilado, `NODE_ENV=production`, en `agro_a_f10eval_pg` (postgres:16-alpine `sha256:4e6e670b…0d50`, PostgreSQL 16.13, 10 migraciones), API 3118 |
 | Configuración de capacidad | `BACKUP_MAX_ACTIVE_PER_MEMBER` 15 y, desde las 03:10:46Z, 20 (v1.3). El cambio se hizo reiniciando **sólo la API**, con el journal todo FINAL; desde entonces la API usa JWT y clave de huella nuevos |
 | Red N1 | Cloudflare quick tunnel (`cloudflared` 2026.10.0) hacia el observador `tool/f03_res_01/observer.cjs`, que registra método, ruta enmascarada, estado y hora |
-| Herramientas | Mobile `feat/f10-eval-mobile`, en `tool/f10_eval/`. Por serie: `24ded8e` (R1, R2-a), `4a9c396` (R3, R2-b, R4) y `2be7789` (R6) |
+| Herramientas | Mobile `feat/f10-eval-mobile`, en `tool/f10_eval/`. Por serie: `24ded8e` (R1, R2-a y su reanálisis), `4a9c396` (R3, R2-b) y `2be7789` (R4 y R6). R4 y el calentamiento de S1 se ejecutaron con ese código antes de commitearlo (ver H-1 y H-3) |
 | Dispositivo | POCO X5 Pro 5G `22101320G`, Android 12 (API 31), MIUI `V14.0.7.0.SMSMIXM`, 1080×2400, 440 dpi, 120 Hz |
 | PC | Intel Core i7-13700HX, Windows 11 Home, ~25 GB de RAM. CPU al 7 % antes de las series. B y C no midieron, compilaron ni levantaron servicios durante la ventana, avisados por mensaje |
 
-**Condiciones del teléfono** (`series/condiciones_n0.txt`):
+**Condiciones del teléfono** (`f10_eval/condiciones_n0.txt`):
 - AC conectado;
 - `low_power` 0;
 - `Thermal Status` 0;
@@ -34,7 +34,7 @@
 
 **Desviación sobre la batería.** El protocolo pide ≥ 50 %, pero el sistema informó todo el tiempo valores fijos: 15 %, 3 700 mV y 50,0 °C, con un contador de 4,6 Ah. No cambiaron en más de 60 minutos, ni con la pantalla apagada ni tras `dumpsys battery reset`, y `/sys/class/power_supply` no es legible. **No se pudo verificar la carga real, y la condición queda incumplida y declarada.**
 
-**Mitigación térmica.** El servicio térmico indicó `thermal-cpufreq-4` y `thermal-cpufreq-7` (núcleos grandes) en el nivel 3 antes de las series y en el 4 antes de S3 (4 al terminar R6), con `Thermal Status 0`. Se informa como condición; puede explicar la subida progresiva de las subidas de S2.
+**Mitigación térmica.** El servicio térmico indicó `thermal-cpufreq-4` y `thermal-cpufreq-7` (núcleos grandes) en el nivel 3 antes de las series y en el 4 antes de S3 (4 al terminar R6), con `Thermal Status 0`. Se informa como condición; puede explicar que las subidas de S2 tiendan a crecer.
 
 ## Dataset DS-V (protocolo §1.4)
 
@@ -77,9 +77,9 @@
 | Medición | Red | n | Crudos (ms, en orden) | Mediana | p90 | Máx. | Errores | Criterio | Resultado |
 |---|---|---|---|---|---|---|---|---|---|
 | **R1** arranque hasta el Dashboard con datos | N0 | 10 (+1 calentamiento: 1 173,4) | 1175,1 · 1140,2 · 1177,3 · 1177,5 · 1178,7 · 1185,1 · 1191,8 · 1166,7 · 1177,2 · 1182,4 | 1 177,4 | **1 185,1** | 1 191,8 | 0 | p90 ≤ 4 000 | **CUMPLE** |
-| **R2-b** compra de 2 líneas (contacto visible) | N0 | 10 | 518,1 · 518,8 · 517,3 · 509,9 · 516,0 · 510,4 · 509,9 · 517,3 · 518,2 · 510,1 | 516,6 | **518,2** | 518,8 | 0 (persistencia +1 compra / +2 líneas en las 10) | p90 ≤ 1 000 | **CUMPLE** |
+| **R2-b** compra de 2 líneas (contacto visible) | N0 | 10 | 518,1 · 518,8 · 517,3 · 509,9 · 516,0 · 510,4 · 509,9 · 517,3 · 518,2 · 510,1 | 516,65 | **518,2** | 518,8 | 0 (persistencia +1 compra / +2 líneas en las 10) | p90 ≤ 1 000 | **CUMPLE** |
 | **R3** saldo e historial de `DSV-001` | N0 | 10 | 474,9 · 458,2 · 473,4 · 472,8 · 467,2 · 470,8 · 470,7 · 479,8 · 472,4 · 475,1 | 472,6 | **475,1** | 479,8 | 0 | p90 ≤ 1 500 | **CUMPLE** |
-| **R4** sincronización por acción explícita | N1 | 10 (+1 calentamiento: 1 910,7) | 1960,8 · 1769,8 · 1694,3 · 1894,7 · 2152,0 · 2016,2 · 1641,0 · 1967,1 · 1919,7 · 2000,2 | 1 940,2 | **2 016,2** | 2 152,0 | 0 | p90 ≤ 10 000 | **CUMPLE** |
+| **R4** sincronización por acción explícita | N1 | 10 (+1 calentamiento: 1 910,7) | 1960,8 · 1769,8 · 1694,3 · 1894,7 · 2152,0 · 2016,2 · 1641,0 · 1967,1 · 1919,7 · 2000,2 | 1 940,25 | **2 016,2** | 2 152,0 | 0 | p90 ≤ 10 000 | **CUMPLE** |
 | **R6 S1** subida (1 073 973 B) | N1 | 5 (+1 calentamiento: 2 753,0) | 3982,6 · 3478,6 · 3919,1 · 4091,8 · 3465,0 | 3 919,1 | 4 091,8 | 4 091,8 | 0 | completar y verificar dentro de los límites | **CUMPLE** |
 | **R6 S1** descarga | N1 | 3 | 3130,1 · 2790,2 · 3213,8 | 3 130,1 | 3 213,8 | 3 213,8 | 0 | ídem | **CUMPLE** |
 | **R6 S2** subida (10 268 992 B) | N1 | 5 (+1 calentamiento: 9 572,4, 10 268 994 B) | 10505,8 · 11112,9 · 11850,6 · 12695,6 · 12581,3 | 11 850,6 | **12 695,6** | 12 695,6 | 0 | **p90 ≤ 60 000** | **CUMPLE** |
@@ -100,19 +100,19 @@ El caudal de subida de S3 fue de unos 7,5 Mbit/s en la red de ensayo. **A títul
 - en el servidor, 19 copias AVAILABLE de D, 1 de E2 (C23) y 1 de S (A2); 21 objetos en disco y staging vacío;
 - journal: D 12, S 1 y E2 1, todos FINAL.
 
-**R4: estados y peticiones** (`series/r4.csv`):
+**R4: estados y peticiones** (`f10_eval/r4.csv`):
 - Cada intención (`40ca9b3f`, `fe9c3444`, `a47c1b96`, `14ac8a9c`, `d4e37cad`, `e7b92135`, `9913f7ff`, `cc3963da`, `5043d364`, `ee6ca961`) se declaró sin red y quedó **OUTCOME_UNKNOWN**: había acceso verificado en memoria y el primer intento falló por la red, como prevé el M6 corregido.
 - Después se detuvo la app, volvió la red y, al tocar «Sincronizar ahora», salieron **exactamente 1 refresh + 1 push** (ACK en ~0,4–0,75 s desde el refresh).
 - Estado final **ACKED**, con **journal 1** en Central para cada ID.
 - **Sin refresh automático:** el envío sólo ocurrió tras la acción explícita.
 
-**Red y latencia, separadas** (`series/tunel.csv`; desde el PC, 10 peticiones por vía):
+**Red y latencia, separadas** (`f10_eval/tunel.csv`; desde el PC, 10 peticiones por vía):
 
 | Momento | Túnel: mediana / p90 / máx. | API local: mediana / p90 / máx. | Errores |
 |---|---|---|---|
 | Antes de R4 | 487,9 / 681,9 / 1 302,8 ms | 2,0 / 2,8 / 16,2 ms | 0 |
 | Después de R4 | 481,0 / 689,9 / 1 168,3 ms | 1,6 / 12,3 / 27,2 ms | 0 |
-| Después de R6 | 462,1 / 699,9 / 1 083,6 ms | 1,5 / 2,4 / 26,5 ms | 0 |
+| Después de R6 | 462,05 / 699,9 / 1 083,6 ms | 1,5 / 2,4 / 26,5 ms | 0 |
 
 **El tiempo del teléfono no se corrige restando la latencia del PC.** La parte de red de R4 y R6 incluye el túnel público.
 
@@ -123,10 +123,46 @@ El caudal de subida de S3 fue de unos 7,5 Mbit/s en la red de ensayo. **A títul
 - **Qué se hizo** (01:54–02:07Z): un toque **instantáneo** (`input tap`).
 - **Por qué no vale como serie de aceptación:**
   - el contacto no aparece en el vídeo, así que el inicio fue la primera transición visible después de guardar, no el toque (§1.6 del protocolo);
-  - el primer análisis (`series/r2.csv`, ~4,2 s) además tomó como fin la desaparición del aviso temporal «Compra multiproducto confirmada…», que no es el fin definido.
-- **Reanálisis:** sobre los mismos vídeos, con la región de las filas, da 167,5–186,0 ms (mediana 180,4; `series/r2_final.csv`).
+  - el primer análisis (`f10_eval/r2.csv`, ~4,2 s) además tomó como fin la desaparición del aviso temporal «Compra multiproducto confirmada…», que no es el fin definido.
+- **Reanálisis:** sobre los mismos vídeos, con la región de las filas, da 167,5–186,0 ms (mediana 180,45; `f10_eval/r2_final.csv`).
 - **Comparación con R2-b:** la diferencia (~335 ms) son los 80 ms de contacto más el guardado, que en R2-a quedaban fuera.
 - **Se conservan las tres tablas;** la serie de aceptación es **R2-b**, con el instrumento del protocolo. Las 20 compras (R2-a + R2-b) persistieron sin duplicados.
+
+## Procedencia y aclaraciones (revisión de las series por la sesión C, 2026-10-17)
+
+La sesión C recalculó todas las series a partir de los CSV, sin ejecutar nada. **Las cifras y los veredictos coinciden.** Sus observaciones, con la respuesta de A:
+
+- **H-1. Código de R4.**
+  - **Qué pasó:** R4 (02:30–02:54Z) se ejecutó con `tool/f10_eval/series_n1.sh` **modificado y sin commitear** sobre `4a9c396`. Había dos cambios: `--start-roi 760,94,320,35` en `analyse()` y la marca `calentamiento=si` de la rep 0.
+  - **Dónde quedó:** esos cambios se commitearon sin modificar la ruta de R4 en **`2be7789`** (02:58:35Z), junto con la parte de R6.
+  - **Datos:** `r4.csv` es la salida directa de esa ejecución; **no se editó ni se regeneró**. Las versiones por serie de la tabla «Versiones y entorno» quedan así corregidas: R4 y R6 usaron el código de `2be7789`, con R4 ejecutada antes de que existiera ese commit.
+- **H-2. Huella de `condiciones_n0.txt`.** La salida de PowerShell dejó 5 líneas con CRLF; la huella publicada se calculó sobre el archivo con CRLF, y Git lo normalizó a LF. El archivo se dejó en LF y la tabla de huellas se recalculó (`ddf53714…`). El contenido no cambió.
+- **H-3. Calentamiento de la subida de S1** (02:57:07Z): lo produjo la versión sin commitear de la parte de R6, que comprobaba el aviso temporal; de ahí la anotación «sin confirmación visible». La comprobación se cambió por el conteo de copias AVAILABLE y la fila de la lista **antes** de las repeticiones 1–5 y se commiteó en `2be7789`. La subida del calentamiento fue correcta (201, 1 073 973 B).
+- **H-4. Registro del entorno por serie.** Los CSV no llevan columnas de versión del protocolo, SHA de la base, SHA de la APK ni red, como pide §1.6. Se declara como desviación. Para todas las series fueron:
+  - protocolo v1.1 (R1–R4) o v1.2/v1.3 (R6);
+  - BE `ed069a6` y MOB `dff6802`;
+  - APK `93939041…2428`;
+  - red N0 en R1–R3 y N1 en R4 y R6.
+
+  Las condiciones del teléfono sólo se registraron antes de R1 (`condiciones_n0.txt`), con el estado térmico antes y después de S3 y los ajustes al cerrar. **Las apps en segundo plano no se cerraron explícitamente**; no se registró su estado.
+- **H-5. Qué mide cada tiempo.**
+  - «API local» es la del endpoint de salud: no mide en el servidor el push, la subida ni la descarga. El observador registra la hora de la respuesta, no su duración.
+  - `hora_utc` es la hora del PC al dar la orden, no el origen del vídeo.
+  - Los tiempos de R4 y R6 son tiempos percibidos en el teléfono, y su componente de red incluye el túnel.
+- **H-6. Refresh dentro de repeticiones medidas.** El acceso local dura 10 minutos, así que algunas repeticiones incluyen un `refresh` antes de la operación: S1↓3, S2↑4, S2↓3, S3↑3 y S3↓1. En cuatro de esas cinco es el máximo de su subserie. Se informa como condición; los datos no cambian.
+- **H-7. R2-a, R2-b y el instrumento.**
+  - **El primer análisis de R2-a (~4,2 s) habría dado NO CUMPLE.** La serie R2-b se decidió **después** de verlo.
+  - **Motivo:** el instrumento de R2-a no cumplía la definición del inicio (§1.6, contacto visible), y su fin era la desaparición de un aviso, no la compra en la lista. No fue el valor.
+  - Se publican las tres tablas.
+  - **Desviación de §1.6:** el paso de `show_touches` a `pointer_location` con un toque de 80 ms se hizo entre R2-a y R3. No figura en la tabla de versiones del protocolo.
+  - **`r2_final.csv`:** se obtuvo con `frames.py` de `24ded8e` (inicio por cambio alrededor del toque y `--end-roi 0,760,1080,760`), sobre los mismos vídeos.
+- **H-8. Menores.**
+  - Las medianas con n par se dan ahora exactas (516,65; 1 940,25; 180,45; 462,05).
+  - S2 «tiende a crecer», no «monótona».
+  - Las rutas son `f10_eval/`.
+  - El calentamiento de R4 partió de PENDING (sin acceso verificado en memoria) y las 10 repeticiones, de OUTCOME_UNKNOWN.
+  - La 19.ª copia de D (53 566 172 B) no es de R6: es la subida de M7 de A1-F (04:33Z, `F10_COMPATIBILIDAD_MOBILE.md`).
+- **H-9.** Es una observación sobre la evidencia de la sesión B (desglose de R5a); se le comunica a B.
 
 ## Lo que esto no prueba
 
@@ -135,7 +171,7 @@ El caudal de subida de S3 fue de unos 7,5 Mbit/s en la red de ensayo. **A títul
 - **Servidor en un PC de desarrollo**, con túnel público. En el POCO no hay red degradada controlada.
 - **R1:** el inicio en el vídeo no incluye la latencia entre `am start` y el primer cuadro de la animación. `TotalTime` (815–841 ms) se informa como auxiliar. **El primer cuadro no se declara «Dashboard utilizable».**
 - **R6:** se midió con fotos sintéticas de ~0,84 MB y la base DS-V. Las descargas se cancelan en el diálogo de confirmación; la restauración completa con conteos es M7 de la compatibilidad.
-- **Subidas de S2 y S3:** en S2 crecen de forma monótona (10,5 → 12,7 s) con la mitigación térmica en 3–4. No se separa ese efecto.
+- **Subidas de S2:** tienden a crecer (10,5 → 12,7 s, salvo la última, 12,58 s), con la mitigación térmica en 3–4. No se separa ese efecto.
 
 ## Archivos
 
@@ -153,7 +189,7 @@ Bajo `docs/evidence/f10_eval/`:
 
 | Archivo | SHA-256 |
 |---|---|
-| `condiciones_n0.txt` | `a711323baa1c7775cba379e5e479dcf5115ddc1ccb7501c477f28783f5518ade` |
+| `condiciones_n0.txt` | `ddf5371440b3ca23e29d2692340e77745002b5e866ba844371db3beac645076a` |
 | `dsv_result.txt` | `78ac433ca3039ca2a97d29801388a400f8c10b79c6baa2bae07189e3138b0a4b` |
 | `r1.csv` | `2c30633e55baff485402aef6df34fc360f6d7720d12d2efdab43725459503916` |
 | `r2.csv` | `30273810d6374f95ddb03f0062b8cdf7c909f8fe45350fff0d9a11f9b8dee673` |
