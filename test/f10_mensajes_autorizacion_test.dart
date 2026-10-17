@@ -157,7 +157,7 @@ void main() {
       );
 
       // La acción explícita sí lo reanuda, con el mismo ID.
-      await tester.tap(find.widgetWithText(FilledButton, 'Sincronizar ahora'));
+      await tester.tap(find.text('Sincronizar ahora'));
       await settle();
       final container = ProviderScope.containerOf(
         tester.element(find.byType(SyncStatusScreen)),

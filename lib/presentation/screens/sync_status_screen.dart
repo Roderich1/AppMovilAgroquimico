@@ -142,6 +142,22 @@ class _SyncStatusScreenState extends ConsumerState<SyncStatusScreen> {
                 ),
               ),
             ),
+            // C40/C22 (#18): tras un 403, verificar el acceso no reanuda nada
+            // por sí solo; la acción explícita es «Sincronizar ahora».
+            if (summary.count(OutboxStatus.authPaused) > 0) ...[
+              const SizedBox(height: 8),
+              const Card(
+                child: ListTile(
+                  leading: Icon(Icons.lock_outline),
+                  title: Text('Envíos pausados por autorización'),
+                  subtitle: Text(
+                    'El sindicato rechazó un envío (403). No se reanudan '
+                    'solos: con el acceso verificado de la cuenta del '
+                    'titular, pulse «Sincronizar ahora».',
+                  ),
+                ),
+              ),
+            ],
             if (summary.count(OutboxStatus.restorePaused) > 0) ...[
               const SizedBox(height: 8),
               Card(

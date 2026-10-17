@@ -58,12 +58,18 @@ class RemoteSessionState {
       'Acceso en línea verificado para esta sesión.',
     RemoteSessionPhase.configurationUnavailable => 'La conexión segura todavía no está configurada. Sus datos locales siguen disponibles.',
     RemoteSessionPhase.outcomeUnknown => 'El resultado remoto no puede confirmarse. No se reutilizará la credencial anterior. Sus datos locales siguen disponibles.',
-    RemoteSessionPhase.registrationRejected => 'La vinculación de este dispositivo no fue aceptada. Se necesita revisión para usar funciones en línea.',
+    // C23 (#18): un registro revocado no vuelve a vincularse (#71). Los datos
+    // y los envíos pausados siguen en el teléfono; una copia restaurada en
+    // una instalación nueva los conserva y quedan pausados hasta que el
+    // titular los libere.
+    RemoteSessionPhase.registrationRejected => 'La vinculación de este dispositivo no fue aceptada. Sus datos y sus envíos pausados se conservan en este teléfono. Si el sindicato desvinculó este dispositivo, no puede volver a vincularse: para enviarlos, haga una copia de seguridad y restáurela en una instalación nueva activada con la cuenta del titular.',
     RemoteSessionPhase.guardUnavailable => 'No se pudo verificar la protección de la sesión. Las funciones en línea permanecen bloqueadas.',
-    RemoteSessionPhase.requiresReauthentication =>
-      problem == RemoteSessionProblem.invalidCredentials
-          ? 'Revise el correo y la contraseña. Sus datos locales siguen disponibles.'
-          : 'Se requiere volver a autenticar para las funciones en línea. Sus datos locales siguen disponibles.',
+    RemoteSessionPhase.requiresReauthentication => switch (problem) {
+      RemoteSessionProblem.invalidCredentials => 'Revise el correo y la contraseña. Sus datos locales siguen disponibles.',
+      // C38 (#18): la sesión de otra cuenta se cierra sin vincularla.
+      RemoteSessionProblem.otherAccount => 'Esa cuenta no es la vinculada a este teléfono. Los datos de este teléfono son de su titular y sólo se envían con la cuenta del titular: ingrese con esa cuenta. No se envió nada ni cambió el titular.',
+      _ => 'Se requiere volver a autenticar para las funciones en línea. Sus datos locales siguen disponibles.',
+    },
   };
 
   @override
@@ -424,6 +430,16 @@ class RemoteSessionCoordinator {
 
   void _validateLogin(V2AuthResponse login, StoredSession stored) {
     final context = login.context;
+    // Primero la identidad: otra cuenta, Member o tenant se informa como tal,
+    // aunque además no sea un agricultor activo.
+    if (context.account.id != stored.accountId ||
+        context.member.id != stored.memberId ||
+        context.tenant.id != stored.tenantId) {
+      throw const _RemoteAbort(
+        RemoteSessionPhase.requiresReauthentication,
+        RemoteSessionProblem.otherAccount,
+      );
+    }
     if (!_activeFarmer(context) ||
         context.session.clientRegistrationId != null ||
         context.account.id != stored.accountId ||
