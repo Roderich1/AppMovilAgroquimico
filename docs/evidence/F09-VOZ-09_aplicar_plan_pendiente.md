@@ -55,6 +55,7 @@ Pruebas: `test/voice_plan_application_draft_test.dart` (nuevo) y `test/voice_dra
 - **Un plan, aunque sea uno, no se preselecciona.** EVO-018 dice «si hay uno, se propone». Aquí se muestra como única opción y hay que tocarla, que es lo que pide D-F09-4.
 - **Si el plan lo aplicó otra acción**, el borrador queda abierto con el error, no sólo para revisión. La persona puede quitar el plan y registrar una aplicación libre, pero eso nunca ocurre solo.
 - **Área del plan:** la voz usa el área exacta del plan en m². El formulario la muestra en hectáreas con 3 decimales, de modo que, en un plan con un área que no es múltiplo de 10 m², los dos caminos podrían no coincidir. La equivalencia se probó con 10 000 m².
+  - *Corrección del 2026-10-17 (C), posterior a este registro:* el formulario conserva ahora el área exacta del plan y la del chaco (4 decimales de hectárea) y calcula la teórica en enteros, como la voz. La comparación de los dos recorridos con un plan de 10001 m² está en `docs/evidence/F09-VOZ-10_area_exacta_plan_formulario.md`. El texto de arriba se conserva tal como se verificó sobre `8d94e68`.
 - **Lectura de planes:** `plans()` con su límite por defecto (400 líneas), igual que la pantalla de Planificación.
 - **«Dictar con voz» no se ofrece en el formulario abierto desde «Aplicar este plan»** (`application_form_screen.dart` no se tocó). Se entra por `/aplicaciones/voz`.
 - **Fechas:** la aplicación usa «ahora», como el formulario. Con MOB #110 (campaña por fecha efectiva), las pruebas usan fechas dentro de la campaña activa.
