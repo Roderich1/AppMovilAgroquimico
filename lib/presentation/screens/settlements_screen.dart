@@ -55,8 +55,10 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
   >
   _load() async {
     final repo = ref.read(repositoryProvider);
-    // En paralelo con el resto: no añade una espera en cadena.
-    final operating = repo.operatingContext();
+    // En paralelo con el resto: no añade una espera en cadena. `ignore()`
+    // evita un error sin observar si una lectura anterior falla antes de
+    // esperarlo; esperarlo después sigue propagando su error.
+    final operating = repo.operatingContext()..ignore();
     final campaigns = await repo.campaignsTyped();
     if (!campaignInitialized) {
       final active = campaigns.where((row) => row.isActive);
@@ -424,7 +426,16 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
   }
 
   @override
-  Widget build(BuildContext context) => PageFrame(
+  Widget build(BuildContext context) {
+    // Si la modalidad cambia con la pantalla abierta (p. ej. al restaurar),
+    // se recargan los datos y con ellos el titular que decide el menú (#26).
+    ref.listen(operationModeProvider, (previous, next) {
+      if (previous != next) _refresh();
+    });
+    return _page(context);
+  }
+
+  Widget _page(BuildContext context) => PageFrame(
     title: 'Liquidación y cuentas',
     subtitle: 'Cargos, pagos, adelantos y saldos sin borrar el historial.',
     action: PopupMenuButton<String>(

@@ -381,6 +381,51 @@ void main() {
       expect(relative, isNot(contains('advance')));
     });
 
+    testWidgets('liquidación abierta al pasar a propio: se recarga y deja de '
+        'ofrecer pagos a otras personas', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(800, 2400));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final s = await activatedHousehold(tester, 'liquidacion_abierta');
+      final c = await pumpModeApp(tester, s.database);
+      c.read(routerProvider).go('/liquidacion');
+      await settle(tester);
+
+      Future<List<String>> menuOf(String name) async {
+        final card = find.ancestor(
+          of: find.text(name),
+          matching: find.byType(Card),
+        );
+        await tester.tap(
+          find.descendant(
+            of: card.first,
+            matching: find.byType(PopupMenuButton<String>),
+          ),
+        );
+        await settle(tester);
+        final items = [
+          for (final item in tester.widgetList<PopupMenuItem<String>>(
+            find.byType(PopupMenuItem<String>),
+          ))
+            if (item.enabled) item.value ?? '',
+        ];
+        await tester.tapAt(const Offset(5, 5));
+        await settle(tester);
+        return items;
+      }
+
+      expect(await menuOf('Hermana'), containsAll(['pay', 'advance']));
+      await switchModeBehindScreen(
+        tester,
+        c,
+        s.database,
+        OperationMode.personal,
+      );
+      final relative = await menuOf('Hermana');
+      expect(relative, isNot(contains('pay')));
+      expect(relative, isNot(contains('advance')));
+      expect(await menuOf('Titular'), containsAll(['pay', 'advance']));
+    });
+
     testWidgets('un formulario abierto cuando cambia la modalidad avisa y no '
         'confirma con las opciones anteriores', (tester) async {
       await tester.binding.setSurfaceSize(const Size(800, 2400));
