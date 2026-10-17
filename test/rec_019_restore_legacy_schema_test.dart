@@ -2,9 +2,10 @@
 // RESTAURE un respaldo de esquema antiguo y compruebe la migración. El test
 // «restaurar un respaldo de esquema antiguo dispara la migración» de
 // backup_service_test.dart sólo valida una base v3 de juguete. Aquí se
-// restaura de verdad una base v7 real (la del esquema anterior a #77) y se
-// comprueba la versión final, la integridad, las tablas nuevas, la marca de
-// base histórica y que ninguna fila de negocio se pierda.
+// restaura de verdad (un `.db`, con BackupService.restore) una base v7
+// sintetizada con downgradeToV7 (el esquema anterior a #77) y se comprueba la
+// versión final, la integridad, las tablas nuevas, la marca de base histórica
+// y que ninguna fila de negocio se pierda.
 import 'dart:io';
 
 import 'package:agroquimicos/data/agro_repository.dart';
@@ -34,7 +35,7 @@ void main() {
 
   String pathFor(String name) => p.join(workspace.path, name);
 
-  test('restaurar una copia v7 real la migra a la versión actual sin perder '
+  test('restaurar una copia v7 (sintetizada) la migra a la versión actual sin perder '
       'filas y como base histórica', () async {
     // Copia v7: hogar con compra, aplicación y chacos, llevada al esquema v7
     // exacto (sin las tablas ni marcas de v8/v9).

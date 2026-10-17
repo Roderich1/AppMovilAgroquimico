@@ -10,11 +10,11 @@ El comentario de #55 del 2026-10-15 pidió, para `Verified`, «un test que resta
 
 El test «restaurar un respaldo de esquema antiguo dispara la migración» de `backup_service_test.dart` sólo llama a `validate()` sobre una base v3 de juguete (tablas con una sola columna `id`). No restaura ni migra. Se conserva tal cual.
 
-`f04_restore_authorization_test.dart` ya restauraba una copia v7 real por `GuardedRestore`, pero sólo comprobaba el acceso, el vínculo y la marca de base histórica.
+`f04_restore_authorization_test.dart` ya restauraba una copia v7 (también sintetizada con `downgradeToV7`) por `GuardedRestore`, pero sólo comprobaba el acceso, el vínculo y la marca de base histórica.
 
 ## Prueba nueva: `test/rec_019_restore_legacy_schema_test.dart`
 
-Base v7 real: un hogar con compra de 5 L y aplicación de 2 L, llevado al esquema v7 exacto con `downgradeToV7`, sin las tablas de v8/v9. Se restaura con `BackupService.restore` sobre una base actual con otros datos.
+Base v7 **sintetizada**: un hogar con compra de 5 L y aplicación de 2 L, llevado al esquema v7 exacto con `downgradeToV7`, sin las tablas de v8/v9. No es una copia generada por una versión v7 de la app. Es equivalente porque las migraciones a v8 y v9 sólo crean tablas e insertan la marca, sin alterar las existentes (comprobado en la revisión de la sesión C). Se restaura un `.db` con `BackupService.restore` sobre una base actual con otros datos. No se usa el contenedor `.agrobackup` ni `GuardedRestore`: ese camino lo cubren `f04_restore_authorization_test` y las pruebas de F08.
 
 Comprueba:
 - `user_version` = `AppDatabase.schemaVersion` (9);
