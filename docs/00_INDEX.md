@@ -138,6 +138,7 @@ conclusiones equivocadas:
 | [EVOLUTION_ROADMAP](evolution/06_EVOLUTION_ROADMAP.md) | Orden aprobado: `EVOLUTION-2` y después `EVOLUTION-3` |
 | [EVOLUTION_BACKLOG](evolution/16_EVOLUTION_BACKLOG.md) | Registro único de IDs, estados, dependencias y prioridad |
 | [`features/`](evolution/features/) | Especificaciones, planes y verificaciones de cada evolución |
+| [BE-ADR-002 renumeración de fases](adr/BE-ADR-002-renumeracion-fases.md) | Fases del Project: F09 respaldo → F08, PRE voz → F09, aportes retirados (réplica de la ADR canónica de Backend-Web; distinta de la ADR-002 local de voz) |
 
 ## Estado verificado del repositorio
 
