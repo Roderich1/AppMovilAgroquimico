@@ -46,3 +46,13 @@
 - **Sin «Crear nuevo»** (D-F09-2).
 - **Sin conectar:** la conecta A después de F04.
 - **Motor:** el fake prueba la lógica; el reconocimiento real exige dictado real.
+
+## 5. Correcciones tras la revisión de #100 (sobre `2233e77a959cc1eb7c15fca863323788e0437960`)
+
+- **Fecha de la aplicación.** Mismo defecto que B-100-1: el borrador fijaba `appliedAt` al abrirse. Ahora es el instante de la confirmación, con el reloj del gateway (`DateTime.now`, como el formulario al enviar). La prueba de equivalencia usa ese instante.
+- **Patrón común:**
+  - `PopScope`: durante la escritura no se puede salir; con un borrador empezado, Atrás pregunta antes de descartar. Prueba: «Atrás con una aplicación empezada pregunta y no registra».
+  - Bloqueo si el área o una cantidad visibles difieren del borrador.
+- **Resultados** (sin suite completa durante la ventana física de A):
+  - `flutter analyze`: sin avisos.
+  - Pruebas focalizadas de borradores, gate y guardas: **133 pasan**.
