@@ -154,7 +154,6 @@ final class VoicePurchaseDraft implements VoiceDraft<VoicePurchaseDraft> {
   const VoicePurchaseDraft({
     required this.campaign,
     required this.recipient,
-    required this.purchaseDate,
     this.supplier = const DraftField.missing(message: 'Falta el proveedor.'),
     this.exchangeRate = const DraftField.missing(),
     this.lines = const [],
@@ -164,10 +163,7 @@ final class VoicePurchaseDraft implements VoiceDraft<VoicePurchaseDraft> {
   /// Borrador inicial: campaña activa y, si sólo hay una persona elegible
   /// (titular en PERSONAL), esa persona como destinataria. Los dos quedan
   /// visibles como propuestos.
-  factory VoicePurchaseDraft.start(
-    VoiceCatalog catalog,
-    DateTime today,
-  ) => VoicePurchaseDraft(
+  factory VoicePurchaseDraft.start(VoiceCatalog catalog) => VoicePurchaseDraft(
     campaign: catalog.activeCampaign == null
         ? const DraftField.missing(message: 'No hay una campaña activa.')
         : DraftField.resolved(
@@ -177,7 +173,6 @@ final class VoicePurchaseDraft implements VoiceDraft<VoicePurchaseDraft> {
     recipient: catalog.people.length == 1
         ? DraftField.resolved(catalog.people.single, origin: FieldOrigin.preset)
         : const DraftField.missing(message: 'Indique para quién es la compra.'),
-    purchaseDate: DateTime(today.year, today.month, today.day),
   );
 
   final DraftField<CatalogEntry> supplier;
@@ -187,9 +182,6 @@ final class VoicePurchaseDraft implements VoiceDraft<VoicePurchaseDraft> {
   /// titular. El reparto por línea entre varias personas se hace en el
   /// formulario manual (límite declarado).
   final DraftField<CatalogEntry> recipient;
-
-  /// Fecha de la compra: hoy, como el formulario manual.
-  final DateTime purchaseDate;
 
   /// Tipo de cambio escalado por `fxScale`. Sólo cuenta si hay líneas en USD.
   final DraftField<int> exchangeRate;
@@ -213,7 +205,6 @@ final class VoicePurchaseDraft implements VoiceDraft<VoicePurchaseDraft> {
     supplier: supplier ?? this.supplier,
     campaign: campaign ?? this.campaign,
     recipient: recipient ?? this.recipient,
-    purchaseDate: purchaseDate,
     exchangeRate: exchangeRate ?? this.exchangeRate,
     lines: lines ?? this.lines,
     nextLineKey: nextLineKey ?? this.nextLineKey,
@@ -275,9 +266,18 @@ final class VoicePurchaseDraft implements VoiceDraft<VoicePurchaseDraft> {
     return total;
   }
 
-  /// El mismo `PurchaseDraft` que arma el formulario manual. Sólo con un
-  /// borrador sin bloqueos.
-  PurchaseDraft toDomain() {
+  /// El mismo `PurchaseDraft` que arma el formulario manual al confirmar.
+  /// Sólo con un borrador sin bloqueos.
+  ///
+  /// [at] es el instante de la confirmación, igual que `DateTime.now()` en el
+  /// formulario. La fecha **no** se fija al abrir el borrador: el repositorio
+  /// guarda fecha y hora, y el FIFO ordena los lotes por ese instante. Una
+  /// compra fechada a medianoche se consumiría antes que otra registrada a
+  /// mano más temprano ese mismo día (revisión de A, B-100-1).
+  ///
+  /// Sin factura dictada, `invoiceNumber` es la cadena vacía, como el
+  /// formulario con el campo vacío (`invoiceNumber.text.trim()`).
+  PurchaseDraft toDomain({required DateTime at}) {
     if (blockers.isNotEmpty) {
       throw StateError('El borrador tiene bloqueos y no se puede convertir.');
     }
@@ -285,7 +285,8 @@ final class VoicePurchaseDraft implements VoiceDraft<VoicePurchaseDraft> {
     return PurchaseDraft(
       supplierId: supplier.value!.id,
       campaignId: campaign.value!.id,
-      purchaseDate: purchaseDate,
+      purchaseDate: at,
+      invoiceNumber: '',
       exchangeRateSource: _usesUsd
           ? ExchangeRateSource.agreedWithSupplier
           : null,

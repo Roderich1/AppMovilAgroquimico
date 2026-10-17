@@ -18,9 +18,14 @@ import '../../voice_draft/purchase/voice_purchase_draft.dart';
 import '../../voice_draft/text/units.dart';
 
 class VoiceDraftGateway {
-  VoiceDraftGateway(this._repo);
+  VoiceDraftGateway(this._repo, {DateTime Function()? clock})
+    : _clock = clock ?? DateTime.now;
 
   final AgroRepository _repo;
+
+  /// Reloj de la confirmación: el mismo `DateTime.now()` que usan los
+  /// formularios al enviar. Las pruebas lo fijan.
+  final DateTime Function() _clock;
 
   /// Catálogos para un borrador de compra.
   Future<VoiceCatalog> purchaseCatalog() async {
@@ -45,7 +50,7 @@ class VoiceDraftGateway {
 
   /// Registra la compra con el caso de uso del formulario manual.
   Future<int> confirmPurchase(VoicePurchaseDraft draft) =>
-      _repo.confirmPurchase(draft.toDomain());
+      _repo.confirmPurchase(draft.toDomain(at: _clock()));
 
   static CatalogEntry _entry(Map<String, Object?> row) =>
       CatalogEntry(id: row['id']! as int, name: row['name']! as String);

@@ -23,7 +23,8 @@ import 'support/f04_mode_fixtures.dart';
 void main() {
   sqfliteFfiInit();
 
-  final today = DateTime(2026, 10, 17);
+  // Instante de la confirmación (el formulario usa DateTime.now() al enviar).
+  final confirmedAt = DateTime(2026, 10, 17, 15, 0);
 
   const bellator = CatalogEntry(
     id: 1,
@@ -59,7 +60,7 @@ void main() {
     VoiceCatalog catalog = sharedCatalog,
   }) => interpretPurchase(
     text,
-    current ?? VoicePurchaseDraft.start(catalog, today),
+    current ?? VoicePurchaseDraft.start(catalog),
     catalog,
   ).draft;
 
@@ -179,7 +180,7 @@ void main() {
       d = interpret('tipo de cambio 6,96', current: d);
       expect(d.exchangeRate.value, 6960000);
       expect(d.blockers, isEmpty);
-      final domain = d.toDomain();
+      final domain = d.toDomain(at: confirmedAt);
       expect(domain.items.single.exchangeRateScaled, 6960000);
       expect(domain.exchangeRateSource, ExchangeRateSource.agreedWithSupplier);
     });
@@ -192,7 +193,7 @@ void main() {
     });
 
     test('otra operación no toca el borrador', () {
-      final start = VoicePurchaseDraft.start(sharedCatalog, today);
+      final start = VoicePurchaseDraft.start(sharedCatalog);
       final result = interpretPurchase(
         'apliqué dos litros de Bellator en el chaco norte',
         start,
@@ -205,7 +206,7 @@ void main() {
     test('un pago dictado no prepara nada (pagos por voz fuera de F09)', () {
       final result = interpretPurchase(
         'pago de quinientos bolivianos a Agro Norte',
-        VoicePurchaseDraft.start(sharedCatalog, today),
+        VoicePurchaseDraft.start(sharedCatalog),
         sharedCatalog,
       );
       expect(result.otherIntent, VoiceIntent.unsupported);
@@ -218,7 +219,7 @@ void main() {
         people: [jose],
         activeCampaign: campaign,
       );
-      final d = VoicePurchaseDraft.start(personal, today);
+      final d = VoicePurchaseDraft.start(personal);
       expect(d.recipient.value, jose);
       expect(d.recipient.origin, FieldOrigin.preset);
     });
@@ -250,7 +251,7 @@ void main() {
       agro = await repo.addSupplier(name: 'Agro Norte');
       await repo.addProduct(name: 'Bellator');
       await repo.addProduct(name: 'Expansive', unit: 'KG');
-      gateway = VoiceDraftGateway(repo);
+      gateway = VoiceDraftGateway(repo, clock: () => confirmedAt);
     });
 
     const dictation =
@@ -261,7 +262,7 @@ void main() {
     Future<VoiceDraftController<VoicePurchaseDraft, int>> openDraft() async {
       final catalog = await gateway.purchaseCatalog();
       final controller = VoiceDraftController<VoicePurchaseDraft, int>(
-        initial: VoicePurchaseDraft.start(catalog, today),
+        initial: VoicePurchaseDraft.start(catalog),
         commit: gateway.confirmPurchase,
       );
       addTearDown(controller.dispose);
@@ -310,8 +311,11 @@ void main() {
       final controller = await openDraft();
       final purchaseId = (await controller.confirm())!;
 
-      // El formulario manual con los mismos datos, en otra base igual.
-      // Otra base en archivo: dos bases `:memory:` comparten instancia.
+      // El `PurchaseDraft` que arma el formulario manual
+      // (`purchase_form_screen.dart`, al enviar) con los mismos datos y en el
+      // mismo instante: `purchaseDate: DateTime.now()` e
+      // `invoiceNumber: invoiceNumber.text.trim()`, que con el campo vacío es
+      // ''. Otra base en archivo: dos bases `:memory:` comparten instancia.
       final manualDb = openDb(await tempDbPath('manual'));
       final manualRepo = AgroRepository(manualDb);
       final manual = await seedHousehold(manualRepo);
@@ -326,7 +330,8 @@ void main() {
         PurchaseDraft(
           supplierId: manualAgro,
           campaignId: manual.campaign,
-          purchaseDate: today,
+          purchaseDate: confirmedAt,
+          invoiceNumber: '',
           items: [
             PurchaseItemDraft(
               productId: manualBellator,
@@ -360,6 +365,70 @@ void main() {
       );
     });
 
+    test(
+      'la fecha es la de la confirmación: el FIFO respeta el orden real',
+      () async {
+        // B-100-1 (revisión de A): compra manual a las 10:00 a Bs 100/L y
+        // compra por voz a las 15:00 a Bs 200/L del mismo producto y persona.
+        // Una aplicación de 5 L debe consumir primero el lote de las 10:00.
+        final db = await database.database;
+        final repo = AgroRepository(database);
+        await household.buy(
+          household.relative,
+          5000,
+          date: DateTime(2026, 10, 17, 10, 0),
+        );
+        final catalog = await gateway.purchaseCatalog();
+        final controller = VoiceDraftController<VoicePurchaseDraft, int>(
+          initial: VoicePurchaseDraft.start(catalog),
+          commit: gateway.confirmPurchase,
+        );
+        addTearDown(controller.dispose);
+        controller.applyVoice((current) {
+          final r = interpretPurchase(
+            'compra de cinco litros de Glifosato a 200 bolivianos el litro, '
+            'proveedor Agro Norte, todo para Hermana',
+            current,
+            catalog,
+          );
+          return (r.draft, r.outcome);
+        });
+        await controller.confirm();
+
+        final lots = await db.query('inventory_lots', orderBy: 'id');
+        expect(
+          lots.map((l) => l['acquired_date']).last,
+          confirmedAt.toUtc().toIso8601String(),
+        );
+
+        await repo.confirmApplication(
+          ApplicationDraft(
+            personId: household.relative,
+            farmId: household.relativeFarm,
+            campaignId: household.campaign,
+            appliedAt: DateTime(2026, 10, 17, 16, 0),
+            lines: [
+              ApplicationLineDraft(
+                productId: household.product,
+                quantityBase: 5000,
+              ),
+            ],
+          ),
+        );
+        final remaining = {
+          for (final row in await db.rawQuery(
+            'SELECT l.original_unit_price_minor price, '
+            'SUM(m.quantity_signed) left_base FROM inventory_lots l '
+            'JOIN inventory_movements m ON m.lot_id = l.id '
+            'WHERE l.owner_person_id = ? GROUP BY l.id',
+            [household.relative],
+          ))
+            row['price']: row['left_base'],
+        };
+        expect(remaining, {10000: 0, 20000: 5000});
+      },
+    );
+
     test('PERSONAL: la compra va al titular y otra persona bloquea', () async {
       await OwnerBindingStore(database).bindExistingPerson(
         personId: household.titular,
@@ -375,7 +444,7 @@ void main() {
       final before = await dumpTables(db);
       final blocked = interpretPurchase(
         dictation,
-        VoicePurchaseDraft.start(catalog, today),
+        VoicePurchaseDraft.start(catalog),
         catalog,
       ).draft;
       expect(blocked.recipient.isResolved, isFalse);
@@ -383,7 +452,7 @@ void main() {
       expect(await dumpTables(db), before);
 
       final controller = VoiceDraftController<VoicePurchaseDraft, int>(
-        initial: VoicePurchaseDraft.start(catalog, today),
+        initial: VoicePurchaseDraft.start(catalog),
         commit: gateway.confirmPurchase,
       );
       addTearDown(controller.dispose);
