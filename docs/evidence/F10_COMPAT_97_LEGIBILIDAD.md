@@ -35,7 +35,7 @@ No se oculta ninguna acción, no se acorta ningún nombre y no se limita la esca
   - una sola línea real (cajas de selección con un único `top`);
   - sin puntos suspensivos (`didExceedMaxLines` falso);
   - la acción dentro del ancho de la pantalla.
-- **Fuente:** se mide con **Roboto** del SDK de Flutter (`bin/cache/artifacts/material_fonts`).
+- **Fuente:** se mide con **Roboto**. Al principio se tomaba del SDK de Flutter (`bin/cache/artifacts/material_fonts`); tras la revisión está versionada en `test/fonts/`.
   - Con la fuente de prueba por defecto, cada glifo es un cuadrado del tamaño de la letra: «Sincronización» mide 336 px a 24 px y no cabe en ninguna disposición a 360 dp.
   - Si no encuentra Roboto, la prueba falla con un mensaje; no se omite.
 
@@ -64,7 +64,7 @@ Revisión de `367fb5f`: **NO LISTO**, con dos hallazgos.
 
 | Hallazgo | Corrección | Comprobación |
 |---|---|---|
-| **[bloqueante]** En CI la prueba no encontraba Roboto (run 39037717649: «No se encontró Roboto en el SDK de Flutter»). `flutter test` no descarga `material_fonts`; el build de release sí, pero va después | Paso nuevo en `flutter-ci.yml` antes de las pruebas: `flutter precache --universal --no-ios --no-web --no-linux --no-windows --no-macos --no-fuchsia`. La prueba sigue fallando, sin omitirse, si no encuentra la fuente | Pendiente: CI del HEAD nuevo |
+| **[bloqueante]** En CI la prueba no encontraba Roboto (run 39037717649: «No se encontró Roboto en el SDK de Flutter») | **Primer intento, fallido:** un paso `flutter precache --universal …` antes de las pruebas (`eda8c09`). En CI (run 39039439019) el paso sólo bajó dos artefactos de iOS y la prueba volvió a fallar igual. **Corrección:** Roboto versionada en `test/fonts/` (regular, medium y bold, Apache 2.0, con `LICENSE-Apache-2.0.txt` y `NOTICE.md`), copiada sin modificar del SDK de Flutter 3.47.2. La prueba la carga de ahí, no se omite y no depende de la red. El paso de `precache` se retiró | Local: 9/9. CI: ver el HEAD nuevo |
 | **[menor]** El `Wrap` estaba en una `Column` sin ancho: medía sólo su contenido y la acción quedaba pegada al título en vez de a la derecha (13 pantallas) | `SizedBox(width: double.infinity)` alrededor del `Wrap` | Caso nuevo: a 700 dp, título y acción en la misma línea y la acción a 16 dp del borde. Sin la corrección falla (684 esperado, 347,2 obtenido) |
 
 La rama incorpora además las correcciones de #102 (`edab2d0`) con un merge (`afeb278`), sin reescribir el historial publicado. `f10_legibility_97_test.dart` pasa a tener **9 casos**, todos verdes en local.

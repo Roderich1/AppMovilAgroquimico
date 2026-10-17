@@ -4,9 +4,9 @@
 // una palabra ni puntos suspensivos. Las acciones siguen visibles y con su
 // texto; no se reduce la escala.
 //
-// Se mide con Roboto, la fuente de Material en Android, tomada del SDK de
-// Flutter: con la fuente de prueba por defecto cada glifo es un cuadrado del
-// tamaño de la letra y «Sincronización» no cabría en ninguna disposición.
+// Se mide con Roboto, la fuente de Material en Android, versionada en
+// test/fonts: con la fuente de prueba por defecto cada glifo es un cuadrado
+// del tamaño de la letra y «Sincronización» no cabría en ninguna disposición.
 import 'dart:io';
 
 import 'package:agroquimicos/app.dart';
@@ -34,33 +34,12 @@ void main() {
   const widths = [360.0, 392.0];
   const scales = [1.0, 1.3];
 
-  /// Carpeta de fuentes de Material del SDK de Flutter.
-  Directory materialFonts() {
-    final candidates = <Directory>[
-      if (Platform.environment['FLUTTER_ROOT'] case final root?)
-        Directory('$root/bin/cache/artifacts/material_fonts'),
-    ];
-    var dir = File(Platform.resolvedExecutable).parent;
-    for (var i = 0; i < 8; i++) {
-      candidates.add(Directory('${dir.path}/artifacts/material_fonts'));
-      candidates.add(
-        Directory('${dir.path}/bin/cache/artifacts/material_fonts'),
-      );
-      dir = dir.parent;
-    }
-    return candidates.firstWhere(
-      (d) => File('${d.path}/roboto-regular.ttf').existsSync(),
-      orElse: () => throw StateError(
-        'No se encontró Roboto en el SDK de Flutter (material_fonts).',
-      ),
-    );
-  }
-
   setUpAll(() async {
-    final dir = materialFonts();
+    // Roboto versionada en test/fonts (Apache 2.0; ver NOTICE.md): la caché
+    // del SDK en CI no garantiza `material_fonts` antes de las pruebas.
     final loader = FontLoader('Roboto');
     for (final name in ['regular', 'medium', 'bold']) {
-      final bytes = File('${dir.path}/roboto-$name.ttf').readAsBytesSync();
+      final bytes = File('test/fonts/roboto-$name.ttf').readAsBytesSync();
       loader.addFont(Future.value(ByteData.sublistView(bytes)));
     }
     await loader.load();
