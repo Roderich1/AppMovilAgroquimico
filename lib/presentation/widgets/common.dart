@@ -104,20 +104,26 @@ class PageFrame extends StatelessWidget {
                       // un `Wrap` el título conserva su ancho y, si no caben
                       // los dos, la acción baja a la línea siguiente: no se
                       // oculta ni se reduce la escala del texto.
-                      Wrap(
-                        alignment: WrapAlignment.spaceBetween,
-                        crossAxisAlignment: WrapCrossAlignment.center,
-                        spacing: 12,
-                        runSpacing: 8,
-                        children: [
-                          Text(
-                            title,
-                            key: const Key('page-frame-title'),
-                            style: Theme.of(context).textTheme.headlineSmall
-                                ?.copyWith(fontWeight: FontWeight.w700),
-                          ),
-                          if (action != null) action!,
-                        ],
+                      // A todo el ancho: sin esto el `Wrap` medía sólo su
+                      // contenido y la acción quedaba pegada al título en vez
+                      // de a la derecha.
+                      SizedBox(
+                        width: double.infinity,
+                        child: Wrap(
+                          alignment: WrapAlignment.spaceBetween,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          spacing: 12,
+                          runSpacing: 8,
+                          children: [
+                            Text(
+                              title,
+                              key: const Key('page-frame-title'),
+                              style: Theme.of(context).textTheme.headlineSmall
+                                  ?.copyWith(fontWeight: FontWeight.w700),
+                            ),
+                            if (action != null) action!,
+                          ],
+                        ),
                       ),
                       if (subtitle != null) ...[
                         const SizedBox(height: 4),

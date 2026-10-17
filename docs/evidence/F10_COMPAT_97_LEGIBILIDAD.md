@@ -57,3 +57,15 @@ Cambio en una prueba de F04: el botón de confirmar la compra deja de ser un `Te
 - Pruebas automatizadas: ejecutadas con Claude Code el 2026-10-17.
 - Revisión de Roderich Rendón: pendiente.
 - Revisión del tutor: se registra aparte en GOV-01.
+
+## Correcciones tras la revisión de la sesión C (2026-10-17)
+
+Revisión de `367fb5f`: **NO LISTO**, con dos hallazgos.
+
+| Hallazgo | Corrección | Comprobación |
+|---|---|---|
+| **[bloqueante]** En CI la prueba no encontraba Roboto (run 39037717649: «No se encontró Roboto en el SDK de Flutter»). `flutter test` no descarga `material_fonts`; el build de release sí, pero va después | Paso nuevo en `flutter-ci.yml` antes de las pruebas: `flutter precache --universal --no-ios --no-web --no-linux --no-windows --no-macos --no-fuchsia`. La prueba sigue fallando, sin omitirse, si no encuentra la fuente | Pendiente: CI del HEAD nuevo |
+| **[menor]** El `Wrap` estaba en una `Column` sin ancho: medía sólo su contenido y la acción quedaba pegada al título en vez de a la derecha (13 pantallas) | `SizedBox(width: double.infinity)` alrededor del `Wrap` | Caso nuevo: a 700 dp, título y acción en la misma línea y la acción a 16 dp del borde. Sin la corrección falla (684 esperado, 347,2 obtenido) |
+
+La rama incorpora además las correcciones de #102 (`edab2d0`) con un merge (`afeb278`), sin reescribir el historial publicado. `f10_legibility_97_test.dart` pasa a tener **9 casos**, todos verdes en local.
+

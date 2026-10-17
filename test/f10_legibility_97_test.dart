@@ -17,6 +17,7 @@ import 'package:agroquimicos/domain/models.dart';
 import 'package:agroquimicos/presentation/screens/purchase_form_screen.dart';
 import 'package:agroquimicos/presentation/screens/sync_status_screen.dart';
 import 'package:agroquimicos/presentation/widgets/adaptive_entity_picker.dart';
+import 'package:agroquimicos/presentation/widgets/common.dart';
 import 'package:agroquimicos/services/sync/sync_providers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -104,6 +105,33 @@ void main() {
     expect(rect.left, greaterThanOrEqualTo(0));
     expect(rect.right, lessThanOrEqualTo(width));
   }
+
+  testWidgets('PageFrame: si título y acción caben en una línea, la acción '
+      'queda a la derecha', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(700, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      scaled(
+        1.0,
+        Scaffold(
+          body: PageFrame(
+            title: 'Sincronización',
+            subtitle: 'Subtítulo',
+            action: FilledButton(
+              onPressed: () {},
+              child: const Text('Sincronizar ahora'),
+            ),
+            child: const SizedBox(),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    final title = tester.getRect(find.text('Sincronización'));
+    final action = tester.getRect(find.byType(FilledButton));
+    expect(action.top, lessThan(title.bottom), reason: 'misma línea');
+    expect(action.right, moreOrLessEquals(700 - 16, epsilon: 1));
+  });
 
   for (final width in widths) {
     for (final scale in scales) {

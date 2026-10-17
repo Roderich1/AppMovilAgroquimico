@@ -61,6 +61,12 @@ jobs:
       - name: Análisis estático
         run: flutter analyze
 
+      # #97: la prueba de legibilidad mide con Roboto, de las fuentes de
+      # Material del SDK (bin/cache/artifacts/material_fonts). `flutter test`
+      # no las descarga por sí solo; el build sí, pero va después.
+      - name: Fuentes de Material del SDK
+        run: flutter precache --universal --no-ios --no-web --no-linux --no-windows --no-macos --no-fuchsia
+
       - name: Tests
         run: flutter test
 
