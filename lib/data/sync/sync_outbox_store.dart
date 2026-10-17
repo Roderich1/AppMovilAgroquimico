@@ -356,10 +356,21 @@ class SyncOutboxStore {
   /// identidad ni contenido (C2-R1: un 404 o una respuesta inválida no
   /// autorizan publicar ni demuestran que una petición anterior no pueda
   /// terminar después). Sólo si la fila sigue sin asentar.
-  Future<void> recordHeldQuery(OutboxEntry entry, String code) => _write(
+  Future<void> recordHeldQuery(
+    OutboxEntry entry,
+    String code, {
+    DateTime? nextAttemptAt,
+  }) => _write(
     (txn) => txn.update(
       'sync_outbox',
-      {'last_code': code, 'updated_at': _now()},
+      {
+        'last_code': code,
+        // C2-R3: espacia la próxima consulta (y, si el período vuelve a
+        // caber, el próximo envío) sin tocar los intentos.
+        if (nextAttemptAt != null)
+          'next_attempt_at': nextAttemptAt.toUtc().toIso8601String(),
+        'updated_at': _now(),
+      },
       where: 'id=? AND status IN $_sendableStatuses',
       whereArgs: [entry.id],
     ),
@@ -653,11 +664,17 @@ class SyncOutboxStore {
   /// Intenciones retenidas que **ya salieron alguna vez** (attempts > 0) del
   /// titular [activeBindingId]: Central pudo recibirlas o no. El worker las
   /// resuelve con la consulta de operaciones (C2-R1), nunca con otro POST.
+  /// Una consulta ya hecha fija `next_attempt_at` (C2-R3): hasta esa hora no
+  /// se vuelve a consultar.
   Future<List<OutboxEntry>> heldUncertain({
     required int activeBindingId,
+    required DateTime now,
   }) async => [
     for (final entry in await heldForPeriod(ownerBindingId: activeBindingId))
-      if (entry.attempts > 0) entry,
+      if (entry.attempts > 0 &&
+          (entry.nextAttemptAt == null ||
+              !DateTime.parse(entry.nextAttemptAt!).isAfter(now)))
+        entry,
   ];
 }
 

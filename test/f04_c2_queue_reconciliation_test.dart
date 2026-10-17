@@ -582,6 +582,98 @@ void main() {
     });
   });
 
+  group('C2-R3: presupuesto y espaciado de las consultas', () {
+    test('dos inciertas con 404 bajo la incompatible no dejan sin publicar a una campaña compatible, y el GET no se repite en cada ciclo', () async {
+      final h = await harness();
+      final fixture = h.fixture;
+      // Dos intenciones con valor que nunca llegaron a Central.
+      await declare(fixture, 2000);
+      await fixture.needs.declare(
+        referenceDate: inCampaign,
+        productId: fixture.kiloProductId,
+        quantityBase: 500,
+      );
+      // Cada ciclo se detiene en el primer fallo (unreachable); con el mismo
+      // reloj la primera queda en backoff y la segunda sale en el ciclo
+      // siguiente.
+      h.central.dropNextPost = true;
+      await h.worker.run();
+      h.central.dropNextPost = true;
+      await h.worker.run();
+      expect(
+        (await h.outbox.entries()).map((e) => e.status),
+        everyElement(OutboxStatus.outcomeUnknown),
+      );
+      expect(h.central.posts, hasLength(2));
+      // Una segunda campaña local, compatible con su central, con una
+      // necesidad nueva; la primera queda incompatible (su fin, 30/11,
+      // supera el fin central del 31/10).
+      final other = await fixture.repo.addCampaign(
+        name: 'Otra local',
+        start: DateTime(2026, 12, 1),
+      );
+      await fixture.bindings.bindCampaign(
+        campaignId: other,
+        central: centralCampaign(ref: otherCampaignRef, name: 'Otra central'),
+        tenantId: memberA.tenantId,
+      );
+      await fixture.needs.declare(
+        referenceDate: DateTime(2026, 12, 15),
+        productId: fixture.litreProductId,
+        quantityBase: 7000,
+      );
+      await fixture.bindings.refreshFrom(
+        CentralReferences([
+          centralCampaign(endDate: _civil('2026-10-31')),
+          centralCampaign(ref: otherCampaignRef, name: 'Otra central'),
+        ], referencesWith().products),
+        memberA.tenantId,
+      );
+      expect((await h.outbox.summary()).heldForPeriod, 2);
+
+      final small = SyncWorker(
+        outbox: h.outbox,
+        owners: fixture.owners,
+        api: () => SyncApi(
+          AuthHttpClient(
+            config: ApiEndpointConfig(Uri.parse('https://sindicato.example')),
+            client: h.central.client,
+          ),
+          clock: () => h.clock,
+        ),
+        access: h.access,
+        budget: 2,
+        random: Random(7),
+        clock: () => h.clock,
+      );
+      h.later();
+      final first = await small.run();
+      expect(first.sent, 1, reason: 'la campaña compatible publica');
+      expect(first.accepted, 1);
+      expect(h.central.posts, hasLength(3));
+      expect(
+        (h.central.posts.last['payload'] as Map)['campaign_ref'],
+        otherCampaignRef,
+      );
+      expect(first.queried, 1, reason: 'una consulta como máximo con budget 2');
+      // Segundo ciclo, un minuto después: la otra incierta se consulta; la
+      // ya consultada espera su hora.
+      h.clock = h.clock.add(const Duration(minutes: 1));
+      final second = await small.run();
+      expect(second.sent, 0);
+      expect(second.queried, 1);
+      // Tercer ciclo, otro minuto: nada que consultar todavía.
+      h.clock = h.clock.add(const Duration(minutes: 1));
+      final third = await small.run();
+      expect(third.queried, 0);
+      expect(h.central.gets, 2);
+      expect(h.central.posts, hasLength(3), reason: 'ningún POST de valor');
+      // Pasado el intervalo, se vuelve a consultar, una por ciclo.
+      h.later();
+      expect((await small.run()).queried, 1);
+    });
+  });
+
   group('7. el camino compatible no cambia', () {
     test(
       'reintento normal tras un fallo: mismo operationId, aceptado',
