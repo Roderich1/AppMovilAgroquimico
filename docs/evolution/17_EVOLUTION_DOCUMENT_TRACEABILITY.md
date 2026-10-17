@@ -31,7 +31,8 @@
 |---|---|---|
 | `features/EVOLUTION-3_VOICE_VISION_AND_SCOPE.md` | Visión, alcance y orden aprobado | APPROVED |
 | `features/EVOLUTION-2_FINAL_VERIFICATION.md` | Cierre aceptado de typed reads/reportes | VERIFIED |
-| `features/EVO-009_SAFE_VOICE_SPEC.md` | Captura/transcripción segura | APPROVED |
+| `features/EVO-009_SAFE_VOICE_SPEC.md` | Captura/transcripción segura | APPROVED, en implementación |
+| `features/EVO-009_IMPLEMENTATION_TRACEABILITY.md` | Requisito → código → prueba → evidencia de `EVO-009` | Evidencia de implementación |
 | `features/EVO-010_TYPED_VOICE_INTERPRETATION_SPEC.md` | Intenciones, resolución y drafts | APPROVED |
 | `features/EVO-017_VOICE_PURCHASE_DRAFT_SPEC.md` | Compra por voz | APPROVED |
 | `features/EVO-018_VOICE_PLAN_APPLICATION_DRAFT_SPEC.md` | Aplicación planificada por voz | APPROVED |
@@ -59,6 +60,18 @@ No son documentos, pero forman parte de la trazabilidad del benchmark:
 | `benchmark/voice_benchmark/THIRD_PARTY.md` | Licencias, versiones, hashes y tamaños medidos | Con la carpeta |
 | `tool/voice_benchmark/` | Agregador de resultados y su informe comparativo | Eliminando la carpeta |
 | `test/voice_benchmark_report_test.dart` | Pruebas del agregador, en la suite del proyecto | Con el agregador |
+
+## Código productivo de `EVO-009`
+
+A diferencia del banco, esto **sí** forma parte de la aplicación.
+
+| Ruta | Qué es |
+|---|---|
+| `lib/voice/port/` | Contrato `SpeechTranscriptionPort` y adaptador de Android |
+| `lib/voice/session/` | Sesión, continuidad, política de idioma y estados |
+| `lib/voice/ui/` | Pantalla `Ingresar datos por voz` |
+| `android/app/src/main/kotlin/.../VoiceSpeech*.kt` | Puente y motor `SpeechRecognizer` |
+| `test/voice/` | Contrato del puerto, sesión, idioma, pantalla y guardas |
 | `artifacts/voice-benchmark/results/` | Archivos exportados por el teléfono (no versionados) | Con la carpeta |
 
 ## Evidencia de creación

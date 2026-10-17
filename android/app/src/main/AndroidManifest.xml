@@ -1,5 +1,17 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- INTERNET: lo necesitan la activación, la sesión, la sincronización y los
+         respaldos remotos (F03, F05 y F08). Es anterior a la voz y la voz no lo usa:
+         `lib/voice/` no importa red (guarda en test/voice/). -->
     <uses-permission android:name="android.permission.INTERNET"/>
+
+    <!-- EVO-009 / F09: micrófono. Es el único permiso que añade la captura por voz,
+         y se pide en contexto, al tocar el micrófono, no al abrir la aplicación.
+         El audio no cruza a Dart ni se guarda. El reconocimiento lo hace el
+         `SpeechRecognizer` de Android (ADR-002); ese servicio del sistema puede
+         usar la red por su cuenta, y la interfaz lo explica en vez de prometer
+         que funciona sin conexión. -->
+    <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+
     <application
         android:label="agroquimicos"
         android:name="${applicationName}"
@@ -43,6 +55,13 @@
         <intent>
             <action android:name="android.intent.action.PROCESS_TEXT"/>
             <data android:mimeType="text/plain"/>
+        </intent>
+        <!-- EVO-009: sin esto `isRecognitionAvailable()` no puede ver los
+             servicios de reconocimiento del sistema en Android 11 y posteriores,
+             y la pantalla de voz informaria "sin reconocedor" en aparatos que si
+             lo tienen. -->
+        <intent>
+            <action android:name="android.speech.RecognitionService"/>
         </intent>
     </queries>
 </manifest>
