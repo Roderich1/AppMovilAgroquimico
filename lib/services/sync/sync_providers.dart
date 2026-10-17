@@ -94,7 +94,9 @@ String blockerMessage(SyncBlocker blocker) => switch (blocker) {
     'La cuenta en sesión no es la del titular: no se envía nada.',
   SyncBlocker.forbidden =>
     'El sindicato no autorizó esta cuenta o este dispositivo. Los envíos '
-        'quedan pausados; nada se borró.',
+        'quedan pausados; nada se borró. No se reanudan solos: cuando el '
+        'sindicato lo autorice, verifique el acceso con la cuenta del titular '
+        'y pulse «Sincronizar ahora».',
   SyncBlocker.versionMismatch =>
     'Esta versión de la aplicación no es compatible con el sindicato. '
         'Actualice la aplicación; los envíos quedan guardados.',

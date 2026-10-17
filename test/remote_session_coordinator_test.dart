@@ -549,22 +549,39 @@ void main() {
     );
   });
 
-  for (final (name, context) in [
+  // F10 (#18, C38): otra cuenta, Member o tenant se distinguen de un
+  // contexto inactivo, para que la pantalla diga por qué no se vincula.
+  for (final (name, context, problem) in [
     (
       'other account',
       _context(session: 'session-2', registration: null, account: 'other'),
+      RemoteSessionProblem.otherAccount,
     ),
     (
       'other member',
       _context(session: 'session-2', registration: null, member: 'other'),
+      RemoteSessionProblem.otherAccount,
     ),
     (
       'other tenant',
       _context(session: 'session-2', registration: null, tenant: 'other'),
+      RemoteSessionProblem.otherAccount,
+    ),
+    (
+      'other account that is not a farmer',
+      _context(
+        session: 'session-2',
+        registration: null,
+        account: 'other',
+        member: 'other',
+        role: 'DIRECTIVA',
+      ),
+      RemoteSessionProblem.otherAccount,
     ),
     (
       'inactive',
       _context(session: 'session-2', registration: null, accountActive: false),
+      RemoteSessionProblem.contextMismatch,
     ),
   ]) {
     test('reauth $name rejects and cleans up new login once', () async {
@@ -576,6 +593,7 @@ void main() {
         password: _password,
       );
       expect(result.phase, RemoteSessionPhase.requiresReauthentication);
+      expect(result.problem, problem);
       expect(h.paths, [_loginPath, _logoutPath]);
       expect(h.commit.calls, 0);
       expect(h.disk.quarantined, isTrue);
