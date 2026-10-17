@@ -18,7 +18,7 @@ class AppDatabase {
   /// Toda base, creada desde cero o migrada desde cualquier versión anterior,
   /// debe terminar con el mismo esquema. `test/schema_equivalence_test.dart`
   /// lo verifica automáticamente.
-  static const int schemaVersion = 9;
+  static const int schemaVersion = 10;
 
   /// Primera versión con `owner_bindings` e `install_origin`: una base
   /// anterior es histórica y no declara titular.
@@ -27,6 +27,13 @@ class AppDatabase {
   /// Primera versión con la sincronización F05 (vínculos centrales,
   /// necesidad declarada y outbox).
   static const int syncSinceVersion = 9;
+
+  /// Clave en `app_settings` con cuántos vínculos de campaña anteriores a la
+  /// regla de período (D-F04-C2, v10) quedaron marcados «período sin
+  /// comprobar» al migrar. Sólo se escribe si hubo al menos uno. No se borra
+  /// ningún vínculo ni ninguna intención: se señalan para revisión.
+  static const String campaignPeriodReviewKey =
+      'schema_v10_campaign_period_review';
 
   /// Clave en `app_settings` donde se registra que la migración a v5 no pudo
   /// imponer la unicidad por existir filas duplicadas previas. Su presencia
@@ -94,7 +101,10 @@ class AppDatabase {
   ///   explícito de una campaña o un producto local con su referencia
   ///   central del tenant. Sólo guardan la referencia, el nombre, la unidad y
   ///   el estado necesarios para vincular. Una referencia central no se
-  ///   vincula a dos registros locales.
+  ///   vincula a dos registros locales. Desde v10 (D-F04-C2) el vínculo de
+  ///   campaña guarda también el período central en días civiles
+  ///   (`central_start_day`, `central_end_day`), lo mínimo para comprobar sin
+  ///   red que el período local cabe en él; un vínculo VALID siempre lo tiene.
   /// - `sync_outbox` (F05-SYNC-01/02): una fila por intención, con su
   ///   `operation_id` UUID v4 y el vínculo de titular al que pertenece. Sólo
   ///   lleva los cuatro campos de la whitelist F06 y la causalidad F05. Una
@@ -104,16 +114,8 @@ class AppDatabase {
   ///   necesidad vigente por titular, campaña y producto, con su historial
   ///   inmutable.
   static const List<String> syncSchema = <String>[
-    '''CREATE TABLE campaign_bindings (
-        campaign_id INTEGER PRIMARY KEY REFERENCES campaigns(id),
-        tenant_id TEXT NOT NULL, campaign_ref TEXT NOT NULL,
-        central_name TEXT NOT NULL,
-        status TEXT NOT NULL CHECK(status IN ('VALID','INVALID')),
-        invalid_reason TEXT CHECK(invalid_reason IN ('REFERENCE_MISSING','NOT_ACCEPTING')),
-        bound_at TEXT NOT NULL, checked_at TEXT NOT NULL,
-        CHECK((status = 'VALID') = (invalid_reason IS NULL)))''',
-    'CREATE UNIQUE INDEX idx_campaign_bindings_ref '
-        'ON campaign_bindings(tenant_id, campaign_ref)',
+    campaignBindingsTable,
+    campaignBindingsIndex,
     '''CREATE TABLE product_bindings (
         product_id INTEGER PRIMARY KEY REFERENCES products(id),
         tenant_id TEXT NOT NULL, product_ref TEXT NOT NULL,
@@ -205,6 +207,27 @@ class AppDatabase {
     '''CREATE TRIGGER trg_declared_need_versions_no_update BEFORE UPDATE ON declared_need_versions
       BEGIN SELECT RAISE(ABORT, 'declared_need_versions es un historial inmutable'); END''',
   ];
+
+  /// Vínculo de campaña (v10). `central_start_day`/`central_end_day` son días
+  /// civiles `aaaa-mm-dd` del contrato de referencias; un vínculo VALID los
+  /// tiene siempre. `PERIOD_INCOMPATIBLE`: el período local no cabe en el
+  /// central. `PERIOD_UNVERIFIED`: vínculo anterior a v10, sin período
+  /// central guardado, hasta actualizar las referencias.
+  static const String campaignBindingsTable =
+      '''CREATE TABLE campaign_bindings (
+        campaign_id INTEGER PRIMARY KEY REFERENCES campaigns(id),
+        tenant_id TEXT NOT NULL, campaign_ref TEXT NOT NULL,
+        central_name TEXT NOT NULL,
+        central_start_day TEXT, central_end_day TEXT,
+        status TEXT NOT NULL CHECK(status IN ('VALID','INVALID')),
+        invalid_reason TEXT CHECK(invalid_reason IN ('REFERENCE_MISSING','NOT_ACCEPTING','PERIOD_INCOMPATIBLE','PERIOD_UNVERIFIED')),
+        bound_at TEXT NOT NULL, checked_at TEXT NOT NULL,
+        CHECK((status = 'VALID') = (invalid_reason IS NULL)),
+        CHECK(status = 'INVALID' OR central_start_day IS NOT NULL),
+        CHECK(central_end_day IS NULL OR central_start_day IS NOT NULL))''';
+  static const String campaignBindingsIndex =
+      'CREATE UNIQUE INDEX idx_campaign_bindings_ref '
+      'ON campaign_bindings(tenant_id, campaign_ref)';
 
   final DatabaseFactory? _factory;
   final String? _customPath;
@@ -548,6 +571,65 @@ class AppDatabase {
     }
     if (oldVersion < 9) {
       await _upgradeToV9(db);
+    }
+    if (oldVersion < 10) {
+      await _upgradeToV10(db);
+    }
+  }
+
+  /// Migración a la versión 10 — **período local contenido en el central**
+  /// (D-F04-C2).
+  ///
+  /// `campaign_bindings` gana `central_start_day` y `central_end_day` y dos
+  /// motivos de invalidez. SQLite no amplía un CHECK: la tabla se reconstruye
+  /// copiando todas sus filas (mismos `campaign_id`, referencias, nombres y
+  /// fechas de alta). Un vínculo que estaba VALID pasa a INVALID con
+  /// `PERIOD_UNVERIFIED`: su período central no se conocía, así que no se
+  /// puede demostrar que el local quepa; al actualizar las referencias vuelve
+  /// a VALID si cabe. Uno ya INVALID conserva su motivo. No se toca ninguna
+  /// intención de la outbox, necesidad ni operación; se deja constancia en
+  /// `app_settings` de cuántos vínculos quedaron por revisar.
+  Future<void> _upgradeToV10(Database db) async {
+    final existingTables = (await db.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type='table'",
+    )).map((row) => row['name'] as String).toSet();
+    if (!existingTables.contains('campaign_bindings')) return;
+    final columns = (await db.rawQuery('PRAGMA table_info(campaign_bindings)'))
+        .map((row) => row['name'] as String)
+        .toSet();
+    if (columns.contains('central_start_day')) return;
+
+    final unverified =
+        mobile.Sqflite.firstIntValue(
+          await db.rawQuery(
+            "SELECT COUNT(*) FROM campaign_bindings WHERE status='VALID'",
+          ),
+        ) ??
+        0;
+    await db.execute(
+      campaignBindingsTable.replaceFirst(
+        'CREATE TABLE campaign_bindings',
+        'CREATE TABLE campaign_bindings_v10',
+      ),
+    );
+    await db.execute(
+      'INSERT INTO campaign_bindings_v10 (campaign_id, tenant_id, campaign_ref, '
+      'central_name, central_start_day, central_end_day, status, invalid_reason, '
+      'bound_at, checked_at) '
+      'SELECT campaign_id, tenant_id, campaign_ref, central_name, NULL, NULL, '
+      "'INVALID', CASE WHEN status='VALID' THEN 'PERIOD_UNVERIFIED' ELSE invalid_reason END, "
+      'bound_at, checked_at FROM campaign_bindings',
+    );
+    await db.execute('DROP TABLE campaign_bindings');
+    await db.execute(
+      'ALTER TABLE campaign_bindings_v10 RENAME TO campaign_bindings',
+    );
+    await db.execute(campaignBindingsIndex);
+    if (unverified > 0 && existingTables.contains('app_settings')) {
+      await db.insert('app_settings', {
+        'key': campaignPeriodReviewKey,
+        'value': '$unverified',
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
     }
   }
 

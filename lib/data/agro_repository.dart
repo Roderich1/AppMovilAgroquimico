@@ -13,6 +13,7 @@ import 'app_database.dart';
 import 'farmer_operation_gate.dart';
 import 'invoice_storage.dart';
 import 'operation_mode_store.dart';
+import 'sync/central_binding_store.dart' show CentralBindingStore;
 
 class BusinessRuleException implements Exception {
   BusinessRuleException(this.message);
@@ -365,6 +366,68 @@ class AgroRepository {
       where: 'id=?',
       whereArgs: [open.id],
     );
+    // D-F04-C2: el fin nuevo puede caber o no en la campaña central
+    // vinculada; el vínculo se asienta en la misma transacción.
+    await CentralBindingStore.revalidateCampaignPeriod(
+      executor,
+      open.id,
+      now: _date(DateTime.now()),
+    );
+  }
+
+  /// Fin previsto de una campaña activa o planificada (D-F04-C2): el período
+  /// se fija **sin** cerrar la campaña ni cambiar su estado. Se rechaza, sin
+  /// escribir nada, si el fin es anterior al inicio, si deja fuera algún
+  /// registro fechado de la campaña (compras, aplicaciones, necesidades y sus
+  /// versiones) o si solapa otra campaña. Una campaña cerrada o archivada no
+  /// cambia su período. Después se vuelve a comprobar el vínculo central.
+  Future<void> setCampaignEnd(int campaignId, {required DateTime end}) async {
+    await _write((txn, _) async {
+      final periods = await _campaignPeriods(txn);
+      final current = periods.where((p) => p.id == campaignId).firstOrNull;
+      if (current == null) throw BusinessRuleException('La campaña no existe.');
+      if (current.status != 'ACTIVE' && current.status != 'PLANNED') {
+        throw CampaignCalendarException(
+          'El período de «${current.name}» no se cambia: la campaña está '
+          '${current.status == 'CLOSED' ? 'cerrada' : 'archivada'}.',
+        );
+      }
+      final endDay = localDay(end);
+      if (endDay.compareTo(current.startDay) < 0) {
+        throw CampaignCalendarException(
+          'El fin (${displayDay(endDay)}) no puede ser anterior al inicio de '
+          '«${current.name}» (${displayDay(current.startDay)}). No se cambió.',
+        );
+      }
+      final last = await _lastOperationDay(txn, campaignId);
+      if (last != null && last.compareTo(endDay) > 0) {
+        throw CampaignCalendarException(
+          '«${current.name}» tiene registros del ${displayDay(last)}, '
+          'posteriores al fin elegido (${displayDay(endDay)}). Las operaciones '
+          'no se cambian de campaña: no se cambió el fin.',
+        );
+      }
+      final proposed = current.withEnd(endDay);
+      for (final other in periods) {
+        if (other.id != campaignId && other.overlaps(proposed)) {
+          throw CampaignCalendarException(
+            'El período propuesto (${proposed.describe}) se solapa con '
+            '«${other.name}» (${other.describe}). No se cambió el fin.',
+          );
+        }
+      }
+      await txn.update(
+        'campaigns',
+        {'end_date': _date(startOfLocalDay(endDay))},
+        where: 'id=?',
+        whereArgs: [campaignId],
+      );
+      await CentralBindingStore.revalidateCampaignPeriod(
+        txn,
+        campaignId,
+        now: _date(DateTime.now()),
+      );
+    });
   }
 
   Future<Map<String, Object?>?> activeCampaign() async {
@@ -527,6 +590,13 @@ class AgroRepository {
         values,
         where: 'id=?',
         whereArgs: [campaignId],
+      );
+      // D-F04-C2: con el fin ya fijado, el vínculo central se vuelve a
+      // comprobar en la misma transacción.
+      await CentralBindingStore.revalidateCampaignPeriod(
+        txn,
+        campaignId,
+        now: _date(DateTime.now()),
       );
     });
   }

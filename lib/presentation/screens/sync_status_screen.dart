@@ -158,6 +158,32 @@ class _SyncStatusScreenState extends ConsumerState<SyncStatusScreen> {
                 ),
               ),
             ],
+            // D-F04-C2: intenciones que nunca salieron y no se envían porque
+            // el período local de su campaña no cabe en el central (o no se
+            // comprobó). Se resuelven en «Vincular con el sindicato».
+            if (summary.heldForPeriod > 0) ...[
+              const SizedBox(height: 8),
+              Card(
+                child: ListTile(
+                  key: const Key('held-for-period'),
+                  leading: const Icon(Icons.event_busy_outlined),
+                  title: Text(
+                    'Envíos retenidos por el período de la campaña: '
+                    '${summary.heldForPeriod}',
+                  ),
+                  subtitle: const Text(
+                    'El período de la campaña local no cabe en el de la '
+                    'campaña del sindicato, o no se ha comprobado. No se '
+                    'envían ni se borran: fije el fin previsto o actualice '
+                    'las referencias en «Vincular con el sindicato».',
+                  ),
+                  trailing: TextButton(
+                    onPressed: () => context.push('/sindicato/vinculos'),
+                    child: const Text('Revisar'),
+                  ),
+                ),
+              ),
+            ],
             if (summary.count(OutboxStatus.restorePaused) > 0) ...[
               const SizedBox(height: 8),
               Card(

@@ -2,6 +2,7 @@ import 'dart:math';
 
 import 'package:sqflite/sqflite.dart' show DatabaseExecutor;
 
+import '../../domain/campaign_calendar.dart';
 import '../../domain/sync/consumption_projection.dart';
 import '../../domain/sync/intention_planner.dart';
 import '../../domain/sync/sync_types.dart';
@@ -9,6 +10,7 @@ import '../../domain/sync/sync_wire.dart';
 import '../agro_repository.dart' show BusinessRuleException;
 import '../app_database.dart';
 import '../farmer_operation_gate.dart';
+import 'central_binding_store.dart';
 import 'sync_outbox_store.dart';
 
 class ConsumptionPublishException extends BusinessRuleException {
@@ -42,6 +44,7 @@ class ConsumptionPreviewRow {
     required this.change,
     required this.target,
     required this.prior,
+    this.blockedDetail,
   });
 
   final String campaignName;
@@ -56,10 +59,32 @@ class ConsumptionPreviewRow {
   /// Última intención vigente de ese total (null si nunca se publicó).
   final OutboxEntry? prior;
 
+  /// Por qué está bloqueado, con los dos períodos cuando es por período
+  /// (D-F04-C2); null si no está bloqueado o el motivo no es de período.
+  final String? blockedDetail;
+
   bool get sends =>
       change == ConsumptionChange.publish ||
       change == ConsumptionChange.supersede;
+
+  /// Un total aceptado por Central (o en camino) bajo un vínculo bloqueado:
+  /// el titular puede retirarlo (CANCEL, F06 §6) con su confirmación. No se
+  /// envía un cero ni se reasigna a otra campaña.
+  bool get canWithdraw =>
+      change == ConsumptionChange.blocked &&
+      prior != null &&
+      prior!.action != SyncAction.cancel &&
+      !(prior!.status == OutboxStatus.conflict && prior!.resolvedAt == null);
 }
+
+/// Campaña × producto con consumo propio que no se publica, con nombres y,
+/// si es por período, el detalle con los dos períodos.
+typedef ExcludedPairView = ({
+  String campaign,
+  String product,
+  ConsumptionExclusion reason,
+  String? detail,
+});
 
 class ConsumptionPreview {
   const ConsumptionPreview({
@@ -75,9 +100,7 @@ class ConsumptionPreview {
   final List<ConsumptionPreviewRow> rows;
   final Map<ConsumptionExclusion, int> excludedLines;
 
-  /// Campaña × producto con consumo propio que no se publica, con nombres.
-  final List<({String campaign, String product, ConsumptionExclusion reason})>
-  excludedPairs;
+  final List<ExcludedPairView> excludedPairs;
 
   bool get hasChanges => rows.any((row) => row.sends);
 }
@@ -197,6 +220,45 @@ class ConsumptionPublisher {
     });
   });
 
+  /// El titular retira del sindicato un total bloqueado (D-F04-C2): CANCEL
+  /// sobre la intención aceptada que Central tiene, con su confirmación
+  /// explícita. La intención aceptada no se modifica; no se envía un cero ni
+  /// se reasigna a otra campaña. Si el estado cambió desde que se mostró, no
+  /// escribe nada.
+  Future<void> withdraw(
+    ConsumptionPreviewRow row,
+  ) => _database.replacement.write(() async {
+    _gate.ensureAllowed();
+    await (await _database.database).transaction((txn) async {
+      final current = (await _compute(txn)).rows
+          .where(
+            (candidate) =>
+                _targetKey(candidate.target) == _targetKey(row.target),
+          )
+          .toList();
+      if (current.length != 1 ||
+          _rowKey(current.single) != _rowKey(row) ||
+          !current.single.canWithdraw) {
+        throw ConsumptionPublishException(
+          'El estado de este total cambió. Revise la vista previa de nuevo.',
+        );
+      }
+      final prior = await SyncOutboxStore.latestEffective(txn, row.target);
+      if (prior == null || prior.operationId != row.prior!.operationId) {
+        throw ConsumptionPublishException(
+          'El estado de este total cambió. Revise la vista previa de nuevo.',
+        );
+      }
+      await SyncOutboxStore.applyPlan(
+        txn,
+        planIntention(prior, const CancelIntent()),
+        row.target,
+        now: _now(),
+        random: _random,
+      );
+    });
+  });
+
   /// Identidad completa de un destino de la outbox.
   static String _targetKey(ContributionTarget target) =>
       '${target.ownerBindingId}|${target.projectionType.code}|'
@@ -251,18 +313,32 @@ class ConsumptionPublisher {
             quantityBase: row['quantity_base']! as int,
           ),
         );
-    final campaigns = {
-      for (final row in await db.rawQuery(
-        'SELECT b.campaign_id, b.campaign_ref, b.central_name, b.status, '
-        'c.name FROM campaign_bindings b JOIN campaigns c ON c.id = b.campaign_id',
+    // D-F04-C2: el estado del vínculo de campaña es el efectivo (período
+    // local actual frente al central guardado), no el que quedó escrito. Así
+    // la vista previa y la confirmación nunca publican con un estado viejo.
+    final localPeriods = {
+      for (final row in await db.query(
+        'campaigns',
+        columns: ['id', 'name', 'status', 'start_date', 'end_date'],
       ))
-        row['campaign_id']! as int: BoundRef(
-          ref: row['campaign_ref']! as String,
-          localName: row['name']! as String,
-          centralName: row['central_name']! as String,
-          valid: row['status'] == 'VALID',
-        ),
+        row['id']! as int: CampaignPeriod.fromRow(row),
     };
+    final campaigns = <int, BoundRef>{};
+    final periodDetails = <int, String>{};
+    for (final binding in await CentralBindingStore.liveCampaignBindings(db)) {
+      final local = localPeriods[binding.campaignId];
+      if (local == null) continue;
+      campaigns[binding.campaignId] = BoundRef(
+        ref: binding.campaignRef,
+        localName: local.name,
+        centralName: binding.centralName,
+        valid: binding.isValid,
+      );
+      if (binding.invalidReason?.holdsQueue ?? false) {
+        final detail = CentralBindingStore.periodProblem(binding, local);
+        if (detail != null) periodDetails[binding.campaignId] = detail;
+      }
+    }
     final products = {
       for (final row in await db.rawQuery(
         'SELECT b.product_id, b.product_ref, b.central_name, b.status, '
@@ -307,6 +383,48 @@ class ConsumptionPublisher {
           change: _changeFor(prior, cell.quantityBase),
           target: target,
           prior: prior,
+        ),
+      );
+    }
+
+    // D-F04-C2: un total con consumo propio cuyo vínculo de campaña quedó
+    // bloqueado por período se muestra con su total real y bloqueado, esté o
+    // no publicado; nunca como un cero ni en otra campaña. Va antes del
+    // repaso de lo ya publicado para que ese repaso no lo pinte como cero.
+    for (final pair in projection.excludedPairs) {
+      final campaign = campaigns[pair.campaignId];
+      final product = products[pair.productId];
+      final total =
+          projection.excludedTotals[(pair.campaignId, pair.productId)];
+      if (campaign == null ||
+          product == null ||
+          product.baseUnit == null ||
+          total == null ||
+          !periodDetails.containsKey(pair.campaignId)) {
+        continue;
+      }
+      final target = ContributionTarget(
+        ownerBindingId: ownerBindingId,
+        projectionType: ProjectionType.consumptionTotal,
+        campaignRef: campaign.ref,
+        productRef: product.ref,
+        baseUnit: product.baseUnit!,
+      );
+      if (!seen.add(
+        '${target.campaignRef}|${target.productRef}|${target.baseUnit.code}',
+      )) {
+        continue;
+      }
+      rows.add(
+        ConsumptionPreviewRow(
+          campaignName: campaign.localName,
+          productName: product.localName,
+          baseUnit: target.baseUnit,
+          quantityBase: total,
+          change: ConsumptionChange.blocked,
+          target: target,
+          prior: await SyncOutboxStore.latestEffective(db, target),
+          blockedDetail: periodDetails[pair.campaignId],
         ),
       );
     }
@@ -361,6 +479,7 @@ class ConsumptionPublisher {
           change: usable ? _changeFor(prior, 0) : ConsumptionChange.blocked,
           target: target,
           prior: prior,
+          blockedDetail: usable ? null : periodDetails[campaign?.key],
         ),
       );
     }
@@ -383,6 +502,7 @@ class ConsumptionPublisher {
             campaign: campaignNames[pair.campaignId] ?? '—',
             product: productNames[pair.productId] ?? '—',
             reason: pair.reason,
+            detail: periodDetails[pair.campaignId],
           ),
       ],
     );

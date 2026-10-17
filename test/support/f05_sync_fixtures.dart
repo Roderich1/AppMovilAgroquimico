@@ -24,16 +24,20 @@ const otherLitreRef = '5a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d';
 /// Fecha dentro de la campaña sembrada (inicia el 2026-09-01, sin fin).
 final inCampaign = DateTime(2026, 10, 15);
 
+/// Campaña central sintética. Las fechas siguen el contrato de referencias:
+/// `date-time` ISO-8601 en UTC, con el día civil como medianoche UTC.
 CentralCampaign centralCampaign({
   String ref = campaignRef,
   String name = 'Campaña sindicato 2026',
   bool accepts = true,
+  String startDate = '2026-09-01T00:00:00.000Z',
+  String? endDate,
 }) => CentralCampaign(
   ref: ref,
   name: name,
   status: accepts ? 'ABIERTA' : 'CERRADA',
-  startDate: '2026-09-01T00:00:00.000Z',
-  endDate: null,
+  startDate: startDate,
+  endDate: endDate,
   acceptsContributions: accepts,
 );
 

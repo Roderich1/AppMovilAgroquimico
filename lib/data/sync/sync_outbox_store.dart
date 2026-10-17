@@ -8,6 +8,7 @@ import '../../domain/sync/sync_types.dart';
 import '../agro_repository.dart' show BusinessRuleException;
 import '../app_database.dart';
 import '../owner_binding_store.dart' show SyncQueueInspector;
+import 'central_binding_store.dart' show CentralBindingStore;
 
 class SyncConflictPendingException extends BusinessRuleException {
   SyncConflictPendingException()
@@ -44,10 +45,19 @@ class ContributionTarget {
 
 /// Resumen para el indicador y la pantalla de sincronización.
 class SyncQueueSummary {
-  const SyncQueueSummary(this.counts, this.lastAcceptedAt);
+  const SyncQueueSummary(
+    this.counts,
+    this.lastAcceptedAt, {
+    this.heldForPeriod = 0,
+  });
 
   final Map<OutboxStatus, int> counts;
   final String? lastAcceptedAt;
+
+  /// Intenciones PENDING que nunca salieron y el worker retiene porque el
+  /// vínculo de su campaña no es compatible, o no se comprobó, con el período
+  /// central (D-F04-C2). Siguen contadas en [counts] como pendientes.
+  final int heldForPeriod;
 
   int count(OutboxStatus status) => counts[status] ?? 0;
 
@@ -223,6 +233,18 @@ class SyncOutboxStore {
     ),
   );
 
+  /// D-F04-C2: una intención que **nunca salió del teléfono** y publica o
+  /// sustituye un valor bajo una campaña cuyo vínculo no es compatible (o no
+  /// se comprobó) con el período central se retiene: Central la aceptaría sin
+  /// notar que el total lleva días fuera de su período. Una retirada (CANCEL)
+  /// sí sale (F06 §6). Una intención que ya salió alguna vez se reenvía igual:
+  /// es el mismo envelope, Central responde por idempotencia (consulta
+  /// segura, no un aporte nuevo).
+  static bool _heldForPeriod(OutboxEntry entry, Set<String> heldRefs) =>
+      entry.isUnsent &&
+      entry.action != SyncAction.cancel &&
+      heldRefs.contains(entry.campaignRef);
+
   /// Intenciones listas: como máximo una por contribución, la más antigua sin
   /// asentar, y sólo si su antecesora local ya fue aceptada (orden causal).
   Future<List<OutboxEntry>> readyToSend({
@@ -237,6 +259,13 @@ class SyncOutboxStore {
       orderBy: 'id',
     );
     final entries = rows.map(OutboxEntry.fromRow).toList();
+    // Sólo hace falta mirar los vínculos si hay algo que pudiera retenerse.
+    final heldRefs =
+        entries.any(
+          (entry) => entry.isUnsent && entry.action != SyncAction.cancel,
+        )
+        ? await CentralBindingStore.periodHeldCampaignRefs(db)
+        : const <String>{};
     final byOperation = {for (final e in entries) e.operationId: e};
     final seen = <String>{};
     final ready = <OutboxEntry>[];
@@ -248,6 +277,7 @@ class SyncOutboxStore {
       }
       if (!seen.add(entry.contributionKey)) continue;
       if (!entry.status.isSendable) continue;
+      if (_heldForPeriod(entry, heldRefs)) continue;
       final next = entry.nextAttemptAt;
       if (next != null && DateTime.parse(next).isAfter(now)) continue;
       final predecessor = entry.predecessorOperationId;
@@ -484,15 +514,43 @@ class SyncOutboxStore {
   Future<SyncQueueSummary> summary() async {
     final db = await _database.database;
     final rows = await db.rawQuery(
-      'SELECT status, COUNT(*) AS n FROM sync_outbox GROUP BY status',
+      'SELECT status, COUNT(*) AS n, '
+      "SUM(CASE WHEN attempts=0 AND action<>'CANCEL' THEN 1 ELSE 0 END) AS unsent "
+      'FROM sync_outbox GROUP BY status',
     );
     final last = await db.rawQuery(
       "SELECT MAX(acked_at) AS last FROM sync_outbox WHERE status='ACKED'",
     );
-    return SyncQueueSummary({
-      for (final row in rows)
-        OutboxStatus.fromCode(row['status']): row['n']! as int,
-    }, last.single['last'] as String?);
+    // Sólo se miran los vínculos si hay alguna intención que pudiera estar
+    // retenida: el resumen se pide en cada ciclo.
+    final unsentPending = rows
+        .where((row) => row['status'] == OutboxStatus.pending.code)
+        .fold<int>(0, (sum, row) => sum + ((row['unsent'] as int?) ?? 0));
+    return SyncQueueSummary(
+      {
+        for (final row in rows)
+          OutboxStatus.fromCode(row['status']): row['n']! as int,
+      },
+      last.single['last'] as String?,
+      heldForPeriod: unsentPending == 0 ? 0 : (await heldForPeriod()).length,
+    );
+  }
+
+  /// Intenciones que el worker retiene por el período de su campaña
+  /// (D-F04-C2): requieren revisión del titular, no se reescriben.
+  Future<List<OutboxEntry>> heldForPeriod() async {
+    final db = await _database.database;
+    final rows = await db.query(
+      'sync_outbox',
+      where: "status='PENDING' AND attempts=0 AND action<>'CANCEL'",
+      orderBy: 'id',
+    );
+    if (rows.isEmpty) return const [];
+    final heldRefs = await CentralBindingStore.periodHeldCampaignRefs(db);
+    return [
+      for (final entry in rows.map(OutboxEntry.fromRow))
+        if (_heldForPeriod(entry, heldRefs)) entry,
+    ];
   }
 }
 

@@ -2,6 +2,7 @@ import 'dart:math';
 
 import 'package:sqflite/sqflite.dart' show DatabaseExecutor, Transaction;
 
+import '../../domain/campaign_calendar.dart' show CampaignPeriod;
 import '../../domain/numeric_input.dart' show maxBaseQuantity;
 import '../../domain/sync/intention_planner.dart';
 import '../../domain/sync/sync_types.dart';
@@ -53,12 +54,16 @@ class CampaignForDate {
     this.name,
     this.problem,
     this.reason,
+    this.detail,
   });
 
   final int? campaignId;
   final String? name;
   final CampaignForDateProblem? problem;
   final BindingInvalidReason? reason;
+
+  /// Detalle del problema de período con los dos períodos (D-F04-C2).
+  final String? detail;
 
   bool get isUsable => problem == null;
 
@@ -71,7 +76,8 @@ class CampaignForDate {
     CampaignForDateProblem.notBound =>
       'La campaña $name requiere vinculación con el sindicato.',
     CampaignForDateProblem.bindingInvalid =>
-      'La campaña $name no admite declaraciones: ${reason?.message ?? ''}',
+      'La campaña $name no admite declaraciones: '
+          '${detail ?? reason?.message ?? ''}',
   };
 }
 
@@ -207,7 +213,8 @@ class DeclaredNeedStore {
     final day = _day(date);
     final rows =
         (await db.rawQuery(
-          'SELECT id, name, start_date, end_date FROM campaigns ORDER BY id',
+          'SELECT id, name, status, start_date, end_date FROM campaigns '
+          'ORDER BY id',
         )).where((row) {
           final end = row['end_date'] as String?;
           return _storedLocalDay(row['start_date']! as String).compareTo(day) <=
@@ -231,11 +238,19 @@ class DeclaredNeedStore {
       );
     }
     if (!binding.isValid) {
+      String? detail;
+      if (binding.invalidReason?.holdsQueue ?? false) {
+        detail = CentralBindingStore.periodProblem(
+          binding,
+          CampaignPeriod.fromRow(rows.single),
+        );
+      }
       return CampaignForDate(
         campaignId: id,
         name: name,
         problem: CampaignForDateProblem.bindingInvalid,
         reason: binding.invalidReason,
+        detail: detail,
       );
     }
     return CampaignForDate(campaignId: id, name: name);
@@ -297,8 +312,16 @@ class DeclaredNeedStore {
     }
     if (newValue && (!campaign.isValid || !product.isValid)) {
       final reason = (campaign.invalidReason ?? product.invalidReason)!;
+      var detail = reason.message;
+      // D-F04-C2: con los dos períodos, para que el titular sepa qué fijar.
+      if (campaign.invalidReason?.holdsQueue ?? false) {
+        final local = await CentralBindingStore.localPeriodOf(txn, campaignId);
+        if (local != null) {
+          detail = CentralBindingStore.periodProblem(campaign, local) ?? detail;
+        }
+      }
       throw BindingRequiredException(
-        'No se puede declarar un valor nuevo: ${reason.message}',
+        'No se puede declarar un valor nuevo: $detail',
       );
     }
     return ContributionTarget(
