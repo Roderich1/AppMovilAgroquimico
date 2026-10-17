@@ -6,12 +6,18 @@
 /// sólo se **proyecta** con una lectura: nada se descuenta.
 ///
 /// Como en el formulario, elegir el chaco fija la persona que aplica (su
-/// dueño, que debe poder aplicar) y propone su área. La aplicación de un plan
-/// pendiente por voz (EVO-018) queda fuera de este incremento (decisión
-/// pendiente D-F09-4).
+/// dueño, que debe poder aplicar) y propone su área.
+///
+/// **Plan pendiente (D-F09-4).** Se puede aplicar un plan pendiente de la
+/// campaña activa y del chaco elegido. El plan se **selecciona** siempre, aunque
+/// sea el único: nunca se elige solo. Al seleccionarlo, las líneas pasan a ser
+/// las del plan (planeado y dosis, inmutables; real, editable). La escritura es
+/// la del formulario con `planId`: `confirmApplication()`, que además rechaza
+/// un plan ya aplicado. Antes de confirmar no cambia el plan, el stock ni FIFO.
 library;
 
 import '../../domain/models.dart';
+import '../../domain/money.dart';
 import '../catalog/voice_catalog.dart';
 import '../core/draft_field.dart';
 import '../core/voice_draft_controller.dart';
@@ -22,6 +28,8 @@ final class VoiceApplicationLine {
     required this.key,
     this.product = const DraftField.missing(message: 'Falta el producto.'),
     this.quantity = const DraftField.missing(message: 'Falta la cantidad.'),
+    this.plannedBase,
+    this.doseBasePerHa,
   });
 
   final int key;
@@ -30,14 +38,34 @@ final class VoiceApplicationLine {
   /// Cantidad real usada, tal como se dijo o escribió.
   final DraftField<SpokenAmount> quantity;
 
+  /// Sólo en una línea de plan: cantidad requerida por el plan, inmutable.
+  final int? plannedBase;
+
+  /// Sólo en una línea de plan: dosis del plan, en unidad base por hectárea.
+  final int? doseBasePerHa;
+
+  bool get fromPlan => plannedBase != null;
+
   VoiceApplicationLine copyWith({
     DraftField<CatalogEntry>? product,
     DraftField<SpokenAmount>? quantity,
+    int? plannedBase,
+    int? doseBasePerHa,
+    bool clearPlan = false,
   }) => VoiceApplicationLine(
     key: key,
     product: product ?? this.product,
     quantity: quantity ?? this.quantity,
+    plannedBase: clearPlan ? null : (plannedBase ?? this.plannedBase),
+    doseBasePerHa: clearPlan ? null : (doseBasePerHa ?? this.doseBasePerHa),
   );
+
+  /// `real - planeado`, en unidad base, o `null` fuera de un plan.
+  int? get differenceBase {
+    final real = quantityBase;
+    final planned = plannedBase;
+    return real == null || planned == null ? null : real - planned;
+  }
 
   int? get quantityBase {
     final q = quantity.value;
@@ -75,6 +103,8 @@ final class VoiceApplicationDraft implements VoiceDraft<VoiceApplicationDraft> {
     this.stock = const {},
     this.stockOwnerId,
     this.nextLineKey = 1,
+    this.plan,
+    this.planData,
   });
 
   factory VoiceApplicationDraft.start(VoiceCatalog catalog) =>
@@ -112,6 +142,14 @@ final class VoiceApplicationDraft implements VoiceDraft<VoiceApplicationDraft> {
 
   final int nextLineKey;
 
+  /// `null`: aplicación libre. Si no, se pidió aplicar un plan pendiente y
+  /// este campo dice si ya se eligió (resuelto, siempre a mano), si hay que
+  /// elegir (ambiguo, con las opciones) o si no hay ninguno (faltante).
+  final DraftField<CatalogEntry>? plan;
+
+  /// El plan elegido, con sus líneas. Sólo si [plan] está resuelto.
+  final PendingPlan? planData;
+
   bool get stockLoaded => person != null && stockOwnerId == person!.id;
 
   VoiceApplicationDraft copyWith({
@@ -125,6 +163,9 @@ final class VoiceApplicationDraft implements VoiceDraft<VoiceApplicationDraft> {
     int? stockOwnerId,
     bool clearStock = false,
     int? nextLineKey,
+    DraftField<CatalogEntry>? plan,
+    PendingPlan? planData,
+    bool clearPlan = false,
   }) => VoiceApplicationDraft(
     campaign: campaign ?? this.campaign,
     farm: farm ?? this.farm,
@@ -134,6 +175,8 @@ final class VoiceApplicationDraft implements VoiceDraft<VoiceApplicationDraft> {
     stock: clearStock ? const {} : (stock ?? this.stock),
     stockOwnerId: clearStock ? null : (stockOwnerId ?? this.stockOwnerId),
     nextLineKey: nextLineKey ?? this.nextLineKey,
+    plan: clearPlan ? null : (plan ?? this.plan),
+    planData: clearPlan ? null : (planData ?? this.planData),
   );
 
   /// Stock leído para [ownerId]. Se ignora si el chaco cambió mientras se
@@ -200,6 +243,27 @@ final class VoiceApplicationDraft implements VoiceDraft<VoiceApplicationDraft> {
       out.add('Leyendo el stock del dueño del chaco…');
     }
     head('el área tratada', area);
+    final p = plan;
+    if (p != null) {
+      switch (p.status) {
+        case FieldStatus.resolved:
+          final data = planData;
+          if (data == null) {
+            out.add('Elija el plan pendiente que se aplica.');
+          } else {
+            if (farm.value?.id != data.farmId) {
+              out.add('El plan elegido es de otro chaco.');
+            }
+            if (campaign.value?.id != data.campaignId) {
+              out.add('El plan elegido no es de la campaña activa.');
+            }
+          }
+        case FieldStatus.ambiguous:
+          out.add('Elija el plan pendiente que se aplica.');
+        case FieldStatus.missing || FieldStatus.invalid:
+          out.add(p.message ?? 'No hay un plan pendiente que aplicar.');
+      }
+    }
     if (lines.isEmpty) out.add('Añada al menos un producto aplicado.');
     final seen = <int>{};
     for (var i = 0; i < lines.length; i++) {
@@ -217,6 +281,12 @@ final class VoiceApplicationDraft implements VoiceDraft<VoiceApplicationDraft> {
       } else if (l.product.isResolved && l.quantityBase == null) {
         out.add('$n: la cantidad no corresponde a la unidad del producto.');
       }
+      if (planData != null && !l.fromPlan) {
+        out.add(
+          '$n: ${l.product.value?.name ?? 'ese producto'} no está en el plan. '
+          'Quítelo o registre una aplicación sin plan.',
+        );
+      }
       final after = stockAfter(l);
       if (after != null && after < 0) {
         out.add('$n: no hay stock suficiente del dueño del chaco.');
@@ -229,8 +299,10 @@ final class VoiceApplicationDraft implements VoiceDraft<VoiceApplicationDraft> {
     return out;
   }
 
-  /// El mismo `ApplicationDraft` que arma el formulario sin plan: sin dosis,
-  /// la cantidad teórica es 0, como en el formulario con la dosis vacía.
+  /// El mismo `ApplicationDraft` que arma el formulario. Sin plan, sin dosis
+  /// y con la cantidad teórica en 0, como el formulario con la dosis vacía. Con
+  /// plan, con su `planId`, la dosis de cada línea y la teórica
+  /// área × dosis, como el formulario abierto desde «Aplicar este plan».
   ///
   /// [at] es el instante de la confirmación, como `DateTime.now()` en el
   /// formulario al enviar; no el de abrir el borrador (mismo criterio que la
@@ -246,13 +318,17 @@ final class VoiceApplicationDraft implements VoiceDraft<VoiceApplicationDraft> {
       appliedAt: at,
       notes: '',
       treatedAreaM2: area.value!,
+      planId: planData?.id,
       lines: [
         for (final l in lines)
           ApplicationLineDraft(
             productId: l.product.value!.id,
             quantityBase: l.quantityBase!,
             treatedAreaM2: area.value!,
-            theoreticalQuantityBase: 0,
+            doseBasePerHa: l.doseBasePerHa,
+            theoreticalQuantityBase: l.doseBasePerHa == null
+                ? 0
+                : divideRoundedHalfUp(area.value! * l.doseBasePerHa!, 10000),
           ),
       ],
     );

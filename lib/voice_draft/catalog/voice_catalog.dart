@@ -39,6 +39,48 @@ final class CatalogEntry {
   String toString() => 'CatalogEntry($id)';
 }
 
+/// Una línea de un plan pendiente: producto, dosis y cantidad requerida,
+/// tal como las guardó `addPlanMulti`.
+final class PendingPlanItem {
+  const PendingPlanItem({
+    required this.product,
+    required this.doseBasePerHa,
+    required this.requiredBase,
+  });
+
+  final CatalogEntry product;
+  final int doseBasePerHa;
+  final int requiredBase;
+}
+
+/// Un plan pendiente de la campaña activa (D-F09-4). Sólo se ofrece para su
+/// chaco y nunca se elige solo: el usuario lo selecciona.
+final class PendingPlan {
+  const PendingPlan({
+    required this.id,
+    required this.campaignId,
+    required this.farmId,
+    required this.areaM2,
+    required this.items,
+    this.plannedDate,
+  });
+
+  final int id;
+  final int campaignId;
+  final int farmId;
+  final int areaM2;
+  final List<PendingPlanItem> items;
+  final String? plannedDate;
+
+  /// Para elegirlo en la pantalla.
+  CatalogEntry get entry => CatalogEntry(
+    id: id,
+    name:
+        'Plan n.º $id · ${plannedDate ?? 'sin fecha'} · '
+        '${items.map((i) => i.product.name).join(', ')}',
+  );
+}
+
 /// Catálogos vigentes al abrir el borrador.
 final class VoiceCatalog {
   const VoiceCatalog({
@@ -50,6 +92,7 @@ final class VoiceCatalog {
     this.farmOwners = const {},
     this.loadedMode,
     this.personalOwner,
+    this.pendingPlans = const [],
   });
 
   final List<CatalogEntry> products;
@@ -78,6 +121,16 @@ final class VoiceCatalog {
   /// En inventario propio, el titular: la compra se le asigna sin elegir
   /// persona, como en el formulario. `null` en compartido.
   final CatalogEntry? personalOwner;
+
+  /// Planes pendientes de la campaña activa en chacos que se pueden usar.
+  final List<PendingPlan> pendingPlans;
+
+  /// Planes pendientes de [farmId] en [campaignId] (la campaña del
+  /// borrador). Un plan de otro chaco o de otra campaña no se ofrece.
+  List<PendingPlan> plansFor(int farmId, int? campaignId) => [
+    for (final plan in pendingPlans)
+      if (plan.farmId == farmId && plan.campaignId == campaignId) plan,
+  ];
 }
 
 enum ResolutionState { resolved, ambiguous, missing }

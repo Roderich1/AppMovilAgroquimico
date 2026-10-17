@@ -5,6 +5,8 @@
 - **Entorno:** pruebas de **host**. **No es una prueba DEVICE.**
 - **Trazabilidad:** RF-28, RF-29, CU-16, INT-07 y DAT-17; MOB #16, con #11, #14 y #15. GATE-F09 (#17) sigue Pending.
 
+> **Actualización del 2026-10-17 (C):** D-F09-4 se decidió después de este registro: sí se aplica un plan pendiente por voz. Lo entrega `docs/evidence/F09-VOZ-09_aplicar_plan_pendiente.md`. Lo que sigue se conserva tal como se verificó sobre su commit.
+
 ## 1. Un solo patrón para las tres operaciones
 
 | Pieza común | Archivo | Compra | Planificación | Aplicación |

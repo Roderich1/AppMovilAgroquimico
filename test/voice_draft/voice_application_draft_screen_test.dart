@@ -1,6 +1,7 @@
 import 'package:agroquimicos/app.dart';
 import 'package:agroquimicos/data/agro_repository.dart';
 import 'package:agroquimicos/data/app_database.dart';
+import 'package:agroquimicos/domain/models.dart';
 import 'package:agroquimicos/presentation/voice/voice_application_draft_screen.dart';
 import 'package:agroquimicos/voice/voice_providers.dart';
 import 'package:flutter/material.dart';
@@ -21,6 +22,7 @@ void main() {
 
   late AppDatabase database;
   late FakeSpeechTranscriptionPort port;
+  int? planId;
 
   Future<void> drain(WidgetTester tester) async {
     for (var i = 0; i < 3; i++) {
@@ -36,6 +38,7 @@ void main() {
   Future<void> pumpScreen(
     WidgetTester tester, {
     required List<FakeTurn> script,
+    bool withPlan = false,
   }) async {
     final repo = (await tester.runAsync(() async {
       database = openDb(inMemoryDatabasePath);
@@ -48,6 +51,16 @@ void main() {
         name: 'Impar',
         areaM2: 12345,
       );
+      if (withPlan) {
+        planId = await created.addPlanMulti(
+          farmId: household.titularFarm,
+          campaignId: household.campaign,
+          areaM2: 10000,
+          items: [
+            PlanItemDraft(productId: household.product, doseBasePerHa: 1500),
+          ],
+        );
+      }
       return created;
     }))!;
     port = FakeSpeechTranscriptionPort(script: script, repeatLast: false);
@@ -207,4 +220,113 @@ void main() {
       );
     },
   );
+
+  group('plan pendiente (D-F09-4)', () {
+    Future<List<Map<String, Object?>>> rows(
+      WidgetTester tester,
+      String t,
+    ) async => (await tester.runAsync(
+      () async => (await database.database).query(t),
+    ))!;
+
+    Future<void> pickPlan(WidgetTester tester) async {
+      await tap(tester, const Key('voz-plan-elegir'));
+      await tester.tap(find.textContaining('Plan n.º $planId').last);
+      await drain(tester);
+    }
+
+    testWidgets(
+      'pedir el plan no elige ninguno; elegirlo y confirmar lo aplica una vez',
+      (tester) async {
+        await pumpScreen(
+          tester,
+          withPlan: true,
+          script: const [
+            FakeTurn(
+              segment: 'aplicar la planificación del chaco titular',
+              endsOnStop: true,
+            ),
+          ],
+        );
+        await tap(tester, const Key('voz-boton-microfono'));
+        await tap(tester, const Key('voz-boton-microfono'));
+        expect(find.byKey(const Key('voz-plan')), findsOneWidget);
+        expect(find.byKey(const Key('voz-planeado-1')), findsNothing);
+        expect(
+          tester
+              .widget<ButtonStyleButton>(find.byKey(const Key('voz-registrar')))
+              .onPressed,
+          isNull,
+        );
+        final before = (await tester.runAsync(
+          () async => dumpTables(await database.database),
+        ))!;
+
+        await pickPlan(tester);
+        expect(find.byKey(const Key('voz-planeado-1')), findsOneWidget);
+        expect(find.textContaining('Planeado 1,5 L'), findsOneWidget);
+        expect(
+          (await tester.runAsync(
+            () async => dumpTables(await database.database),
+          ))!,
+          before,
+        );
+
+        await tester.ensureVisible(find.byKey(const Key('voz-registrar')));
+        await tester.pump();
+        await tester.tap(find.byKey(const Key('voz-registrar')));
+        await tester.tap(
+          find.byKey(const Key('voz-registrar')),
+          warnIfMissed: false,
+        );
+        await drain(tester);
+        final applied = await rows(tester, 'applications');
+        expect(applied, hasLength(1));
+        expect(applied.single['plan_id'], planId);
+      },
+    );
+
+    testWidgets('quitar el plan vuelve a la aplicación libre', (tester) async {
+      await pumpScreen(
+        tester,
+        withPlan: true,
+        script: const [
+          FakeTurn(
+            segment: 'aplicar la planificación del chaco titular',
+            endsOnStop: true,
+          ),
+        ],
+      );
+      await tap(tester, const Key('voz-boton-microfono'));
+      await tap(tester, const Key('voz-boton-microfono'));
+      await pickPlan(tester);
+      await tap(tester, const Key('voz-plan-quitar'));
+      expect(find.byKey(const Key('voz-planeado-1')), findsNothing);
+      expect(find.byKey(const Key('voz-plan-quitar')), findsNothing);
+    });
+
+    testWidgets(
+      'una aplicación libre en un chaco con plan no lo usa si no se elige',
+      (tester) async {
+        await pumpScreen(
+          tester,
+          withPlan: true,
+          script: const [FakeTurn(segment: full, endsOnStop: true)],
+        );
+        await tap(tester, const Key('voz-boton-microfono'));
+        await tap(tester, const Key('voz-boton-microfono'));
+        // Se ofrece como opción, sin bloquear.
+        expect(find.byKey(const Key('voz-plan-elegir')), findsOneWidget);
+        await tester.ensureVisible(find.byKey(const Key('voz-registrar')));
+        await tester.pump();
+        await tester.tap(find.byKey(const Key('voz-registrar')));
+        await drain(tester);
+        final applied = await rows(tester, 'applications');
+        expect(applied, hasLength(1));
+        expect(applied.single['plan_id'], isNull);
+        final plan = await rows(tester, 'application_plans');
+        expect(plan.single['status'], 'PLANNED');
+      },
+    );
+  });
 }
