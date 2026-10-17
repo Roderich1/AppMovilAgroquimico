@@ -67,3 +67,10 @@ El mensaje de `8f8fe4a` corrige además la frase original «No se declara INTERN
 - **Productos:** se reconocen mal (ADR-002: 5/17). Se tratan en la interpretación contra el catálogo, no en el motor.
 - **Pixel 8 / API 36:** `WAIVED_BY_OWNER` (ADR-002), sin cambios.
 - **Audio y texto:** no se guardan ni se registran. Los diagnósticos llevan códigos y longitudes, nunca frases.
+
+## 5. Verificaciones posteriores (2026-10-17)
+
+| HEAD | Qué | Resultado |
+|---|---|---|
+| `e857184` | Correcciones de la revisión de A: frase acotada a la voz, textos de 09_SECURITY y RISK-023, origen y líneas `-x` | CI run 39039105018: **success, 1248 pasan y 3 omitidas** (en Linux se omite una prueba más que en Windows). Revisión del delta por A: LISTO |
+| `7a1e44d` | Merge de `main` `8103766` (F04 #102 y #97 #103), sin conflictos y sin reescribir historia | Local: `flutter analyze lib test` sin avisos; `flutter test test/voice/` 176 pasan. La suite completa la ejecuta la CI de la cabeza que incluye esta nota |

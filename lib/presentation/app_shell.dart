@@ -7,9 +7,18 @@ import 'widgets/common.dart';
 import 'widgets/sync_status_banner.dart';
 
 class AppShell extends StatelessWidget {
-  const AppShell({super.key, required this.location, required this.child});
+  const AppShell({
+    super.key,
+    required this.location,
+    required this.child,
+    this.transfersEnabled = true,
+  });
   final String location;
   final Widget child;
+
+  /// Falso en inventario propio: no se ofrecen transferencias entre
+  /// responsables (RF-06, RF-11; #26). El router además saca de sus rutas.
+  final bool transfersEnabled;
 
   static const destinations = <({String path, IconData icon, String label})>[
     (path: '/', icon: Icons.space_dashboard_outlined, label: 'Inicio'),
@@ -247,7 +256,7 @@ class AppShell extends StatelessWidget {
             // (formularios a pantalla completa). Esas deben apilarse con
             // `push`: con `go` se reemplaza toda la pila y el botón atrás del
             // formulario deja la aplicación sin ninguna página que mostrar.
-            for (final action in const [
+            for (final action in [
               (
                 label: 'Planificación',
                 icon: Icons.event_note_outlined,
@@ -272,12 +281,13 @@ class AppShell extends StatelessWidget {
                 path: '/liquidacion',
                 isForm: false,
               ),
-              (
-                label: 'Transferencia',
-                icon: Icons.swap_horiz,
-                path: '/transferencias',
-                isForm: false,
-              ),
+              if (transfersEnabled)
+                (
+                  label: 'Transferencia',
+                  icon: Icons.swap_horiz,
+                  path: '/transferencias',
+                  isForm: false,
+                ),
             ])
               ListTile(
                 leading: Icon(action.icon),
