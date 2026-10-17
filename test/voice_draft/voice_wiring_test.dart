@@ -152,4 +152,25 @@ void main() {
     expect(find.byKey(const Key('mode-changed-notice')), findsOneWidget);
     expect(register().onPressed, isNull);
   });
+
+  testWidgets('con un borrador dictado, pasar al formulario pregunta y no '
+      'escribe', (tester) async {
+    final app = await openApp(tester, 'manual');
+    app.c.read(routerProvider).go('/compras/voz');
+    await settle(tester);
+    await tapVisible(tester, find.byKey(const Key('voz-boton-microfono')));
+    await tapVisible(tester, find.byKey(const Key('voz-boton-microfono')));
+    expect(find.byKey(const Key('voz-linea-1')), findsOneWidget);
+
+    await tapVisible(tester, find.byKey(const Key('voz-borrador-manual')));
+    expect(find.text('¿Descartar el borrador?'), findsOneWidget);
+    await tester.tap(find.text('Descartar y abrir el formulario'));
+    await settle(tester);
+    expect(find.byType(PurchaseFormScreen), findsOneWidget);
+    expect(port.microphoneOpen, isFalse);
+    final purchases = await tester.runAsync(
+      () async => (await app.s.database.database).query('purchases'),
+    );
+    expect(purchases, isEmpty);
+  });
 }

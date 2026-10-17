@@ -207,6 +207,27 @@ class _VoiceApplicationDraftScreenState
         (d != null && (d.lines.isNotEmpty || d.farm.isResolved));
   }
 
+  /// Pasar al formulario manual sustituye esta pantalla: con un borrador
+  /// empezado se pregunta antes, y el borrador se descarta sin escribir.
+  Future<void> _openManualForm() async {
+    final open = widget.onOpenManualForm;
+    if (open == null || _draft?.phase == DraftPhase.confirming) return;
+    if (_hasWork &&
+        !await confirmDestructiveAction(
+          context,
+          title: '¿Descartar el borrador?',
+          detail: 'No se registró nada. Se abrirá el formulario manual vacío.',
+          confirmLabel: 'Descartar y abrir el formulario',
+        )) {
+      return;
+    }
+    _draft?.discard();
+    await _session.discard();
+    if (!mounted) return;
+    setState(() => _leaving = true);
+    open();
+  }
+
   Future<void> _onBack() async {
     if (_draft?.phase == DraftPhase.confirming) return;
     final discard = await confirmDestructiveAction(
@@ -304,7 +325,7 @@ class _VoiceApplicationDraftScreenState
             const SizedBox(height: 8),
             TextButton.icon(
               key: const Key('voz-borrador-manual'),
-              onPressed: widget.onOpenManualForm,
+              onPressed: _openManualForm,
               icon: const Icon(Icons.edit_note_outlined),
               label: const Text('Usar el formulario manual'),
             ),
