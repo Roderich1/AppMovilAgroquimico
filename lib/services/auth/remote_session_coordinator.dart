@@ -23,6 +23,9 @@ enum RemoteSessionProblem {
   invalidCredentials,
   rejected,
   contextMismatch,
+
+  /// La sesión nueva es de otra cuenta, Member o tenant que la vinculada.
+  otherAccount,
   remoteOutcomeUnknown,
   localCommitFailed,
   localCommitUnknown,
