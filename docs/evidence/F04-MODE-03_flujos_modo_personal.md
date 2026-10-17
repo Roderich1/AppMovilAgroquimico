@@ -29,13 +29,14 @@ El modo de uso y su persistencia (#24) y las transiciones seguras (#27) ya estab
 | Operaciones | Tarjeta «Transferencias» | No aparece. «Modo de uso» dice «Ahora: inventario propio» y el subtítulo lo explica |
 | Atajo «Nuevo» | Ofrecía «Transferencia» | No la ofrece |
 | `/transferencias`, `/transferencias/nueva` abiertas directamente | Se abrían; el repositorio rechazaba al confirmar | Vuelven a `/operaciones` (`operationModeRedirect`) |
-| Transferencias abierta al pasar a propio, también debajo de otra pantalla | Seguía abierta | El router reevalúa la ruta y vuelve a Operaciones. Si la pantalla llegara a mostrarse, sólo muestra un aviso y no ofrece acciones |
+| Transferencias abierta al pasar a propio | Seguía abierta | Abierta con `go` (ruta base), el router reevalúa y vuelve a Operaciones, también si está debajo de Modo de uso. **Abierta con `push` desde la tarjeta de Operaciones** (el camino normal), go_router no cambia la ruta base y el redirect no la cierra: la propia pantalla deja de ofrecer acciones y ofrece «Volver a Operaciones» (corregido tras la revisión; ver abajo) |
 | Nueva compra | Reparto por persona («Asignaciones») y pagador | Sin reparto ni pagador: la línea entera es del titular y paga el titular. Se muestra «Para el titular: …» y «Paga el titular: …» |
 | Nueva aplicación | Selector «Persona» | Aplica el titular, que se muestra sin elegirlo; sólo sus chacos |
 | Nueva planificación | Todos los chacos | Sólo los del titular |
 | Pago al proveedor (Compras) | Selector «Pagador» | Paga el titular |
 | Catálogos › Personas | «Agregar persona» | No se agregan responsables; un aviso explica cómo pasar a compartido. Las personas ya registradas siguen a la vista |
 | Alta de chaco | Selector «Propietario» | Es del titular, sin elegirlo |
+| Liquidación | «Registrar pago/adelanto» para cada persona | Sólo para el titular; para las demás, un aviso no seleccionable. El repositorio ya lo rechazaba sin escribir (corregido tras la revisión) |
 | Formulario abierto cuando cambia la modalidad | Confirmaba con las opciones cargadas antes | Avisa y deshabilita «Confirmar» hasta volver a abrirlo; no guarda nada |
 
 En compartido todo sigue igual. Un solo dominio y una sola base: no hay tablas, modelos ni rutas por modalidad.
@@ -124,7 +125,7 @@ Procedimiento:
 
 - **Sin dispositivo.** La comprobación en el POCO está pendiente: se hará en una sesión física dedicada, junto con la de #97.
 - **Historial de transferencias en propio.** El listado de Transferencias no se muestra en propio. Los movimientos siguen en la base, el detalle de inventario muestra el origen «transferencia del lote #N» y el listado vuelve a verse al pasar a compartido. No se borra ni se reasigna nada.
-- **Personas en propio.** La sección Personas y Catálogos › Personas siguen mostrando a todas las personas, con su historial, y permiten corregir nombres o archivar; sólo no se agregan responsables nuevos. Liquidación no cambia: en propio no puede haber saldos de terceros activos, porque el paso a propio lo bloquea.
+- **Personas en propio.** La sección Personas y Catálogos › Personas siguen mostrando a todas las personas, con su historial, y permiten corregir nombres o archivar; sólo no se agregan responsables nuevos. En Liquidación se consultan y exportan los estados de cuenta de todos; registrar pagos o adelantos queda para el titular.
 - **Al arrancar**, la modalidad se lee en paralelo con el acceso. Mientras no se conoce, la presentación es la de compartido, que es la modalidad por defecto; el repositorio aplica la real en cada escritura.
 - **Cambiar de modalidad con Transferencias debajo de Modo de uso** lleva a Operaciones y cierra también Modo de uso. Por la interfaz no se llega a esa pila: es un caso de restauración o programático.
 
@@ -134,3 +135,25 @@ Procedimiento:
 - Revisión técnica del PR: la hace otra sesión antes de integrar.
 - Revisión de Roderich Rendón: pendiente.
 - Revisión del tutor: se registra aparte en GOV-01.
+
+## Correcciones tras la revisión de la sesión C (2026-10-17)
+
+Revisión de `11c8c3e`: **LISTO**, con 4 hallazgos menores (`_briefs/ESTADO_C_BACKUP.md`). Corrección en `edab2d0`.
+
+| Hallazgo | Tratamiento |
+|---|---|
+| En propio, Liquidación seguía ofreciendo «Registrar pago/adelanto» a otras personas. El repositorio lo rechazaba sin escribir, pero esta evidencia decía «Liquidación no cambia» | Corregido. El titular se lee en paralelo con el resto de la pantalla, sin otra espera en cadena; las pruebas de Liquidación con arnés estrecho siguen verdes. Prueba nueva «liquidación: pagos y adelantos sólo del titular» y **mutación N16** (se ofrecen a todos): detectada, 1 fallo |
+| Con `push` desde Operaciones el redirect no cierra Transferencias: la pantalla se defiende sola y esta evidencia lo describía mal | Corregido el texto (tabla de arriba). Prueba nueva del camino `push` → aviso → «Volver a Operaciones». `currentPath()` del arnés documenta que es la ruta base |
+| Al arrancar, mientras la modalidad aún vale `null`, el shell ofrece Transferencia | Ya declarado en los límites; sin cambio |
+| La prueba del pagador en el formulario ya no lee `payer_person_id` | Lo comprueba en la base el caso de compra de `personal_mode_flows_test` |
+
+**Resultados sobre `edab2d0` (2026-10-17):**
+- `dart format`: 0 cambiados.
+- `flutter analyze`: sin issues.
+- `flutter test`, primera corrida (14:03–14:04Z): **1090 pasan, 1 falla, 2 omitidas.** Falló el primer caso de `operation_mode_onboarding_test` con el PC muy cargado; aislado pasó 3 de 3.
+- `flutter test`, segunda corrida: **1091 pasan, 2 omitidas, 0 fallos.**
+
+Se conserva la falla intermitente. La prueba se endureció con esperas explícitas a la pantalla del titular y al mensaje de transición, en lugar de pausas fijas.
+
+`personal_mode_flows_test` pasa a tener **14 casos**.
+

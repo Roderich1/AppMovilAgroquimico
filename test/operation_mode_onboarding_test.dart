@@ -31,6 +31,9 @@ void main() {
     final database = openDb(file!);
     final offline = OfflineTransport();
     final c = await pumpModeApp(tester, database, transport: offline);
+    // Espera explícita: bajo carga, la redirección a /titular puede llegar
+    // después de que el arnés deje de ver indicadores de carga.
+    await waitFor(tester, find.byKey(const Key('owner-mode-help')));
     expect(
       c.read(installationAccessProvider),
       InstallationAccessState.activationPendingOwner,
@@ -53,7 +56,7 @@ void main() {
     await settle(tester);
     await tester.ensureVisible(find.byKey(const Key('owner-confirm')));
     await tester.tap(find.byKey(const Key('owner-confirm')));
-    await settle(tester);
+    await waitFor(tester, find.textContaining('Usa inventario propio'));
 
     expect(
       await tester.runAsync(() => OperationModeStore(database).current()),
