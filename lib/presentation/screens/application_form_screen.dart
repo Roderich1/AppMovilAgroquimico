@@ -87,7 +87,7 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
       }
       personId = plan.first['person_id'] as int;
       farmId = plan.first['farm_id'] as int;
-      area.text = formatForInput((plan.first['area_m2'] as int) / 10000);
+      area.text = _areaInput(plan.first['area_m2'] as int);
       stocks = await repo.availableProductsForOwner(personId!);
       for (final item in plan) {
         final stock =
@@ -176,10 +176,9 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
       return;
     }
     final owner = farm['owner_person_id'] as int;
-    final hectares = (farm['area_m2'] as int) / 10000;
     // Convenio es-BO: el campo debe precargarse como el usuario podria
     // teclearlo (coma decimal), no como "80.0" (UIBUG-003).
-    area.text = formatForInput(hectares, maxDecimals: 2);
+    area.text = _areaInput(farm['area_m2'] as int);
     if (personId != owner) {
       final catalogsValue = _latestCatalogs;
       if (catalogsValue != null) {
@@ -240,11 +239,15 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
       setState(() => line.cost = cost);
   }
 
+  /// Área del campo en m². Sin editar es la precargada, exacta (ver
+  /// [_areaInput]).
+  int get _areaM2 => ((tryParseDecimal(area.text) ?? 0) * 10000).round();
+
+  /// Área × dosis en enteros, con la misma regla que la cantidad requerida
+  /// del plan (`addPlanMulti`) y la aplicación por voz. En coma flotante,
+  /// 1,2345 ha × 5 L/ha daba 6172 en vez de 6173.
   int theoretical(_ApplicationLineEditor line) =>
-      ((tryParseDecimal(area.text) ?? 0) *
-              (tryParseDecimal(line.dose.text) ?? 0) *
-              1000)
-          .round();
+      divideRoundedHalfUp(_areaM2 * (tryParseBase(line.dose.text) ?? 0), 10000);
 
   Future<bool> confirmDiscard() async =>
       await showDialog<bool>(
@@ -283,6 +286,8 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
   }
 
   Future<void> submit(_ApplicationCatalogs data) async {
+    // Un segundo toque antes de redibujar no debe intentar otra escritura.
+    if (saving) return;
     if (personId == null || farmId == null || lines.isEmpty) {
       showError(context, 'Seleccione persona, chaco y al menos un producto.');
       return;
@@ -302,7 +307,7 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
         ApplicationLineDraft(
           productId: line.product['product_id'] as int,
           quantityBase: real,
-          treatedAreaM2: ((tryParseDecimal(area.text) ?? 0) * 10000).round(),
+          treatedAreaM2: _areaM2,
           doseBasePerHa: tryParseBase(line.dose.text),
           theoreticalQuantityBase: theoretical(line),
         ),
@@ -319,8 +324,7 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
               campaignId: data.campaign['id'] as int,
               appliedAt: DateTime.now(),
               notes: notes.text.trim(),
-              treatedAreaM2: ((tryParseDecimal(area.text) ?? 0) * 10000)
-                  .round(),
+              treatedAreaM2: _areaM2,
               planId: widget.planId,
               lines: drafts,
             ),
@@ -702,6 +706,13 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
     ),
   );
 }
+
+/// Área en m² escrita en hectáreas para el campo editable. Un entero de m²
+/// tiene a lo sumo cuatro decimales en hectáreas, así que con cuatro el texto
+/// es exacto: 10001 m² se muestra «1,0001» y se relee 10001; con tres se
+/// mostraba «1» y se guardaban 10000. Sólo para el área: dinero, dosis y
+/// cantidades conservan su formato.
+String _areaInput(int areaM2) => formatForInput(areaM2 / 10000, maxDecimals: 4);
 
 class _ApplicationLineEditor {
   _ApplicationLineEditor(this.product);
