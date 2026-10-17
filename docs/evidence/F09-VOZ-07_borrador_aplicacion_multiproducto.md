@@ -62,3 +62,5 @@
 - **M-1:** el área propuesta se muestra con 4 decimales de hectárea. Con 2, un chaco de 12 345 m² («1,23») bloqueaba «Registrar» por la comprobación de coherencia. Prueba: «un área que no es múltiplo de 100 m² se ve exacta y no bloquea».
 - **M-2:** si una cantidad llega justo después de otro número dicho («uno cinco litros»), queda inválida con el motivo y bloquea, en lugar de tomar sólo el último número. Aplicado en compra, planificación y aplicación, con una prueba en cada intérprete.
 - **Resultados:** pruebas focalizadas de borradores, pantallas y gate, **119 pasan**. La suite completa la ejecuta la CI de esta cabeza.
+
+- **Límite de M-2 (declarado, sin cambio de código):** si el nombre de un producto termina en número y la cantidad se dice justo después («urea cuarenta y seis dos kilos»), los dos números quedan seguidos y la cantidad se marca inválida: hay que escribirla o dictarla de otra forma («dos kilos de urea cuarenta y seis»). Falla del lado seguro: no se interpreta una cantidad equivocada.

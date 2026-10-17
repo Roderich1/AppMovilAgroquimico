@@ -46,3 +46,5 @@
 - El patrón está construido y probado en host. **Las pantallas no están conectadas** a rutas ni formularios: esa conexión la integra A en serie, después de F04. Hasta entonces, la «entrada manual equivalente» existe —los formularios no cambian—, pero el enlace entre ambas pantallas no.
 - **Reconocimiento real:** exige dictado real en un teléfono (ensayo físico con turno de A).
 - **Decisiones pendientes que acotan el alcance:** D-F09-2 (sin «Crear nuevo»), D-F09-3 (plan = área + dosis) y D-F09-4 (sin aplicar un plan por voz).
+
+- **Límite de M-2 (declarado, sin cambio de código):** si el nombre de un producto termina en número y la cantidad se dice justo después («urea cuarenta y seis dos kilos»), los dos números quedan seguidos y la cantidad se marca inválida: hay que escribirla o dictarla de otra forma («dos kilos de urea cuarenta y seis»). Falla del lado seguro: no se interpreta una cantidad equivocada.
