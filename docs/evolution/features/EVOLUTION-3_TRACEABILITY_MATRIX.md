@@ -16,7 +16,7 @@ Estado documental: `APPROVED`; evidencia de implementación: pendiente.
 | Aplicar plan por voz | `EVO-018` | planes 0/1/N, FIFO, stock, one-shot |
 | Pago por voz | `EVO-019` | saldos, excedente/adelanto, homónimos |
 | Cero escritura preconfirmación | Política + todos los specs | **Cubierto para `EVO-009`** por guardas que fallan si el subsistema puede nombrar repositorios, SQLite u operaciones. Para `EVO-017/018/019` sigue haciendo falta snapshot de base |
-| Privacidad de audio/texto | Política + ADR-002 | **Cubierto para `EVO-009`**: guardas de disco y red, pruebas de que ni eventos ni sesión imprimen lo dictado, y manifiesto sin `INTERNET` |
+| Privacidad de audio/texto | Política + ADR-002 | **Cubierto para `EVO-009`**: guardas de disco y red, pruebas de que ni eventos ni sesión imprimen lo dictado, y la voz sólo añade `RECORD_AUDIO` (el `INTERNET` es de F03; reconciliación F09) |
 | Performance/offline | Plan de benchmark | **Cumplido en un dispositivo**: POCO X5 Pro 5G, API 31, modo avión verificado. El segundo (Pixel 8 / API 36) queda `WAIVED_BY_OWNER` |
 | Motor de transcripción elegido | `ADR-002`, plan de benchmark | **Cerrado.** Android `SpeechRecognizer`, `ADR-002` `Accepted` con evidencia en hardware físico API 31 |
 | Consultas futuras | `EVO-020` | No aplica; estado `DEFERRED` |

@@ -280,19 +280,47 @@ void main() {
   group('permisos declarados', () {
     final manifest = File('android/app/src/main/AndroidManifest.xml');
 
-    test('se declara RECORD_AUDIO y ningún otro permiso nuevo', () {
+    // Reconciliación F09 sobre main `ce5678f`. La rama original de EVO-009
+    // (PR #8) afirmaba aquí que la build de release sólo declaraba
+    // RECORD_AUDIO y no INTERNET. Desde F03, `main` declara INTERNET para la
+    // activación, la sesión, la sincronización y los respaldos remotos: la
+    // aplicación lo necesita y la voz no puede retirarlo. Lo que sí se fija es
+    // que la voz añade RECORD_AUDIO y nada más, y que el código de voz no usa
+    // la red (grupo «privacidad verificable» y la prueba siguiente).
+    test('release declara INTERNET (F03) y RECORD_AUDIO (voz), y nada más', () {
       final source = manifest.readAsStringSync();
       final permissions = RegExp(r'uses-permission android:name="([^"]+)"')
           .allMatches(source)
           .map((m) => m.group(1))
           .toList();
-      expect(permissions, ['android.permission.RECORD_AUDIO']);
+      expect(permissions, [
+        'android.permission.INTERNET',
+        'android.permission.RECORD_AUDIO',
+      ]);
+      expect(source.contains('ACCESS_NETWORK_STATE'), isFalse);
     });
 
-    test('NO se declara INTERNET en la build que se distribuye', () {
-      final source = manifest.readAsStringSync();
-      expect(source.contains('android.permission.INTERNET'), isFalse);
-      expect(source.contains('ACCESS_NETWORK_STATE'), isFalse);
+    test('el puente nativo de voz no usa la red', () {
+      const dir = 'android/app/src/main/kotlin/com/comunidad/agro/agroquimicos';
+      for (final name in const [
+        'VoiceSpeechBridge.kt',
+        'VoiceSpeechEngine.kt',
+      ]) {
+        final source = File('$dir/$name').readAsStringSync();
+        for (final forbidden in const [
+          'java.net',
+          'HttpURLConnection',
+          'okhttp',
+          'https://',
+          'Socket(',
+        ]) {
+          expect(
+            source.contains(forbidden),
+            isFalse,
+            reason: '$name contiene $forbidden',
+          );
+        }
+      }
     });
 
     test('los manifiestos de desarrollo sólo añaden INTERNET, y por hot reload', () {

@@ -89,7 +89,7 @@ mejor que no lo hagas: el objetivo es que las frases no viajen a ninguna parte.
 
 | Qué | Cómo | Esperado |
 |---|---|---|
-| Sin permiso de red | Ver la nota de abajo | El APK **de release** no declara Internet. El **debug sí**, y es normal |
+| Permisos | Ver la nota de abajo | La voz sólo añade el micrófono. Internet aparece porque la app lo usa para la sesión y la sincronización (F03), no por la voz |
 | Sin audio guardado | Explorador de archivos, carpeta de la aplicación | Ningún archivo de audio, ni antes ni después de dictar |
 | Sin transcripción guardada | Cierra la pantalla y vuelve a entrar | El campo aparece **vacío**: el texto no sobrevive a la salida |
 
@@ -114,16 +114,12 @@ herramienta de Flutter en `android/app/src/debug/AndroidManifest.xml` para poder
 hablar con la aplicación mientras se desarrolla (hot reload, puntos de
 interrupción). Viene de la plantilla del proyecto y es anterior a `EVO-009`.
 
-**La build que se distribuye no lo lleva.** Comprobado sobre el binario:
+**Reconciliación F09 (2026-10-17, sobre main `ce5678f`):** la rama original de `EVO-009` (PR #8) afirmaba que la build de release no declaraba `INTERNET`. Ya no es cierto: `main` lo declara desde F03 para la activación, la sesión, la sincronización y los respaldos remotos, y la voz no puede retirarlo. La voz **añade sólo** `RECORD_AUDIO` y su código no usa la red; el servicio de reconocimiento del sistema sí puede usarla, y la interfaz lo avisa y pide consentimiento antes de cambiar a él.
 
-```bash
-aapt2 dump permissions build/app/outputs/flutter-apk/app-release.apk
-# uses-permission: name='android.permission.RECORD_AUDIO'
-```
-
-Si al revisar los permisos del teléfono ves «Internet», es por esto. La voz no
-usa la red en ningún caso: no hay código de red en el subsistema, y una prueba
-automatizada falla si aparece.
+Si al revisar los permisos del teléfono ves «Internet», es por la sesión y la
+sincronización. El código de voz de la app no usa la red: no hay código de red en
+el subsistema, y una prueba automatizada falla si aparece. El reconocedor del
+sistema puede usarla; antes de cambiar a él, la pantalla lo avisa y pregunta.
 
 ## Qué NO habilita esta prueba
 

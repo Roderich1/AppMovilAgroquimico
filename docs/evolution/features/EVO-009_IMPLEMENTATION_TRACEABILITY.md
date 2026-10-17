@@ -9,6 +9,7 @@
 | Estado | `IN_PROGRESS` |
 | Rama | `evolution/evo-009-safe-transcription` |
 | SHA base (`origin/main`) | `ff38c48a2b26b2c9a147b689fc4eeca1a9ec76e0` |
+| Reconciliación F09 | Rama `feat/f09-captura-voz` sobre main `ce5678f89449453c60c3f1889cd6e973f09f6548` (2026-10-17): los 9 commits del PR #8 por cherry-pick, sin la conexión del shell, que va en un commit aparte para el turno de integración |
 | Motor | Android `SpeechRecognizer` (`ADR-002` `Accepted`) |
 | Whisper | **No distribuido.** Sigue siendo reserva medida en `benchmark/` |
 
@@ -79,9 +80,9 @@ si reabre. La continuidad está en un solo sitio y se prueba sin teléfono.
 
 | Archivo | Cambio |
 |---|---|
-| `lib/app.dart` | Ruta `/voz` dentro del `ShellRoute` |
-| `lib/presentation/app_shell.dart` | `/voz` como subdestino de Operaciones y sin FAB global |
-| `lib/presentation/screens/operations_screen.dart` | Tarjeta `Ingresar datos por voz` |
+| `lib/app.dart` | Ruta `/voz` dentro del `ShellRoute` (en la reconciliación F09, commit aparte de conexión) |
+| `lib/presentation/app_shell.dart` | `/voz` como subdestino de Operaciones y sin FAB global (en la reconciliación F09, commit aparte de conexión) |
+| `lib/presentation/screens/operations_screen.dart` | Tarjeta `Ingresar datos por voz` (en la reconciliación F09, commit aparte de conexión) |
 | `android/app/src/main/AndroidManifest.xml` | `RECORD_AUDIO` y `queries` de `RecognitionService` |
 | `android/app/src/main/kotlin/.../MainActivity.kt` | Enchufa el puente y reenvía el permiso |
 
@@ -125,19 +126,25 @@ estable ni `pubspec.yaml`. **Ninguna dependencia nueva.**
 | No perder correcciones manuales | Regla de añadir al final; deshacer se desactiva al editar |
 | Lista de fallback documentada y probada | Spec + `voice_locale_policy_test.dart` |
 | Diferenciar los cinco estados del modo sin conexión | `VoiceOfflineEvidence` y `_OfflinePanel` |
-| Sólo `RECORD_AUDIO`; sin `INTERNET` | Manifiesto + guarda que enumera los permisos |
+| La voz añade sólo `RECORD_AUDIO` (el `INTERNET` es de F03) | Manifiesto + guarda que enumera los permisos |
 | Guardas que fallen si Voice toca SQLite, compras, pagos, FIFO o backup | `voice_architecture_guard_test.dart` |
 
 ## Una precisión sobre el permiso de Internet
 
-La build **de release** no declara `INTERNET`. Verificado sobre el binario, no
-sobre el código:
+**Reconciliación F09 (2026-10-17, sobre main `ce5678f`):** la rama original de `EVO-009` (PR #8) afirmaba que la build de release no declaraba `INTERNET`. Ya no es cierto: `main` lo declara desde F03 para la activación, la sesión, la sincronización y los respaldos remotos, y la voz no puede retirarlo. La voz **añade sólo** `RECORD_AUDIO` y su código no usa la red; el servicio de reconocimiento del sistema sí puede usarla, y la interfaz lo avisa y pide consentimiento antes de cambiar a él.
+
+Texto original de la rama, conservado como antecedente: «La build **de release**
+no declara `INTERNET`», con esta salida de `aapt2 dump permissions` sobre el APK
+de entonces (base `ff38c48`, anterior a F03: `INTERNET` entró en `main` con `b3efd0d`, 2026-09-28):
 
 ```bash
-aapt2 dump permissions build/app/outputs/flutter-apk/app-release.apk
 # package: com.comunidad.agro.agroquimicos
 # uses-permission: name='android.permission.RECORD_AUDIO'
 ```
+
+Sobre `main` `ce5678f` el manifiesto `main` declara `INTERNET` y `RECORD_AUDIO`.
+La guarda `release declara INTERNET (F03) y RECORD_AUDIO (voz), y nada más`
+fija esos dos.
 
 El APK **debug** sí lo declara, porque `android/app/src/debug/AndroidManifest.xml`
 —de la plantilla de Flutter, anterior a `EVO-009` y no modificado aquí— lo añade

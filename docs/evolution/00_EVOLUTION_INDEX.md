@@ -85,7 +85,8 @@ Ante contradicciones: código de la rama analizada → tests → `docs/46_BASELI
    la pantalla `Ingresar datos por voz` captura, transcribe de forma continua y
    deja una vista previa editable. **Entrega texto y no ejecuta ninguna
    operación**; no hay escrituras de negocio, ni audio ni transcripciones
-   persistidas, y no se declara `INTERNET`. Pasa a `VERIFIED` sólo tras la
+   persistidas, y la voz sólo añade `RECORD_AUDIO` (el `INTERNET` de la app es de
+   F03, no de la voz). Pasa a `VERIFIED` sólo tras la
    prueba en teléfono y la revisión del propietario. `EVO-010` **no ha
    comenzado**.
 6. La Fase 0 de EVOLUTION-3 está **cerrada**: el propietario ejecutó el corpus de ajuste con
