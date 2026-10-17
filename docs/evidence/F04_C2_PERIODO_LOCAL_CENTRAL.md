@@ -46,14 +46,50 @@ Todo mensaje de rechazo muestra **los dos períodos**: «“Campaña local 2026�
 
 | Situación | Tratamiento |
 |---|---|
-| Intención PUBLISH/SUPERSEDE que **nunca salió** (`PENDING`, `attempts = 0`) bajo una campaña con período incompatible o sin comprobar | El worker la **retiene**: no se envía, no se reescribe ni se borra. `SyncQueueSummary.heldForPeriod` y `heldForPeriod()` la cuentan; la pantalla de sincronización la señala |
-| Intención que ya salió alguna vez (`attempts ≥ 1`, por ejemplo `OUTCOME_UNKNOWN`) | Se reenvía igual: mismo operationId y contenido; Central responde por idempotencia (consulta segura, no un aporte nuevo) |
+| Intención PUBLISH/SUPERSEDE **sin asentar** (`PENDING`, `SENDING` u `OUTCOME_UNKNOWN`, con o sin intentos) bajo una campaña cuya compatibilidad temporal no está demostrada | El worker la **retiene**: no sale por POST, no se reescribe ni se borra. `SyncQueueSummary.heldForPeriod` y `heldForPeriod()` la cuentan; la pantalla de sincronización la señala. Da igual el motivo de invalidez guardado: un vínculo migrado con `NOT_ACCEPTING` y sin fechas centrales también retiene (C2-R1) |
+| Intención retenida que **ya salió alguna vez** (`attempts ≥ 1`) | Un intento registrado **no demuestra** que Central la recibiera (`markSending` cuenta el intento antes del envío): un reenvío podría ser la primera aceptación. Se **concilia** con `GET /operations/{id}` (§3 bis), nunca con otro POST. *(Antecedente: hasta `5c07dd1` esta fila decía «se reenvía igual… consulta segura»; era inexacto. Corregido el 2026-10-17 por C2-R1.)* |
+| Período compatible | Sin cambios: reintentos con el mismo envelope e idempotencia, como en F05 §11 |
 | `CANCEL` | Sale aunque el vínculo esté bloqueado (F06 §6) |
 | Total de consumo **aceptado (ACKED)** bajo un vínculo bloqueado | Se muestra bloqueado con su total real y «requiere revisión»; no se envía un cero ni se reasigna a otra campaña. Acción permitida: «Retirar del sindicato» = `CANCEL` con antecesor la intención aceptada, con confirmación del titular (`ConsumptionPublisher.withdraw`). La fila aceptada no se modifica |
 | Necesidad declarada vigente bajo un vínculo bloqueado | Un valor nuevo se rechaza con los dos períodos; retirar (`withdraw`) sigue permitido |
 | Vínculo bloqueado con aportes | «Vincular con el sindicato» lista «Requiere revisión: período de campaña» con aportes aceptados y retenidos por vínculo (`campaignReviews`) |
 
 **Pantallas:** `central_binding_screen.dart` (períodos local y central en cada fila, opciones centrales deshabilitadas con el motivo, «Fijar fin previsto…», tarjeta de revisión), `consumption_publish_screen.dart` (detalle del bloqueo con los dos períodos, «Retirar del sindicato»), `sync_status_screen.dart` (tarjeta «Envíos retenidos por el período de la campaña»).
+
+## 3 bis. C2-R1 y C2-R2: despacho de la cola (2026-10-17, tras la revisión de #116)
+
+Hallazgos de la revisión de Roderich sobre `77a55ab` (`CONTINUACION_TRAS_115_REVISION_116_2026-10-17.md` §2), confirmados por el arnés adversarial de C sobre `5c07dd1`: la retención sólo miraba `isUnsent`, y `readyToSend` comprobaba el período fuera de la transacción de `markSending`.
+
+**Regla (C2-R1).** La retención se decide con `CampaignBinding.periodHold(local)`: hay retención si el vínculo no tiene período central guardado o si el período local no cabe, **sea cual sea** el motivo de invalidez que se muestre. `SyncOutboxStore._heldForPeriod` retiene toda intención con valor (acción distinta de `CANCEL`) de una referencia retenida, sin mirar `attempts`. Las retenidas con `attempts > 0` son **inciertas**: el worker las resuelve con la consulta owner-scoped `GET /api/v1/sync/v1/operations/{operationId}` (`SyncApi.operation`, que valida la respuesta con `OperationView.validate`: exactamente `{ack, contribution}`, ACK de las siete claves para **ese** operationId).
+
+| Respuesta de la consulta | Qué hace el worker (`SyncWorker._reconcile`) |
+|---|---|
+| `APPLIED` / `ALREADY_APPLIED` válido | `recordAccepted(onlyIfUnsettled: true)`: ACK con el `serverAcceptedAt` de Central, sólo si la fila sigue sin asentar. Sin POST |
+| `CONFLICT` | `recordConflict`, como por ACK: decide el titular |
+| `REJECTED` | `recordTerminal(rejected)`, como por ACK |
+| `RETRYABLE` | Sigue retenida; `last_code` = código del ACK |
+| **404** `OPERATION_NOT_FOUND` | Sigue retenida con `last_code = OPERATION_NOT_FOUND`. Central no la conoce **ahora**: no autoriza publicar bajo el período incompatible y no demuestra que una petición anterior no pueda terminar después |
+| 401 | Acceso descartado; bloqueo `accessRequired`; fila intacta |
+| 403 | `pauseForAuthorization` del vínculo (como con un POST); bloqueo `forbidden` |
+| 429 / 503 | `last_code` del error; bloqueo `throttled`; fila intacta |
+| Sin red / otro HTTP | `last_code` (`UNAVAILABLE` o `HTTP_nnn`); bloqueo `unreachable` |
+| 200 con cuerpo inválido o ACK de otra operación | `last_code = INVALID_RESPONSE`; sigue retenida. No se confía |
+
+Nunca se cambia `operation_id`, payload, causalidad ni el historial de intentos: la consulta no cuenta como intento. `CANCEL` nunca se retiene (F06 §6) y conserva su antecesor. Las consultas comparten el presupuesto del ciclo (`budget`) y sólo se hacen si el resumen de la cola (`SyncQueueSummary.uncertainValues`, calculado en la misma consulta agregada) indica intenciones con valor ya intentadas.
+
+**Regla (C2-R2).** `markSending` es la única transacción que marca el despacho: dentro de ella relee la fila (debe seguir enviable), y si la acción no es `CANCEL` consulta `periodHeldCampaignRefs(txn)`; si la referencia está retenida lanza `SyncHeldForPeriodException` **antes** de escribir: ni `SENDING`, ni `attempts + 1`, ni transporte. El worker excluye esa intención del resto del ciclo (`readyToSend(exclude:)`), la cuenta en `SyncRunReport.held` y sigue con las demás; no oculta otros errores (`SyncOutboxRaceException` sigue cerrando el ciclo como antes).
+
+**Consultas SQL efectivamente implementadas:**
+- `periodHeldCampaignRefs`: `campaign_bindings ⋈ campaigns` (una consulta), compatibilidad evaluada en Dart;
+- `heldForPeriod`/`heldUncertain`: `sync_outbox ⋈ owner_bindings ⋈ campaign_bindings (misma tenant) ⋈ campaigns` sobre las filas sin asentar con valor (una consulta);
+- `summary`: la agregación por estado incorpora `values_n` y `uncertain_n`, para no consultar vínculos cuando no hay nada que retener ni conciliar.
+
+**Límites declarados:**
+- La conciliación sólo se intenta para intenciones retenidas con `attempts > 0`. Una intención incierta cuya campaña **sí** es compatible sigue el camino normal de reintento (F05 §11), como antes.
+- Una intención incierta sin confirmación fiable queda retenida indefinidamente, visible en «Sincronización» y en «Vincular con el sindicato», hasta que el período quepa (entonces sale el mismo envelope), Central la confirme por consulta o el titular retire la necesidad. No se descarta sola.
+- El 404 se registra pero no se reinterpreta: no hay un plazo tras el cual se considere «no recibida».
+- No cambia el contrato ni el envelope; no hay migración nueva: los estados de la outbox son los mismos; sólo cambian `last_code`/`updated_at` de filas sin asentar.
+- La API del despacho cambió para la revisión de C: `readyToSend` admite `exclude`; `markSending` puede lanzar `SyncHeldForPeriodException`; `recordAccepted` devuelve `bool` y admite `onlyIfUnsettled`; nuevos `heldUncertain`, `recordHeldQuery`, `SyncRunReport.queried/held`, `SyncQueueSummary.uncertainValues`.
 
 ## 4. Pruebas
 
@@ -69,7 +105,8 @@ Archivo principal: `test/f04_c2_campaign_period_test.dart` (28 pruebas; la CI lo
 | Edición posterior del calendario | grupo «edición posterior del calendario local» (alargar/acortar fin, alta de la siguiente, cierre) |
 | Persistencia / reapertura sin red | grupo «persistencia y reapertura» |
 | Publicación con vista previa vieja | «vista previa vieja: si el vínculo se volvió incompatible, publicar no escribe nada» |
-| Filas ya en cola / ACKED | grupo «cola» (retenida y luego enviada igual; ya enviada se reenvía) y «total ya aceptado (ACKED)…» (señalado, sin cero, retirada con CANCEL, la aceptada intacta) |
+| Filas ya en cola / ACKED | grupo «cola» (retenida y luego enviada igual cuando cabe) y «total ya aceptado (ACKED)…» (señalado, sin cero, retirada con CANCEL, la aceptada intacta). *(La prueba «ya enviada se reenvía igual» se retiró el 2026-10-17: presuponía recepción; la sustituyen las regresiones de C2-R1.)* |
+| **C2-R1 / C2-R2, regresiones 1–7 del encargo** | `test/f04_c2_queue_reconciliation_test.dart`, con un Central falso que distingue «no llegó» (500 sin registrar) de «aceptó y perdió el ACK» (registra y corta la respuesta), cuenta aceptaciones nuevas y responde al GET: 1 primera petición nunca recibida → ningún POST con valor bajo incompatibilidad, ninguna aceptación nueva, `OPERATION_NOT_FOUND` visible, y al caber sale el mismo envelope; 2 aceptada con ACK perdido → conciliada por GET sin POST nuevo; 3 migración v9 con `OUTCOME_UNKNOWN` y período sin comprobar → sin POST; 4 consulta con 401, 403, 429, sin red, cuerpo inválido y ACK de otra operación → ni ACK inventado ni POST; 5 período invalidado entre selección y marcado (`RacingOutbox`) → cero POST, `attempts` sin incremento, negocio y outbox intactos; 6 vínculo migrado `NOT_ACCEPTING` sin fechas → retiene; 7 camino compatible (reintento normal) y `CANCEL` bajo incompatibilidad con antecesor y causalidad intactos |
 | Fecha civil frente a timestamp; America/La_Paz | grupo «fecha civil frente a instante» + paso regional de la CI |
 | Migración: actualización y recuperación | grupo «migración v9 → v10» (actualización con mismo esquema que una base nueva; restauración de una copia v9 con `BackupService`) |
 | Fallo previo | `f04_c2_period_regression_test.dart` sobre `ec69ae8` |
@@ -88,6 +125,11 @@ Archivo principal: `test/f04_c2_campaign_period_test.dart` (28 pruebas; la CI lo
 | `dart format --set-exit-if-changed lib test` | la rama | exit 0 |
 
 | `flutter test test/f04_c2_binding_screen_test.dart` | la rama (tras la revisión de A) | 2 pasan; con la mutación «fecha inicial en vez de la elegida», 1 falla |
+| `flutter test test/f04_c2_queue_reconciliation_test.dart` | **`5c07dd1`** (worktree temporal con el archivo copiado; usa sólo la API anterior) | **11 fallan, 3 pasan.** Fallan: C2-R1 1 (nunca llegó: el código anterior reenviaba por POST y Central la aceptaba por primera vez), 2 (ACK perdido: volvía a hacer POST en vez de consultar), 3 (migración v9 con `OUTCOME_UNKNOWN`: POST), 6 (vínculo migrado `NOT_ACCEPTING` sin fechas: POST), las seis de la consulta (401, 403, 429, sin red, cuerpo inválido, ACK de otra operación: el código anterior no consultaba y hacía POST) y C2-R2 5 (carrera: marcaba `SENDING`, contaba el intento y hacía POST). Pasan las tres de control: «CANCEL no se retiene al marcar», «reintento normal» y «CANCEL bajo incompatibilidad con causalidad» |
+| `flutter test test/f04_c2_queue_reconciliation_test.dart` | la rama (C2-R1/C2-R2) | 14 pasan |
+| Arnés adversarial de C (`_wt/C-REV-116/test/c_rev_116_adversarial_test.dart`, copiado y ejecutado sobre la rama, no incluido en ella) | la rama | **13 pasan, 1 falla**: «el período se invalida entre la selección y el marcado». Su volcado de comparación excluye `sync_outbox` y `campaign_bindings` pero no `product_bindings`, cuyo `checked_at` cambia al refrescar las referencias en su propio `makeIncompatible`; el POST es cero, `attempts` 0 y el negocio intacto. Sobre `5c07dd1` C midió 1 pasa y 13 fallan |
+| `flutter test` (suite completa) | la rama, HEAD final | **1496 pasan, 3 omitidas, 0 fallos** |
+| `AGRO_TZ_REGRESSION=America/La_Paz flutter test …` (tres archivos de fechas) | la rama, zona del sistema −04:00 | 44 pasan, centinela incluido |
 
 **CI (GitHub Actions):**
 - run [39067645517](https://github.com/Roderich1/AppMovilAgroquimico/actions/runs/39067645517) sobre `3596985` (primer HEAD del PR, antes de la prueba de pantalla): **SUCCESS**;
@@ -114,13 +156,13 @@ Archivo principal: `test/f04_c2_campaign_period_test.dart` (28 pruebas; la CI lo
 - **Vínculos anteriores a v10** quedan `PERIOD_UNVERIFIED` hasta que el titular actualice las referencias una vez con red. Mientras tanto no publican valores nuevos; retirar sigue permitido.
 - **Campaña central cerrada** (`end_date = closedAt`, instante real): su día civil es el día UTC del cierre. No admite aportes, así que no afecta a vínculos nuevos; en un vínculo existente, «no admite aportes» prevalece sobre el período.
 - **Fin previsto:** no se puede volver a dejar abierto ni cambiar el de una campaña cerrada o archivada desde la aplicación. Si hace falta, es otra acción explícita.
-- **Intenciones retenidas** siguen `PENDING` hasta que el período quepa (se envían iguales) o el titular retire la necesidad; no se descartan solas ni hay un estado nuevo en la outbox (habría exigido reconstruir `sync_outbox`).
-- **Intenciones que ya salieron alguna vez** no se retienen: son la misma intención (idempotencia); si Central las acepta, el total aceptado pasa a «requiere revisión» como cualquier otro.
+- **Intenciones retenidas** conservan su estado (`PENDING`, `SENDING` u `OUTCOME_UNKNOWN`) hasta que el período quepa (entonces sale el mismo envelope), Central las confirme por consulta o el titular retire la necesidad; no se descartan solas ni hay un estado nuevo en la outbox (habría exigido reconstruir `sync_outbox`).
+- **Intenciones que ya salieron alguna vez** también se retienen (C2-R1) y se concilian por consulta; los límites de esa conciliación están en §3 bis. *(Antecedente: hasta `5c07dd1` este punto decía que no se retenían porque «son la misma intención (idempotencia)»; era inexacto: un intento no demuestra recepción.)*
 - **Un total aceptado bajo un período incompatible** sólo admite la retirada (`CANCEL`) o corregir el período local sin dejar registros fuera. Si las operaciones locales caen fuera del período central, no hay resolución permitida distinta de retirar: queda bloqueado y explícito. No se emite SQL ni se reasigna.
 - **«Fijar fin previsto…»** está sólo en «Vincular con el sindicato»; Catálogos (`catalogs_screen.dart`, de A) no cambió.
 - **Fin anterior a hoy en la campaña activa.** `setCampaignEnd` lo admite (no rompe ninguna invariante: fin ≥ inicio, sin solapes, ningún registro fuera), pero desde ese día las compras y aplicaciones nuevas caen en «ninguna campaña» y se rechazan hasta crear y activar la siguiente. El diálogo lo advierte antes de confirmar («Atención: ese fin ya pasó…»); la prueba de pantalla lo comprueba. Revisión de A sobre #116, hallazgo menor.
 - **Pantallas:** «Fijar fin previsto…» tiene prueba de widget (`f04_c2_binding_screen_test.dart`). La tarjeta de revisión se comprueba dentro de esas pruebas (aparece y desaparece); «Retirar del sindicato» y «Envíos retenidos» se verifican en el almacén (`withdraw`, `heldForPeriod`) y no tienen prueba de widget propia.
-- **Rendimiento:** `campaignBindingOf` lee además el período local (una consulta más por lectura). El resumen de la cola y el worker sólo miran los vínculos cuando hay intenciones que nunca salieron.
+- **Rendimiento:** `campaignBindingOf` lee además el período local (una consulta más por lectura). El resumen de la cola y el worker sólo miran los vínculos cuando hay intenciones con valor sin asentar, y `markSending` añade una consulta dentro de su transacción. Las pruebas de pantalla `sync_screens_test` y `f10_mensajes_autorizacion_test` esperan con tiempo fijo y son sensibles a este número; se repitieron tres veces en verde.
 
 ## 6. Decisiones que siguen con Roderich
 

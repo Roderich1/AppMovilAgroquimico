@@ -6,6 +6,9 @@ import '../../domain/sync/intention_planner.dart';
 import '../../domain/sync/operation_id.dart';
 import '../../domain/sync/sync_types.dart';
 import '../agro_repository.dart' show BusinessRuleException;
+import '../../domain/campaign_calendar.dart' show CampaignPeriod;
+import '../../domain/sync/campaign_period_check.dart'
+    show CentralPeriod, periodMismatch;
 import '../app_database.dart';
 import '../owner_binding_store.dart' show SyncQueueInspector;
 import 'central_binding_store.dart' show CentralBindingStore;
@@ -23,6 +26,17 @@ class SyncConflictPendingException extends BusinessRuleException {
 class SyncOutboxRaceException extends BusinessRuleException {
   SyncOutboxRaceException()
     : super('La sincronización está en curso. Intente de nuevo.');
+}
+
+/// D-F04-C2 (C2-R2): al ir a marcar el envío, la compatibilidad temporal del
+/// vínculo de la campaña ya no está demostrada. No se marcó, no se contó el
+/// intento y no se llamó al transporte.
+class SyncHeldForPeriodException extends BusinessRuleException {
+  SyncHeldForPeriodException()
+    : super(
+        'El período de la campaña dejó de ser compatible con el sindicato: '
+        'el envío queda retenido.',
+      );
 }
 
 /// Contribución a la que pertenece una intención (F05 §5): el titular y la
@@ -49,15 +63,23 @@ class SyncQueueSummary {
     this.counts,
     this.lastAcceptedAt, {
     this.heldForPeriod = 0,
+    this.uncertainValues = 0,
   });
 
   final Map<OutboxStatus, int> counts;
   final String? lastAcceptedAt;
 
-  /// Intenciones PENDING que nunca salieron y el worker retiene porque el
-  /// vínculo de su campaña no es compatible, o no se comprobó, con el período
-  /// central (D-F04-C2). Siguen contadas en [counts] como pendientes.
+  /// Intenciones con valor sin asentar (PENDING, SENDING u OUTCOME_UNKNOWN)
+  /// que el worker retiene porque la compatibilidad temporal del vínculo de su
+  /// campaña no está demostrada (D-F04-C2). No salen por POST; las que ya
+  /// salieron alguna vez se concilian por consulta. Siguen contadas en
+  /// [counts] con su estado.
   final int heldForPeriod;
+
+  /// Intenciones con valor sin asentar que ya salieron alguna vez
+  /// (attempts > 0), retenidas o no: sólo si hay alguna vale la pena buscar
+  /// qué conciliar (ahorra consultas en cada ciclo).
+  final int uncertainValues;
 
   int count(OutboxStatus status) => counts[status] ?? 0;
 
@@ -233,23 +255,27 @@ class SyncOutboxStore {
     ),
   );
 
-  /// D-F04-C2: una intención que **nunca salió del teléfono** y publica o
-  /// sustituye un valor bajo una campaña cuyo vínculo no es compatible (o no
-  /// se comprobó) con el período central se retiene: Central la aceptaría sin
-  /// notar que el total lleva días fuera de su período. Una retirada (CANCEL)
-  /// sí sale (F06 §6). Una intención que ya salió alguna vez se reenvía igual:
-  /// es el mismo envelope, Central responde por idempotencia (consulta
-  /// segura, no un aporte nuevo).
+  /// D-F04-C2: una intención que publica o sustituye un **valor** bajo una
+  /// campaña cuya compatibilidad temporal con el sindicato no está demostrada
+  /// se retiene: Central la aceptaría sin notar que el total lleva días fuera
+  /// de su período. Da igual cuántos intentos lleve (C2-R1): un intento
+  /// registrado no demuestra que Central la recibiera, así que un reenvío
+  /// podría ser la primera aceptación. Lo que ya salió alguna vez se concilia
+  /// por la consulta de operaciones ([heldUncertain]), nunca por otro POST.
+  /// Una retirada (CANCEL) sí sale (F06 §6).
   static bool _heldForPeriod(OutboxEntry entry, Set<String> heldRefs) =>
-      entry.isUnsent &&
-      entry.action != SyncAction.cancel &&
-      heldRefs.contains(entry.campaignRef);
+      entry.action != SyncAction.cancel && heldRefs.contains(entry.campaignRef);
+
+  static bool _mayBeHeld(OutboxEntry entry) =>
+      entry.status.isSendable && entry.action != SyncAction.cancel;
 
   /// Intenciones listas: como máximo una por contribución, la más antigua sin
   /// asentar, y sólo si su antecesora local ya fue aceptada (orden causal).
+  /// [exclude]: las que este ciclo ya intentó marcar y resultaron retenidas.
   Future<List<OutboxEntry>> readyToSend({
     required int activeBindingId,
     required DateTime now,
+    Set<String> exclude = const {},
   }) async {
     final db = await _database.database;
     final rows = await db.query(
@@ -260,10 +286,7 @@ class SyncOutboxStore {
     );
     final entries = rows.map(OutboxEntry.fromRow).toList();
     // Sólo hace falta mirar los vínculos si hay algo que pudiera retenerse.
-    final heldRefs =
-        entries.any(
-          (entry) => entry.isUnsent && entry.action != SyncAction.cancel,
-        )
+    final heldRefs = entries.any(_mayBeHeld)
         ? await CentralBindingStore.periodHeldCampaignRefs(db)
         : const <String>{};
     final byOperation = {for (final e in entries) e.operationId: e};
@@ -278,6 +301,7 @@ class SyncOutboxStore {
       if (!seen.add(entry.contributionKey)) continue;
       if (!entry.status.isSendable) continue;
       if (_heldForPeriod(entry, heldRefs)) continue;
+      if (exclude.contains(entry.operationId)) continue;
       final next = entry.nextAttemptAt;
       if (next != null && DateTime.parse(next).isAfter(now)) continue;
       final predecessor = entry.predecessorOperationId;
@@ -294,7 +318,25 @@ class SyncOutboxStore {
 
   /// Registra el intento **antes** de enviarlo: sobrevive a un cierre forzado
   /// y, desde aquí, la intención ya no puede reescribirse.
+  ///
+  /// D-F04-C2 (C2-R2): la elegibilidad temporal se vuelve a comprobar **en
+  /// esta misma transacción**, contra la fila y el vínculo actuales. Si la
+  /// campaña dejó de ser compatible entre la selección y el marcado, no se
+  /// marca SENDING, no se cuenta el intento y no se llama al transporte:
+  /// [SyncHeldForPeriodException]. Una retirada (CANCEL) no se retiene.
   Future<OutboxEntry> markSending(OutboxEntry entry) => _write((txn) async {
+    final current = await txn.query(
+      'sync_outbox',
+      where: 'id=? AND status IN $_sendableStatuses',
+      whereArgs: [entry.id],
+    );
+    if (current.length != 1) throw SyncOutboxRaceException();
+    final row = OutboxEntry.fromRow(current.single);
+    if (row.action != SyncAction.cancel &&
+        (await CentralBindingStore.periodHeldCampaignRefs(txn))
+            .contains(row.campaignRef)) {
+      throw SyncHeldForPeriodException();
+    }
     final changed = await txn.rawUpdate(
       'UPDATE sync_outbox SET status=?, attempts=attempts+1, updated_at=? '
       'WHERE id=? AND status IN $_sendableStatuses',
@@ -309,9 +351,30 @@ class SyncOutboxStore {
     return OutboxEntry.fromRow(rows.single);
   });
 
-  Future<void> recordAccepted(OutboxEntry entry, String serverAcceptedAt) =>
-      _write(
-        (txn) => txn.update(
+  /// Resultado de una **consulta** (GET de operaciones) sobre una intención
+  /// retenida: queda visible en `last_code` sin cambiar estado, intentos,
+  /// identidad ni contenido (C2-R1: un 404 o una respuesta inválida no
+  /// autorizan publicar ni demuestran que una petición anterior no pueda
+  /// terminar después). Sólo si la fila sigue sin asentar.
+  Future<void> recordHeldQuery(OutboxEntry entry, String code) => _write(
+    (txn) => txn.update(
+      'sync_outbox',
+      {'last_code': code, 'updated_at': _now()},
+      where: 'id=? AND status IN $_sendableStatuses',
+      whereArgs: [entry.id],
+    ),
+  );
+
+  /// Aceptación confirmada por un ACK válido del POST o por la consulta de
+  /// operaciones (conciliación, D-F04-C2). Con [onlyIfUnsettled], sólo si la
+  /// fila sigue sin asentar: una conciliación nunca pisa un estado posterior.
+  Future<bool> recordAccepted(
+    OutboxEntry entry,
+    String serverAcceptedAt, {
+    bool onlyIfUnsettled = false,
+  }) => _write(
+    (txn) async =>
+        await txn.update(
           'sync_outbox',
           {
             'status': OutboxStatus.acked.code,
@@ -321,10 +384,13 @@ class SyncOutboxStore {
             'next_attempt_at': null,
             'updated_at': _now(),
           },
-          where: 'id=?',
+          where: onlyIfUnsettled
+              ? 'id=? AND status IN $_sendableStatuses'
+              : 'id=?',
           whereArgs: [entry.id],
-        ),
-      );
+        ) ==
+        1,
+  );
 
   Future<void> recordConflict(
     OutboxEntry entry,
@@ -515,43 +581,84 @@ class SyncOutboxStore {
     final db = await _database.database;
     final rows = await db.rawQuery(
       'SELECT status, COUNT(*) AS n, '
-      "SUM(CASE WHEN attempts=0 AND action<>'CANCEL' THEN 1 ELSE 0 END) AS unsent "
+      "SUM(CASE WHEN action<>'CANCEL' THEN 1 ELSE 0 END) AS values_n, "
+      "SUM(CASE WHEN action<>'CANCEL' AND attempts>0 THEN 1 ELSE 0 END) AS uncertain_n "
       'FROM sync_outbox GROUP BY status',
     );
     final last = await db.rawQuery(
       "SELECT MAX(acked_at) AS last FROM sync_outbox WHERE status='ACKED'",
     );
-    // Sólo se miran los vínculos si hay alguna intención que pudiera estar
-    // retenida: el resumen se pide en cada ciclo.
-    final unsentPending = rows
-        .where((row) => row['status'] == OutboxStatus.pending.code)
-        .fold<int>(0, (sum, row) => sum + ((row['unsent'] as int?) ?? 0));
+    // Sólo se miran los vínculos si hay alguna intención con valor sin
+    // asentar: el resumen se pide en cada ciclo.
+    var unsettledValues = 0;
+    var uncertainValues = 0;
+    for (final row in rows) {
+      if (!OutboxStatus.fromCode(row['status']).isSendable) continue;
+      unsettledValues += (row['values_n'] as int?) ?? 0;
+      uncertainValues += (row['uncertain_n'] as int?) ?? 0;
+    }
     return SyncQueueSummary(
       {
         for (final row in rows)
           OutboxStatus.fromCode(row['status']): row['n']! as int,
       },
       last.single['last'] as String?,
-      heldForPeriod: unsentPending == 0 ? 0 : (await heldForPeriod()).length,
+      heldForPeriod: unsettledValues == 0 ? 0 : (await heldForPeriod()).length,
+      uncertainValues: uncertainValues,
     );
   }
 
-  /// Intenciones que el worker retiene por el período de su campaña
-  /// (D-F04-C2): requieren revisión del titular, no se reescriben.
-  Future<List<OutboxEntry>> heldForPeriod() async {
+  /// Intenciones con valor sin asentar que el worker retiene por el período
+  /// de su campaña (D-F04-C2): requieren revisión del titular, no se
+  /// reescriben. Incluye las que ya salieron alguna vez (SENDING,
+  /// OUTCOME_UNKNOWN o PENDING con intentos): tampoco se reenvían. Una sola
+  /// consulta: cada intención con el vínculo y la campaña de su referencia,
+  /// del tenant del titular de esa intención.
+  Future<List<OutboxEntry>> heldForPeriod({int? ownerBindingId}) async {
     final db = await _database.database;
-    final rows = await db.query(
-      'sync_outbox',
-      where: "status='PENDING' AND attempts=0 AND action<>'CANCEL'",
-      orderBy: 'id',
+    final rows = await db.rawQuery(
+      'SELECT o.*, b.central_start_day AS b_start, b.central_end_day AS b_end, '
+      'c.id AS c_id, c.name AS c_name, c.status AS c_status, '
+      'c.start_date AS c_start, c.end_date AS c_end '
+      'FROM sync_outbox o '
+      'JOIN owner_bindings w ON w.id = o.owner_binding_id '
+      'JOIN campaign_bindings b ON b.campaign_ref = o.campaign_ref '
+      'AND b.tenant_id = w.tenant_id '
+      'JOIN campaigns c ON c.id = b.campaign_id '
+      "WHERE o.status IN $_sendableStatuses AND o.action<>'CANCEL'"
+      '${ownerBindingId == null ? '' : ' AND o.owner_binding_id=?'} '
+      'ORDER BY o.id',
+      ownerBindingId == null ? null : [ownerBindingId],
     );
-    if (rows.isEmpty) return const [];
-    final heldRefs = await CentralBindingStore.periodHeldCampaignRefs(db);
-    return [
-      for (final entry in rows.map(OutboxEntry.fromRow))
-        if (_heldForPeriod(entry, heldRefs)) entry,
-    ];
+    final held = <OutboxEntry>[];
+    for (final row in rows) {
+      final start = row['b_start'] as String?;
+      final central = start == null
+          ? null
+          : CentralPeriod(startDay: start, endDay: row['b_end'] as String?);
+      final local = CampaignPeriod.fromRow({
+        'id': row['c_id'],
+        'name': row['c_name'],
+        'status': row['c_status'],
+        'start_date': row['c_start'],
+        'end_date': row['c_end'],
+      });
+      if (central == null || periodMismatch(local, central) != null) {
+        held.add(OutboxEntry.fromRow(row));
+      }
+    }
+    return held;
   }
+
+  /// Intenciones retenidas que **ya salieron alguna vez** (attempts > 0) del
+  /// titular [activeBindingId]: Central pudo recibirlas o no. El worker las
+  /// resuelve con la consulta de operaciones (C2-R1), nunca con otro POST.
+  Future<List<OutboxEntry>> heldUncertain({
+    required int activeBindingId,
+  }) async => [
+    for (final entry in await heldForPeriod(ownerBindingId: activeBindingId))
+      if (entry.attempts > 0) entry,
+  ];
 }
 
 /// Puerto de F04 (`changeOwner`): mientras el vínculo tenga intenciones que

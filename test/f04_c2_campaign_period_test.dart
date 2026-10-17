@@ -856,47 +856,6 @@ void main() {
       expect(sent['operationId'], pendingRow['operation_id']);
       expect((sent['payload'] as Map)['quantity_base'], '2000');
     });
-
-    test('una intención que ya salió (resultado desconocido) se reenvía igual: es la misma, no un aporte nuevo', () async {
-      final fixture = await seedSyncFixture();
-      await fixture.needs.declare(
-        referenceDate: inCampaign,
-        productId: fixture.litreProductId,
-        quantityBase: 2000,
-      );
-      // Primer intento sin respuesta fiable.
-      final first = _Transport([(_) => http.Response('', 500)]);
-      await _worker(fixture, first).run();
-      final entry = (await fixture.outboxEntries()).single;
-      expect(entry.attempts, 1);
-      expect(entry.isUnsent, isFalse);
-
-      await fixture.bindings.refreshFrom(
-        _references(end: '2026-10-31'),
-        memberA.tenantId,
-      );
-      expect((await fixture.outbox.summary()).heldForPeriod, 0);
-      final later = DateTime.utc(2026, 10, 15, 13);
-      final access = SyncAccessHolder(clock: () => later)
-        ..accept('token-sintetico', memberA.memberId, memberA.tenantId);
-      final retry = _Transport([_ack]);
-      final worker = SyncWorker(
-        outbox: fixture.outbox,
-        owners: fixture.owners,
-        api: () => SyncApi(
-          AuthHttpClient(
-            config: ApiEndpointConfig(Uri.parse('https://sindicato.example')),
-            client: retry.client,
-          ),
-          clock: () => later,
-        ),
-        access: access,
-        random: Random(7),
-        clock: () => later,
-      );
-      expect((await worker.run()).accepted, 1);
-      expect(retry.bodies.single['operationId'], entry.operationId);
-    });
   });
 
   group('migración v9 → v10', () {

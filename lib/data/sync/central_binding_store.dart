@@ -95,6 +95,17 @@ class CampaignBinding {
       ? null
       : CentralPeriod(startDay: centralStartDay!, endDay: centralEndDay);
 
+  /// D-F04-C2 (C2-R1): la compatibilidad temporal **no está demostrada** para
+  /// [local], sea cual sea el motivo de invalidez guardado. Sin período
+  /// central conocido no se puede comprobar; con él, el local tiene que caber.
+  /// Decide la retención de la cola, aparte del motivo que se muestra.
+  bool periodHold(CampaignPeriod? local) {
+    final central = centralPeriod;
+    if (central == null) return true;
+    if (local == null) return false;
+    return periodMismatch(local, central) != null;
+  }
+
   CampaignBinding _withStatus(BindingInvalidReason? reason) => CampaignBinding(
     campaignId: campaignId,
     tenantId: tenantId,
@@ -180,7 +191,9 @@ class CampaignBindingReview {
   /// Contribuciones con una intención aceptada (ACKED) bajo esta referencia.
   final int acceptedContributions;
 
-  /// Intenciones que nunca salieron del teléfono y el worker retiene.
+  /// Intenciones con valor sin asentar (nunca enviadas o con resultado
+  /// desconocido) que el worker retiene: no salen por POST; las inciertas se
+  /// concilian por consulta.
   final int heldIntentions;
 }
 
@@ -353,10 +366,13 @@ class CentralBindingStore {
     );
   }
 
-  /// Referencias de campaña cuyas intenciones nuevas el worker debe retener
-  /// (D-F04-C2): su vínculo no es compatible, o no se pudo comprobar, con el
-  /// período local actual. Central aceptaría esos totales sin notarlo. Una
-  /// sola consulta: el worker y el resumen la llaman a menudo.
+  /// Referencias de campaña cuyas intenciones con valor el worker debe
+  /// retener (D-F04-C2): la compatibilidad temporal del vínculo no está
+  /// demostrada ([CampaignBinding.periodHold]), **aunque el motivo de
+  /// invalidez guardado sea otro** (C2-R1: un vínculo migrado con
+  /// NOT_ACCEPTING y sin fechas centrales tampoco demuestra contención).
+  /// Central aceptaría esos totales sin notarlo. Una sola consulta: el worker
+  /// y el resumen la llaman a menudo.
   static Future<Set<String>> periodHeldCampaignRefs(DatabaseExecutor db) async {
     final rows = await db.rawQuery(
       'SELECT b.*, c.name AS c_name, c.status AS c_status, '
@@ -365,19 +381,15 @@ class CentralBindingStore {
     );
     final held = <String>{};
     for (final row in rows) {
-      final binding = _withLivePeriodCheck(
-        CampaignBinding.fromRow(row),
-        CampaignPeriod.fromRow({
-          'id': row['campaign_id'],
-          'name': row['c_name'],
-          'status': row['c_status'],
-          'start_date': row['c_start'],
-          'end_date': row['c_end'],
-        }),
-      );
-      if (binding.invalidReason?.holdsQueue ?? false) {
-        held.add(binding.campaignRef);
-      }
+      final binding = CampaignBinding.fromRow(row);
+      final local = CampaignPeriod.fromRow({
+        'id': row['campaign_id'],
+        'name': row['c_name'],
+        'status': row['c_status'],
+        'start_date': row['c_start'],
+        'end_date': row['c_end'],
+      });
+      if (binding.periodHold(local)) held.add(binding.campaignRef);
     }
     return held;
   }
@@ -444,8 +456,8 @@ class CentralBindingStore {
   }) async {
     final affected = [
       for (final binding in bindings)
-        if ((binding.invalidReason?.holdsQueue ?? false) &&
-            periods.containsKey(binding.campaignId))
+        if (periods.containsKey(binding.campaignId) &&
+            binding.periodHold(periods[binding.campaignId]))
           binding,
     ];
     if (affected.isEmpty) return const [];
@@ -453,7 +465,7 @@ class CentralBindingStore {
       for (final row in await db.rawQuery(
         'SELECT o.campaign_ref, '
         "COUNT(DISTINCT CASE WHEN o.status='ACKED' THEN o.projection_type || o.product_ref || o.base_unit END) AS accepted, "
-        "SUM(CASE WHEN o.action<>'CANCEL' AND o.status='PENDING' AND o.attempts=0 THEN 1 ELSE 0 END) AS held "
+        "SUM(CASE WHEN o.action<>'CANCEL' AND o.status IN ('PENDING','SENDING','OUTCOME_UNKNOWN') THEN 1 ELSE 0 END) AS held "
         'FROM sync_outbox o JOIN owner_bindings w ON w.id = o.owner_binding_id '
         'WHERE w.ended_at IS NULL GROUP BY o.campaign_ref',
       ))
