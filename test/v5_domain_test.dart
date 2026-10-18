@@ -227,7 +227,12 @@ void main() {
       name: 'Invierno',
       start: DateTime.now().add(const Duration(days: 1)),
     );
-    await repo.activateCampaign(winter, closeCurrent: true);
+    // #125: una sucesora que empieza mañana no se activa cerrando la actual.
+    // El cambio de campaña se hace como lo haría el usuario: cerrar
+    // «Primavera» con su fin efectivo (hoy) y activar «Invierno», que sin
+    // otra activa sí se admite. El propósito de la prueba no cambia.
+    await repo.closeCampaign(campaign);
+    await repo.activateCampaign(winter);
     expect((await repo.products()).any((r) => r['id'] == p), isTrue);
     expect(
       (await repo.personStockSummary(source))

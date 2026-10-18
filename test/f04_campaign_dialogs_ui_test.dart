@@ -30,6 +30,7 @@ void main() {
   Future<(AgroRepository, int)> open(
     WidgetTester tester, {
     bool withSuccessor = false,
+    DateTime? successorStart,
     DateTime? activeStart,
     // Fin previsto fijado antes de montar la pantalla (#122): la lista de
     // campañas se lee al abrir.
@@ -50,7 +51,7 @@ void main() {
       if (withSuccessor) {
         await repo.addCampaign(
           name: 'Campana Siguiente',
-          start: DateTime.now().add(const Duration(days: 30)),
+          start: successorStart ?? DateTime.now().add(const Duration(days: 30)),
         );
       }
       if (plannedEnd != null) {
@@ -245,5 +246,53 @@ void main() {
     final closed = await row(tester, repo, 'Campana Activa');
     expect(closed['status'], 'CLOSED');
     expect(storedLocalDay(closed['end_date']! as String), localDay(start));
+  });
+
+  testWidgets('una sucesora futura no se activa desde Catálogos (#125): la '
+      'fila dice desde cuándo, «Activar» explica la fecha y no aparece '
+      '«Cerrar y activar»; nada cambia', (tester) async {
+    final (repo, _) = await open(tester, withSuccessor: true);
+    final before = (await tester.runAsync(repo.campaigns))!;
+    final successor = await row(tester, repo, 'Campana Siguiente');
+    final from = formatDate(successor['start_date']);
+    expect(
+      find.textContaining('Se podrá activar desde el $from'),
+      findsOneWidget,
+    );
+    await openMenuOf(tester, 'Campana Siguiente');
+    await tester.tap(find.text('Activar'));
+    await settle(tester);
+    expect(find.text('Cerrar y activar'), findsNothing);
+    expect(
+      find.textContaining('Se podrá activar desde el $from'),
+      findsWidgets,
+    );
+    expect(await tester.runAsync(repo.campaigns), before);
+    expect((await row(tester, repo, 'Campana Activa'))['status'], 'ACTIVE');
+    expect((await row(tester, repo, 'Campana Siguiente'))['status'], 'PLANNED');
+  });
+
+  testWidgets('una sucesora que empieza hoy sí ofrece «Cerrar y activar» y '
+      'la transición deja hoy dentro de la nueva activa', (tester) async {
+    final (repo, _) = await open(
+      tester,
+      withSuccessor: true,
+      successorStart: DateTime.now(),
+    );
+    expect(find.textContaining('Se podrá activar desde'), findsNothing);
+    await openMenuOf(tester, 'Campana Siguiente');
+    await tester.tap(find.text('Activar'));
+    await settle(tester);
+    await tester.tap(find.text('Cerrar y activar'));
+    await settle(tester);
+    final previous = await row(tester, repo, 'Campana Activa');
+    final current = await row(tester, repo, 'Campana Siguiente');
+    expect(previous['status'], 'CLOSED');
+    expect(
+      storedLocalDay(previous['end_date']! as String),
+      previousLocalDay(localDay(today)),
+    );
+    expect(current['status'], 'ACTIVE');
+    expect(storedLocalDay(current['start_date']! as String), localDay(today));
   });
 }
