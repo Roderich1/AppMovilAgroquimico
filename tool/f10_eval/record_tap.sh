@@ -11,8 +11,9 @@ out="${5:-${F03_RUN_DIR:?}/video}"
 mkdir -p "$out"
 remote="/sdcard/f10eval_rec/$name.mp4"
 MSYS_NO_PATHCONV=1 adb shell mkdir -p /sdcard/f10eval_rec
-# El codificador del POCO falla a 1080x2400 (err=-38): 720x1600, misma proporción.
-MSYS_NO_PATHCONV=1 adb shell screenrecord --size 720x1600 --bit-rate 12000000 --time-limit "$dur" "$remote" &
+# El codificador del POCO falla a 1080x2400 (err=-38): 720x1600, misma proporción. Otro
+# equipo fija su tamaño con F10_REC_SIZE (HONOR 720x1612: tamaño nativo, serie 2).
+MSYS_NO_PATHCONV=1 adb shell screenrecord --size "${F10_REC_SIZE:-720x1600}" --bit-rate 12000000 --time-limit "$dur" "$remote" &
 rec=$!
 sleep 1.5
 if [ "$a" = "launch" ]; then

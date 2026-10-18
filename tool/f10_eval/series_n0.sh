@@ -9,6 +9,9 @@
 #   series_n0.sh r3 <primera-rep> <última-rep>
 # Requiere: source del entorno (env.sh + config.sh), ANDROID_SERIAL del POCO, modo avión
 # activo y pointer_location=1 (show_touches no aparece en la grabación de este MIUI). Escribe en $F03_RUN_DIR/series/ (fuera de cualquier worktree).
+# Serie 2 (otro equipo): F10_SCREEN_WIDTH (ancho de pantalla en px, 1080 por defecto), las
+# regiones finales F10_ROI_R1/R2/R3 (X,Y,W,H en px de pantalla; por defecto las del POCO) y
+# F10_START_ROI (región donde se ve el contacto; vacía = región alrededor del toque).
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 serie="${1:?r1|r2|r2b|r3}"; first="${2:?primera}"; last="${3:?última}"
@@ -19,6 +22,8 @@ csv="$F03_RUN_DIR/series/${serie}.csv"
 [ "$(adb shell settings get global airplane_mode_on | tr -d '\r')" = "1" ] || { echo "N0 exige modo avión"; exit 1; }
 component="$F03_APP_PACKAGE/com.comunidad.agro.agroquimicos.MainActivity"
 py() { python -I -X utf8 "$here/$1" "${@:2}"; }
+sw="${F10_SCREEN_WIDTH:-1080}"
+start_roi_args=(); [ -n "${F10_START_ROI-760,94,320,35}" ] && start_roi_args=(--start-roi "${F10_START_ROI-760,94,320,35}")
 
 counts() { bash "$here/eval_counts.sh" | sed -E 's/.*compras=([0-9]+) líneas_compra=([0-9]+).*/\1 \2/'; }
 
@@ -32,24 +37,24 @@ for rep in $(seq "$first" "$last"); do
       adb shell input keyevent KEYCODE_HOME; sleep 3
       log=$(bash "$here/record_tap.sh" "$name" launch "$component" 8 "$out/video")
       total=$(echo "$log" | sed -n -E 's/.*TotalTime: ([0-9]+).*/\1/p')
-      roi="0,700,1080,1350"; mode=(--start launch)
+      roi="${F10_ROI_R1:-0,700,1080,1350}"; mode=(--start launch)
       ;;
     r2|r2b)
       read -r p0 l0 < <(counts)
       py ui.py purchase-form "Proveedor DSV 1" DSV-002 10 50 DSV-003 5 40 > /dev/null
       xy=$(py ui.py find "^Confirmar$")
       log=$(bash "$here/record_tap.sh" "$name" ${xy% *} ${xy#* } 6 "$out/video")
-      roi="0,760,1080,760"; mode=(--start touch --tap "${xy/ /,}" --start-roi 760,94,320,35)
+      roi="${F10_ROI_R2:-0,760,1080,760}"; mode=(--start touch --tap "${xy/ /,}" "${start_roi_args[@]}")
       sleep 1
       read -r p1 l1 < <(counts)
       check="compras ${p0}->${p1} lineas ${l0}->${l1}"
       [ $((p1 - p0)) = 1 ] && [ $((l1 - l0)) = 2 ] || err="persistencia: $check"
       ;;
     r3)
-      adb shell input tap 540 2113; sleep 2   # pestaña Inventario
+      py ui.py tab Inventario > /dev/null   # pestaña Inventario, por su etiqueta
       xy=$(py ui.py find "^DSV-001 Producto sintético Físico")
       log=$(bash "$here/record_tap.sh" "$name" ${xy% *} ${xy#* } 5 "$out/video")
-      roi="0,300,1080,1750"; mode=(--start touch --tap "${xy/ /,}" --start-roi 760,94,320,35)
+      roi="${F10_ROI_R3:-0,300,1080,1750}"; mode=(--start touch --tap "${xy/ /,}" "${start_roi_args[@]}")
       seen=$(py ui.py find "Distribución por persona")
       [ -n "$seen" ] && check="detalle DSV-001 visible" || err="no se abrió el detalle"
       adb shell input keyevent KEYCODE_BACK; sleep 1.5
@@ -57,7 +62,7 @@ for rep in $(seq "$first" "$last"); do
   esac
   when=$(echo "$log" | sed -n -E 's/^(toque|orden)_utc=(.*)/\2/p')
   sha=$(echo "$log" | sed -n -E 's/.*sha256=([0-9a-f]+).*/\1/p')
-  json=$(py frames.py "$out/video/$name.mp4" "${mode[@]}" --end-roi "$roi" --frames-dir "$out/frames" || true)
+  json=$(py frames.py "$out/video/$name.mp4" "${mode[@]}" --end-roi "$roi" --screen-width "$sw" --frames-dir "$out/frames" || true)
   row=$(JSON="$json" python -I -X utf8 -c '
 import json, os
 try:

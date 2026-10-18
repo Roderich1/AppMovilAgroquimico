@@ -29,6 +29,37 @@ def adb(*args, capture=False):
     subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
+_SCREEN = None
+
+
+def screen():
+    """(ancho, alto) en píxeles de la pantalla del dispositivo (`wm size`). Las coordenadas
+    de desplazamiento y los umbrales de «quedó bajo el borde» se expresan como fracción de
+    la pantalla, de modo que la misma herramienta sirve para el POCO (1080×2400, serie 1) y
+    para el HONOR (720×1612, serie 2) sin coordenadas fijas."""
+    global _SCREEN
+    if _SCREEN is None:
+        out = adb("shell", "wm", "size", capture=True).decode("utf-8", "replace")
+        m = re.search(r"Physical size: (\d+)x(\d+)", out)
+        _SCREEN = (int(m.group(1)), int(m.group(2))) if m else (1080, 2400)
+    return _SCREEN
+
+
+def sx(frac):
+    return int(screen()[0] * frac)
+
+
+def sy(frac):
+    return int(screen()[1] * frac)
+
+
+def scroll_down(start=0.79, end=0.29):
+    """Desplaza la pantalla hacia abajo (dedo de `start` a `end`, fracciones del alto), sin
+    entrar en la franja de gestos del borde inferior."""
+    adb("shell", "input", "swipe", str(sx(0.5)), str(sy(start)), str(sx(0.5)), str(sy(end)), "350")
+    time.sleep(0.8)
+
+
 def dump():
     for _ in range(3):
         raw = adb("exec-out", "uiautomator", "dump", "/dev/tty", capture=True)
@@ -109,9 +140,8 @@ def fill_line(line_no, product, qty, price):
     """Rellena la línea `line_no` (1, 2…) ya agregada: producto, cantidad, precio y asignación."""
     hide_keyboard()
     header, nodes = wait_for(rf"^{line_no} (Seleccione producto|DSV-)")
-    if header["y"] > 1900:  # la línea quedó bajo el borde: se desplaza
-        adb("shell", "input", "swipe", "540", "1900", "540", "700", "350")
-        time.sleep(0.8)
+    if header["y"] > sy(0.79):  # la línea quedó bajo el borde: se desplaza
+        scroll_down()
         header, nodes = wait_for(rf"^{line_no} (Seleccione producto|DSV-)")
     selector = next(n for n in nodes if n["y"] > header["y"] and "Producto Producto" in label(n))
     tap(selector["x"], selector["y"], 1.2)
@@ -123,17 +153,16 @@ def fill_line(line_no, product, qty, price):
         header = find(nodes, rf"^{line_no} DSV-")
         fields = [n for n in edits(nodes) if n["y"] > header["y"]]
         if which == "asignación":
-            fields = [n for n in fields if n["x1"] > 600]
+            fields = [n for n in fields if n["x1"] > sx(0.55)]
         else:
-            fields = [n for n in fields if n["x1"] < 200]
+            fields = [n for n in fields if n["x1"] < sx(0.19)]
             fields = fields[0:1] if which == "cantidad" else fields[1:2]
-        if not fields or fields[0]["y"] > 2150:
-            adb("shell", "input", "swipe", "540", "1800", "540", "1000", "350")
-            time.sleep(0.8)
+        if not fields or fields[0]["y"] > sy(0.895):
+            scroll_down(0.75, 0.42)
             nodes = dump()
             header = find(nodes, rf"^{line_no} DSV-")
             fields = [n for n in edits(nodes) if n["y"] > header["y"]]
-            fields = [n for n in fields if (n["x1"] > 600) == (which == "asignación")]
+            fields = [n for n in fields if (n["x1"] > sx(0.55)) == (which == "asignación")]
             if which != "asignación":
                 fields = fields[0:1] if which == "cantidad" else fields[1:2]
         target = fields[0]
@@ -229,9 +258,8 @@ def application(lines):
         nodes = dump()
         header = find(nodes, rf"^{re.escape(code)} Producto sintético [0-9.,]+ (L|kg) real")
         fields = [n for n in edits(nodes) if header and n["y"] > header["y"]]
-        if len(fields) < 2 or fields[1]["y"] > 2100:
-            adb("shell", "input", "swipe", "540", "1800", "540", "1000", "350")
-            time.sleep(0.8)
+        if len(fields) < 2 or fields[1]["y"] > sy(0.875):
+            scroll_down(0.75, 0.42)
             nodes = dump()
             header = find(nodes, rf"^{re.escape(code)} Producto sintético [0-9.,]+ (L|kg) real")
             fields = [n for n in edits(nodes) if n["y"] > header["y"]]
@@ -265,6 +293,12 @@ def main():
         application([(args[i], args[i + 1]) for i in range(0, len(args), 2)])
     elif cmd == "purchase-form":
         purchase_form(*sys.argv[2:9])
+    elif cmd == "tab":
+        # Toca una pestaña inferior por su nombre («Inventario», «Inicio»…), sin coordenadas fijas.
+        n, _ = wait_for(rf"^{sys.argv[2]} Tab \d of \d$")
+        tap(n["x"], n["y"], 2.0)
+    elif cmd == "screen":
+        print("%d %d" % screen())
     else:
         sys.exit(__doc__)
 
