@@ -5,6 +5,7 @@ import '../../app.dart';
 import '../../data/agro_repository.dart';
 import '../../data/typed_reads.dart';
 import '../../domain/models.dart';
+import '../../domain/campaign_calendar.dart';
 import '../../domain/money.dart';
 import '../../domain/operation_mode.dart';
 import '../../domain/person_roles.dart';
@@ -449,9 +450,7 @@ class _CatalogsScreenState extends ConsumerState<CatalogsScreen>
                       ),
                       _ => (
                         row['name'].toString(),
-                        '${campaignStatusLabel(row['status'])} · '
-                            '${formatDate(row['start_date'])}'
-                            '${row['end_date'] == null ? '' : ' – ${formatDate(row['end_date'])}'}',
+                        _campaignSubtitle(row, snapshot.data![tabs.index]),
                         Icons.calendar_month_outlined,
                       ),
                     };
@@ -512,6 +511,27 @@ class _CatalogsScreenState extends ConsumerState<CatalogsScreen>
       ],
     ),
   );
+
+  /// Estado y período de la campaña. Una planificada cuyo inicio aún no llegó,
+  /// mientras otra está activa, dice desde cuándo se podrá activar (#125): el
+  /// camino válido es esperar a ese día; «Cerrar y activar» no se ofrece
+  /// antes, y el repositorio lo rechaza igual si se llega por otra vía.
+  String _campaignSubtitle(
+    Map<String, Object?> row,
+    List<Map<String, Object?>> all,
+  ) {
+    final start = row['start_date']! as String;
+    final end = row['end_date'] as String?;
+    var text =
+        '${campaignStatusLabel(row['status'])} · ${formatDate(start)}'
+        '${end == null ? '' : ' – ${formatDate(end)}'}';
+    if (row['status'] == 'PLANNED' &&
+        storedLocalDay(start).compareTo(localDay(DateTime.now())) > 0 &&
+        all.any((r) => r['status'] == 'ACTIVE')) {
+      text += ' · Se podrá activar desde el ${formatDate(start)}';
+    }
+    return text;
+  }
 
   String _roleLabel(String role) => switch (role) {
     'ADMIN' => 'Administrador',

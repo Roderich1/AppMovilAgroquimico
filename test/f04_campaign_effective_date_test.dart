@@ -167,17 +167,20 @@ void main() {
     expect(await s.endDay(s.winter), isNull);
 
     // Dos siguientes en orden: la primera queda con su fin fijado por la
-    // segunda, y activarla no se lo borra.
+    // segunda, y activarla no se lo borra. Hasta #125 «Primavera» empezaba
+    // el 01/12 y «Otoño» el 01/03/2027, fechas futuras; una sucesora que
+    // todavía no empezó ya no se activa cerrando la actual, así que las dos
+    // se mueven a inicios ya pasados. El propósito no cambia.
     final spring = await s.repo.addCampaign(
       name: 'Primavera',
-      start: DateTime(2026, 12, 1),
+      start: DateTime(2026, 10, 1),
     );
-    await s.repo.addCampaign(name: 'Otoño', start: DateTime(2027, 3, 1));
-    expect(await s.endDay(s.winter), '2026-11-30');
-    expect(await s.endDay(spring), '2027-02-28');
+    await s.repo.addCampaign(name: 'Otoño', start: DateTime(2026, 10, 10));
+    expect(await s.endDay(s.winter), '2026-09-30');
+    expect(await s.endDay(spring), '2026-10-09');
     await s.repo.activateCampaign(spring, closeCurrent: true);
-    expect(await s.endDay(spring), '2027-02-28');
-    expect(await s.endDay(s.winter), '2026-11-30');
+    expect(await s.endDay(spring), '2026-10-09');
+    expect(await s.endDay(s.winter), '2026-09-30');
   });
 
   for (final personal in [false, true]) {
@@ -707,11 +710,19 @@ void main() {
         final s = await seed('close-not-started');
         final start = DateTime.now().add(const Duration(days: 10));
         final future = await s.repo.addCampaign(name: 'Futura', start: start);
-        await s.repo.activateCampaign(future, closeCurrent: true);
-        // Límite declarado: «Cerrar y activar» una sucesora futura deja la
-        // anterior cerrada con el fin que fijó el alta (el día previo al inicio
-        // de la sucesora), que es futuro. No es el camino de closeCampaign.
-        expect(await s.endDay(s.winter), previousLocalDay(localDay(start)));
+        // #125: mientras «Invierno» esté activa, la sucesora futura no se
+        // activa, ni cerrando la actual. Hasta #124 esto cerraba «Invierno»
+        // con un fin futuro; ahora el camino es cerrar la actual con su fin
+        // efectivo y activar la planificada sin otra activa, que es la
+        // excepción documentada.
+        await expectLater(
+          s.repo.activateCampaign(future, closeCurrent: true),
+          throwsA(isA<CampaignActivationNotYetException>()),
+        );
+        await s.repo.closeCampaign(s.winter);
+        expect(await s.endDay(s.winter), localDay(DateTime.now()));
+        await s.repo.activateCampaign(future);
+        expect((await s.campaign(future))['status'], 'ACTIVE');
         await s.repo.setCampaignEnd(
           future,
           end: start.add(const Duration(days: 20)),

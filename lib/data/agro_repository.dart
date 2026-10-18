@@ -31,6 +31,29 @@ class CampaignConflictException extends BusinessRuleException {
   final String activeCampaignName;
 }
 
+/// Activar una sucesora que todavía no empezó cerraría la campaña actual antes
+/// de tiempo: el día de hoy quedaría dentro de una campaña cerrada y sin
+/// campaña operable (#125). No se aplica nada; la sucesora sigue planificada y
+/// se podrá activar desde su día de inicio.
+class CampaignActivationNotYetException extends BusinessRuleException {
+  CampaignActivationNotYetException({
+    required this.campaignName,
+    required this.activeCampaignName,
+    required this.activableFromDay,
+  }) : super(
+         '«$campaignName» empieza el ${displayDay(activableFromDay)}, después '
+         'de hoy. Mientras «$activeCampaignName» esté activa no se puede '
+         'activar cerrándola: el día de hoy quedaría dentro de una campaña '
+         'cerrada. Se podrá activar desde el ${displayDay(activableFromDay)}; '
+         'hasta entonces queda planificada.',
+       );
+  final String campaignName;
+  final String activeCampaignName;
+
+  /// Día local `aaaa-mm-dd` desde el que se admite la activación.
+  final String activableFromDay;
+}
+
 /// Por qué la fecha efectiva de una operación no permite registrarla en la
 /// campaña del borrador (RN-15, RN-16, RF-03).
 enum CampaignDateProblem {
@@ -482,6 +505,26 @@ class AgroRepository {
         whereArgs: [campaignId],
         limit: 1,
       );
+      // #125: con otra campaña activa, una sucesora cuyo inicio aún no llegó
+      // no se activa, con o sin `closeCurrent`: cerraría la actual antes de
+      // tiempo y hoy quedaría en una campaña cerrada. Se decide aquí, en la
+      // transacción y antes del conflicto, para que la pantalla no ofrezca
+      // «Cerrar y activar» como salida. Sin otra activa no aplica: una
+      // campaña ACTIVE con inicio futuro sigue siendo posible (excepción ya
+      // documentada, que no se amplía ni se quita). El día de inicio cuenta
+      // como ya llegado (inclusivo).
+      if (active.isNotEmpty) {
+        final targetStart = storedLocalDay(
+          target.single['start_date']! as String,
+        );
+        if (targetStart.compareTo(localDay(DateTime.now())) > 0) {
+          throw CampaignActivationNotYetException(
+            campaignName: target.single['name']! as String,
+            activeCampaignName: active.single['name']! as String,
+            activableFromDay: targetStart,
+          );
+        }
+      }
       if (active.isNotEmpty && !closeCurrent) {
         throw CampaignConflictException(
           active.single['id']! as int,
