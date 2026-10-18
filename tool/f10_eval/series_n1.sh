@@ -12,11 +12,21 @@ f03="$here/../f03_res_01"
 serie="${1:?r4|r6up|r6down}"; shift
 : "${F03_APP_PACKAGE:?cargue el entorno}" "${ANDROID_SERIAL:?fije ANDROID_SERIAL}"
 py() { python -I -X utf8 "$here/$1" "${@:2}"; }
+sw="${F10_SCREEN_WIDTH:-1080}"   # serie 2: ancho de pantalla del equipo (ver series_n0.sh)
+start_roi_args=(); [ -n "${F10_START_ROI-760,94,320,35}" ] && start_roi_args=(--start-roi "${F10_START_ROI-760,94,320,35}")
 component="$F03_APP_PACKAGE/com.comunidad.agro.agroquimicos.MainActivity"
 log_lines() { wc -l < "$F03_RUN_DIR/requests.log"; }
 
+# Serie 2 (HONOR): el modo avión conserva la Wi-Fi; con F10_WIFI_TOGGLE=1 se apaga y enciende
+# también la Wi-Fi (svc wifi) para que «sin red» sea real. En el POCO no hace falta.
+net_off() {
+  bash "$f03/device.sh" net off > /dev/null 2>&1
+  [ "${F10_WIFI_TOGGLE:-0}" = "1" ] && adb shell svc wifi disable
+  sleep 2
+}
 net_on_wait() {
   bash "$f03/device.sh" net on > /dev/null 2>&1
+  [ "${F10_WIFI_TOGGLE:-0}" = "1" ] && adb shell svc wifi enable
   for _ in $(seq 1 40); do
     MSYS_NO_PATHCONV=1 adb shell ping -c 1 -W 1 1.1.1.1 > /dev/null 2>&1 && return 0
     sleep 1
@@ -29,7 +39,7 @@ copies() {  # copias AVAILABLE de la cuenta D en el servidor
 }
 
 analyse() {  # $1 vídeo, $2 x,y del toque, $3 región final
-  py frames.py "$1" --start touch --tap "$2" --start-roi 760,94,320,35 --end-roi "$3" --frames-dir "$(dirname "$1")/../frames" || true
+  py frames.py "$1" --start touch --tap "$2" "${start_roi_args[@]}" --end-roi "$3" --screen-width "$sw" --frames-dir "$(dirname "$1")/../frames" || true
 }
 
 row_from() {  # JSON de frames.py -> inicio,fin,duración,cuadro_inicio,cuadro_fin,cuadros
@@ -51,7 +61,7 @@ case "$serie" in
     for rep in $(seq "$first" "$last"); do
       err=""
       # 1. Sin red, una intención nueva (necesidad de DSV-001 con otra cantidad).
-      bash "$f03/device.sh" net off > /dev/null 2>&1; sleep 2
+      net_off
       qty=$((20 + rep))
       py ui.py need "$qty" > /dev/null
       op=$(bash "$f03/device.sh" db outbox 2>/dev/null | tail -1 | sed -n -E 's/.*op=([0-9a-f]{8}).*/\1/p')
@@ -71,7 +81,7 @@ case "$serie" in
       journal=$(bash "$f03/check.sh" sync D 2>/dev/null | grep -c "journal $op" || true)
       [ "$after" = "ACKED" ] || err="${err:+$err; }estado final $after"
       [ "$journal" = "1" ] || err="${err:+$err; }journal $journal"
-      json=$(analyse "$out/video/r4_$(printf '%02d' "$rep").mp4" "${xy/ /,}" "0,380,1080,900")
+      json=$(analyse "$out/video/r4_$(printf '%02d' "$rep").mp4" "${xy/ /,}" "${F10_ROI_R4:-0,380,1080,900}")
       when=$(echo "$log" | sed -n -E 's/^toque_utc=(.*)/\1/p'); sha=$(echo "$log" | sed -n -E 's/.*sha256=([0-9a-f]+).*/\1/p')
       echo "r4,$rep,$([ "$rep" = 0 ] && echo si || echo no),$when,$(row_from "$json"),$op,$before,$reqs,$after,$journal,$err,$sha" >> "$csv"
       echo "r4 rep $rep op=$op $before -> $after journal=$journal $(row_from "$json") ${err:+ERROR: $err}"

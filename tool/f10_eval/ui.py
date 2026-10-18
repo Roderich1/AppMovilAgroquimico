@@ -29,6 +29,38 @@ def adb(*args, capture=False):
     subprocess.run(cmd, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 
+_SCREEN = None
+
+
+def screen():
+    """(ancho, alto) en píxeles de la pantalla del dispositivo (`wm size`). Las coordenadas
+    de desplazamiento y los umbrales de «quedó bajo el borde» se expresan como fracción de
+    la pantalla, de modo que la misma herramienta sirve para el POCO (1080×2400, serie 1) y
+    para el HONOR (720×1612, serie 2) sin coordenadas fijas."""
+    global _SCREEN
+    if _SCREEN is None:
+        out = adb("shell", "wm", "size", capture=True).decode("utf-8", "replace")
+        m = re.search(r"Physical size: (\d+)x(\d+)", out)
+        _SCREEN = (int(m.group(1)), int(m.group(2))) if m else (1080, 2400)
+    return _SCREEN
+
+
+def sx(frac):
+    return int(screen()[0] * frac)
+
+
+def sy(frac):
+    return int(screen()[1] * frac)
+
+
+def scroll_down(start=0.66, end=0.40):
+    """Desplaza la pantalla hacia abajo (dedo de `start` a `end`, fracciones del alto), sin
+    entrar en la franja de gestos del borde inferior. Lento (700 ms) para que no haya inercia:
+    en el HONOR un gesto rápido de media pantalla manda la línea siguiente fuera por arriba."""
+    adb("shell", "input", "swipe", str(sx(0.5)), str(sy(start)), str(sx(0.5)), str(sy(end)), "700")
+    time.sleep(0.9)
+
+
 def dump():
     for _ in range(3):
         raw = adb("exec-out", "uiautomator", "dump", "/dev/tty", capture=True)
@@ -68,8 +100,12 @@ def tap(x, y, wait=1.0):
 
 
 def keyboard_shown():
+    """True sólo si el teclado está realmente en pantalla. En el HONOR (Android 16)
+    `mInputShown` puede seguir en true un instante después de cerrarse el teclado; un BACK
+    enviado entonces cierra la pantalla, no el teclado (serie 2). Se exige además la ventana
+    del IME visible."""
     out = adb("shell", "dumpsys", "input_method", capture=True).decode("utf-8", "replace")
-    return "mInputShown=true" in out
+    return "mInputShown=true" in out and "mWindowVisible=true" in out
 
 
 def hide_keyboard():
@@ -108,42 +144,99 @@ def choose(field_pattern, option_pattern):
 def fill_line(line_no, product, qty, price):
     """Rellena la línea `line_no` (1, 2…) ya agregada: producto, cantidad, precio y asignación."""
     hide_keyboard()
-    header, nodes = wait_for(rf"^{line_no} (Seleccione producto|DSV-)")
-    if header["y"] > 1900:  # la línea quedó bajo el borde: se desplaza
-        adb("shell", "input", "swipe", "540", "1900", "540", "700", "350")
-        time.sleep(0.8)
-        header, nodes = wait_for(rf"^{line_no} (Seleccione producto|DSV-)")
+    header = None
+    for _ in range(3):  # la línea puede quedar bajo el borde (pantallas cortas): se desplaza
+        try:
+            header, nodes = wait_for(rf"^{line_no} (Seleccione producto|DSV-)", 3)
+        except RuntimeError:
+            header = None
+        if header is not None and header["y"] <= sy(0.79):
+            break
+        scroll_down()
+    if header is None:
+        raise RuntimeError(f"no se ve la línea {line_no}")
     selector = next(n for n in nodes if n["y"] > header["y"] and "Producto Producto" in label(n))
     tap(selector["x"], selector["y"], 1.2)
     option, _ = wait_for(rf"^{re.escape(product)} Producto sintético")
     tap(option["x"], option["y"], 1.2)
-    for value, which in ((qty, "cantidad"), (price, "precio"), (qty, "asignación")):
-        hide_keyboard()
+    def line_edits():
+        """Campos de la línea: los EditText bajo su cabecera y antes de la siguiente línea."""
         nodes = dump()
         header = find(nodes, rf"^{line_no} DSV-")
-        fields = [n for n in edits(nodes) if n["y"] > header["y"]]
-        if which == "asignación":
-            fields = [n for n in fields if n["x1"] > 600]
-        else:
-            fields = [n for n in fields if n["x1"] < 200]
-            fields = fields[0:1] if which == "cantidad" else fields[1:2]
-        if not fields or fields[0]["y"] > 2150:
-            adb("shell", "input", "swipe", "540", "1800", "540", "1000", "350")
-            time.sleep(0.8)
+        if header is None:
+            # Al abrir el teclado el formulario se desplaza y la cabecera sale por ARRIBA
+            # (fuente grande): primero se sube un poco; si no está, se baja.
+            adb("shell", "input", "swipe", str(sx(0.5)), str(sy(0.40)), str(sx(0.5)), str(sy(0.66)), "700")
+            time.sleep(0.9)
             nodes = dump()
             header = find(nodes, rf"^{line_no} DSV-")
-            fields = [n for n in edits(nodes) if n["y"] > header["y"]]
-            fields = [n for n in fields if (n["x1"] > 600) == (which == "asignación")]
-            if which != "asignación":
-                fields = fields[0:1] if which == "cantidad" else fields[1:2]
-        target = fields[0]
+        if header is None or header["y"] > sy(0.79):
+            scroll_down()
+            nodes = dump()
+            header = find(nodes, rf"^{line_no} DSV-")
+        if header is None:
+            raise RuntimeError(f"no se ve la cabecera de la línea {line_no}")
+
+        def below(nodes, header):
+            nxt = find(nodes, rf"^{line_no + 1} (Seleccione producto|DSV-)")
+            top, bottom = header["y"], (nxt["y"] if nxt else 10 ** 6)
+            return [n for n in edits(nodes) if top < n["y"] < bottom]
+
+        fields = below(nodes, header)
+        if not fields:  # cabecera visible pero los campos bajo el borde (fuente grande): se baja
+            scroll_down()
+            nodes = dump()
+            header = find(nodes, rf"^{line_no} DSV-") or header
+            fields = below(nodes, header)
+        own = find(nodes, r"^Para el titular") is not None
+        return header, fields, own
+
+    # Dos disposiciones: lado a lado (serie 1, POCO: cantidad y precio a la izquierda,
+    # asignación a la derecha) o apilada (serie 2, HONOR 720 px: cantidad, moneda, precio;
+    # en modalidad propia no hay campo de asignación: «Para el titular»).
+    header, fields, own = line_edits()
+    stacked = fields and all(n["x1"] < sx(0.3) for n in fields)
+    plan = [(qty, 0), (price, 1)]
+    if not own and (not stacked or len(fields) >= 3):
+        plan.append((qty, 2))
+    for value, idx in plan:
+        hide_keyboard()
+        header, fields, own = line_edits()
+        if stacked:
+            fields = sorted(fields, key=lambda n: n["y"])
+        else:
+            left = sorted((n for n in fields if n["x1"] < sx(0.19)), key=lambda n: n["y"])
+            right = sorted((n for n in fields if n["x1"] > sx(0.55)), key=lambda n: n["y"])
+            fields = left[0:2] + right[0:1]
+        if len(fields) <= idx or fields[idx]["y"] > sy(0.875):
+            scroll_down()
+            header, fields, own = line_edits()
+            if stacked:
+                fields = sorted(fields, key=lambda n: n["y"])
+            else:
+                left = sorted((n for n in fields if n["x1"] < sx(0.19)), key=lambda n: n["y"])
+                right = sorted((n for n in fields if n["x1"] > sx(0.55)), key=lambda n: n["y"])
+                fields = left[0:2] + right[0:1]
+        target = fields[idx]
         tap(target["x"], target["y"], 0.8)
         type_text(value)
     hide_keyboard()
+    # Comprobación final: con fuente grande (A4-F, 1,3) la cabecera puede haber salido por
+    # arriba tras rellenar el precio; se vuelve a subir un poco antes de darla por perdida.
     nodes = dump()
     header = find(nodes, rf"^{line_no} DSV-")
-    if "Asignado" not in label(header):
-        raise RuntimeError(f"línea {line_no} sin asignar: {label(header)}")
+    for _ in range(3):
+        if header is not None:
+            break
+        adb("shell", "input", "swipe", str(sx(0.5)), str(sy(0.40)), str(sx(0.5)), str(sy(0.66)), "700")
+        time.sleep(0.9)
+        nodes = dump()
+        header = find(nodes, rf"^{line_no} DSV-")
+    if header is None:
+        raise RuntimeError(f"no se ve la cabecera de la línea {line_no} al terminar")
+    own = find(nodes, r"^Para el titular") is not None
+    if "Pendiente" in label(header) or (not own and "Asignado" not in label(header)):
+        raise RuntimeError(f"línea {line_no} incompleta: {label(header)}")
 
 
 def purchase_form(supplier, p1, q1, c1, p2, q2, c2):
@@ -159,7 +252,7 @@ def purchase_form(supplier, p1, q1, c1, p2, q2, c2):
     hide_keyboard()
     nodes = dump()
     total = find(nodes, r"TOTAL COMPRA 2 productos")
-    confirm = find(nodes, r"^Confirmar$")
+    confirm = find(nodes, r"^Confirmar( compra)?$")  # «Confirmar compra» desde MOB #103 (barra inferior)
     if not confirm:
         raise RuntimeError("no se ve «Confirmar»")
     print(f"listo: {label(total) if total else 'total no visible'}; confirmar en {confirm['x']},{confirm['y']}")
@@ -208,7 +301,8 @@ def need(quantity):
     tap(go["x"], go["y"], 1.5)
     confirm, _ = wait_for(r"^Declarar$")
     tap(confirm["x"], confirm["y"], 2.5)
-    row, _ = wait_for(rf"DSV-001 Producto sintético · Campaña DSV 2025-2026 {quantity} L", 8)
+    # La necesidad va a la campaña que contiene hoy (serie 2: «Campaña DSV S2»); se acepta cualquier nombre.
+    row, _ = wait_for(rf"DSV-001 Producto sintético · Campaña [^·]* {quantity} L", 8)
     print("necesidad: " + label(row))
 
 
@@ -229,9 +323,8 @@ def application(lines):
         nodes = dump()
         header = find(nodes, rf"^{re.escape(code)} Producto sintético [0-9.,]+ (L|kg) real")
         fields = [n for n in edits(nodes) if header and n["y"] > header["y"]]
-        if len(fields) < 2 or fields[1]["y"] > 2100:
-            adb("shell", "input", "swipe", "540", "1800", "540", "1000", "350")
-            time.sleep(0.8)
+        if len(fields) < 2 or fields[1]["y"] > sy(0.875):
+            scroll_down()
             nodes = dump()
             header = find(nodes, rf"^{re.escape(code)} Producto sintético [0-9.,]+ (L|kg) real")
             fields = [n for n in edits(nodes) if n["y"] > header["y"]]
@@ -265,6 +358,12 @@ def main():
         application([(args[i], args[i + 1]) for i in range(0, len(args), 2)])
     elif cmd == "purchase-form":
         purchase_form(*sys.argv[2:9])
+    elif cmd == "tab":
+        # Toca una pestaña inferior por su nombre («Inventario», «Inicio»…), sin coordenadas fijas.
+        n, _ = wait_for(rf"^{sys.argv[2]} Tab \d of \d$")
+        tap(n["x"], n["y"], 2.0)
+    elif cmd == "screen":
+        print("%d %d" % screen())
     else:
         sys.exit(__doc__)
 
