@@ -39,7 +39,7 @@ const f06Unbound = {'Adherente casero'};
 /// centrales del seed del Backend (`Back/prisma/seed.ts`) van: «Campana
 /// Verano 2026» del 01/01/2026 al 30/06/2026 y «Campana Invierno 2026» del
 /// 01/07/2026 al 30/11/2026 (días civiles en UTC del contrato). Ajuste del
-/// 2026-10-17, sólo de fechas de preparación:
+/// 2026-10-18 (03:14Z; noche del 17 en La Paz), sólo de fechas de preparación:
 /// - C1: fin 31/08/2026 → **30/06/2026** (antes terminaba después que la
 ///   central);
 /// - C2: sin fin → **30/11/2026** (antes quedaba abierta frente a una central
