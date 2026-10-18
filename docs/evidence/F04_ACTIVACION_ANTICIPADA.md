@@ -19,6 +19,7 @@
 - El **día de inicio cuenta como llegado** (inclusivo): una sucesora que empieza hoy se activa; la anterior termina ayer (fin que fijó el alta) y hoy queda dentro de la nueva activa.
 - **Sin otra campaña activa no aplica:** una planificada con inicio futuro se puede activar (la excepción ya documentada: campaña ACTIVE cuyo inicio no llegó) y sigue cerrándose sólo en su propio día de inicio. La excepción no se amplía ni se quita, y ninguna base existente se altera automáticamente.
 - **Llegar la fecha no salta las guardas existentes:** `_endOpenCampaignBefore`, los solapes y la revalidación del vínculo central siguen igual.
+- **Camino válido cuando la actual debe terminar antes del inicio de la siguiente:** cerrarla con su **fin efectivo** («Cerrar», `closeCampaign`, #124: no después de hoy y sin dejar registros fuera) y, después, activar la planificada, que sin otra activa sí se admite aunque su inicio no haya llegado. Hasta ese día, hoy no tendrá campaña operable; es la consecuencia de terminar la actual antes, elegida de forma explícita, no un cierre anticipado en silencio.
 
 **Pantalla** (`catalogs_screen.dart`, pestaña «Campañas»): la fila de una planificada cuyo inicio no llegó, mientras otra esté activa, añade «Se podrá activar desde el dd/mm/aaaa». «Activar» sigue en el menú: al tocarlo se muestra el mensaje del repositorio con esa fecha y **no** aparece «Cerrar y activar». Una pantalla desactualizada o una llamada directa quedan protegidas por el repositorio.
 
