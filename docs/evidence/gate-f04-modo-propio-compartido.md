@@ -51,3 +51,7 @@
 - Revisión técnica del PR #102: sesión C (LISTO).
 - Revisión de Roderich Rendón: pendiente.
 - Revisión del tutor: se registra aparte en GOV-01.
+
+## Actualización 2026-10-18 (sesión A): repetición física F04-REP-01 y propuesta de cierre
+
+**Sólo actualiza el estado; no decide el gate.** Desde el acta del 17 entraron MOB #110 (criterio 5, campaña por fecha efectiva), #116 (D-F04-C2), #124 (fecha efectiva editable y cierre con fin efectivo confirmado) y #126 (#125, sin activación anticipada). La repetición física acotada **F04-REP-01** sobre `main` `ad5b43d` (HONOR JDY-LX3P, Android 16 / API 36, copia `.f04date`) ejecutó R-01…R-12 una sola vez: todos los casos medidos **PASS** (R-03 en el formulario de aplicación `NOT_MEASURED`), con procedencia DEVICE/HOST separada en [F04_REPETICION_DEVICE.md](F04_REPETICION_DEVICE.md). La **propuesta** de cierre académico (Passed académico / Evidence Partial, RF-03 parcial por D-F04-C1) está en [F04_GATE_DECISION_PROPUESTA.md](F04_GATE_DECISION_PROPUESTA.md), pendiente de revisión de B y C y de la decisión de Roderich. Las mediciones anteriores (POCO, `1902e6e`; HONOR, `65f7cfc`) conservan su atribución. **Gate: Pending.**
