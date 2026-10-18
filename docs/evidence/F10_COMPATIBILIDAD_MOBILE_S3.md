@@ -11,7 +11,7 @@
 ## 1. Criterio y precisiones (fijados en el suplemento §3 antes de medir)
 
 - **Criterio v1.3 M8 (decide CUMPLE / NO CUMPLE):** en las pantallas de M3, M4 y M6 (Nueva compra, Nueva aplicación, Sincronización), sin controles tapados por las barras del sistema ni textos cortados; A1-F con `font_scale` 1,3.
-- **Precisiones derivadas de #129 y #97 (se evalúan aparte, sin subir ni bajar el umbral):** (p1) Inicio y barra de pestañas: tarjetas, botón «Nuevo» sin cubrir importes ni controles sin desplazar, último elemento de las listas por encima del botón; (p2) sin palabras partidas de forma incomprensible en tarjetas, cabeceras y navegación; (p3) nombre de producto legible completo en el contexto de selección.
+- **Precisiones derivadas de #129 y #97 (se evalúan aparte, sin subir ni bajar el umbral):** (p1) Inicio y barra de pestañas: tarjetas, botón «Nuevo» sin cubrir importes sin desplazar, último elemento de las listas por encima del botón (texto literal del suplemento; el encargo de Roderich habla además de «controles», que no entró en la precisión fijada antes de medir: por eso el solape con el extremo del buscador se registra como observación para su decisión, no como fallo de p1); (p2) sin palabras partidas de forma incomprensible en tarjetas, cabeceras y navegación; (p3) nombre de producto legible completo en el contexto de selección.
 
 ## 2. Matriz
 
