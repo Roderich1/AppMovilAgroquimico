@@ -33,13 +33,32 @@ const f06CentralCampaigns = {
 /// Productos que el agricultor no vincula: nunca llegan a Central.
 const f06Unbound = {'Adherente casero'};
 
+/// Períodos locales del dataset. Desde #116 (D-F04-C2) el período local tiene
+/// que estar contenido en el de la campaña central, con extremos inclusivos,
+/// y un fin local abierto no cabe en un central con fin. Las campañas
+/// centrales del seed del Backend (`Back/prisma/seed.ts`) van: «Campana
+/// Verano 2026» del 01/01/2026 al 30/06/2026 y «Campana Invierno 2026» del
+/// 01/07/2026 al 30/11/2026 (días civiles en UTC del contrato). Ajuste del
+/// 2026-10-18 (03:14Z; noche del 17 en La Paz), sólo de fechas de preparación:
+/// - C1: fin 31/08/2026 → **30/06/2026** (antes terminaba después que la
+///   central);
+/// - C2: sin fin → **30/11/2026** (antes quedaba abierta frente a una central
+///   con fin).
+/// Los inicios (01/03 y 01/09) ya cabían. Ningún evento cambia de fecha ni de
+/// campaña: los de C1 van del 01/04 al 15/05 y los de C2 del 15/09 al 05/10,
+/// dentro de los períodos nuevos. `F06_DATASET.csv` y los CSV esperados no se
+/// tocan.
 final _localCampaigns = {
   'C1': (
     name: 'Campaña verano F06',
     start: DateTime(2026, 3, 1),
-    end: DateTime(2026, 8, 31),
+    end: DateTime(2026, 6, 30),
   ),
-  'C2': (name: 'Campaña invierno F06', start: DateTime(2026, 9, 1), end: null),
+  'C2': (
+    name: 'Campaña invierno F06',
+    start: DateTime(2026, 9, 1),
+    end: DateTime(2026, 11, 30),
+  ),
 };
 final _needDate = {'C1': DateTime(2026, 5, 15), 'C2': DateTime(2026, 10, 5)};
 final _purchaseDate = {'C1': DateTime(2026, 4, 1), 'C2': DateTime(2026, 9, 15)};
