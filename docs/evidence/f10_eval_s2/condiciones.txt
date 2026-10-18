@@ -1,0 +1,15 @@
+# Condiciones del HONOR JDY-LX3P, serie 2 (UTC)
+# ajustes previos (15:1xZ):
+system show_touches=0
+system pointer_location=null
+system font_scale=1.45
+global airplane_mode_on=0
+global wifi_on=1
+global stay_on_while_plugged_in=0
+system screen_off_timeout=2147483647
+global low_power=0
+# A4: font_scale 1.0 desde 2026-10-18T15:30:02Z; pointer_location 1 y stay_on_while_plugged_in 3 durante las series
+# N0 (R1, R3; 17:03:21Z): airplane_mode_on=1 wifi_on=0 'Active default network: none'; USB powered true, AC false, level 100, temperature 310 (31,0 C), Thermal Status 0, low_power 0
+# N0 (R2; 17:19:17Z): airplane_mode_on=1 wifi_on=0 'Active default network: none'
+# N1 (R4; 17:38:33Z): airplane_mode_on=0 wifi_on=1 red activa; F10_WIFI_TOGGLE=1 por repetición
+# restaurado (18:42:40Z): show_touches=0 pointer_location=null font_scale=1.45 airplane_mode_on=0 wifi_on=1 stay_on_while_plugged_in=0; batería 100 %, temperatura 34,0 C al terminar
