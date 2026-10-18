@@ -17,8 +17,16 @@ start_roi_args=(); [ -n "${F10_START_ROI-760,94,320,35}" ] && start_roi_args=(--
 component="$F03_APP_PACKAGE/com.comunidad.agro.agroquimicos.MainActivity"
 log_lines() { wc -l < "$F03_RUN_DIR/requests.log"; }
 
+# Serie 2 (HONOR): el modo avión conserva la Wi-Fi; con F10_WIFI_TOGGLE=1 se apaga y enciende
+# también la Wi-Fi (svc wifi) para que «sin red» sea real. En el POCO no hace falta.
+net_off() {
+  bash "$f03/device.sh" net off > /dev/null 2>&1
+  [ "${F10_WIFI_TOGGLE:-0}" = "1" ] && adb shell svc wifi disable
+  sleep 2
+}
 net_on_wait() {
   bash "$f03/device.sh" net on > /dev/null 2>&1
+  [ "${F10_WIFI_TOGGLE:-0}" = "1" ] && adb shell svc wifi enable
   for _ in $(seq 1 40); do
     MSYS_NO_PATHCONV=1 adb shell ping -c 1 -W 1 1.1.1.1 > /dev/null 2>&1 && return 0
     sleep 1
@@ -53,7 +61,7 @@ case "$serie" in
     for rep in $(seq "$first" "$last"); do
       err=""
       # 1. Sin red, una intención nueva (necesidad de DSV-001 con otra cantidad).
-      bash "$f03/device.sh" net off > /dev/null 2>&1; sleep 2
+      net_off
       qty=$((20 + rep))
       py ui.py need "$qty" > /dev/null
       op=$(bash "$f03/device.sh" db outbox 2>/dev/null | tail -1 | sed -n -E 's/.*op=([0-9a-f]{8}).*/\1/p')

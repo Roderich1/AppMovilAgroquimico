@@ -42,7 +42,7 @@ for rep in $(seq "$first" "$last"); do
     r2|r2b)
       read -r p0 l0 < <(counts)
       py ui.py purchase-form "Proveedor DSV 1" DSV-002 10 50 DSV-003 5 40 > /dev/null
-      xy=$(py ui.py find "^Confirmar$")
+      xy=$(py ui.py find "^Confirmar( compra)?$")   # «Confirmar compra» desde MOB #103
       log=$(bash "$here/record_tap.sh" "$name" ${xy% *} ${xy#* } 6 "$out/video")
       roi="${F10_ROI_R2:-0,760,1080,760}"; mode=(--start touch --tap "${xy/ /,}" "${start_roi_args[@]}")
       sleep 1
