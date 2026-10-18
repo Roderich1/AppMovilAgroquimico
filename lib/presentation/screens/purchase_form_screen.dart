@@ -545,26 +545,21 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
                       ),
                     ),
                     const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            'Productos (${lines.length})',
-                            style: Theme.of(context).textTheme.titleLarge
-                                ?.copyWith(fontWeight: FontWeight.w700),
-                          ),
-                        ),
-                        FilledButton.tonalIcon(
-                          onPressed: () {
-                            setState(() {
-                              lines.add(_PurchaseLineEditor());
-                              dirty = true;
-                            });
-                          },
-                          icon: const Icon(Icons.add),
-                          label: const Text('Agregar producto'),
-                        ),
-                      ],
+                    // Título y acción en un `Wrap`, no en una fila: con la
+                    // fuente al 130 % en 360 dp el título se partía en
+                    // «Producto / s (1)» (#129).
+                    SectionHeading(
+                      title: 'Productos (${lines.length})',
+                      action: FilledButton.tonalIcon(
+                        onPressed: () {
+                          setState(() {
+                            lines.add(_PurchaseLineEditor());
+                            dirty = true;
+                          });
+                        },
+                        icon: const Icon(Icons.add),
+                        label: const Text('Agregar producto'),
+                      ),
                     ),
                     const SizedBox(height: 8),
                     for (var index = 0; index < lines.length; index++)

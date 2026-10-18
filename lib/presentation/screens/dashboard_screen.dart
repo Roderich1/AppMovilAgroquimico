@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -180,13 +182,39 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             const SizedBox(height: 10),
             LayoutBuilder(
               builder: (context, constraints) {
-                final columns = constraints.maxWidth > 1000
+                // **#129 — ninguna etiqueta se parte dentro de una palabra.**
+                // Con dos columnas fijas en 360 dp y la fuente al 130 %,
+                // «Pagado proveedores» salía «Pagado pr / oveedores». El número
+                // de columnas se decide midiendo la palabra más larga de las
+                // etiquetas con la fuente y la escala reales del dispositivo:
+                // si a una tarjeta no le cabe, se quitan columnas (hasta una).
+                // Al 100 % en 360 dp siguen siendo dos; al 130 % pasa a una,
+                // con la etiqueta y el importe enteros y a la izquierda, fuera
+                // del botón «Nuevo».
+                final labelStyle = Theme.of(context).textTheme.bodyMedium;
+                final widestWord = cards
+                    .expand((card) => card.$1.split(' '))
+                    .map((word) => measureText(context, word, labelStyle))
+                    .fold(0.0, math.max);
+                // Lo que la tarjeta ocupa además de la etiqueta: su margen
+                // (el del tema), relleno 12+12, icono 24, separación 10 y
+                // 4 dp de holgura.
+                final cardMargin =
+                    (Theme.of(context).cardTheme.margin ??
+                            const EdgeInsets.all(4))
+                        .horizontal;
+                final minCardWidth = widestWord + cardMargin + _cardChrome;
+                var columns = constraints.maxWidth > 1000
                     ? 5
                     : constraints.maxWidth > 600
                     ? 3
                     : 2;
-                final width =
+                double widthFor(int columns) =>
                     (constraints.maxWidth - (columns - 1) * 8) / columns;
+                while (columns > 1 && widthFor(columns) < minCardWidth) {
+                  columns--;
+                }
+                final width = widthFor(columns);
                 return Wrap(
                   spacing: 8,
                   runSpacing: 8,
@@ -210,7 +238,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                                     crossAxisAlignment:
                                         CrossAxisAlignment.start,
                                     children: [
-                                      Text(card.$1),
+                                      Text(card.$1, style: labelStyle),
                                       const SizedBox(height: 3),
                                       FittedBox(
                                         fit: BoxFit.scaleDown,
@@ -238,14 +266,14 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               },
             ),
             const SizedBox(height: 20),
-            Row(
-              children: [
-                Expanded(child: _title(context, 'Inventario proyectado')),
-                TextButton(
-                  onPressed: () => context.go('/inventario'),
-                  child: const Text('Ver todos'),
-                ),
-              ],
+            // Encabezados en `SectionHeading` (#129): el título conserva su
+            // ancho y la acción baja de línea si no caben los dos.
+            SectionHeading(
+              title: 'Inventario proyectado',
+              action: TextButton(
+                onPressed: () => context.go('/inventario'),
+                child: const Text('Ver todos'),
+              ),
             ),
             const SizedBox(height: 8),
             TextField(
@@ -290,14 +318,12 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                     ),
             ),
             const SizedBox(height: 20),
-            Row(
-              children: [
-                Expanded(child: _title(context, 'Aplicaciones recientes')),
-                TextButton(
-                  onPressed: () => context.go('/aplicaciones'),
-                  child: const Text('Ver todas'),
-                ),
-              ],
+            SectionHeading(
+              title: 'Aplicaciones recientes',
+              action: TextButton(
+                onPressed: () => context.go('/aplicaciones'),
+                child: const Text('Ver todas'),
+              ),
             ),
             Card(
               child: Column(
@@ -333,14 +359,12 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               ),
             ),
             const SizedBox(height: 20),
-            Row(
-              children: [
-                Expanded(child: _title(context, 'Principales saldos')),
-                TextButton(
-                  onPressed: () => context.go('/liquidacion'),
-                  child: const Text('Ver todos'),
-                ),
-              ],
+            SectionHeading(
+              title: 'Principales saldos',
+              action: TextButton(
+                onPressed: () => context.go('/liquidacion'),
+                child: const Text('Ver todos'),
+              ),
             ),
             Card(
               child: Column(
@@ -374,6 +398,10 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   /// en horizontal. Las seis columnas no caben en el ancho útil de un móvil
   /// (UIBUG-023).
   static const double _tableMinWidth = 560;
+
+  /// Lo que una tarjeta de importe ocupa además de su etiqueta y de su margen:
+  /// relleno (12 + 12), icono (24), separación (10) y 4 dp de holgura (#129).
+  static const double _cardChrome = 12 + 12 + 24 + 10 + 4;
 
   Widget _inventoryTable(BuildContext context, List<InventoryLineRead> rows) =>
       DataTable(
@@ -413,12 +441,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             ),
         ],
       );
-
-  Widget _title(BuildContext context, String text) => Text(
-    text,
-    style: Theme.of(context).textTheme.titleLarge
-        ?.copyWith(fontWeight: FontWeight.w700),
-  );
 }
 
 bool _allowsRemote(ExistingSessionStartupState startup) =>

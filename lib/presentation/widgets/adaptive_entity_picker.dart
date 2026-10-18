@@ -104,10 +104,15 @@ class _AdaptiveEntityPickerState<T> extends State<AdaptiveEntityPicker<T>> {
                   )
                 : const Icon(Icons.arrow_drop_down),
           ),
+          // **#129 — el valor elegido se lee entero.** Con `maxLines: 1` y
+          // puntos suspensivos, en 360 dp con la fuente al 130 % el campo
+          // «Producto» mostraba «DSV-002 Producto si…» y el nombre completo
+          // sólo se leía en la cabecera de la línea. El campo crece en alto
+          // y el texto salta de línea por palabra; no se abrevia ni se
+          // oculta nada necesario para distinguir dos productos.
           child: Text(
             selected == null ? 'Seleccionar' : widget.labelOf(selected),
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
+            softWrap: true,
           ),
         ),
       ),

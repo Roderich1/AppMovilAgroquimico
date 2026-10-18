@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart'
     show UncontrolledProviderScope;
@@ -211,15 +213,19 @@ class AppShell extends StatelessWidget {
         body: body,
         // Con el teclado abierto el FAB tapaba el campo activo (UIBUG-009).
         floatingActionButton: showFab ? _newButton(context) : null,
-        // **Compromiso deliberado de accesibilidad.** Con cinco destinos en
-        // 1080 px, "Operaciones" no cabe en una línea por encima del 100 % y se
-        // partía en "Operacion / es" (UIBUG-017). Las etiquetas de la barra se
-        // dejan en su cuerpo base: siguen siendo legibles, cada destino lleva
-        // icono, y **el resto de la aplicación sí escala** hasta el 130 %.
-        // La alternativa era acortar el nombre de una sección principal.
-        bottomNavigationBar: MediaQuery.withClampedTextScaling(
-          maxScaleFactor: 1,
-          child: NavigationBar(
+        // **Etiquetas de la barra ajustadas al ancho de su destino.** Con
+        // cinco destinos, «Operaciones» no cabía en una línea y se partía en
+        // «Operacion / es» (UIBUG-017, POCO por encima del 100 %) y en
+        // «Operacione / s» (#129, HONOR de 360 dp incluso al 100 %). Antes se
+        // fijaba la escala de la barra al 100 %, lo que no bastaba en 360 dp.
+        // Ahora las etiquetas siguen la escala del sistema (hasta el 130 %
+        // que `NavigationBar` admite) y sólo se reducen lo justo para que la
+        // más larga quepa en una línea en el ancho real de su destino, medida
+        // con la fuente del dispositivo. No se acorta el nombre de ninguna
+        // sección y cada destino conserva su icono.
+        bottomNavigationBar: LayoutBuilder(
+          builder: (context, constraints) => NavigationBar(
+            labelTextStyle: _fittedLabelStyle(context, constraints.maxWidth),
             selectedIndex: selectedIndex,
             onDestinationSelected: (index) =>
                 context.go(destinations[index].path),
@@ -229,6 +235,46 @@ class AppShell extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  /// Margen a cada lado de la etiqueta dentro de su destino.
+  static const double _labelMargin = 4;
+
+  /// Estilo de las etiquetas de la barra inferior para un ancho total [width]:
+  /// el `labelMedium` del tema, reducido sólo si la etiqueta más larga no cabe
+  /// en una línea en `width / destinos` (#129). Los colores por estado son los
+  /// de Material 3.
+  static WidgetStateProperty<TextStyle?> _fittedLabelStyle(
+    BuildContext context,
+    double width,
+  ) {
+    final theme = Theme.of(context);
+    final base = theme.textTheme.labelMedium ?? const TextStyle(fontSize: 12);
+    // `NavigationBar` limita por sí misma la escala de sus etiquetas a 1,3.
+    final scaler = MediaQuery.textScalerOf(context).clamp(maxScaleFactor: 1.3);
+    final slot = width / destinations.length - 2 * _labelMargin;
+    final widest = destinations
+        .map(
+          (item) => measureText(context, item.label, base, textScaler: scaler),
+        )
+        .fold(0.0, math.max);
+    final ratio = widest > slot && slot > 0 ? slot / widest : 1.0;
+    final fitted = ratio == 1.0
+        ? base
+        : base.copyWith(
+            fontSize: (base.fontSize ?? 12) * ratio,
+            letterSpacing: (base.letterSpacing ?? 0) * ratio,
+          );
+    final colors = theme.colorScheme;
+    return WidgetStateProperty.resolveWith(
+      (states) => fitted.apply(
+        color: states.contains(WidgetState.disabled)
+            ? colors.onSurfaceVariant.withValues(alpha: 0.38)
+            : states.contains(WidgetState.selected)
+            ? colors.onSurface
+            : colors.onSurfaceVariant,
       ),
     );
   }
