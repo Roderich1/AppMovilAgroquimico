@@ -35,7 +35,7 @@ Sólo presentación, accesibilidad y disposición de controles. No cambian canti
 - **Configuraciones** (representadas en el `MediaQuery` con `devicePixelRatio`, `physicalSize` y `padding` reales, no sólo un ancho lógico):
   - HONOR JDY-LX3P: 720×1612 físicos, DPR 2 → 360×806 dp.
   - POCO X5 Pro: 1080×2400 físicos, DPR 2,75 → 392,7×872,7 dp.
-  - Insets: barra de estado 24 dp y barra de navegación de tres botones 48 dp en ambos (valores habituales de Android; **pendientes de confirmar con las métricas reales del POCO por la sesión A**, ver Límites).
+  - Insets, en píxeles físicos como los imprime `dumpsys window`: **POCO, leídos en el equipo** por la sesión A el 2026-10-18 (~20:35Z): barra de estado 94 px (34,2 dp) y barra de navegación de tres botones 130 px (47,3 dp), `navigation_mode` 0, `wm size` 1080x2400, `wm density` 440. **HONOR, supuestos** (48 px = 24 dp y 96 px = 48 dp, los habituales de Android): no se leyeron en la serie 2 y el equipo no está conectado; se declara.
   - Fuente **1,0 y 1,3** (criterio del protocolo, A4/A4-F) y **1,45** (ajuste propio del HONOR) como exploración, no como criterio.
 - **Datos:** nombres del dataset DS-V («DSV-002 Producto sintético», «Proveedor DSV 1», «Campaña DSV S2») y una compra de 123.456,00 Bs para que las tarjetas muestren cifras con miles.
 - **Comprobaciones:**
@@ -52,7 +52,7 @@ Sólo presentación, accesibilidad y disposición de controles. No cambian canti
 ## Límites
 
 - **Sin dispositivo.** Se mide con Roboto; las fuentes del HONOR y de MIUI no están representadas. La decisión de columnas y el ajuste de la barra inferior miden el texto con la fuente real en tiempo de ejecución, así que no dependen de Roboto, pero eso sólo lo confirma la repetición física de M8.
-- **Insets supuestos.** 24 dp y 48 dp son los valores habituales; si las métricas reales del POCO (`MediaQuery.padding`) difieren, se ajustan en `_devices` de la prueba sin cambiar el criterio.
+- **Insets del HONOR supuestos** (24 dp y 48 dp). Los del POCO son los leídos en el equipo; cuando el HONOR vuelva a estar conectado se leen con `dumpsys window` y se ajustan en `_devices` de la prueba sin cambiar el criterio.
 - **El botón flotante sigue flotando sobre contenido desplazable**, como define Material. Lo que se garantiza es que los importes de las tarjetas del Inicio quedan fuera de él sin desplazar en ambos teléfonos al 100 %, al 130 % y al 145 %, y que el último elemento de la página termina por encima de él. Durante el desplazamiento otros controles (por ejemplo «Ver todos») pueden pasar bajo el botón hasta seguir desplazando; no se oculta ni se mueve el botón para evitarlo.
 - **Cambio de comportamiento declarado:** las etiquetas de la barra inferior dejan de estar fijadas al 100 % (UIBUG-017) y escalan con el sistema hasta donde cabe la más larga; en 360 dp se ven algo más pequeñas que antes (~11 sp frente a 12), siempre enteras.
 - La matriz de compatibilidad A4-F de la serie 2 no cambia con este PR. Se vuelve a medir M8 físicamente sobre la versión candidata (POCO A1/A1-F primero; HONOR A4-F cuando esté conectado).

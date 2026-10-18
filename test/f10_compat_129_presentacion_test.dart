@@ -3,7 +3,8 @@
 // (HONOR JDY-LX3P, 720×1612 físicos a densidad 320 → 360×806 lógicos) y la
 // del POCO X5 Pro (1080×2400 a 440 dpi → 392,7×872,7 lógicos), ambas con
 // barra de estado y barra de navegación de tres botones como insets reales
-// del `MediaQuery`, con la fuente al 100 % y al 130 %.
+// del `MediaQuery` (los del POCO leídos en el equipo; los del HONOR,
+// supuestos), con la fuente al 100 % y al 130 %.
 //
 // Comprobaciones:
 //   * «Nueva compra»: el nombre del producto elegido («DSV-002 Producto
@@ -41,31 +42,37 @@ import 'support/f04_app_access.dart';
 
 /// Un teléfono físico tal como lo describe el `MediaQuery`: tamaño físico,
 /// densidad y insets del sistema (barra de estado y barra de navegación de
-/// tres botones), en píxeles lógicos.
+/// tres botones), en **píxeles físicos**, como los imprime
+/// `dumpsys window` (`InsetsSource … frame=[…]`).
 typedef _Device = ({
   String name,
   Size physical,
   double dpr,
-  double statusBar,
-  double navigationBar,
+  double statusBarPx,
+  double navigationBarPx,
 });
 
 const _devices = <_Device>[
   // Serie 2 de F10, A4/A4-F: 720×1612 a 320 dpi (DPR 2) → 360×806 lógicos.
+  // Insets SUPUESTOS (24 dp y 48 dp, los habituales de Android): no se
+  // leyeron en la serie 2 y el equipo no está conectado; se declara.
   (
     name: 'HONOR JDY-LX3P 360×806',
     physical: Size(720, 1612),
     dpr: 2.0,
-    statusBar: 24,
-    navigationBar: 48,
+    statusBarPx: 48,
+    navigationBarPx: 96,
   ),
   // Serie 1 de F10, A1/A1-F: 1080×2400 a 440 dpi (DPR 2,75) → 392,7×872,7.
+  // Insets LEÍDOS en el equipo el 2026-10-18 (~20:35Z, `dumpsys window`):
+  // ITYPE_STATUS_BAR frame=[0,0][1080,94] (34,2 dp) y ITYPE_NAVIGATION_BAR
+  // frame=[0,2270][1080,2400] (130 px, 47,3 dp), `navigation_mode` 0.
   (
     name: 'POCO X5 Pro 392,7×872,7',
     physical: Size(1080, 2400),
     dpr: 2.75,
-    statusBar: 24,
-    navigationBar: 48,
+    statusBarPx: 94,
+    navigationBarPx: 130,
   ),
 ];
 
@@ -99,8 +106,8 @@ void main() {
     tester.view.physicalSize = device.physical;
     tester.view.devicePixelRatio = device.dpr;
     tester.view.padding = FakeViewPadding(
-      top: device.statusBar * device.dpr,
-      bottom: device.navigationBar * device.dpr,
+      top: device.statusBarPx,
+      bottom: device.navigationBarPx,
     );
     tester.platformDispatcher.textScaleFactorTestValue = scale;
     addTearDown(tester.view.resetPhysicalSize);
