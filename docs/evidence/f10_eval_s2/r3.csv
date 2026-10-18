@@ -1,0 +1,11 @@
+serie,rep,calentamiento,hora_utc,inicio_s,fin_s,duracion_ms,cuadro_inicio,cuadro_fin,cuadros,total_time_ms,comprobacion,error,video_sha256
+r3,1,no,2026-10-18T17:06:43.238Z,1.260178,1.755411,495.2,1,25,30,,detalle DSV-001 visible,,9e3b201056e97cd5
+r3,2,no,2026-10-18T17:07:03.682Z,1.299456,1.795067,495.6,1,28,33,,detalle DSV-001 visible,,6c5e6dc0b326f157
+r3,3,no,2026-10-18T17:07:23.949Z,1.285189,1.761089,475.9,1,26,31,,detalle DSV-001 visible,,8662a80e8bc336c8
+r3,4,no,2026-10-18T17:07:44.041Z,1.299678,1.7951,495.4,1,27,32,,detalle DSV-001 visible,,7d2c9e71d4f6ea0f
+r3,5,no,2026-10-18T17:08:04.239Z,1.314522,1.811856,497.3,1,27,32,,detalle DSV-001 visible,,a67c17f664faf3a1
+r3,6,no,2026-10-18T17:08:24.491Z,1.317756,1.814667,496.9,1,27,32,,detalle DSV-001 visible,,12144f9de0640f94
+r3,7,no,2026-10-18T17:08:44.691Z,1.323244,1.832611,509.4,1,27,32,,detalle DSV-001 visible,,933e6242dc7c8e9b
+r3,8,no,2026-10-18T17:09:04.803Z,1.3017,1.797956,496.3,1,27,32,,detalle DSV-001 visible,,3239b655470d0ffb
+r3,9,no,2026-10-18T17:09:24.907Z,1.286067,1.794556,508.5,1,29,34,,detalle DSV-001 visible,,1cf8506f7edffd8a
+r3,10,no,2026-10-18T17:09:45.028Z,1.305578,1.801533,496.0,1,26,31,,detalle DSV-001 visible,,2cd94840a133ca0d
