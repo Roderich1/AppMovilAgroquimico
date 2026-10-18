@@ -7,6 +7,7 @@ import 'package:go_router/go_router.dart';
 import '../../data/sync/consumption_publisher.dart';
 import '../../domain/money.dart';
 import '../../domain/sync/consumption_projection.dart';
+import '../../domain/sync/sync_types.dart' show OutboxStatus;
 import '../../services/sync/sync_providers.dart';
 import '../widgets/common.dart';
 import '../widgets/sync_status_banner.dart';
@@ -86,6 +87,32 @@ class _ConsumptionPublishScreenState
     if (mounted) _reload();
   }
 
+  /// D-F04-C2: retirar del sindicato un total bloqueado, con confirmación.
+  Future<void> _withdraw(ConsumptionPreviewRow row) async {
+    final confirmed = await confirmDestructiveAction(
+      context,
+      title: 'Retirar del sindicato',
+      detail:
+          'Se retira del sindicato el total de ${row.productName} '
+          '(${row.campaignName}) que ya tiene aceptado. Sus aplicaciones '
+          'locales no cambian. Cuando el período sea compatible, podrá '
+          'publicar el total vigente otra vez.',
+      confirmLabel: 'Retirar',
+    );
+    if (!confirmed || !mounted) return;
+    try {
+      await _publisher.withdraw(row);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Retirada lista para enviar.')),
+      );
+      unawaited(ref.read(syncControllerProvider.notifier).kick());
+    } catch (error) {
+      if (mounted) showError(context, error);
+    }
+    if (mounted) _reload();
+  }
+
   Future<void> _resolve(ConsumptionPreviewRow row) async {
     try {
       final view = await ref
@@ -150,11 +177,21 @@ class _ConsumptionPublishScreenState
                 Card(
                   child: ListTile(
                     title: Text('${row.productName} · ${row.campaignName}'),
-                    subtitle: Text('${_total(row)} · ${_changeLabel(row)}'),
+                    subtitle: Text(
+                      '${_total(row)} · ${_changeLabel(row)}'
+                      '${row.blockedDetail == null ? '' : '\n${row.blockedDetail}'}',
+                    ),
+                    isThreeLine: row.blockedDetail != null,
                     trailing: row.change == ConsumptionChange.conflict
                         ? TextButton(
                             onPressed: () => _resolve(row),
                             child: const Text('Enviar mi total actual'),
+                          )
+                        : row.canWithdraw
+                        ? TextButton(
+                            key: Key('withdraw-${row.target.productRef}'),
+                            onPressed: () => _withdraw(row),
+                            child: const Text('Retirar del sindicato'),
                           )
                         : null,
                   ),
@@ -184,7 +221,11 @@ class _ConsumptionPublishScreenState
       ConsumptionChange.unchanged =>
         'Sin cambios: ${outboxStatusLabel(row.prior!.status)}',
       ConsumptionChange.conflict => 'Conflicto con el sindicato: decida usted',
-      ConsumptionChange.blocked => 'Vínculo no vigente: no se publica',
+      ConsumptionChange.blocked =>
+        row.prior != null && row.prior!.status == OutboxStatus.acked
+            ? 'Vínculo no vigente: el total aceptado requiere revisión; no se '
+                  'publica otro'
+            : 'Vínculo no vigente: no se publica',
     };
   }
 
@@ -198,7 +239,10 @@ class _ConsumptionPublishScreenState
         'No se incluyen ${lines[ConsumptionExclusion.reversed]} línea(s) de '
             'aplicaciones revertidas.',
       for (final pair in data.excludedPairs)
-        '${pair.product} (${pair.campaign}): ${_reason(pair.reason)}',
+        // Un par bloqueado por período ya aparece arriba con su total real y
+        // el detalle; aquí sólo los demás motivos.
+        if (pair.detail == null)
+          '${pair.product} (${pair.campaign}): ${_reason(pair.reason)}',
     ];
     if (notes.isEmpty) return const [];
     return [

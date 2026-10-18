@@ -72,12 +72,22 @@ class SyncRunReport {
   int conflicts = 0;
   int rejected = 0;
   int retried = 0;
+
+  /// Consultas (GET de operaciones) hechas para conciliar intenciones
+  /// retenidas por el período de su campaña (D-F04-C2, C2-R1).
+  int queried = 0;
+
+  /// Intenciones con valor que este ciclo dejó retenidas sin enviar: por el
+  /// período de su campaña, al ir a marcarlas (C2-R2) o porque la consulta no
+  /// dio un resultado fiable.
+  int held = 0;
   SyncBlocker? blocker;
 
   @override
   String toString() =>
       'SyncRunReport(sent: $sent, accepted: $accepted, conflicts: $conflicts, '
-      'rejected: $rejected, retried: $retried, blocker: ${blocker?.name})';
+      'rejected: $rejected, retried: $retried, queried: $queried, '
+      'held: $held, blocker: ${blocker?.name})';
 }
 
 /// Worker de Sync v1 (Mobile #31). Envía como máximo una intención por
@@ -85,6 +95,15 @@ class SyncRunReport {
 /// cada intento antes de enviarlo, nunca cambia el operationId ni el
 /// contenido de una intención enviada, nunca reintenta CONFLICT ni REJECTED
 /// y sólo marca «sincronizado» con un ACK válido de aceptación.
+///
+/// D-F04-C2: bajo una campaña cuya compatibilidad temporal con el sindicato
+/// no está demostrada, ninguna intención con valor sale por POST (un intento
+/// registrado no demuestra que Central la recibiera: el reenvío podría ser la
+/// primera aceptación). Las que ya salieron alguna vez se **concilian** con
+/// `GET /operations/{id}`: una aceptación válida se asienta como tal; un
+/// conflicto o rechazo, igual que por ACK; un 404, una respuesta inválida o
+/// un fallo de red conservan la incertidumbre, visible en `last_code`. Las
+/// retiradas (CANCEL) siguen saliendo.
 class SyncWorker {
   SyncWorker({
     required SyncOutboxStore outbox,
@@ -93,6 +112,7 @@ class SyncWorker {
     required SyncAccessHolder access,
     this.backoff = const SyncBackoff(),
     this.budget = 20,
+    this.heldQueryInterval = const Duration(minutes: 5),
     Random? random,
     DateTime Function()? clock,
   }) : _outbox = outbox,
@@ -108,8 +128,21 @@ class SyncWorker {
   final SyncAccessHolder _access;
   final SyncBackoff backoff;
 
-  /// Intentos como máximo por ciclo (F05 §11: presupuesto por ciclo).
+  /// Intentos como máximo por ciclo (F05 §11: presupuesto por ciclo). Las
+  /// consultas de conciliación (D-F04-C2) lo comparten, con un tope de
+  /// [queryCap] por ciclo y **después** del envío (C2-R3): una campaña
+  /// compatible nunca se queda sin publicar por conciliar otra.
   final int budget;
+
+  /// Consultas de conciliación como máximo por ciclo: la mitad del
+  /// presupuesto, y al menos una.
+  int get queryCap => max(1, budget ~/ 2);
+
+  /// Cuánto espera una intención retenida tras una consulta sin resultado
+  /// fiable (404, inválida, RETRYABLE) antes de volver a consultarla (C2-R3).
+  /// Se guarda en `next_attempt_at`, sin tocar los intentos; también retrasa
+  /// el envío si el período vuelve a caber antes de esa hora.
+  final Duration heldQueryInterval;
   final Random _random;
   final DateTime Function() _clock;
 
@@ -132,10 +165,33 @@ class SyncWorker {
       if (summary.count(OutboxStatus.versionMismatch) > 0) {
         return report..blocker = SyncBlocker.versionMismatch;
       }
-      for (var attempt = 0; attempt < budget; attempt++) {
+      var attempt = 0;
+      // Lo retenido que ya salió alguna vez (C2-R1) se concilia por consulta,
+      // nunca por POST, **después** del envío y con un tope por ciclo (C2-R3):
+      // el envío de campañas compatibles conserva presupuesto. Si el resumen
+      // no muestra ninguna intención con valor ya intentada, no hay nada que
+      // conciliar y no se consulta la base otra vez.
+      final uncertain = summary.uncertainValues == 0
+          ? const <OutboxEntry>[]
+          : await _outbox.heldUncertain(
+              activeBindingId: owner.id,
+              now: _clock(),
+            );
+      // Nunca se reserva todo el presupuesto: el envío corre al menos una vez
+      // por ciclo aunque budget sea 1 (revisión de A sobre 95eef73).
+      final reservedForQueries = max(
+        0,
+        min(uncertain.length, min(queryCap, budget - 1)),
+      );
+      // 1. Envío normal, con presupuesto reservado para las consultas. Lo que
+      //    al marcarlo resulte retenido (C2-R2) se excluye del resto del
+      //    ciclo sin contarlo como intento.
+      final heldNow = <String>{};
+      for (; attempt < budget - reservedForQueries; attempt++) {
         final ready = await _outbox.readyToSend(
           activeBindingId: owner.id,
           now: _clock(),
+          exclude: heldNow,
         );
         if (ready.isEmpty) break;
         final access = _access.current;
@@ -144,10 +200,32 @@ class SyncWorker {
           // Otra cuenta no publica lo de este titular (C34/C38).
           return report..blocker = SyncBlocker.ownerMismatch;
         }
-        final entry = await _outbox.markSending(ready.first);
+        final OutboxEntry entry;
+        try {
+          entry = await _outbox.markSending(ready.first);
+        } on SyncHeldForPeriodException {
+          heldNow.add(ready.first.operationId);
+          report.held++;
+          continue;
+        }
         report.sent++;
         final outcome = await _api().push(entry, access.accessToken);
         final stop = await _handle(entry, outcome, owner.id, report);
+        if (stop != null) return report..blocker = stop;
+      }
+      // 2. Conciliación: como máximo [queryCap] consultas y nunca más que el
+      //    presupuesto que quede.
+      var queries = 0;
+      for (final entry in uncertain) {
+        if (attempt >= budget || queries >= queryCap) break;
+        final access = _access.current;
+        if (access == null) return report..blocker = SyncBlocker.accessRequired;
+        if (access.scope != owner.scope) {
+          return report..blocker = SyncBlocker.ownerMismatch;
+        }
+        attempt++;
+        queries++;
+        final stop = await _reconcile(entry, access, owner.id, report);
         if (stop != null) return report..blocker = stop;
       }
       return report;
@@ -155,6 +233,110 @@ class SyncWorker {
       return report..blocker = SyncBlocker.replacementInProgress;
     } on SyncOutboxRaceException {
       return report;
+    }
+  }
+
+  /// Próxima consulta de una intención retenida (C2-R3).
+  DateTime _nextHeldQuery() => _clock().add(heldQueryInterval);
+
+  /// Consulta el resultado de una intención retenida e incierta. Sólo asienta
+  /// lo que Central confirma con una respuesta válida; lo demás deja la
+  /// intención retenida, con el motivo visible. Devuelve un bloqueo si el
+  /// ciclo debe detenerse.
+  Future<SyncBlocker?> _reconcile(
+    OutboxEntry entry,
+    VerifiedAccess access,
+    int bindingId,
+    SyncRunReport report,
+  ) async {
+    report.queried++;
+    final OperationView view;
+    try {
+      view = await _api().operation(entry.operationId, access.accessToken);
+    } on SyncQueryException catch (error) {
+      if (error.authRequired) {
+        _access.clear();
+        return SyncBlocker.accessRequired;
+      }
+      if (error.forbidden) {
+        await _outbox.pauseForAuthorization(bindingId);
+        _access.clear();
+        return SyncBlocker.forbidden;
+      }
+      if (error.statusCode == 404) {
+        // Central no la conoce **ahora**: no autoriza publicar bajo el
+        // período incompatible y no demuestra que una petición anterior no
+        // pueda terminar después. Sigue retenida, con el motivo visible.
+        await _outbox.recordHeldQuery(
+          entry,
+          error.errorCode ?? 'OPERATION_NOT_FOUND',
+          nextAttemptAt: _nextHeldQuery(),
+        );
+        report.held++;
+        return null;
+      }
+      if (error.statusCode == 429 || error.statusCode == 503) {
+        await _outbox.recordHeldQuery(
+          entry,
+          error.errorCode ?? 'HTTP_${error.statusCode}',
+          nextAttemptAt: _nextHeldQuery(),
+        );
+        report.held++;
+        return SyncBlocker.throttled;
+      }
+      if (error.statusCode == 200) {
+        // Respuesta inválida: no se confía en ella.
+        await _outbox.recordHeldQuery(
+          entry,
+          'INVALID_RESPONSE',
+          nextAttemptAt: _nextHeldQuery(),
+        );
+        report.held++;
+        return null;
+      }
+      await _outbox.recordHeldQuery(
+        entry,
+        error.errorCode ??
+            (error.statusCode == null
+                ? 'UNAVAILABLE'
+                : 'HTTP_${error.statusCode}'),
+        nextAttemptAt: _nextHeldQuery(),
+      );
+      report.held++;
+      return SyncBlocker.unreachable;
+    }
+    final ack = view.ack;
+    switch (ack.outcome) {
+      case AckOutcome.applied:
+      case AckOutcome.alreadyApplied:
+        if (await _outbox.recordAccepted(
+          entry,
+          ack.serverAcceptedAt!,
+          onlyIfUnsettled: true,
+        )) {
+          report.accepted++;
+        }
+        return null;
+      case AckOutcome.conflict:
+        await _outbox.recordConflict(
+          entry,
+          ack.code,
+          ack.reconciliationReference!,
+        );
+        report.conflicts++;
+        return null;
+      case AckOutcome.rejected:
+        await _outbox.recordTerminal(entry, OutboxStatus.rejected, ack.code);
+        report.rejected++;
+        return null;
+      case AckOutcome.retryable:
+        await _outbox.recordHeldQuery(
+          entry,
+          ack.code,
+          nextAttemptAt: _nextHeldQuery(),
+        );
+        report.held++;
+        return null;
     }
   }
 

@@ -394,9 +394,11 @@ void main() {
     final second = await repo.addProduct(name: 'Fungicida', unit: 'KG');
     final bindings = CentralBindingStore(db);
     final campaign = (await repo.activeCampaign())!['id']! as int;
+    // D-F04-C2: la campaña central tiene que contener a «Campaña 1» (desde
+    // el 01/01/2026 UTC, día local anterior en La Paz).
     await bindings.bindCampaign(
       campaignId: campaign,
-      central: centralCampaign(),
+      central: centralCampaign(startDate: '2025-01-01T00:00:00.000Z'),
       tenantId: scope.tenantId,
     );
     await bindings.bindProduct(

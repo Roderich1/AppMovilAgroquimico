@@ -166,7 +166,7 @@ void main() {
 
   for (final version in [8, 7, 6]) {
     test(
-      'v$version → v9 conserva todas las filas y las tablas nuevas nacen vacías',
+      'v$version → versión actual conserva todas las filas y las tablas nuevas nacen vacías',
       () async {
         final path = await seededAt(version);
         final legacy = await databaseFactoryFfi.openDatabase(path);
@@ -181,7 +181,7 @@ void main() {
         final db = await migrated.database;
         expect(
           (await db.rawQuery('PRAGMA user_version')).single.values.single,
-          9,
+          AppDatabase.schemaVersion,
         );
         final after = await dumpTables(db, except: syncTablesV9.toSet());
         if (version == 8) {

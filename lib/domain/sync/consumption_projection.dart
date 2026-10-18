@@ -101,6 +101,7 @@ class ConsumptionProjection {
     required this.cells,
     required this.excludedPairs,
     required this.excludedLines,
+    this.excludedTotals = const {},
   });
 
   final List<ConsumptionCell> cells;
@@ -110,6 +111,11 @@ class ConsumptionProjection {
 
   /// Líneas que no cuentan: ajenas al titular o revertidas.
   final Map<ConsumptionExclusion, int> excludedLines;
+
+  /// Total exacto de cada par excluido por su vínculo (no por
+  /// desbordamiento), para mostrarlo bloqueado con su valor real y nunca como
+  /// un cero (D-F04-C2). No se publica.
+  final Map<(int, int), int> excludedTotals;
 }
 
 /// `CONSUMPTION_TOTAL` (F06 §2, MOB #33): por campaña y producto vinculados,
@@ -145,6 +151,7 @@ ConsumptionProjection buildConsumptionProjection({
 
   final cells = <ConsumptionCell>[];
   final excludedPairs = <ExcludedPair>[];
+  final excludedTotals = <(int, int), int>{};
   final max = BigInt.from(maxBaseQuantity);
   for (final MapEntry(key: (campaignId, productId), value: total)
       in totals.entries) {
@@ -161,6 +168,9 @@ ConsumptionProjection buildConsumptionProjection({
     };
     if (problem != null) {
       excludedPairs.add(ExcludedPair(campaignId, productId, problem));
+      if (problem != ConsumptionExclusion.overflow) {
+        excludedTotals[(campaignId, productId)] = total.toInt();
+      }
       continue;
     }
     cells.add(
@@ -183,5 +193,6 @@ ConsumptionProjection buildConsumptionProjection({
     cells: cells,
     excludedPairs: excludedPairs,
     excludedLines: excludedLines,
+    excludedTotals: excludedTotals,
   );
 }

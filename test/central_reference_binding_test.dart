@@ -252,11 +252,15 @@ void main() {
         ))
           row['name'],
       };
+      // D-F04-C2 (v10): el período central en días civiles, lo mínimo para
+      // comprobar sin red que el período local cabe en él.
       expect(campaignColumns, {
         'campaign_id',
         'tenant_id',
         'campaign_ref',
         'central_name',
+        'central_start_day',
+        'central_end_day',
         'status',
         'invalid_reason',
         'bound_at',
