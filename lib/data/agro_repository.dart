@@ -46,6 +46,10 @@ enum CampaignDateProblem {
 
   /// La fecha es de una campaña planificada, todavía no activa.
   planned,
+
+  /// La fecha es posterior a hoy: una compra o aplicación ya realizada no
+  /// puede tener una fecha futura (#121).
+  future,
 }
 
 /// La operación no se registra: su fecha efectiva no clasifica en la campaña
@@ -534,64 +538,71 @@ class AgroRepository {
     });
   }
 
-  /// Cierre sin sucesora. Si el período sigue abierto, termina en [end]
-  /// (por defecto, hoy), que el usuario elige: no antes del inicio ni después
-  /// de hoy. Si el alta de la siguiente ya fijó el fin, se conserva y [end]
-  /// no se usa (el diálogo no lo pide en ese caso). Se rechaza si algún
-  /// registro fechado de la campaña quedaría después del fin.
+  /// Cierre sin sucesora. El fin **efectivo** lo confirma quien cierra
+  /// ([end]; por defecto, hoy) también cuando el alta de la siguiente o
+  /// «Fijar fin previsto…» ya habían fijado un fin (#122): ese fin previsto se
+  /// muestra en el diálogo, pero no sustituye la validación ni se conserva en
+  /// silencio. Las reglas son las mismas haya o no fin previsto: no antes del
+  /// inicio; no después de hoy, o del inicio si la campaña todavía no empezó
+  /// (excepción ya documentada, que no se amplía); ningún registro fechado de
+  /// la campaña después del fin (compras, aplicaciones, necesidades y sus
+  /// versiones); sin solapes. El vínculo central se revalida en la misma
+  /// transacción. Un rechazo no escribe nada.
   Future<void> closeCampaign(int campaignId, {DateTime? end}) async {
     await _write((txn, _) async {
-      final rows = await txn.query(
-        'campaigns',
-        columns: ['id', 'name', 'status', 'start_date', 'end_date'],
-        where: "id=? AND status='ACTIVE'",
-        whereArgs: [campaignId],
-        limit: 1,
-      );
-      if (rows.isEmpty)
+      final periods = await _campaignPeriods(txn);
+      final period = periods
+          .where((p) => p.id == campaignId && p.status == 'ACTIVE')
+          .firstOrNull;
+      if (period == null)
         throw BusinessRuleException('Solo una campaña activa puede cerrarse.');
-      final period = CampaignPeriod.fromRow(rows.single);
-      final values = <String, Object?>{'status': 'CLOSED'};
-      if (period.endDay == null) {
-        final endDay = localDay(end ?? DateTime.now());
-        if (endDay.compareTo(period.startDay) < 0) {
+      final endDay = localDay(end ?? DateTime.now());
+      if (endDay.compareTo(period.startDay) < 0) {
+        throw CampaignCalendarException(
+          'El fin (${displayDay(endDay)}) no puede ser anterior al inicio '
+          'de «${period.name}» (${displayDay(period.startDay)}). No se '
+          'cerró.',
+        );
+      }
+      // Un fin futuro dejaría los días entre hoy y ese fin como de una
+      // campaña cerrada (revisión de B sobre #110): se admite hasta hoy, o
+      // hasta el inicio si la campaña todavía no empezó. Vale igual si ya
+      // había un fin previsto (#122): un 30/11 previsto no cierra el 17/10.
+      final today = localDay(DateTime.now());
+      final latestEnd = today.compareTo(period.startDay) < 0
+          ? period.startDay
+          : today;
+      if (endDay.compareTo(latestEnd) > 0) {
+        throw CampaignCalendarException(
+          'El fin (${displayDay(endDay)}) no puede ser posterior al '
+          '${displayDay(latestEnd)}: los días siguientes quedarían en una '
+          'campaña cerrada. No se cerró.',
+        );
+      }
+      final last = await _lastOperationDay(txn, campaignId);
+      if (last != null && last.compareTo(endDay) > 0) {
+        throw CampaignCalendarException(
+          '«${period.name}» tiene operaciones del ${displayDay(last)}, '
+          'posteriores al fin elegido (${displayDay(endDay)}). Las '
+          'operaciones no se cambian de campaña: no se cerró.',
+        );
+      }
+      final proposed = period.withEnd(endDay);
+      for (final other in periods) {
+        if (other.id != campaignId && other.overlaps(proposed)) {
           throw CampaignCalendarException(
-            'El fin (${displayDay(endDay)}) no puede ser anterior al inicio '
-            'de «${period.name}» (${displayDay(period.startDay)}). No se '
-            'cerró.',
+            'El período propuesto (${proposed.describe}) se solapa con '
+            '«${other.name}» (${other.describe}). No se cerró.',
           );
         }
-        // Un fin futuro dejaría los días entre hoy y ese fin como de una
-        // campaña cerrada (revisión de B sobre #110): se admite hasta hoy, o
-        // hasta el inicio si la campaña todavía no empezó.
-        final today = localDay(DateTime.now());
-        final latestEnd = today.compareTo(period.startDay) < 0
-            ? period.startDay
-            : today;
-        if (endDay.compareTo(latestEnd) > 0) {
-          throw CampaignCalendarException(
-            'El fin (${displayDay(endDay)}) no puede ser posterior al '
-            '${displayDay(latestEnd)}: los días siguientes quedarían en una '
-            'campaña cerrada. No se cerró.',
-          );
-        }
-        final last = await _lastOperationDay(txn, campaignId);
-        if (last != null && last.compareTo(endDay) > 0) {
-          throw CampaignCalendarException(
-            '«${period.name}» tiene operaciones del ${displayDay(last)}, '
-            'posteriores al fin elegido (${displayDay(endDay)}). Las '
-            'operaciones no se cambian de campaña: no se cerró.',
-          );
-        }
-        values['end_date'] = _date(startOfLocalDay(endDay));
       }
       await txn.update(
         'campaigns',
-        values,
+        {'status': 'CLOSED', 'end_date': _date(startOfLocalDay(endDay))},
         where: 'id=?',
         whereArgs: [campaignId],
       );
-      // D-F04-C2: con el fin ya fijado, el vínculo central se vuelve a
+      // D-F04-C2: con el fin efectivo fijado, el vínculo central se vuelve a
       // comprobar en la misma transacción.
       await CentralBindingStore.revalidateCampaignPeriod(
         txn,
@@ -649,17 +660,27 @@ class AgroRepository {
     }
   }
 
-  /// La fecha efectiva de una compra o aplicación tiene que clasificar en la
-  /// campaña del borrador, que es la activa (RN-15, RN-16, RF-03). Se lee
-  /// dentro de la transacción que escribe, antes de escribir: un rechazo no
-  /// deja nada. Nunca se elige otra campaña en silencio, y el mensaje nombra
-  /// la campaña de la fecha sin invitar a registrar en otra.
+  /// La fecha efectiva de una compra o aplicación no puede ser posterior a
+  /// hoy (#121) y tiene que clasificar en la campaña del borrador, que es la
+  /// activa (RN-15, RN-16, RF-03). Se lee dentro de la transacción que
+  /// escribe, antes de escribir: un rechazo no deja nada. Nunca se elige otra
+  /// campaña en silencio, y el mensaje nombra la campaña de la fecha sin
+  /// invitar a registrar en otra.
   Future<void> _ensureEffectiveDateInCampaign(
     DatabaseExecutor executor,
     int campaignId,
     DateTime effective,
   ) async {
     final day = localDay(effective);
+    final today = localDay(DateTime.now());
+    if (day.compareTo(today) > 0) {
+      throw CampaignDateException(
+        CampaignDateProblem.future,
+        'La fecha ${displayDay(day)} es posterior a hoy '
+        '(${displayDay(today)}). Una compra o aplicación ya realizada no '
+        'puede tener una fecha futura. No se registró nada.',
+      );
+    }
     final periods = await _campaignPeriods(executor);
     final containing = campaignsContaining(periods, day);
     if (containing.length == 1 && containing.single.id == campaignId) return;

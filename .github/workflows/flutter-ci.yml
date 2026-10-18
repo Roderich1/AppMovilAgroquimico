@@ -72,7 +72,7 @@ jobs:
         env:
           TZ: America/La_Paz
           AGRO_TZ_REGRESSION: America/La_Paz
-        run: flutter test test/declared_need_test.dart test/date_display_test.dart test/f04_c2_campaign_period_test.dart
+        run: flutter test test/declared_need_test.dart test/date_display_test.dart test/f04_c2_campaign_period_test.dart test/f04_campaign_effective_date_test.dart test/f04_effective_date_form_test.dart
 
       # Sin `android/key.properties` la build queda deliberadamente SIN firmar
       # (ver android/app/build.gradle.kts). CI **no** necesita el keystore: el

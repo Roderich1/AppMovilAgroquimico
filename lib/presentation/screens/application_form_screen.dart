@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../app.dart';
 import '../../data/agro_repository.dart';
 import '../../domain/models.dart';
+import '../../domain/campaign_calendar.dart';
 import '../../domain/money.dart';
 import '../../domain/operation_mode.dart';
 import '../../domain/person_roles.dart';
@@ -30,6 +31,9 @@ class ApplicationFormScreen extends ConsumerStatefulWidget {
 class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
   late Future<_ApplicationCatalogs> catalogs;
   int? personId, farmId;
+
+  /// Día de la aplicación (#121): hoy por defecto, editable hacia atrás.
+  String effectiveDay = localDay(DateTime.now());
   List<Map<String, Object?>> stocks = [];
   final lines = <_ApplicationLineEditor>[];
   final area = TextEditingController();
@@ -156,6 +160,23 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
     setState(() {
       stocks = result;
       loadingStock = false;
+    });
+  }
+
+  /// Día de la aplicación (#121): hoy por defecto; se puede elegir un día
+  /// pasado. El selector no ofrece el futuro, y el repositorio lo rechaza
+  /// también. Cancelar el selector no cambia nada del borrador.
+  Future<void> _pickDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: startOfLocalDay(effectiveDay),
+      firstDate: DateTime(2000),
+      lastDate: DateTime.now(),
+    );
+    if (picked == null || !mounted) return;
+    setState(() {
+      effectiveDay = localDay(picked);
+      dirty = true;
     });
   }
 
@@ -322,7 +343,8 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
               personId: personId!,
               farmId: farmId!,
               campaignId: data.campaign['id'] as int,
-              appliedAt: DateTime.now(),
+              // Hoy: el instante real. Otro día: su medianoche local (#121).
+              appliedAt: effectiveInstantForDay(effectiveDay, DateTime.now()),
               notes: notes.text.trim(),
               treatedAreaM2: _areaM2,
               planId: widget.planId,
@@ -458,7 +480,20 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
                     style: const TextStyle(fontWeight: FontWeight.w800),
                   ),
                 ),
-                const SizedBox(height: 16),
+                const SizedBox(height: 12),
+                ListTile(
+                  key: const Key('application-date'),
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.event_outlined),
+                  title: const Text('Fecha de la aplicación'),
+                  subtitle: Text(
+                    '${formatDate(effectiveDay)}'
+                    '${effectiveDay == localDay(DateTime.now()) ? ' (hoy)' : ''}',
+                  ),
+                  trailing: const Text('Cambiar'),
+                  onTap: saving ? null : _pickDate,
+                ),
+                const SizedBox(height: 12),
                 LayoutBuilder(
                   builder: (context, constraints) {
                     final wide = constraints.maxWidth >= 600;

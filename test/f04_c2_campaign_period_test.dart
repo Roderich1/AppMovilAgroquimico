@@ -435,8 +435,12 @@ void main() {
       'rechazos: antes del inicio, deja registros fuera, solapa, cerrada',
       () async {
         final fixture = await seedSyncFixture();
+        // Hasta #122 la necesidad era del 20/11 (futura) y el cierre con fin
+        // previsto no validaba nada. Ahora el cierre exige un fin efectivo no
+        // posterior a hoy que no deje registros fuera, así que la necesidad
+        // de esta prueba se fecha en el pasado; su propósito no cambia.
         await fixture.needs.declare(
-          referenceDate: DateTime(2026, 11, 20),
+          referenceDate: DateTime(2026, 9, 20),
           productId: fixture.litreProductId,
           quantityBase: 1000,
         );
@@ -457,14 +461,14 @@ void main() {
         await expectLater(
           fixture.repo.setCampaignEnd(
             fixture.campaignId,
-            end: DateTime(2026, 11, 19),
+            end: DateTime(2026, 9, 19),
           ),
           throwsA(
             isA<CampaignCalendarException>().having(
               (e) => e.message,
               'message',
               allOf(
-                contains('registros del 20/11/2026'),
+                contains('registros del 20/09/2026'),
                 contains('no se cambian de campaña'),
               ),
             ),
@@ -491,7 +495,7 @@ void main() {
             ),
           ),
         );
-        // Acortarlo sí, mientras no deje fuera el registro del 20/11.
+        // Acortarlo sí, mientras no deje fuera el registro del 20/09.
         await fixture.repo.setCampaignEnd(
           fixture.campaignId,
           end: DateTime(2026, 12, 15),
@@ -500,8 +504,13 @@ void main() {
           storedLocalDay((await _campaignRow(fixture))['end_date']! as String),
           '2026-12-15',
         );
-        // Cerrada: su período no se cambia.
+        // Cerrada: su período no se cambia. El cierre confirma el fin
+        // efectivo (hoy), no el previsto del 15/12 (#122).
         await fixture.repo.closeCampaign(fixture.campaignId);
+        expect(
+          storedLocalDay((await _campaignRow(fixture))['end_date']! as String),
+          localDay(DateTime.now()),
+        );
         await expectLater(
           fixture.repo.setCampaignEnd(
             fixture.campaignId,

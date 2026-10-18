@@ -6,6 +6,8 @@
 // ninguna operación cambia de campaña.
 //
 // Pruebas de HOST (sqflite_common_ffi, base en archivo). No son DEVICE.
+import 'dart:io';
+
 import 'package:agroquimicos/data/agro_repository.dart';
 import 'package:agroquimicos/data/app_database.dart';
 import 'package:agroquimicos/data/operation_mode_store.dart';
@@ -191,15 +193,19 @@ void main() {
         final first = await s.repo.confirmPurchase(
           s.purchase(DateTime(2026, 7, 1, 0, 1), people: people(s)),
         );
-        // «Siguiente» empieza el 01/12: «Invierno» termina el 30/11, que
-        // sigue siendo suyo hasta el último minuto.
+        // «Siguiente» empieza el 01/10: «Invierno» termina el 30/09, que
+        // sigue siendo suyo hasta el último minuto. Hasta #121 la siguiente
+        // empezaba el 01/12 y la compra del último minuto era del 30/11, una
+        // fecha futura; como una compra ya realizada no puede tener fecha
+        // futura, el calendario de la prueba se movió al pasado. El propósito
+        // no cambia: los dos extremos del día local son inclusivos.
         await s.repo.addCampaign(
           name: 'Siguiente',
-          start: DateTime(2026, 12, 1),
+          start: DateTime(2026, 10, 1),
         );
-        expect(await s.endDay(s.winter), '2026-11-30');
+        expect(await s.endDay(s.winter), '2026-09-30');
         final last = await s.repo.confirmPurchase(
-          s.purchase(DateTime(2026, 11, 30, 23, 59), people: people(s)),
+          s.purchase(DateTime(2026, 9, 30, 23, 59), people: people(s)),
         );
         final rows = await (await s.db).query(
           'purchases',
@@ -217,7 +223,7 @@ void main() {
           rejectedAs(CampaignDateProblem.closed, '«Verano»'),
         );
         await expectLater(
-          s.repo.confirmApplication(s.application(DateTime(2026, 12, 1))),
+          s.repo.confirmApplication(s.application(DateTime(2026, 10, 1))),
           rejectedAs(CampaignDateProblem.planned, '«Siguiente»'),
         );
         expect(await s.dump(), before);
@@ -511,5 +517,219 @@ void main() {
         nextLocalDay(localDay(DateTime.now().add(const Duration(days: 40)))),
       );
     });
+  });
+
+  group('fecha efectiva elegida (#121)', () {
+    test('el instante de un día elegido: hoy es ahora; otro día, su '
+        'medianoche local, y el día civil no cambia al guardarlo', () {
+      final now = DateTime.now();
+      expect(
+        identical(effectiveInstantForDay(localDay(now), now), now),
+        isTrue,
+      );
+      final past = effectiveInstantForDay('2026-08-15', now);
+      expect(localDay(past), '2026-08-15');
+      expect([past.hour, past.minute, past.second], [0, 0, 0]);
+      final stored = past.toUtc().toIso8601String();
+      expect(storedLocalDay(stored), '2026-08-15');
+      // Representación declarada de la hora no conocida: la medianoche local
+      // del día, guardada en UTC. En UTC es «T00:00:00.000Z»; en La Paz
+      // (−04:00) es «T04:00:00.000Z». El día que se lee de vuelta es el mismo.
+      final offset = now.timeZoneOffset;
+      if (offset == Duration.zero) {
+        expect(stored, '2026-08-15T00:00:00.000Z');
+      }
+      if (offset == const Duration(hours: -4)) {
+        expect(stored, '2026-08-15T04:00:00.000Z');
+      }
+      // Centinela del paso regional de la CI.
+      if (Platform.environment['AGRO_TZ_REGRESSION'] != null) {
+        expect(offset, const Duration(hours: -4));
+      }
+    });
+
+    test(
+      'una fecha futura se rechaza en compra y aplicación sin escribir',
+      () async {
+        final s = await seed('future-date');
+        final tomorrow = DateTime.now().add(const Duration(days: 1));
+        final before = await s.dump();
+        await expectLater(
+          s.repo.confirmPurchase(s.purchase(tomorrow, people: [s.titular])),
+          rejectedAs(CampaignDateProblem.future, 'posterior a hoy'),
+        );
+        await expectLater(
+          s.repo.confirmApplication(s.application(tomorrow)),
+          rejectedAs(CampaignDateProblem.future, 'posterior a hoy'),
+        );
+        // También a medianoche local de mañana, que es lo que mandaría un
+        // formulario con el día de mañana elegido.
+        await expectLater(
+          s.repo.confirmPurchase(
+            s.purchase(
+              effectiveInstantForDay(localDay(tomorrow), DateTime.now()),
+              people: [s.titular],
+            ),
+          ),
+          rejectedAs(CampaignDateProblem.future, 'posterior a hoy'),
+        );
+        expect(await s.dump(), before);
+      },
+    );
+
+    test('un día pasado elegido dentro de la campaña activa: multiproducto, '
+        'clasificado en su campaña y conservado tras reabrir', () async {
+      final s = await seed('chosen-past');
+      final at = effectiveInstantForDay('2026-08-15', DateTime.now());
+      final purchaseId = await s.repo.confirmPurchase(
+        s.purchase(at, people: [s.titular, s.relative]),
+      );
+      await s.repo.confirmApplication(s.application(at));
+      await s.reopen();
+      final db = await s.db;
+      final purchase = (await db.query(
+        'purchases',
+        where: 'id=?',
+        whereArgs: [purchaseId],
+      )).single;
+      expect(purchase['campaign_id'], s.winter);
+      expect(purchase['purchase_date'], at.toUtc().toIso8601String());
+      expect(
+        storedLocalDay(purchase['purchase_date']! as String),
+        '2026-08-15',
+      );
+      expect(await db.query('purchase_items'), hasLength(2));
+      final application = (await db.query('applications')).single;
+      expect(application['campaign_id'], s.winter);
+      expect(
+        storedLocalDay(application['applied_at']! as String),
+        '2026-08-15',
+      );
+      expect(await db.query('application_items'), hasLength(2));
+    });
+
+    test('fronteras a medianoche local: el primer día de la activa entra y el '
+        'último de la cerrada se rechaza como cerrada', () async {
+      final s = await seed('chosen-borders');
+      final now = DateTime.now();
+      final id = await s.repo.confirmPurchase(
+        s.purchase(
+          effectiveInstantForDay('2026-07-01', now),
+          people: [s.titular],
+        ),
+      );
+      final purchase = (await (await s.db).query(
+        'purchases',
+        where: 'id=?',
+        whereArgs: [id],
+      )).single;
+      expect(purchase['campaign_id'], s.winter);
+      expect(
+        storedLocalDay(purchase['purchase_date']! as String),
+        '2026-07-01',
+      );
+      final before = await s.dump();
+      await expectLater(
+        s.repo.confirmPurchase(
+          s.purchase(
+            effectiveInstantForDay('2026-06-30', now),
+            people: [s.titular],
+          ),
+        ),
+        rejectedAs(CampaignDateProblem.closed, 'Verano'),
+      );
+      expect(await s.dump(), before);
+    });
+  });
+
+  group('cierre con fin previsto (#122)', () {
+    test('un fin previsto futuro no cierra la campaña en el futuro: se pide y '
+        'valida el fin efectivo igual que sin fin previsto', () async {
+      final s = await seed('close-planned-future');
+      final planned = DateTime.now().add(const Duration(days: 44));
+      await s.repo.setCampaignEnd(s.winter, end: planned);
+      expect(await s.endDay(s.winter), localDay(planned));
+      final before = await s.dump();
+      await expectLater(
+        s.repo.closeCampaign(s.winter, end: planned),
+        calendarRejection('no puede ser posterior'),
+      );
+      expect(await s.dump(), before);
+      // Sin fin explícito, el fin efectivo es hoy: el previsto no se conserva.
+      await s.repo.closeCampaign(s.winter);
+      expect(await s.endDay(s.winter), localDay(DateTime.now()));
+      expect((await s.campaign(s.winter))['status'], 'CLOSED');
+    });
+
+    test(
+      'con fin previsto, el fin efectivo tampoco va antes del inicio ni '
+      'deja fuera registros; igual al previsto ya pasado, se acepta',
+      () async {
+        final s = await seed('close-planned-ops');
+        await s.repo.confirmPurchase(
+          s.purchase(DateTime(2026, 8, 10), people: [s.titular]),
+        );
+        await s.repo.setCampaignEnd(s.winter, end: DateTime(2026, 9, 30));
+        final before = await s.dump();
+        await expectLater(
+          s.repo.closeCampaign(s.winter, end: DateTime(2026, 8, 9)),
+          calendarRejection('10/08/2026'),
+        );
+        await expectLater(
+          s.repo.closeCampaign(s.winter, end: DateTime(2026, 6, 30)),
+          calendarRejection('anterior al inicio'),
+        );
+        expect(await s.dump(), before);
+        await s.repo.closeCampaign(s.winter, end: DateTime(2026, 9, 30));
+        expect(await s.endDay(s.winter), '2026-09-30');
+        expect((await s.campaign(s.winter))['status'], 'CLOSED');
+      },
+    );
+
+    test('el fin efectivo no solapa la campaña siguiente', () async {
+      final s = await seed('close-overlap');
+      await s.repo.addCampaign(name: 'Siguiente', start: DateTime(2026, 9, 15));
+      expect(await s.endDay(s.winter), '2026-09-14');
+      final before = await s.dump();
+      await expectLater(
+        s.repo.closeCampaign(s.winter, end: DateTime(2026, 9, 20)),
+        calendarRejection('se solapa'),
+      );
+      expect(await s.dump(), before);
+      await s.repo.closeCampaign(s.winter, end: DateTime(2026, 9, 14));
+      expect(await s.endDay(s.winter), '2026-09-14');
+    });
+
+    test(
+      'la excepción de la campaña activa que no empezó se conserva y no se '
+      'amplía: su fin es su día de inicio, también con fin previsto',
+      () async {
+        final s = await seed('close-not-started');
+        final start = DateTime.now().add(const Duration(days: 10));
+        final future = await s.repo.addCampaign(name: 'Futura', start: start);
+        await s.repo.activateCampaign(future, closeCurrent: true);
+        // Límite declarado: «Cerrar y activar» una sucesora futura deja la
+        // anterior cerrada con el fin que fijó el alta (el día previo al inicio
+        // de la sucesora), que es futuro. No es el camino de closeCampaign.
+        expect(await s.endDay(s.winter), previousLocalDay(localDay(start)));
+        await s.repo.setCampaignEnd(
+          future,
+          end: start.add(const Duration(days: 20)),
+        );
+        final before = await s.dump();
+        await expectLater(
+          s.repo.closeCampaign(future),
+          calendarRejection('anterior al inicio'),
+        );
+        await expectLater(
+          s.repo.closeCampaign(future, end: start.add(const Duration(days: 1))),
+          calendarRejection('no puede ser posterior'),
+        );
+        expect(await s.dump(), before);
+        await s.repo.closeCampaign(future, end: start);
+        expect(await s.endDay(future), localDay(start));
+        expect((await s.campaign(future))['status'], 'CLOSED');
+      },
+    );
   });
 }
