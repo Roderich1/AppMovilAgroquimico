@@ -148,6 +148,61 @@ class PageFrame extends StatelessWidget {
   }
 }
 
+/// Encabezado de sección con una acción opcional (#129).
+///
+/// Título y acción en una fila con `Expanded` dejaban al título sólo el ancho
+/// sobrante, y en 360 dp con la fuente al 130 % «Productos (1)» salía
+/// «Producto / s (1)». Como en el título de [PageFrame] (#97), van en un `Wrap`
+/// a todo el ancho: el título conserva su ancho natural y, si no caben los dos,
+/// la acción baja a la línea siguiente. No se abrevia ni se limita la escala.
+class SectionHeading extends StatelessWidget {
+  const SectionHeading({super.key, required this.title, this.action});
+
+  final String title;
+  final Widget? action;
+
+  @override
+  Widget build(BuildContext context) => SizedBox(
+    width: double.infinity,
+    child: Wrap(
+      alignment: WrapAlignment.spaceBetween,
+      crossAxisAlignment: WrapCrossAlignment.center,
+      spacing: 12,
+      runSpacing: 4,
+      children: [
+        Text(
+          title,
+          style: Theme.of(context).textTheme.titleLarge
+              ?.copyWith(fontWeight: FontWeight.w700),
+        ),
+        if (action != null) action!,
+      ],
+    ),
+  );
+}
+
+/// Ancho en píxeles lógicos que ocupa [text] con [style] y la escala de fuente
+/// vigente en [context] (o [textScaler], si se indica).
+///
+/// Sirve para que una disposición se decida por lo que mide el texto real con
+/// la fuente del dispositivo, y no por un ancho fijo en dp que sólo vale para
+/// una fuente y una escala (#129).
+double measureText(
+  BuildContext context,
+  String text,
+  TextStyle? style, {
+  TextScaler? textScaler,
+}) {
+  final painter = TextPainter(
+    text: TextSpan(text: text, style: style),
+    textDirection: Directionality.of(context),
+    textScaler: textScaler ?? MediaQuery.textScalerOf(context),
+  )..layout();
+  final width = painter.width;
+  painter.dispose();
+  return width;
+}
+
 class EmptyState extends StatelessWidget {
   const EmptyState({super.key, required this.icon, required this.message});
   final IconData icon;
