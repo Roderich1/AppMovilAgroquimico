@@ -7,6 +7,7 @@ import 'package:image_picker/image_picker.dart';
 
 import '../../app.dart';
 import '../../domain/models.dart';
+import '../../domain/campaign_calendar.dart';
 import '../../domain/money.dart';
 import '../../domain/operation_mode.dart';
 import '../../domain/person_roles.dart';
@@ -80,6 +81,9 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
   final lines = <_PurchaseLineEditor>[_PurchaseLineEditor()];
   int? supplierId;
   int? campaignId;
+
+  /// Día de la compra (#121): hoy por defecto, editable hacia atrás.
+  String effectiveDay = localDay(DateTime.now());
   bool payProvider = false;
   int? payerId;
 
@@ -94,6 +98,23 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
   bool dirty = false;
 
   void _markDirty() => setState(() => dirty = true);
+
+  /// Día de la compra (#121): hoy por defecto; se puede elegir un día pasado.
+  /// El selector no ofrece el futuro, y el repositorio lo rechaza también.
+  /// Cancelar el selector no cambia nada del borrador.
+  Future<void> _pickDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: startOfLocalDay(effectiveDay),
+      firstDate: DateTime(2000),
+      lastDate: DateTime.now(),
+    );
+    if (picked == null || !mounted) return;
+    setState(() {
+      effectiveDay = localDay(picked);
+      dirty = true;
+    });
+  }
 
   Future<void> _close() async {
     if (dirty) {
@@ -256,7 +277,8 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
         PurchaseDraft(
           supplierId: supplierId!,
           campaignId: campaignId!,
-          purchaseDate: DateTime.now(),
+          // Hoy: el instante real. Otro día: su medianoche local (#121).
+          purchaseDate: effectiveInstantForDay(effectiveDay, DateTime.now()),
           invoiceNumber: invoiceNumber.text.trim(),
           invoiceImagePath: imagePath,
           exchangeRateSource:
@@ -468,6 +490,19 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
                                 });
                               },
                             ),
+                          ),
+                          const SizedBox(height: 10),
+                          ListTile(
+                            key: const Key('purchase-date'),
+                            contentPadding: EdgeInsets.zero,
+                            leading: const Icon(Icons.event_outlined),
+                            title: const Text('Fecha de la compra'),
+                            subtitle: Text(
+                              '${formatDate(effectiveDay)}'
+                              '${effectiveDay == localDay(DateTime.now()) ? ' (hoy)' : ''}',
+                            ),
+                            trailing: const Text('Cambiar'),
+                            onTap: saving ? null : _pickDate,
                           ),
                           const SizedBox(height: 10),
                           TextField(

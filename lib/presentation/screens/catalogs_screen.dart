@@ -127,9 +127,11 @@ class _CatalogsScreenState extends ConsumerState<CatalogsScreen>
         final summary = await repo.campaignCloseSummaryTyped(row['id'] as int);
         if (!mounted) return;
         // Fin del período (RN-16; «las fechas concretas son configuración»):
-        // si la campaña sigue abierta se elige, hoy por defecto. Si ya lo fijó
-        // el alta de la siguiente, se conserva.
-        final fixedEnd = row['end_date'] as String?;
+        // el fin **efectivo** se elige siempre, hoy por defecto, también si
+        // el alta de la siguiente o «Fijar fin previsto…» ya fijaron un fin
+        // (#122). Ese fin previsto se muestra aparte y no se conserva en
+        // silencio; el repositorio vuelve a validar.
+        final plannedEnd = row['end_date'] as String?;
         // El fin más tardío admitido es hoy, o el inicio si la campaña todavía
         // no empezó (revisión de B sobre #110); es también el que se propone.
         final start = DateTime.parse(row['start_date']! as String).toLocal();
@@ -149,29 +151,38 @@ class _CatalogsScreenState extends ConsumerState<CatalogsScreen>
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  if (fixedEnd == null)
+                  if (plannedEnd != null)
                     ListTile(
-                      key: const Key('campaign-close-end'),
+                      key: const Key('campaign-close-planned-end'),
                       contentPadding: EdgeInsets.zero,
-                      leading: const Icon(Icons.event_outlined),
-                      title: const Text('Termina el'),
-                      subtitle: Text(formatDate(end.toIso8601String())),
-                      trailing: const Text('Cambiar'),
-                      onTap: () async {
-                        final picked = await showDatePicker(
-                          context: dialogContext,
-                          initialDate: end,
-                          firstDate: DateTime(2000),
-                          // Un fin futuro no se admite (el repositorio lo
-                          // rechaza también).
-                          lastDate: latestEnd,
-                        );
-                        if (picked != null) setDialogState(() => end = picked);
-                      },
+                      leading: const Icon(Icons.event_note_outlined),
+                      title: const Text('Fin previsto'),
+                      subtitle: Text(
+                        '${formatDate(plannedEnd)}. El fin efectivo que '
+                        'confirme abajo lo sustituye.',
+                      ),
                     ),
+                  ListTile(
+                    key: const Key('campaign-close-end'),
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.event_outlined),
+                    title: const Text('Termina el'),
+                    subtitle: Text(formatDate(end.toIso8601String())),
+                    trailing: const Text('Cambiar'),
+                    onTap: () async {
+                      final picked = await showDatePicker(
+                        context: dialogContext,
+                        initialDate: end,
+                        firstDate: DateTime(2000),
+                        // Un fin futuro no se admite (el repositorio lo
+                        // rechaza también).
+                        lastDate: latestEnd,
+                      );
+                      if (picked != null) setDialogState(() => end = picked);
+                    },
+                  ),
                   Text(
-                    'Periodo: desde ${formatDate(row['start_date'])}'
-                    '${fixedEnd == null ? '' : ' hasta ${formatDate(fixedEnd)}'}.\n\n'
+                    'Periodo: desde ${formatDate(row['start_date'])}.\n\n'
                     'Compras: ${summary.purchasesCount} · aplicaciones: ${summary.applicationsCount}\n'
                     'Planes pendientes: ${summary.pendingPlans}\n'
                     'Saldo por cobrar: ${formatBob(summary.receivableBobMinor)}\n\n'
@@ -206,10 +217,7 @@ class _CatalogsScreenState extends ConsumerState<CatalogsScreen>
           ),
         );
         if (confirm == true) {
-          await repo.closeCampaign(
-            row['id'] as int,
-            end: fixedEnd == null ? end : null,
-          );
+          await repo.closeCampaign(row['id'] as int, end: end);
         }
       } else {
         await _edit(row);

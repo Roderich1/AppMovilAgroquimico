@@ -55,6 +55,15 @@ String nextLocalDay(String day) {
 String displayDay(String day) =>
     '${day.substring(8, 10)}/${day.substring(5, 7)}/${day.substring(0, 4)}';
 
+/// Instante que se guarda como fecha efectiva cuando quien registra sólo
+/// eligió un **día** (#121). Si el día es hoy, el instante es [now]: la hora
+/// real se conoce. Si es otro día, la medianoche local de ese día: no se
+/// inventa una hora que nadie registró. En cualquier zona horaria,
+/// [localDay] del resultado es [day]; guardado en UTC, [storedLocalDay] lo
+/// devuelve el mismo día mientras el teléfono siga en su zona.
+DateTime effectiveInstantForDay(String day, DateTime now) =>
+    day == localDay(now) ? now : startOfLocalDay(day);
+
 /// Período de una campaña leído de su fila.
 final class CampaignPeriod {
   const CampaignPeriod({
