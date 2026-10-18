@@ -163,15 +163,31 @@ def fill_line(line_no, product, qty, price):
         """Campos de la línea: los EditText bajo su cabecera y antes de la siguiente línea."""
         nodes = dump()
         header = find(nodes, rf"^{line_no} DSV-")
+        if header is None:
+            # Al abrir el teclado el formulario se desplaza y la cabecera sale por ARRIBA
+            # (fuente grande): primero se sube un poco; si no está, se baja.
+            adb("shell", "input", "swipe", str(sx(0.5)), str(sy(0.40)), str(sx(0.5)), str(sy(0.66)), "700")
+            time.sleep(0.9)
+            nodes = dump()
+            header = find(nodes, rf"^{line_no} DSV-")
         if header is None or header["y"] > sy(0.79):
             scroll_down()
             nodes = dump()
             header = find(nodes, rf"^{line_no} DSV-")
         if header is None:
             raise RuntimeError(f"no se ve la cabecera de la línea {line_no}")
-        nxt = find(nodes, rf"^{line_no + 1} (Seleccione producto|DSV-)")
-        top, bottom = header["y"], (nxt["y"] if nxt else 10 ** 6)
-        fields = [n for n in edits(nodes) if top < n["y"] < bottom]
+
+        def below(nodes, header):
+            nxt = find(nodes, rf"^{line_no + 1} (Seleccione producto|DSV-)")
+            top, bottom = header["y"], (nxt["y"] if nxt else 10 ** 6)
+            return [n for n in edits(nodes) if top < n["y"] < bottom]
+
+        fields = below(nodes, header)
+        if not fields:  # cabecera visible pero los campos bajo el borde (fuente grande): se baja
+            scroll_down()
+            nodes = dump()
+            header = find(nodes, rf"^{line_no} DSV-") or header
+            fields = below(nodes, header)
         own = find(nodes, r"^Para el titular") is not None
         return header, fields, own
 
@@ -205,7 +221,20 @@ def fill_line(line_no, product, qty, price):
         tap(target["x"], target["y"], 0.8)
         type_text(value)
     hide_keyboard()
-    header, fields, own = line_edits()
+    # Comprobación final: con fuente grande (A4-F, 1,3) la cabecera puede haber salido por
+    # arriba tras rellenar el precio; se vuelve a subir un poco antes de darla por perdida.
+    nodes = dump()
+    header = find(nodes, rf"^{line_no} DSV-")
+    for _ in range(3):
+        if header is not None:
+            break
+        adb("shell", "input", "swipe", str(sx(0.5)), str(sy(0.40)), str(sx(0.5)), str(sy(0.66)), "700")
+        time.sleep(0.9)
+        nodes = dump()
+        header = find(nodes, rf"^{line_no} DSV-")
+    if header is None:
+        raise RuntimeError(f"no se ve la cabecera de la línea {line_no} al terminar")
+    own = find(nodes, r"^Para el titular") is not None
     if "Pendiente" in label(header) or (not own and "Asignado" not in label(header)):
         raise RuntimeError(f"línea {line_no} incompleta: {label(header)}")
 
