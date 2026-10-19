@@ -713,7 +713,7 @@ Fuente: «Agrocuentas — Decisiones REC y siguiente bloque acotado» (2026-10-1
 - **Visible:**
   - el detalle de inventario muestra «Comprado neto», «Consumido neto» y «Asignación neta», con dos líneas explicativas en palabras simples;
   - el perfil muestra «Consumido neto»;
-  - Inicio, el reporte y el formulario de planificación no muestran estas cifras: sólo leen el físico o el disponible.
+  - Inicio y el reporte de inventario no muestran el comprado ni el consumido: muestran el físico, el comprometido, el proyectado y el valor. El formulario de planificación sólo lee el disponible.
 - **Verificación** (`test/rec_046_051_net_figures_test.dart`, 10 casos):
   - cubre los 8 tipos, la cabecera, el reparto, el perfil, el resumen y su adaptador tipado;
   - comprueba que consultar no escribe: el volcado, los físicos, los costos y los asientos quedan iguales;
@@ -722,8 +722,12 @@ Fuente: «Agrocuentas — Decisiones REC y siguiente bloque acotado» (2026-10-1
   - `rec_016_export_coherence_test.dart` fija el ejemplo de §6.4: Glifosato 8 / 5,5 / 2,5 L y Paraquat 6 / 4,5 / 1,5 kg.
   - `rec_046_inventory_detail_test.dart:150` se ajustó de 18 a 17 L: la cifra bruta no descontaba el litro que Ana entregó a Beto.
   - C mutó el `HAVING` (a `COUNT(*)`) y metió `APPLICATION_REVERSAL` en la asignación: las dos mutaciones hacen fallar la prueba.
-- **No cambia:** el físico, el valor, FIFO, los lotes, los costos, los asientos, la sincronización, el consumo total publicado, la autorización ni F06.
-- **Efecto en el piloto:** ninguna tarea revierte operaciones. Con DS-UX y la ejecución nominal, Bellator queda en comprado neto 1,5 L, consumido neto 0,2 L y físico 1,3 L, el mismo valor que el oráculo de T3. Las pruebas del oráculo DS-UX (`test/f10_ux_dsux_fixture_test.dart`) forman parte de la suite del CI de `main`.
+  - El hueco que §6.3 señalaba en #51 («Consumido» del perfil sin afirmar) lo cubre ahora el widget del perfil de este archivo.
+  - **Comando y salida:** en local, 2026-10-19 12:13:38–12:14:00Z sobre `76eea02`, `dart format` y `flutter analyze` de los 7 archivos tocados dieron limpio, y la prueba nueva más los 17 archivos que ejercitan estas consultas o pantallas dieron `flutter test` → `+208: All tests passed!`. CI del HEAD `d148510`: 39252493951 SUCCESS (1611 pruebas, 4 omitidas; 78 en La Paz). CI de `main` `463d3ec`: 39254103212 SUCCESS.
+- **No cambia:** el físico, el valor, FIFO, los lotes, los costos, los asientos, la sincronización, el costo consumido que publican los reportes, la autorización ni F06.
+- **Efecto en el piloto:** ninguna tarea revierte operaciones.
+  - La suite fija el físico de Bellator, 1,3 L, y el oráculo de T3 (`test/f10_ux_dsux_fixture_test.dart`, dentro del CI de `main`).
+  - Del sembrado se deducen, sin reversiones ni transferencias, el comprado neto (1 L inicial + 0,5 L de T1 = 1,5 L) y el consumido neto (0,2 L de T2) de la cabecera. Ninguna prueba versionada los fija. C los confirmó con una sonda temporal, no versionada, en las dos modalidades: la cabecera da 1500 / 200 / 1300 en propia y en compartida. En compartida, el reparto por persona es Titular 1000 / 200 / 800 y Familiar Demo 500 / 0 / 500, igual que `by_person_base` del oráculo.
 
 **Propuesta para #46 y #51 (dry-run aparte, sin aplicar):** Done · Verified y cierre como completed para las dos.
 - Los criterios literales están cubiertos: los de §6.3 más la semántica neta aprobada.
