@@ -426,7 +426,7 @@ Estado propuesto: pendiente · Evidence Partial. No se cierra.
 - **`InvoiceStorage`** sigue sin prueba propia; es el hueco de #44.
 - **(5) El ciclo físico de `docs/46`** es documental. Lo sustituyen como evidencia de dispositivo `F08_MOBILE_RESTORE` §5 y `F10_RESTORE_DEVICE` (POCO, 2026-10-16).
 - **HOST frente a DEVICE:** los seis criterios tienen HOST material. Tienen además DEVICE el 1, el 2, el 4, el 5 y el 6; el 3 es sólo HOST.
-- **Las filas DEVICE diferidas de MOB #18** (F03, cliente HTTP) no intervienen en #55 y no se usan aquí.
+- **Las 22 filas DEVICE diferidas de Roderich1/Agro_Sindicato_Backend-Web#18** (`docs/evidence/F05_SYNC_06.md` del Backend, §3, columna Mobile NOT_MEASURED de la suite adversarial de Sync) no intervienen en #55 y no se usan aquí.
 
 **Propuesta:** **Done + Verified + cierre completed.** Los seis criterios están cubiertos, integrados en `main` y con evidencia; cinco de ellos, también en el teléfono. Límites que se declaran sin bloquear el cierre:
 - el esquema antiguo se probó con una base v7 sintetizada, sólo en HOST;
@@ -592,5 +592,5 @@ Son pruebas de host pequeñas, cada una en su archivo nuevo. Sólo cambia el có
 
 - Es una lectura del código y de la evidencia existente. No es una prueba nueva ni una revisión humana.
 - La cobertura «material» la juzgan las sesiones por lectura de cada prueba. No se midió cobertura de líneas.
-- La evidencia de dispositivo se limita a la de los archivos citados (POCO X5 Pro 5G y HONOR JDY-LX3P). Las 22 filas DEVICE de MOB #18 siguen diferidas y no intervienen.
+- La evidencia de dispositivo se limita a la de los archivos citados (POCO X5 Pro 5G y HONOR JDY-LX3P). Las 22 filas DEVICE de Roderich1/Agro_Sindicato_Backend-Web#18 (`docs/evidence/F05_SYNC_06.md` del Backend, §3) siguen diferidas y no intervienen.
 - La restauración en un teléfono nuevo sigue siendo el criterio abierto de MOB #36 (F08).
