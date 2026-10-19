@@ -594,3 +594,81 @@ Son pruebas de host pequeñas, cada una en su archivo nuevo. Sólo cambia el có
 - La cobertura «material» la juzgan las sesiones por lectura de cada prueba. No se midió cobertura de líneas.
 - La evidencia de dispositivo se limita a la de los archivos citados (POCO X5 Pro 5G y HONOR JDY-LX3P). Las 22 filas DEVICE de Roderich1/Agro_Sindicato_Backend-Web#18 (`docs/evidence/F05_SYNC_06.md` del Backend, §3) siguen diferidas y no intervienen.
 - La restauración en un teléfono nuevo es el límite con el que se cerró MOB #36 (F08, Done · Partial).
+
+## 6. Decisiones de Roderich y resultados de las comprobaciones (actualización del 2026-10-19)
+
+Esta sección actualiza la matriz única; no hay otro catálogo de REC. Las secciones 0 a 5 se conservan tal como se integraron en `324df1a`, como registro de la conciliación por lectura.
+
+### 6.1 Decisiones del 2026-10-19
+
+Fuente: «Agrocuentas: resolución de REC y autorización del bloque de comprobaciones», bajo la delegación técnica de Roderich. No es una revisión del tutor ni una validación institucional.
+
+- **Lote aplicado:** 10:25:08–10:25:55Z, 34 operaciones, relectura 168/168.
+  - #55 y #57: Done · Verified, cerradas.
+  - #56: Done · Partial, cerrada.
+  - 10 tarjetas: Validation · Partial.
+  - #53: Backlog · Partial, con RF-31 retirado.
+- **#50, límite académico aceptado (RF-13):** no hay un registro separado del operador que ejecuta cada reversión. No se autoriza una migración ni un sistema de auditoría para resolverlo.
+  - El límite no permite afirmar que el titular hizo la reversión por estar el dispositivo vinculado a él, ni completar actores desconocidos.
+  - Se conservan el responsable de la operación original, las referencias, la fecha, el motivo y los efectos correctivos.
+  - **Interpretación:** RF-13 pide el actor y el ámbito autorizados y la preservación del responsable. Queda **cubierto en parte**: se preserva el responsable de la operación original, pero no se identifica individualmente al ejecutor de la reversión. No se inventa un campo ni una atribución humana.
+  - Cubiertos los demás criterios, #50 admite un cierre académico **Done · Partial**, nunca Verified, sin cambiar GATE-F04.
+- **#56, límite académico aceptado:**
+  - el diálogo «Descartar cambios» no tiene prueba automatizada sobre todos los formularios reales;
+  - plan y transferencia no tienen evidencia de ese diálogo;
+  - el estudio de usabilidad y la accesibilidad semántica quedan fuera del alcance de la REC y no se presentan como cumplidos.
+- **#39 y #52:** límites no aceptados; se autorizaron sus comprobaciones.
+- **#53:** RF-31 se retira como atribución directa de los criterios CSV y la brecha se declara en el cuerpo del issue. La exportación es una capacidad derivada de `docs/evolution/features/EVOLUTION-2_TYPED_READS_AND_REPORT_EXPORT_SPEC.md`.
+- **Comprobaciones:** las once, autorizadas como pruebas de comportamiento y agrupadas en tres PR.
+
+### 6.2 Entregas
+
+| PR | Rama | HEAD revisado | CI del HEAD | Revisión cruzada | Cambios de `lib/` |
+|---|---|---|---|---|---|
+| MOB #137 (B) | `test/rec-datos-reglas` | `e3a7ff7` | Flutter CI 39239990432 SUCCESS (antes, 39238552838 sobre `3fa736b`: 1567 passed, 4 skipped; La Paz 78 passed) | LISTO de C sobre `e3a7ff7` | ninguno |
+| MOB #138 (C) | `test/rec-interfaz-reportes` | `9c779c4` | Flutter CI 39239353186 SUCCESS | LISTO de B | `farm_logbook_screen.dart` (texto «· Revertida»; defecto 1) |
+| MOB #136 (C) | `fix/rec-017-csv-neutralizacion` | `927488e` | Flutter CI 39238051217 SUCCESS | LISTO de B | `csv_report_generator.dart` (`_neutralize`) |
+
+- **Base y autoría:** todos parten de `main` `324df1a`, con autor Roderich1 y sin trailers.
+- **Ejecución:** en local sólo los archivos afectados, `dart format` y `flutter analyze`; la suite completa, en el CI de cada PR.
+- **Valores esperados:** son literales fijados por la fixture de cada archivo. «Sin cambios» se comprueba con el volcado completo de las tablas (`dumpTables`) y con los saldos.
+- **Detalle por caso:** en la descripción de #137, y en `docs/evidence/REC_008_015_016_COMPROBACIONES.md` (#138) y `docs/evidence/REC_017_CSV_NEUTRALIZACION.md` (#136).
+
+### 6.3 Resultado por tarjeta
+
+| Tarjeta | Comprobación nueva (archivo y casos) | Resultado | Defecto | Queda (fuera del literal o límite) | Propuesta |
+|---|---|---|---|---|---|
+| #39 | `rec_039_schema_constraints_test.dart` sobre el esquema vigente v10 creado desde cero (no la línea base v6): FK activa e inválida rechazada (`:44`); CHECK representativos de las tablas de REC-003 (`:77`); segunda campaña `ACTIVE` por inserción directa (`:216`) | 3/3 PASS | — | Equivalencia desde V1, V2, V4 y V5; restricciones sobre una base migrada; CHECK de seis tablas F04–F06, fuera de REC-003. La escritura fallida a mitad tiene prueba de repositorio con rollback (`repository_test.dart:233`, con una FK inválida dentro de la transacción) | **Done · Verified · cerrar** |
+| #40 | `rec_040_catalog_archive_rename_test.dart`: archivado lógico de los cuatro catálogos conservando sus operaciones (`:81`); renombrado en blanco (`:131`) | 2/2 PASS | — | Validación de los diálogos de persona y producto, y persistencia de los catálogos al reabrir la base (hallazgos c y d del 15/10, fuera de los 7 criterios) | **Done · Verified · cerrar** |
+| #43 | `rec_043_purchase_rules_test.dart`: rechazos de `confirmPurchase` sin residuos (`:59`); moneda, precio original y tipo de cambio en la línea y en el lote (`:184`). Reutiliza `repository_test.dart:233` para c5 | 2/2 PASS | — | Pruebas de widget de los mensajes del formulario | **Done · Verified · cerrar** |
+| #44 | `rec_008_invoice_viewer_test.dart`: `storeInvoiceImage` (bytes, `.jpg` por defecto, original intacto, ruta guardada); «Ver factura», diálogo con `FileImage` y aviso de archivo ausente | 6/6 PASS | — | **La cámara no se ejercita**, ni en el teléfono ni simulando `ImagePicker`; la galería sí, en las series F10 1 y 2. `docs/13_LOCAL_STORAGE.md:181-185` conserva el apartado «sin resolver», que contradice su actualización de `:246-250` | **Done · Partial · cerrar**, con el límite de la cámara (lo acepta Roderich al aprobar) |
+| #46 | `rec_046_inventory_detail_test.dart`: cabecera y reparto (`:168`); lotes con su procedencia y filtros (`:182`); saldo intacto tras rechazar una aplicación (`:278`) | 3/3 PASS | — | Pruebas de widget del detalle; visibilidad autorizada en las lecturas. **Observación de §6.4** | **Decisión de Roderich (§6.4)**; mientras tanto, Validation · Partial |
+| #47 | `rec_047_application_rules_test.dart`: atomicidad multiproducto (`:88`); cantidad ≤ 0 (`:119`); `variance_quantity_base` (`:139`); `estimateFifoCost` frente al costo real, con los consumos por ítem y el total (`:207`). c1 está en `rec_046…:278` | 4/4 PASS | — | Lectura directa de `APPLICATION_OUT` (hallazgo 7 del 15/10) | **Done · Verified · cerrar** |
+| #48 | `rec_048_transfer_guards_test.dart`: origen = destino, multiproducto y por lote (`:84`); reversión con el destino ya movido (`:117`, `:158`) | 3/3 PASS | — | Fecha efectiva de `TRANSFER_OUT/IN`; tipo de cambio de un lote derivado de una compra en USD | **Done · Verified · cerrar** |
+| #50 | `rec_050_reversal_rules_test.dart`: cargo conservado, `CREDIT_ADJUSTMENT` con `reversal_of_id` y motivo (`:111`); doble reversión de una aplicación (`:209`); compra consumida sin cambios (`:228`); motivo en compras y transferencias (`:270`); confirmación en `PurchasesScreen` (`:366`) y `TransfersScreen` (`:420`) | 6/6 PASS | — | **Responsable de la reversión: límite aceptado (§6.1)** | **Done · Partial · cerrar** |
+| #51 | `rec_015_logbook_profile_test.dart`: `farmLogbook` con sus campos, `fifo_lots`, los filtros, su combinación y la reversión; `FarmLogbookScreen`; `PersonDetailScreen` (superficie, saldo, stock, y cuenta con el cargo conservado y el crédito) | 12/12 PASS con `82d02fc` | **Defecto 1:** la bitácora pintaba una aplicación revertida como hecha. Reproducido sobre `f1519d2` (+11 −1) y corregido sólo en el texto («· Revertida») | El texto «Consumido» del perfil no se afirma. **Observación de §6.4** | **Decisión de Roderich (§6.4)**; mientras tanto, Validation · Partial |
+| #52 | `rec_016_export_coherence_test.dart`: CSV completo del costo por producto y por chaco (todas las campañas, C1 y C2) y de los resúmenes de C1 y C2, contra literales de la fixture. Si se quita el filtro de campaña del cableado, fallan los casos filtrados | 8/8 PASS | — | No se extrae el texto del PDF, que sale del mismo `ReportTable` cubierto por `report_composer_test`. Se conserva la corrección del 2026-10-17: el «Verified» de la tabla del 2026-10-15 no respaldaba estos tres casos | **Done · Verified · cerrar** |
+| #53 | `report_csv_test.dart`: tres casos nuevos que **fallan sobre `324df1a`** (`'\tABC'`, `'\rABC'`, `' \tABC'`) y una salvaguarda; corrección de `_neutralize` (`c2b9906`). `reports_screen_test.dart`: cancelación sin archivos finales, temporales ni `.parcial`, con la base y los saldos sin cambios; éxito CSV con nombre y carpeta | 27/27 en `report_csv_test`; pantalla en verde en el CI | **Incumplimiento del contrato de neutralización**, corregido. No se demostró la ejecución de ninguna fórmula | `'\nABC'` sale entrecomillada y sin guarda, porque el salto de línea no está en el contrato y ampliarlo sería un cambio de contrato. Requirement refs sin asignar (brecha declarada) | **Done · Verified · cerrar** |
+
+**Recuento de propuestas:**
+- **9 cierres:** 7 en Done · Verified (#39, #40, #43, #47, #48, #52, #53) y 2 en Done · Partial (#44, #50);
+- **2 tarjetas** siguen en Validation · Partial hasta la decisión de §6.4 (#46, #51).
+
+Ningún cierre se propone por el número de pruebas: cada uno corresponde a criterios literales cubiertos. Todos dependen de que Roderich integre #136, #137 y #138, y de que el CI del `main` resultante pase.
+
+### 6.4 Observación de diseño que decide Roderich: «comprado» y «consumido» brutos
+
+B (#46) y C (#51) la encontraron por separado y tiene una sola raíz: una reversión no borra el movimiento original, sino que añade su compensación (`APPLICATION_REVERSAL`, `PURCHASE_REVERSAL`), y estas lecturas suman los movimientos originales.
+- **«Comprado»** (`inventorySummary`, `inventoryProductHeader`) incluye los `PURCHASE_IN` de las compras revertidas.
+- **«Consumido»** (esas dos lecturas, `inventoryProductDistribution` y `personStockSummary`) incluye los `APPLICATION_OUT` de las aplicaciones revertidas.
+- **«Asignado»** (`inventoryProductDistribution` y `personStockSummary`) cuenta todo movimiento positivo, también `APPLICATION_REVERSAL`.
+
+**Lo que sí es correcto:** el físico, el valor y el costo.
+
+Con la fixture de #51, la cabecera muestra «comprado 8 L − consumido 6 L» junto a «físico 2,5 L», cuando el consumo neto es de 5,5 L: las cifras no cuadran a la vista. Ninguna prueba fija esa semántica con reversiones.
+
+**Opciones:**
+- **(a)** aceptar las cifras brutas como semántica documentada: #46 y #51 pasan a Done · Verified;
+- **(b)** pedir cifras netas: cambia lecturas que comparten el perfil y el detalle de inventario, así que requiere un diseño concreto antes de implementarlo. Mientras tanto, #46 y #51 siguen en Validation.
+
+No afecta a T1–T6 ni a W1–W5: ninguna tarea del piloto revierte una operación, y T3 pregunta el saldo, no lo consumido.
