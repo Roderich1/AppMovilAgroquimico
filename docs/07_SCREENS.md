@@ -223,7 +223,7 @@ Convención de estados usada abajo:
 | **Tipo** | `ConsumerWidget` (sin estado) |
 | **Datos recibidos** | `productId` (`int.parse` del path param) |
 | **Servicios** | `inventoryProductHeader`, `inventoryProductDistribution`, `inventoryProductLots` |
-| **Datos mostrados** | 6 métricas (Comprado, Consumido, Físico, Comprometido, Libre proyectado, Valor físico); distribución por persona (asignado/consumido/disponible); lista de lotes con proveedor, campaña, costo unitario y origen (compra o "transferencia del lote #N") |
+| **Datos mostrados** | 6 métricas (Comprado neto, Consumido neto, Físico, Comprometido, Libre proyectado, Valor físico), con la nota «Neto: no cuenta lo revertido»; distribución por persona (asignación neta/consumido neto/disponible), con una línea que explica la asignación neta (lo comprado para la persona, más lo recibido y menos lo entregado por transferencias, sin lo revertido); lista de lotes con proveedor, campaña, costo unitario y origen (compra o "transferencia del lote #N") |
 | **Subtítulo** | "Detalle físico y trazabilidad FIFO. El inventario continúa entre campañas." |
 | **error** | `PageFrame` + `EmptyState` con `friendlyError` (cubre "El producto no existe.") |
 | **Defecto de rendimiento** | El `Future` se crea en `build()` vía `_load(ref)`, por lo que **cada reconstrucción relanza las 3 consultas**. Ver [25](25_PERFORMANCE_AUDIT.md) |

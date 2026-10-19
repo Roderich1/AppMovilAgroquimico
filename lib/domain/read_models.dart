@@ -210,7 +210,11 @@ class InventoryLineRead {
 
   /// `L` o `KG`.
   final String unit;
+
+  /// Comprado neto: las compras menos sus reversiones.
   final int purchasedBase;
+
+  /// Consumido neto: las aplicaciones menos sus reversiones.
   final int consumedBase;
 
   /// Stock físico.

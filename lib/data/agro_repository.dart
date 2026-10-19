@@ -1998,11 +1998,16 @@ class AgroRepository {
     JOIN persons pe ON pe.id=m.owner_person_id GROUP BY l.id HAVING quantity_base <> 0 ORDER BY l.acquired_date''',
   );
 
+  // Cifras netas (#46, #51): comprado y consumido descuentan sus reversiones
+  // y la asignación de una persona es su comprado neto más sus transferencias
+  // netas, sin la restitución de una aplicación revertida. Se filtra por tipo,
+  // no por signo, de modo que asignación − consumo = físico. Los `HAVING` por
+  // `COUNT(m.id)` conservan la fila de quien tuvo movimientos aunque sumen 0.
   Future<List<Map<String, Object?>>> inventorySummary({int? limit}) async =>
       (await _db).rawQuery(
         '''SELECT p.id product_id, p.name product_name, p.unit,
-        COALESCE(SUM(CASE WHEN m.type='PURCHASE_IN' THEN m.quantity_signed ELSE 0 END),0) purchased_base,
-        COALESCE(-SUM(CASE WHEN m.type='APPLICATION_OUT' THEN m.quantity_signed ELSE 0 END),0) consumed_base,
+        COALESCE(SUM(CASE WHEN m.type IN ('PURCHASE_IN','PURCHASE_REVERSAL') THEN m.quantity_signed ELSE 0 END),0) purchased_base,
+        COALESCE(-SUM(CASE WHEN m.type IN ('APPLICATION_OUT','APPLICATION_REVERSAL') THEN m.quantity_signed ELSE 0 END),0) consumed_base,
         COALESCE(SUM(m.quantity_signed),0) available_base,
         COALESCE((SELECT SUM(pi.required_quantity_base) FROM application_plan_items pi
           JOIN application_plans ap ON ap.id=pi.plan_id JOIN campaigns c ON c.id=ap.campaign_id
@@ -2022,19 +2027,20 @@ class AgroRepository {
   Future<List<Map<String, Object?>>> personStockSummary(int personId) async =>
       (await _db).rawQuery(
         '''SELECT p.id product_id, p.name product_name, p.unit,
-        COALESCE(SUM(CASE WHEN m.quantity_signed>0 THEN m.quantity_signed ELSE 0 END),0) assigned_base,
-        COALESCE(-SUM(CASE WHEN m.type='APPLICATION_OUT' THEN m.quantity_signed ELSE 0 END),0) consumed_base,
+        COALESCE(SUM(CASE WHEN m.type IN ('PURCHASE_IN','PURCHASE_REVERSAL','TRANSFER_IN','TRANSFER_OUT',
+          'TRANSFER_REVERSAL_IN','TRANSFER_REVERSAL_OUT') THEN m.quantity_signed ELSE 0 END),0) assigned_base,
+        COALESCE(-SUM(CASE WHEN m.type IN ('APPLICATION_OUT','APPLICATION_REVERSAL') THEN m.quantity_signed ELSE 0 END),0) consumed_base,
         COALESCE(SUM(m.quantity_signed),0) available_base
         FROM products p LEFT JOIN inventory_movements m ON m.product_id=p.id AND m.owner_person_id=?
-        GROUP BY p.id HAVING available_base>0 OR assigned_base>0 ORDER BY p.name''',
+        GROUP BY p.id HAVING COUNT(m.id)>0 ORDER BY p.name''',
         [personId],
       );
 
   Future<Map<String, Object?>> inventoryProductHeader(int productId) async {
     final rows = await (await _db).rawQuery(
       '''SELECT p.id product_id, p.name product_name, p.unit,
-      COALESCE(SUM(CASE WHEN m.type='PURCHASE_IN' THEN m.quantity_signed ELSE 0 END),0) purchased_base,
-      COALESCE(-SUM(CASE WHEN m.type='APPLICATION_OUT' THEN m.quantity_signed ELSE 0 END),0) consumed_base,
+      COALESCE(SUM(CASE WHEN m.type IN ('PURCHASE_IN','PURCHASE_REVERSAL') THEN m.quantity_signed ELSE 0 END),0) purchased_base,
+      COALESCE(-SUM(CASE WHEN m.type IN ('APPLICATION_OUT','APPLICATION_REVERSAL') THEN m.quantity_signed ELSE 0 END),0) consumed_base,
       COALESCE(SUM(m.quantity_signed),0) physical_base,
       COALESCE((SUM(m.quantity_signed*l.unit_cost_bob_minor_per_major_unit)+500)/1000,0) value_bob_minor,
       COALESCE((SELECT SUM(pi.required_quantity_base) FROM application_plan_items pi
@@ -2052,11 +2058,12 @@ class AgroRepository {
     int productId,
   ) async => (await _db).rawQuery(
     '''SELECT p.id person_id, p.name person_name,
-        COALESCE(SUM(CASE WHEN m.quantity_signed>0 THEN m.quantity_signed ELSE 0 END),0) assigned_base,
-        COALESCE(-SUM(CASE WHEN m.type='APPLICATION_OUT' THEN m.quantity_signed ELSE 0 END),0) consumed_base,
+        COALESCE(SUM(CASE WHEN m.type IN ('PURCHASE_IN','PURCHASE_REVERSAL','TRANSFER_IN','TRANSFER_OUT',
+          'TRANSFER_REVERSAL_IN','TRANSFER_REVERSAL_OUT') THEN m.quantity_signed ELSE 0 END),0) assigned_base,
+        COALESCE(-SUM(CASE WHEN m.type IN ('APPLICATION_OUT','APPLICATION_REVERSAL') THEN m.quantity_signed ELSE 0 END),0) consumed_base,
         COALESCE(SUM(m.quantity_signed),0) available_base
         FROM persons p LEFT JOIN inventory_movements m ON m.owner_person_id=p.id AND m.product_id=?
-        GROUP BY p.id HAVING assigned_base>0 OR consumed_base>0 OR available_base<>0
+        GROUP BY p.id HAVING COUNT(m.id)>0
         ORDER BY p.name''',
     [productId],
   );

@@ -61,14 +61,14 @@ class InventoryDetailScreen extends ConsumerWidget {
                     width: constraints.maxWidth >= 700
                         ? (constraints.maxWidth - 16) / 3
                         : (constraints.maxWidth - 8) / 2,
-                    label: 'Comprado',
+                    label: 'Comprado neto',
                     value: formatQuantity(h['purchased_base'] as int, unit),
                   ),
                   _Metric(
                     width: constraints.maxWidth >= 700
                         ? (constraints.maxWidth - 16) / 3
                         : (constraints.maxWidth - 8) / 2,
-                    label: 'Consumido',
+                    label: 'Consumido neto',
                     value: formatQuantity(h['consumed_base'] as int, unit),
                   ),
                   _Metric(
@@ -102,11 +102,24 @@ class InventoryDetailScreen extends ConsumerWidget {
                 ],
               ),
             ),
+            const SizedBox(height: 8),
+            Text(
+              'Neto: no cuenta lo revertido. Comprado neto menos consumido '
+              'neto es el físico.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
             const SizedBox(height: 20),
             Text(
               'Distribución por persona',
               style: Theme.of(context).textTheme.titleLarge
                   ?.copyWith(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Asignación neta: lo comprado para esta persona, más lo que '
+              'recibió y menos lo que entregó por transferencias. No cuenta lo '
+              'revertido. Restando lo consumido queda su físico.',
+              style: Theme.of(context).textTheme.bodySmall,
             ),
             const SizedBox(height: 8),
             Card(
@@ -116,7 +129,7 @@ class InventoryDetailScreen extends ConsumerWidget {
                     ListTile(
                       title: Text(row['person_name'] as String),
                       subtitle: Text(
-                        'Asignado ${formatQuantity(row['assigned_base'] as int, unit)} · consumido ${formatQuantity(row['consumed_base'] as int, unit)}',
+                        'Asignación neta ${formatQuantity(row['assigned_base'] as int, unit)} · consumido neto ${formatQuantity(row['consumed_base'] as int, unit)}',
                       ),
                       trailing: Text(
                         formatQuantity(row['available_base'] as int, unit),
