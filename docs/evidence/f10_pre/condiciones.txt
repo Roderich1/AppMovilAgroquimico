@@ -1,0 +1,13 @@
+# Condiciones del POCO, preflight DS-UX (UTC)
+# previos (03:14:45Z):
+show_touches=0
+pointer_location=null
+font_scale=1.0
+airplane_mode_on=0
+wifi_on=1
+stay_on_while_plugged_in=0
+# AC powered: true;level: 100;temperature: 270;
+# N0 (03:19:38Z): airplane=1 Active default network: none
+# N1 (03:27:51Z): Active default network: 106
+# restaurado (03:31:32Z): show_touches=0 pointer_location=null font_scale=1.0 airplane=0 wifi=1 stay_on=0; level: 100;temperature: 300;
+# entorno detenido 03:31:48Z; volumen agro_a_f10pre_pgdata conservado; copia .f10pre instalada con sus datos
