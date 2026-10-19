@@ -185,6 +185,11 @@ El respaldo sigue conteniendo **solo la base de datos**. Las fotografias de fact
 las rutas de imagen apuntaran a archivos inexistentes. La app lo detecta y muestra
 *"La imagen de factura ya no esta disponible en este dispositivo."*
 
+> **Aclaración del 2026-10-19.** Este apartado describe la versión histórica del respaldo,
+> anterior al contenedor `.agrobackup`, que sí incluye las fotografías de factura. El estado
+> vigente está en [Actualización 2026-09-06 — Respaldo 2.0: la base y las fotografías](#actualización-2026-09-06--respaldo-20-la-base-y-las-fotografías).
+> El texto anterior se conserva como registro histórico.
+
 ## 3.1. Detalle del archivo exportado
 
 `AgroRepository.exportBackup()`:
