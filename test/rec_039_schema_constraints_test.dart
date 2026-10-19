@@ -75,7 +75,7 @@ void main() {
   );
 
   test(
-    'un CHECK representativo de cada tabla de la base lo impone el motor',
+    'CHECK representativos de las tablas de REC-003 los impone el motor',
     () async {
       final person = await repo.addPerson(name: 'Ana', role: PersonRole.family);
       final receiver = await repo.addPerson(
