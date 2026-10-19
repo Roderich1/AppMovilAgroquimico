@@ -7,7 +7,9 @@ import 'package:agroquimicos/data/agro_repository.dart';
 import 'package:agroquimicos/data/app_database.dart';
 import 'package:agroquimicos/domain/models.dart';
 import 'package:agroquimicos/domain/reports/report_composer.dart';
+import 'package:agroquimicos/domain/reports/report_table.dart';
 import 'package:agroquimicos/presentation/screens/reports_screen.dart';
+import 'package:agroquimicos/services/reports/report_export_service.dart';
 import 'package:agroquimicos/services/reports/report_storage.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -56,6 +58,24 @@ void main() {
     if (await root.exists()) await root.delete(recursive: true);
   });
 
+  /// Contenido completo de la base, tabla por tabla y fila por fila (el mismo
+  /// volcado que `report_export_service_test.dart`).
+  Future<String> dumpTables() async {
+    final db = await database.database;
+    final tables = (await db.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type='table' "
+      "AND name NOT LIKE 'sqlite_%' ORDER BY name",
+    )).map((row) => row['name']! as String).toList();
+    final buffer = StringBuffer();
+    for (final table in tables) {
+      buffer.writeln('== $table');
+      for (final row in await db.query(table)) {
+        buffer.writeln(row.toString());
+      }
+    }
+    return buffer.toString();
+  }
+
   /// Deja avanzar la E/S real (SQLite y filesystem) y luego pinta unos cuadros.
   ///
   /// Es el mismo patrón que `regression_widget_test.dart`: `pumpAndSettle` no
@@ -91,6 +111,7 @@ void main() {
     ReportKind? kind,
     int? personId,
     ReportStorage? override,
+    ReportExportService? service,
   }) async {
     await tester.pumpWidget(
       ProviderScope(
@@ -98,6 +119,8 @@ void main() {
           repositoryProvider.overrideWithValue(repo),
           activatedInstallationForTests(),
           reportStorageProvider.overrideWithValue(override ?? storage),
+          if (service != null)
+            reportExportServiceProvider.overrideWithValue(service),
         ],
         child: MaterialApp(
           home: Scaffold(
@@ -236,6 +259,18 @@ void main() {
 
       final files = Directory(p.join(root.path, 'reportes')).listSync();
       expect(p.basename(files.single.path), endsWith('.csv'));
+      // REC-017 (#53), criterio 7: también con CSV el diálogo dice el nombre
+      // exacto del archivo guardado y su carpeta.
+      expect(find.text('Reporte guardado'), findsOneWidget);
+      expect(find.text(p.basename(files.single.path)), findsOneWidget);
+      expect(
+        find.byWidgetPredicate(
+          (widget) =>
+              widget is SelectableText &&
+              widget.data == p.join(root.path, 'reportes'),
+        ),
+        findsOneWidget,
+      );
     });
 
     testWidgets('un reporte sin filas se exporta igual', (tester) async {
@@ -276,6 +311,83 @@ void main() {
       await waitFor(tester, find.text('Reporte guardado'));
       expect(find.byType(LinearProgressIndicator), findsNothing);
     });
+
+    // REC-017 (#53), criterio 6: el servicio ya prueba que cancelar no deja
+    // archivo (report_export_service_test, grupo «cancelación»); aquí se
+    // pulsa «Cancelar» en la pantalla y se comprueba lo que ve el usuario.
+    testWidgets(
+      'cancelar avisa, no deja archivo final ni temporal y no cambia la base',
+      (tester) async {
+        await tester.runAsync(() async {
+          final supplier = await repo.addSupplier(name: 'Proveedor');
+          final product = await repo.addProduct(name: 'Bellator');
+          await repo.confirmPurchase(
+            PurchaseDraft(
+              supplierId: supplier,
+              campaignId: campaign,
+              purchaseDate: DateTime.utc(2026, 1, 10),
+              items: [
+                PurchaseItemDraft(
+                  productId: product,
+                  quantityBase: 2000,
+                  currency: CurrencyCode.bob,
+                  originalUnitPriceMinor: 18000,
+                  allocations: [
+                    AllocationDraft(personId: family, quantityBase: 2000),
+                  ],
+                ),
+              ],
+            ),
+          );
+        });
+        final tablesBefore = (await tester.runAsync(dumpTables))!;
+        final summaryBefore = (await tester.runAsync(repo.dashboard))!;
+        expect(summaryBefore.stockBase, 2000);
+
+        final service = _GatedExportService(repo, storage);
+        await pump(tester, service: service);
+        await tapOnPage(tester, 'CSV');
+        await tapOnPage(tester, 'Exportar CSV');
+        await waitFor(tester, find.text('El archivo no va cifrado'));
+        await tester.tap(find.text('Exportar igualmente'));
+        await waitFor(tester, find.byType(LinearProgressIndicator));
+
+        await tester.tap(find.text('Cancelar'));
+        await tester.pump();
+        service.release();
+        const message = 'Exportación cancelada. No se guardó ningún archivo.';
+        await waitFor(tester, find.text(message));
+
+        expect(find.text(message), findsOneWidget);
+        expect(find.text('Reporte guardado'), findsNothing);
+        expect(find.byType(LinearProgressIndicator), findsNothing);
+        expect(find.text('Exportar CSV'), findsOneWidget);
+
+        // Ni el archivo final ni el temporal (`.parcial`, en la misma carpeta).
+        final written = root
+            .listSync(recursive: true)
+            .whereType<File>()
+            .map((file) => p.basename(file.path))
+            .where(
+              (name) =>
+                  name.endsWith('.csv') ||
+                  name.endsWith('.pdf') ||
+                  name.endsWith(LocalReportStorage.temporarySuffix),
+            );
+        expect(written, isEmpty);
+        final directory = Directory(p.join(root.path, 'reportes'));
+        expect(!directory.existsSync() || directory.listSync().isEmpty, isTrue);
+
+        expect(await tester.runAsync(dumpTables), tablesBefore);
+        final summaryAfter = (await tester.runAsync(repo.dashboard))!;
+        expect(summaryAfter.stockBase, summaryBefore.stockBase);
+        expect(summaryAfter.purchasesBobMinor, summaryBefore.purchasesBobMinor);
+        expect(
+          summaryAfter.familyReceivableMinor,
+          summaryBefore.familyReceivableMinor,
+        );
+      },
+    );
   });
 
   group('error', () {
@@ -571,4 +683,24 @@ class _FailingStorage implements ReportStorage {
     required Uint8List bytes,
   }) async =>
       throw const ReportStorageException('No se pudo guardar el reporte.');
+}
+
+/// Servicio de exportación real cuya composición espera a que el test la
+/// suelte: deja la pantalla en «generando» el tiempo necesario para pulsar
+/// «Cancelar» sin depender de lo que tarde el equipo.
+class _GatedExportService extends ReportExportService {
+  _GatedExportService(super.repository, super.storage);
+
+  final _gate = Completer<void>();
+
+  void release() => _gate.complete();
+
+  @override
+  Future<ReportTable> compose(
+    ReportRequest request, {
+    ReportCancellation? cancellation,
+  }) async {
+    await _gate.future;
+    return super.compose(request, cancellation: cancellation);
+  }
 }
