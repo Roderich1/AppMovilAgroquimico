@@ -206,6 +206,35 @@ void main() {
       expect(firstDataCell('\t=1+1'), contains("'"));
     });
 
+    // REC-017 (#53): la tabulación y el retorno de carro son disparadores por
+    // sí mismos, no sólo cuando les sigue un `=`. El texto original queda
+    // entero detrás de la guarda.
+    test('una tabulación inicial sin fórmula detrás se neutraliza', () {
+      expect(firstDataCell('\tABC'), '"\'\tABC";0,00');
+    });
+
+    test('un retorno de carro inicial sin fórmula detrás se neutraliza', () {
+      final bytes = generator.generate(
+        table(
+          rows: const [
+            [ReportText('\rABC'), ReportMoney(0)],
+          ],
+        ),
+      );
+      expect(bytes.sublist(0, 3), utf8Bom);
+      final content = utf8.decode(bytes.sublist(utf8Bom.length));
+      expect(content, contains('\r\n"\'\rABC";0,00\r\n'));
+    });
+
+    test('una tabulación detrás de espacios también se neutraliza', () {
+      expect(firstDataCell(' \tABC'), '"\' \tABC";0,00');
+    });
+
+    test('una celda vacía o sólo de espacios no se neutraliza ni falla', () {
+      expect(firstDataCell(''), ';0,00');
+      expect(firstDataCell('   '), '"   ";0,00');
+    });
+
     test('un texto corriente NO se toca', () {
       expect(firstDataCell('Glifosato'), startsWith('Glifosato;'));
     });
