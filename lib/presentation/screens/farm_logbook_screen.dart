@@ -52,8 +52,13 @@ class FarmLogbookScreen extends ConsumerWidget {
                       ExpansionTile(
                         leading: const Icon(Icons.agriculture_outlined),
                         title: Text(row['product_name'] as String),
+                        // Una aplicación revertida sigue en la bitácora por
+                        // trazabilidad, pero no puede leerse como si se
+                        // hubiera aplicado: lo dice, como el historial de
+                        // compras (REC-015, #51).
                         subtitle: Text(
-                          '${formatDate(row['applied_at'])} · ${row['campaign_name']} · ${row['person_name']}',
+                          '${formatDate(row['applied_at'])} · ${row['campaign_name']} · ${row['person_name']}'
+                          '${row['status'] == 'REVERSED' ? ' · ${operationStatusLabel(row['status'])}' : ''}',
                         ),
                         trailing: Text(
                           formatQuantity(
