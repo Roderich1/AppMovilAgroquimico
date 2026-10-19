@@ -147,7 +147,10 @@ void main() {
       {
         'person_id': ana,
         'person_name': 'Ana',
-        'assigned_base': 18000,
+        // Asignación neta (#46/#51): 10 + 8 L comprados menos el litro
+        // transferido a Beto. La cifra bruta anterior (18 L) sólo sumaba los
+        // movimientos positivos y no descontaba lo entregado.
+        'assigned_base': 17000,
         'consumed_base': 12000,
         'available_base': 5000,
       },

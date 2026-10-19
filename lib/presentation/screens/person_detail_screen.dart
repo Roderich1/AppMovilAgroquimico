@@ -115,7 +115,7 @@ class PersonDetailScreen extends ConsumerWidget {
                       ListTile(
                         title: Text(row['product_name'] as String),
                         subtitle: Text(
-                          'Consumido ${formatQuantity(row['consumed_base'] as int, row['unit'] as String)}',
+                          'Consumido neto ${formatQuantity(row['consumed_base'] as int, row['unit'] as String)}',
                         ),
                         trailing: Text(
                           formatQuantity(
