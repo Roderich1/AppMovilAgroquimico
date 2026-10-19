@@ -97,11 +97,17 @@ class CsvReportGenerator {
   String _cell(ReportCell cell) =>
       cell.isNumeric ? cell.csvText : _neutralize(cell.csvText);
 
+  /// Antepone la guarda si la celda empieza por un disparador, aunque vaya
+  /// detrás de espacios. `\t` y `\r` son disparadores y además espacio en
+  /// blanco: `trimLeft()` los quitaría, así que se buscan también en el
+  /// tramo inicial que recorta.
   String _neutralize(String value) {
     final trimmed = value.trimLeft();
-    if (trimmed.isEmpty) return value;
-    if (!csvFormulaTriggers.contains(trimmed[0])) return value;
-    return '$csvFormulaGuard$value';
+    final leading = value.substring(0, value.length - trimmed.length);
+    final triggered =
+        leading.split('').any(csvFormulaTriggers.contains) ||
+        (trimmed.isNotEmpty && csvFormulaTriggers.contains(trimmed[0]));
+    return triggered ? '$csvFormulaGuard$value' : value;
   }
 
   /// Entrecomilla y dobla las comillas cuando hace falta (RFC 4180).
