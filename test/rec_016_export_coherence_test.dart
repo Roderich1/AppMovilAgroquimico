@@ -48,6 +48,7 @@ void main() {
   late ReportExportService service;
   late int campaign1;
   late int campaign2;
+  late int ana, glifosato, paraquat;
 
   DateTime day(int month, int dayOfMonth) =>
       DateTime(2026, month, dayOfMonth, 12);
@@ -67,10 +68,7 @@ void main() {
       clock: () => DateTime.utc(2026, 9, 6, 15, 30),
     );
 
-    final ana = await repo.addPerson(
-      name: 'Ana Familiar',
-      role: PersonRole.family,
-    );
+    ana = await repo.addPerson(name: 'Ana Familiar', role: PersonRole.family);
     final beto = await repo.addPerson(
       name: 'Beto Tercero',
       role: PersonRole.thirdParty,
@@ -88,8 +86,8 @@ void main() {
     );
     await repo.addFarm(ownerId: beto, name: 'Chaco Beto', areaM2: 50000);
     campaign1 = await repo.addCampaign(name: 'Campaña 1', start: day(1, 1));
-    final glifosato = await repo.addProduct(name: 'Glifosato');
-    final paraquat = await repo.addProduct(name: 'Paraquat', unit: 'KG');
+    glifosato = await repo.addProduct(name: 'Glifosato');
+    paraquat = await repo.addProduct(name: 'Paraquat', unit: 'KG');
 
     PurchaseItemDraft item(int product, int quantity, int priceMinor) =>
         PurchaseItemDraft(
@@ -176,6 +174,51 @@ void main() {
     expect(records[1], startsWith('Generado;'));
     return [records[0], ...records.skip(2)];
   }
+
+  // #46/#51 (cifras netas, ejemplo de §5 a del diseño de MOB #140): la
+  // aplicación revertida A3 ya no cuenta como consumo ni su restitución como
+  // asignación. Antes daban consumido 6 L y asignado 8,5 L, y 8 − 6 no era el
+  // físico de 2,5 L.
+  test('inventario de Glifosato y Paraquat con cifras netas', () async {
+    expect(await repo.inventoryProductHeader(glifosato), {
+      'product_id': glifosato,
+      'product_name': 'Glifosato',
+      'unit': 'L',
+      'purchased_base': 8000, // 3 + 5 L
+      'consumed_base': 5500, // 4 + 0,5 − 0,5 (A3) + 0,5 + 1 L
+      'physical_base': 2500,
+      'value_bob_minor': 30000, // 2,5 L de g2 a 120,00
+      'committed_base': 2500, // plan de 5 ha a 0,5 L/ha en la Campaña 2
+    });
+    expect(await repo.inventoryProductDistribution(glifosato), [
+      {
+        'person_id': ana,
+        'person_name': 'Ana Familiar',
+        'assigned_base': 8000,
+        'consumed_base': 5500,
+        'available_base': 2500,
+      },
+    ]);
+    expect(await repo.inventoryProductHeader(paraquat), {
+      'product_id': paraquat,
+      'product_name': 'Paraquat',
+      'unit': 'KG',
+      'purchased_base': 6000, // 4 + 2 kg
+      'consumed_base': 4500, // 1 + 3,5 kg, sin reversiones
+      'physical_base': 1500,
+      'value_bob_minor': 8250, // 1,5 kg de p2 a 55,00
+      'committed_base': 0,
+    });
+    expect(await repo.inventoryProductDistribution(paraquat), [
+      {
+        'person_id': ana,
+        'person_name': 'Ana Familiar',
+        'assigned_base': 6000,
+        'consumed_base': 4500,
+        'available_base': 1500,
+      },
+    ]);
+  });
 
   group('costo por producto', () {
     const header = 'Producto;Cantidad;Unidad;Costo (Bs)';
