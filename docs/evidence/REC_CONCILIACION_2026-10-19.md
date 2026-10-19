@@ -672,3 +672,63 @@ Con la fixture de #51, la cabecera muestra «comprado 8 L − consumido 6 L» ju
 - **(b)** pedir cifras netas: cambia lecturas que comparten el perfil y el detalle de inventario, así que requiere un diseño concreto antes de implementarlo. Mientras tanto, #46 y #51 siguen en Validation.
 
 No afecta a T1–T6 ni a W1–W5: ninguna tarea del piloto revierte una operación, y T3 pregunta el saldo, no lo consumido.
+
+### 6.5 Bloque acotado del 2026-10-19: lote v3, #39 y cifras netas
+
+Fuente: «Agrocuentas — Decisiones REC y siguiente bloque acotado» (2026-10-19), bajo la delegación técnica de Roderich. No es una revisión del tutor ni una validación institucional.
+
+**Integraciones y CI de `main`:**
+
+| Paso | HEAD revisado → merge | Revisión | CI |
+|---|---|---|---|
+| MOB #136, #137, #138 y #139 (integró Roderich) | `927488e` → `5fa401e`; `e3a7ff7` → `0d1b511`; `9c779c4` → `eb52e67`; `d128b2c` → `7c37ce8` | §6.2 | `main` `7c37ce8`: run 39247419130 SUCCESS (12:01:19Z) |
+| MOB #141, #39, opción b (C) | `1f3b153` → `a8a14e9` (integró la sesión A con `--match-head-commit`) | LISTO de B | HEAD: 39249558649 SUCCESS (1600 pruebas). `main` `a8a14e9`: 39251302260 SUCCESS (12:31:03Z) |
+| MOB #140, cifras netas de #46 y #51 (B) | `d148510` → `463d3ec` (integró la sesión A con `--match-head-commit`) | C revisó el diseño (`0849777`, con tres precisiones) y dio LISTO al código sobre `d148510`, tras pedir el caso de 8 L y 5,5 L | HEAD: 39252493951 SUCCESS (1611 pruebas, 4 omitidas; 78 en La Paz). `main` `463d3ec`: run 39254103212 SUCCESS (12:51:29Z; 1611 pruebas, 4 omitidas, incluidas las de `f10_ux_dsux_fixture_test.dart`; 78 en La Paz) |
+
+**Estado en el Project tras este bloque:**
+- **Lote v3:** 30 operaciones, a las 12:02:00–12:02:50Z. Relectura: 131/131.
+  - Se excluyeron 3 de las 33 propuestas: los comentarios de #39, #46 y #51, que habían quedado desfasados y estaban fuera de los ocho destinos autorizados.
+  - #40, #43, #47, #48, #52 y #53: Done · Verified, cerradas.
+  - #44 y #50: Done · Partial, cerradas.
+- **Suplemento de #39:** 4 operaciones, a las 12:31:54–12:32:00Z. #39 queda Done · Verified, cerrada.
+
+**#39, RNF-02** (`test/rec_039_sqlite_abort_test.dart`; evidencia `docs/evidence/REC_003_SQLITE_ABORT.md`):
+- Un disparador TEMP de prueba hace saltar `RAISE(ABORT, 'ENSAYO_REC039_ABORT…')` en el INSERT de la segunda línea. Sólo salta cuando la primera línea y sus efectos ya existen en la misma transacción.
+- `confirmPurchase` falla con un `DatabaseException` del motor (código 1811).
+- Después del rechazo son idénticos el volcado completo, `sqlite_sequence`, `sqlite_master` y los saldos.
+- Sin el disparador, la misma compra se confirma con los literales esperados.
+- Dos mutaciones locales hacen fallar la prueba.
+- Se conservan los límites de §6.3: las versiones V1, V2, V4 y V5, la base migrada, los CHECK de F04–F06, el rechazo del motor en otras escrituras y un fallo real de E/S.
+- **No se cambió `lib/`.**
+- **Nota de `docs/13_LOCAL_STORAGE.md`** (mismo PR, commit aparte): una aclaración fechada indica que el apartado «sin resolver» describe la versión anterior al contenedor con fotos, y enlaza el apartado vigente. La fila «Incluye fotos | No» de §3.1 y la arista del diagrama quedan sin tocar y anotadas en el PR.
+
+**#46 y #51, cifras netas** (decisión de Roderich: opción b):
+- **Semántica aplicada** en `agro_repository.dart`, con `CASE` por tipo, no por signo:
+  - comprado neto = `PURCHASE_IN` + `PURCHASE_REVERSAL`;
+  - consumido neto = −(`APPLICATION_OUT` + `APPLICATION_REVERSAL`);
+  - asignación neta por persona = comprado neto + `TRANSFER_IN/OUT` + `TRANSFER_REVERSAL_IN/OUT`, sin `APPLICATION_REVERSAL`;
+  - físico = suma de todos los movimientos, sin cambio.
+- **Los 8 tipos vigentes:** no hay ningún ajuste de inventario, así que asignación neta − consumido neto = físico, sin término residual.
+- **Consultas:** `inventorySummary`, `inventoryProductHeader`, `inventoryProductDistribution` y `personStockSummary`. Los dos `HAVING` pasan a `COUNT(m.id)>0`: conservan la fila de quien tuvo movimientos aunque sumen 0, y el historial no cambia.
+- **Visible:**
+  - el detalle de inventario muestra «Comprado neto», «Consumido neto» y «Asignación neta», con dos líneas explicativas en palabras simples;
+  - el perfil muestra «Consumido neto»;
+  - Inicio y el reporte de inventario no muestran el comprado ni el consumido: muestran el físico, el comprometido, el proyectado y el valor. El formulario de planificación sólo lee el disponible.
+- **Verificación** (`test/rec_046_051_net_figures_test.dart`, 10 casos):
+  - cubre los 8 tipos, la cabecera, el reparto, el perfil, el resumen y su adaptador tipado;
+  - comprueba que consultar no escribe: el volcado, los físicos, los costos y los asientos quedan iguales;
+  - cubre el historial con operación y reversión, el CSV de inventario y dos widgets.
+  - Sobre `7c37ce8` fallaban las 6 que dependen de las cifras y pasaban las 4 que no.
+  - `rec_016_export_coherence_test.dart` fija el ejemplo de §6.4: Glifosato 8 / 5,5 / 2,5 L y Paraquat 6 / 4,5 / 1,5 kg.
+  - `rec_046_inventory_detail_test.dart:150` se ajustó de 18 a 17 L: la cifra bruta no descontaba el litro que Ana entregó a Beto.
+  - C mutó el `HAVING` (a `COUNT(*)`) y metió `APPLICATION_REVERSAL` en la asignación: las dos mutaciones hacen fallar la prueba.
+  - El hueco que §6.3 señalaba en #51 («Consumido» del perfil sin afirmar) lo cubre ahora el widget del perfil de este archivo.
+  - **Comando y salida:** en local, 2026-10-19 12:13:38–12:14:00Z sobre `76eea02`, `dart format` y `flutter analyze` de los 7 archivos tocados dieron limpio, y la prueba nueva más los 17 archivos que ejercitan estas consultas o pantallas dieron `flutter test` → `+208: All tests passed!`. CI del HEAD `d148510`: 39252493951 SUCCESS (1611 pruebas, 4 omitidas; 78 en La Paz). CI de `main` `463d3ec`: 39254103212 SUCCESS.
+- **No cambia:** el físico, el valor, FIFO, los lotes, los costos, los asientos, la sincronización, el costo consumido que publican los reportes, la autorización ni F06.
+- **Efecto en el piloto:** ninguna tarea revierte operaciones.
+  - La suite fija el físico de Bellator, 1,3 L, y el oráculo de T3 (`test/f10_ux_dsux_fixture_test.dart`, dentro del CI de `main`).
+  - Del sembrado se deducen, sin reversiones ni transferencias, el comprado neto (1 L inicial + 0,5 L de T1 = 1,5 L) y el consumido neto (0,2 L de T2) de la cabecera. Ninguna prueba versionada los fija. C los confirmó con una sonda temporal, no versionada, en las dos modalidades: la cabecera da 1500 / 200 / 1300 en propia y en compartida. En compartida, el reparto por persona es Titular 1000 / 200 / 800 y Familiar Demo 500 / 0 / 500, igual que `by_person_base` del oráculo.
+
+**Propuesta para #46 y #51 (dry-run aparte, sin aplicar):** Done · Verified y cierre como completed para las dos.
+- Los criterios literales están cubiertos: los de §6.3 más la semántica neta aprobada.
+- Se conservan como límites, fuera del literal: en #46, la visibilidad autorizada en las lecturas y que no hay prueba de widget del detalle salvo los rótulos y cifras de este PR; en #51, que el recorrido de rutas en el Pixel 8 no tiene archivo propio.
