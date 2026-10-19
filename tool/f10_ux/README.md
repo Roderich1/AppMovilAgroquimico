@@ -34,7 +34,7 @@ La composición es fija; la semilla identifica la versión del dataset y no intr
 ## Requisitos previos
 
 1. **Copia recién activada.** `.f10ux` reinstalada y activada por el facilitador con una cuenta sintética nueva, eligiendo la **modalidad del participante** (propia o compartida, según el diseño de la muestra). El generador exige: sólo el titular como persona, ninguna campaña, chaco, producto, proveedor, compra, aplicación, plan, transferencia, necesidad ni vínculo.
-2. **Referencias de Central** del tenant de esa cuenta: el cuerpo literal de `GET /api/v1/sync/v1/references`, guardado en un archivo. Central debe publicar:
+2. **Referencias de Central** del tenant de esa cuenta: el cuerpo literal de `GET /api/v1/sync/v1/references`, guardado en un archivo. Lo escribe en `F10_UX_REFERENCES` el generador Central/Web de la sesión B (destino «movil»), que antes comprueba que la campaña y los productos del JSON son los del **mismo tenant** que las cuentas de los participantes y lo declara en su salida (`same_tenant_as_accounts`); este generador no puede comprobarlo, porque el JSON no lleva el tenant. Central debe publicar:
    - «Verano Demo» ABIERTA y con `accepts_contributions`, con un período que **contenga** del `S − 14` al `S + 30`, o que empiece a más tardar el `S − 14` y no termine antes del día `S`;
    - «Glifosato Demo» y «Bellator» activos, en L.
    Cada nombre debe aparecer exactamente una vez.
@@ -83,7 +83,7 @@ F10_UX_DB=/ruta/absoluta/agroquimicos_v2.db flutter test tool/f10_ux/oracle_dsux
 
 ## Lo que no hace
 
-- No opera el teléfono, no activa cuentas ni descarga referencias (lo hace la sesión A).
+- No opera el teléfono ni activa cuentas (lo hace la sesión A, que también ejecuta el generador Central de B que escribe las referencias).
 - No toca Central ni la Web (generador de la sesión B).
 - No cambia esquema, reglas ni pantallas de la app.
 - No produce resultados de usabilidad ni cuenta como participante.
