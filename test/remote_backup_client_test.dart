@@ -11,6 +11,7 @@ import 'dart:typed_data';
 import 'package:agroquimicos/app.dart';
 import 'package:agroquimicos/data/agro_repository.dart';
 import 'package:agroquimicos/data/app_database.dart';
+import 'package:agroquimicos/data/backup_encryption.dart';
 import 'package:agroquimicos/data/backup_service.dart';
 import 'package:agroquimicos/data/owner_binding_store.dart';
 import 'package:agroquimicos/data/sync/central_binding_store.dart';
@@ -28,6 +29,7 @@ import 'package:agroquimicos/services/auth/existing_session_providers.dart';
 import 'package:agroquimicos/services/auth/existing_session_startup.dart';
 import 'package:agroquimicos/services/auth/remote_session_coordinator.dart';
 import 'package:agroquimicos/services/auth/remote_session_providers.dart';
+import 'package:agroquimicos/services/backup/backup_keyring.dart';
 import 'package:agroquimicos/services/backup/remote_backup_api.dart';
 import 'package:agroquimicos/services/backup/remote_backup_service.dart';
 import 'package:agroquimicos/services/sync/sync_access.dart';
@@ -69,10 +71,17 @@ String _hex(List<int> bytes) => sha256.convert(bytes).toString();
 
 /// Copia guardada por el servidor falso.
 class _Stored {
-  _Stored(this.id, this.bytes, this.schemaVersion, this.createdAt);
+  _Stored(
+    this.id,
+    this.bytes,
+    this.schemaVersion,
+    this.createdAt, {
+    this.formatVersion = 2,
+  });
   final String id;
   final Uint8List bytes;
   final int schemaVersion;
+  final int formatVersion;
   final DateTime createdAt;
   late String declaredSha = _hex(bytes);
 
@@ -81,7 +90,7 @@ class _Stored {
     'sha256': declaredSha,
     'sizeBytes': bytes.length,
     'contentType': 'application/octet-stream',
-    'formatVersion': 1,
+    'formatVersion': formatVersion,
     'schemaVersion': schemaVersion,
     'createdAt': createdAt.toUtc().toIso8601String(),
   };
@@ -152,6 +161,7 @@ class _FakeServer {
         bytes,
         int.parse(request.headers['X-Backup-Schema-Version']!),
         DateTime.utc(2026, 10, 16, 12, stored.length),
+        formatVersion: int.parse(request.headers['X-Backup-Format-Version']!),
       );
       stored[entry.id] = entry;
       if (loseUploadResponse) {
@@ -232,8 +242,15 @@ class _Phone {
     this.directory,
     this.invoices,
     this.syncRequests,
+    this.keyring,
+    this.recoveryKey,
   );
   final ProviderContainer container;
+
+  /// Llavero de este teléfono (almacén en memoria) y la clave confirmada con
+  /// la que sube; null si se creó sin clave.
+  final BackupKeyring keyring;
+  final BackupRecoveryKey? recoveryKey;
   final AppDatabase database;
   final Directory directory;
   final Directory invoices;
@@ -270,7 +287,33 @@ class _Phone {
     ownerScope: () async =>
         (await OwnerBindingStore(database).activeBinding())?.scope,
     workDirectory: () async => Directory(p.join(directory.path, 'privado')),
+    keyring: keyring,
   );
+}
+
+/// Autorización simulada del titular para rotar la clave en las pruebas.
+final _ownerAuthorization = Object();
+
+/// Almacén que deja de aceptar escrituras a petición.
+class _FailingWritesVault implements BackupKeyVault {
+  String? value;
+  bool failWrites = false;
+  @override
+  Future<String?> read() async => value;
+  @override
+  Future<void> write(String value) async {
+    if (failWrites) throw StateError('sin espacio');
+    this.value = value;
+  }
+}
+
+/// Almacén seguro simulado: un valor en memoria.
+class _MemoryVault implements BackupKeyVault {
+  String? value;
+  @override
+  Future<String?> read() async => value;
+  @override
+  Future<void> write(String value) async => this.value = value;
 }
 
 void main() {
@@ -296,6 +339,8 @@ void main() {
     required String installationRef,
     Future<void> Function(AppDatabase database, Directory invoices)? seed,
     _FakeRemote? remote,
+    bool enrollKey = true,
+    BackupRecoveryKey? recoveryKey,
   }) async {
     final directory = await Directory(p.join(workspace.path, name))
         .create(recursive: true);
@@ -349,7 +394,30 @@ void main() {
       container.dispose();
     });
     await container.read(installationAccessProvider.notifier).refresh();
-    return _Phone(container, database, directory, invoices, syncRequests);
+    // Clave de recuperación: la que la persona ya tenía anotada
+    // ([recoveryKey]) o una nueva, mostrada y confirmada (F08-ADR-003 §3.4).
+    final keyring = BackupKeyring(
+      _MemoryVault(),
+      consumeAuthorization: (auth, action, keyId) async {
+        if (!identical(auth, _ownerAuthorization)) throw StateError('no');
+      },
+    );
+    BackupRecoveryKey? key = recoveryKey;
+    if (key != null) {
+      await keyring.adoptRecovered(key);
+    } else if (enrollKey) {
+      key = await keyring.pendingKey();
+      await keyring.confirmPending(key.displayText);
+    }
+    return _Phone(
+      container,
+      database,
+      directory,
+      invoices,
+      syncRequests,
+      keyring,
+      key,
+    );
   }
 
   /// Datos del titular A: hogar, compra con fotografía y una cola con una
@@ -535,6 +603,14 @@ void main() {
           RemoteBackupErrorKind.tooLarge,
         );
         expect(
+          await kindFor(422, 'BACKUP_FORMAT_INVALID'),
+          RemoteBackupErrorKind.formatRejected,
+        );
+        expect(
+          await kindFor(422, 'BACKUP_ENCRYPTION_REQUIRED'),
+          RemoteBackupErrorKind.formatRejected,
+        );
+        expect(
           await kindFor(422, 'BACKUP_SHA256_MISMATCH'),
           RemoteBackupErrorKind.integrity,
         );
@@ -713,6 +789,313 @@ void main() {
 
   group('revisión: cancelación por plazo', _reviewTests);
 
+  group('F08-ADR-003: copia cifrada en el teléfono', () {
+    Future<_Phone> owner(String name, {bool enrollKey = true}) => phone(
+      name,
+      session: memberA,
+      installationRef: installationHere,
+      enrollKey: enrollKey,
+      seed: (db, invoices) => farmerData(db, invoices),
+    );
+
+    test('sin una clave confirmada no se sube nada', () async {
+      final server = _FakeServer();
+      final a = await owner('a', enrollKey: false);
+      await expectLater(
+        a.service(server, memberA).uploadNew(),
+        throwsA(isA<RecoveryKeyNotConfirmed>()),
+      );
+      // Clave mostrada pero sin confirmar: tampoco.
+      await a.keyring.pendingKey();
+      await expectLater(
+        a.service(server, memberA).uploadNew(),
+        throwsA(isA<RecoveryKeyNotConfirmed>()),
+      );
+      expect(server.requests, isEmpty);
+    });
+
+    test(
+      'la subida declara el formato 2 y anota con qué clave se cifró',
+      () async {
+        final server = _FakeServer();
+        final a = await owner('a');
+        final uploaded = await a.service(server, memberA).uploadNew();
+        final post = server.requests.singleWhere((r) => r.method == 'POST');
+        expect(post.headers['X-Backup-Format-Version'], '2');
+        expect(uploaded.entry.formatVersion, 2);
+        expect(await a.service(server, memberA).keysFor([uploaded.entry]), {
+          uploaded.entry.id: RemoteCopyKey.current,
+        });
+        // Tras la subida no queda nada en la carpeta privada.
+        final privado = Directory(p.join(a.directory.path, 'privado'));
+        expect(privado.existsSync() ? privado.listSync() : const [], isEmpty);
+      },
+    );
+
+    test(
+      'rotación: la copia anterior sigue descifrándose con la clave retirada',
+      () async {
+        final server = _FakeServer();
+        final a = await owner('a');
+        final first = await a.service(server, memberA).uploadNew();
+        final next = await a.keyring.startRotation(
+          authorization: _ownerAuthorization,
+        );
+        await a.keyring.confirmPending(next.displayText);
+        final second = await a.service(server, memberA).uploadNew();
+        final service = a.service(server, memberA);
+        expect(await service.keysFor([first.entry, second.entry]), {
+          first.entry.id: RemoteCopyKey.retired,
+          second.entry.id: RemoteCopyKey.current,
+        });
+        for (final entry in [first.entry, second.entry]) {
+          final prepared = await service.prepareRestore(entry);
+          expect(prepared.validation.isValid, isTrue);
+          await service.discard(prepared);
+        }
+      },
+    );
+
+    test('copia antigua sin cifrar (formato 1): se reconoce, se restaura y se avisa', () async {
+      final server = _FakeServer();
+      final a = await owner('a');
+      // Una copia del formato anterior: el contenedor tal cual, sin cifrar.
+      final exported = await a.container.read(backupServiceProvider).export();
+      final bytes = await File(exported.path).readAsBytes();
+      final legacy = _Stored(
+        '00000009-0000-4000-8000-000000000009',
+        bytes,
+        AppDatabase.schemaVersion,
+        DateTime.utc(2026, 10, 1),
+        formatVersion: 1,
+      );
+      server.stored[legacy.id] = legacy;
+      final service = a.service(server, memberA);
+      expect(await service.keysFor([legacy.jsonEntry]), isEmpty);
+      final prepared = await service.prepareRestore(legacy.jsonEntry);
+      expect(prepared.unencrypted, isTrue);
+      expect(prepared.ownership.accepted, isTrue);
+      await service.restorePrepared(prepared);
+      // No se convirtió ni se borró en el servidor.
+      expect(server.stored[legacy.id]!.bytes, bytes);
+    });
+
+    for (final (name, format, encrypted) in <(String, int, bool)>[
+      ('metadato formato 2 con contenido sin cifrar', 2, false),
+      ('metadato formato 1 con contenido cifrado', 1, true),
+      ('formato desconocido', 3, true),
+    ]) {
+      test('$name: se rechaza sin tocar los datos', () async {
+        final server = _FakeServer();
+        final a = await owner('a');
+        await a.service(server, memberA).uploadNew();
+        final stored = server.stored.values.single;
+        final Uint8List bytes;
+        if (encrypted) {
+          bytes = stored.bytes;
+        } else {
+          final exported = await a.container
+              .read(backupServiceProvider)
+              .export();
+          bytes = await File(exported.path).readAsBytes();
+        }
+        final forged = _Stored(
+          stored.id,
+          bytes,
+          stored.schemaVersion,
+          stored.createdAt,
+          formatVersion: format,
+        );
+        server.stored[stored.id] = forged;
+        final before = await a.dump();
+        await expectLater(
+          a.service(server, memberA).prepareRestore(forged.jsonEntry),
+          throwsA(isA<BackupEnvelopeException>()),
+        );
+        expect(await a.dump(), before);
+        final privado = Directory(p.join(a.directory.path, 'privado'));
+        expect(privado.existsSync() ? privado.listSync() : const [], isEmpty);
+      });
+    }
+
+    for (final (name, change) in <(String, Uint8List Function(Uint8List))>[
+      ('un bit del cifrado alterado', (b) => Uint8List.fromList(b)..[200] ^= 1),
+      ('truncado', (b) => Uint8List.fromList(b.sublist(0, b.length - 100))),
+      (
+        'sin la etiqueta final',
+        (b) => Uint8List.fromList(b.sublist(0, b.length - 16)),
+      ),
+    ]) {
+      test(
+        '$name con SHA-256 de transporte coherente: no se descifra ni se restaura',
+        () async {
+          final server = _FakeServer();
+          final a = await owner('a');
+          await a.service(server, memberA).uploadNew();
+          final stored = server.stored.values.single;
+          // El servidor (o quien lo controle) sirve bytes alterados y publica su
+          // propio SHA-256: el transporte cuadra, el cifrado no.
+          final forged = _Stored(
+            stored.id,
+            change(stored.bytes),
+            stored.schemaVersion,
+            stored.createdAt,
+          );
+          server.stored[stored.id] = forged;
+          await a.container
+              .read(repositoryProvider)
+              .addProduct(name: 'Posterior al respaldo');
+          final before = await a.dump();
+          final photos = await a.photos();
+          await expectLater(
+            a.service(server, memberA).prepareRestore(forged.jsonEntry),
+            throwsA(isA<BackupEnvelopeException>()),
+          );
+          expect(await a.dump(), before);
+          expect(await a.photos(), photos);
+          final privado = Directory(p.join(a.directory.path, 'privado'));
+          expect(privado.existsSync() ? privado.listSync() : const [], isEmpty);
+        },
+      );
+    }
+
+    test('restaurar con una clave distinta de la activa: se guarda para descifrar y las subidas siguen con la activa', () async {
+      final server = _FakeServer();
+      final original = await owner('original');
+      final old = await original.service(server, memberA).uploadNew();
+      // Teléfono nuevo que ya creó y confirmó su propia clave antes de
+      // restaurar la copia antigua.
+      final fresh = await phone(
+        'nuevo',
+        session: memberA,
+        installationRef: installationElsewhere,
+        seed: (db, _) => seedActivatedInstallation(
+          db,
+          installationRef: installationElsewhere,
+        ),
+      );
+      final own = fresh.recoveryKey!;
+      final service = fresh.service(server, memberA);
+      final pending = await service
+          .prepareRestore(old.entry)
+          .then<PendingDecryption>(
+            (_) => fail('la clave de la copia no está en este teléfono'),
+            onError: (Object error) => (error as RecoveryKeyRequired).pending,
+          );
+      final prepared = await service.prepareWithRecoveryKey(
+        pending,
+        original.recoveryKey!.displayText,
+      );
+      await service.restorePrepared(prepared);
+      // Regla: la activa sigue siendo la confirmada en este teléfono; la
+      // restaurada queda retirada, sólo para descifrar.
+      expect((await fresh.keyring.activeKey())!.key.sameAs(own), isTrue);
+      final next = await service.uploadNew();
+      expect(await service.keysFor([old.entry, next.entry]), {
+        old.entry.id: RemoteCopyKey.unknown,
+        next.entry.id: RemoteCopyKey.current,
+      });
+      // La antigua sigue descifrándose sin volver a escribir la clave.
+      final again = await service.prepareRestore(old.entry);
+      expect(again.validation.isValid, isTrue);
+      await service.discard(again);
+    });
+
+    test('llavero ilegible: la lista se muestra y la copia se restaura escribiendo la clave', () async {
+      final server = _FakeServer();
+      final original = await owner('original');
+      final uploaded = await original.service(server, memberA).uploadNew();
+      final broken = await phone(
+        'roto',
+        session: memberA,
+        installationRef: installationElsewhere,
+        enrollKey: false,
+        seed: (db, _) => seedActivatedInstallation(
+          db,
+          installationRef: installationElsewhere,
+        ),
+      );
+      final vault = _MemoryVault()..value = '{dañado';
+      final service = RemoteBackupService(
+        api: server.api,
+        access: () async => VerifiedAccess(
+          accessToken: _token,
+          scope: memberA,
+          obtainedAt: DateTime.now(),
+        ),
+        backups: broken.container.read(backupServiceProvider),
+        restorer: broken.container.read(guardedRestoreProvider),
+        ownerScope: () async =>
+            (await OwnerBindingStore(broken.database).activeBinding())?.scope,
+        workDirectory: () async =>
+            Directory(p.join(broken.directory.path, 'privado')),
+        keyring: BackupKeyring(vault),
+      );
+      expect(await service.keysFor([uploaded.entry]), {
+        uploaded.entry.id: RemoteCopyKey.unknown,
+      });
+      final pending = await service
+          .prepareRestore(uploaded.entry)
+          .then<PendingDecryption>(
+            (_) => fail('debía pedir la clave'),
+            onError: (Object error) => (error as RecoveryKeyRequired).pending,
+          );
+      final prepared = await service.prepareWithRecoveryKey(
+        pending,
+        original.recoveryKey!.displayText,
+      );
+      await service.restorePrepared(prepared);
+      // El llavero dañado no se sobrescribió por su cuenta.
+      expect(vault.value, '{dañado');
+    });
+
+    test('si no se puede anotar la clave de una subida, la subida no se da por fallida', () async {
+      final server = _FakeServer();
+      final a = await owner('a');
+      final vault = _FailingWritesVault();
+      final keyring = BackupKeyring(vault);
+      final key = await keyring.pendingKey();
+      await keyring.confirmPending(key.displayText);
+      vault.failWrites = true;
+      final service = RemoteBackupService(
+        api: server.api,
+        access: () async => VerifiedAccess(
+          accessToken: _token,
+          scope: memberA,
+          obtainedAt: DateTime.now(),
+        ),
+        backups: a.container.read(backupServiceProvider),
+        restorer: a.container.read(guardedRestoreProvider),
+        ownerScope: () async =>
+            (await OwnerBindingStore(a.database).activeBinding())?.scope,
+        workDirectory: () async =>
+            Directory(p.join(a.directory.path, 'privado')),
+        keyring: keyring,
+      );
+      final result = await service.uploadNew();
+      expect(server.stored, hasLength(1));
+      expect(result.export.warnings.last, contains('no pudo anotar'));
+    });
+
+    test('cambiar de sesión no toca el llavero ni las copias', () async {
+      final server = _FakeServer();
+      final a = await owner('a');
+      final uploaded = await a.service(server, memberA).uploadNew();
+      // Otra cuenta en sesión (o una sesión recuperada): el llavero sigue y
+      // la copia del titular sigue descifrándose con su clave.
+      await expectLater(
+        a.service(server, memberB).uploadNew(),
+        throwsA(isA<RemoteBackupOwnerMismatch>()),
+      );
+      expect(await a.keyring.readiness(), KeyringReadiness.ready);
+      final prepared = await a
+          .service(server, memberA)
+          .prepareRestore(uploaded.entry);
+      expect(prepared.validation.isValid, isTrue);
+      await a.service(server, memberA).discard(prepared);
+    });
+  });
+
   group('revisión: acceso y subida incierta', () {
     test('un 401 o 403 descarta el acceso en memoria; un 404 no', () async {
       for (final (status, expected) in [(401, 1), (403, 1)]) {
@@ -850,12 +1233,30 @@ void main() {
       final uploaded = await original.service(server, memberA).uploadNew();
       expect(server.stored, hasLength(1));
       expect(uploaded.entry.sha256, _hex(server.stored.values.single.bytes));
+      // El servidor sólo recibió el formato cifrado: ni la base ni el
+      // manifiesto en texto legible.
+      final served = server.stored.values.single;
+      expect(served.formatVersion, 2);
+      expect(served.bytes.sublist(0, 7), 'AGROENC'.codeUnits);
+      final asText = String.fromCharCodes(served.bytes);
+      expect(asText, isNot(contains('SQLite format 3')));
+      expect(asText, isNot(contains('manifest.json')));
+      expect(asText, isNot(contains('agrocuentas')));
+      // Ni copia legible en la carpeta de respaldos locales (`Descargas`).
+      expect(
+        original.directory.listSync().where(
+          (e) => p.basename(e.path).endsWith('.agrobackup'),
+        ),
+        isEmpty,
+      );
 
-      // Instalación limpia: activada para A en otro teléfono, sin datos.
+      // Instalación limpia: activada para A en otro teléfono, sin datos y sin
+      // la clave (llavero vacío, como tras perder el teléfono).
       final fresh = await phone(
         'nuevo',
         session: memberA,
         installationRef: installationElsewhere,
+        enrollKey: false,
         seed: (db, _) async {
           await seedActivatedInstallation(
             db,
@@ -867,10 +1268,50 @@ void main() {
       final listed = await service.list();
       expect(listed.single.id, uploaded.entry.id);
 
-      final prepared = await service.prepareRestore(listed.single);
+      final freshBefore = await fresh.dump();
+      final pending = await service
+          .prepareRestore(listed.single)
+          .then<PendingDecryption>(
+            (_) => fail('sin la clave no se puede preparar'),
+            onError: (Object error) => (error as RecoveryKeyRequired).pending,
+          );
+      // Clave equivocada y clave mal escrita: nada cambia y se puede reintentar.
+      await expectLater(
+        service.prepareWithRecoveryKey(
+          pending,
+          BackupRecoveryKey.generate().displayText,
+        ),
+        throwsA(
+          isA<BackupEnvelopeException>().having(
+            (e) => e.problem,
+            'problem',
+            BackupEnvelopeProblem.wrongKey,
+          ),
+        ),
+      );
+      final typo = original.recoveryKey!.displayText.split('');
+      typo[3] = typo[3] == 'A' ? 'B' : 'A';
+      await expectLater(
+        service.prepareWithRecoveryKey(pending, typo.join()),
+        throwsA(isA<RecoveryKeyFormatException>()),
+      );
+      expect(await fresh.dump(), freshBefore);
+      expect(await fresh.keyring.readiness(), KeyringReadiness.noKey);
+
+      final prepared = await service.prepareWithRecoveryKey(
+        pending,
+        original.recoveryKey!.displayText.toLowerCase(),
+      );
       expect(prepared.ownership.accepted, isTrue);
       expect(prepared.validation.attachmentCount, 1);
+      expect(prepared.unencrypted, isFalse);
       final outcome = await service.restorePrepared(prepared);
+      // La persona demostró tener la clave: queda en el llavero, activa.
+      expect(await fresh.keyring.readiness(), KeyringReadiness.ready);
+      expect(
+        (await fresh.keyring.activeKey())!.key.sameAs(original.recoveryKey!),
+        isTrue,
+      );
 
       expect(outcome.access, InstallationAccessState.activated);
       expect(fresh.access, InstallationAccessState.activated);
@@ -950,11 +1391,13 @@ void main() {
         seed: (db, invoices) => farmerData(db, invoices),
       );
       await a.service(server, memberA).uploadNew();
-      // Un servidor que, por error, entregara la copia de A a B.
+      // Un servidor que, por error, entregara la copia de A a B, y B con la
+      // clave de A: aun así la propiedad la rechaza.
       final b = await phone(
         'b',
         session: memberB,
         installationRef: installationElsewhere,
+        recoveryKey: a.recoveryKey,
         seed: (db, _) async {
           await seedActivatedInstallation(
             db,
@@ -1058,9 +1501,19 @@ void main() {
       final before = await a.dump();
       // Se altera la base de dentro del contenedor y el servidor publica el
       // SHA-256 del contenedor alterado (p. ej. una copia reemplazada).
+      // Se descifra con la clave del titular, se altera la base de dentro y se
+      // vuelve a cifrar con la misma clave: el cifrado no lo detecta, la
+      // validación interna sí.
       final stored = server.stored.values.single;
+      final envelope = File(p.join(workspace.path, 'alterado.agroenc'));
+      await envelope.writeAsBytes(stored.bytes);
       final tampered = File(p.join(workspace.path, 'alterado.agrobackup'));
-      await tampered.writeAsBytes(stored.bytes);
+      await const BackupEncryption().decryptFile(
+        envelope,
+        tampered,
+        keyFor: (_) async => a.recoveryKey,
+        maxPlaintextBytes: 1 << 28,
+      );
       final inner = await extractDatabaseFrom(tampered.path);
       final raw = await databaseFactoryFfi.openDatabase(inner);
       await raw.update('persons', {'name': 'Otra persona'}, where: 'id=1');
@@ -1070,9 +1523,14 @@ void main() {
         'database.db',
         await File(inner).readAsBytes(),
       );
+      await const BackupEncryption().encryptFile(
+        tampered,
+        envelope,
+        a.recoveryKey!,
+      );
       final replaced = _Stored(
         stored.id,
-        await tampered.readAsBytes(),
+        await envelope.readAsBytes(),
         stored.schemaVersion,
         stored.createdAt,
       );
@@ -1106,6 +1564,7 @@ void main() {
         session: memberA,
         installationRef: installationElsewhere,
         remote: remote,
+        recoveryKey: source.recoveryKey,
         seed: (db, _) => seedActivatedInstallation(
           db,
           installationRef: installationElsewhere,

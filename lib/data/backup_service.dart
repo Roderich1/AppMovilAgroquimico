@@ -13,12 +13,16 @@ import '../domain/installation_access.dart';
 import '../domain/restore_ownership.dart';
 import 'app_database.dart';
 import 'backup_container_reader.dart';
+import 'backup_encryption.dart' show BackupEnvelopeHeader;
 import 'database_replacement.dart';
 import 'invoice_storage.dart';
+import 'restore_safety_copies.dart';
 
 export '../domain/restore_ownership.dart'
     show BackupOwnership, RestoreRejection;
 export 'backup_container_reader.dart' show BackupExtractionLimits;
+export 'restore_safety_copies.dart'
+    show RestoreBlockedException, RestoreSafetyCopies;
 
 /// Formato de un archivo de respaldo.
 enum BackupFormat {
@@ -132,14 +136,24 @@ class BackupService {
     @visibleForTesting Future<void> Function(File partial)? afterSafetyCopy,
     @visibleForTesting Future<void> Function()? afterCheckpoint,
     BackupExtractionLimits extractionLimits = BackupExtractionLimits.standard,
-  }) : _containerReader = BackupContainerReader(extractionLimits),
+    RestoreSafetyCopies? safetyCopies,
+  }) : extractionLimits = extractionLimits,
+       _containerReader = BackupContainerReader(extractionLimits),
        _invoicesDir = invoicesDir ?? resolveInvoicesDirectory,
        _exportDirectory = exportDirectory ?? _defaultExportDirectory,
        _beforePublish = beforePublish,
        _afterSafetyCopy = afterSafetyCopy,
-       _afterCheckpoint = afterCheckpoint;
+       _afterCheckpoint = afterCheckpoint {
+    this.safetyCopies =
+        safetyCopies ?? RestoreSafetyCopies(appDatabase.resolvePath);
+  }
 
   final AppDatabase appDatabase;
+  final BackupExtractionLimits extractionLimits;
+
+  /// Copias `.previo` de la base anterior a cada restauración, con su
+  /// registro durable y su limpieza local (F08-ADR-003 §7).
+  late final RestoreSafetyCopies safetyCopies;
   final BackupContainerReader _containerReader;
   final Future<Directory> Function() _invoicesDir;
   final Future<Directory> Function() _exportDirectory;
@@ -248,7 +262,32 @@ class BackupService {
       if (path == null || path.isEmpty) continue;
       byName.putIfAbsent(p.basename(path), () => []).add(row['id']! as int);
     }
+    // Fotografías de compras tardías pendientes de revisión (RF-03): viajan
+    // igual, aunque ninguna compra confirmada las cite todavía.
+    for (final path in await _draftInvoicePaths(database)) {
+      byName.putIfAbsent(p.basename(path), () => []);
+    }
     return byName;
+  }
+
+  /// `late_operation_drafts.invoice_image_path` (esquema v11), si existe en
+  /// esta base. Una base anterior no la tiene y no aporta nada.
+  static Future<bool> _hasDraftInvoices(Database database) async =>
+      (await database.rawQuery(
+        "SELECT 1 FROM pragma_table_info('late_operation_drafts') "
+        "WHERE name = 'invoice_image_path'",
+      )).isNotEmpty;
+
+  static Future<List<String>> _draftInvoicePaths(Database database) async {
+    if (!await _hasDraftInvoices(database)) return const [];
+    return [
+      for (final row in await database.rawQuery(
+        'SELECT invoice_image_path FROM late_operation_drafts '
+        'WHERE invoice_image_path IS NOT NULL',
+      ))
+        if ((row['invoice_image_path'] as String?)?.trim().isNotEmpty ?? false)
+          (row['invoice_image_path']! as String).trim(),
+    ];
   }
 
   /// Exporta un contenedor `.agrobackup` con la base y sus fotografías.
@@ -258,7 +297,36 @@ class BackupService {
   /// y sólo entonces se mueve al destino definitivo. Un respaldo que la
   /// aplicación no sabe releer no protege de nada, y la única forma de saberlo
   /// es intentarlo.
-  Future<BackupExportResult> export() async {
+  Future<BackupExportResult> export() => _buildContainer(
+    (packed, attachmentCount, warnings) async => BackupExportResult(
+      path: await _publish(packed),
+      attachmentCount: attachmentCount,
+      warnings: warnings,
+    ),
+  );
+
+  /// Genera y valida un contenedor igual que [export], pero **no lo publica**
+  /// en la carpeta de respaldos: [use] lo recibe en la carpeta temporal
+  /// privada de la app y, al terminar (o fallar), se borra. Es lo que usa el
+  /// respaldo remoto para cifrarlo sin dejar una copia legible en
+  /// `Descargas` (F08-ADR-003 §5.2).
+  Future<T> withPrivateContainer<T>(
+    Future<T> Function(File container, BackupExportResult info) use,
+  ) => _buildContainer(
+    (packed, attachmentCount, warnings) => use(
+      packed,
+      BackupExportResult(
+        path: '',
+        attachmentCount: attachmentCount,
+        warnings: warnings,
+      ),
+    ),
+  );
+
+  Future<T> _buildContainer<T>(
+    Future<T> Function(File packed, int attachmentCount, List<String> warnings)
+    use,
+  ) async {
     final database = await appDatabase.database;
     final source = appDatabase.openedPath;
     if (source == null || source == ':memory:') {
@@ -373,12 +441,7 @@ class BackupService {
         );
       }
 
-      final target = await _publish(File(packed));
-      return BackupExportResult(
-        path: target,
-        attachmentCount: attachments.length,
-        warnings: warnings,
-      );
+      return await use(File(packed), attachments.length, warnings);
     } finally {
       await _deleteQuietly(staging);
     }
@@ -488,7 +551,16 @@ class BackupService {
     if (await file.length() == 0) {
       return const BackupValidation.invalid('El archivo está vacío.');
     }
-    return _looksLikeZip(await _firstBytes(file, 4))
+    final header = await _firstBytes(file, 8);
+    if (BackupEnvelopeHeader.hasMagic(header)) {
+      // Sólo el respaldo remoto descifra, con la clave de recuperación: una
+      // copia cifrada no es un respaldo local que se pueda abrir sin ella.
+      return const BackupValidation.invalid(
+        'Esta copia está cifrada. Se restaura desde «Respaldo en la nube», '
+        'con su clave de recuperación.',
+      );
+    }
+    return _looksLikeZip(header)
         ? _validateContainer(path)
         : _validateDatabaseFile(path);
   }
@@ -839,7 +911,15 @@ class BackupService {
     if (await file.length() == 0) {
       throw const BackupException('El archivo está vacío.');
     }
-    final isContainer = _looksLikeZip(await _firstBytes(file, 4));
+    final header = await _firstBytes(file, 8);
+    if (BackupEnvelopeHeader.hasMagic(header)) {
+      // Nunca se sustituye la base con algo que no se descifró y validó.
+      throw const BackupException(
+        'Esta copia está cifrada. Se restaura desde «Respaldo en la nube», '
+        'con su clave de recuperación.',
+      );
+    }
+    final isContainer = _looksLikeZip(header);
     final directory = isContainer
         ? await _extract(path)
         : await Directory.systemTemp.createTemp('agro_backup_open_');
@@ -883,6 +963,11 @@ class BackupService {
       );
     }
 
+    // Antes de leer siquiera el respaldo: si hay una copia previa
+    // indispensable sin resolver, o el registro no se puede leer, no se
+    // empieza (F08-ADR-003 §7.2). También aplica el plazo y la cota.
+    await safetyCopies.ensureCanStartRestore();
+
     final staged = await _stage(path);
     final validation = staged.validation;
     final databaseSource = staged.databasePath;
@@ -901,12 +986,20 @@ class BackupService {
     // El formato histórico no trae fotografías y no las toca: no hay motivo
     // para resolver siquiera dónde viven.
     final invoicesDirectory = isContainer ? await _invoicesDir() : null;
-    final stamp = DateTime.now().toIso8601String().replaceAll(':', '-');
-    final safetyCopy = '$target.previo-$stamp.db';
 
+    // La entrada del registro se escribe **antes** que la copia: si el
+    // proceso muere a mitad, la copia queda protegida como interrumpida.
+    final SafetyCopySlot slot;
+    try {
+      slot = await safetyCopies.begin();
+    } on Object {
+      await _deleteQuietly(staged.directory);
+      rethrow;
+    }
+    final safetyCopy = slot.databasePath;
     final invoicesBackup = invoicesDirectory == null
         ? null
-        : Directory('${invoicesDirectory.path}.previo-$stamp');
+        : Directory(slot.invoicesPath);
 
     // Preparación: copia previa completa de la base y de las fotografías. Si
     // algo falla aquí **no empieza el reemplazo**: la base actual sigue como
@@ -914,6 +1007,7 @@ class BackupService {
     final bool hadPrevious;
     final bool hadInvoices;
     try {
+      await Directory(p.dirname(safetyCopy)).create(recursive: true);
       hadPrevious = await _secureCurrentDatabase(target, safetyCopy);
       // Copia de las fotografías actuales, para poder deshacer el conjunto y
       // no sólo la base.
@@ -921,13 +1015,20 @@ class BackupService {
           invoicesBackup != null &&
           await _copyDirectory(invoicesDirectory!, invoicesBackup);
     } on Object {
-      await _deleteQuietly(File(safetyCopy));
       await _deleteQuietly(File('$safetyCopy$partialSuffix'));
-      if (invoicesBackup != null) await _deleteQuietly(invoicesBackup);
+      try {
+        await safetyCopies.discard(slot);
+      } on Object {
+        // La entrada queda en preparación y pasará a interrumpida: protegida,
+        // aunque aquí la base no llegó a sustituirse.
+      }
       await _deleteQuietly(staged.directory);
       rethrow;
     }
 
+    // Si algo falla al deshacer, la copia previa (base y fotografías) es lo
+    // único que conserva los datos anteriores: no se borra.
+    var keepInvoicesBackup = false;
     try {
       await File(databaseSource).copy(target);
       // Se descartan los diarios del archivo anterior. Ya no guardan nada:
@@ -983,8 +1084,19 @@ class BackupService {
 
       if (prepareRestored != null) await prepareRestored(restored);
       if (afterReplace != null) await afterReplace();
+      // Comprobación del estado restaurado (F08-ADR-003 §7.1): sin ella la
+      // copia previa no se da por prescindible. Si falla, se deshace todo.
+      await _verifyRestoredState(restored);
+
+      // La sustitución es definitiva: la copia previa deja de ser
+      // indispensable y entra en el plazo y la cota.
+      await _resolveSafetyCopy(
+        slot,
+        hadPrevious: hadPrevious,
+        resolve: safetyCopies.markFinalized,
+      );
       return BackupRestoreResult(
-        safetyCopyPath: safetyCopy,
+        safetyCopyPath: hadPrevious ? safetyCopy : '',
         format: validation.format,
         restoredAttachments: restoredAttachments,
         warnings: warnings,
@@ -992,23 +1104,90 @@ class BackupService {
     } on Object {
       // Deshacer el conjunto: base y fotografías vuelven a como estaban. Los
       // diarios son de la base restaurada y no deben aplicarse a la anterior.
-      await appDatabase.close();
-      for (final suffix in const ['-wal', '-shm']) {
-        await _deleteQuietly(File('$target$suffix'));
+      try {
+        await appDatabase.close();
+        for (final suffix in const ['-wal', '-shm']) {
+          await _deleteQuietly(File('$target$suffix'));
+        }
+        if (hadPrevious) {
+          await File(safetyCopy).copy(target);
+        } else {
+          await _deleteQuietly(File(target));
+        }
+        if (hadInvoices) {
+          await _deleteQuietly(invoicesDirectory);
+          await _copyDirectory(invoicesBackup, invoicesDirectory);
+        }
+      } on Object {
+        // El rollback no terminó: la copia previa es indispensable.
+        keepInvoicesBackup = true;
+        try {
+          await safetyCopies.markInterrupted(slot);
+        } on Object {
+          // Sigue en preparación y pasará a interrumpida en el siguiente
+          // mantenimiento: protegida igualmente.
+        }
+        rethrow;
       }
-      if (hadPrevious) {
-        await File(safetyCopy).copy(target);
-      } else {
-        await _deleteQuietly(File(target));
-      }
-      if (hadInvoices) {
-        await _deleteQuietly(invoicesDirectory);
-        await _copyDirectory(invoicesBackup, invoicesDirectory);
-      }
+      await _resolveSafetyCopy(
+        slot,
+        hadPrevious: hadPrevious,
+        resolve: safetyCopies.markRolledBack,
+      );
       rethrow;
     } finally {
       await _deleteQuietly(staged.directory);
-      if (invoicesBackup != null) await _deleteQuietly(invoicesBackup);
+      if (invoicesBackup != null && !keepInvoicesBackup) {
+        await _deleteQuietly(invoicesBackup);
+      }
+    }
+  }
+
+  /// La base restaurada abre, está íntegra, tiene el esquema de esta
+  /// versión ya migrado y las tablas de la aplicación. Sólo entonces la copia
+  /// previa deja de ser indispensable. La propiedad no se comprueba aquí: la
+  /// reclasifica `GuardedRestore` y, si no puede, deja el acceso en null
+  /// (falla cerrado) sobre una base íntegra.
+  Future<void> _verifyRestoredState(Database restored) async {
+    const problem = BackupException(
+      'La base restaurada no superó la comprobación final. No se restauró; '
+      'sus datos anteriores se conservan.',
+    );
+    final integrity = await restored.rawQuery('PRAGMA integrity_check');
+    if (integrity.isEmpty || '${integrity.first.values.first}' != 'ok') {
+      throw problem;
+    }
+    final version = Sqflite.firstIntValue(
+      await restored.rawQuery('PRAGMA user_version'),
+    );
+    if (version != AppDatabase.schemaVersion) throw problem;
+    final tables = {
+      for (final row in await restored.rawQuery(
+        "SELECT name FROM sqlite_master WHERE type='table'",
+      ))
+        row['name'],
+    };
+    if (!requiredTables.every(tables.contains)) throw problem;
+  }
+
+  /// Marca la copia previa como resuelta y aplica la cota. Sin base anterior
+  /// no hay nada que conservar y la entrada se retira. Un fallo aquí no
+  /// cambia el resultado de la restauración: la entrada seguiría protegida,
+  /// que es el lado seguro.
+  Future<void> _resolveSafetyCopy(
+    SafetyCopySlot slot, {
+    required bool hadPrevious,
+    required Future<void> Function(SafetyCopySlot) resolve,
+  }) async {
+    try {
+      if (hadPrevious) {
+        await resolve(slot);
+      } else {
+        await safetyCopies.discard(slot);
+      }
+      await safetyCopies.maintain();
+    } on Object {
+      // Ver arriba.
     }
   }
 
@@ -1101,6 +1280,21 @@ class BackupService {
         where: 'id=?',
         whereArgs: [row['id']],
       );
+    }
+    if (await _hasDraftInvoices(database)) {
+      for (final row in await database.rawQuery(
+        'SELECT rowid AS row_ref, invoice_image_path '
+        'FROM late_operation_drafts WHERE invoice_image_path IS NOT NULL',
+      )) {
+        final name = p.basename((row['invoice_image_path']! as String).trim());
+        if (!restoredNames.contains(name)) continue;
+        await database.update(
+          'late_operation_drafts',
+          {'invoice_image_path': p.join(invoicesDirectory.path, name)},
+          where: 'rowid=?',
+          whereArgs: [row['row_ref']],
+        );
+      }
     }
     if (orphans.isEmpty) return const [];
     return [
