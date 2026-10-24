@@ -3,6 +3,7 @@ import 'package:http/http.dart' as http;
 
 import '../../data/installation_client_id_store.dart';
 import '../../data/installation_identity_initializer.dart';
+import '../../installation_access.dart';
 import 'api_endpoint_config.dart';
 import 'auth_api_exception.dart';
 import 'auth_http_client.dart';
@@ -90,14 +91,36 @@ class FirstActivationController extends Notifier<FirstActivationState> {
     required String email,
     required String password,
   }) async {
+    // F03 §2: with a titular already bound, even this entry requires the
+    // same Member and tenant (checked before the client is registered).
+    // Unknown access (still evaluating or failed): never store a session.
+    if (ref.read(installationAccessProvider) == null) {
+      const failed = FirstActivationState(
+        phase: FirstActivationPhase.failed,
+        problem: FirstActivationProblem.unexpected,
+      );
+      state = failed;
+      return failed;
+    }
+    final requiredScope = ref
+        .read(installationAccessProvider.notifier)
+        .boundScope;
     final result = await _coordinator.activate(
       email: email,
       password: password,
+      requiredScope: requiredScope,
+      requiredScopeStillValid: () =>
+          ref.read(installationAccessProvider.notifier).boundScope ==
+          requiredScope,
     );
     // completed is emitted only after commitAndVerify has returned. Keep the
     // local binding coherent even if the activation screen has unmounted.
     if (result.isCompleted) {
       ref.read(runtimeSecureCommitCompletedProvider.notifier).markCompleted();
+      // F03: the latest runtime session event (after a possible sign-out).
+      if (ref.read(runtimeSessionTransitionProvider) != null) {
+        ref.read(runtimeSessionTransitionProvider.notifier).recovered();
+      }
     }
     return result;
   }

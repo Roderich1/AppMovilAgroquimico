@@ -259,6 +259,41 @@ class RemoteSessionCoordinator {
     }
   }
 
+  /// Acredita en línea la cuenta de la sesión guardada (F03, PIN del titular):
+  /// un login nuevo que tiene que ser de la misma cuenta, Member y tenant, de
+  /// un agricultor activo, y que se cierra en el acto. No toca la sesión
+  /// guardada, el guard ni el estado publicado, así que vale con la sesión
+  /// sana (a diferencia de [reauthenticate], que sólo recupera una sesión en
+  /// cuarentena). Sin red, con otra cuenta o con otra operación en curso,
+  /// false.
+  Future<bool> confirmAccount({
+    required String email,
+    required String password,
+  }) async {
+    if (_running || _isolateRemoteOperationActive) return false;
+    _running = true;
+    _isolateRemoteOperationActive = true;
+    AuthV2Api? api;
+    V2AuthResponse? login;
+    try {
+      final stored = await _requireStoredSession();
+      api = _apiFactory();
+      login = await api.login(LoginV2Request(email: email, password: password));
+      _validateLogin(login, stored);
+      return true;
+    } on Object {
+      return false;
+    } finally {
+      // El login nuevo nunca se guarda: se cierra siempre, también si no
+      // valía. Si el cierre falla, caduca solo en el servidor.
+      if (api != null && login != null) {
+        await _cleanupKnownRemoteCredential(api, login.refreshToken);
+      }
+      _running = false;
+      _isolateRemoteOperationActive = false;
+    }
+  }
+
   Future<RemoteSessionState> reauthenticate({
     required String email,
     required String password,

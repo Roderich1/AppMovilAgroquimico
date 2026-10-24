@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../domain/installation_access.dart';
 import '../../installation_access.dart';
+import '../../services/auth/access_recovery.dart';
 import '../../services/auth/existing_session_providers.dart';
 
 /// Pantalla de la política de activación cuando la instalación no puede
@@ -17,6 +18,7 @@ class AccessStatusScreen extends ConsumerWidget {
     final access = ref.watch(installationAccessProvider);
     final session = ref.watch(effectiveLocalSessionProvider);
     final scope = ref.read(installationAccessProvider.notifier).sessionScope;
+    final recovery = accessRecoveryModeFor(access, session);
     return Scaffold(
       appBar: AppBar(title: const Text('Agrocuentas')),
       body: SafeArea(
@@ -50,7 +52,21 @@ class AccessStatusScreen extends ConsumerWidget {
                           textAlign: TextAlign.center,
                         ),
                         const SizedBox(height: 20),
-                        if (session.allowsFirstActivation &&
+                        // F03: con un titular ya vinculado, la entrada pasa por
+                        // «Recuperar acceso», que exige el mismo Member y tenant.
+                        if (recovery != AccessRecoveryMode.none)
+                          FilledButton.icon(
+                            key: const Key('access-recover'),
+                            onPressed: () => context.go('/recuperar'),
+                            icon: const Icon(Icons.key_outlined),
+                            label: Text(
+                              recovery ==
+                                      AccessRecoveryMode.signOutForeignSession
+                                  ? 'Salir de esta sesión'
+                                  : 'Recuperar acceso',
+                            ),
+                          )
+                        else if (session.allowsFirstActivation &&
                             !access.allowsOwnerBinding)
                           FilledButton.icon(
                             key: const Key('access-activate'),
@@ -73,8 +89,7 @@ class AccessStatusScreen extends ConsumerWidget {
                           const Padding(
                             padding: EdgeInsets.only(top: 12),
                             child: Text(
-                              'Esta condición requiere revisión. Los datos '
-                              'quedan intactos en este dispositivo.',
+                              'Los datos quedan intactos en este dispositivo.',
                               key: Key('access-needs-review'),
                               textAlign: TextAlign.center,
                             ),

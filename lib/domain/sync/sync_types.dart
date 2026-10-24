@@ -173,6 +173,10 @@ class OutboxEntry {
   final String? nextAttemptAt;
   final String? lastCode;
 
+  /// Explicación, sin identificadores, de un rechazo que requiere
+  /// intervención y no se reintenta (RF-03 §2.4); null si no hay.
+  String? get interventionMessage => rejectionExplanation(lastCode);
+
   /// Referencia de reconciliación que devolvió un ACK CONFLICT.
   final String? ackReconciliationReference;
   final String? serverAcceptedAt;
@@ -226,3 +230,16 @@ String contributionKeyOf(
   String productRef,
   BaseUnit unit,
 ) => '${type.code}|$campaignRef|$productRef|${unit.code}';
+
+/// RF-03 §2.4: qué decir ante un rechazo terminal de Central por el estado de
+/// la campaña. El registro privado no cambia; nada se reasigna ni se reintenta.
+String? rejectionExplanation(String? code) => switch (code) {
+  'CAMPAIGN_SEALED' =>
+    'Esta campaña está sellada en el sindicato: el histórico colectivo '
+        'sellado no se actualiza con correcciones posteriores. Su registro '
+        'privado se conserva.',
+  'CAMPAIGN_NOT_OPEN' =>
+    'La campaña ya no admite publicaciones en el sindicato. Su registro '
+        'privado se conserva.',
+  _ => null,
+};

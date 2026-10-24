@@ -72,7 +72,7 @@ class _Installation {
 
   /// Copias de seguridad previas que deja una restauración.
   List<String> safetyCopies() => [
-    for (final entity in directory.listSync())
+    for (final entity in directory.listSync(recursive: true))
       if (p.basename(entity.path).contains('.previo-')) entity.path,
   ];
 }

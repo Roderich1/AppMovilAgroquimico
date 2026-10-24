@@ -175,7 +175,7 @@ void main() {
         s.products[2]: 8000,
       });
 
-      await s.repo.reverseTransfer(transfer);
+      await s.repo.reverseTransferUnauditedForTesting(transfer);
 
       expect(await saldos(s.repo, s.owner, s.products), origenAntes);
       expect(await saldos(s.repo, s.receiver, s.products), destinoAntes);
@@ -223,7 +223,7 @@ void main() {
         );
       }
 
-      await s.repo.reverseTransfer(transfer);
+      await s.repo.reverseTransferUnauditedForTesting(transfer);
 
       // Por cada línea, una entrada al origen y una salida del destino, con el
       // responsable de cada lado y el producto de su propio lote.
@@ -316,7 +316,7 @@ void main() {
       // Una segunda reversión se rechaza y no escribe movimientos.
       final totalMovimientos = (await db.query('inventory_movements')).length;
       await expectLater(
-        s.repo.reverseTransfer(transfer),
+        s.repo.reverseTransferUnauditedForTesting(transfer),
         throwsA(isA<BusinessRuleException>()),
       );
       expect((await db.query('inventory_movements')).length, totalMovimientos);
@@ -334,7 +334,7 @@ void main() {
         productId: product,
         quantityBase: 25000,
       );
-      await s.repo.reverseTransfer(transfer);
+      await s.repo.reverseTransferUnauditedForTesting(transfer);
 
       expect(await saldos(s.repo, s.owner, s.products), origenAntes);
       expect(
@@ -439,7 +439,7 @@ void main() {
         s.receiver,
         s.products,
       );
-      await s.repo.reverseTransfer(transfer);
+      await s.repo.reverseTransferUnauditedForTesting(transfer);
       final db = await s.database.database;
       // Reproduce lo que escribía `reverseTransfer` hasta v6: el producto de
       // la cabecera en todos los movimientos de reversión.

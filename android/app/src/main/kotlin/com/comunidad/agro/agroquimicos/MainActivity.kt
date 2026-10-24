@@ -19,6 +19,7 @@ class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         SecureSessionPointerChannel.register(applicationContext, flutterEngine.dartExecutor.binaryMessenger)
+        ScreenSecureChannel.register(this, flutterEngine.dartExecutor.binaryMessenger)
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             "agrocuentas/installation_identity",

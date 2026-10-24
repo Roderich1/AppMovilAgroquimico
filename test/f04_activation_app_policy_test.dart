@@ -284,7 +284,10 @@ void main() {
         InstallationAccessState.restoredRequiresActivation,
       );
       expect(path(c), '/acceso');
-      expect(find.byKey(const Key('access-activate')), findsOneWidget);
+      // F03 §2: with a bound titular the entry is «Recuperar acceso», which
+      // requires the same Member and tenant; no free activation is offered.
+      expect(find.byKey(const Key('access-activate')), findsNothing);
+      expect(find.byKey(const Key('access-recover')), findsOneWidget);
       expect(
         await attemptWrite(tester, c),
         isA<FarmerOperationBlockedException>(),
