@@ -87,7 +87,10 @@ void main() {
     await publishAndAck();
     final extra = await f.apply(f.ownerPersonId, {f.sync.litreProductId: 700});
     await publishAndAck();
-    await f.sync.repo.reverseApplicationUnauditedForTesting(extra, reason: 'error de carga');
+    await f.sync.repo.reverseApplicationUnauditedForTesting(
+      extra,
+      reason: 'error de carga',
+    );
     final current = (await f.publisher.preview()).rows.single;
     expect(current.quantityBase, 3000);
     expect(current.change, stale.rows.single.change);

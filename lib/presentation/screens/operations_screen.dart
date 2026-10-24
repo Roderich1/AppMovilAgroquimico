@@ -64,7 +64,8 @@ class OperationsScreen extends ConsumerWidget {
             ),
           (
             title: 'Operaciones tardías',
-            subtitle: 'Compras y aplicaciones de campañas cerradas, en revisión',
+            subtitle:
+                'Compras y aplicaciones de campañas cerradas, en revisión',
             path: '/operaciones/tardias',
             icon: Icons.history_edu_outlined,
             isForm: false,

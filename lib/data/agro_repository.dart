@@ -119,7 +119,12 @@ abstract final class LateConflict {
 }
 
 class LateResolution {
-  const LateResolution(this.outcome, {this.operationId, this.conflictCode, this.message});
+  const LateResolution(
+    this.outcome, {
+    this.operationId,
+    this.conflictCode,
+    this.message,
+  });
 
   final LateResolutionOutcome outcome;
   final int? operationId;
@@ -1206,8 +1211,7 @@ class AgroRepository {
       'plan_id': draft.planId,
       'applied_at': _date(draft.appliedAt),
       'status': 'CONFIRMED',
-      'treated_area_m2':
-          draft.treatedAreaM2 ?? draft.lines.first.treatedAreaM2,
+      'treated_area_m2': draft.treatedAreaM2 ?? draft.lines.first.treatedAreaM2,
       'notes': draft.notes,
     });
     var totalCost = 0;
@@ -1276,10 +1280,7 @@ class AgroRepository {
       }
       await txn.update(
         'application_items',
-        {
-          'cost_bob_minor': lineCost,
-          'fifo_estimated_cost_bob_minor': lineCost,
-        },
+        {'cost_bob_minor': lineCost, 'fifo_estimated_cost_bob_minor': lineCost},
         where: 'id = ?',
         whereArgs: [applicationItemId],
       );
@@ -1335,7 +1336,10 @@ class AgroRepository {
         'realizada no puede tener una fecha futura. No se registró nada.',
       );
     }
-    final containing = campaignsContaining(await _campaignPeriods(executor), day);
+    final containing = campaignsContaining(
+      await _campaignPeriods(executor),
+      day,
+    );
     if (containing.isEmpty) {
       throw CampaignDateException(
         CampaignDateProblem.none,
@@ -1408,14 +1412,20 @@ class AgroRepository {
     required String reason,
   }) async {
     if (draft.lines.isEmpty) {
-      throw BusinessRuleException('La aplicación necesita al menos un producto.');
+      throw BusinessRuleException(
+        'La aplicación necesita al menos un producto.',
+      );
     }
     if (draft.lines.map((line) => line.productId).toSet().length !=
         draft.lines.length) {
-      throw BusinessRuleException('No repita productos dentro de la aplicación.');
+      throw BusinessRuleException(
+        'No repita productos dentro de la aplicación.',
+      );
     }
     if (draft.lines.any((line) => line.quantityBase <= 0)) {
-      throw BusinessRuleException('La cantidad aplicada debe ser mayor a cero.');
+      throw BusinessRuleException(
+        'La cantidad aplicada debe ser mayor a cero.',
+      );
     }
     if (draft.planId != null) {
       throw BusinessRuleException(
@@ -1515,17 +1525,20 @@ class AgroRepository {
         where: 'lot_id=?',
         whereArgs: [lot['id']],
       );
-      final ordered = movements
-          .map((m) => (
-                day: storedLocalDay(m['movement_date']! as String),
-                id: m['id']! as int,
-                quantity: m['quantity_signed']! as int,
-              ))
-          .toList()
-        ..sort((a, b) {
-          final byDay = a.day.compareTo(b.day);
-          return byDay != 0 ? byDay : a.id.compareTo(b.id);
-        });
+      final ordered =
+          movements
+              .map(
+                (m) => (
+                  day: storedLocalDay(m['movement_date']! as String),
+                  id: m['id']! as int,
+                  quantity: m['quantity_signed']! as int,
+                ),
+              )
+              .toList()
+            ..sort((a, b) {
+              final byDay = a.day.compareTo(b.day);
+              return byDay != 0 ? byDay : a.id.compareTo(b.id);
+            });
       // Saldo acumulado al final del día efectivo (todo lo de días ≤ day) y
       // mínimo del saldo al final de cada día posterior con movimientos.
       var balance = 0;
@@ -1539,7 +1552,9 @@ class AgroRepository {
         if (ordered[i].day.compareTo(day) <= 0) {
           atDay = balance;
         } else {
-          laterMin = laterMin == null || balance < laterMin ? balance : laterMin;
+          laterMin = laterMin == null || balance < laterMin
+              ? balance
+              : laterMin;
         }
       }
       final cap = laterMin == null || atDay < laterMin ? atDay : laterMin;
@@ -1621,7 +1636,10 @@ class AgroRepository {
           application.personId,
           day,
         );
-        final cap = lots.fold<int>(0, (sum, l) => sum + (l['available']! as int));
+        final cap = lots.fold<int>(
+          0,
+          (sum, l) => sum + (l['available']! as int),
+        );
         if (cap < line.quantityBase) {
           return conflict(
             LateConflict.stockUnavailable,
@@ -1856,8 +1874,13 @@ class AgroRepository {
     purpose: AuthorizationPurpose.reverseApplication,
     reason: reason,
     authorization: authorization,
-    effects: (txn, context, recorder) =>
-        _reverseApplicationIn(txn, context, applicationId, reason.trim(), recorder),
+    effects: (txn, context, recorder) => _reverseApplicationIn(
+      txn,
+      context,
+      applicationId,
+      reason.trim(),
+      recorder,
+    ),
   );
 
   /// Sólo pruebas: los efectos de la reversión sin auditoría ni autorización.
@@ -1908,17 +1931,20 @@ class AgroRepository {
         [applicationId],
       );
       for (final consumption in consumptions) {
-        effects.add('inventory_movements', await txn.insert('inventory_movements', {
-          'lot_id': consumption['inventory_lot_id'],
-          'product_id': consumption['product_id'],
-          'owner_person_id': application['person_id'],
-          'movement_date': _date(DateTime.now()),
-          'type': 'APPLICATION_REVERSAL',
-          'quantity_signed': consumption['quantity_consumed_base'],
-          'reference_type': 'APPLICATION_REVERSAL',
-          'reference_id': applicationId,
-          'notes': reason,
-        }));
+        effects.add(
+          'inventory_movements',
+          await txn.insert('inventory_movements', {
+            'lot_id': consumption['inventory_lot_id'],
+            'product_id': consumption['product_id'],
+            'owner_person_id': application['person_id'],
+            'movement_date': _date(DateTime.now()),
+            'type': 'APPLICATION_REVERSAL',
+            'quantity_signed': consumption['quantity_consumed_base'],
+            'reference_type': 'APPLICATION_REVERSAL',
+            'reference_id': applicationId,
+            'notes': reason,
+          }),
+        );
         effects.add('application_consumptions', consumption['id']! as int);
       }
       await txn.update(
@@ -1933,18 +1959,21 @@ class AgroRepository {
         whereArgs: [applicationId],
       );
       for (final charge in charges) {
-        effects.add('account_transactions', await txn.insert('account_transactions', {
-          'person_id': charge['person_id'],
-          'campaign_id': charge['campaign_id'],
-          'transaction_date': _date(DateTime.now()),
-          'type': 'CREDIT_ADJUSTMENT',
-          'amount_bob_minor_signed':
-              -(charge['amount_bob_minor_signed']! as int),
-          'reference_type': 'APPLICATION_REVERSAL',
-          'reference_id': applicationId,
-          'notes': reason,
-          'reversal_of_id': charge['id'],
-        }));
+        effects.add(
+          'account_transactions',
+          await txn.insert('account_transactions', {
+            'person_id': charge['person_id'],
+            'campaign_id': charge['campaign_id'],
+            'transaction_date': _date(DateTime.now()),
+            'type': 'CREDIT_ADJUSTMENT',
+            'amount_bob_minor_signed':
+                -(charge['amount_bob_minor_signed']! as int),
+            'reference_type': 'APPLICATION_REVERSAL',
+            'reference_id': applicationId,
+            'notes': reason,
+            'reversal_of_id': charge['id'],
+          }),
+        );
       }
       await txn.update(
         'applications',
@@ -1985,12 +2014,8 @@ class AgroRepository {
     int purchaseId, {
     String? reason,
   }) => _write(
-    (txn, _) => _reversePurchaseIn(
-      txn,
-      purchaseId,
-      reason,
-      ReversalEffects.discard(),
-    ),
+    (txn, _) =>
+        _reversePurchaseIn(txn, purchaseId, reason, ReversalEffects.discard()),
   );
 
   Future<OriginalOperation> _reversePurchaseIn(
@@ -2052,17 +2077,20 @@ class AgroRepository {
           throw BusinessRuleException(
             'El lote fue transferido o ajustado; requiere reversión consistente previa.',
           );
-        effects.add('inventory_movements', await txn.insert('inventory_movements', {
-          'lot_id': lot['id'],
-          'product_id': lot['product_id'],
-          'owner_person_id': lot['owner_person_id'],
-          'movement_date': _date(DateTime.now()),
-          'type': 'PURCHASE_REVERSAL',
-          'quantity_signed': -available,
-          'reference_type': 'PURCHASE_REVERSAL',
-          'reference_id': purchaseId,
-          'notes': reason,
-        }));
+        effects.add(
+          'inventory_movements',
+          await txn.insert('inventory_movements', {
+            'lot_id': lot['id'],
+            'product_id': lot['product_id'],
+            'owner_person_id': lot['owner_person_id'],
+            'movement_date': _date(DateTime.now()),
+            'type': 'PURCHASE_REVERSAL',
+            'quantity_signed': -available,
+            'reference_type': 'PURCHASE_REVERSAL',
+            'reference_id': purchaseId,
+            'notes': reason,
+          }),
+        );
         await txn.update(
           'inventory_lots',
           {'reversed_at': _date(DateTime.now())},
@@ -2078,18 +2106,21 @@ class AgroRepository {
         [purchaseId],
       );
       for (final charge in allocationCharges) {
-        effects.add('account_transactions', await txn.insert('account_transactions', {
-          'person_id': charge['person_id'],
-          'campaign_id': charge['campaign_id'],
-          'transaction_date': _date(DateTime.now()),
-          'type': 'CREDIT_ADJUSTMENT',
-          'amount_bob_minor_signed':
-              -(charge['amount_bob_minor_signed']! as int),
-          'reference_type': 'PURCHASE_REVERSAL',
-          'reference_id': purchaseId,
-          'notes': reason,
-          'reversal_of_id': charge['id'],
-        }));
+        effects.add(
+          'account_transactions',
+          await txn.insert('account_transactions', {
+            'person_id': charge['person_id'],
+            'campaign_id': charge['campaign_id'],
+            'transaction_date': _date(DateTime.now()),
+            'type': 'CREDIT_ADJUSTMENT',
+            'amount_bob_minor_signed':
+                -(charge['amount_bob_minor_signed']! as int),
+            'reference_type': 'PURCHASE_REVERSAL',
+            'reference_id': purchaseId,
+            'notes': reason,
+            'reversal_of_id': charge['id'],
+          }),
+        );
       }
       for (final payment in await txn.query(
         'provider_payments',
@@ -2407,13 +2438,16 @@ class AgroRepository {
             'type': 'TRANSFER_REVERSAL_OUT',
           },
         ]) {
-          effects.add('inventory_movements', await txn.insert('inventory_movements', {
-            ...movement,
-            'movement_date': reversedAt,
-            'reference_type': 'TRANSFER_REVERSAL',
-            'reference_id': transferId,
-            'notes': reason,
-          }));
+          effects.add(
+            'inventory_movements',
+            await txn.insert('inventory_movements', {
+              ...movement,
+              'movement_date': reversedAt,
+              'reference_type': 'TRANSFER_REVERSAL',
+              'reference_id': transferId,
+              'notes': reason,
+            }),
+          );
         }
         await txn.update(
           'inventory_lots',
@@ -2437,7 +2471,9 @@ class AgroRepository {
   }
 
   /// El vínculo de titular vigente, leído en la transacción que escribe.
-  Future<OwnerBindingContext?> _currentOwnerBinding(DatabaseExecutor txn) async {
+  Future<OwnerBindingContext?> _currentOwnerBinding(
+    DatabaseExecutor txn,
+  ) async {
     final rows = await txn.query(
       'owner_bindings',
       columns: ['id', 'person_id', 'member_id', 'tenant_id'],
@@ -2512,7 +2548,10 @@ class AgroRepository {
 
   /// Auditoría de la reversión de una operación, o null si se revirtió antes
   /// de v11 («Actor no registrado») o no está revertida.
-  Future<Map<String, Object?>?> reversalAudit(String type, int operationId) async {
+  Future<Map<String, Object?>?> reversalAudit(
+    String type,
+    int operationId,
+  ) async {
     final rows = await (await _db).query(
       'reversal_audit',
       where: 'operation_type=? AND operation_id=?',

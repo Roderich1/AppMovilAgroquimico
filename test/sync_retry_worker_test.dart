@@ -308,7 +308,10 @@ void main() {
   });
 
   test('CAMPAIGN_NOT_OPEN explains without saying sealed', () {
-    expect(rejectionExplanation('CAMPAIGN_NOT_OPEN'), isNot(contains('sellad')));
+    expect(
+      rejectionExplanation('CAMPAIGN_NOT_OPEN'),
+      isNot(contains('sellad')),
+    );
     expect(rejectionExplanation('QUANTITY_INVALID'), isNull);
   });
 

@@ -95,11 +95,18 @@ class _Backend {
           'revokedAt': null,
         });
       case _bindPath:
-        return _json(201, {'registrationId': _registrationId, 'status': 'ACTIVE'});
+        return _json(201, {
+          'registrationId': _registrationId,
+          'status': 'ACTIVE',
+        });
       case _mePath:
         return _json(
           200,
-          _context(member: member, tenant: tenant, registrationId: _registrationId),
+          _context(
+            member: member,
+            tenant: tenant,
+            registrationId: _registrationId,
+          ),
         );
       case _logoutPath:
         return http.Response('', 204);
@@ -126,9 +133,7 @@ class _Replace implements UnreadableSessionReplacementPort {
   SessionCommitCandidate? candidate;
 
   @override
-  Future<void> replaceUnreadableAndVerify(
-    SessionCommitCandidate value,
-  ) async {
+  Future<void> replaceUnreadableAndVerify(SessionCommitCandidate value) async {
     calls++;
     candidate = value;
   }
@@ -205,8 +210,50 @@ void main() {
       ('another Member', 'member-2', 'tenant-1'),
       ('another tenant', 'member-1', 'tenant-2'),
     ]) {
-      test('$label aborts before registering the client and stores nothing', () async {
-        final backend = _Backend(member: member, tenant: tenant);
+      test(
+        '$label aborts before registering the client and stores nothing',
+        () async {
+          final backend = _Backend(member: member, tenant: tenant);
+          final commit = _Commit();
+          final replace = _Replace();
+          final result = await _coordinator(backend, commit, replace: replace)
+              .activate(
+                email: 'farmer@example.test',
+                password: 'pw',
+                requiredScope: _owner,
+                replaceUnreadableSession: true,
+              );
+          expect(result.problem, FirstActivationProblem.ownerMismatch);
+          // Only the login and the cleanup of that login reached the server.
+          expect(backend.paths, [_loginPath, _logoutPath]);
+          expect(commit.calls, 0);
+          expect(replace.calls, 0);
+          expect(result.toString(), isNot(contains(_refresh)));
+        },
+      );
+    }
+
+    test(
+      'a titular changed before the commit (restore finished) stores nothing',
+      () async {
+        final backend = _Backend();
+        final commit = _Commit();
+        final result = await _coordinator(backend, commit).activate(
+          email: 'farmer@example.test',
+          password: 'pw',
+          requiredScope: _owner,
+          requiredScopeStillValid: () => false,
+        );
+        expect(result.problem, FirstActivationProblem.ownerMismatch);
+        expect(commit.calls, 0);
+        expect(backend.paths.last, _logoutPath);
+      },
+    );
+
+    test(
+      'an unreadable session is replaced through the replacement port only',
+      () async {
+        final backend = _Backend();
         final commit = _Commit();
         final replace = _Replace();
         final result = await _coordinator(backend, commit, replace: replace)
@@ -216,58 +263,28 @@ void main() {
               requiredScope: _owner,
               replaceUnreadableSession: true,
             );
-        expect(result.problem, FirstActivationProblem.ownerMismatch);
-        // Only the login and the cleanup of that login reached the server.
+        expect(result.isCompleted, isTrue);
+        expect(commit.calls, 0);
+        expect(replace.calls, 1);
+        expect(replace.candidate!.memberId, 'member-1');
+      },
+    );
+
+    test(
+      'without a replacement port nothing is registered or stored',
+      () async {
+        final backend = _Backend();
+        final commit = _Commit();
+        final result = await _coordinator(backend, commit).activate(
+          email: 'farmer@example.test',
+          password: 'pw',
+          replaceUnreadableSession: true,
+        );
+        expect(result.problem, FirstActivationProblem.sessionNotReplaceable);
         expect(backend.paths, [_loginPath, _logoutPath]);
         expect(commit.calls, 0);
-        expect(replace.calls, 0);
-        expect(result.toString(), isNot(contains(_refresh)));
-      });
-    }
-
-    test('a titular changed before the commit (restore finished) stores nothing', () async {
-      final backend = _Backend();
-      final commit = _Commit();
-      final result = await _coordinator(backend, commit).activate(
-        email: 'farmer@example.test',
-        password: 'pw',
-        requiredScope: _owner,
-        requiredScopeStillValid: () => false,
-      );
-      expect(result.problem, FirstActivationProblem.ownerMismatch);
-      expect(commit.calls, 0);
-      expect(backend.paths.last, _logoutPath);
-    });
-
-    test('an unreadable session is replaced through the replacement port only', () async {
-      final backend = _Backend();
-      final commit = _Commit();
-      final replace = _Replace();
-      final result = await _coordinator(backend, commit, replace: replace)
-          .activate(
-            email: 'farmer@example.test',
-            password: 'pw',
-            requiredScope: _owner,
-            replaceUnreadableSession: true,
-          );
-      expect(result.isCompleted, isTrue);
-      expect(commit.calls, 0);
-      expect(replace.calls, 1);
-      expect(replace.candidate!.memberId, 'member-1');
-    });
-
-    test('without a replacement port nothing is registered or stored', () async {
-      final backend = _Backend();
-      final commit = _Commit();
-      final result = await _coordinator(backend, commit).activate(
-        email: 'farmer@example.test',
-        password: 'pw',
-        replaceUnreadableSession: true,
-      );
-      expect(result.problem, FirstActivationProblem.sessionNotReplaceable);
-      expect(backend.paths, [_loginPath, _logoutPath]);
-      expect(commit.calls, 0);
-    });
+      },
+    );
 
     test('a network failure while registering stores nothing', () async {
       final backend = _Backend()..registerError = http.ClientException('down');
@@ -307,22 +324,39 @@ void main() {
   group('recovery mode per state (§2)', () {
     const s = ExistingSessionStartupState.values;
     test('table', () {
-      AccessRecoveryMode m(InstallationAccessState? a, ExistingSessionStartupState e) =>
-          accessRecoveryModeFor(a, e);
+      AccessRecoveryMode m(
+        InstallationAccessState? a,
+        ExistingSessionStartupState e,
+      ) => accessRecoveryModeFor(a, e);
       const unavailable = ExistingSessionStartupState.unavailable;
       for (final access in [
         InstallationAccessState.activatedSessionUnavailable,
         InstallationAccessState.restoredRequiresActivation,
       ]) {
-        expect(m(access, ExistingSessionStartupState.noLocalSession), AccessRecoveryMode.signInAsOwner);
-        expect(m(access, ExistingSessionStartupState.corrupt), AccessRecoveryMode.signInAsOwner);
-        expect(m(access, ExistingSessionStartupState.incompatible), AccessRecoveryMode.signInAsOwner);
+        expect(
+          m(access, ExistingSessionStartupState.noLocalSession),
+          AccessRecoveryMode.signInAsOwner,
+        );
+        expect(
+          m(access, ExistingSessionStartupState.corrupt),
+          AccessRecoveryMode.signInAsOwner,
+        );
+        expect(
+          m(access, ExistingSessionStartupState.incompatible),
+          AccessRecoveryMode.signInAsOwner,
+        );
         expect(m(access, unavailable), AccessRecoveryMode.storageUnavailable);
         // A readable (possibly expired) session uses the existing /reauth.
-        expect(m(access, ExistingSessionStartupState.localSessionExpired), AccessRecoveryMode.none);
+        expect(
+          m(access, ExistingSessionStartupState.localSessionExpired),
+          AccessRecoveryMode.none,
+        );
       }
       expect(
-        m(InstallationAccessState.sessionDamagedNotActivated, ExistingSessionStartupState.corrupt),
+        m(
+          InstallationAccessState.sessionDamagedNotActivated,
+          ExistingSessionStartupState.corrupt,
+        ),
         AccessRecoveryMode.rebuildSessionOnly,
       );
       expect(
@@ -330,7 +364,10 @@ void main() {
         AccessRecoveryMode.storageUnavailable,
       );
       for (final e in s) {
-        expect(m(InstallationAccessState.identityMismatch, e), AccessRecoveryMode.signOutForeignSession);
+        expect(
+          m(InstallationAccessState.identityMismatch, e),
+          AccessRecoveryMode.signOutForeignSession,
+        );
         for (final a in [
           InstallationAccessState.newRequiresActivation,
           InstallationAccessState.activationPendingOwner,
@@ -345,53 +382,73 @@ void main() {
   });
 
   group('signing out of a foreign session', () {
-    test('logs out remotely once, deletes the session and clears verified access', () async {
-      final backend = _Backend();
-      final store = _StoredSession(
-        SessionReadResult(SessionReadStatus.available, session: _foreignSession()),
-      );
-      var cleared = 0;
-      final result = await ForeignSessionSignOut(
-        store: store,
-        apiFactory: () => _api(backend),
-        clearVerifiedAccess: () => cleared++,
-      ).signOut();
-      expect(result.outcome, ForeignSignOutOutcome.signedOut);
-      expect(result.remoteConfirmed, isTrue);
-      expect(backend.paths, [_logoutPath]);
-      expect(store.deletes, 1);
-      expect(cleared, 1);
-    });
+    test(
+      'logs out remotely once, deletes the session and clears verified access',
+      () async {
+        final backend = _Backend();
+        final store = _StoredSession(
+          SessionReadResult(
+            SessionReadStatus.available,
+            session: _foreignSession(),
+          ),
+        );
+        var cleared = 0;
+        final result = await ForeignSessionSignOut(
+          store: store,
+          apiFactory: () => _api(backend),
+          clearVerifiedAccess: () => cleared++,
+        ).signOut();
+        expect(result.outcome, ForeignSignOutOutcome.signedOut);
+        expect(result.remoteConfirmed, isTrue);
+        expect(backend.paths, [_logoutPath]);
+        expect(store.deletes, 1);
+        expect(cleared, 1);
+      },
+    );
 
-    test('without network the local sign-out still happens, unconfirmed remotely', () async {
-      final store = _StoredSession(
-        SessionReadResult(SessionReadStatus.available, session: _foreignSession()),
-      );
-      final result = await ForeignSessionSignOut(
-        store: store,
-        apiFactory: () => throw http.ClientException('offline'),
-        clearVerifiedAccess: () {},
-      ).signOut();
-      expect(result.outcome, ForeignSignOutOutcome.signedOut);
-      expect(result.remoteConfirmed, isFalse);
-      expect(store.deletes, 1);
-    });
+    test(
+      'without network the local sign-out still happens, unconfirmed remotely',
+      () async {
+        final store = _StoredSession(
+          SessionReadResult(
+            SessionReadStatus.available,
+            session: _foreignSession(),
+          ),
+        );
+        final result = await ForeignSessionSignOut(
+          store: store,
+          apiFactory: () => throw http.ClientException('offline'),
+          clearVerifiedAccess: () {},
+        ).signOut();
+        expect(result.outcome, ForeignSignOutOutcome.signedOut);
+        expect(result.remoteConfirmed, isFalse);
+        expect(store.deletes, 1);
+      },
+    );
 
-    test('an uncertain deletion is reported and nothing else changes', () async {
-      final store = _StoredSession(
-        SessionReadResult(SessionReadStatus.available, session: _foreignSession()),
-      )..failDelete = true;
-      final result = await ForeignSessionSignOut(
-        store: store,
-        apiFactory: () => _api(_Backend()),
-        clearVerifiedAccess: () {},
-      ).signOut();
-      expect(result.outcome, ForeignSignOutOutcome.deletionUncertain);
-    });
+    test(
+      'an uncertain deletion is reported and nothing else changes',
+      () async {
+        final store = _StoredSession(
+          SessionReadResult(
+            SessionReadStatus.available,
+            session: _foreignSession(),
+          ),
+        )..failDelete = true;
+        final result = await ForeignSessionSignOut(
+          store: store,
+          apiFactory: () => _api(_Backend()),
+          clearVerifiedAccess: () {},
+        ).signOut();
+        expect(result.outcome, ForeignSignOutOutcome.deletionUncertain);
+      },
+    );
 
     test('with no readable session nothing is signed out or called', () async {
       final backend = _Backend();
-      final store = _StoredSession(const SessionReadResult(SessionReadStatus.corrupt));
+      final store = _StoredSession(
+        const SessionReadResult(SessionReadStatus.corrupt),
+      );
       final result = await ForeignSessionSignOut(
         store: store,
         apiFactory: () => _api(backend),

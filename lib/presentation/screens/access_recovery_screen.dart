@@ -175,7 +175,9 @@ class _AccessRecoveryScreenState extends ConsumerState<AccessRecoveryScreen> {
                           autocorrect: false,
                           enableSuggestions: false,
                           autofillHints: const [AutofillHints.email],
-                          decoration: const InputDecoration(labelText: 'Correo'),
+                          decoration: const InputDecoration(
+                            labelText: 'Correo',
+                          ),
                           validator: (value) =>
                               value == null || value.trim().isEmpty
                               ? 'Ingrese su correo.'

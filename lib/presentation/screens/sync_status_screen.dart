@@ -255,14 +255,14 @@ class _SyncStatusScreenState extends ConsumerState<SyncStatusScreen> {
                         ),
                         subtitle: Text(
                           [
-                            outboxStatusLabel(entry.status),
-                            if (entry.lastCode != null &&
-                                entry.status != OutboxStatus.acked)
-                              entry.lastCode!,
-                            'creada ${formatDate(entry.createdAt)}',
-                            if (entry.ackedAt != null)
-                              'ACK ${formatDate(entry.ackedAt)}',
-                          ].join(' · ') +
+                                outboxStatusLabel(entry.status),
+                                if (entry.lastCode != null &&
+                                    entry.status != OutboxStatus.acked)
+                                  entry.lastCode!,
+                                'creada ${formatDate(entry.createdAt)}',
+                                if (entry.ackedAt != null)
+                                  'ACK ${formatDate(entry.ackedAt)}',
+                              ].join(' · ') +
                               (entry.interventionMessage == null
                                   ? ''
                                   : '\nRequiere intervención: ${entry.interventionMessage}'),

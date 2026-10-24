@@ -276,42 +276,42 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
           ? null
           : await repo.storeInvoiceImage(invoiceImage!.path);
       draft = PurchaseDraft(
-          supplierId: supplierId!,
-          campaignId: campaignId!,
-          // Hoy: el instante real. Otro día: su medianoche local (#121).
-          purchaseDate: effectiveInstantForDay(effectiveDay, DateTime.now()),
-          invoiceNumber: invoiceNumber.text.trim(),
-          invoiceImagePath: imagePath,
-          exchangeRateSource:
-              lines.any((line) => line.currency == CurrencyCode.usd)
-              ? ExchangeRateSource.agreedWithSupplier
-              : null,
-          items: [
-            for (final line in lines)
-              PurchaseItemDraft(
-                productId: line.productId!,
-                quantityBase: line.quantityBase,
-                currency: line.currency,
-                originalUnitPriceMinor: line.priceMinor,
-                exchangeRateScaled: line.exchangeRateScaled,
-                allocations: personalOwnerId != null
-                    ? [
+        supplierId: supplierId!,
+        campaignId: campaignId!,
+        // Hoy: el instante real. Otro día: su medianoche local (#121).
+        purchaseDate: effectiveInstantForDay(effectiveDay, DateTime.now()),
+        invoiceNumber: invoiceNumber.text.trim(),
+        invoiceImagePath: imagePath,
+        exchangeRateSource:
+            lines.any((line) => line.currency == CurrencyCode.usd)
+            ? ExchangeRateSource.agreedWithSupplier
+            : null,
+        items: [
+          for (final line in lines)
+            PurchaseItemDraft(
+              productId: line.productId!,
+              quantityBase: line.quantityBase,
+              currency: line.currency,
+              originalUnitPriceMinor: line.priceMinor,
+              exchangeRateScaled: line.exchangeRateScaled,
+              allocations: personalOwnerId != null
+                  ? [
+                      AllocationDraft(
+                        personId: personalOwnerId!,
+                        quantityBase: line.quantityBase,
+                      ),
+                    ]
+                  : [
+                      for (final allocation in line.allocations)
                         AllocationDraft(
-                          personId: personalOwnerId!,
-                          quantityBase: line.quantityBase,
+                          personId: allocation.personId!,
+                          quantityBase:
+                              tryParseBase(allocation.quantity.text) ?? 0,
                         ),
-                      ]
-                    : [
-                        for (final allocation in line.allocations)
-                          AllocationDraft(
-                            personId: allocation.personId!,
-                            quantityBase:
-                                tryParseBase(allocation.quantity.text) ?? 0,
-                          ),
-                      ],
-              ),
-          ],
-        );
+                    ],
+            ),
+        ],
+      );
       final purchaseId = await repo.confirmPurchase(draft);
       if (payProvider) {
         await repo.addProviderPayment(
@@ -333,7 +333,8 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
       if (!mounted) return;
       // RF-03: una fecha de una campaña cerrada se ofrece para revisión.
       final late = draft;
-      final captured = late != null &&
+      final captured =
+          late != null &&
           await offerLateRegistration(
             context,
             error: error,
@@ -341,8 +342,7 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
             extraNote: payProvider
                 ? 'El pago al proveedor se registra después de confirmarla.'
                 : null,
-            capture: (reason) =>
-                repo.captureLatePurchase(late, reason: reason),
+            capture: (reason) => repo.captureLatePurchase(late, reason: reason),
           );
       if (!mounted) return;
       if (captured) {

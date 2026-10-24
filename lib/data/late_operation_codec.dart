@@ -39,7 +39,9 @@ PurchaseDraft decodeLatePurchase(String raw, {String? invoiceImagePath}) {
     invoiceNumber: json['invoiceNumber'] as String?,
     exchangeRateSource: json['exchangeRateSource'] == null
         ? null
-        : ExchangeRateSource.values.byName(json['exchangeRateSource'] as String),
+        : ExchangeRateSource.values.byName(
+            json['exchangeRateSource'] as String,
+          ),
     exchangeRateNote: json['exchangeRateNote'] as String?,
     notes: json['notes'] as String?,
     invoiceImagePath: invoiceImagePath,

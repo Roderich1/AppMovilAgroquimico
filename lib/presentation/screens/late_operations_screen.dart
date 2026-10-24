@@ -134,7 +134,10 @@ class _LateOperationsScreenState extends ConsumerState<LateOperationsScreen> {
 
   String _kind(Object? kind) => kind == 'PURCHASE' ? 'Compra' : 'Aplicación';
 
-  Future<void> _resolve(Map<String, Object?> draft, {required bool confirm}) async {
+  Future<void> _resolve(
+    Map<String, Object?> draft, {
+    required bool confirm,
+  }) async {
     if (_busy) return;
     final ref_ = draft['draft_ref']! as String;
     final authorization = await requestOwnerAuthorization(
@@ -144,7 +147,9 @@ class _LateOperationsScreenState extends ConsumerState<LateOperationsScreen> {
           ? AuthorizationPurpose.confirmLateOperation
           : AuthorizationPurpose.rejectLateOperation,
       subjectRef: 'late:$ref_',
-      title: confirm ? 'Confirmar operación tardía' : 'Rechazar operación tardía',
+      title: confirm
+          ? 'Confirmar operación tardía'
+          : 'Rechazar operación tardía',
       effects: confirm
           ? '${_kind(draft['kind'])} del ${formatDate(draft['effective_date'])} '
                 'en «${draft['campaign_name']}». Se revalidan la campaña y las '
@@ -194,7 +199,8 @@ class _LateOperationsScreenState extends ConsumerState<LateOperationsScreen> {
               lastDate: DateTime.now().subtract(const Duration(days: 1)),
               initialDate: DateTime.now().subtract(const Duration(days: 1)),
             );
-            if (picked != null) setLocal(() => isStart ? start = picked : end = picked);
+            if (picked != null)
+              setLocal(() => isStart ? start = picked : end = picked);
           }
 
           return AlertDialog(
@@ -215,11 +221,19 @@ class _LateOperationsScreenState extends ConsumerState<LateOperationsScreen> {
                 ),
                 TextButton(
                   onPressed: () => pick(true),
-                  child: Text(start == null ? 'Elegir inicio' : 'Inicio: ${formatDate(start!.toIso8601String())}'),
+                  child: Text(
+                    start == null
+                        ? 'Elegir inicio'
+                        : 'Inicio: ${formatDate(start!.toIso8601String())}',
+                  ),
                 ),
                 TextButton(
                   onPressed: () => pick(false),
-                  child: Text(end == null ? 'Elegir fin' : 'Fin: ${formatDate(end!.toIso8601String())}'),
+                  child: Text(
+                    end == null
+                        ? 'Elegir fin'
+                        : 'Fin: ${formatDate(end!.toIso8601String())}',
+                  ),
                 ),
               ],
             ),
@@ -241,11 +255,9 @@ class _LateOperationsScreenState extends ConsumerState<LateOperationsScreen> {
     );
     if (saved != true || !mounted) return;
     try {
-      await ref.read(repositoryProvider).addHistoricalCampaign(
-        name: name.text,
-        start: start!,
-        end: end!,
-      );
+      await ref
+          .read(repositoryProvider)
+          .addHistoricalCampaign(name: name.text, start: start!, end: end!);
       if (mounted) showSuccess(context, 'Período histórico creado.');
     } catch (error) {
       if (mounted) showError(context, error);
@@ -267,9 +279,13 @@ class _LateOperationsScreenState extends ConsumerState<LateOperationsScreen> {
       future: _drafts,
       builder: (context, snapshot) {
         if (snapshot.hasError) {
-          return EmptyState(icon: Icons.error_outline, message: friendlyError(snapshot.error!));
+          return EmptyState(
+            icon: Icons.error_outline,
+            message: friendlyError(snapshot.error!),
+          );
         }
-        if (!snapshot.hasData) return const Center(child: CircularProgressIndicator());
+        if (!snapshot.hasData)
+          return const Center(child: CircularProgressIndicator());
         final drafts = snapshot.data!;
         if (drafts.isEmpty) {
           return const EmptyState(
@@ -291,12 +307,15 @@ class _LateOperationsScreenState extends ConsumerState<LateOperationsScreen> {
                     [
                       'Motivo: ${draft['reason']}',
                       switch (draft['status']) {
-                        'PENDING' => 'Pendiente de revisión: sin efectos todavía',
+                        'PENDING' =>
+                          'Pendiente de revisión: sin efectos todavía',
                         'CONFIRMED' => 'Confirmada por el titular',
                         _ => 'Rechazada',
                       },
-                      if (draft['status'] == 'PENDING' && draft['last_conflict_code'] != null)
-                        draft['last_conflict_code'] == LateConflict.stockUnavailable
+                      if (draft['status'] == 'PENDING' &&
+                          draft['last_conflict_code'] != null)
+                        draft['last_conflict_code'] ==
+                                LateConflict.stockUnavailable
                             ? 'Último intento: las existencias de esa fecha no alcanzan'
                             : 'Último intento: la fecha ya no corresponde a esa campaña',
                     ].join('\n'),
@@ -309,13 +328,17 @@ class _LateOperationsScreenState extends ConsumerState<LateOperationsScreen> {
                             IconButton(
                               key: Key('late-confirm-${draft['draft_ref']}'),
                               tooltip: 'Confirmar',
-                              onPressed: _busy ? null : () => _resolve(draft, confirm: true),
+                              onPressed: _busy
+                                  ? null
+                                  : () => _resolve(draft, confirm: true),
                               icon: const Icon(Icons.check_circle_outline),
                             ),
                             IconButton(
                               key: Key('late-reject-${draft['draft_ref']}'),
                               tooltip: 'Rechazar',
-                              onPressed: _busy ? null : () => _resolve(draft, confirm: false),
+                              onPressed: _busy
+                                  ? null
+                                  : () => _resolve(draft, confirm: false),
                               icon: const Icon(Icons.cancel_outlined),
                             ),
                           ],

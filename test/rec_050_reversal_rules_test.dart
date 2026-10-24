@@ -221,11 +221,17 @@ void main() {
     });
 
     test('una aplicación ya revertida no se revierte otra vez', () async {
-      await repo.reverseApplicationUnauditedForTesting(application, reason: 'Error');
+      await repo.reverseApplicationUnauditedForTesting(
+        application,
+        reason: 'Error',
+      );
       final after = await dumpTables(db);
 
       await expectLater(
-        repo.reverseApplicationUnauditedForTesting(application, reason: 'Otra vez'),
+        repo.reverseApplicationUnauditedForTesting(
+          application,
+          reason: 'Otra vez',
+        ),
         rejected('La aplicación ya fue revertida o no existe.'),
       );
       expect(await dumpTables(db), after);
@@ -294,7 +300,10 @@ void main() {
       )).single;
       expect(charge['amount_bob_minor_signed'], 27000);
 
-      await repo.reversePurchaseUnauditedForTesting(second, reason: 'Factura duplicada');
+      await repo.reversePurchaseUnauditedForTesting(
+        second,
+        reason: 'Factura duplicada',
+      );
       expect(
         (await rows(
           'inventory_movements',
@@ -316,7 +325,10 @@ void main() {
         productId: glifosato,
         quantityBase: 2000,
       );
-      await repo.reverseTransferUnauditedForTesting(transfer, reason: 'Destino equivocado');
+      await repo.reverseTransferUnauditedForTesting(
+        transfer,
+        reason: 'Destino equivocado',
+      );
       expect(
         (await rows(
           'inventory_movements',
@@ -377,7 +389,10 @@ void main() {
       await tester.enterText(find.byKey(const Key('approval-reason')), reason);
       await tester.tap(find.byKey(const Key('approval-continue')));
       await settle(tester);
-      await tester.enterText(find.byKey(const Key('owner-pin-input')), '284917');
+      await tester.enterText(
+        find.byKey(const Key('owner-pin-input')),
+        '284917',
+      );
       await tester.tap(find.byKey(const Key('owner-pin-submit')));
       await settle(tester, frames: 30);
     }

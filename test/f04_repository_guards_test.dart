@@ -87,8 +87,10 @@ void main() {
           personId: household.titular,
           amountBobMinor: 1,
         ),
-        'reverseApplication': () => repo.reverseApplicationUnauditedForTesting(application),
-        'reversePurchase': () => repo.reversePurchaseUnauditedForTesting(purchase),
+        'reverseApplication': () =>
+            repo.reverseApplicationUnauditedForTesting(application),
+        'reversePurchase': () =>
+            repo.reversePurchaseUnauditedForTesting(purchase),
         'transferStock': () => repo.transferStock(
           sourceLotId: 1,
           destinationPersonId: household.relative,
@@ -107,7 +109,8 @@ void main() {
             TransferItemDraft(productId: household.product, quantityBase: 1),
           ],
         ),
-        'reverseTransfer': () => repo.reverseTransferUnauditedForTesting(transfer),
+        'reverseTransfer': () =>
+            repo.reverseTransferUnauditedForTesting(transfer),
         'renameCatalog': () =>
             repo.renameCatalog('products', household.product, 'Y'),
         'archiveCatalog': () =>

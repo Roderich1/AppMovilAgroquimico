@@ -31,8 +31,7 @@ class RuntimeSessionTransition extends Notifier<ExistingSessionStartupState?> {
   @override
   ExistingSessionStartupState? build() => null;
 
-  void recovered() =>
-      state = ExistingSessionStartupState.localSessionAvailable;
+  void recovered() => state = ExistingSessionStartupState.localSessionAvailable;
 
   void signedOut() => state = ExistingSessionStartupState.noLocalSession;
 }

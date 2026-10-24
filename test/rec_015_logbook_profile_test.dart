@@ -171,7 +171,10 @@ void main() {
       area: 50000,
       dose: 1000,
     );
-    await repo.reverseApplicationUnauditedForTesting(a3, reason: 'Registrada por error');
+    await repo.reverseApplicationUnauditedForTesting(
+      a3,
+      reason: 'Registrada por error',
+    );
     a5 = await apply(
       farm: chico,
       campaign: campaign1,

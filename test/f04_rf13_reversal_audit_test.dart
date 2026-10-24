@@ -22,7 +22,13 @@ class _Storage implements CredentialStorage {
 }
 
 class _Fixture {
-  _Fixture(this.database, this.repo, this.household, this.binding, this.credential);
+  _Fixture(
+    this.database,
+    this.repo,
+    this.household,
+    this.binding,
+    this.credential,
+  );
   final AppDatabase database;
   final AgroRepository repo;
   final Household household;
@@ -54,7 +60,10 @@ Future<_Fixture> _fixture() async {
     personId: bound.personId,
     scope: memberA,
   );
-  final credential = LocalOwnerCredential(storage: _Storage(), iterations: 1000);
+  final credential = LocalOwnerCredential(
+    storage: _Storage(),
+    iterations: 1000,
+  );
   final proof = await OwnerOnlineVerification(
     reauthenticate: (_, __) async => true,
     readSessionScope: () async => memberA,
@@ -93,7 +102,10 @@ void main() {
     expect(audit['operation_id'], applicationId);
     expect(audit['reason'], 'Dosis registrada por error');
     expect(audit['original_person_id'], h.titular);
-    expect(audit['original_effective_date'], DateTime.utc(2026, 2, 1).toIso8601String());
+    expect(
+      audit['original_effective_date'],
+      DateTime.utc(2026, 2, 1).toIso8601String(),
+    );
     expect(audit['actor_person_id'], f.binding.personId);
     expect(audit['actor_binding_id'], f.binding.bindingId);
     expect(audit['actor_member_id'], memberA.memberId);
@@ -102,7 +114,11 @@ void main() {
     expect(audit['credential_enrolment_ref'], auth.enrolmentId);
     expect((audit['reversal_ref']! as String).length, 36);
     // The original operation is not reassigned.
-    final application = (await db.query('applications', where: 'id=?', whereArgs: [applicationId])).single;
+    final application = (await db.query(
+      'applications',
+      where: 'id=?',
+      whereArgs: [applicationId],
+    )).single;
     expect(application['person_id'], h.titular);
     expect(application['status'], 'REVERSED');
     // Every compensating row is referenced, and only those.
@@ -118,11 +134,17 @@ void main() {
       [applicationId],
     );
     expect(
-      effects.where((e) => e['table_name'] == 'inventory_movements').map((e) => e['row_id']).toSet(),
+      effects
+          .where((e) => e['table_name'] == 'inventory_movements')
+          .map((e) => e['row_id'])
+          .toSet(),
       movements.map((m) => m['id']).toSet(),
     );
     expect(
-      effects.where((e) => e['table_name'] == 'application_consumptions').map((e) => e['row_id']).toSet(),
+      effects
+          .where((e) => e['table_name'] == 'application_consumptions')
+          .map((e) => e['row_id'])
+          .toSet(),
       consumptions.map((c) => c['id']).toSet(),
     );
     expect(movements, isNotEmpty);
@@ -130,35 +152,63 @@ void main() {
     expect(stored!['reversal_ref'], audit['reversal_ref']);
   });
 
-  test('a purchase reversal records lots, movements and no single responsible', () async {
-    final f = await _fixture();
-    final h = f.household;
-    final purchaseId = await h.buy(h.titular, 5000);
-    await f.repo.reversePurchase(
-      purchaseId,
-      reason: 'Factura duplicada',
-      authorization: await f.authorize(AuthorizationPurpose.reversePurchase, 'purchase:$purchaseId'),
-    );
-    final db = await f.database.database;
-    final audit = (await db.query('reversal_audit')).single;
-    expect(audit['operation_type'], 'PURCHASE');
-    expect(audit['original_person_id'], isNull);
-    final tables = (await db.query('reversal_audit_effects')).map((e) => e['table_name']).toSet();
-    expect(tables, containsAll(['inventory_movements', 'inventory_lots']));
-  });
+  test(
+    'a purchase reversal records lots, movements and no single responsible',
+    () async {
+      final f = await _fixture();
+      final h = f.household;
+      final purchaseId = await h.buy(h.titular, 5000);
+      await f.repo.reversePurchase(
+        purchaseId,
+        reason: 'Factura duplicada',
+        authorization: await f.authorize(
+          AuthorizationPurpose.reversePurchase,
+          'purchase:$purchaseId',
+        ),
+      );
+      final db = await f.database.database;
+      final audit = (await db.query('reversal_audit')).single;
+      expect(audit['operation_type'], 'PURCHASE');
+      expect(audit['original_person_id'], isNull);
+      final tables = (await db.query('reversal_audit_effects'))
+          .map((e) => e['table_name'])
+          .toSet();
+      expect(tables, containsAll(['inventory_movements', 'inventory_lots']));
+    },
+  );
 
   // A missing authorization does not compile: the parameter is required and
   // non-nullable. These are the authorizations that exist but are not valid.
   group('without a valid authorization nothing is written', () {
-    for (final (label, build) in <(String, Future<OwnerAuthorization> Function(_Fixture, int))>[
-      ('another purpose', (f, id) => f.authorize(AuthorizationPurpose.reversePurchase, 'application:$id')),
-      ('another subject', (f, id) => f.authorize(AuthorizationPurpose.reverseApplication, 'application:${id + 1}')),
-      ('another binding (restored base)', (f, id) => f.authorize(
-            AuthorizationPurpose.reverseApplication,
-            'application:$id',
-            binding: OwnerBindingContext(bindingId: f.binding.bindingId + 9, personId: f.binding.personId, scope: memberA),
-          )),
-    ]) {
+    for (final (label, build)
+        in <(String, Future<OwnerAuthorization> Function(_Fixture, int))>[
+          (
+            'another purpose',
+            (f, id) => f.authorize(
+              AuthorizationPurpose.reversePurchase,
+              'application:$id',
+            ),
+          ),
+          (
+            'another subject',
+            (f, id) => f.authorize(
+              AuthorizationPurpose.reverseApplication,
+              'application:${id + 1}',
+            ),
+          ),
+          (
+            'another binding (restored base)',
+            (f, id) => f.authorize(
+              AuthorizationPurpose.reverseApplication,
+              'application:$id',
+              binding: OwnerBindingContext(
+                bindingId: f.binding.bindingId + 9,
+                personId: f.binding.personId,
+                scope: memberA,
+              ),
+            ),
+          ),
+        ]) {
       test(label, () async {
         final f = await _fixture();
         final h = f.household;
@@ -167,11 +217,7 @@ void main() {
         final auth = await build(f, id);
         final before = await f.dump();
         await expectLater(
-          f.repo.reverseApplication(
-            id,
-            reason: 'motivo',
-            authorization: auth,
-          ),
+          f.repo.reverseApplication(id, reason: 'motivo', authorization: auth),
           throwsA(isA<OwnerAuthorizationRejected>()),
         );
         expect(await f.dump(), before);
@@ -183,7 +229,10 @@ void main() {
       final h = f.household;
       await h.buy(h.titular, 5000);
       final id = await h.apply(h.titular, h.titularFarm, 2000);
-      final auth = await f.authorize(AuthorizationPurpose.reverseApplication, 'application:$id');
+      final auth = await f.authorize(
+        AuthorizationPurpose.reverseApplication,
+        'application:$id',
+      );
       final before = await f.dump();
       await expectLater(
         f.repo.reverseApplication(id, reason: '   ', authorization: auth),
@@ -198,9 +247,20 @@ void main() {
     final h = f.household;
     await h.buy(h.titular, 5000);
     final id = await h.apply(h.titular, h.titularFarm, 2000);
-    final auth = await f.authorize(AuthorizationPurpose.reverseApplication, 'application:$id');
-    final first = f.repo.reverseApplication(id, reason: 'motivo', authorization: auth);
-    final second = f.repo.reverseApplication(id, reason: 'motivo', authorization: auth);
+    final auth = await f.authorize(
+      AuthorizationPurpose.reverseApplication,
+      'application:$id',
+    );
+    final first = f.repo.reverseApplication(
+      id,
+      reason: 'motivo',
+      authorization: auth,
+    );
+    final second = f.repo.reverseApplication(
+      id,
+      reason: 'motivo',
+      authorization: auth,
+    );
     await first;
     await expectLater(second, throwsA(isA<OwnerAuthorizationRejected>()));
     // A fresh authorization cannot reverse it again either.
@@ -208,7 +268,10 @@ void main() {
       f.repo.reverseApplication(
         id,
         reason: 'otra vez',
-        authorization: await f.authorize(AuthorizationPurpose.reverseApplication, 'application:$id'),
+        authorization: await f.authorize(
+          AuthorizationPurpose.reverseApplication,
+          'application:$id',
+        ),
       ),
       throwsA(isA<BusinessRuleException>()),
     );
@@ -231,7 +294,10 @@ void main() {
       f.repo.reverseApplication(
         id,
         reason: 'motivo',
-        authorization: await f.authorize(AuthorizationPurpose.reverseApplication, 'application:$id'),
+        authorization: await f.authorize(
+          AuthorizationPurpose.reverseApplication,
+          'application:$id',
+        ),
       ),
       throwsA(anything),
     );
@@ -245,29 +311,44 @@ void main() {
     await f.repo.reversePurchase(
       id,
       reason: 'motivo',
-      authorization: await f.authorize(AuthorizationPurpose.reversePurchase, 'purchase:$id'),
+      authorization: await f.authorize(
+        AuthorizationPurpose.reversePurchase,
+        'purchase:$id',
+      ),
     );
     final db = await f.database.database;
-    await expectLater(db.update('reversal_audit', {'reason': 'x'}), throwsA(anything));
+    await expectLater(
+      db.update('reversal_audit', {'reason': 'x'}),
+      throwsA(anything),
+    );
     await expectLater(db.delete('reversal_audit'), throwsA(anything));
     await expectLater(db.delete('reversal_audit_effects'), throwsA(anything));
   });
 
-  test('a reversal from before v11 has no actor and nothing is inferred', () async {
-    final f = await _fixture();
-    final h = f.household;
-    final id = await h.buy(h.titular, 5000);
-    await f.repo.reversePurchaseUnauditedForTesting(id, reason: 'antiguo');
-    expect(await f.repo.reversalAudit('PURCHASE', id), isNull);
-    expect(await (await f.database.database).query('reversal_audit'), isEmpty);
-  });
+  test(
+    'a reversal from before v11 has no actor and nothing is inferred',
+    () async {
+      final f = await _fixture();
+      final h = f.household;
+      final id = await h.buy(h.titular, 5000);
+      await f.repo.reversePurchaseUnauditedForTesting(id, reason: 'antiguo');
+      expect(await f.repo.reversalAudit('PURCHASE', id), isNull);
+      expect(
+        await (await f.database.database).query('reversal_audit'),
+        isEmpty,
+      );
+    },
+  );
 
   test('a base without a bound titular cannot authorize new reversals but keeps operating', () async {
     final database = openDb(inMemoryDatabasePath);
     final repo = AgroRepository(database);
     final household = await seedHousehold(repo);
     final purchaseId = await household.buy(household.titular, 5000);
-    final credential = LocalOwnerCredential(storage: _Storage(), iterations: 1000);
+    final credential = LocalOwnerCredential(
+      storage: _Storage(),
+      iterations: 1000,
+    );
     expect((await credential.status(null)).state, CredentialState.notEnrolled);
     expect(await OwnerBindingStore(database).activeBinding(), isNull);
     // Ordinary operations still work.
@@ -289,7 +370,14 @@ void main() {
     final migrated = openDb(path);
     final db = await migrated.database;
     expect((await db.rawQuery('PRAGMA user_version')).single.values.single, 11);
-    final after = await dumpTables(db, except: {'reversal_audit', 'reversal_audit_effects', 'late_operation_drafts'});
+    final after = await dumpTables(
+      db,
+      except: {
+        'reversal_audit',
+        'reversal_audit_effects',
+        'late_operation_drafts',
+      },
+    );
     expect(after, before);
     expect(await db.query('reversal_audit'), isEmpty);
     expect(await db.query('late_operation_drafts'), isEmpty);
@@ -297,6 +385,6 @@ void main() {
 }
 
 extension on AppDatabase {
-  Future<void> repoReverse(int purchaseId) =>
-      AgroRepository(this).reversePurchaseUnauditedForTesting(purchaseId, reason: 'antes de v11');
+  Future<void> repoReverse(int purchaseId) => AgroRepository(this)
+      .reversePurchaseUnauditedForTesting(purchaseId, reason: 'antes de v11');
 }

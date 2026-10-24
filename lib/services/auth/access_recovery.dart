@@ -228,10 +228,14 @@ class ForeignSessionSignOut {
 
   /// [remoteConfirmed] informa si el servidor confirmó el cierre (intento
   /// único, sin reintentos). La salida local no depende de él.
-  Future<({ForeignSignOutOutcome outcome, bool remoteConfirmed})> signOut() async {
+  Future<({ForeignSignOutOutcome outcome, bool remoteConfirmed})>
+  signOut() async {
     final read = await _store.read();
     if (read.status != SessionReadStatus.available || read.session == null) {
-      return (outcome: ForeignSignOutOutcome.nothingToSignOut, remoteConfirmed: false);
+      return (
+        outcome: ForeignSignOutOutcome.nothingToSignOut,
+        remoteConfirmed: false,
+      );
     }
     // El acceso verificado en memoria de esa cuenta deja de valer ya.
     _clearVerifiedAccess();
@@ -245,9 +249,15 @@ class ForeignSessionSignOut {
     try {
       await _store.delete();
     } on Object {
-      return (outcome: ForeignSignOutOutcome.deletionUncertain, remoteConfirmed: remoteConfirmed);
+      return (
+        outcome: ForeignSignOutOutcome.deletionUncertain,
+        remoteConfirmed: remoteConfirmed,
+      );
     }
-    return (outcome: ForeignSignOutOutcome.signedOut, remoteConfirmed: remoteConfirmed);
+    return (
+      outcome: ForeignSignOutOutcome.signedOut,
+      remoteConfirmed: remoteConfirmed,
+    );
   }
 }
 

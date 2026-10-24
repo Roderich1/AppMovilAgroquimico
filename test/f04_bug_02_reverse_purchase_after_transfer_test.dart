@@ -69,7 +69,10 @@ void main() {
     expect(await saldo(owner), 10000);
     expect(await saldo(receiver), 0);
 
-    await repo.reversePurchaseUnauditedForTesting(purchase, reason: 'Error de registro');
+    await repo.reversePurchaseUnauditedForTesting(
+      purchase,
+      reason: 'Error de registro',
+    );
 
     final compra = (await db.query(
       'purchases',

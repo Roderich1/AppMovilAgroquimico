@@ -129,15 +129,30 @@ void main() {
     c2 = await buy(beto, glifosato, 4000, 12000, 6);
     a1 = await apply(ana, farmAna, 3000, 10);
     a2 = await apply(beto, farmBeto, 1000, 11);
-    await repo.reverseApplicationUnauditedForTesting(a2, reason: 'Error de carga');
-    await repo.reversePurchaseUnauditedForTesting(c2, reason: 'Devuelta al proveedor');
+    await repo.reverseApplicationUnauditedForTesting(
+      a2,
+      reason: 'Error de carga',
+    );
+    await repo.reversePurchaseUnauditedForTesting(
+      c2,
+      reason: 'Devuelta al proveedor',
+    );
     a3 = await apply(ana, farmAna, 2000, 12);
-    await repo.reverseApplicationUnauditedForTesting(a3, reason: 'Error de carga');
+    await repo.reverseApplicationUnauditedForTesting(
+      a3,
+      reason: 'Error de carga',
+    );
     t1 = await transfer(2000, 15);
-    await repo.reverseTransferUnauditedForTesting(t1, reason: 'Destino equivocado');
+    await repo.reverseTransferUnauditedForTesting(
+      t1,
+      reason: 'Destino equivocado',
+    );
     t2 = await transfer(1000, 16);
     c4 = await buy(beto, atrazina, 2000, 5000, 17);
-    await repo.reversePurchaseUnauditedForTesting(c4, reason: 'Devuelta al proveedor');
+    await repo.reversePurchaseUnauditedForTesting(
+      c4,
+      reason: 'Devuelta al proveedor',
+    );
   }
 
   group('lecturas', () {

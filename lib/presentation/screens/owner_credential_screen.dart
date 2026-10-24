@@ -47,7 +47,9 @@ class _OwnerCredentialScreenState extends ConsumerState<OwnerCredentialScreen> {
     try {
       final binding = await ref.read(ownerBindingContextReaderProvider)();
       if (binding == null) {
-        setState(() => _message = 'No hay un titular vinculado en este teléfono.');
+        setState(
+          () => _message = 'No hay un titular vinculado en este teléfono.',
+        );
         return;
       }
       final proof = await ref
@@ -104,7 +106,8 @@ class _OwnerCredentialScreenState extends ConsumerState<OwnerCredentialScreen> {
   @override
   Widget build(BuildContext context) {
     final activated =
-        ref.watch(installationAccessProvider) == InstallationAccessState.activated;
+        ref.watch(installationAccessProvider) ==
+        InstallationAccessState.activated;
     Widget pinField(TextEditingController c, String label, Key key) =>
         TextField(
           key: key,
@@ -174,7 +177,11 @@ class _OwnerCredentialScreenState extends ConsumerState<OwnerCredentialScreen> {
               const SizedBox(height: 12),
               pinField(_pin, 'PIN', const Key('pin-new')),
               const SizedBox(height: 12),
-              pinField(_pinConfirmation, 'Repita el PIN', const Key('pin-confirm')),
+              pinField(
+                _pinConfirmation,
+                'Repita el PIN',
+                const Key('pin-confirm'),
+              ),
               const SizedBox(height: 12),
               FilledButton(
                 key: const Key('pin-save'),
@@ -219,8 +226,7 @@ Future<OwnerAuthorization?> requestOwnerAuthorization(
     final message = switch (status.state) {
       CredentialState.locked =>
         'Demasiados intentos. Espere antes de volver a intentarlo.',
-      CredentialState.requiresOnlineReset =>
-        'El PIN quedó bloqueado. Restablézcalo acreditando al titular en línea.',
+      CredentialState.requiresOnlineReset => 'El PIN quedó bloqueado. Restablézcalo acreditando al titular en línea.',
       _ =>
         'Esta acción la autoriza sólo el titular con su PIN. Configure el PIN '
             'del titular primero.',
@@ -333,8 +339,7 @@ class _OwnerPinDialogState extends State<_OwnerPinDialog> {
           ),
           onSubmitted: (_) => _submit(),
         ),
-        if (_error != null)
-          Text(_error!, key: const Key('owner-pin-error')),
+        if (_error != null) Text(_error!, key: const Key('owner-pin-error')),
         if (_busy) const LinearProgressIndicator(),
       ],
     ),

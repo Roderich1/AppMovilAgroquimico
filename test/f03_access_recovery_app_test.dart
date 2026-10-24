@@ -95,7 +95,10 @@ class _Server {
           'revokedAt': null,
         });
       case '/api/v1/auth/v2/session/client':
-        return json(201, {'registrationId': _registrationId, 'status': 'ACTIVE'});
+        return json(201, {
+          'registrationId': _registrationId,
+          'status': 'ACTIVE',
+        });
       case '/api/v1/auth/v2/me':
         return json(200, _context(registrationId: _registrationId));
       case '/api/v1/auth/v2/logout':
@@ -194,9 +197,8 @@ void main() {
   Future<Map<String, List<Map<String, Object?>>>> dump(
     WidgetTester tester,
     AppDatabase database,
-  ) async => (await tester.runAsync(
-    () async => dumpTables(await database.database),
-  ))!;
+  ) async =>
+      (await tester.runAsync(() async => dumpTables(await database.database)))!;
 
   Future<ProviderContainer> pumpApp(
     WidgetTester tester,
@@ -247,7 +249,8 @@ void main() {
         ),
         secureSessionCommitProvider.overrideWithValue(commit),
         secureSessionReplacementProvider.overrideWithValue(replace),
-        if (stored != null) storedSessionAccessProvider.overrideWithValue(stored),
+        if (stored != null)
+          storedSessionAccessProvider.overrideWithValue(stored),
       ],
     );
     addTearDown(container.dispose);
@@ -273,7 +276,10 @@ void main() {
   testWidgets(
     'activated, corrupt session: the titular recovers and nothing in SQLite changes',
     (tester) async {
-      final database = await boundDatabase(tester, activatedIn: installationHere);
+      final database = await boundDatabase(
+        tester,
+        activatedIn: installationHere,
+      );
       final before = await dump(tester, database);
       final server = _Server(memberA);
       final commit = _Commit();
@@ -296,7 +302,10 @@ void main() {
 
       expect(replace.calls, 1);
       expect(commit.calls, 0);
-      expect(c.read(installationAccessProvider), InstallationAccessState.activated);
+      expect(
+        c.read(installationAccessProvider),
+        InstallationAccessState.activated,
+      );
       expect(
         c.read(effectiveLocalSessionProvider),
         ExistingSessionStartupState.localSessionAvailable,
@@ -356,7 +365,10 @@ void main() {
       await tester.tap(find.byKey(const Key('recovery-submit')));
       await settle(tester);
       expect(commit.calls, 1);
-      expect(c.read(installationAccessProvider), InstallationAccessState.activated);
+      expect(
+        c.read(installationAccessProvider),
+        InstallationAccessState.activated,
+      );
       final after = await dump(tester, database);
       // The RESTORE_PAUSED intent and the binding are unchanged.
       expect(after['sync_outbox'], before['sync_outbox']);
@@ -376,7 +388,10 @@ void main() {
   testWidgets(
     'foreign session: signing out deletes only that session and offers recovery',
     (tester) async {
-      final database = await boundDatabase(tester, activatedIn: installationHere);
+      final database = await boundDatabase(
+        tester,
+        activatedIn: installationHere,
+      );
       final before = await dump(tester, database);
       final stored = _Stored(
         SessionReadResult(

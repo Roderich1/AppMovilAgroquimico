@@ -102,7 +102,9 @@ class FirstActivationController extends Notifier<FirstActivationState> {
       state = failed;
       return failed;
     }
-    final requiredScope = ref.read(installationAccessProvider.notifier).boundScope;
+    final requiredScope = ref
+        .read(installationAccessProvider.notifier)
+        .boundScope;
     final result = await _coordinator.activate(
       email: email,
       password: password,

@@ -23,8 +23,11 @@ Future<OwnerApproval?> requestOwnerApproval(
 }) async {
   final reason = await showDialog<String>(
     context: context,
-    builder: (context) =>
-        _ReasonDialog(title: title, effects: effects, confirmLabel: confirmLabel),
+    builder: (context) => _ReasonDialog(
+      title: title,
+      effects: effects,
+      confirmLabel: confirmLabel,
+    ),
   );
   if (reason == null || !context.mounted) return null;
   final authorization = await requestOwnerAuthorization(
@@ -130,7 +133,8 @@ class ReversalActorText extends ConsumerWidget {
             .read(repositoryProvider)
             .reversalAudit(operationType, operationId),
         builder: (context, snapshot) {
-          if (!snapshot.hasData && !snapshot.hasError &&
+          if (!snapshot.hasData &&
+              !snapshot.hasError &&
               snapshot.connectionState != ConnectionState.done) {
             return const SizedBox.shrink();
           }

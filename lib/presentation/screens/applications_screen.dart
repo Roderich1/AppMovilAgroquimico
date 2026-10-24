@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import '../../services/auth/local_owner_credential.dart' show AuthorizationPurpose;
+
+import '../../services/auth/local_owner_credential.dart'
+    show AuthorizationPurpose;
 import '../widgets/owner_reversal_flow.dart';
 
 import '../../app.dart';

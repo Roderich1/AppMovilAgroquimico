@@ -194,23 +194,26 @@ void main() {
       expect((await store.read()).status, SessionReadStatus.available);
     });
 
-    test('refuses a readable session and an absent one, changing nothing', () async {
-      final slots = _Slots();
-      final pointer = _Pointer();
-      final store = _store(slots, pointer, _Identity(_id));
-      await _expectFailure(
-        store.replaceUnreadableAndVerify(_candidate()),
-        SecureSessionFailure.invalidCandidate,
-      );
-      expect(pointer.active, isNull);
-      await store.commitAndVerify(_candidate(refresh: 'kept'));
-      await _expectFailure(
-        store.replaceUnreadableAndVerify(_candidate(refresh: 'other')),
-        SecureSessionFailure.existingSessionUnreadable,
-      );
-      expect((await store.read()).session!.refreshToken, 'kept');
-      expect(pointer.activations, 1);
-    });
+    test(
+      'refuses a readable session and an absent one, changing nothing',
+      () async {
+        final slots = _Slots();
+        final pointer = _Pointer();
+        final store = _store(slots, pointer, _Identity(_id));
+        await _expectFailure(
+          store.replaceUnreadableAndVerify(_candidate()),
+          SecureSessionFailure.invalidCandidate,
+        );
+        expect(pointer.active, isNull);
+        await store.commitAndVerify(_candidate(refresh: 'kept'));
+        await _expectFailure(
+          store.replaceUnreadableAndVerify(_candidate(refresh: 'other')),
+          SecureSessionFailure.existingSessionUnreadable,
+        );
+        expect((await store.read()).session!.refreshToken, 'kept');
+        expect(pointer.activations, 1);
+      },
+    );
 
     test('refuses an unavailable store without writing', () async {
       final slots = _Slots()..values['a'] = 'x';
@@ -225,18 +228,21 @@ void main() {
       expect(pointer.activations, 0);
     });
 
-    test('a write failure over an unreadable record keeps the pointer', () async {
-      final slots = _Slots()..values['a'] = 'not-json';
-      final pointer = _Pointer()..active = 'a';
-      final store = _store(slots, pointer, _Identity(_id));
-      slots.failWrite = true;
-      await _expectFailure(
-        store.replaceUnreadableAndVerify(_candidate()),
-        SecureSessionFailure.writeFailed,
-      );
-      expect(pointer.active, 'a');
-      expect(pointer.activations, 0);
-    });
+    test(
+      'a write failure over an unreadable record keeps the pointer',
+      () async {
+        final slots = _Slots()..values['a'] = 'not-json';
+        final pointer = _Pointer()..active = 'a';
+        final store = _store(slots, pointer, _Identity(_id));
+        slots.failWrite = true;
+        await _expectFailure(
+          store.replaceUnreadableAndVerify(_candidate()),
+          SecureSessionFailure.writeFailed,
+        );
+        expect(pointer.active, 'a');
+        expect(pointer.activations, 0);
+      },
+    );
   });
   test(
     'commit verifies one encrypted record and reads matching metadata',

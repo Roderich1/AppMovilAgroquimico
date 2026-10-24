@@ -87,7 +87,8 @@ class OnlineOwnerProof {
 /// el comprobante. Sin red no hay comprobante.
 class OwnerOnlineVerification {
   OwnerOnlineVerification({
-    required Future<bool> Function(String email, String password) reauthenticate,
+    required Future<bool> Function(String email, String password)
+    reauthenticate,
     required Future<OwnerScope?> Function() readSessionScope,
     DateTime Function()? clock,
   }) : _reauthenticate = reauthenticate,
@@ -175,7 +176,9 @@ void consumeOwnerAuthorization(
 }) {
   final auth = authorization;
   if (auth == null) {
-    throw const OwnerAuthorizationRejected('Falta la autorización del titular.');
+    throw const OwnerAuthorizationRejected(
+      'Falta la autorización del titular.',
+    );
   }
   if (_consumed.contains(auth.id)) {
     throw const OwnerAuthorizationRejected('La autorización ya se usó.');
@@ -237,20 +240,20 @@ class AndroidCredentialStorage implements CredentialStorage {
 
 /// Deriva el verificador (PBKDF2-HMAC-SHA256, 32 bytes), fuera del hilo de
 /// la interfaz. Inyectable en pruebas.
-typedef PinKdf =
-    Future<List<int>> Function(String pin, List<int> salt, int iterations);
-
-Future<List<int>> isolatePbkdf2(
+typedef PinKdf = Future<List<int>> Function(
   String pin,
   List<int> salt,
   int iterations,
-) => Isolate.run(() async {
-  final key = await Pbkdf2.hmacSha256(
-    iterations: iterations,
-    bits: 256,
-  ).deriveKeyFromPassword(password: pin, nonce: salt);
-  return key.extractBytes();
-});
+);
+
+Future<List<int>> isolatePbkdf2(String pin, List<int> salt, int iterations) =>
+    Isolate.run(() async {
+      final key = await Pbkdf2.hmacSha256(
+        iterations: iterations,
+        bits: 256,
+      ).deriveKeyFromPassword(password: pin, nonce: salt);
+      return key.extractBytes();
+    });
 
 /// Política de intentos (F03 §4): esperas crecientes desde el 5.º fallo
 /// seguido; al 10.º, sólo el restablecimiento en línea.
