@@ -364,6 +364,34 @@ void main() {
       expect(copy.existsSync(), isTrue);
     });
 
+    test('estado restaurado sin comprobar (esquema que no es el de esta versión): se deshace y la copia no pasa a finalizada', () async {
+      final db = await database();
+      final registry = copies();
+      final backups = BackupService(db, safetyCopies: registry);
+      await expectLater(
+        backups.restore(
+          await legacyBackup(db, 'esquema'),
+          afterReplace: () async =>
+              (await db.database).execute('PRAGMA user_version = 99'),
+        ),
+        throwsA(
+          isA<BackupException>().having(
+            (e) => e.message,
+            'message',
+            contains('comprobación final'),
+          ),
+        ),
+      );
+      expect(
+        (await registry.entries()).single.state,
+        SafetyCopyState.rolledBack,
+      );
+      expect(
+        (await AgroRepository(db).products()).map((r) => r['name']),
+        contains('Producto actual'),
+      );
+    });
+
     test(
       'rechazo antes de preparar (archivo inválido): ni copia ni entrada',
       () async {

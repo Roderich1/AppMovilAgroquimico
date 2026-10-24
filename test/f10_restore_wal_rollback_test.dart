@@ -452,9 +452,9 @@ void main() {
       expect(await dump(database), before);
       expect(photosIn(invoices), photosBefore);
       expect(
-        workspace.listSync(recursive: true).where(
-          (e) => p.basename(e.path).contains('.previo-'),
-        ),
+        workspace
+            .listSync(recursive: true)
+            .where((e) => p.basename(e.path).contains('.previo-')),
         isEmpty,
         reason: 'no quedan copias previas a medias ni carpetas de fotos',
       );
@@ -563,9 +563,9 @@ void main() {
         expect(after['purchases'], before['purchases']);
         expect(photosIn(invoices), photosBefore);
         expect(
-          workspace.listSync(recursive: true).where(
-            (e) => p.basename(e.path).contains('.previo-'),
-          ),
+          workspace
+              .listSync(recursive: true)
+              .where((e) => p.basename(e.path).contains('.previo-')),
           isEmpty,
         );
       },

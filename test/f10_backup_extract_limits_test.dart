@@ -180,9 +180,9 @@ void main() {
     expect(photosIn(invoices), photosBefore);
     expect(leftovers(), isEmpty, reason: 'sin extracciones a medias');
     expect(
-      workspace.listSync(recursive: true).where(
-        (e) => p.basename(e.path).contains('.previo-'),
-      ),
+      workspace
+          .listSync(recursive: true)
+          .where((e) => p.basename(e.path).contains('.previo-')),
       isEmpty,
       reason: 'el rechazo llega antes de preparar la sustitución',
     );

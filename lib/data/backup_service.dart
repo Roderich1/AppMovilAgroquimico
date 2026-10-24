@@ -262,7 +262,32 @@ class BackupService {
       if (path == null || path.isEmpty) continue;
       byName.putIfAbsent(p.basename(path), () => []).add(row['id']! as int);
     }
+    // Fotografías de compras tardías pendientes de revisión (RF-03): viajan
+    // igual, aunque ninguna compra confirmada las cite todavía.
+    for (final path in await _draftInvoicePaths(database)) {
+      byName.putIfAbsent(p.basename(path), () => []);
+    }
     return byName;
+  }
+
+  /// `late_operation_drafts.invoice_image_path` (esquema v11), si existe en
+  /// esta base. Una base anterior no la tiene y no aporta nada.
+  static Future<bool> _hasDraftInvoices(Database database) async =>
+      (await database.rawQuery(
+        "SELECT 1 FROM pragma_table_info('late_operation_drafts') "
+        "WHERE name = 'invoice_image_path'",
+      )).isNotEmpty;
+
+  static Future<List<String>> _draftInvoicePaths(Database database) async {
+    if (!await _hasDraftInvoices(database)) return const [];
+    return [
+      for (final row in await database.rawQuery(
+        'SELECT invoice_image_path FROM late_operation_drafts '
+        'WHERE invoice_image_path IS NOT NULL',
+      ))
+        if ((row['invoice_image_path'] as String?)?.trim().isNotEmpty ?? false)
+          (row['invoice_image_path']! as String).trim(),
+    ];
   }
 
   /// Exporta un contenedor `.agrobackup` con la base y sus fotografías.
@@ -1059,6 +1084,9 @@ class BackupService {
 
       if (prepareRestored != null) await prepareRestored(restored);
       if (afterReplace != null) await afterReplace();
+      // Comprobación del estado restaurado (F08-ADR-003 §7.1): sin ella la
+      // copia previa no se da por prescindible. Si falla, se deshace todo.
+      await _verifyRestoredState(restored);
 
       // La sustitución es definitiva: la copia previa deja de ser
       // indispensable y entra en el plazo y la cota.
@@ -1113,6 +1141,33 @@ class BackupService {
         await _deleteQuietly(invoicesBackup);
       }
     }
+  }
+
+  /// La base restaurada abre, está íntegra, tiene el esquema de esta
+  /// versión ya migrado y las tablas de la aplicación. Sólo entonces la copia
+  /// previa deja de ser indispensable. La propiedad no se comprueba aquí: la
+  /// reclasifica `GuardedRestore` y, si no puede, deja el acceso en null
+  /// (falla cerrado) sobre una base íntegra.
+  Future<void> _verifyRestoredState(Database restored) async {
+    const problem = BackupException(
+      'La base restaurada no superó la comprobación final. No se restauró; '
+      'sus datos anteriores se conservan.',
+    );
+    final integrity = await restored.rawQuery('PRAGMA integrity_check');
+    if (integrity.isEmpty || '${integrity.first.values.first}' != 'ok') {
+      throw problem;
+    }
+    final version = Sqflite.firstIntValue(
+      await restored.rawQuery('PRAGMA user_version'),
+    );
+    if (version != AppDatabase.schemaVersion) throw problem;
+    final tables = {
+      for (final row in await restored.rawQuery(
+        "SELECT name FROM sqlite_master WHERE type='table'",
+      ))
+        row['name'],
+    };
+    if (!requiredTables.every(tables.contains)) throw problem;
   }
 
   /// Marca la copia previa como resuelta y aplica la cota. Sin base anterior
@@ -1225,6 +1280,21 @@ class BackupService {
         where: 'id=?',
         whereArgs: [row['id']],
       );
+    }
+    if (await _hasDraftInvoices(database)) {
+      for (final row in await database.rawQuery(
+        'SELECT rowid AS row_ref, invoice_image_path '
+        'FROM late_operation_drafts WHERE invoice_image_path IS NOT NULL',
+      )) {
+        final name = p.basename((row['invoice_image_path']! as String).trim());
+        if (!restoredNames.contains(name)) continue;
+        await database.update(
+          'late_operation_drafts',
+          {'invoice_image_path': p.join(invoicesDirectory.path, name)},
+          where: 'rowid=?',
+          whereArgs: [row['row_ref']],
+        );
+      }
     }
     if (orphans.isEmpty) return const [];
     return [

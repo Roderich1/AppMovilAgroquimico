@@ -88,9 +88,10 @@ class RestoreBlockedException implements Exception {
   final String message;
 
   static const unresolved = RestoreBlockedException(
-    'Hay una restauración anterior que no terminó; se conserva la copia de '
-    'sus datos de entonces. Resuélvala en «Copias previas a restauraciones» '
-    'antes de restaurar otra. No se modificó nada.',
+    'Hay una restauración anterior que no terminó y se conserva la copia de '
+    'sus datos de entonces. Lo más probable es que sus datos actuales estén '
+    'bien; si es así, elija «Mantener los actuales» en «Copias previas a '
+    'restauraciones» y vuelva a intentarlo. No se modificó nada.',
   );
 
   static const unreadableRegistry = RestoreBlockedException(

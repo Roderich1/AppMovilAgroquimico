@@ -928,6 +928,48 @@ void main() {
       );
     }
 
+    test('restaurar con una clave distinta de la activa: se guarda para descifrar y las subidas siguen con la activa', () async {
+      final server = _FakeServer();
+      final original = await owner('original');
+      final old = await original.service(server, memberA).uploadNew();
+      // Teléfono nuevo que ya creó y confirmó su propia clave antes de
+      // restaurar la copia antigua.
+      final fresh = await phone(
+        'nuevo',
+        session: memberA,
+        installationRef: installationElsewhere,
+        seed: (db, _) => seedActivatedInstallation(
+          db,
+          installationRef: installationElsewhere,
+        ),
+      );
+      final own = fresh.recoveryKey!;
+      final service = fresh.service(server, memberA);
+      final pending = await service
+          .prepareRestore(old.entry)
+          .then<PendingDecryption>(
+            (_) => fail('la clave de la copia no está en este teléfono'),
+            onError: (Object error) => (error as RecoveryKeyRequired).pending,
+          );
+      final prepared = await service.prepareWithRecoveryKey(
+        pending,
+        original.recoveryKey!.displayText,
+      );
+      await service.restorePrepared(prepared);
+      // Regla: la activa sigue siendo la confirmada en este teléfono; la
+      // restaurada queda retirada, sólo para descifrar.
+      expect((await fresh.keyring.activeKey())!.key.sameAs(own), isTrue);
+      final next = await service.uploadNew();
+      expect(await service.keysFor([old.entry, next.entry]), {
+        old.entry.id: RemoteCopyKey.unknown,
+        next.entry.id: RemoteCopyKey.current,
+      });
+      // La antigua sigue descifrándose sin volver a escribir la clave.
+      final again = await service.prepareRestore(old.entry);
+      expect(again.validation.isValid, isTrue);
+      await service.discard(again);
+    });
+
     test('cambiar de sesión no toca el llavero ni las copias', () async {
       final server = _FakeServer();
       final a = await owner('a');

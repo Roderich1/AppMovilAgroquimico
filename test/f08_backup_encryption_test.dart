@@ -6,7 +6,8 @@ import 'dart:typed_data';
 
 import 'package:agroquimicos/data/backup_encryption.dart';
 import 'package:crypto/crypto.dart' as hashes;
-import 'package:cryptography/cryptography.dart' show Mac, SecretKeyData;
+import 'package:cryptography/cryptography.dart'
+    show Mac, SecretBoxAuthenticationError, SecretKeyData;
 import 'package:cryptography/dart.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -77,6 +78,37 @@ void main() {
           '3cb25f25faacd57a90434f64d0362f2a2d2d0a90cf1a5a4c5db02d56ecc4c5bf'
           '34007208d5b887185865',
         ),
+      );
+    });
+
+    test('el AAD se autentica también en streaming', () async {
+      const cipher = DartChacha20.poly1305Aead();
+      final key = SecretKeyData(List<int>.generate(32, (i) => i));
+      final nonce = List<int>.filled(12, 1);
+      Mac? mac;
+      final encrypted = await cipher
+          .encryptStream(
+            Stream.value(List<int>.filled(1000, 5)),
+            secretKey: key,
+            nonce: nonce,
+            aad: const [1, 2, 3],
+            onMac: (value) => mac = value,
+          )
+          .expand((chunk) => chunk)
+          .toList();
+      Future<void> decrypt(List<int> aad) => cipher
+          .decryptStream(
+            Stream.value(encrypted),
+            secretKey: key,
+            nonce: nonce,
+            mac: mac!,
+            aad: aad,
+          )
+          .drain<void>();
+      await decrypt(const [1, 2, 3]);
+      await expectLater(
+        decrypt(const [1, 2, 4]),
+        throwsA(isA<SecretBoxAuthenticationError>()),
       );
     });
 
