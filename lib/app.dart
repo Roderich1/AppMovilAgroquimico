@@ -40,6 +40,7 @@ import 'presentation/screens/settlements_screen.dart';
 import 'presentation/screens/sync_status_screen.dart';
 import 'presentation/screens/transfers_screen.dart';
 import 'presentation/screens/transfer_form_screen.dart';
+import 'presentation/screens/access_recovery_screen.dart';
 import 'services/reports/report_export_service.dart';
 import 'services/reports/report_storage.dart';
 import 'presentation/voice/voice_application_draft_screen.dart';
@@ -81,7 +82,13 @@ final reportExportServiceProvider = Provider<ReportExportService>(
 );
 
 /// Rutas que se pueden abrir aunque la instalación no pueda operar.
-const _accessRoutes = {'/acceso', '/activar', '/titular', '/reauth'};
+const _accessRoutes = {
+  '/acceso',
+  '/activar',
+  '/titular',
+  '/reauth',
+  '/recuperar',
+};
 
 /// Compuerta de navegación de la política de activación (#76). La compuerta
 /// de dominio está en el repositorio; ésta sólo evita mostrar pantallas que
@@ -258,6 +265,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/reauth',
         builder: (_, __) => const ReauthenticationScreen(),
+      ),
+      GoRoute(
+        path: '/recuperar',
+        builder: (_, __) => const AccessRecoveryScreen(),
       ),
       GoRoute(
         path: '/transferencias/nueva',

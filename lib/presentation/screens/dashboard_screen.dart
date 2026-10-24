@@ -11,6 +11,7 @@ import '../../domain/money.dart';
 import '../../domain/installation_access.dart';
 import '../../domain/read_models.dart';
 import '../../installation_access.dart';
+import '../../services/auth/access_recovery.dart';
 import '../../services/auth/existing_session_providers.dart';
 import '../../services/auth/existing_session_startup.dart';
 import '../../services/auth/remote_session_coordinator.dart';
@@ -131,10 +132,20 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             Icons.payments_outlined,
           ),
         ];
+        final recoverAsOwner =
+            accessRecoveryModeFor(
+              ref.watch(installationAccessProvider),
+              existingSession,
+            ) ==
+            AccessRecoveryMode.signInAsOwner;
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            if (existingSession == ExistingSessionStartupState.noLocalSession)
+            // F03: con titular vinculado y sesión ausente o ilegible, la entrada
+            // es «Recuperar acceso» (mismo Member y tenant), nunca una activación
+            // libre que pudiera guardar la sesión de otra cuenta.
+            if (existingSession == ExistingSessionStartupState.noLocalSession &&
+                !recoverAsOwner)
               OutlinedButton.icon(
                 key: const Key('open-first-activation'),
                 onPressed: () => context.push('/activar'),
@@ -143,10 +154,17 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               )
             else if (_allowsRemote(existingSession))
               _SessionStatus(existingSession)
-            else
+            else if (existingSession.safeMessage != null)
               Text(
                 existingSession.safeMessage!,
                 key: const Key('local-session-status'),
+              ),
+            if (recoverAsOwner)
+              OutlinedButton.icon(
+                key: const Key('open-access-recovery'),
+                onPressed: () => context.push('/recuperar'),
+                icon: const Icon(Icons.key_outlined),
+                label: const Text('Recuperar acceso'),
               ),
             if (existingSession ==
                     ExistingSessionStartupState.localSessionAvailable ||

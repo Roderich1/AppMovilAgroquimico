@@ -101,6 +101,10 @@ abstract interface class DurableSessionPointer {
   Future<void> activate({required String? expected, required String next});
   Future<void> clear({required String expected});
   Future<void> flushEncryptedDeletes();
+
+  /// F03 «Recuperar acceso»: removes the pointer only if it is still corrupt
+  /// (neither absent nor a valid slot). Refuses a valid pointer.
+  Future<void> resetCorruptPointer();
 }
 
 /// One encrypted value contains token + metadata; no separate plaintext fields.
@@ -159,6 +163,11 @@ class AndroidDurableSessionPointer implements DurableSessionPointer {
   Future<void> flushEncryptedDeletes() async {
     await _channel.invokeMethod<void>('flush');
   }
+
+  @override
+  Future<void> resetCorruptPointer() async {
+    await _channel.invokeMethod<void>('resetCorruptPointer');
+  }
 }
 
 class _IncompatibleVersion implements Exception {}
@@ -167,7 +176,8 @@ class _IncompatibleVersion implements Exception {}
 /// a synchronously committed pointer preserve the previous session until the
 /// new candidate has been written and read back. All operations serialize in
 /// this Dart isolate; Android uses a second lock and expected-pointer check.
-class SecureSessionStore implements SecureSessionCommitPort {
+class SecureSessionStore
+    implements SecureSessionCommitPort, UnreadableSessionReplacementPort {
   SecureSessionStore({
     required EncryptedSessionSlots slots,
     required DurableSessionPointer pointer,
@@ -218,11 +228,21 @@ class SecureSessionStore implements SecureSessionCommitPort {
   Future<void> commitAndVerify(SessionCommitCandidate candidate) =>
       _exclusive(() => _commit(candidate));
 
+  /// F03 «Recuperar acceso»: commits [candidate] over a session that cannot
+  /// be read (corrupt or incompatible record, or corrupt pointer). Refuses a
+  /// readable session (use [commitAndVerify]) and an unavailable store.
+  @override
+  Future<void> replaceUnreadableAndVerify(SessionCommitCandidate candidate) =>
+      _exclusive(() => _commit(candidate, replaceUnreadable: true));
+
   Future<SessionReadResult> read() => _exclusive(_readUnlocked);
 
   Future<void> delete() => _exclusive(_deleteUnlocked);
 
-  Future<void> _commit(SessionCommitCandidate candidate) async {
+  Future<void> _commit(
+    SessionCommitCandidate candidate, {
+    bool replaceUnreadable = false,
+  }) async {
     if (!_validCandidate(candidate)) {
       throw const SecureSessionStorageException(
         SecureSessionFailure.invalidCandidate,
@@ -242,21 +262,61 @@ class SecureSessionStore implements SecureSessionCommitPort {
       );
     }
 
-    final String? previous;
+    String? previous;
+    var corruptPointer = false;
     try {
       previous = await _pointer.read();
+      corruptPointer = previous != null && previous != 'a' && previous != 'b';
+    } on PlatformException catch (error) {
+      if (!replaceUnreadable || error.code != 'CORRUPT_POINTER') {
+        throw const SecureSessionStorageException(
+          SecureSessionFailure.existingSessionUnreadable,
+        );
+      }
+      corruptPointer = true;
     } on Object {
       throw const SecureSessionStorageException(
         SecureSessionFailure.existingSessionUnreadable,
       );
     }
-    if (previous != null) {
-      final old = await _readUnlocked();
-      if (old.status != SessionReadStatus.available) {
+    if (corruptPointer) {
+      if (!replaceUnreadable) {
         throw const SecureSessionStorageException(
           SecureSessionFailure.existingSessionUnreadable,
         );
       }
+      // Only a pointer that is still corrupt is removed; it is then absent.
+      try {
+        await _pointer.resetCorruptPointer();
+        previous = await _pointer.read();
+      } on Object {
+        throw const SecureSessionStorageException(
+          SecureSessionFailure.existingSessionUnreadable,
+        );
+      }
+      if (previous != null) {
+        throw const SecureSessionStorageException(
+          SecureSessionFailure.existingSessionUnreadable,
+        );
+      }
+    } else if (previous != null) {
+      final old = await _readUnlocked();
+      final replaceable =
+          old.status == SessionReadStatus.corrupt ||
+          old.status == SessionReadStatus.incompatible;
+      final allowed = replaceUnreadable
+          ? replaceable
+          : old.status == SessionReadStatus.available;
+      if (!allowed) {
+        throw const SecureSessionStorageException(
+          SecureSessionFailure.existingSessionUnreadable,
+        );
+      }
+    } else if (replaceUnreadable) {
+      // Nothing unreadable to replace: an absent session uses commitAndVerify.
+      throw const SecureSessionStorageException(
+        SecureSessionFailure.invalidCandidate,
+      );
     }
 
     final next = previous == 'a' ? 'b' : 'a';
