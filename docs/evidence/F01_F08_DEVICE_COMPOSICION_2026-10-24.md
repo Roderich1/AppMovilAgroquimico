@@ -124,3 +124,54 @@ Tras aprobarse los deltas D1 y D2, se repitió el ensayo con:
 - D10 (Web).
 
 **Al terminar**, los ajustes del teléfono volvieron a sus valores iniciales y el entorno quedó desmontado (sin contenedor ni puertos 3140, 3141, 3149 o 55470), sin limpiezas generales.
+
+## Tercera ronda: recuperar acceso con una cuarentena real, y pausa y liberación con Sync vinculada (2026-10-24, 16:58–17:21 -04:00)
+
+Cierre técnico del bloque. Sólo se ejecutan los recorridos que seguían en NOT_RUN: D1/D2, con una cuarentena real, y D7e, la pausa y liberación. Lo demás se reutiliza de las rondas anteriores sobre el mismo código de esos frentes.
+
+| Pieza | Valor |
+|---|---|
+| Teléfono | POCO X5 Pro 5G, `22101320G`, serial `cc14247a` (`adb devices -l`) |
+| Mobile | `comp/f01-f08-mob` `8b53ad81c136ab67c898aebdf3928efa0f29d6b0`: el árbol de #144 `22a32cb`, que contiene #143 `7f4536b` |
+| APK | `.f01f08`, SHA-256 `0036d9332fca5fc564770bc7ec5aa24a9d5663cc6c5bef60383a67bf25761d39`, igual al `base.apk` instalado. Se instaló con `install -r` y después `pm clear` sólo del paquete aislado. Siguió habiendo 26 paquetes `com.comunidad.agro*` |
+| Backend | `comp/f01-f08-be` `784958f`: el árbol de #163 `5cbf137`. `dist` se recompiló sobre ese SHA a las 16:55 |
+| Observador | `tool/f03_res_01/observer.cjs` con el modo nuevo `drop-refresh-response`, SHA-256 `d66ad0245c9a4d7469058c75d68978b73df3663ef6d96879ae35f789c3e21758`. Retiene la respuesta de UN `POST /auth/v2/refresh` después de que Central lo procese. Es el mismo contenido que se usó en el ensayo, versionado en esta rama. Antes: `317d4b4d…ff98` |
+| Campaña del sindicato | El Administrador sintético cerró «Campana Verano 2026» y abrió «Campana Invierno 2026» por la API real (`POST /campaigns/:id/close` y `/open`, ambos 200). Ninguna campaña sembrada admitía aportes el 24/10. Herramienta: `scratchpad A/dev/admin_open_campaign.cjs`, que no imprime token ni contraseña |
+
+Preparación (datos sintéticos):
+- activación con la cuenta D, titular «Juan Perez» y modalidad propia;
+- campaña local «Ensayo sync», con fin previsto el 30/11, vinculada a «Campana Invierno 2026»;
+- producto «Herbicida sync» (L) vinculado a «Glifosato 48 SL» (L→ML);
+- tres declaraciones de necesidad:
+
+| Op | Cantidad | Cómo se envió | Resultado |
+|---|---|---|---|
+| `1ebbffa7` | 25 L | Normal | ACK |
+| `9aee51cc` | 40 L | Con `drop-push-response`: Central aplicó y la respuesta no llegó | El teléfono **reintentó solo** con el mismo `operationId` y Central lo deduplicó: ACK, 2 intentos, la misma hora de aceptación y **una sola entrada de journal** |
+| `f0443cb9` | 55 L | Con `status-500-before`: no llegó a Central | Quedó `OUTCOME_UNKNOWN` |
+
+Después:
+- se creó la clave de respaldo, sin mostrarla, y se subió la copia de las 17:13 con `f0443cb9` todavía sin ACK;
+- al quitar el fallo, «Sincronizar ahora» la envió: ACK a las 21:14:04Z;
+- Central quedó con journal seq 1, 2 y 3, y la contribución vigente es `f0443cb9`, de 55 000 ML.
+
+| # | Caso | Resultado | Lo observado |
+|---|---|---|---|
+| D7e-1 | Restaurar con una operación ya aceptada por Central | **PASS** | Al restaurar la copia de las 17:13, `f0443cb9` pasa a `RESTORE_PAUSED`. No se envía nada |
+| D1a | Cuarentena real | **PASS** | «Verificar acceso en línea» con `drop-refresh-response`: Central respondió 200 al `refresh`, y el teléfono no recibió la respuesta (`RESPUESTA_RETENIDA`) |
+| | | | Guard `en cuarentena=true`. La app indicó «El resultado remoto no puede confirmarse. No se reutilizará la credencial anterior», con el botón de reautenticar deshabilitado en ese estado. Al reabrir, «Se requiere volver a autenticar» |
+| | | | El registro trae una línea `POST /sync/v1/push - RESPUESTA_CERRADA_A_LOS_30S`: es el cierre de esa misma respuesta retenida del `refresh`, porque la etiqueta del observador usa la ruta del push |
+| D2a | Recuperar con otra identidad (cuenta E2) | **PASS** | `login` 200 y `logout` 204 del login nuevo. «Esa cuenta no es la vinculada a este teléfono». Guard sigue en cuarentena; titular, recuentos, vínculos y cola sin cambios |
+| D1b | Recuperar con el mismo titular (D) | **PASS** | `login` 200, `session/client` 201 (mismo registro de cliente `cbaa69c7…`) y `me` 200. «Acceso en línea verificado». Guard en `false` y sesión en el slot b |
+| | | | Comparado con el estado de antes (`device.sh db counts/owner/bindings/outbox`): sólo cambian el slot y la huella de la sesión cifrada. Titular, Member, tenant, los vínculos `VALID` y las 3 entradas de la cola son idénticos |
+| | | | En Central siguen ACTIVE la sesión anterior y la nueva, con el mismo registro |
+| D7e-2 | Recuperar acceso no libera la pausa | **PASS** | Tras D1b, `f0443cb9` sigue en `RESTORE_PAUSED`. «Sincronizar ahora» no envía ninguna petición y la mantiene en pausa |
+| D7e-3 | Liberar explícitamente | **PASS** | «Liberar», y después «Liberar envíos restaurados»: **un solo** `POST /sync/v1/push` 200. `f0443cb9` en ACK, con 2 intentos y la hora de aceptación **original** (21:14:04Z) |
+| | | | En Central (`check.sh sync D`) siguen 3 entradas de journal, una por operación, y la contribución en la secuencia 3 con 55 000 ML. **Sin duplicado** |
+
+**Al terminar**, los ajustes volvieron a sus valores iniciales (`stay_on` 0, animaciones 1.0, sin modo avión, Wi‑Fi y datos activos) y el entorno quedó desmontado, sin contenedor ni puertos. Las contraseñas fueron de un solo uso, nunca hubo PIN en pantalla y la clave no se mostró.
+
+**Límites:**
+- La pausa y la liberación se probaron con declaraciones de necesidad. No se repitieron con consumo para el sindicato.
+- La cuarentena se provocó con un fallo inyectado en el observador. Es una pérdida real de la respuesta en la red, no un fallo del servidor.
+- La Web F07 queda en la evidencia del Backend (#162).
