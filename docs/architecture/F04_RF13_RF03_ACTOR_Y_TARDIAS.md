@@ -202,6 +202,6 @@ Además de las de abajo (m2 de B y el oráculo de I1):
   - **R4, se consume antes de aplicar** (también lo señala B en la revisión del PIN): la autorización se marca usada antes de los efectos. Si la transacción se deshace, hay que volver a poner el PIN. Es deliberado, porque falla cerrado.
 - **Decisión de Roderich, aplicada el 2026-10-24:** autoridad de la autorización. Toda reversión (RF-13) y toda confirmación o rechazo de una operación tardía (RF-03) exigen que la autorización se haya emitido con el PIN vigente en la instalación. Lo compara `consumeOwnerAuthorization` con `currentEnrolmentId`, dentro de la transacción.
   - Restablecer el PIN invalida al instante las autorizaciones anteriores.
-  - Una credencial fabricada sobre otro almacén no autoriza nada.
+  - Una credencial de otro almacén no autoriza nada, aunque copie el enrolamiento.
   - Detalle, pruebas y límites en F03 §8.
   - Revisión de B sobre `f4c85c5`: R1 y R3 importantes, R2 recomendada; aplicadas. La autorización vale sólo si la emitió el almacén de la instalación con el PIN vigente (`installation.accepts`).

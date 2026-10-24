@@ -181,7 +181,7 @@ Que `OwnerAuthorization._` sea privado no impedía ninguno de los dos.
   - enrolamiento conocido: desconocido hasta leerlo, cambiado al restablecer y por almacén.
 - **`f04_rf13_reversal_audit_test`**, cada rechazo con la base y la auditoría intactas (volcado completo):
   - verificar, restablecer y usar la autorización anterior: se rechaza;
-  - credencial fabricada sobre otro almacén: se rechaza;
+  - credencial de otro almacén, aunque copie el enrolamiento: se rechaza (m2 de B);
   - repositorio sin lector: se rechaza;
   - restablecimiento concurrente con la reversión: o se aplica con el enrolamiento anterior o se rechaza.
 - **Mutaciones detectadas:**
@@ -202,4 +202,4 @@ Que `OwnerAuthorization._` sea privado no impedía ninguno de los dos.
     - la autorización emitida con otro enrolamiento, o desde otro almacén aunque copie el enrolamiento;
     - la emitida antes de restablecer el PIN.
 - **Reloj y consumo antes del commit:** siguen como en §7, aceptados para el entorno sintético.
-- La autorización de la clave de recuperación del respaldo (F08, sesión C) usa el mismo `consumeOwnerAuthorization`. En la composición debe pasar `knownEnrolmentId`.
+- La autorización de la clave de recuperación del respaldo (F08, sesión C) usa el mismo `consumeOwnerAuthorization`. En la composición pasa `installation: ref.read(localOwnerCredentialProvider)`, con los propósitos de mostrar y rotar la clave, `subjectRef` = identificador de la clave y el vínculo vigente (m1 de B).
