@@ -5,4 +5,10 @@
     <exclude domain="sharedpref" path="FlutterSecureKeyStorage:agrocuentas_secure_session_v1.xml" />
     <exclude domain="sharedpref" path="FlutterSecureStorageConfiguration:agrocuentas_secure_session_v1.xml" />
     <exclude domain="sharedpref" path="AgrocuentasSessionPointer.xml" />
+    <!-- F08-ADR-003: backup recovery keyring, pre-restore copies and downloaded copies stay on the phone. -->
+    <exclude domain="sharedpref" path="agrocuentas_backup_keys_v1.xml" />
+    <exclude domain="sharedpref" path="FlutterSecureKeyStorage:agrocuentas_backup_keys_v1.xml" />
+    <exclude domain="sharedpref" path="FlutterSecureStorageConfiguration:agrocuentas_backup_keys_v1.xml" />
+    <exclude domain="database" path="previo" />
+    <exclude domain="file" path="remote_backups" />
 </full-backup-content>
