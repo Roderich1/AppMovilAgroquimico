@@ -20,16 +20,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'support/f04_app_access.dart';
 import 'support/f04_mode_fixtures.dart';
-
-class _Storage implements CredentialStorage {
-  final values = <String, String>{};
-  @override
-  Future<String?> read(String key) async => values[key];
-  @override
-  Future<void> write(String key, String value) async => values[key] = value;
-  @override
-  Future<void> delete(String key) async => values.remove(key);
-}
+import 'support/f04_owner_pin.dart';
 
 class _FailingAuditRepository extends AgroRepository {
   _FailingAuditRepository(super.database);
@@ -38,22 +29,8 @@ class _FailingAuditRepository extends AgroRepository {
       Future.error(StateError('lectura fallida'));
 }
 
-Future<LocalOwnerCredential> _enrolled(OwnerBindingContext binding) async {
-  final credential = LocalOwnerCredential(
-    storage: _Storage(),
-    iterations: 1000,
-  );
-  await credential.enroll(
-    pin: '284917',
-    pinConfirmation: '284917',
-    proof: await OwnerOnlineVerification(
-      reauthenticate: (_, __) async => true,
-      readSessionScope: () async => binding.scope,
-    ).verify(email: 'e', password: 'p', binding: binding),
-    binding: binding,
-  );
-  return credential;
-}
+Future<LocalOwnerCredential> _enrolled(OwnerBindingContext binding) async =>
+    (await TestOwnerPin.enrolled(binding)).credential;
 
 Future<OwnerBindingContext?> _bindingOf(AppDatabase database) async {
   final b = await OwnerBindingStore(database).activeBinding();
@@ -85,12 +62,16 @@ void main() {
     final source = openDb(p.join(workspace.path, 'origen.db'));
     addTearDown(source.close);
     await seedActivatedInstallation(source);
-    final repo = AgroRepository(source);
+    late LocalOwnerCredential sourceCredential;
+    final repo = AgroRepository(
+      source,
+      ownerEnrolment: () => sourceCredential.knownEnrolmentId,
+    );
     final h = await seedHousehold(repo);
     await h.buy(h.titular, 5000);
     final applicationId = await h.apply(h.titular, h.titularFarm, 2000);
     final sourceBinding = (await _bindingOf(source))!;
-    final sourceCredential = await _enrolled(sourceBinding);
+    sourceCredential = await _enrolled(sourceBinding);
     await repo.reverseApplication(
       applicationId,
       reason: 'Dosis registrada por error',
@@ -159,7 +140,10 @@ void main() {
 
     final before = await dumpTables(targetDb);
     await expectLater(
-      AgroRepository(target).reverseApplication(
+      AgroRepository(
+        target,
+        ownerEnrolment: () => targetCredential.knownEnrolmentId,
+      ).reverseApplication(
         applicationId,
         reason: 'Otra vez',
         authorization: await targetCredential.verify(
@@ -217,7 +201,7 @@ void main() {
             _FailingAuditRepository(database),
           ),
           localOwnerCredentialProvider.overrideWithValue(
-            LocalOwnerCredential(storage: _Storage(), iterations: 1000),
+            TestOwnerPin.unenrolled(),
           ),
         ],
         child: const MaterialApp(

@@ -200,3 +200,7 @@ Además de las de abajo (m2 de B y el oráculo de I1):
     - Si no se puede leer el PIN: «con su PIN (no se pudo comprobar en este teléfono)».
   - **R3, prueba del respaldo:** `f04_rf13_reversal_backup_test`. Exporta una base con una reversión auditada y la restaura en otra base. `reversal_audit` y `reversal_audit_effects` llegan idénticas, el texto es el de otro PIN y revertir de nuevo la misma operación falla sin escribir nada.
   - **R4, se consume antes de aplicar** (también lo señala B en la revisión del PIN): la autorización se marca usada antes de los efectos. Si la transacción se deshace, hay que volver a poner el PIN. Es deliberado, porque falla cerrado.
+- **Decisión de Roderich, aplicada el 2026-10-24:** autoridad de la autorización. Toda reversión (RF-13) y toda confirmación o rechazo de una operación tardía (RF-03) exigen que la autorización se haya emitido con el PIN vigente en la instalación. Lo compara `consumeOwnerAuthorization` con `currentEnrolmentId`, dentro de la transacción.
+  - Restablecer el PIN invalida al instante las autorizaciones anteriores.
+  - Una credencial fabricada sobre otro almacén no autoriza nada.
+  - Detalle, pruebas y límites en F03 §8.

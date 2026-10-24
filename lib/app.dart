@@ -10,6 +10,7 @@ import 'domain/installation_access.dart';
 import 'domain/operation_mode.dart';
 import 'installation_access.dart';
 import 'operation_mode_controller.dart';
+import 'services/auth/local_owner_credential_providers.dart';
 import 'domain/reports/report_composer.dart';
 import 'presentation/app_shell.dart';
 import 'presentation/screens/access_status_screen.dart';
@@ -63,6 +64,10 @@ final repositoryProvider = Provider<AgroRepository>(
   (ref) => AgroRepository(
     ref.watch(databaseProvider),
     gate: FarmerOperationGate(() => ref.read(installationAccessProvider)),
+    // RF-13/RF-03: una autorización del titular vale sólo con el PIN
+    // configurado ahora en el almacén de la instalación.
+    ownerEnrolment: () =>
+        ref.read(localOwnerCredentialProvider).knownEnrolmentId,
   ),
 );
 

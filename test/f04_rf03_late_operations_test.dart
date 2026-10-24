@@ -10,16 +10,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'support/f04_app_access.dart';
 import 'support/f04_mode_fixtures.dart';
-
-class _Storage implements CredentialStorage {
-  final values = <String, String>{};
-  @override
-  Future<String?> read(String key) async => values[key];
-  @override
-  Future<void> write(String key, String value) async => values[key] = value;
-  @override
-  Future<void> delete(String key) async => values.remove(key);
-}
+import 'support/f04_owner_pin.dart';
 
 class _World {
   _World(
@@ -120,7 +111,11 @@ DateTime _d(int y, int m, int d) => DateTime.utc(y, m, d, 15);
 Future<_World> _world() async {
   final database = openDb(inMemoryDatabasePath);
   final bound = await seedActivatedInstallation(database);
-  final repo = AgroRepository(database);
+  late LocalOwnerCredential credential;
+  final repo = AgroRepository(
+    database,
+    ownerEnrolment: () => credential.knownEnrolmentId,
+  );
   final h = await seedHousehold(repo);
   final history = await repo.addHistoricalCampaign(
     name: 'Campaña 2025',
@@ -132,19 +127,7 @@ Future<_World> _world() async {
     personId: bound.personId,
     scope: memberA,
   );
-  final credential = LocalOwnerCredential(
-    storage: _Storage(),
-    iterations: 1000,
-  );
-  await credential.enroll(
-    pin: '284917',
-    pinConfirmation: '284917',
-    proof: await OwnerOnlineVerification(
-      reauthenticate: (_, __) async => true,
-      readSessionScope: () async => memberA,
-    ).verify(email: 'e', password: 'p', binding: binding),
-    binding: binding,
-  );
+  credential = (await TestOwnerPin.enrolled(binding)).credential;
   return _World(database, repo, h, binding, credential, history);
 }
 

@@ -26,16 +26,7 @@ import 'package:agroquimicos/services/auth/local_owner_credential_providers.dart
 
 import 'support/f04_app_access.dart';
 import 'support/f04_mode_fixtures.dart';
-
-class _Storage implements CredentialStorage {
-  final values = <String, String>{};
-  @override
-  Future<String?> read(String key) async => values[key];
-  @override
-  Future<void> write(String key, String value) async => values[key] = value;
-  @override
-  Future<void> delete(String key) async => values.remove(key);
-}
+import 'support/f04_owner_pin.dart';
 
 void main() {
   sqfliteFfiInit();
@@ -373,15 +364,12 @@ void main() {
         personId: bound.personId,
         scope: memberA,
       );
-      credential = LocalOwnerCredential(storage: _Storage(), iterations: 1000);
-      await credential.enroll(
-        pin: '284917',
-        pinConfirmation: '284917',
-        proof: await OwnerOnlineVerification(
-          reauthenticate: (_, __) async => true,
-          readSessionScope: () async => memberA,
-        ).verify(email: 'e', password: 'p', binding: binding),
-        binding: binding,
+      credential = (await TestOwnerPin.enrolled(binding)).credential;
+      // El repositorio de las pantallas acepta sólo autorizaciones con el PIN
+      // configurado en la instalación.
+      repo = AgroRepository(
+        database,
+        ownerEnrolment: () => credential.knownEnrolmentId,
       );
     }
 

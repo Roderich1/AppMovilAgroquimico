@@ -12,7 +12,10 @@ final credentialStorageProvider = Provider<CredentialStorage>(
 );
 
 final localOwnerCredentialProvider = Provider<LocalOwnerCredential>(
-  (ref) => LocalOwnerCredential(storage: ref.watch(credentialStorageProvider)),
+  (ref) => LocalOwnerCredential(
+    storage: ref.watch(credentialStorageProvider),
+    onlineVerification: ref.watch(ownerOnlineVerificationProvider),
+  ),
 );
 
 /// El vínculo de titular vigente, leído de SQLite (null si no hay).

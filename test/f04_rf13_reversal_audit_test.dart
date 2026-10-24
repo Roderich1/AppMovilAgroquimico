@@ -10,30 +10,16 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'support/f04_app_access.dart';
 import 'support/f04_mode_fixtures.dart';
-
-class _Storage implements CredentialStorage {
-  final values = <String, String>{};
-  @override
-  Future<String?> read(String key) async => values[key];
-  @override
-  Future<void> write(String key, String value) async => values[key] = value;
-  @override
-  Future<void> delete(String key) async => values.remove(key);
-}
+import 'support/f04_owner_pin.dart';
 
 class _Fixture {
-  _Fixture(
-    this.database,
-    this.repo,
-    this.household,
-    this.binding,
-    this.credential,
-  );
+  _Fixture(this.database, this.repo, this.household, this.binding, this.pin);
   final AppDatabase database;
   final AgroRepository repo;
   final Household household;
   final OwnerBindingContext binding;
-  final LocalOwnerCredential credential;
+  final TestOwnerPin pin;
+  LocalOwnerCredential get credential => pin.credential;
 
   Future<OwnerAuthorization> authorize(
     AuthorizationPurpose purpose,
@@ -53,28 +39,19 @@ class _Fixture {
 Future<_Fixture> _fixture() async {
   final database = openDb(inMemoryDatabasePath);
   final bound = await seedActivatedInstallation(database);
-  final repo = AgroRepository(database);
+  late TestOwnerPin pin;
+  final repo = AgroRepository(
+    database,
+    ownerEnrolment: () => pin.credential.knownEnrolmentId,
+  );
   final household = await seedHousehold(repo);
   final binding = OwnerBindingContext(
     bindingId: bound.id,
     personId: bound.personId,
     scope: memberA,
   );
-  final credential = LocalOwnerCredential(
-    storage: _Storage(),
-    iterations: 1000,
-  );
-  final proof = await OwnerOnlineVerification(
-    reauthenticate: (_, __) async => true,
-    readSessionScope: () async => memberA,
-  ).verify(email: 'e', password: 'p', binding: binding);
-  await credential.enroll(
-    pin: '284917',
-    pinConfirmation: '284917',
-    proof: proof,
-    binding: binding,
-  );
-  return _Fixture(database, repo, household, binding, credential);
+  pin = await TestOwnerPin.enrolled(binding);
+  return _Fixture(database, repo, household, binding, pin);
 }
 
 void main() {
@@ -268,6 +245,106 @@ void main() {
     expect(syncTables(await f.dump()), before);
   });
 
+  group('authority of the authorization', () {
+    Future<(_Fixture, int)> withApplication() async {
+      final f = await _fixture();
+      final h = f.household;
+      await h.buy(h.titular, 5000);
+      return (f, await h.apply(h.titular, h.titularFarm, 2000));
+    }
+
+    Future<void> rejected(_Fixture f, Future<void> Function() action) async {
+      final before = await f.dump();
+      await expectLater(action(), throwsA(isA<OwnerAuthorizationRejected>()));
+      expect(await f.dump(), before);
+    }
+
+    test('verify → reset the PIN → the earlier authorization is refused, base and audit intact', () async {
+      final (f, applicationId) = await withApplication();
+      final earlier = await f.authorize(
+        AuthorizationPurpose.reverseApplication,
+        'application:$applicationId',
+      );
+      await f.pin.reset('583920');
+      await rejected(
+        f,
+        () => f.repo.reverseApplication(
+          applicationId,
+          reason: 'Dosis registrada por error',
+          authorization: earlier,
+        ),
+      );
+      final db = await f.database.database;
+      expect(await db.query('reversal_audit'), isEmpty);
+    });
+
+    test('an authorization from a credential on another storage is refused (direct call)', () async {
+      final (f, applicationId) = await withApplication();
+      // Any code can build its own credential with stub online verification
+      // and a PIN of its choice; it is not the installation's PIN.
+      final fabricated = await TestOwnerPin.enrolled(f.binding);
+      final forged = await fabricated.credential.verify(
+        pin: '284917',
+        purpose: AuthorizationPurpose.reverseApplication,
+        subjectRef: 'application:$applicationId',
+        binding: f.binding,
+      );
+      await rejected(
+        f,
+        () => f.repo.reverseApplication(
+          applicationId,
+          reason: 'Dosis registrada por error',
+          authorization: forged,
+        ),
+      );
+    });
+
+    test('a repository without the installation enrolment refuses every authorization', () async {
+      final (f, applicationId) = await withApplication();
+      final auth = await f.authorize(
+        AuthorizationPurpose.reverseApplication,
+        'application:$applicationId',
+      );
+      await rejected(
+        f,
+        () => AgroRepository(f.database).reverseApplication(
+          applicationId,
+          reason: 'Dosis registrada por error',
+          authorization: auth,
+        ),
+      );
+    });
+
+    test('a reset racing the reversal: either applied under the old PIN or refused with nothing written', () async {
+      final (f, applicationId) = await withApplication();
+      final oldEnrolment = await f.pin.enrolment();
+      final auth = await f.authorize(
+        AuthorizationPurpose.reverseApplication,
+        'application:$applicationId',
+      );
+      final before = await f.dump();
+      final outcome = await Future.wait<Object?>([
+        f.repo
+            .reverseApplication(
+              applicationId,
+              reason: 'Dosis registrada por error',
+              authorization: auth,
+            )
+            .then<Object?>((_) => 'applied', onError: (Object e) => e),
+        f.pin.reset('583920'),
+      ]);
+      final db = await f.database.database;
+      final audit = await db.query('reversal_audit');
+      if (outcome.first == 'applied') {
+        expect(audit.single['credential_enrolment_ref'], oldEnrolment);
+      } else {
+        expect(outcome.first, isA<OwnerAuthorizationRejected>());
+        expect(await f.dump(), before);
+      }
+      expect(await f.pin.enrolment(), isNot(oldEnrolment));
+    });
+  });
+
   test('a used authorization and a double tap produce one reversal', () async {
     final f = await _fixture();
     final h = f.household;
@@ -371,10 +448,7 @@ void main() {
     final repo = AgroRepository(database);
     final household = await seedHousehold(repo);
     final purchaseId = await household.buy(household.titular, 5000);
-    final credential = LocalOwnerCredential(
-      storage: _Storage(),
-      iterations: 1000,
-    );
+    final credential = TestOwnerPin.unenrolled();
     expect((await credential.status(null)).state, CredentialState.notEnrolled);
     expect(await OwnerBindingStore(database).activeBinding(), isNull);
     // Ordinary operations still work.
