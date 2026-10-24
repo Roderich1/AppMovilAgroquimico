@@ -1,11 +1,39 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 11 y anteriores. F08-ADR-003 §3.8: nada de Agrocuentas entra en el
+  respaldo automático de Android. Cada dominio que usa la app guarda estado
+  privado (inventario sobre las versiones fijadas de los plugins):
+  - database: la base activa agroquimicos_v2.db con su -journal/-wal/-shm, las
+    copias previo/ y los .descifrado de una restauración.
+  - root: app_flutter/ (getApplicationDocumentsDirectory, que es getDir y no
+    files/): fotos de factura en invoices/, el log y, sin carpeta de
+    descargas, las exportaciones y los informes.
+  - file: remote_backups/ (descargas, subidas y descifrados del respaldo en la
+    nube).
+  - sharedpref: los almacenes seguros agrocuentas_secure_session_v1,
+    agrocuentas_owner_credential_v1 y agrocuentas_backup_keys_v1, cada uno con
+    sus tres archivos, más AgrocuentasSessionPointer.
+  - external: Download/ (getDownloadsDirectory): exportaciones .agrobackup sin
+    cifrar e informes.
+  Se excluye el dominio entero, para que un archivo nuevo quede fuera sin tocar
+  estas reglas. No hay nada inocuo que incluir: el único respaldo es el propio
+  de la app. La identidad de la instalación vive en no_backup/, que Android
+  nunca respalda, y los temporales en la caché.
+-->
 <full-backup-content>
-    <!-- Android 11 and earlier: keep existing backup defaults except session material. -->
+    <exclude domain="database" path="." />
+    <exclude domain="root" path="." />
+    <exclude domain="file" path="." />
+    <exclude domain="sharedpref" path="." />
+    <exclude domain="external" path="." />
+    <!-- Segunda barrera: los secretos y las copias, también por su nombre. -->
     <exclude domain="sharedpref" path="agrocuentas_secure_session_v1.xml" />
     <exclude domain="sharedpref" path="FlutterSecureKeyStorage:agrocuentas_secure_session_v1.xml" />
     <exclude domain="sharedpref" path="FlutterSecureStorageConfiguration:agrocuentas_secure_session_v1.xml" />
     <exclude domain="sharedpref" path="AgrocuentasSessionPointer.xml" />
-    <!-- F08-ADR-003: backup recovery keyring, pre-restore copies and downloaded copies stay on the phone. -->
+    <exclude domain="sharedpref" path="agrocuentas_owner_credential_v1.xml" />
+    <exclude domain="sharedpref" path="FlutterSecureKeyStorage:agrocuentas_owner_credential_v1.xml" />
+    <exclude domain="sharedpref" path="FlutterSecureStorageConfiguration:agrocuentas_owner_credential_v1.xml" />
     <exclude domain="sharedpref" path="agrocuentas_backup_keys_v1.xml" />
     <exclude domain="sharedpref" path="FlutterSecureKeyStorage:agrocuentas_backup_keys_v1.xml" />
     <exclude domain="sharedpref" path="FlutterSecureStorageConfiguration:agrocuentas_backup_keys_v1.xml" />
