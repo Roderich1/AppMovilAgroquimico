@@ -452,7 +452,7 @@ void main() {
       expect(await dump(database), before);
       expect(photosIn(invoices), photosBefore);
       expect(
-        workspace.listSync().where(
+        workspace.listSync(recursive: true).where(
           (e) => p.basename(e.path).contains('.previo-'),
         ),
         isEmpty,
@@ -563,7 +563,7 @@ void main() {
         expect(after['purchases'], before['purchases']);
         expect(photosIn(invoices), photosBefore);
         expect(
-          workspace.listSync().where(
+          workspace.listSync(recursive: true).where(
             (e) => p.basename(e.path).contains('.previo-'),
           ),
           isEmpty,

@@ -15,10 +15,13 @@ import 'app_database.dart';
 import 'backup_container_reader.dart';
 import 'database_replacement.dart';
 import 'invoice_storage.dart';
+import 'restore_safety_copies.dart';
 
 export '../domain/restore_ownership.dart'
     show BackupOwnership, RestoreRejection;
 export 'backup_container_reader.dart' show BackupExtractionLimits;
+export 'restore_safety_copies.dart'
+    show RestoreBlockedException, RestoreSafetyCopies;
 
 /// Formato de un archivo de respaldo.
 enum BackupFormat {
@@ -132,14 +135,24 @@ class BackupService {
     @visibleForTesting Future<void> Function(File partial)? afterSafetyCopy,
     @visibleForTesting Future<void> Function()? afterCheckpoint,
     BackupExtractionLimits extractionLimits = BackupExtractionLimits.standard,
-  }) : _containerReader = BackupContainerReader(extractionLimits),
+    RestoreSafetyCopies? safetyCopies,
+  }) : extractionLimits = extractionLimits,
+       _containerReader = BackupContainerReader(extractionLimits),
        _invoicesDir = invoicesDir ?? resolveInvoicesDirectory,
        _exportDirectory = exportDirectory ?? _defaultExportDirectory,
        _beforePublish = beforePublish,
        _afterSafetyCopy = afterSafetyCopy,
-       _afterCheckpoint = afterCheckpoint;
+       _afterCheckpoint = afterCheckpoint {
+    this.safetyCopies =
+        safetyCopies ?? RestoreSafetyCopies(appDatabase.resolvePath);
+  }
 
   final AppDatabase appDatabase;
+  final BackupExtractionLimits extractionLimits;
+
+  /// Copias `.previo` de la base anterior a cada restauración, con su
+  /// registro durable y su limpieza local (F08-ADR-003 §7).
+  late final RestoreSafetyCopies safetyCopies;
   final BackupContainerReader _containerReader;
   final Future<Directory> Function() _invoicesDir;
   final Future<Directory> Function() _exportDirectory;
@@ -883,6 +896,11 @@ class BackupService {
       );
     }
 
+    // Antes de leer siquiera el respaldo: si hay una copia previa
+    // indispensable sin resolver, o el registro no se puede leer, no se
+    // empieza (F08-ADR-003 §7.2). También aplica el plazo y la cota.
+    await safetyCopies.ensureCanStartRestore();
+
     final staged = await _stage(path);
     final validation = staged.validation;
     final databaseSource = staged.databasePath;
@@ -901,12 +919,20 @@ class BackupService {
     // El formato histórico no trae fotografías y no las toca: no hay motivo
     // para resolver siquiera dónde viven.
     final invoicesDirectory = isContainer ? await _invoicesDir() : null;
-    final stamp = DateTime.now().toIso8601String().replaceAll(':', '-');
-    final safetyCopy = '$target.previo-$stamp.db';
 
+    // La entrada del registro se escribe **antes** que la copia: si el
+    // proceso muere a mitad, la copia queda protegida como interrumpida.
+    final SafetyCopySlot slot;
+    try {
+      slot = await safetyCopies.begin();
+    } on Object {
+      await _deleteQuietly(staged.directory);
+      rethrow;
+    }
+    final safetyCopy = slot.databasePath;
     final invoicesBackup = invoicesDirectory == null
         ? null
-        : Directory('${invoicesDirectory.path}.previo-$stamp');
+        : Directory(slot.invoicesPath);
 
     // Preparación: copia previa completa de la base y de las fotografías. Si
     // algo falla aquí **no empieza el reemplazo**: la base actual sigue como
@@ -914,6 +940,7 @@ class BackupService {
     final bool hadPrevious;
     final bool hadInvoices;
     try {
+      await Directory(p.dirname(safetyCopy)).create(recursive: true);
       hadPrevious = await _secureCurrentDatabase(target, safetyCopy);
       // Copia de las fotografías actuales, para poder deshacer el conjunto y
       // no sólo la base.
@@ -921,13 +948,20 @@ class BackupService {
           invoicesBackup != null &&
           await _copyDirectory(invoicesDirectory!, invoicesBackup);
     } on Object {
-      await _deleteQuietly(File(safetyCopy));
       await _deleteQuietly(File('$safetyCopy$partialSuffix'));
-      if (invoicesBackup != null) await _deleteQuietly(invoicesBackup);
+      try {
+        await safetyCopies.discard(slot);
+      } on Object {
+        // La entrada queda en preparación y pasará a interrumpida: protegida,
+        // aunque aquí la base no llegó a sustituirse.
+      }
       await _deleteQuietly(staged.directory);
       rethrow;
     }
 
+    // Si algo falla al deshacer, la copia previa (base y fotografías) es lo
+    // único que conserva los datos anteriores: no se borra.
+    var keepInvoicesBackup = false;
     try {
       await File(databaseSource).copy(target);
       // Se descartan los diarios del archivo anterior. Ya no guardan nada:
@@ -983,8 +1017,16 @@ class BackupService {
 
       if (prepareRestored != null) await prepareRestored(restored);
       if (afterReplace != null) await afterReplace();
+
+      // La sustitución es definitiva: la copia previa deja de ser
+      // indispensable y entra en el plazo y la cota.
+      await _resolveSafetyCopy(
+        slot,
+        hadPrevious: hadPrevious,
+        resolve: safetyCopies.markFinalized,
+      );
       return BackupRestoreResult(
-        safetyCopyPath: safetyCopy,
+        safetyCopyPath: hadPrevious ? safetyCopy : '',
         format: validation.format,
         restoredAttachments: restoredAttachments,
         warnings: warnings,
@@ -992,23 +1034,63 @@ class BackupService {
     } on Object {
       // Deshacer el conjunto: base y fotografías vuelven a como estaban. Los
       // diarios son de la base restaurada y no deben aplicarse a la anterior.
-      await appDatabase.close();
-      for (final suffix in const ['-wal', '-shm']) {
-        await _deleteQuietly(File('$target$suffix'));
+      try {
+        await appDatabase.close();
+        for (final suffix in const ['-wal', '-shm']) {
+          await _deleteQuietly(File('$target$suffix'));
+        }
+        if (hadPrevious) {
+          await File(safetyCopy).copy(target);
+        } else {
+          await _deleteQuietly(File(target));
+        }
+        if (hadInvoices) {
+          await _deleteQuietly(invoicesDirectory);
+          await _copyDirectory(invoicesBackup, invoicesDirectory);
+        }
+      } on Object {
+        // El rollback no terminó: la copia previa es indispensable.
+        keepInvoicesBackup = true;
+        try {
+          await safetyCopies.markInterrupted(slot);
+        } on Object {
+          // Sigue en preparación y pasará a interrumpida en el siguiente
+          // mantenimiento: protegida igualmente.
+        }
+        rethrow;
       }
-      if (hadPrevious) {
-        await File(safetyCopy).copy(target);
-      } else {
-        await _deleteQuietly(File(target));
-      }
-      if (hadInvoices) {
-        await _deleteQuietly(invoicesDirectory);
-        await _copyDirectory(invoicesBackup, invoicesDirectory);
-      }
+      await _resolveSafetyCopy(
+        slot,
+        hadPrevious: hadPrevious,
+        resolve: safetyCopies.markRolledBack,
+      );
       rethrow;
     } finally {
       await _deleteQuietly(staged.directory);
-      if (invoicesBackup != null) await _deleteQuietly(invoicesBackup);
+      if (invoicesBackup != null && !keepInvoicesBackup) {
+        await _deleteQuietly(invoicesBackup);
+      }
+    }
+  }
+
+  /// Marca la copia previa como resuelta y aplica la cota. Sin base anterior
+  /// no hay nada que conservar y la entrada se retira. Un fallo aquí no
+  /// cambia el resultado de la restauración: la entrada seguiría protegida,
+  /// que es el lado seguro.
+  Future<void> _resolveSafetyCopy(
+    SafetyCopySlot slot, {
+    required bool hadPrevious,
+    required Future<void> Function(SafetyCopySlot) resolve,
+  }) async {
+    try {
+      if (hadPrevious) {
+        await resolve(slot);
+      } else {
+        await safetyCopies.discard(slot);
+      }
+      await safetyCopies.maintain();
+    } on Object {
+      // Ver arriba.
     }
   }
 
