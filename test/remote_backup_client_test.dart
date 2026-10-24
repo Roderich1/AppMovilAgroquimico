@@ -582,6 +582,14 @@ void main() {
           RemoteBackupErrorKind.tooLarge,
         );
         expect(
+          await kindFor(422, 'BACKUP_FORMAT_INVALID'),
+          RemoteBackupErrorKind.formatRejected,
+        );
+        expect(
+          await kindFor(422, 'BACKUP_ENCRYPTION_REQUIRED'),
+          RemoteBackupErrorKind.formatRejected,
+        );
+        expect(
           await kindFor(422, 'BACKUP_SHA256_MISMATCH'),
           RemoteBackupErrorKind.integrity,
         );
