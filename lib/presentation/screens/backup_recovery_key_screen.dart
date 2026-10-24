@@ -245,6 +245,7 @@ Future<void> revealActiveRecoveryKey(
   if (active == null || !context.mounted) return;
   final authorization = await ref.read(backupKeyAuthorizerProvider)(
     context,
+    ref,
     BackupKeyAction.show,
     active.keyId,
   );
