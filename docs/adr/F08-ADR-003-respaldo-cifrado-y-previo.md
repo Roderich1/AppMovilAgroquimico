@@ -5,7 +5,7 @@
 | Fecha real | 2026-10-23 (America/La_Paz) |
 | Estado | **Propuesto, para revisión** (B y A). No aprueba GATE-F08 ni habilita datos reales |
 | Autor | Sesión C del bloque INICIO_F01_F08_2026-10-23 |
-| Decisión de origen | `01_DECISIONES_APROBADAS.md` §7 y §8, ratificadas por Roderich el 2026-10-23 |
+| Decisión de origen | Decisión de Roderich del 2026-10-23 (F08: cifrado en el teléfono, cinco copias y limpieza de `.previo`), ratificada para el bloque sintético |
 | Trazabilidad | RF-26, RF-27, RNF-04, RNF-10, DAT-14, CU-14, CU-15 |
 | Relacionados | BE `docs/architecture/F08_BACKUP_THREAT_MODEL.md` (condición 2 del §5), BE `F08_BKP_06_RETENCION.md`, Mobile `F03_RECUPERACION_IDENTIDAD_LOCAL.md` (A) |
 
@@ -87,7 +87,7 @@ Cada copia tiene su propia clave, de modo que el nonce nunca se reutiliza con la
 - **Fuera del auto-backup de Android:** se excluye en `backup_rules.xml` y `data_extraction_rules.xml`. Ese cambio necesita un turno de A (§10).
 - **Sin escrow ni recuperación centralizada:** no hay escrow administrativo, ni clave maestra, ni copia en el servidor, ni recuperación por parte de la Directiva.
 - **Nada se registra en logs:** ni la clave ni el `toString()` de sus objetos.
-- **Mostrarla de nuevo es una acción deliberada.** Si A tiene enrolada la credencial local (`LocalOwnerCredential.verify(reason)`), se exige; la credencial autoriza ver la clave, pero no se usa para derivarla.
+- **Mostrarla de nuevo o cambiarla es una acción deliberada.** Exige una `OwnerAuthorization` de un solo uso (`LocalOwnerCredential.verify(pin:, purpose:, subjectRef:)` de A, propósitos `SHOW_BACKUP_RECOVERY_KEY` y `ROTATE_BACKUP_RECOVERY_KEY`, `subjectRef` = `keyId` en hex), consumida contra el vínculo vigente. La credencial autoriza, pero nunca se usa para derivar la clave. En esta rama el punto de enganche (`backupKeyAuthorizerProvider`) **falla cerrado** y se conecta en la composición. El primer enrolamiento de la clave no pide PIN: nada depende todavía de ella.
 
 ### 3.4 Confirmación antes de depender de la copia cifrada
 
@@ -100,6 +100,10 @@ Cada copia tiene su propia clave, de modo que el nonce nunca se reutiliza con la
 1. **Autenticación del titular** (Auth V2 y el flujo de activación de A) para listar y descargar. El servidor sólo sirve copias del mismo Member y tenant.
 2. Si el `key_id` de la cabecera no está en el llavero, se pide la **clave de recuperación**: se comprueba la suma, se deriva su `key_id` y se compara con el de la cabecera, y sólo entonces se descifra.
 3. **Tras una restauración correcta**, la clave introducida se guarda en el llavero como confirmada, porque la persona demostró tenerla fuera del teléfono.
+4. **Regla de la clave activa** (revisión de B, I1): la activa es la última confirmada en este teléfono y no retirada; una clave pendiente nunca cifra. La clave escrita al restaurar:
+   - pasa a activa sólo si el llavero no tenía ninguna activa (teléfono nuevo o reinstalado);
+   - si ya había una activa (el teléfono creó y confirmó la suya antes de restaurar una copia antigua), se guarda como **retirada**, sólo para descifrar, y las subidas siguientes usan la activa.
+   - Prueba: `remote_backup_client_test.dart`, «restaurar con una clave distinta de la activa…».
 
 ### 3.6 Separación de los tres mecanismos
 
@@ -116,7 +120,7 @@ Cada copia tiene su propia clave, de modo que el nonce nunca se reutiliza con la
 ### 3.7 Rotación
 
 - **«Cambiar la clave de recuperación»** genera una K_r nueva, exige confirmarla (§3.4) y deja la anterior en el llavero como `retired`. Las copias nuevas usan la nueva.
-- **Una clave retirada no se borra mientras haya copias retenidas que dependan de ella.**
+- **En este bloque una clave retirada nunca se borra automáticamente** (revisión de B, m2). No hay borrado manual en la interfaz; si se añadiera, sólo con cero copias dependientes conocidas y confirmación, y una copia del servidor con `key_id` desconocido la mantendría indefinidamente.
   - El teléfono anota localmente `id remoto → key_id` de lo que sube. Es un dato no secreto, en un archivo de la carpeta privada.
   - Una copia del servidor cuyo `key_id` no se conoce cuenta como dependiente.
   - La app avisa de que la clave anotada anterior sigue siendo necesaria para N copias.
@@ -159,7 +163,8 @@ Bytes, enteros en big-endian:
 - `formatVersion ∈ {1, 2}` (§6);
 - tamaño;
 - SHA-256 de transporte de los bytes cifrados;
-- para el formato 2, la **forma exterior** de la cabecera en streaming: magic, versión igual a la cabecera, algoritmo 1, flags 0 y `fileLength == 80 + plaintextLength + 16`. Si no cumple, responde 422 `BACKUP_FORMAT_INVALID` y no deja bytes.
+- para el formato 2, la **forma exterior** de la cabecera en streaming: magic, versión igual a la cabecera, algoritmo 1, flags 0 y `fileLength == 80 + plaintextLength + 16`. Si no cumple, responde 422 `BACKUP_FORMAT_INVALID` y no deja bytes;
+- para el formato 1, sólo que no lleve el magic del formato 2 (un cuerpo cifrado etiquetado como legible se rechaza); su contenido no se inspecciona, como antes. Ninguna de las dos comprobaciones relaja la otra (revisión de B, m4).
 
 **No afirma** haber comprobado el contenido descifrado: no puede, no tiene la clave.
 
@@ -215,11 +220,13 @@ Se conservan sin cambios: el owner-scoping, el staging, la validación antes de 
 | Estado | Se pone cuando | ¿Protegida? |
 |---|---|---|
 | `preparing` | Antes de escribir la copia | Sí |
-| `finalized` | La restauración terminó (con la outbox pausada y la autorización recalculada) | No |
+| `finalized` | La restauración terminó, la outbox quedó pausada y **se comprobó el estado restaurado**: la base abre, `integrity_check` es `ok`, `user_version` es el de esta versión (ya migrada) y están las tablas de la aplicación. Si la comprobación falla, se deshace todo y la entrada queda `rolledBack` | No |
 | `rolledBack` | La restauración falló y el rollback terminó sin error: la base activa vuelve a ser la anterior | No |
 | `interrupted` | En el mantenimiento, una entrada `preparing` sin restauración en curso en este proceso, es decir, el proceso murió a medias | **Sí** |
 
 - **Si el rollback falla**, la entrada queda en `preparing` y pasa a `interrupted`, protegida.
+- **La propiedad no forma parte de la comprobación:** la reclasifica `GuardedRestore` y, si no puede, deja el acceso en null (falla cerrado) sobre una base íntegra. Revisión de B, I2, y de A, A3.
+- **Proceso muerto antes de sustituir:** también deja una `interrupted` (conservador; revisión de B, m3). El mensaje del bloqueo dice que lo más probable es que los datos actuales estén bien y que «Mantener los actuales» lo resuelve.
 - **Si la preparación falla antes de sustituir nada**, se borran la copia y su entrada, como hoy.
 - **La protección no se deduce del nombre ni de suponer que el proceso terminó:** sólo de estados escritos en disco antes y después de cada paso.
 
