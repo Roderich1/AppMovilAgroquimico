@@ -276,16 +276,17 @@ class BackupKeyring {
     return KeyringReadiness.noKey;
   });
 
-  /// Clave mostrada y sin confirmar. Si no existe y no hay activa, crea la
-  /// primera (sin autorización: nada depende todavía de ella). Con una
-  /// activa, una pendiente nueva sólo nace de [startRotation].
+  /// Primera clave, mostrada y sin confirmar: si no existe, la crea (sin
+  /// autorización: nada depende todavía de ella). Con una activa no entrega
+  /// nada, tampoco la pendiente de una rotación interrumpida: ésa sólo la
+  /// devuelve [startRotation], con la autorización del titular.
   Future<BackupRecoveryKey> pendingKey() => _serial(() async {
     final keyring = await _load();
-    for (final stored in keyring.keys) {
-      if (stored.status == BackupKeyStatus.pending) return stored.key;
-    }
     if (keyring.keys.any((k) => k.status == BackupKeyStatus.active)) {
       throw const BackupKeyAuthorizationRequired();
+    }
+    for (final stored in keyring.keys) {
+      if (stored.status == BackupKeyStatus.pending) return stored.key;
     }
     return _addPending(keyring);
   });

@@ -175,6 +175,25 @@ void main() {
     },
   );
 
+  test('la pendiente de una rotación interrumpida sólo se entrega con '
+      'autorización', () async {
+    final key = await keyring.pendingKey();
+    await keyring.confirmPending(key.displayText);
+    // La app se cierra con la rotación sin confirmar.
+    final next = await keyring.startRotation(authorization: owner);
+    await expectLater(
+      keyring.pendingKey(),
+      throwsA(isA<BackupKeyAuthorizationRequired>()),
+    );
+    await expectLater(
+      keyring.startRotation(authorization: null),
+      throwsA(isA<BackupKeyAuthorizationRequired>()),
+    );
+    final resumed = await keyring.startRotation(authorization: owner);
+    expect(resumed.sameAs(next), isTrue);
+    expect((await keyring.activeKey())!.key.sameAs(key), isTrue);
+  });
+
   test('un llavero ilegible no se sobrescribe solo', () async {
     vault.value = '{dañado';
     await expectLater(

@@ -119,10 +119,10 @@ class _RemoteBackupScreenState extends ConsumerState<RemoteBackupScreen> {
     }
   });
 
-  Future<bool> _openKeyScreen({bool rotation = false}) async {
+  Future<bool> _openKeyScreen({BackupRecoveryKey? rotationKey}) async {
     final confirmed = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
-        builder: (_) => BackupRecoveryKeyScreen(rotation: rotation),
+        builder: (_) => BackupRecoveryKeyScreen(rotationKey: rotationKey),
       ),
     );
     await _loadKeyring();
@@ -138,8 +138,9 @@ class _RemoteBackupScreenState extends ConsumerState<RemoteBackupScreen> {
       BackupKeyAction.rotate,
       active.keyId,
     );
+    final BackupRecoveryKey next;
     try {
-      await ref
+      next = await ref
           .read(backupKeyringProvider)
           .startRotation(authorization: authorization);
     } on BackupKeyAuthorizationRequired catch (error) {
@@ -147,7 +148,7 @@ class _RemoteBackupScreenState extends ConsumerState<RemoteBackupScreen> {
       return;
     }
     if (!mounted) return;
-    await _openKeyScreen(rotation: true);
+    await _openKeyScreen(rotationKey: next);
   }
 
   Future<void> _upload() async {
