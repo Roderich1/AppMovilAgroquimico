@@ -1,6 +1,7 @@
 // F08-ADR-003 §3.4: la clave se muestra, se anota fuera del teléfono y se
 // vuelve a escribir completa antes de activarse. Clave efímera de la prueba.
-import 'package:agroquimicos/data/backup_encryption.dart' show BackupRecoveryKey;
+import 'package:agroquimicos/data/backup_encryption.dart'
+    show BackupRecoveryKey;
 import 'package:agroquimicos/presentation/screens/backup_recovery_key_screen.dart';
 import 'package:agroquimicos/services/backup/backup_keyring.dart';
 import 'package:agroquimicos/services/backup/remote_backup_providers.dart';

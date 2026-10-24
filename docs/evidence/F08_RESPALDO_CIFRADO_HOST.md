@@ -190,3 +190,5 @@ Las pruebas se lanzaron de una en una. La suite completa la da la CI de #144.
 **Control negativo:** con el `pendingKey()` de `419c31f` y la prueba nueva, `f08_backup_keyring_test` falla en «la pendiente de una rotación interrumpida sólo se entrega con autorización». Se restauró el archivo antes del commit.
 
 **No acreditado:** el diálogo del PIN y la clave en el dispositivo (DEVICE, lo opera A), ni la suite completa sobre este HEAD, que queda pendiente de la CI.
+
+**CI de `08b6b4d` (run 40087815617, 2026-10-24): FALLO en el paso de formato** («Changed test/f08_recovery_key_screen_test.dart»). El análisis y las pruebas no llegaron a ejecutarse. La causa es que el `import` de `BackupRecoveryKey` se añadió en `2220683` después del último `dart format` y superaba la longitud de línea. Se corrige en el commit siguiente, que sólo cambia el formato. Con él, `dart format --output=none --set-exit-if-changed lib test` sale con código 0.
