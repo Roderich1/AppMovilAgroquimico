@@ -221,7 +221,26 @@ class RemoteBackupService {
         access,
         prepared.info,
       );
-      await _keyring.recordUpload(entry.entry.id, active.keyId);
+      try {
+        await _keyring.recordUpload(entry.entry.id, active.keyId);
+      } on Object {
+        // La copia ya está en el servidor: no se convierte en un error (un
+        // reintento subiría otra). Sólo falta la anotación local.
+        return RemoteUploadResult(
+          entry.entry,
+          BackupExportResult(
+            path: entry.export.path,
+            attachmentCount: entry.export.attachmentCount,
+            warnings: [
+              ...entry.export.warnings,
+              'La copia se subió, pero este teléfono no pudo anotar con qué '
+                  'clave se cifró. Al restaurarla puede pedirle la clave de '
+                  'recuperación.',
+            ],
+          ),
+          confirmedByListing: entry.confirmedByListing,
+        );
+      }
       return entry;
     } finally {
       // El contenedor legible ya se borró (withPrivateContainer); aquí sólo
@@ -306,10 +325,40 @@ class RemoteBackupService {
   /// Qué clave necesita cada copia cifrada, según este teléfono.
   Future<Map<String, RemoteCopyKey>> keysFor(
     Iterable<RemoteBackupEntry> entries,
-  ) => _keyring.classify([
-    for (final entry in entries)
-      if (entry.formatVersion == uploadFormatVersion) entry.id,
-  ]);
+  ) async {
+    final ids = [
+      for (final entry in entries)
+        if (entry.formatVersion == uploadFormatVersion) entry.id,
+    ];
+    try {
+      return await _keyring.classify(ids);
+    } on BackupKeyringUnreadable {
+      // Sin llavero legible todas piden la clave escrita; la lista se sigue
+      // mostrando (también las copias del formato 1).
+      return {for (final id in ids) id: RemoteCopyKey.unknown};
+    }
+  }
+
+  /// La clave del llavero de este teléfono, si se puede leer. Un llavero
+  /// ilegible no impide restaurar: se pide la clave escrita.
+  Future<BackupRecoveryKey?> _storedKeyFor(List<int> keyId) async {
+    try {
+      return await _keyring.keyFor(keyId);
+    } on BackupKeyringUnreadable {
+      return null;
+    }
+  }
+
+  /// Restos de una subida o preparación anterior que no terminó (la app se
+  /// cerró a mitad): sólo la carpeta privada de trabajo de este servicio.
+  Future<void> cleanupLeftovers() async {
+    final work = await _workDirectory();
+    try {
+      if (await work.exists()) await work.delete(recursive: true);
+    } on FileSystemException {
+      // Se reintenta en la siguiente operación.
+    }
+  }
 
   /// Descarga [entry] (SHA-256 de transporte), la descifra si está cifrada,
   /// valida el contenedor y lee de quién es, sin modificar nada.
@@ -332,7 +381,7 @@ class RemoteBackupService {
         }
         return await _decryptAndPrepare(
           PendingDecryption(entry, file),
-          keyFor: _keyring.keyFor,
+          keyFor: _storedKeyFor,
         );
       }
       if (entry.formatVersion != 1 || isEnvelope) {

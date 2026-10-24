@@ -17,6 +17,13 @@ class _MemoryVault implements BackupKeyVault {
   Future<void> write(String value) async => this.value = value;
 }
 
+class _ThrowingVault implements BackupKeyVault {
+  @override
+  Future<String?> read() async => throw StateError('Keystore invalidado');
+  @override
+  Future<void> write(String value) async => throw StateError('no');
+}
+
 void main() {
   late _MemoryVault vault;
   late BackupKeyring keyring;
@@ -119,6 +126,21 @@ void main() {
     await keyring.replaceUnreadable();
     expect(await keyring.readiness(), KeyringReadiness.noKey);
   });
+
+  test(
+    'un almacén que falla al leer cuenta como ilegible, nunca como vacío',
+    () async {
+      final failing = BackupKeyring(_ThrowingVault());
+      await expectLater(
+        failing.readiness(),
+        throwsA(isA<BackupKeyringUnreadable>()),
+      );
+      await expectLater(
+        failing.keyFor(List<int>.filled(16, 0)),
+        throwsA(isA<BackupKeyringUnreadable>()),
+      );
+    },
+  );
 
   test('escrituras simultáneas no se pisan', () async {
     final first = await keyring.pendingKey();

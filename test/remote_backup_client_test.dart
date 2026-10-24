@@ -291,6 +291,19 @@ class _Phone {
   );
 }
 
+/// Almacén que deja de aceptar escrituras a petición.
+class _FailingWritesVault implements BackupKeyVault {
+  String? value;
+  bool failWrites = false;
+  @override
+  Future<String?> read() async => value;
+  @override
+  Future<void> write(String value) async {
+    if (failWrites) throw StateError('sin espacio');
+    this.value = value;
+  }
+}
+
 /// Almacén seguro simulado: un valor en memoria.
 class _MemoryVault implements BackupKeyVault {
   String? value;
@@ -976,6 +989,82 @@ void main() {
       final again = await service.prepareRestore(old.entry);
       expect(again.validation.isValid, isTrue);
       await service.discard(again);
+    });
+
+    test('llavero ilegible: la lista se muestra y la copia se restaura escribiendo la clave', () async {
+      final server = _FakeServer();
+      final original = await owner('original');
+      final uploaded = await original.service(server, memberA).uploadNew();
+      final broken = await phone(
+        'roto',
+        session: memberA,
+        installationRef: installationElsewhere,
+        enrollKey: false,
+        seed: (db, _) => seedActivatedInstallation(
+          db,
+          installationRef: installationElsewhere,
+        ),
+      );
+      final vault = _MemoryVault()..value = '{dañado';
+      final service = RemoteBackupService(
+        api: server.api,
+        access: () async => VerifiedAccess(
+          accessToken: _token,
+          scope: memberA,
+          obtainedAt: DateTime.now(),
+        ),
+        backups: broken.container.read(backupServiceProvider),
+        restorer: broken.container.read(guardedRestoreProvider),
+        ownerScope: () async =>
+            (await OwnerBindingStore(broken.database).activeBinding())?.scope,
+        workDirectory: () async =>
+            Directory(p.join(broken.directory.path, 'privado')),
+        keyring: BackupKeyring(vault),
+      );
+      expect(await service.keysFor([uploaded.entry]), {
+        uploaded.entry.id: RemoteCopyKey.unknown,
+      });
+      final pending = await service
+          .prepareRestore(uploaded.entry)
+          .then<PendingDecryption>(
+            (_) => fail('debía pedir la clave'),
+            onError: (Object error) => (error as RecoveryKeyRequired).pending,
+          );
+      final prepared = await service.prepareWithRecoveryKey(
+        pending,
+        original.recoveryKey!.displayText,
+      );
+      await service.restorePrepared(prepared);
+      // El llavero dañado no se sobrescribió por su cuenta.
+      expect(vault.value, '{dañado');
+    });
+
+    test('si no se puede anotar la clave de una subida, la subida no se da por fallida', () async {
+      final server = _FakeServer();
+      final a = await owner('a');
+      final vault = _FailingWritesVault();
+      final keyring = BackupKeyring(vault);
+      final key = await keyring.pendingKey();
+      await keyring.confirmPending(key.displayText);
+      vault.failWrites = true;
+      final service = RemoteBackupService(
+        api: server.api,
+        access: () async => VerifiedAccess(
+          accessToken: _token,
+          scope: memberA,
+          obtainedAt: DateTime.now(),
+        ),
+        backups: a.container.read(backupServiceProvider),
+        restorer: a.container.read(guardedRestoreProvider),
+        ownerScope: () async =>
+            (await OwnerBindingStore(a.database).activeBinding())?.scope,
+        workDirectory: () async =>
+            Directory(p.join(a.directory.path, 'privado')),
+        keyring: keyring,
+      );
+      final result = await service.uploadNew();
+      expect(server.stored, hasLength(1));
+      expect(result.export.warnings.last, contains('no pudo anotar'));
     });
 
     test('cambiar de sesión no toca el llavero ni las copias', () async {

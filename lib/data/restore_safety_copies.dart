@@ -139,6 +139,16 @@ class RestoreSafetyCopies {
   /// éstas quedan fuera de la conversión a «interrumpida».
   final Set<String> _inProcess = {};
 
+  /// Las operaciones sobre el registro se encadenan: un mantenimiento lanzado
+  /// por la interfaz nunca pisa la escritura de una restauración en curso.
+  Future<void> _tail = Future.value();
+
+  Future<T> _serial<T>(Future<T> Function() run) {
+    final result = _tail.then((_) => run());
+    _tail = result.then((_) {}, onError: (Object _) {});
+    return result;
+  }
+
   static const _registryName = 'registro.json';
   static const legacyMarker = '.previo-';
 
@@ -186,11 +196,11 @@ class RestoreSafetyCopies {
   }
 
   /// Todas las entradas, de la más reciente a la más antigua.
-  Future<List<SafetyCopyEntry>> entries() async {
+  Future<List<SafetyCopyEntry>> entries() => _serial(() async {
     final list = await _load();
     list.sort((a, b) => b.createdAt.compareTo(a.createdAt));
     return list;
-  }
+  });
 
   /// ¿Se puede leer el registro?
   Future<bool> registryReadable() async => await _tryLoad() != null;
@@ -198,17 +208,23 @@ class RestoreSafetyCopies {
   /// Comprueba que se puede empezar otra restauración y aplica antes el
   /// mantenimiento. Lanza [RestoreBlockedException] sin tocar nada si hay
   /// una copia protegida sin resolver o el registro es ilegible.
-  Future<void> ensureCanStartRestore() async {
-    await maintain();
+  Future<void> ensureCanStartRestore() => _serial(() async {
+    await _maintain();
     final list = await _load();
-    if (list.any((e) => e.state == SafetyCopyState.interrupted)) {
+    // También una en preparación que no es de una restauración en curso en
+    // este proceso: su paso a interrumpida pudo no guardarse.
+    if (list.any(
+      (e) =>
+          e.state == SafetyCopyState.interrupted ||
+          (e.state == SafetyCopyState.preparing && !_inProcess.contains(e.id)),
+    )) {
       throw RestoreBlockedException.unresolved;
     }
-  }
+  });
 
   /// Registra la copia **antes** de escribirla: si el proceso muere a mitad,
   /// la entrada ya existe y queda protegida.
-  Future<SafetyCopySlot> begin() async {
+  Future<SafetyCopySlot> begin() => _serial(() async {
     final list = await _load();
     final now = _clock().toUtc();
     var id =
@@ -229,16 +245,16 @@ class RestoreSafetyCopies {
       p.join(dir, entry.databaseName),
       p.join(dir, entry.invoicesName),
     );
-  }
+  });
 
   /// La preparación falló antes de sustituir nada: la copia sobra.
-  Future<void> discard(SafetyCopySlot slot) async {
+  Future<void> discard(SafetyCopySlot slot) => _serial(() async {
     await _removeFiles(slot.entry);
     final list = await _load();
     list.removeWhere((e) => e.id == slot.entry.id);
     await _save(list);
     _inProcess.remove(slot.entry.id);
-  }
+  });
 
   Future<void> _resolve(String id, SafetyCopyState state) async {
     final list = await _load();
@@ -254,34 +270,43 @@ class RestoreSafetyCopies {
   }
 
   Future<void> markFinalized(SafetyCopySlot slot) =>
-      _resolve(slot.entry.id, SafetyCopyState.finalized);
+      _serial(() => _resolve(slot.entry.id, SafetyCopyState.finalized));
 
   Future<void> markRolledBack(SafetyCopySlot slot) =>
-      _resolve(slot.entry.id, SafetyCopyState.rolledBack);
+      _serial(() => _resolve(slot.entry.id, SafetyCopyState.rolledBack));
 
   /// El rollback falló: la copia es indispensable.
-  Future<void> markInterrupted(SafetyCopySlot slot) async {
-    final list = await _load();
-    for (final entry in list) {
-      if (entry.id == slot.entry.id) entry.state = SafetyCopyState.interrupted;
+  /// Aunque no se pueda guardar el estado, deja de contar como restauración
+  /// en curso: así bloquea igualmente la siguiente ([ensureCanStartRestore]).
+  Future<void> markInterrupted(SafetyCopySlot slot) => _serial(() async {
+    try {
+      final list = await _load();
+      for (final entry in list) {
+        if (entry.id == slot.entry.id) {
+          entry.state = SafetyCopyState.interrupted;
+        }
+      }
+      await _save(list);
+    } finally {
+      _inProcess.remove(slot.entry.id);
     }
-    await _save(list);
-    _inProcess.remove(slot.entry.id);
-  }
+  });
 
   /// Acción expresa del titular sobre una copia interrumpida: mantiene los
   /// datos actuales. La copia pasa a las reglas normales desde ahora.
-  Future<void> keepCurrentData(String id) async {
+  Future<void> keepCurrentData(String id) => _serial(() async {
     final list = await _load();
     final entry = list.where((e) => e.id == id).firstOrNull;
     if (entry == null || entry.state != SafetyCopyState.interrupted) return;
     await _resolve(id, SafetyCopyState.rolledBack);
-  }
+  });
 
   /// Oportunidad de mantenimiento: al abrir los respaldos, antes y después de
   /// restaurar, y en la limpieza expresa. Con el registro ilegible no hace
   /// nada (no se sabe qué es indispensable).
-  Future<SafetyCopyMaintenance> maintain() async {
+  Future<SafetyCopyMaintenance> maintain() => _serial(_maintain);
+
+  Future<SafetyCopyMaintenance> _maintain() async {
     final list = await _tryLoad();
     if (list == null) return const SafetyCopyMaintenance();
     final now = _clock().toUtc();
@@ -363,11 +388,18 @@ class RestoreSafetyCopies {
     final dir = await directory();
     if (list != null && await dir.exists()) {
       final known = {
-        _registryName,
-        for (final e in list) ...[e.databaseName, e.invoicesName],
+        for (final e in list) ...[
+          e.databaseName,
+          '${e.databaseName}.part',
+          e.invoicesName,
+        ],
       };
       await for (final entity in dir.list()) {
-        if (!known.contains(p.basename(entity.path))) found.add(entity);
+        final name = p.basename(entity.path);
+        // El registro, su temporal y los registros apartados (la única pista
+        // de qué copias eran indispensables) nunca se ofrecen para borrar.
+        if (known.contains(name) || name.startsWith(_registryName)) continue;
+        found.add(entity);
       }
     }
     return found;
@@ -384,11 +416,11 @@ class RestoreSafetyCopies {
   /// El registro era ilegible y la persona decide empezar uno nuevo: se
   /// aparta (no se borra) y todas las copias pasan a «sin entrada», que
   /// nunca se borran solas.
-  Future<void> setAsideUnreadableRegistry() async {
+  Future<void> setAsideUnreadableRegistry() => _serial(() async {
     if (await _tryLoad() != null) return;
     final file = await _registry();
     final stamp = _clock().toUtc().toIso8601String().replaceAll(':', '-');
     await file.rename('${file.path}.ilegible-$stamp');
     await _save([]);
-  }
+  });
 }

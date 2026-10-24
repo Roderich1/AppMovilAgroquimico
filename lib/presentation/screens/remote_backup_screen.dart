@@ -46,6 +46,8 @@ class _RemoteBackupScreenState extends ConsumerState<RemoteBackupScreen> {
   void initState() {
     super.initState();
     _loadKeyring();
+    // Restos de una subida o preparación que no terminó (la app se cerró).
+    ref.read(remoteBackupServiceProvider).cleanupLeftovers();
     // Abrir la sección de respaldos es una oportunidad de mantenimiento de
     // las copias previas (F08-ADR-003 §7.2).
     _loadPrevio(maintain: true);
@@ -324,14 +326,34 @@ class _RemoteBackupScreenState extends ConsumerState<RemoteBackupScreen> {
     });
   }
 
+  Future<void> _replaceKeyring() async {
+    final confirmed = await confirmDestructiveAction(
+      context,
+      title: '¿Empezar un llavero nuevo?',
+      detail:
+          'El llavero de claves de este teléfono no se puede leer. Si empieza '
+          'uno nuevo, las claves que tenía se pierden: para restaurar copias '
+          'antiguas tendrá que escribir su clave de recuperación anotada. Sus '
+          'copias del servidor no cambian.',
+      confirmLabel: 'Empezar uno nuevo',
+    );
+    if (!confirmed) return;
+    await _run(() async {
+      await ref.read(backupKeyringProvider).replaceUnreadable();
+      await _loadKeyring();
+    });
+  }
+
   Future<void> _deleteUnregistered(FileSystemEntity entity) async {
     final confirmed = await confirmDestructiveAction(
       context,
-      title: '¿Borrar esta copia antigua?',
+      title: '¿Borrar esta copia sin registro?',
       detail:
-          '${p.basename(entity.path)}\n\nEs una copia de los datos anteriores '
-          'a una restauración, de una versión previa de la aplicación. No se '
-          'sabe si todavía la necesita; sólo se borra porque usted lo pide.',
+          '${p.basename(entity.path)}\n\nEs una copia de sus datos anteriores '
+          'a alguna restauración que no figura en el registro: de una versión '
+          'previa de la aplicación o de un registro que se apartó por estar '
+          'dañado. No se sabe si todavía la necesita; sólo se borra porque '
+          'usted lo pide.',
       confirmLabel: 'Borrar',
     );
     if (!confirmed) return;
@@ -413,7 +435,12 @@ class _RemoteBackupScreenState extends ConsumerState<RemoteBackupScreen> {
                     onPressed: _busy ? null : _rotate,
                     child: const Text('Cambiar la clave'),
                   ),
-                ] else if (_keyringProblem == null)
+                ] else if (_keyringProblem != null)
+                  OutlinedButton(
+                    onPressed: _busy ? null : _replaceKeyring,
+                    child: const Text('Empezar un llavero nuevo'),
+                  )
+                else
                   FilledButton(
                     onPressed: _busy ? null : _openKeyScreen,
                     child: Text(
@@ -506,7 +533,7 @@ class _RemoteBackupScreenState extends ConsumerState<RemoteBackupScreen> {
             child: ListTile(
               leading: const Icon(Icons.inventory_outlined),
               title: Text(p.basename(entity.path)),
-              subtitle: const Text('Copia antigua sin registro'),
+              subtitle: const Text('Copia sin registro'),
               trailing: IconButton(
                 tooltip: 'Borrar',
                 onPressed: _busy ? null : () => _deleteUnregistered(entity),

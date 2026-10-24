@@ -211,6 +211,28 @@ void main() {
       expect(legacy.existsSync(), isFalse);
     });
 
+    test('una en preparación que no es de este proceso bloquea aunque no se haya guardado como interrumpida', () async {
+      final first = copies();
+      await first.begin();
+      // Otra instancia del mismo proceso lógico que no la empezó (o un
+      // guardado de «interrumpida» que falló): no admite otra restauración.
+      final other = copies();
+      await expectLater(
+        other.ensureCanStartRestore(),
+        throwsA(same(RestoreBlockedException.unresolved)),
+      );
+    });
+
+    test('el registro, su temporal, los apartados y los .part propios no se ofrecen para borrar', () async {
+      final registry = copies();
+      final slot = await finishedAt(registry, now);
+      await File(p.join(previo().path, 'registro.json.tmp')).writeAsString('x');
+      await File(p.join(previo().path, 'registro.json.ilegible-2026-10-01'))
+          .writeAsString('x');
+      await File('${slot.databasePath}.part').writeAsString('x');
+      expect(await registry.unregistered(), isEmpty);
+    });
+
     test(
       'registro ilegible: no se limpia nada y no se restaura hasta apartarlo',
       () async {

@@ -98,3 +98,19 @@ No se fija ningún tiempo ni consumo para Android: se mide en el ensayo del tel�
 - **Mostrar o cambiar la clave de nuevo:** en esta rama **falla cerrado** a propósito (`backupKeyAuthorizerProvider`). Se conecta con la credencial local de A en la composición (`comp/f01-f08-mob`). No es un defecto del ensayo.
 - **La base activa en el auto-backup de Google:** sigue incluida. Es una decisión pendiente de Roderich (CONTROL §8b).
 - **Exportación local manual:** sigue sin cifrar (EVO-001).
+- **La pantalla que muestra la clave no usa `FLAG_SECURE`:** la miniatura de «recientes» y las capturas de pantalla pueden conservarla. Hace falta un canal en `MainActivity` (archivo general de A): queda como limitación declarada y propuesta.
+
+## 4. Revisión de defectos de la implementación (agente de revisión de C, sólo lectura; no es una revisión de B ni independiente)
+
+Corregidos en el commit siguiente a `6190a05`, con su prueba de regresión:
+
+1. **Importante.** Un llavero ilegible (JSON dañado o Keystore invalidado) bloqueaba restaurar y listar, y no había salida. Ahora el llavero ilegible se trata como «no tengo la clave»: se pide la clave escrita; las copias se listan como «pedirá la clave»; la lectura que falla cuenta como ilegible, no como vacía; y hay una acción expresa, «Empezar un llavero nuevo», con aviso.
+2. **Menor.** Una copia en preparación cuyo paso a interrumpida no se pudo guardar ya no deja restaurar otra: bloquea cualquier `preparing` ajena al proceso en curso.
+3. **Menor.** El registro, su `.tmp`, los registros apartados y los `.part` propios ya no se ofrecen como «copias sin registro». El texto del diálogo se ajustó.
+4. **Menor.** Las operaciones del registro `.previo` se serializan.
+5. **Menor.** Si no se puede anotar la clave de una subida que ya llegó al servidor, la subida no se da por fallida: se avisa.
+6. **Menor.** Los restos de la carpeta de trabajo remota se limpian al abrir la pantalla. `FLAG_SECURE` queda como limitación (§3).
+
+Además, una observación de diseño: la cota de 2 cuenta juntas las `finalized` y las `rolledBack`. Dos restauraciones fallidas seguidas retiran la copia previa de la última que terminó, aunque las `rolledBack` dupliquen los datos actuales. Es lo ratificado; se informa a Roderich.
+
+Archivos ejecutados tras las correcciones: keyring 10, previo 17 y remoto 43 (70 en total, PASS), más 130 de restauración, cifrado, pantalla y borradores (PASS). `flutter analyze`: limpio.

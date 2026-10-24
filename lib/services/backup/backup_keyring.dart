@@ -201,7 +201,17 @@ class BackupKeyring {
     return result;
   }
 
-  Future<_Keyring> _load() async => _Keyring.decode(await _vault.read());
+  /// Un almacén que no se puede leer (contenido dañado o Keystore
+  /// invalidado) cuenta como ilegible: nunca como vacío.
+  Future<_Keyring> _load() async {
+    final String? raw;
+    try {
+      raw = await _vault.read();
+    } on Object {
+      throw const BackupKeyringUnreadable();
+    }
+    return _Keyring.decode(raw);
+  }
 
   Future<void> _save(_Keyring keyring) => _vault.write(keyring.encode());
 
