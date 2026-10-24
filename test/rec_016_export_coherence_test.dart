@@ -133,7 +133,10 @@ void main() {
     await apply(grande, campaign1, day(2, 1), glifosato, 4000);
     await apply(grande, campaign1, day(2, 15), paraquat, 1000);
     final a3 = await apply(grande, campaign1, day(3, 1), glifosato, 500);
-    await repo.reverseApplication(a3, reason: 'Registrada por error');
+    await repo.reverseApplicationUnauditedForTesting(
+      a3,
+      reason: 'Registrada por error',
+    );
     await apply(chico, campaign1, day(3, 10), glifosato, 500);
 
     await repo.closeCampaign(campaign1, end: day(5, 31));

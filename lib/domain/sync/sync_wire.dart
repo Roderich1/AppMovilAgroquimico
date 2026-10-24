@@ -32,6 +32,9 @@ enum AckOutcome {
   rejected('REJECTED', 'MOVE_TO_TERMINAL_FAILURE', {
     'IDEMPOTENCY_MISMATCH',
     'CAMPAIGN_NOT_OPEN',
+    // F07 (contrato de B, F07_SEALED_HISTORY_CONTRACT.md §7): publicación
+    // nueva a una campaña sellada. Terminal, sin reintento ni reasignación.
+    'CAMPAIGN_SEALED',
     'REFERENCE_UNAVAILABLE',
     'UNIT_INCOMPATIBLE',
     'QUANTITY_INVALID',

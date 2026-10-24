@@ -183,7 +183,10 @@ void main() {
           (await db.rawQuery('PRAGMA user_version')).single.values.single,
           AppDatabase.schemaVersion,
         );
-        final after = await dumpTables(db, except: syncTablesV9.toSet());
+        final after = await dumpTables(
+          db,
+          except: {...syncTablesV9, ...reviewAuditTablesV11},
+        );
         if (version == 8) {
           expect(after, before);
         } else {

@@ -55,14 +55,24 @@ LocalSessionCondition sessionConditionOf(
 class InstallationAccessController extends Notifier<InstallationAccessState?> {
   OwnerScope? _scope;
   bool _scopeLoaded = false;
+  OwnerScope? _boundScope;
 
   /// Ámbito de la sesión legible vigente (para vincular el titular).
   OwnerScope? get sessionScope => _scope;
+
+  /// F03: Member y tenant del vínculo de titular activo, de la última
+  /// evaluación (null si no hay titular). Una activación o «Recuperar acceso»
+  /// exige este ámbito antes de guardar una sesión.
+  OwnerScope? get boundScope => _boundScope;
 
   @override
   InstallationAccessState? build() {
     ref.listen<bool>(runtimeSecureCommitCompletedProvider, (_, done) {
       if (done) refresh(rereadSession: true);
+    });
+    // F03: a recovered or signed-out session changes the scope to classify.
+    ref.listen(runtimeSessionTransitionProvider, (_, next) {
+      if (next != null) refresh(rereadSession: true);
     });
     Future.microtask(refresh);
     return null;
@@ -121,6 +131,7 @@ class InstallationAccessController extends Notifier<InstallationAccessState?> {
       sessionScope: _scope,
       currentInstallationRef: currentRef,
     );
+    _boundScope = inputs.activeBinding;
     final next = classifyInstallation(inputs);
     // El mismo Member reactivó en otra instalación: se registra ésta. No toca
     // el vínculo ni ninguna operación.
@@ -144,14 +155,19 @@ final installationAccessProvider =
 
 /// Estado fijo para pruebas y para fijar un estado conocido.
 class FixedInstallationAccess extends InstallationAccessController {
-  FixedInstallationAccess(this.fixed, {OwnerScope? scope})
-    : _fixedScope = scope;
+  FixedInstallationAccess(this.fixed, {OwnerScope? scope, OwnerScope? bound})
+    : _fixedScope = scope,
+      _fixedBound = bound;
 
   final InstallationAccessState fixed;
   final OwnerScope? _fixedScope;
+  final OwnerScope? _fixedBound;
 
   @override
   OwnerScope? get sessionScope => _fixedScope;
+
+  @override
+  OwnerScope? get boundScope => _fixedBound;
 
   @override
   InstallationAccessState? build() => fixed;

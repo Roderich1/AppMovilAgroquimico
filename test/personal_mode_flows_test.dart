@@ -521,7 +521,7 @@ void main() {
       final before = await dumpTables(db);
 
       await expectLater(
-        h.repo.reverseApplication(relativeApplication),
+        h.repo.reverseApplicationUnauditedForTesting(relativeApplication),
         throwsA(isA<PersonalModeRestrictionException>()),
       );
       expect(await dumpTables(db), before);
@@ -530,7 +530,7 @@ void main() {
         isTrue,
       );
 
-      await h.repo.reverseApplication(ownApplication);
+      await h.repo.reverseApplicationUnauditedForTesting(ownApplication);
       expect(
         (await OperationModeStore.thirdPartyActivity(db, h.titular)).isEmpty,
         isTrue,
@@ -554,14 +554,14 @@ void main() {
       final before = await dumpTables(db);
 
       await expectLater(
-        h.repo.reverseTransfer(transfer),
+        h.repo.reverseTransferUnauditedForTesting(transfer),
         throwsA(isA<PersonalModeRestrictionException>()),
       );
       expect(await dumpTables(db), before);
 
       // En compartido la misma reversión sigue disponible.
       await s.modes.apply(OperationMode.shared, confirmed: true);
-      await h.repo.reverseTransfer(transfer);
+      await h.repo.reverseTransferUnauditedForTesting(transfer);
       expect((await stockByPersonProduct(db))[(h.relative, h.product)], 3000);
     });
   });

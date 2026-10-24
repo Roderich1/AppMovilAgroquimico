@@ -55,7 +55,7 @@ void main() {
       productId: product,
       quantityBase: 4000,
     );
-    await repo.reverseTransfer(transfer);
+    await repo.reverseTransferUnauditedForTesting(transfer);
 
     // Tras revertir la transferencia, el origen tiene de nuevo las 10000.
     final db = await database.database;
@@ -69,7 +69,10 @@ void main() {
     expect(await saldo(owner), 10000);
     expect(await saldo(receiver), 0);
 
-    await repo.reversePurchase(purchase, reason: 'Error de registro');
+    await repo.reversePurchaseUnauditedForTesting(
+      purchase,
+      reason: 'Error de registro',
+    );
 
     final compra = (await db.query(
       'purchases',
@@ -153,7 +156,7 @@ void main() {
           TransferItemDraft(productId: atrazina, quantityBase: 1000),
         ],
       );
-      await repo.reverseTransfer(transfer);
+      await repo.reverseTransferUnauditedForTesting(transfer);
       final db = await database.database;
       final chargesBefore = await db.query(
         'account_transactions',
@@ -161,7 +164,7 @@ void main() {
       );
       expect(chargesBefore, hasLength(1));
 
-      await repo.reversePurchase(purchase, reason: 'Error');
+      await repo.reversePurchaseUnauditedForTesting(purchase, reason: 'Error');
 
       expect(
         (await stock()).values.every((saldo) => saldo == 0),
@@ -217,7 +220,7 @@ void main() {
       // Segundo intento: rechazado y sin ningún efecto.
       final after = await dumpTables(db);
       await expectLater(
-        repo.reversePurchase(purchase),
+        repo.reversePurchaseUnauditedForTesting(purchase),
         throwsA(isA<BusinessRuleException>()),
       );
       expect(await dumpTables(db), after);
@@ -237,11 +240,11 @@ void main() {
         productId: glifosato,
         quantityBase: 2000,
       );
-      await repo.reverseTransfer(second);
-      await repo.reverseTransfer(first);
+      await repo.reverseTransferUnauditedForTesting(second);
+      await repo.reverseTransferUnauditedForTesting(first);
       expect((await stock())[(a, glifosato)], 10000);
 
-      await repo.reversePurchase(purchase);
+      await repo.reversePurchaseUnauditedForTesting(purchase);
 
       expect((await stock()).values.every((saldo) => saldo == 0), isTrue);
     });
@@ -260,7 +263,7 @@ void main() {
         final before = await dumpTables(db);
 
         await expectLater(
-          repo.reversePurchase(purchase),
+          repo.reversePurchaseUnauditedForTesting(purchase),
           throwsA(isA<BusinessRuleException>()),
         );
         expect(await dumpTables(db), before);
@@ -277,7 +280,7 @@ void main() {
           productId: glifosato,
           quantityBase: 4000,
         );
-        await repo.reverseTransfer(transfer);
+        await repo.reverseTransferUnauditedForTesting(transfer);
         final db = await database.database;
         // Estado inconsistente simulado: un movimiento sobre el lote anulado.
         final reversed = (await db.query(
@@ -297,7 +300,7 @@ void main() {
         final before = await dumpTables(db);
 
         await expectLater(
-          repo.reversePurchase(purchase),
+          repo.reversePurchaseUnauditedForTesting(purchase),
           throwsA(
             isA<BusinessRuleException>().having(
               (e) => e.message,

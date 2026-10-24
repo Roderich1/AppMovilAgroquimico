@@ -240,6 +240,25 @@ void main() {
       await pickPastDay(tester, tile, previousMonth: choice.previousMonth);
       final before = await dump(tester, h.database);
       await confirm(tester, button);
+      // RF-03: se explica la campaña cerrada y se ofrece registrarla para
+      // revisión; cancelar no escribe nada (ni un borrador tardío).
+      final explanation = find.byKey(const Key('late-explanation'));
+      expect(explanation, findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byType(AlertDialog),
+          matching: find.textContaining('campaña cerrada'),
+        ),
+        findsWidgets,
+      );
+      await tester.tap(
+        find.descendant(
+          of: find.byType(AlertDialog),
+          matching: find.text('Cancelar'),
+        ),
+      );
+      await settle(tester);
+      expect(explanation, findsNothing);
       expect(find.textContaining('campaña cerrada'), findsOneWidget);
       expect(find.byKey(button), findsOneWidget);
       expect(await dump(tester, h.database), before);

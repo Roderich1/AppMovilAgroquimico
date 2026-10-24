@@ -279,7 +279,7 @@ void main() {
     'una reversión aparece igual en el camino legacy y en el tipado',
     () async {
       final applications = await repo.applications();
-      await repo.reverseApplication(
+      await repo.reverseApplicationUnauditedForTesting(
         applications.first['id']! as int,
         reason: 'prueba',
       );
