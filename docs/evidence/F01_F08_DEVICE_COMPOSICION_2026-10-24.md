@@ -93,3 +93,34 @@ No se capturó ni registró ninguna contraseña ni PIN. Las contraseñas eran de
 - No se ejecutaron un Auto Backup ni un D2D reales.
 - B2 real (#151) no se usó: el almacenamiento era el disco del Backend desechable.
 - RF-03, RF-13 y F08 **no** se declaran cumplidos por este ensayo.
+
+## Segunda ronda: composición con la corrección del PIN (2026-10-24, 09:40–10:10 -04:00)
+
+Tras aprobarse los deltas D1 y D2, se repitió el ensayo con:
+- **Mobile** `comp/f01-f08-mob` `f7fbfd71e6e7b6e24fdbae84d8befd4e95d4075f`. Su árbol es igual al de #144 `d6d9c8c`, que incluye `00cc67b` de #143. CI run 40097786748: success, 1808 pruebas pasan y 4 se omiten por diseño.
+- **Backend** `comp/f01-f08-be` `d35cd25`. Respecto a `fe0c26e` sólo cambia un spec, así que el runtime es el mismo `dist`.
+- **APK** `.f01f08`, SHA-256 `99e632eedb6ec8c784b5a851d5dc63aa141bc48a24467af7b62b39ad9d3add2f`, igual al instalado. Se instaló con `install -r` y después `pm clear` sólo del paquete aislado.
+- **Entorno nuevo**: base vacía, mismo teléfono y mismo operador.
+
+**Los PIN** no aparecieron en ningún comando ni salida. Los generó en memoria un proceso local (`127.0.0.1:3149`): uno inicial, uno para el restablecimiento y uno erróneo. Ese proceso sólo los teclea en el teléfono, y al terminar los borró y se detuvo.
+
+| # | Caso | Resultado | Lo observado |
+|---|---|---|---|
+| D3a | Acreditar al titular y enrolar el PIN | **PASS** | `login` 200 y `logout` 204. Después «Guardar PIN» y «PIN del titular configurado. Funciona sin conexión» |
+| D3b | Restablecer el PIN en línea | **PASS** | Otra vez `login` 200 y `logout` 204, y un PIN nuevo |
+| D3c | PIN anterior tras el restablecimiento | **PASS** | «PIN incorrecto» al ver la clave; el nuevo sí la muestra. Una autorización emitida antes del restablecimiento y conservada no se puede provocar desde la UI: está cubierta en host (F03 §8) |
+| D6d | Ver la clave con el PIN | **PASS** | Con un PIN erróneo: «PIN incorrecto». Con el correcto: la clave en una ventana con `fl=SECURE` y `screencap` de 0 bytes. Tras ir a Inicio y volver sigue protegida; al cerrar el diálogo, `SECURE` desaparece y la captura vuelve (10 368 016 bytes). La única línea con la clave quedó oculta por el filtro |
+| D6e | Cambiar la clave con el PIN y cancelar | **PASS** | La pantalla de cambio, protegida, y «Cancelar el cambio (se mantiene la clave actual)». La copia subida antes sigue «cifrada con su clave actual» |
+| D4a | Revertir una compra con motivo y PIN | **PASS** | La compra queda «Revertida · Autorizada por el titular con el PIN de este teléfono · <motivo>», también tras reabrir la app |
+| | | | `reversal_audit`: `PURCHASE`, motivo, actor (persona, vínculo, Member y tenant), `actor_method=LOCAL_PIN` y la referencia del enrolamiento; 2 efectos y la compra en `REVERSED` |
+| D4b | Doble reversión | **PASS (UI)** | La compra revertida ya no ofrece menú. El rechazo en el repositorio lo cubren las pruebas de host (`rec_050`) |
+| D5a | Compra con fecha de una campaña cerrada | **PASS (datos)** / **FAIL (mensaje)** | Diálogo «Fecha de una campaña cerrada» con motivo, y «Registrar para revisión». En la base: un borrador `PURCHASE`, sin compra ni lote nuevos, y la lista «Pendiente de revisión: sin efectos todavía». **Pero** la lista de compras anunció «Compra multiproducto confirmada; lotes e inventario creados». Corregido en `967006e`, todavía sin publicar |
+| D5b | Confirmar con el PIN | **PASS** | El borrador pasa a `CONFIRMED` con `LOCAL_PIN`; se crea la compra 2 en la campaña cerrada (05/10/2026, 1200 Bs). Ninguna petición a la red, así que no se publicó nada |
+| D5c | Rechazar con el PIN | **PASS** | Segundo borrador (06/10/2026) en `REJECTED` y «Rechazada sin efectos». No se creó ninguna compra (siguen 2) |
+
+**Siguen en NOT_RUN:**
+- D1 y D2 (recuperar acceso con una cuarentena real);
+- D7e (pausa y liberación, sin Sync vinculado);
+- D10 (Web).
+
+**Al terminar**, los ajustes del teléfono volvieron a sus valores iniciales y el entorno quedó desmontado (sin contenedor ni puertos 3140, 3141, 3149 o 55470), sin limpiezas generales.

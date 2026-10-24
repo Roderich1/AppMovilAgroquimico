@@ -347,8 +347,10 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
       if (!mounted) return;
       if (captured) {
         setState(() => dirty = false);
+        // Sólo quedó pendiente de revisión: false, para que la lista no
+        // anuncie una operación confirmada (DEVICE del 2026-10-24).
         WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) Navigator.of(context).pop(true);
+          if (mounted) Navigator.of(context).pop(false);
         });
       } else {
         showError(context, error);
