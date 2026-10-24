@@ -9,6 +9,7 @@ import 'package:flutter/foundation.dart' show visibleForTesting;
 import '../domain/campaign_calendar.dart';
 import '../domain/installation_access.dart' show OwnerScope;
 import '../domain/sync/operation_id.dart' show newOperationId;
+import 'late_operation_codec.dart';
 import '../services/auth/local_owner_credential.dart';
 import '../domain/models.dart';
 import '../domain/money.dart';
@@ -104,6 +105,27 @@ typedef WriteContext = ({OperationMode mode, int? ownerPersonId});
 /// RF-13: responsable y fecha efectiva de la operación revertida, tal como
 /// estaban (la operación original no se reasigna).
 typedef OriginalOperation = ({int? personId, String? effectiveDate});
+
+/// RF-03: resultado de confirmar o rechazar un borrador tardío.
+enum LateResolutionOutcome { confirmed, rejected, conflict }
+
+/// Códigos de conflicto de una confirmación tardía que no se aplicó.
+abstract final class LateConflict {
+  /// El cupo temporal de los lotes no alcanza (§2.3).
+  static const stockUnavailable = 'LATE_STOCK_UNAVAILABLE';
+
+  /// La fecha ya no clasifica en la campaña capturada (§2.3, I4 de B).
+  static const campaignChanged = 'LATE_CAMPAIGN_CHANGED';
+}
+
+class LateResolution {
+  const LateResolution(this.outcome, {this.operationId, this.conflictCode, this.message});
+
+  final LateResolutionOutcome outcome;
+  final int? operationId;
+  final String? conflictCode;
+  final String? message;
+}
 
 /// RF-13: las filas compensatorias que escribe o anula una reversión, para
 /// referenciarlas en `reversal_audit_effects`.
@@ -902,6 +924,24 @@ class AgroRepository {
   }
 
   Future<int> confirmPurchase(PurchaseDraft draft) async {
+    final purchaseTotal = _validatePurchaseDraft(draft);
+    return _write((txn, context) async {
+      _requireOwnerInPersonal(context, [
+        for (final item in draft.items)
+          for (final allocation in item.allocations) allocation.personId,
+      ], 'En inventario propio la compra se asigna sólo al titular.');
+      await _ensureCampaignActive(txn, draft.campaignId);
+      await _ensureEffectiveDateInCampaign(
+        txn,
+        draft.campaignId,
+        draft.purchaseDate,
+      );
+      return _insertPurchase(txn, draft, purchaseTotal);
+    });
+  }
+
+  /// Validaciones de una compra que no dependen de la base. Devuelve el total.
+  int _validatePurchaseDraft(PurchaseDraft draft) {
     if (draft.items.isEmpty)
       throw BusinessRuleException('La compra necesita al menos un producto.');
     if (draft.items.map((item) => item.productId).toSet().length !=
@@ -943,112 +983,110 @@ class AgroRepository {
       );
     }
 
-    return _write((txn, context) async {
-      _requireOwnerInPersonal(context, [
-        for (final item in draft.items)
-          for (final allocation in item.allocations) allocation.personId,
-      ], 'En inventario propio la compra se asigna sólo al titular.');
-      await _ensureCampaignActive(txn, draft.campaignId);
-      await _ensureEffectiveDateInCampaign(
-        txn,
-        draft.campaignId,
-        draft.purchaseDate,
+    return purchaseTotal;
+  }
+
+  /// Escribe una compra ya validada en [draft.campaignId] (ordinaria o, en
+  /// RF-03, una tardía confirmada en su campaña cerrada).
+  Future<int> _insertPurchase(
+    Transaction txn,
+    PurchaseDraft draft,
+    int purchaseTotal,
+  ) async {
+    final purchaseId = await txn.insert('purchases', {
+      'supplier_id': draft.supplierId,
+      'campaign_id': draft.campaignId,
+      'purchase_date': _date(draft.purchaseDate),
+      'invoice_number': draft.invoiceNumber,
+      'default_currency_code': draft.items.first.currency.code,
+      'default_exchange_rate_scaled': draft.items.first.exchangeRateScaled,
+      'exchange_rate_source': draft.exchangeRateSource?.code,
+      'exchange_rate_note': draft.exchangeRateNote,
+      'total_bob_minor': purchaseTotal,
+      'status': 'CONFIRMED',
+      'notes': draft.notes,
+      'invoice_image_path': draft.invoiceImagePath,
+    });
+    for (final item in draft.items) {
+      final unitBob = convertedUnitPriceBobMinor(
+        item.originalUnitPriceMinor,
+        item.exchangeRateScaled,
       );
-      final purchaseId = await txn.insert('purchases', {
-        'supplier_id': draft.supplierId,
-        'campaign_id': draft.campaignId,
-        'purchase_date': _date(draft.purchaseDate),
-        'invoice_number': draft.invoiceNumber,
-        'default_currency_code': draft.items.first.currency.code,
-        'default_exchange_rate_scaled': draft.items.first.exchangeRateScaled,
-        'exchange_rate_source': draft.exchangeRateSource?.code,
-        'exchange_rate_note': draft.exchangeRateNote,
-        'total_bob_minor': purchaseTotal,
-        'status': 'CONFIRMED',
-        'notes': draft.notes,
-        'invoice_image_path': draft.invoiceImagePath,
+      final originalSubtotal = divideRoundedHalfUp(
+        item.quantityBase * item.originalUnitPriceMinor,
+        baseUnitsPerMajor,
+      );
+      final bobSubtotal = subtotalMinor(
+        quantityBase: item.quantityBase,
+        unitPriceMinor: item.originalUnitPriceMinor,
+        fxScaled: item.exchangeRateScaled,
+      );
+      final purchaseItemId = await txn.insert('purchase_items', {
+        'purchase_id': purchaseId,
+        'product_id': item.productId,
+        'quantity_base': item.quantityBase,
+        'currency_code': item.currency.code,
+        'original_unit_price_minor': item.originalUnitPriceMinor,
+        'exchange_rate_scaled': item.exchangeRateScaled,
+        'converted_unit_price_bob_minor': unitBob,
+        'original_subtotal_minor': originalSubtotal,
+        'subtotal_bob_minor': bobSubtotal,
       });
-      for (final item in draft.items) {
-        final unitBob = convertedUnitPriceBobMinor(
-          item.originalUnitPriceMinor,
-          item.exchangeRateScaled,
+      for (final allocation in item.allocations) {
+        final person = (await txn.query(
+          'persons',
+          where: 'id = ?',
+          whereArgs: [allocation.personId],
+          limit: 1,
+        )).single;
+        final policy = person['settlement_policy']! as String;
+        final allocationCost = costForBaseQuantity(
+          allocation.quantityBase,
+          unitBob,
         );
-        final originalSubtotal = divideRoundedHalfUp(
-          item.quantityBase * item.originalUnitPriceMinor,
-          baseUnitsPerMajor,
-        );
-        final bobSubtotal = subtotalMinor(
-          quantityBase: item.quantityBase,
-          unitPriceMinor: item.originalUnitPriceMinor,
-          fxScaled: item.exchangeRateScaled,
-        );
-        final purchaseItemId = await txn.insert('purchase_items', {
-          'purchase_id': purchaseId,
+        final allocationId = await txn.insert('purchase_allocations', {
+          'purchase_item_id': purchaseItemId,
+          'person_id': allocation.personId,
+          'quantity_base': allocation.quantityBase,
+          'charge_policy_snapshot': policy,
+          'amount_bob_minor_if_allocation_charge':
+              policy == 'BY_PURCHASE_ALLOCATION' ? allocationCost : null,
+        });
+        final lotId = await txn.insert('inventory_lots', {
+          'purchase_item_id': purchaseItemId,
           'product_id': item.productId,
-          'quantity_base': item.quantityBase,
+          'owner_person_id': allocation.personId,
+          'acquired_date': _date(draft.purchaseDate),
+          'initial_quantity_base': allocation.quantityBase,
+          'unit_cost_bob_minor_per_major_unit': unitBob,
           'currency_code': item.currency.code,
           'original_unit_price_minor': item.originalUnitPriceMinor,
           'exchange_rate_scaled': item.exchangeRateScaled,
-          'converted_unit_price_bob_minor': unitBob,
-          'original_subtotal_minor': originalSubtotal,
-          'subtotal_bob_minor': bobSubtotal,
         });
-        for (final allocation in item.allocations) {
-          final person = (await txn.query(
-            'persons',
-            where: 'id = ?',
-            whereArgs: [allocation.personId],
-            limit: 1,
-          )).single;
-          final policy = person['settlement_policy']! as String;
-          final allocationCost = costForBaseQuantity(
-            allocation.quantityBase,
-            unitBob,
-          );
-          final allocationId = await txn.insert('purchase_allocations', {
-            'purchase_item_id': purchaseItemId,
+        await txn.insert('inventory_movements', {
+          'lot_id': lotId,
+          'product_id': item.productId,
+          'owner_person_id': allocation.personId,
+          'movement_date': _date(draft.purchaseDate),
+          'type': 'PURCHASE_IN',
+          'quantity_signed': allocation.quantityBase,
+          'reference_type': 'PURCHASE_ALLOCATION',
+          'reference_id': allocationId,
+        });
+        if (policy == 'BY_PURCHASE_ALLOCATION') {
+          await txn.insert('account_transactions', {
             'person_id': allocation.personId,
-            'quantity_base': allocation.quantityBase,
-            'charge_policy_snapshot': policy,
-            'amount_bob_minor_if_allocation_charge':
-                policy == 'BY_PURCHASE_ALLOCATION' ? allocationCost : null,
-          });
-          final lotId = await txn.insert('inventory_lots', {
-            'purchase_item_id': purchaseItemId,
-            'product_id': item.productId,
-            'owner_person_id': allocation.personId,
-            'acquired_date': _date(draft.purchaseDate),
-            'initial_quantity_base': allocation.quantityBase,
-            'unit_cost_bob_minor_per_major_unit': unitBob,
-            'currency_code': item.currency.code,
-            'original_unit_price_minor': item.originalUnitPriceMinor,
-            'exchange_rate_scaled': item.exchangeRateScaled,
-          });
-          await txn.insert('inventory_movements', {
-            'lot_id': lotId,
-            'product_id': item.productId,
-            'owner_person_id': allocation.personId,
-            'movement_date': _date(draft.purchaseDate),
-            'type': 'PURCHASE_IN',
-            'quantity_signed': allocation.quantityBase,
+            'campaign_id': draft.campaignId,
+            'transaction_date': _date(draft.purchaseDate),
+            'type': 'PURCHASE_ALLOCATION_CHARGE',
+            'amount_bob_minor_signed': allocationCost,
             'reference_type': 'PURCHASE_ALLOCATION',
             'reference_id': allocationId,
           });
-          if (policy == 'BY_PURCHASE_ALLOCATION') {
-            await txn.insert('account_transactions', {
-              'person_id': allocation.personId,
-              'campaign_id': draft.campaignId,
-              'transaction_date': _date(draft.purchaseDate),
-              'type': 'PURCHASE_ALLOCATION_CHARGE',
-              'amount_bob_minor_signed': allocationCost,
-              'reference_type': 'PURCHASE_ALLOCATION',
-              'reference_id': allocationId,
-            });
-          }
         }
       }
-      return purchaseId;
-    });
+    }
+    return purchaseId;
   }
 
   Future<int> addProviderPayment({
@@ -1123,136 +1161,638 @@ class AgroRepository {
       if (draft.planId != null) {
         await _ensurePlanNotApplied(txn, draft.planId!);
       }
-      final person = (await txn.query(
-        'persons',
-        where: 'id = ?',
-        whereArgs: [draft.personId],
-        limit: 1,
-      )).single;
-      final policy = person['settlement_policy']! as String;
-      final applicationId = await txn.insert('applications', {
-        'farm_id': draft.farmId,
-        'person_id': draft.personId,
-        'campaign_id': draft.campaignId,
-        'plan_id': draft.planId,
-        'applied_at': _date(draft.appliedAt),
-        'status': 'CONFIRMED',
-        'treated_area_m2':
-            draft.treatedAreaM2 ?? draft.lines.first.treatedAreaM2,
-        'notes': draft.notes,
-      });
-      var totalCost = 0;
-      for (final line in draft.lines) {
-        if (line.quantityBase <= 0)
-          throw BusinessRuleException(
-            'La cantidad aplicada debe ser mayor a cero.',
-          );
-        final lots = await txn.rawQuery(
-          '''
+      return _insertApplication(txn, draft, lotsFor: _lotsAvailableNow);
+    });
+  }
+
+  /// Lotes con saldo hoy, en orden FIFO (registro ordinario).
+  Future<List<Map<String, Object?>>> _lotsAvailableNow(
+    DatabaseExecutor txn,
+    int productId,
+    int personId,
+  ) => txn.rawQuery(
+    '''
           SELECT l.*, COALESCE(SUM(m.quantity_signed), 0) AS available
           FROM inventory_lots l JOIN inventory_movements m ON m.lot_id = l.id
           WHERE l.product_id = ? AND l.owner_person_id = ? AND l.reversed_at IS NULL
           GROUP BY l.id HAVING available > 0 ORDER BY l.acquired_date, l.id
         ''',
-          [line.productId, draft.personId],
+    [productId, personId],
+  );
+
+  /// Escribe una aplicación ya validada consumiendo de [lotsFor] (FIFO; cada
+  /// fila trae su cupo en `available`).
+  Future<int> _insertApplication(
+    Transaction txn,
+    ApplicationDraft draft, {
+    required Future<List<Map<String, Object?>>> Function(
+      DatabaseExecutor txn,
+      int productId,
+      int personId,
+    )
+    lotsFor,
+  }) async {
+    final person = (await txn.query(
+      'persons',
+      where: 'id = ?',
+      whereArgs: [draft.personId],
+      limit: 1,
+    )).single;
+    final policy = person['settlement_policy']! as String;
+    final applicationId = await txn.insert('applications', {
+      'farm_id': draft.farmId,
+      'person_id': draft.personId,
+      'campaign_id': draft.campaignId,
+      'plan_id': draft.planId,
+      'applied_at': _date(draft.appliedAt),
+      'status': 'CONFIRMED',
+      'treated_area_m2':
+          draft.treatedAreaM2 ?? draft.lines.first.treatedAreaM2,
+      'notes': draft.notes,
+    });
+    var totalCost = 0;
+    for (final line in draft.lines) {
+      if (line.quantityBase <= 0)
+        throw BusinessRuleException(
+          'La cantidad aplicada debe ser mayor a cero.',
         );
-        final available = lots.fold<int>(
-          0,
-          (sum, row) => sum + (row['available']! as int),
-        );
-        if (available < line.quantityBase)
-          throw BusinessRuleException(
-            'Stock insuficiente para confirmar la aplicación.',
-          );
-        final product = (await txn.query(
-          'products',
-          columns: ['unit'],
-          where: 'id=?',
-          whereArgs: [line.productId],
-          limit: 1,
-        )).single;
-        final applicationItemId = await txn.insert('application_items', {
-          'application_id': applicationId,
-          'product_id': line.productId,
-          'quantity_base': line.quantityBase,
-          'cost_bob_minor': 0,
-          'treated_area_m2': line.treatedAreaM2,
-          'dose_base_per_ha': line.doseBasePerHa,
-          'theoretical_quantity_base': line.theoreticalQuantityBase,
-          'unit': product['unit'],
-          'variance_quantity_base': line.theoreticalQuantityBase == null
-              ? null
-              : line.quantityBase - line.theoreticalQuantityBase!,
-        });
-        var remaining = line.quantityBase;
-        var lineCost = 0;
-        for (final lot in lots) {
-          if (remaining == 0) break;
-          final lotAvailable = lot['available']! as int;
-          final take = remaining < lotAvailable ? remaining : lotAvailable;
-          final cost = costForBaseQuantity(
-            take,
-            lot['unit_cost_bob_minor_per_major_unit']! as int,
-          );
-          await txn.insert('application_consumptions', {
-            'application_item_id': applicationItemId,
-            'inventory_lot_id': lot['id'],
-            'quantity_consumed_base': take,
-            'cost_bob_minor': cost,
-          });
-          await txn.insert('inventory_movements', {
-            'lot_id': lot['id'],
-            'product_id': line.productId,
-            'owner_person_id': draft.personId,
-            'movement_date': _date(draft.appliedAt),
-            'type': 'APPLICATION_OUT',
-            'quantity_signed': -take,
-            'reference_type': 'APPLICATION',
-            'reference_id': applicationId,
-          });
-          lineCost += cost;
-          remaining -= take;
-        }
-        await txn.update(
-          'application_items',
-          {
-            'cost_bob_minor': lineCost,
-            'fifo_estimated_cost_bob_minor': lineCost,
-          },
-          where: 'id = ?',
-          whereArgs: [applicationItemId],
-        );
-        totalCost += lineCost;
-      }
-      await txn.update(
-        'applications',
-        {'total_cost_bob_minor': totalCost},
-        where: 'id = ?',
-        whereArgs: [applicationId],
+      final lots = await lotsFor(txn, line.productId, draft.personId);
+      final available = lots.fold<int>(
+        0,
+        (sum, row) => sum + (row['available']! as int),
       );
-      if (policy == 'BY_ACTUAL_USAGE') {
-        await txn.insert('account_transactions', {
-          'person_id': draft.personId,
-          'campaign_id': draft.campaignId,
-          'transaction_date': _date(draft.appliedAt),
-          'type': 'USAGE_CHARGE',
-          'amount_bob_minor_signed': totalCost,
+      if (available < line.quantityBase)
+        throw BusinessRuleException(
+          'Stock insuficiente para confirmar la aplicación.',
+        );
+      final product = (await txn.query(
+        'products',
+        columns: ['unit'],
+        where: 'id=?',
+        whereArgs: [line.productId],
+        limit: 1,
+      )).single;
+      final applicationItemId = await txn.insert('application_items', {
+        'application_id': applicationId,
+        'product_id': line.productId,
+        'quantity_base': line.quantityBase,
+        'cost_bob_minor': 0,
+        'treated_area_m2': line.treatedAreaM2,
+        'dose_base_per_ha': line.doseBasePerHa,
+        'theoretical_quantity_base': line.theoreticalQuantityBase,
+        'unit': product['unit'],
+        'variance_quantity_base': line.theoreticalQuantityBase == null
+            ? null
+            : line.quantityBase - line.theoreticalQuantityBase!,
+      });
+      var remaining = line.quantityBase;
+      var lineCost = 0;
+      for (final lot in lots) {
+        if (remaining == 0) break;
+        final lotAvailable = lot['available']! as int;
+        final take = remaining < lotAvailable ? remaining : lotAvailable;
+        final cost = costForBaseQuantity(
+          take,
+          lot['unit_cost_bob_minor_per_major_unit']! as int,
+        );
+        await txn.insert('application_consumptions', {
+          'application_item_id': applicationItemId,
+          'inventory_lot_id': lot['id'],
+          'quantity_consumed_base': take,
+          'cost_bob_minor': cost,
+        });
+        await txn.insert('inventory_movements', {
+          'lot_id': lot['id'],
+          'product_id': line.productId,
+          'owner_person_id': draft.personId,
+          'movement_date': _date(draft.appliedAt),
+          'type': 'APPLICATION_OUT',
+          'quantity_signed': -take,
           'reference_type': 'APPLICATION',
           'reference_id': applicationId,
         });
+        lineCost += cost;
+        remaining -= take;
       }
-      if (draft.planId != null) {
-        // PLANNED -> APPLIED, y ahí se queda (UIBUG-045).
-        await txn.update(
-          'application_plans',
-          {'status': appliedPlanStatus},
-          where: 'id=?',
-          whereArgs: [draft.planId],
-        );
-      }
-      return applicationId;
+      await txn.update(
+        'application_items',
+        {
+          'cost_bob_minor': lineCost,
+          'fifo_estimated_cost_bob_minor': lineCost,
+        },
+        where: 'id = ?',
+        whereArgs: [applicationItemId],
+      );
+      totalCost += lineCost;
+    }
+    await txn.update(
+      'applications',
+      {'total_cost_bob_minor': totalCost},
+      where: 'id = ?',
+      whereArgs: [applicationId],
+    );
+    if (policy == 'BY_ACTUAL_USAGE') {
+      await txn.insert('account_transactions', {
+        'person_id': draft.personId,
+        'campaign_id': draft.campaignId,
+        'transaction_date': _date(draft.appliedAt),
+        'type': 'USAGE_CHARGE',
+        'amount_bob_minor_signed': totalCost,
+        'reference_type': 'APPLICATION',
+        'reference_id': applicationId,
+      });
+    }
+    if (draft.planId != null) {
+      // PLANNED -> APPLIED, y ahí se queda (UIBUG-045).
+      await txn.update(
+        'application_plans',
+        {'status': appliedPlanStatus},
+        where: 'id=?',
+        whereArgs: [draft.planId],
+      );
+    }
+    return applicationId;
+  }
+
+  // ---------------------------------------------------------------------
+  // RF-03: operaciones tardías con revisión
+  // (docs/architecture/F04_RF13_RF03_ACTOR_Y_TARDIAS.md §2)
+  // ---------------------------------------------------------------------
+
+  /// La campaña CERRADA a la que pertenece [effective], o la excepción de
+  /// fecha de siempre (futura, ambigua, sin campaña, planificada). Una fecha
+  /// de la campaña activa se registra por el camino ordinario.
+  Future<CampaignPeriod> _closedCampaignFor(
+    DatabaseExecutor executor,
+    DateTime effective,
+  ) async {
+    final day = localDay(effective);
+    final today = localDay(DateTime.now());
+    if (day.compareTo(today) > 0) {
+      throw CampaignDateException(
+        CampaignDateProblem.future,
+        'La fecha ${displayDay(day)} es posterior a hoy. Una operación ya '
+        'realizada no puede tener una fecha futura. No se registró nada.',
+      );
+    }
+    final containing = campaignsContaining(await _campaignPeriods(executor), day);
+    if (containing.isEmpty) {
+      throw CampaignDateException(
+        CampaignDateProblem.none,
+        'La fecha ${displayDay(day)} no está dentro de ninguna campaña. Puede '
+        'crear un período histórico para ella. No se registró nada.',
+      );
+    }
+    if (containing.length > 1) {
+      throw CampaignDateException(
+        CampaignDateProblem.ambiguous,
+        'La fecha ${displayDay(day)} está en más de una campaña: no se puede '
+        'saber a cuál corresponde. No se registró nada.',
+      );
+    }
+    final period = containing.single;
+    if (period.status == 'CLOSED') return period;
+    if (period.status == 'PLANNED') {
+      throw CampaignDateException(
+        CampaignDateProblem.planned,
+        'La fecha ${displayDay(day)} corresponde a «${period.name}», que '
+        'todavía no está activa. No se registró nada.',
+      );
+    }
+    throw BusinessRuleException(
+      'La fecha ${displayDay(day)} pertenece a la campaña activa '
+      '«${period.name}»: regístrela de la forma ordinaria.',
+    );
+  }
+
+  /// Guarda una compra de una campaña cerrada como borrador pendiente, sin
+  /// efectos (§2.1). Devuelve el `draft_ref`.
+  Future<String> captureLatePurchase(
+    PurchaseDraft draft, {
+    required String reason,
+  }) async {
+    _validatePurchaseDraft(draft);
+    final trimmed = _requireReason(reason);
+    return _write((txn, context) async {
+      _requireOwnerInPersonal(context, [
+        for (final item in draft.items)
+          for (final allocation in item.allocations) allocation.personId,
+      ], 'En inventario propio la compra se asigna sólo al titular.');
+      final campaign = await _closedCampaignFor(txn, draft.purchaseDate);
+      final stored = PurchaseDraft(
+        supplierId: draft.supplierId,
+        campaignId: campaign.id,
+        purchaseDate: draft.purchaseDate,
+        invoiceNumber: draft.invoiceNumber,
+        exchangeRateSource: draft.exchangeRateSource,
+        exchangeRateNote: draft.exchangeRateNote,
+        notes: draft.notes,
+        items: draft.items,
+      );
+      return _insertLateDraft(
+        txn,
+        kind: 'PURCHASE',
+        campaignId: campaign.id,
+        effective: draft.purchaseDate,
+        reason: trimmed,
+        payload: encodeLatePurchase(stored),
+        invoiceImagePath: draft.invoiceImagePath,
+      );
     });
   }
+
+  /// Guarda una aplicación de una campaña cerrada como borrador pendiente,
+  /// sin efectos (§2.1). Una aplicación tardía no se vincula a un plan.
+  Future<String> captureLateApplication(
+    ApplicationDraft draft, {
+    required String reason,
+  }) async {
+    if (draft.lines.isEmpty) {
+      throw BusinessRuleException('La aplicación necesita al menos un producto.');
+    }
+    if (draft.lines.map((line) => line.productId).toSet().length !=
+        draft.lines.length) {
+      throw BusinessRuleException('No repita productos dentro de la aplicación.');
+    }
+    if (draft.lines.any((line) => line.quantityBase <= 0)) {
+      throw BusinessRuleException('La cantidad aplicada debe ser mayor a cero.');
+    }
+    if (draft.planId != null) {
+      throw BusinessRuleException(
+        'Una aplicación tardía no se vincula a un plan.',
+      );
+    }
+    final trimmed = _requireReason(reason);
+    return _write((txn, context) async {
+      _requireOwnerInPersonal(context, [
+        draft.personId,
+      ], 'En inventario propio la aplicación la realiza el titular.');
+      await _requireOwnerFarmInPersonal(txn, context, draft.farmId);
+      final campaign = await _closedCampaignFor(txn, draft.appliedAt);
+      final stored = ApplicationDraft(
+        personId: draft.personId,
+        farmId: draft.farmId,
+        campaignId: campaign.id,
+        appliedAt: draft.appliedAt,
+        lines: draft.lines,
+        treatedAreaM2: draft.treatedAreaM2,
+        notes: draft.notes,
+      );
+      return _insertLateDraft(
+        txn,
+        kind: 'APPLICATION',
+        campaignId: campaign.id,
+        effective: draft.appliedAt,
+        reason: trimmed,
+        payload: encodeLateApplication(stored),
+      );
+    });
+  }
+
+  String _requireReason(String reason) {
+    final trimmed = reason.trim();
+    if (trimmed.isEmpty) throw BusinessRuleException('Indique el motivo.');
+    return trimmed;
+  }
+
+  Future<String> _insertLateDraft(
+    Transaction txn, {
+    required String kind,
+    required int campaignId,
+    required DateTime effective,
+    required String reason,
+    required String payload,
+    String? invoiceImagePath,
+  }) async {
+    final ref = newOperationId();
+    await txn.insert('late_operation_drafts', {
+      'draft_ref': ref,
+      'kind': kind,
+      'campaign_id': campaignId,
+      'effective_date': _date(effective),
+      'captured_at': _date(DateTime.now()),
+      'reason': reason,
+      'payload': payload,
+      'invoice_image_path': invoiceImagePath,
+      'status': 'PENDING',
+    });
+    return ref;
+  }
+
+  /// Borradores tardíos, los pendientes primero.
+  Future<List<Map<String, Object?>>> lateOperationDrafts() async =>
+      (await _db).rawQuery(
+        '''SELECT d.*, c.name campaign_name FROM late_operation_drafts d
+        JOIN campaigns c ON c.id=d.campaign_id
+        ORDER BY CASE d.status WHEN 'PENDING' THEN 0 ELSE 1 END, d.captured_at DESC, d.id DESC''',
+      );
+
+  /// Lotes elegibles para una aplicación del día [day] y su cupo temporal
+  /// (§2.3, I1 de B): adquiridos ese día o antes, no anulados; el cupo es el
+  /// mínimo del saldo al final del día efectivo y al final de cada día
+  /// posterior con movimientos, ordenando por día efectivo y después por id.
+  /// La operación tardía va al final de su día.
+  Future<List<Map<String, Object?>>> _lotsAvailableAt(
+    DatabaseExecutor txn,
+    int productId,
+    int personId,
+    String day,
+  ) async {
+    final lots = await txn.query(
+      'inventory_lots',
+      where: 'product_id=? AND owner_person_id=? AND reversed_at IS NULL',
+      whereArgs: [productId, personId],
+      orderBy: 'acquired_date, id',
+    );
+    final eligible = <Map<String, Object?>>[];
+    for (final lot in lots) {
+      if (storedLocalDay(lot['acquired_date']! as String).compareTo(day) > 0) {
+        continue;
+      }
+      final movements = await txn.query(
+        'inventory_movements',
+        columns: ['id', 'movement_date', 'quantity_signed'],
+        where: 'lot_id=?',
+        whereArgs: [lot['id']],
+      );
+      final ordered = movements
+          .map((m) => (
+                day: storedLocalDay(m['movement_date']! as String),
+                id: m['id']! as int,
+                quantity: m['quantity_signed']! as int,
+              ))
+          .toList()
+        ..sort((a, b) {
+          final byDay = a.day.compareTo(b.day);
+          return byDay != 0 ? byDay : a.id.compareTo(b.id);
+        });
+      // Saldo acumulado al final del día efectivo (todo lo de días ≤ day) y
+      // mínimo del saldo al final de cada día posterior con movimientos.
+      var balance = 0;
+      var atDay = 0;
+      int? laterMin;
+      for (var i = 0; i < ordered.length; i++) {
+        balance += ordered[i].quantity;
+        final endOfDay =
+            i == ordered.length - 1 || ordered[i + 1].day != ordered[i].day;
+        if (!endOfDay) continue;
+        if (ordered[i].day.compareTo(day) <= 0) {
+          atDay = balance;
+        } else {
+          laterMin = laterMin == null || balance < laterMin ? balance : laterMin;
+        }
+      }
+      final cap = laterMin == null || atDay < laterMin ? atDay : laterMin;
+      if (cap > 0) eligible.add({...lot, 'available': cap});
+    }
+    return eligible;
+  }
+
+  /// Confirma un borrador tardío con la autorización del titular (§2.1 paso
+  /// 5): revalida, aplica los efectos una vez en la campaña de la fecha y lo
+  /// marca CONFIRMED, todo en una transacción. Si no puede aplicarse sin
+  /// tocar operaciones posteriores o la campaña cambió, queda PENDING con su
+  /// conflicto y no se escribe ningún efecto.
+  Future<LateResolution> confirmLateOperation(
+    String draftRef, {
+    required OwnerAuthorization authorization,
+  }) => _write((txn, context) async {
+    consumeOwnerAuthorization(
+      authorization,
+      purpose: AuthorizationPurpose.confirmLateOperation,
+      subjectRef: 'late:$draftRef',
+      current: await _currentOwnerBinding(txn),
+      now: DateTime.now(),
+    );
+    final draft = await _pendingLateDraft(txn, draftRef);
+    final effective = DateTime.parse(draft['effective_date']! as String);
+    final campaignId = draft['campaign_id']! as int;
+    Future<LateResolution> conflict(String code, String message) async {
+      await txn.update(
+        'late_operation_drafts',
+        {'last_conflict_code': code, 'last_conflict_at': _date(DateTime.now())},
+        where: "draft_ref=? AND status='PENDING'",
+        whereArgs: [draftRef],
+      );
+      return LateResolution(
+        LateResolutionOutcome.conflict,
+        conflictCode: code,
+        message: message,
+      );
+    }
+
+    CampaignPeriod? period;
+    try {
+      period = await _closedCampaignFor(txn, effective);
+    } on BusinessRuleException {
+      period = null;
+    }
+    if (period == null || period.id != campaignId) {
+      return conflict(
+        LateConflict.campaignChanged,
+        'La fecha ya no corresponde a la campaña con la que se registró. No '
+        'se aplicó nada: rechace este borrador y regístrelo de nuevo si '
+        'corresponde.',
+      );
+    }
+    final int operationId;
+    if (draft['kind'] == 'PURCHASE') {
+      final purchase = decodeLatePurchase(
+        draft['payload']! as String,
+        invoiceImagePath: draft['invoice_image_path'] as String?,
+      );
+      final total = _validatePurchaseDraft(purchase);
+      _requireOwnerInPersonal(context, [
+        for (final item in purchase.items)
+          for (final allocation in item.allocations) allocation.personId,
+      ], 'En inventario propio la compra se asigna sólo al titular.');
+      operationId = await _insertPurchase(txn, purchase, total);
+    } else {
+      final application = decodeLateApplication(draft['payload']! as String);
+      _requireOwnerInPersonal(context, [
+        application.personId,
+      ], 'En inventario propio la aplicación la realiza el titular.');
+      await _requireOwnerFarmInPersonal(txn, context, application.farmId);
+      final day = localDay(application.appliedAt);
+      for (final line in application.lines) {
+        final lots = await _lotsAvailableAt(
+          txn,
+          line.productId,
+          application.personId,
+          day,
+        );
+        final cap = lots.fold<int>(0, (sum, l) => sum + (l['available']! as int));
+        if (cap < line.quantityBase) {
+          return conflict(
+            LateConflict.stockUnavailable,
+            'Las existencias de esa fecha no alcanzan: parte ya se usó en '
+            'operaciones posteriores o se adquirió después. No se aplicó nada. '
+            'Puede registrar antes la compra tardía que falta (también con '
+            'revisión) o rechazar este borrador.',
+          );
+        }
+      }
+      operationId = await _insertApplication(
+        txn,
+        application,
+        lotsFor: (executor, productId, personId) =>
+            _lotsAvailableAt(executor, productId, personId, day),
+      );
+    }
+    await _resolveLateDraft(
+      txn,
+      draftRef,
+      status: 'CONFIRMED',
+      authorization: authorization,
+      resultOperationId: operationId,
+    );
+    return LateResolution(
+      LateResolutionOutcome.confirmed,
+      operationId: operationId,
+      message:
+          'Confirmada en «${period.name}». Es una corrección privada de una '
+          'campaña cerrada: el consolidado del sindicato (sellado o no) no se '
+          'actualiza con ella.',
+    );
+  });
+
+  /// Rechaza un borrador tardío con la autorización del titular: sin efectos.
+  Future<LateResolution> rejectLateOperation(
+    String draftRef, {
+    required OwnerAuthorization authorization,
+    String? note,
+  }) => _write((txn, context) async {
+    consumeOwnerAuthorization(
+      authorization,
+      purpose: AuthorizationPurpose.rejectLateOperation,
+      subjectRef: 'late:$draftRef',
+      current: await _currentOwnerBinding(txn),
+      now: DateTime.now(),
+    );
+    await _pendingLateDraft(txn, draftRef);
+    await _resolveLateDraft(
+      txn,
+      draftRef,
+      status: 'REJECTED',
+      authorization: authorization,
+      note: note?.trim().isEmpty ?? true ? null : note!.trim(),
+    );
+    return const LateResolution(LateResolutionOutcome.rejected);
+  });
+
+  Future<Map<String, Object?>> _pendingLateDraft(
+    DatabaseExecutor txn,
+    String draftRef,
+  ) async {
+    final rows = await txn.query(
+      'late_operation_drafts',
+      where: 'draft_ref=?',
+      whereArgs: [draftRef],
+    );
+    if (rows.isEmpty) throw BusinessRuleException('El borrador no existe.');
+    if (rows.single['status'] != 'PENDING') {
+      throw BusinessRuleException('Este borrador ya fue resuelto.');
+    }
+    return rows.single;
+  }
+
+  Future<void> _resolveLateDraft(
+    Transaction txn,
+    String draftRef, {
+    required String status,
+    required OwnerAuthorization authorization,
+    int? resultOperationId,
+    String? note,
+  }) async {
+    final updated = await txn.update(
+      'late_operation_drafts',
+      {
+        'status': status,
+        'resolved_at': _date(DateTime.now()),
+        'resolution_note': note,
+        'resolver_person_id': authorization.personId,
+        'resolver_binding_id': authorization.bindingId,
+        'resolver_member_id': authorization.scope.memberId,
+        'resolver_tenant_id': authorization.scope.tenantId,
+        'resolver_method': authorization.method,
+        'resolver_enrolment_ref': authorization.enrolmentId,
+        'result_operation_id': resultOperationId,
+      },
+      where: "draft_ref=? AND status='PENDING'",
+      whereArgs: [draftRef],
+    );
+    if (updated != 1) {
+      throw BusinessRuleException('Este borrador ya fue resuelto.');
+    }
+  }
+
+  /// Período histórico explícito (§2.5): una campaña CLOSED, entera antes de
+  /// hoy, sin solapes con ninguna campaña local ni con el período central de
+  /// sus vínculos. No cambia la campaña activa ni el orden de las demás. No
+  /// tiene campaign_ref: nunca se publica desde él.
+  Future<int> addHistoricalCampaign({
+    required String name,
+    required DateTime start,
+    required DateTime end,
+  }) => _write((txn, _) async {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) {
+      throw CampaignCalendarException('Indique el nombre del período.');
+    }
+    final startDay = localDay(start);
+    final endDay = localDay(end);
+    if (endDay.compareTo(startDay) < 0) {
+      throw CampaignCalendarException(
+        'La fecha de fin no puede ser anterior a la de inicio.',
+      );
+    }
+    if (endDay.compareTo(localDay(DateTime.now())) >= 0) {
+      throw CampaignCalendarException(
+        'Un período histórico debe terminar antes de hoy.',
+      );
+    }
+    final proposed = CampaignPeriod(
+      id: -1,
+      name: trimmed,
+      status: 'CLOSED',
+      startDay: startDay,
+      endDay: endDay,
+    );
+    for (final period in await _campaignPeriods(txn)) {
+      if (period.overlaps(proposed)) {
+        throw CampaignCalendarException(
+          'El período ${proposed.describe} se solapa con «${period.name}» '
+          '(${period.describe}).',
+        );
+      }
+    }
+    final central = await txn.query(
+      'campaign_bindings',
+      columns: ['central_start_day', 'central_end_day', 'central_name'],
+      where: 'central_start_day IS NOT NULL',
+    );
+    for (final row in central) {
+      final other = CampaignPeriod(
+        id: -2,
+        name: row['central_name']! as String,
+        status: 'CLOSED',
+        startDay: row['central_start_day']! as String,
+        endDay: row['central_end_day'] as String?,
+      );
+      if (other.overlaps(proposed)) {
+        throw CampaignCalendarException(
+          'El período ${proposed.describe} se solapa con la campaña del '
+          'sindicato «${other.name}» (${other.describe}).',
+        );
+      }
+    }
+    return txn.insert('campaigns', {
+      'name': trimmed,
+      'start_date': _date(startOfLocalDay(startDay)),
+      'end_date': _date(startOfLocalDay(endDay)),
+      'status': 'CLOSED',
+    });
+  });
 
   Future<int> addAccountPayment({
     required int personId,
