@@ -19,7 +19,7 @@ class TestOwnerPin {
   static LocalOwnerCredential unenrolled() => LocalOwnerCredential(
     storage: MemoryCredentialStorage(),
     onlineVerification: OwnerOnlineVerification(
-      reauthenticate: (_, __) async => false,
+      confirmAccount: (_, __) async => false,
       readSessionScope: () async => null,
     ),
     iterations: 1000,
@@ -31,7 +31,7 @@ class TestOwnerPin {
     String pin = '284917',
   }) async {
     final verification = OwnerOnlineVerification(
-      reauthenticate: (_, __) async => true,
+      confirmAccount: (_, __) async => true,
       readSessionScope: () async => binding.scope,
     );
     final owner = TestOwnerPin._(

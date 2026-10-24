@@ -70,14 +70,14 @@ class _Clock {
 /// La acreditación en línea configurada en las credenciales de estas pruebas:
 /// una sola instancia; cada [_proof] fija su resultado.
 class _Online {
-  bool reauthenticated = true;
+  bool accountConfirmed = true;
   OwnerScope? sessionScope = _owner;
   DateTime Function() clock = DateTime.now;
 }
 
 final _online = _Online();
 final _verification = OwnerOnlineVerification(
-  reauthenticate: (_, __) async => _online.reauthenticated,
+  confirmAccount: (_, __) async => _online.accountConfirmed,
   readSessionScope: () async => _online.sessionScope,
   clock: () => _online.clock(),
 );
@@ -92,11 +92,11 @@ LocalOwnerCredential _credential(_Storage storage, _Clock clock) =>
 
 Future<OnlineOwnerProof?> _proof(
   _Clock clock, {
-  bool reauthenticated = true,
+  bool accountConfirmed = true,
   OwnerScope? sessionScope = _owner,
 }) {
   _online
-    ..reauthenticated = reauthenticated
+    ..accountConfirmed = accountConfirmed
     ..sessionScope = sessionScope
     ..clock = clock.call;
   return _verification.verify(
@@ -152,7 +152,7 @@ void main() {
       'only a reauthentication of the bound titular yields a proof',
       () async {
         final clock = _Clock();
-        expect(await _proof(clock, reauthenticated: false), isNull);
+        expect(await _proof(clock, accountConfirmed: false), isNull);
         expect(await _proof(clock, sessionScope: _other), isNull);
         expect(await _proof(clock, sessionScope: null), isNull);
         expect(await _proof(clock), isNotNull);
@@ -634,7 +634,7 @@ void main() {
         final clock = _Clock();
         final c = _credential(storage, clock);
         final forged = await OwnerOnlineVerification(
-          reauthenticate: (_, __) async => true,
+          confirmAccount: (_, __) async => true,
           readSessionScope: () async => _owner,
         ).verify(email: 'x', password: 'y', binding: _binding);
         expect(forged, isNotNull);

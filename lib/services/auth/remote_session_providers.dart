@@ -56,6 +56,12 @@ class RemoteSessionController extends Notifier<RemoteSessionState> {
     return result;
   }
 
+  /// Acredita la cuenta de la sesión guardada sin cambiarla (F03, PIN).
+  Future<bool> confirmAccount({
+    required String email,
+    required String password,
+  }) => _coordinator.confirmAccount(email: email, password: password);
+
   Future<RemoteSessionState> reauthenticate({
     required String email,
     required String password,
