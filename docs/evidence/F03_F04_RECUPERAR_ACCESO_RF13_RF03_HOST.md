@@ -90,3 +90,56 @@ La rama `comp/f01-f08-mob` integra `e5bf32b` (`feat/f08-respaldo-cifrado`) con `
 - **C:** RF-13 LISTO sobre `f7f6a73`.
 
 **`f04_rf13_reversal_backup_test`** usa la exportación y la restauración locales (el contenedor). El formato 2 de C sólo envuelve la subida remota, así que esta prueba no lo cubre.
+
+## Actualización del 2026-10-24: autoridad de la autorización, publicación y CI
+
+**Decisión de Roderich** (delegación, 2026-10-23), aplicada:
+- restablecer el PIN invalida al instante las autorizaciones anteriores;
+- se cierra la fabricación de autorizaciones por llamada directa.
+
+El diseño, los límites y las pruebas están en el contrato F03 §8.
+
+**Commits:**
+- `f4c85c5`: enrolamiento vigente de la instalación y comprobante de la acreditación propia;
+- `664e85e`: RF-03, fallo transaccional al confirmar y ninguna publicación;
+- `94ef034`: revisión de B, R1–R3 (sólo la cola publica, borrado antes de escribir, almacén emisor);
+- `b8cccfb`: redacción, m1–m2;
+- `fc20110`: tres pruebas que fallaban en la suite completa de CI. Ninguna se debilitó:
+  - «Operaciones tardías» pasa al final del menú;
+  - la fecha de campaña cerrada abre la oferta RF-03;
+  - revertir exige motivo y PIN.
+
+**Revisiones, por lectura:** B, LISTO sobre `94ef034` (R1–R3 resueltas, m1–m2 aplicadas). C reescribió el consumidor F08 de la composición con la API nueva.
+
+**Mutaciones dirigidas, todas detectadas** (2026-10-24; código restaurado después de cada una):
+- cola desactivada;
+- sin actualizar el enrolamiento al restablecer;
+- lecturas fuera de la cola que publican;
+- sin comprobar el almacén emisor;
+- sin borrar antes de escribir.
+
+**Publicación (Lote 1 autorizado):** MOB **#143** (esta rama), #144 (F08) y #145 (composición «NO FUSIONAR»).
+
+**CI de GitHub, `flutter-ci.yml`** (format, analyze, suite completa, suite de fechas en America/La_Paz y `flutter build apk --release`):
+
+| PR | HEAD | Run | Resultado |
+|---|---|---|---|
+| #143 | `fc20110` | 40062639297 | **success**: 1695 pasan y 4 se omiten; fechas, 78; APK release compilada |
+| #145 | composición `8364528` | 40062678967 | **success**: 1795 pasan y 4 se omiten; fechas, 78; APK release compilada |
+| #145 | composición `490deb5` (anterior) | 40061867736 | **failure**: 3 pruebas, corregidas en `fc20110` |
+
+**Las 4 omitidas son por diseño:**
+- 3 centinelas de zona horaria que corren en el paso regional (`date_display_test` ×2 y `f04_c2_campaign_period_test`);
+- `f06_reconciliation_integration_test`, que necesita un Central real.
+
+**Lo que esta CI no ejecuta:**
+- DEVICE;
+- las mutaciones, que se hicieron sólo en local;
+- aapt2 del manifiesto fusionado y de las reglas empaquetadas: la CI no publica el APK;
+- el ensayo con un Backend real: la suite usa dobles.
+
+**DEVICE, intentado el 2026-10-24 y NO ejecutado:**
+- se preparó el entorno: PostgreSQL desechable `agro_a_f01f08_pg`, Backend de la composición `453acce` compilado en local y túnel HTTPS con el health en 200;
+- no se pudo compilar la APK aislada `.f01f08`: quedaban 0,5 GB libres, y el servidor de lenguaje Dart del editor ocupaba unos 7 GB, que no es un proceso de esta sesión;
+- el entorno se desmontó sin datos medidos;
+- no se instaló nada en el teléfono.
