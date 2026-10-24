@@ -367,10 +367,7 @@ void main() {
       credential = (await TestOwnerPin.enrolled(binding)).credential;
       // El repositorio de las pantallas acepta sólo autorizaciones con el PIN
       // configurado en la instalación.
-      repo = AgroRepository(
-        database,
-        ownerEnrolment: () => credential.knownEnrolmentId,
-      );
+      repo = AgroRepository(database, ownerCredential: () => credential);
     }
 
     Future<void> approve(WidgetTester tester, String reason) async {

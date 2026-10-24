@@ -112,10 +112,7 @@ Future<_World> _world() async {
   final database = openDb(inMemoryDatabasePath);
   final bound = await seedActivatedInstallation(database);
   late LocalOwnerCredential credential;
-  final repo = AgroRepository(
-    database,
-    ownerEnrolment: () => credential.knownEnrolmentId,
-  );
+  final repo = AgroRepository(database, ownerCredential: () => credential);
   final h = await seedHousehold(repo);
   final history = await repo.addHistoricalCampaign(
     name: 'Campaña 2025',

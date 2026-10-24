@@ -2,6 +2,8 @@
 // iteraciones), intentos persistentes, acreditación en línea de un solo uso,
 // autorización de un solo uso consumida contra el vínculo vigente (R2 de C) y
 // ningún borrado de otros espacios del almacén seguro (R3 de C).
+import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:agroquimicos/domain/installation_access.dart';
@@ -29,6 +31,34 @@ class _Storage implements CredentialStorage {
   Future<void> delete(String key) async {
     touched.add(key);
     values.remove(key);
+  }
+}
+
+/// Retiene la lectura del verificador hasta abrir [gate], con el valor que
+/// había al empezar a leer (una lectura lenta del almacén).
+class _GatedStorage extends _Storage {
+  Completer<void>? gate;
+
+  @override
+  Future<String?> read(String key) async {
+    final value = values[key];
+    final g = gate;
+    if (key == 'verifier' && g != null) await g.future;
+    return value;
+  }
+}
+
+/// La escritura del verificador persiste y después falla (p. ej. el nativo
+/// guardó y la llamada devolvió un error).
+class _FailingAfterWriteStorage extends _Storage {
+  bool failVerifierWrite = false;
+
+  @override
+  Future<void> write(String key, String value) async {
+    await super.write(key, value);
+    if (key == 'verifier' && failVerifierWrite) {
+      throw StateError('escritura informada como fallida');
+    }
   }
 }
 
@@ -433,32 +463,37 @@ void main() {
       binding: _binding,
     );
 
-    Future<(OwnerAuthorization, String?)> issue(_Clock clock) async {
+    Future<(OwnerAuthorization, LocalOwnerCredential)> issue(
+      _Clock clock,
+    ) async {
       final c = _credential(_Storage(), clock);
       await _enroll(c, clock);
-      return (await verifyWith(c), await c.currentEnrolmentId());
+      return (await verifyWith(c), c);
     }
 
-    void consumeNow(OwnerAuthorization auth, String? enrolment, _Clock clock) =>
-        consumeOwnerAuthorization(
-          auth,
-          currentEnrolmentId: enrolment,
-          purpose: AuthorizationPurpose.reverseApplication,
-          subjectRef: 'application:4',
-          current: _binding,
-          now: clock.now,
-        );
+    void consumeNow(
+      OwnerAuthorization auth,
+      LocalOwnerCredential? installation,
+      _Clock clock,
+    ) => consumeOwnerAuthorization(
+      auth,
+      installation: installation,
+      purpose: AuthorizationPurpose.reverseApplication,
+      subjectRef: 'application:4',
+      current: _binding,
+      now: clock.now,
+    );
 
     test('once, for its purpose, subject and current binding', () async {
       final clock = _Clock();
-      final (auth, enrolment) = await issue(clock);
+      final (auth, installation) = await issue(clock);
       void consume({
         AuthorizationPurpose purpose = AuthorizationPurpose.reverseApplication,
         String subject = 'application:4',
         OwnerBindingContext? current = _binding,
       }) => consumeOwnerAuthorization(
         auth,
-        currentEnrolmentId: enrolment,
+        installation: installation,
         purpose: purpose,
         subjectRef: subject,
         current: current,
@@ -492,7 +527,7 @@ void main() {
       expect(
         () => consumeOwnerAuthorization(
           null,
-          currentEnrolmentId: enrolment,
+          installation: installation,
           purpose: AuthorizationPurpose.reverseApplication,
           subjectRef: 'application:4',
           current: _binding,
@@ -504,11 +539,11 @@ void main() {
 
     test('expires after 120 s', () async {
       final clock = _Clock();
-      final (auth, enrolment) = await issue(clock);
+      final (auth, installation) = await issue(clock);
       expect(
         () => consumeOwnerAuthorization(
           auth,
-          currentEnrolmentId: enrolment,
+          installation: installation,
           purpose: AuthorizationPurpose.reverseApplication,
           subjectRef: 'application:4',
           current: _binding,
@@ -526,14 +561,13 @@ void main() {
         await _enroll(c, clock);
         final before = await verifyWith(c);
         await _enroll(c, clock, '583920');
-        final current = await c.currentEnrolmentId();
-        expect(current, isNot(before.enrolmentId));
+        expect(await c.currentEnrolmentId(), isNot(before.enrolmentId));
         expect(
-          () => consumeNow(before, current, clock),
+          () => consumeNow(before, c, clock),
           throwsA(isA<OwnerAuthorizationRejected>()),
         );
         // The new PIN works; the old one no longer verifies.
-        consumeNow(await verifyWith(c, '583920'), current, clock);
+        consumeNow(await verifyWith(c, '583920'), c, clock);
         await expectLater(verifyWith(c), throwsA(isA<CredentialException>()));
       },
     );
@@ -554,9 +588,8 @@ void main() {
         ),
       ]);
       final raced = results.first! as OwnerAuthorization;
-      final afterReset = await c.currentEnrolmentId();
       expect(
-        () => consumeNow(raced, afterReset, clock),
+        () => consumeNow(raced, c, clock),
         throwsA(isA<OwnerAuthorizationRejected>()),
       );
       // enroll() queued before verify(): the replaced PIN does not verify.
@@ -618,22 +651,87 @@ void main() {
       },
     );
 
-    test('an authorization from a credential on another storage does not match the installation', () async {
+    test('a credential with another enrolment is refused', () async {
       final clock = _Clock();
       final installation = _credential(_Storage(), clock);
       await _enroll(installation, clock);
       final fabricated = _credential(_Storage(), clock);
       await _enroll(fabricated, clock);
       final forged = await verifyWith(fabricated);
-      final current = await installation.currentEnrolmentId();
       expect(
-        () => consumeNow(forged, current, clock),
+        () => consumeNow(forged, installation, clock),
         throwsA(isA<OwnerAuthorizationRejected>()),
       );
       expect(
         () => consumeNow(forged, null, clock),
         throwsA(isA<OwnerAuthorizationRejected>()),
       );
+    });
+
+    test('R3 de B: copying the installation enrolment into another storage is refused', () async {
+      final clock = _Clock();
+      final installation = _credential(_Storage(), clock);
+      await _enroll(installation, clock);
+      // The enrolment is not a secret (it is in the audit and the backups).
+      final copied = installation.knownEnrolmentId!;
+      final otherStorage = _Storage();
+      final fabricated = _credential(otherStorage, clock);
+      await _enroll(fabricated, clock);
+      final verifier =
+          jsonDecode(otherStorage.values['verifier']!) as Map<String, Object?>;
+      verifier['enrolmentId'] = copied;
+      otherStorage.values['verifier'] = jsonEncode(verifier);
+      final forged = await verifyWith(fabricated);
+      expect(forged.enrolmentId, copied);
+      expect(installation.accepts(forged), isFalse);
+      expect(
+        () => consumeNow(forged, installation, clock),
+        throwsA(isA<OwnerAuthorizationRejected>()),
+      );
+    });
+
+    test('R1 de B: a slow read that started before a reset does not bring the old PIN back', () async {
+      final clock = _Clock();
+      final storage = _GatedStorage();
+      final c = _credential(storage, clock);
+      await _enroll(c, clock);
+      final before = await verifyWith(c);
+      storage.gate = Completer<void>();
+      final slowStatus = c.status(_binding);
+      final slowEnrolment = c.currentEnrolmentId();
+      final gate = storage.gate!;
+      storage.gate = null;
+      // The reset finishes while both reads are still held with the old PIN.
+      await _enroll(c, clock, '583920');
+      gate.complete();
+      await slowStatus;
+      expect(await slowEnrolment, before.enrolmentId);
+      expect(c.knownEnrolmentId, isNot(before.enrolmentId));
+      expect(
+        () => consumeNow(before, c, clock),
+        throwsA(isA<OwnerAuthorizationRejected>()),
+      );
+    });
+
+    test('R2 de B: a verifier write reported as failed leaves nothing valid until the next verification', () async {
+      final clock = _Clock();
+      final storage = _FailingAfterWriteStorage();
+      final c = _credential(storage, clock);
+      await _enroll(c, clock);
+      final before = await verifyWith(c);
+      storage.failVerifierWrite = true;
+      await expectLater(
+        _enroll(c, clock, '583920'),
+        throwsA(isA<StateError>()),
+      );
+      storage.failVerifierWrite = false;
+      expect(c.knownEnrolmentId, isNull);
+      expect(
+        () => consumeNow(before, c, clock),
+        throwsA(isA<OwnerAuthorizationRejected>()),
+      );
+      // The next verification reads what was persisted and publishes it.
+      consumeNow(await verifyWith(c, '583920'), c, clock);
     });
   });
 

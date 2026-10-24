@@ -65,7 +65,7 @@ void main() {
     late LocalOwnerCredential sourceCredential;
     final repo = AgroRepository(
       source,
-      ownerEnrolment: () => sourceCredential.knownEnrolmentId,
+      ownerCredential: () => sourceCredential,
     );
     final h = await seedHousehold(repo);
     await h.buy(h.titular, 5000);
@@ -142,7 +142,7 @@ void main() {
     await expectLater(
       AgroRepository(
         target,
-        ownerEnrolment: () => targetCredential.knownEnrolmentId,
+        ownerCredential: () => targetCredential,
       ).reverseApplication(
         applicationId,
         reason: 'Otra vez',
