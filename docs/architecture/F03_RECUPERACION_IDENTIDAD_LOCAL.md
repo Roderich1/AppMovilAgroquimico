@@ -143,6 +143,49 @@ En `legacyUnbound` no hay titular vinculado:
   - Pruebas: 4 verify() simultáneos con PIN erróneo sobre 2 instancias cuentan 4, y el 5.º bloquea (sin el candado, la prueba falla); un KDF interrumpido 5 veces bloquea.
 - **Límites declarados:**
   - **P2, reloj:** las esperas usan el reloj del teléfono. Adelantarlo las acorta, pero no salta el tope de 10 fallos, que exige restablecer en línea.
-  - **P3, constructor público:** `OwnerOnlineVerification` es público y acepta funciones. El modelo de amenaza es saltarse la pantalla, no código malicioso dentro de la app. El proveedor de la app lo conecta con la reautenticación real.
-  - **P4, PIN restablecido:** `consumeOwnerAuthorization` no compara el enrolamiento con el PIN vigente. Una autorización emitida justo antes de restablecer el PIN vale como mucho sus 120 s.
+  - ~~**P3, constructor público:** `OwnerOnlineVerification` es público y acepta funciones. El modelo de amenaza es saltarse la pantalla, no código malicioso dentro de la app. El proveedor de la app lo conecta con la reautenticación real.~~ **Sustituido el 2026-10-24 (§8):** no era un límite aceptable, porque permitía fabricar una autorización utilizable.
+  - ~~**P4, PIN restablecido:** `consumeOwnerAuthorization` no compara el enrolamiento con el PIN vigente. Una autorización emitida justo antes de restablecer el PIN vale como mucho sus 120 s.~~ **Sustituido el 2026-10-24 (§8):** restablecer el PIN invalida al instante las autorizaciones anteriores.
 - **R4 de C y punto 1 de B, se consume antes de aplicar:** la autorización se marca usada antes de aplicar los efectos. Si la transacción se deshace, hay que volver a poner el PIN.
+
+## 8. Autoridad de la autorización y restablecimiento del PIN (2026-10-24)
+
+**Decisión de Roderich (delegación, 2026-10-23).** Restablecer o reconfigurar el PIN invalida de inmediato las autorizaciones emitidas con el enrolamiento anterior. Un constructor público no es aceptable si permite fabricar una autorización utilizable. Las auditorías ya escritas conservan su enrolamiento.
+
+**Qué se podía fabricar (comprobado leyendo el código de `f706e11`):**
+1. **Sobre la credencial de la app.** Cualquier código podía construir `OwnerOnlineVerification` con funciones que siempre aciertan, obtener un `OnlineOwnerProof`, enrolar un PIN nuevo y verificarlo. Así obtenía una `OwnerAuthorization` real, sin acreditación en línea.
+2. **Con una credencial sobre otro almacén** (por ejemplo, en memoria). Enrolar y verificar ahí daba una autorización que el repositorio aceptaba, porque el consumo sólo comparaba el vínculo.
+
+Que `OwnerAuthorization._` sea privado no impedía ninguno de los dos.
+
+**Control aplicado:**
+- **Enrolamiento vigente de la instalación.** `consumeOwnerAuthorization` exige `currentEnrolmentId`, el enrolamiento del PIN vigente en el almacén de la instalación, y rechaza la autorización si no coincide con el suyo o si es null. El repositorio lo recibe de la raíz de composición (`repositoryProvider` → `localOwnerCredentialProvider.knownEnrolmentId`) y lo compara dentro de la transacción de la acción, sin esperar a nada. Sin ese lector, ninguna autorización vale.
+- **El enrolamiento que conoce el proceso** (`knownEnrolmentId`):
+  - lo fija `verify`, y también `status`, al leer el verificador;
+  - lo cambia `enroll` justo después de escribir el verificador nuevo. Ése es el instante en que el restablecimiento surte efecto.
+  - Va con el objeto almacén (`Expando`), igual que la cola, y el almacén Android es único en el proceso.
+  - Una primera versión leía el almacén con una espera dentro de la transacción. Bloqueaba las pruebas de pantalla (`rec_050`), se detectó al ejecutarlas y se sustituyó por esta comparación síncrona.
+- **Comprobante de la acreditación propia.** `enroll` sólo acepta un `OnlineOwnerProof` emitido por la `OwnerOnlineVerification` con la que se configuró la credencial, que en la app es la reautenticación real (`ownerOnlineVerificationProvider`). Un comprobante de otra instancia, armada con funciones cualesquiera, se rechaza sin escribir nada.
+
+**Exclusión real frente a un restablecimiento concurrente:**
+- `enroll` y `verify` van en la misma cola por almacén: una verificación encolada antes del restablecimiento emite con el PIN anterior, y esa autorización deja de valer cuando el restablecimiento termina. Una verificación encolada después ya no acepta el PIN anterior.
+- El consumo no entra en esa cola. Compara el enrolamiento conocido en el momento de consumir: antes del restablecimiento la reversión se aplica, con el enrolamiento anterior en su auditoría; después se rechaza sin escribir.
+
+**Pruebas:**
+- **`f03_local_owner_credential_test`:**
+  - restablecer invalida al instante;
+  - restablecimiento concurrente con una verificación, en los dos órdenes;
+  - comprobante de otra acreditación rechazado, sin escribir el almacén;
+  - autorización de otro almacén rechazada;
+  - enrolamiento conocido: desconocido hasta leerlo, cambiado al restablecer y por almacén.
+- **`f04_rf13_reversal_audit_test`**, cada rechazo con la base y la auditoría intactas (volcado completo):
+  - verificar, restablecer y usar la autorización anterior: se rechaza;
+  - credencial fabricada sobre otro almacén: se rechaza;
+  - repositorio sin lector: se rechaza;
+  - restablecimiento concurrente con la reversión: o se aplica con el enrolamiento anterior o se rechaza.
+- **Mutaciones detectadas:** sin la cola, falla la prueba de los 4 PIN simultáneos; sin actualizar el enrolamiento al restablecer, falla la prueba de verificar, restablecer y usar.
+
+**Límites declarados:**
+- **Sin protección entre isolates ni entre procesos.** El enrolamiento conocido y la cola viven en el isolate principal; un segundo proceso o isolate con su propio almacén no se coordina con ellos. La app no tiene ninguno de los dos.
+- **Escribir el almacén directamente.** El código con acceso al espacio de nombres seguro, ya sea construyendo `FlutterSecureStorage` o una `LocalOwnerCredential` nueva sobre ese mismo almacén con una acreditación propia, puede escribir un verificador. Equivale a código con todos los privilegios de la app: nada en Dart lo impide, y no se afirma lo contrario. Lo que sí queda cerrado es la vía de las API públicas desde la pantalla, el repositorio o la credencial de la app.
+- **Reloj y consumo antes del commit:** siguen como en §7, aceptados para el entorno sintético.
+- La autorización de la clave de recuperación del respaldo (F08, sesión C) usa el mismo `consumeOwnerAuthorization`. En la composición debe pasar `knownEnrolmentId`.

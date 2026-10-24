@@ -37,18 +37,44 @@ class _Clock {
   DateTime call() => now;
 }
 
+/// La acreditación en línea configurada en las credenciales de estas pruebas:
+/// una sola instancia; cada [_proof] fija su resultado.
+class _Online {
+  bool reauthenticated = true;
+  OwnerScope? sessionScope = _owner;
+  DateTime Function() clock = DateTime.now;
+}
+
+final _online = _Online();
+final _verification = OwnerOnlineVerification(
+  reauthenticate: (_, __) async => _online.reauthenticated,
+  readSessionScope: () async => _online.sessionScope,
+  clock: () => _online.clock(),
+);
+
 LocalOwnerCredential _credential(_Storage storage, _Clock clock) =>
-    LocalOwnerCredential(storage: storage, iterations: 1000, clock: clock.call);
+    LocalOwnerCredential(
+      storage: storage,
+      onlineVerification: _verification,
+      iterations: 1000,
+      clock: clock.call,
+    );
 
 Future<OnlineOwnerProof?> _proof(
   _Clock clock, {
   bool reauthenticated = true,
   OwnerScope? sessionScope = _owner,
-}) => OwnerOnlineVerification(
-  reauthenticate: (_, __) async => reauthenticated,
-  readSessionScope: () async => sessionScope,
-  clock: clock.call,
-).verify(email: 'farmer@example.test', password: 'pw', binding: _binding);
+}) {
+  _online
+    ..reauthenticated = reauthenticated
+    ..sessionScope = sessionScope
+    ..clock = clock.call;
+  return _verification.verify(
+    email: 'farmer@example.test',
+    password: 'pw',
+    binding: _binding,
+  );
+}
 
 Future<void> _enroll(
   LocalOwnerCredential c,
@@ -300,6 +326,7 @@ void main() {
       await _enroll(_credential(storage, clock), clock);
       final interrupted = LocalOwnerCredential(
         storage: storage,
+        onlineVerification: _verification,
         iterations: 1000,
         clock: clock.call,
         kdf: (_, __, ___) => Future.error(StateError('proceso terminado')),
@@ -396,26 +423,42 @@ void main() {
   });
 
   group('consumption (R2)', () {
-    Future<OwnerAuthorization> issue(_Clock clock) async {
+    Future<OwnerAuthorization> verifyWith(
+      LocalOwnerCredential c, [
+      String pin = '284917',
+    ]) => c.verify(
+      pin: pin,
+      purpose: AuthorizationPurpose.reverseApplication,
+      subjectRef: 'application:4',
+      binding: _binding,
+    );
+
+    Future<(OwnerAuthorization, String?)> issue(_Clock clock) async {
       final c = _credential(_Storage(), clock);
       await _enroll(c, clock);
-      return c.verify(
-        pin: '284917',
-        purpose: AuthorizationPurpose.reverseApplication,
-        subjectRef: 'application:4',
-        binding: _binding,
-      );
+      return (await verifyWith(c), await c.currentEnrolmentId());
     }
+
+    void consumeNow(OwnerAuthorization auth, String? enrolment, _Clock clock) =>
+        consumeOwnerAuthorization(
+          auth,
+          currentEnrolmentId: enrolment,
+          purpose: AuthorizationPurpose.reverseApplication,
+          subjectRef: 'application:4',
+          current: _binding,
+          now: clock.now,
+        );
 
     test('once, for its purpose, subject and current binding', () async {
       final clock = _Clock();
-      final auth = await issue(clock);
+      final (auth, enrolment) = await issue(clock);
       void consume({
         AuthorizationPurpose purpose = AuthorizationPurpose.reverseApplication,
         String subject = 'application:4',
         OwnerBindingContext? current = _binding,
       }) => consumeOwnerAuthorization(
         auth,
+        currentEnrolmentId: enrolment,
         purpose: purpose,
         subjectRef: subject,
         current: current,
@@ -449,6 +492,7 @@ void main() {
       expect(
         () => consumeOwnerAuthorization(
           null,
+          currentEnrolmentId: enrolment,
           purpose: AuthorizationPurpose.reverseApplication,
           subjectRef: 'application:4',
           current: _binding,
@@ -460,15 +504,134 @@ void main() {
 
     test('expires after 120 s', () async {
       final clock = _Clock();
-      final auth = await issue(clock);
+      final (auth, enrolment) = await issue(clock);
       expect(
         () => consumeOwnerAuthorization(
           auth,
+          currentEnrolmentId: enrolment,
           purpose: AuthorizationPurpose.reverseApplication,
           subjectRef: 'application:4',
           current: _binding,
           now: clock.now.add(const Duration(seconds: 121)),
         ),
+        throwsA(isA<OwnerAuthorizationRejected>()),
+      );
+    });
+
+    test(
+      'a PIN reset invalidates authorizations issued before it at once',
+      () async {
+        final clock = _Clock();
+        final c = _credential(_Storage(), clock);
+        await _enroll(c, clock);
+        final before = await verifyWith(c);
+        await _enroll(c, clock, '583920');
+        final current = await c.currentEnrolmentId();
+        expect(current, isNot(before.enrolmentId));
+        expect(
+          () => consumeNow(before, current, clock),
+          throwsA(isA<OwnerAuthorizationRejected>()),
+        );
+        // The new PIN works; the old one no longer verifies.
+        consumeNow(await verifyWith(c, '583920'), current, clock);
+        await expectLater(verifyWith(c), throwsA(isA<CredentialException>()));
+      },
+    );
+
+    test('a reset racing a verification: either order leaves no usable pre-reset authorization', () async {
+      final clock = _Clock();
+      final c = _credential(_Storage(), clock);
+      await _enroll(c, clock);
+      // verify() queued before enroll(): issued under the old PIN, then dead.
+      final first = await _proof(clock);
+      final results = await Future.wait<Object?>([
+        verifyWith(c),
+        c.enroll(
+          pin: '583920',
+          pinConfirmation: '583920',
+          proof: first,
+          binding: _binding,
+        ),
+      ]);
+      final raced = results.first! as OwnerAuthorization;
+      final afterReset = await c.currentEnrolmentId();
+      expect(
+        () => consumeNow(raced, afterReset, clock),
+        throwsA(isA<OwnerAuthorizationRejected>()),
+      );
+      // enroll() queued before verify(): the replaced PIN does not verify.
+      final second = await _proof(clock);
+      final late = await Future.wait<Object?>([
+        c.enroll(
+          pin: '691024',
+          pinConfirmation: '691024',
+          proof: second,
+          binding: _binding,
+        ),
+        verifyWith(
+          c,
+          '583920',
+        ).then<Object?>((a) => a, onError: (Object e) => e),
+      ]);
+      expect(late.last, isA<CredentialException>());
+    });
+
+    test('the known enrolment: unknown until read, moved by a reset at once, per storage', () async {
+      final clock = _Clock();
+      final storage = _Storage();
+      final c = _credential(storage, clock);
+      expect(c.knownEnrolmentId, isNull);
+      await _enroll(c, clock);
+      final first = c.knownEnrolmentId;
+      expect(first, isNotNull);
+      expect(first, await c.currentEnrolmentId());
+      // Another instance over the same storage sees it; another storage
+      // (another process, or a fabricated credential) does not.
+      expect(_credential(storage, clock).knownEnrolmentId, first);
+      expect(_credential(_Storage(), clock).knownEnrolmentId, isNull);
+      await _enroll(c, clock, '583920');
+      expect(c.knownEnrolmentId, isNot(first));
+      expect(c.knownEnrolmentId, await c.currentEnrolmentId());
+    });
+
+    test(
+      'a proof from another verification is refused (direct call with stubs)',
+      () async {
+        final storage = _Storage();
+        final clock = _Clock();
+        final c = _credential(storage, clock);
+        final forged = await OwnerOnlineVerification(
+          reauthenticate: (_, __) async => true,
+          readSessionScope: () async => _owner,
+        ).verify(email: 'x', password: 'y', binding: _binding);
+        expect(forged, isNotNull);
+        await expectLater(
+          c.enroll(
+            pin: '284917',
+            pinConfirmation: '284917',
+            proof: forged,
+            binding: _binding,
+          ),
+          throwsA(isA<CredentialException>()),
+        );
+        expect(storage.values, isEmpty);
+      },
+    );
+
+    test('an authorization from a credential on another storage does not match the installation', () async {
+      final clock = _Clock();
+      final installation = _credential(_Storage(), clock);
+      await _enroll(installation, clock);
+      final fabricated = _credential(_Storage(), clock);
+      await _enroll(fabricated, clock);
+      final forged = await verifyWith(fabricated);
+      final current = await installation.currentEnrolmentId();
+      expect(
+        () => consumeNow(forged, current, clock),
+        throwsA(isA<OwnerAuthorizationRejected>()),
+      );
+      expect(
+        () => consumeNow(forged, null, clock),
         throwsA(isA<OwnerAuthorizationRejected>()),
       );
     });

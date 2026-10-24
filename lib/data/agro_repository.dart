@@ -153,12 +153,21 @@ class ReversalEffects {
 }
 
 class AgroRepository {
+  /// [ownerEnrolment] da el enrolamiento del PIN vigente en la instalación
+  /// (`LocalOwnerCredential.knownEnrolmentId`): las acciones autorizadas por
+  /// el titular lo comparan con el de la autorización, dentro de su
+  /// transacción y sin esperar. Sin él, ninguna autorización vale.
   AgroRepository(
     this.appDatabase, {
     FarmerOperationGate gate = const FarmerOperationGate.unrestricted(),
-  }) : _gate = gate;
+    String? Function()? ownerEnrolment,
+  }) : _gate = gate,
+       _ownerEnrolment = ownerEnrolment ?? _noEnrolment;
   final AppDatabase appDatabase;
   final FarmerOperationGate _gate;
+  final String? Function() _ownerEnrolment;
+
+  static String? _noEnrolment() => null;
 
   Future<Database> get _db => appDatabase.database;
   String _date(DateTime date) => date.toUtc().toIso8601String();
@@ -1572,11 +1581,15 @@ class AgroRepository {
     String draftRef, {
     required OwnerAuthorization authorization,
   }) => _write((txn, context) async {
+    // El vínculo vigente y el PIN vigente, leídos justo antes de consumir.
+    final current = await _currentOwnerBinding(txn);
+    final enrolment = _ownerEnrolment();
     consumeOwnerAuthorization(
       authorization,
+      currentEnrolmentId: enrolment,
       purpose: AuthorizationPurpose.confirmLateOperation,
       subjectRef: 'late:$draftRef',
-      current: await _currentOwnerBinding(txn),
+      current: current,
       now: DateTime.now(),
     );
     final draft = await _pendingLateDraft(txn, draftRef);
@@ -1680,11 +1693,15 @@ class AgroRepository {
     required OwnerAuthorization authorization,
     String? note,
   }) => _write((txn, context) async {
+    // El vínculo vigente y el PIN vigente, leídos justo antes de consumir.
+    final current = await _currentOwnerBinding(txn);
+    final enrolment = _ownerEnrolment();
     consumeOwnerAuthorization(
       authorization,
+      currentEnrolmentId: enrolment,
       purpose: AuthorizationPurpose.rejectLateOperation,
       subjectRef: 'late:$draftRef',
-      current: await _currentOwnerBinding(txn),
+      current: current,
       now: DateTime.now(),
     );
     await _pendingLateDraft(txn, draftRef);
@@ -2512,11 +2529,15 @@ class AgroRepository {
       throw BusinessRuleException('Indique el motivo de la reversión.');
     }
     await _write((txn, context) async {
+      // El vínculo vigente y el PIN vigente, leídos justo antes de consumir.
+      final current = await _currentOwnerBinding(txn);
+      final enrolment = _ownerEnrolment();
       consumeOwnerAuthorization(
         authorization,
+        currentEnrolmentId: enrolment,
         purpose: purpose,
         subjectRef: '${type.toLowerCase()}:$operationId',
-        current: await _currentOwnerBinding(txn),
+        current: current,
         now: DateTime.now(),
       );
       final recorder = ReversalEffects();
