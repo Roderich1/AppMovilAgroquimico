@@ -760,6 +760,193 @@ void main() {
 
   group('revisión: cancelación por plazo', _reviewTests);
 
+  group('F08-ADR-003: copia cifrada en el teléfono', () {
+    Future<_Phone> owner(String name, {bool enrollKey = true}) => phone(
+      name,
+      session: memberA,
+      installationRef: installationHere,
+      enrollKey: enrollKey,
+      seed: (db, invoices) => farmerData(db, invoices),
+    );
+
+    test('sin una clave confirmada no se sube nada', () async {
+      final server = _FakeServer();
+      final a = await owner('a', enrollKey: false);
+      await expectLater(
+        a.service(server, memberA).uploadNew(),
+        throwsA(isA<RecoveryKeyNotConfirmed>()),
+      );
+      // Clave mostrada pero sin confirmar: tampoco.
+      await a.keyring.pendingKey();
+      await expectLater(
+        a.service(server, memberA).uploadNew(),
+        throwsA(isA<RecoveryKeyNotConfirmed>()),
+      );
+      expect(server.requests, isEmpty);
+    });
+
+    test(
+      'la subida declara el formato 2 y anota con qué clave se cifró',
+      () async {
+        final server = _FakeServer();
+        final a = await owner('a');
+        final uploaded = await a.service(server, memberA).uploadNew();
+        final post = server.requests.singleWhere((r) => r.method == 'POST');
+        expect(post.headers['X-Backup-Format-Version'], '2');
+        expect(uploaded.entry.formatVersion, 2);
+        expect(await a.service(server, memberA).keysFor([uploaded.entry]), {
+          uploaded.entry.id: RemoteCopyKey.current,
+        });
+        // Tras la subida no queda nada en la carpeta privada.
+        final privado = Directory(p.join(a.directory.path, 'privado'));
+        expect(privado.existsSync() ? privado.listSync() : const [], isEmpty);
+      },
+    );
+
+    test(
+      'rotación: la copia anterior sigue descifrándose con la clave retirada',
+      () async {
+        final server = _FakeServer();
+        final a = await owner('a');
+        final first = await a.service(server, memberA).uploadNew();
+        final next = await a.keyring.pendingKey();
+        await a.keyring.confirmPending(next.displayText);
+        final second = await a.service(server, memberA).uploadNew();
+        final service = a.service(server, memberA);
+        expect(await service.keysFor([first.entry, second.entry]), {
+          first.entry.id: RemoteCopyKey.retired,
+          second.entry.id: RemoteCopyKey.current,
+        });
+        for (final entry in [first.entry, second.entry]) {
+          final prepared = await service.prepareRestore(entry);
+          expect(prepared.validation.isValid, isTrue);
+          await service.discard(prepared);
+        }
+      },
+    );
+
+    test('copia antigua sin cifrar (formato 1): se reconoce, se restaura y se avisa', () async {
+      final server = _FakeServer();
+      final a = await owner('a');
+      // Una copia del formato anterior: el contenedor tal cual, sin cifrar.
+      final exported = await a.container.read(backupServiceProvider).export();
+      final bytes = await File(exported.path).readAsBytes();
+      final legacy = _Stored(
+        '00000009-0000-4000-8000-000000000009',
+        bytes,
+        AppDatabase.schemaVersion,
+        DateTime.utc(2026, 10, 1),
+        formatVersion: 1,
+      );
+      server.stored[legacy.id] = legacy;
+      final service = a.service(server, memberA);
+      expect(await service.keysFor([legacy.jsonEntry]), isEmpty);
+      final prepared = await service.prepareRestore(legacy.jsonEntry);
+      expect(prepared.unencrypted, isTrue);
+      expect(prepared.ownership.accepted, isTrue);
+      await service.restorePrepared(prepared);
+      // No se convirtió ni se borró en el servidor.
+      expect(server.stored[legacy.id]!.bytes, bytes);
+    });
+
+    for (final (name, format, encrypted) in <(String, int, bool)>[
+      ('metadato formato 2 con contenido sin cifrar', 2, false),
+      ('metadato formato 1 con contenido cifrado', 1, true),
+      ('formato desconocido', 3, true),
+    ]) {
+      test('$name: se rechaza sin tocar los datos', () async {
+        final server = _FakeServer();
+        final a = await owner('a');
+        await a.service(server, memberA).uploadNew();
+        final stored = server.stored.values.single;
+        final Uint8List bytes;
+        if (encrypted) {
+          bytes = stored.bytes;
+        } else {
+          final exported = await a.container
+              .read(backupServiceProvider)
+              .export();
+          bytes = await File(exported.path).readAsBytes();
+        }
+        final forged = _Stored(
+          stored.id,
+          bytes,
+          stored.schemaVersion,
+          stored.createdAt,
+          formatVersion: format,
+        );
+        server.stored[stored.id] = forged;
+        final before = await a.dump();
+        await expectLater(
+          a.service(server, memberA).prepareRestore(forged.jsonEntry),
+          throwsA(isA<BackupEnvelopeException>()),
+        );
+        expect(await a.dump(), before);
+        final privado = Directory(p.join(a.directory.path, 'privado'));
+        expect(privado.existsSync() ? privado.listSync() : const [], isEmpty);
+      });
+    }
+
+    for (final (name, change) in <(String, Uint8List Function(Uint8List))>[
+      ('un bit del cifrado alterado', (b) => Uint8List.fromList(b)..[200] ^= 1),
+      ('truncado', (b) => Uint8List.fromList(b.sublist(0, b.length - 100))),
+      (
+        'sin la etiqueta final',
+        (b) => Uint8List.fromList(b.sublist(0, b.length - 16)),
+      ),
+    ]) {
+      test(
+        '$name con SHA-256 de transporte coherente: no se descifra ni se restaura',
+        () async {
+          final server = _FakeServer();
+          final a = await owner('a');
+          await a.service(server, memberA).uploadNew();
+          final stored = server.stored.values.single;
+          // El servidor (o quien lo controle) sirve bytes alterados y publica su
+          // propio SHA-256: el transporte cuadra, el cifrado no.
+          final forged = _Stored(
+            stored.id,
+            change(stored.bytes),
+            stored.schemaVersion,
+            stored.createdAt,
+          );
+          server.stored[stored.id] = forged;
+          await a.container
+              .read(repositoryProvider)
+              .addProduct(name: 'Posterior al respaldo');
+          final before = await a.dump();
+          final photos = await a.photos();
+          await expectLater(
+            a.service(server, memberA).prepareRestore(forged.jsonEntry),
+            throwsA(isA<BackupEnvelopeException>()),
+          );
+          expect(await a.dump(), before);
+          expect(await a.photos(), photos);
+          final privado = Directory(p.join(a.directory.path, 'privado'));
+          expect(privado.existsSync() ? privado.listSync() : const [], isEmpty);
+        },
+      );
+    }
+
+    test('cambiar de sesión no toca el llavero ni las copias', () async {
+      final server = _FakeServer();
+      final a = await owner('a');
+      final uploaded = await a.service(server, memberA).uploadNew();
+      // Otra cuenta en sesión (o una sesión recuperada): el llavero sigue y
+      // la copia del titular sigue descifrándose con su clave.
+      await expectLater(
+        a.service(server, memberB).uploadNew(),
+        throwsA(isA<RemoteBackupOwnerMismatch>()),
+      );
+      expect(await a.keyring.readiness(), KeyringReadiness.ready);
+      final prepared = await a
+          .service(server, memberA)
+          .prepareRestore(uploaded.entry);
+      expect(prepared.validation.isValid, isTrue);
+      await a.service(server, memberA).discard(prepared);
+    });
+  });
+
   group('revisión: acceso y subida incierta', () {
     test('un 401 o 403 descarta el acceso en memoria; un 404 no', () async {
       for (final (status, expected) in [(401, 1), (403, 1)]) {
