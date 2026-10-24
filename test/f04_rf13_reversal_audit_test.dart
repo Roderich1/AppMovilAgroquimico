@@ -242,6 +242,32 @@ void main() {
     });
   });
 
+  test('an audited reversal leaves every sync table untouched', () async {
+    final f = await _fixture();
+    final h = f.household;
+    await h.buy(h.titular, 5000);
+    final applicationId = await h.apply(h.titular, h.titularFarm, 2000);
+    Map<String, List<Map<String, Object?>>> syncTables(
+      Map<String, List<Map<String, Object?>>> dump,
+    ) => {
+      for (final e in dump.entries)
+        if (e.key.startsWith('sync_')) e.key: e.value,
+    };
+    final before = syncTables(await f.dump());
+    expect(before, isNotEmpty);
+
+    await f.repo.reverseApplication(
+      applicationId,
+      reason: 'Dosis registrada por error',
+      authorization: await f.authorize(
+        AuthorizationPurpose.reverseApplication,
+        'application:$applicationId',
+      ),
+    );
+
+    expect(syncTables(await f.dump()), before);
+  });
+
   test('a used authorization and a double tap produce one reversal', () async {
     final f = await _fixture();
     final h = f.household;
