@@ -84,16 +84,21 @@ Cada copia tiene su propia clave, de modo que el nonce nunca se reutiliza con la
 - **El llavero vive en `flutter_secure_storage`**, que ya es dependencia y está fijado en 11.2.0, con un almacén propio `agrocuentas_backup_keys_v1` en Android, cifrado con Android Keystore.
 - **Contenido:** una lista de `{keyId, key, createdAt, confirmedAt?, retiredAt?}`.
 - **Fuera del respaldo:** no está en SQLite, así que no viaja en el respaldo.
-- **Fuera del auto-backup de Android:** se excluye en `backup_rules.xml` y `data_extraction_rules.xml`. Ese cambio necesita un turno de A (§10).
+- **Fuera del auto-backup de Android:** ningún dominio de la app entra en el respaldo automático ni en la transferencia entre dispositivos (§3.8).
 - **Sin escrow ni recuperación centralizada:** no hay escrow administrativo, ni clave maestra, ni copia en el servidor, ni recuperación por parte de la Directiva.
 - **Nada se registra en logs:** ni la clave ni el `toString()` de sus objetos.
 - **Mostrarla de nuevo o cambiarla es una acción deliberada.** Exige una `OwnerAuthorization` de un solo uso (`LocalOwnerCredential.verify(pin:, purpose:, subjectRef:)` de A, propósitos `SHOW_BACKUP_RECOVERY_KEY` y `ROTATE_BACKUP_RECOVERY_KEY`, `subjectRef` = `keyId` en hex), consumida contra el vínculo vigente. La credencial autoriza, pero nunca se usa para derivar la clave. **El llavero exige y consume la autorización**, no la pantalla: `revealActive(authorization:)` y `startRotation(authorization:)` llaman al consumidor inyectado (`consumeOwnerAuthorization` de A en la composición) contra el `keyId`, y con una clave activa no nace otra pendiente sin `startRotation`. Revisión de B, C2. Una clave **pendiente** (la primera o la de una rotación ya autorizada) se puede volver a mostrar sin otra autorización hasta que se confirme o se descarte: es deliberado, porque nada se ha cifrado con ella ni se cifrará antes de confirmarla. En esta rama el consumidor y el punto de enganche de la interfaz (`backupKeyAuthorizationConsumerProvider` y `backupKeyAuthorizerProvider`) **fallan cerrados** y se conectan en la composición. El primer enrolamiento de la clave no pide PIN: nada depende todavía de ella.
 
 ### 3.4 Confirmación antes de depender de la copia cifrada
 
-1. La app genera K_r y la muestra una sola vez en una pantalla dedicada, con instrucciones: anotarla en papel y guardarla fuera del teléfono. No se copia al portapapeles ni se comparte: los teclados con historial y las nubes quedan fuera.
+1. La app genera K_r y la muestra una sola vez en una pantalla dedicada, con instrucciones: anotarla en papel y guardarla fuera del teléfono. No se copia al portapapeles ni se comparte: los teclados con historial y las nubes quedan fuera. El campo donde se escribe no tiene menú de copiar y pegar.
 2. La persona **vuelve a escribirla completa**. La app comprueba la suma de verificación y la igualdad con K_r, y sólo entonces marca `confirmedAt`.
 3. **Mientras no haya una clave confirmada, «Subir respaldo» no sube nada** y lleva a este procedimiento.
+4. **Pantalla protegida (FLAG_SECURE).** Mientras se muestra, se confirma o se escribe la clave (la pantalla de la clave, el diálogo que la vuelve a mostrar y el que la pide para recuperar) la ventana lleva `FLAG_SECURE`: sin capturas ni grabación, y la miniatura de recientes en blanco, también en segundo plano.
+   - **Sin un primer fotograma desprotegido:** lo sensible se pinta sólo cuando Android ya confirmó la marca (`ScreenSecureChannel`, canal `agrocuentas/screen_secure`, que responde desde el hilo de la interfaz con el estado que quedó). Hasta entonces se ve un indicador.
+   - **Cuenta anidada:** cada pantalla o diálogo toma su permiso (`ScreenSecure.acquire`) y la marca se quita al devolver el último. Cerrar un diálogo no desprotege la pantalla que sigue abierta debajo. El permiso se devuelve cuando la pantalla terminó de cerrarse.
+   - **Falla cerrado:** si Android no confirma la marca, la clave no se muestra y se ofrece reintentar. Si lo que falla es quitarla, la pantalla sigue protegida.
+   - **Límite declarado:** protege contra capturas y grabación del sistema, no contra una cámara apuntando a la pantalla. La marca real en la ventana se comprueba en el dispositivo (DEVICE, lo opera A). En el host se prueba la cuenta y el orden con el canal simulado.
 
 ### 3.5 Teléfono nuevo, reinstalación o llavero ilegible
 
@@ -125,6 +130,34 @@ Cada copia tiene su propia clave, de modo que el nonce nunca se reutiliza con la
   - Una copia del servidor cuyo `key_id` no se conoce cuenta como dependiente.
   - La app avisa de que la clave anotada anterior sigue siendo necesaria para N copias.
 - **No se re-cifran ni se sobrescriben copias remotas.** La rotación del servidor, que conserva las 5 últimas verificadas, las retira por el orden normal.
+
+### 3.8 Respaldo automático de Android y transferencia entre dispositivos
+
+Decidido el 2026-10-23 (continuación de Roderich, transmitida por A): **nada de Agrocuentas sale del teléfono por el respaldo de Google ni por la transferencia entre dispositivos.** El único respaldo es el propio de la app, local o cifrado en la nube.
+
+Inventario de dónde guarda cada cosa, verificado sobre las versiones fijadas de los plugins (`path_provider_android` 2.3.1, `sqflite_android` 2.4.3, `flutter_secure_storage` 11.2.0) y sobre la composición:
+
+| Dominio de Android | Qué guarda la app ahí |
+|---|---|
+| `database` (`getDatabasesPath`) | La base activa `agroquimicos_v2.db` con su `-journal`/`-wal`/`-shm`, las copias `previo/` con su registro, y los `.descifrado` de una restauración. |
+| `root` → `app_flutter/` | `getApplicationDocumentsDirectory` es `getDir("flutter")`, **no** `files/`. Contiene las fotos de factura (`invoices/`), el log y, si no hay carpeta de descargas, las exportaciones `.agrobackup` sin cifrar y los informes. |
+| `file` (`getApplicationSupportDirectory`) | `remote_backups/`: descargas, subidas y descifrados del respaldo en la nube. |
+| `sharedpref` | Los almacenes seguros `agrocuentas_secure_session_v1` (sesión y refresh), `agrocuentas_owner_credential_v1` (PIN del titular, de A) y `agrocuentas_backup_keys_v1` (claves de recuperación). Cada uno ocupa tres archivos: `<ns>.xml`, `FlutterSecureKeyStorage:<ns>.xml` y `FlutterSecureStorageConfiguration:<ns>.xml`. Además, `AgrocuentasSessionPointer.xml`. |
+| `external` → `Download/` (`getDownloadsDirectory`) | Exportaciones `.agrobackup` sin cifrar e informes. Android las respalda por defecto. |
+| `no_backup/` | La identidad de la instalación. Android nunca la respalda. |
+| caché | Los temporales de Dart (`Directory.systemTemp`) y los de `path_provider`. Android no la respalda. |
+
+Reglas:
+
+- `backup_rules.xml` (Android 11 y anteriores) y las dos secciones `cloud-backup` y `device-transfer` de `data_extraction_rules.xml` (Android 12 y posteriores) **excluyen los cinco dominios enteros** (`path="."`).
+- **Se excluye el dominio entero, no archivo por archivo,** porque cada dominio mezcla secretos y datos privados y no hay nada inocuo que incluir. Así, un archivo nuevo queda fuera sin tocar las reglas.
+- **Segunda barrera:** se mantienen además, por su nombre, las exclusiones de los tres almacenes seguros, del puntero de sesión, de `previo/` y de `remote_backups/`. Si alguien quitara una exclusión de dominio, los secretos seguirían fuera, y las pruebas de F03 que las buscan por su nombre no cambian.
+- No hay inclusiones: una inclusión limitaría el respaldo a lo incluido, y no hay nada que se quiera respaldar.
+- **No se confía en `allowBackup="false"`:** en Android 12 y posteriores no detiene la transferencia entre dispositivos. El manifiesto no cambia, y tampoco `minSdk`.
+- Prueba en el host: `f08_android_backup_rules_test.dart`. La regla empaquetada y el manifiesto fusionado se comprueban sobre el APK con `aapt2` (evidencia).
+- **No cubierto:** el almacenamiento protegido del dispositivo (`device_*`), que la app no usa, y la sección `cross-platform-transfer` de Android 16, que no se añade para no depender de cómo la lean versiones anteriores.
+
+**Consecuencia que se declara: desinstalar la app, borrar sus datos o cambiar de teléfono sin un respaldo propio válido pierde los datos.** Ni Google ni la transferencia entre teléfonos los traen. Hace falta una exportación local guardada fuera del teléfono, o una copia cifrada en la nube junto con su clave de recuperación.
 
 ## 4. Formato exterior versionado (formato 2)
 
@@ -258,14 +291,14 @@ En cada oportunidad de mantenimiento (al abrir la sección de respaldos, antes d
 ### 7.3 Protección (modelo de amenazas)
 
 - Las `.previo` contienen la base en texto legible, igual que la base activa, y viven en su misma carpeta privada.
-- Se excluye `database/previo` del auto-backup y de la transferencia entre dispositivos de Android, que necesita un turno de A. Así no salen del teléfono sin una decisión.
-- **Hallazgo, sin cambiar en este ADR:** hoy la base activa **sí** entra en el auto-backup de Google, porque sólo se excluye la sesión. Decidirlo corresponde a Roderich y A.
+- Ni las `.previo` ni la base activa salen del teléfono por el respaldo de Google o la transferencia entre dispositivos (§3.8). El hallazgo de la primera versión de este ADR, que la base activa sí entraba, queda resuelto así.
 
 ## 8. Riesgo residual
 
 - **Teléfono desbloqueado o comprometido:** en él, la clave está en el llavero. El cifrado protege el servidor y el bucket, no el dispositivo.
 - **Sesión robada:** el atacante puede descargar ciphertext, pero no descifrarlo sin K_r.
 - **La exportación local manual** sigue sin cifrar.
+- **Sin un respaldo propio válido, desinstalar o cambiar de teléfono pierde los datos** (§3.8).
 - **No hay firma:** un servidor comprometido puede borrar o retener copias (disponibilidad), pero no fabricar una que pase la etiqueta sin K_r.
 - **Paquete de un solo mantenedor (§2.3).**
 - **Rendimiento en el dispositivo: NOT_MEASURED** hasta el ensayo.
@@ -282,7 +315,8 @@ En cada oportunidad de mantenimiento (al abrir la sección de respaldos, antes d
 ## 10. Cambios compartidos que se piden a A
 
 - **Mobile `pubspec.yaml`/lock:** `cryptography: 2.9.0`, en el mismo turno que A (que también lo usará).
-- **Mobile `android/app/src/main/res/xml/backup_rules.xml` y `data_extraction_rules.xml`:** exclusiones de `agrocuentas_backup_keys_v1` (con el mismo patrón de tres líneas que la sesión), de `database/previo` y de `file/remote_backups`.
+- **Mobile `android/app/src/main/res/xml/backup_rules.xml` y `data_extraction_rules.xml`:** exclusión de los cinco dominios (§3.8). Asignado por A a este frente el 2026-10-23.
+- **Mobile `MainActivity.kt`:** sólo la línea que registra `ScreenSecureChannel` (archivo nuevo). Turno concedido por A el 2026-10-23. `SecureSessionPointerChannel` no cambia.
 - **BE `env.schema.ts`:** `BACKUP_REQUIRE_CLIENT_ENCRYPTION` (booleano, por defecto `false`), si la configuración de backups no puede leerlo de su propio módulo.
 - **BE `openapi-f08-backups.json`:** regenerarlo al final, por las descripciones de la cabecera de formato y los códigos 422 nuevos.
 - **Liberadas:** BE `20261023110000` y Mobile v12.
