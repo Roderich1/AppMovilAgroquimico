@@ -317,6 +317,16 @@ void main() {
       await expectRejected(BackupEnvelopeProblem.authenticationFailed);
     });
 
+    test('el AAD son los 80 bytes leídos: la cabecera leída coincide con la escrita', () async {
+      final header = await BackupEncryption.readHeader(
+        envelope,
+        maxPlaintextBytes: limit,
+      );
+      final bytes = await envelope.readAsBytes();
+      expect(header.raw, bytes.sublist(0, BackupEnvelopeHeader.length));
+      expect(header.toBytes(), header.raw);
+    });
+
     test('identificador de clave alterado: otra clave', () async {
       await mutate((b) => b[12] ^= 0x01);
       await expectRejected(BackupEnvelopeProblem.wrongKey);

@@ -291,6 +291,9 @@ class _Phone {
   );
 }
 
+/// Autorización simulada del titular para rotar la clave en las pruebas.
+final _ownerAuthorization = Object();
+
 /// Almacén que deja de aceptar escrituras a petición.
 class _FailingWritesVault implements BackupKeyVault {
   String? value;
@@ -393,7 +396,12 @@ void main() {
     await container.read(installationAccessProvider.notifier).refresh();
     // Clave de recuperación: la que la persona ya tenía anotada
     // ([recoveryKey]) o una nueva, mostrada y confirmada (F08-ADR-003 §3.4).
-    final keyring = BackupKeyring(_MemoryVault());
+    final keyring = BackupKeyring(
+      _MemoryVault(),
+      consumeAuthorization: (auth, action, keyId) async {
+        if (!identical(auth, _ownerAuthorization)) throw StateError('no');
+      },
+    );
     BackupRecoveryKey? key = recoveryKey;
     if (key != null) {
       await keyring.adoptRecovered(key);
@@ -830,7 +838,9 @@ void main() {
         final server = _FakeServer();
         final a = await owner('a');
         final first = await a.service(server, memberA).uploadNew();
-        final next = await a.keyring.pendingKey();
+        final next = await a.keyring.startRotation(
+          authorization: _ownerAuthorization,
+        );
         await a.keyring.confirmPending(next.displayText);
         final second = await a.service(server, memberA).uploadNew();
         final service = a.service(server, memberA);

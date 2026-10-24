@@ -18,6 +18,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:path/path.dart' as p;
 
 enum SafetyCopyState {
@@ -135,17 +136,34 @@ class RestoreSafetyCopies {
   final int maxResolved;
   final Duration maxAge;
 
+  /// Estado del proceso por carpeta `previo/`, compartido por todas las
+  /// instancias: `BackupService` (y con él esta clase) se vuelve a crear si
+  /// cambia su proveedor, y una instancia nueva no debe tomar por
+  /// interrumpida la restauración que otra tiene en curso ni pisar sus
+  /// escrituras del registro.
+  static final Map<String, _ProcessState> _processes = {};
+
+  _ProcessState? _process;
+
+  /// Sólo pruebas: simula que la app se cerró y se volvió a abrir.
+  @visibleForTesting
+  static void forgetProcessStateForTesting() => _processes.clear();
+
   /// Entradas en preparación por una restauración de este proceso. Sólo
-  /// éstas quedan fuera de la conversión a «interrumpida».
-  final Set<String> _inProcess = {};
+  /// éstas quedan fuera de la conversión a «interrumpida». Válido dentro de
+  /// [_serial].
+  Set<String> get _inProcess => _process!.inProcess;
 
-  /// Las operaciones sobre el registro se encadenan: un mantenimiento lanzado
-  /// por la interfaz nunca pisa la escritura de una restauración en curso.
-  Future<void> _tail = Future.value();
-
-  Future<T> _serial<T>(Future<T> Function() run) {
-    final result = _tail.then((_) => run());
-    _tail = result.then((_) {}, onError: (Object _) {});
+  /// Las operaciones sobre el registro se encadenan, en todo el proceso: un
+  /// mantenimiento lanzado por la interfaz nunca pisa la escritura de una
+  /// restauración en curso.
+  Future<T> _serial<T>(Future<T> Function() run) async {
+    final state = _process ??= _processes.putIfAbsent(
+      p.normalize((await directory()).path),
+      _ProcessState.new,
+    );
+    final result = state.tail.then((_) => run());
+    state.tail = result.then((_) {}, onError: (Object _) {});
     return result;
   }
 
@@ -407,11 +425,11 @@ class RestoreSafetyCopies {
 
   /// Borra una copia sin entrada que la persona eligió expresamente. Sólo
   /// admite lo que devuelve [unregistered].
-  Future<void> deleteUnregistered(FileSystemEntity entity) async {
+  Future<void> deleteUnregistered(FileSystemEntity entity) => _serial(() async {
     final allowed = (await unregistered()).map((e) => e.path).toSet();
     if (!allowed.contains(entity.path)) return;
     await entity.delete(recursive: true);
-  }
+  });
 
   /// El registro era ilegible y la persona decide empezar uno nuevo: se
   /// aparta (no se borra) y todas las copias pasan a «sin entrada», que
@@ -423,4 +441,9 @@ class RestoreSafetyCopies {
     await file.rename('${file.path}.ilegible-$stamp');
     await _save([]);
   });
+}
+
+class _ProcessState {
+  final Set<String> inProcess = {};
+  Future<void> tail = Future.value();
 }

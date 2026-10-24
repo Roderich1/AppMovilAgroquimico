@@ -185,12 +185,62 @@ enum RemoteCopyKey {
   unknown,
 }
 
+enum BackupKeyAction { show, rotate }
+
+/// Consume una autorización del titular para [action] sobre la clave
+/// [keyIdHex], o lanza si no vale. En la composición es
+/// `consumeOwnerAuthorization` de A (propósitos SHOW_BACKUP_RECOVERY_KEY y
+/// ROTATE_BACKUP_RECOVERY_KEY, `subjectRef` = [keyIdHex], contra el vínculo
+/// vigente). La autorización es opaca aquí: la emite y la comprueba A.
+typedef BackupKeyAuthorizationConsumer = Future<void> Function(
+  Object authorization,
+  BackupKeyAction action,
+  String keyIdHex,
+);
+
+/// Mostrar o cambiar la clave activa exige una autorización válida del
+/// titular, también si se llama al llavero sin pasar por la pantalla.
+class BackupKeyAuthorizationRequired implements Exception {
+  const BackupKeyAuthorizationRequired();
+
+  String get message =>
+      'Hace falta la autorización del titular en este teléfono. No se mostró '
+      'ni se cambió la clave.';
+
+  @override
+  String toString() => message;
+}
+
+/// Sin conectar con la credencial local: falla cerrado.
+Future<void> _denyAll(Object _, BackupKeyAction _, String _) async =>
+    throw const BackupKeyAuthorizationRequired();
+
 class BackupKeyring {
-  BackupKeyring(this._vault, {DateTime Function()? clock})
-    : _clock = clock ?? DateTime.now;
+  BackupKeyring(
+    this._vault, {
+    DateTime Function()? clock,
+    BackupKeyAuthorizationConsumer consumeAuthorization = _denyAll,
+  }) : _clock = clock ?? DateTime.now,
+       _consumeAuthorization = consumeAuthorization;
 
   final BackupKeyVault _vault;
   final DateTime Function() _clock;
+  final BackupKeyAuthorizationConsumer _consumeAuthorization;
+
+  Future<void> _authorize(
+    Object? authorization,
+    BackupKeyAction action,
+    String keyIdHex,
+  ) async {
+    if (authorization == null) throw const BackupKeyAuthorizationRequired();
+    try {
+      await _consumeAuthorization(authorization, action, keyIdHex);
+    } on BackupKeyAuthorizationRequired {
+      rethrow;
+    } on Object {
+      throw const BackupKeyAuthorizationRequired();
+    }
+  }
 
   /// Las operaciones se encadenan: dos escrituras nunca se pisan.
   Future<void> _tail = Future.value();
@@ -226,14 +276,38 @@ class BackupKeyring {
     return KeyringReadiness.noKey;
   });
 
-  /// Clave mostrada y sin confirmar. Si no existe, crea una nueva. Sirve
-  /// tanto para la primera clave como para la rotación: mientras no se
-  /// confirme, la activa (si hay) sigue en uso.
+  /// Clave mostrada y sin confirmar. Si no existe y no hay activa, crea la
+  /// primera (sin autorización: nada depende todavía de ella). Con una
+  /// activa, una pendiente nueva sólo nace de [startRotation].
   Future<BackupRecoveryKey> pendingKey() => _serial(() async {
     final keyring = await _load();
     for (final stored in keyring.keys) {
       if (stored.status == BackupKeyStatus.pending) return stored.key;
     }
+    if (keyring.keys.any((k) => k.status == BackupKeyStatus.active)) {
+      throw const BackupKeyAuthorizationRequired();
+    }
+    return _addPending(keyring);
+  });
+
+  /// Empieza el cambio de la clave activa: consume la autorización del
+  /// titular y crea la pendiente que se mostrará y confirmará. Mientras no se
+  /// confirme, la activa sigue en uso.
+  Future<BackupRecoveryKey> startRotation({required Object? authorization}) =>
+      _serial(() async {
+        final keyring = await _load();
+        final active = keyring.keys
+            .where((k) => k.status == BackupKeyStatus.active)
+            .firstOrNull;
+        if (active == null) throw const BackupKeyAuthorizationRequired();
+        await _authorize(authorization, BackupKeyAction.rotate, active.keyId);
+        for (final stored in keyring.keys) {
+          if (stored.status == BackupKeyStatus.pending) return stored.key;
+        }
+        return _addPending(keyring);
+      });
+
+  Future<BackupRecoveryKey> _addPending(_Keyring keyring) async {
     final key = BackupRecoveryKey.generate();
     keyring.keys.add(
       _StoredKey(
@@ -245,7 +319,7 @@ class BackupKeyring {
     );
     await _save(keyring);
     return key;
-  });
+  }
 
   /// Descarta la clave pendiente (p. ej. la persona no pudo anotarla). Nada
   /// dependía de ella.
@@ -358,10 +432,18 @@ class BackupKeyring {
         };
       });
 
-  /// Muestra otra vez la clave activa. La interfaz exige antes la
-  /// autorización del titular (credencial local de A o acreditación en
-  /// línea); este método no la sustituye.
-  Future<BackupRecoveryKey?> revealActive() async => (await activeKey())?.key;
+  /// Muestra otra vez la clave activa: sólo con una autorización del titular
+  /// que se consume aquí, no en la pantalla.
+  Future<BackupRecoveryKey?> revealActive({required Object? authorization}) =>
+      _serial(() async {
+        final keyring = await _load();
+        final active = keyring.keys
+            .where((k) => k.status == BackupKeyStatus.active)
+            .firstOrNull;
+        if (active == null) return null;
+        await _authorize(authorization, BackupKeyAction.show, active.keyId);
+        return active.key;
+      });
 
   /// El llavero no se podía leer y la persona decide empezar uno nuevo. Las
   /// claves ilegibles se pierden: sólo se hace por acción expresa.

@@ -47,20 +47,30 @@ final remoteBackupServiceProvider = Provider<RemoteBackupService>(
   ),
 );
 
+/// Consume en el llavero la autorización del titular. La composición lo
+/// conecta con `consumeOwnerAuthorization` de A; sin conectar, falla cerrado.
+final backupKeyAuthorizationConsumerProvider =
+    Provider<BackupKeyAuthorizationConsumer>(
+      (ref) =>
+          (authorization, action, keyIdHex) async =>
+              throw const BackupKeyAuthorizationRequired(),
+    );
+
 /// Llavero de claves de recuperación del respaldo, en el almacén seguro.
 final backupKeyringProvider = Provider<BackupKeyring>(
-  (ref) => BackupKeyring(const SecureStorageBackupKeyVault()),
+  (ref) => BackupKeyring(
+    const SecureStorageBackupKeyVault(),
+    consumeAuthorization: ref.watch(backupKeyAuthorizationConsumerProvider),
+  ),
 );
 
-enum BackupKeyAction { show, rotate }
-
-/// Autoriza volver a mostrar o cambiar la clave de recuperación
-/// (F08-ADR-003 §3.3). La composición lo conecta con la credencial local del
-/// titular (`LocalOwnerCredential.verify` de A, propósitos
-/// SHOW_BACKUP_RECOVERY_KEY y ROTATE_BACKUP_RECOVERY_KEY, `subjectRef` = el
-/// identificador de la clave en hex). Esa credencial sólo autoriza: nunca
-/// interviene en la derivación de la clave. Sin conectar, falla cerrado.
-typedef BackupKeyAuthorizer = Future<bool> Function(
+/// Pide al titular la autorización para volver a mostrar o cambiar la clave
+/// de recuperación (F08-ADR-003 §3.3) y la devuelve sin consumir; null si se
+/// cancela. La composición lo conecta con `requestOwnerAuthorization` de A
+/// (PIN local). Esa credencial sólo autoriza: nunca interviene en la
+/// derivación de la clave. La consume el llavero
+/// ([backupKeyAuthorizationConsumerProvider]). Sin conectar, devuelve null.
+typedef BackupKeyAuthorizer = Future<Object?> Function(
   BuildContext context,
   BackupKeyAction action,
   String keyIdHex,
@@ -68,5 +78,5 @@ typedef BackupKeyAuthorizer = Future<bool> Function(
 
 final backupKeyAuthorizerProvider = Provider<BackupKeyAuthorizer>(
   (ref) =>
-      (context, action, keyIdHex) async => false,
+      (context, action, keyIdHex) async => null,
 );

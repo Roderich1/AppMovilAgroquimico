@@ -207,6 +207,7 @@ class BackupEnvelopeHeader {
     required this.salt,
     required this.nonce,
     required this.plaintextLength,
+    this.raw,
   });
 
   static const magic = [0x41, 0x47, 0x52, 0x4f, 0x45, 0x4e, 0x43, 0x00];
@@ -222,6 +223,11 @@ class BackupEnvelopeHeader {
   final List<int> salt;
   final List<int> nonce;
   final int plaintextLength;
+
+  /// Los 80 bytes tal como se leyeron del archivo; null en una cabecera
+  /// construida para cifrar. Al descifrar, el AAD son estos bytes, no una
+  /// reconstrucción.
+  final List<int>? raw;
 
   /// Tamaño total que debe tener el archivo con esta cabecera.
   int get envelopeLength => length + plaintextLength + tagLength;
@@ -270,6 +276,7 @@ class BackupEnvelopeHeader {
       salt: bytes.sublist(28, 60),
       nonce: bytes.sublist(60, 72),
       plaintextLength: plaintextLength,
+      raw: List<int>.unmodifiable(bytes.sublist(0, length)),
     );
   }
 }
@@ -461,7 +468,7 @@ class BackupEncryption {
     if (!_equal(await key.keyId(), header.keyId)) {
       throw const BackupEnvelopeException(BackupEnvelopeProblem.wrongKey);
     }
-    final headerBytes = header.toBytes();
+    final headerBytes = header.raw ?? header.toBytes();
     final fileKey = await key._fileKey(header.salt);
     final tagOffset = BackupEnvelopeHeader.length + header.plaintextLength;
     final tagHandle = await envelope.open();

@@ -87,7 +87,7 @@ Cada copia tiene su propia clave, de modo que el nonce nunca se reutiliza con la
 - **Fuera del auto-backup de Android:** se excluye en `backup_rules.xml` y `data_extraction_rules.xml`. Ese cambio necesita un turno de A (§10).
 - **Sin escrow ni recuperación centralizada:** no hay escrow administrativo, ni clave maestra, ni copia en el servidor, ni recuperación por parte de la Directiva.
 - **Nada se registra en logs:** ni la clave ni el `toString()` de sus objetos.
-- **Mostrarla de nuevo o cambiarla es una acción deliberada.** Exige una `OwnerAuthorization` de un solo uso (`LocalOwnerCredential.verify(pin:, purpose:, subjectRef:)` de A, propósitos `SHOW_BACKUP_RECOVERY_KEY` y `ROTATE_BACKUP_RECOVERY_KEY`, `subjectRef` = `keyId` en hex), consumida contra el vínculo vigente. La credencial autoriza, pero nunca se usa para derivar la clave. En esta rama el punto de enganche (`backupKeyAuthorizerProvider`) **falla cerrado** y se conecta en la composición. El primer enrolamiento de la clave no pide PIN: nada depende todavía de ella.
+- **Mostrarla de nuevo o cambiarla es una acción deliberada.** Exige una `OwnerAuthorization` de un solo uso (`LocalOwnerCredential.verify(pin:, purpose:, subjectRef:)` de A, propósitos `SHOW_BACKUP_RECOVERY_KEY` y `ROTATE_BACKUP_RECOVERY_KEY`, `subjectRef` = `keyId` en hex), consumida contra el vínculo vigente. La credencial autoriza, pero nunca se usa para derivar la clave. **El llavero exige y consume la autorización**, no la pantalla: `revealActive(authorization:)` y `startRotation(authorization:)` llaman al consumidor inyectado (`consumeOwnerAuthorization` de A en la composición) contra el `keyId`, y con una clave activa no nace otra pendiente sin `startRotation`. Revisión de B, C2. En esta rama el consumidor y el punto de enganche de la interfaz (`backupKeyAuthorizationConsumerProvider` y `backupKeyAuthorizerProvider`) **fallan cerrados** y se conectan en la composición. El primer enrolamiento de la clave no pide PIN: nada depende todavía de ella.
 
 ### 3.4 Confirmación antes de depender de la copia cifrada
 
@@ -99,7 +99,7 @@ Cada copia tiene su propia clave, de modo que el nonce nunca se reutiliza con la
 
 1. **Autenticación del titular** (Auth V2 y el flujo de activación de A) para listar y descargar. El servidor sólo sirve copias del mismo Member y tenant.
 2. Si el `key_id` de la cabecera no está en el llavero, se pide la **clave de recuperación**: se comprueba la suma, se deriva su `key_id` y se compara con el de la cabecera, y sólo entonces se descifra.
-3. **Tras una restauración correcta**, la clave introducida se guarda en el llavero como confirmada, porque la persona demostró tenerla fuera del teléfono.
+3. **Tras una restauración correcta**, la clave introducida se guarda en el llavero como confirmada, porque la persona demostró tenerla fuera del teléfono. «Correcta» es que `GuardedRestore.restore` devolvió su resultado (si falla, lanza y no se llega a guardarla), aunque después el recálculo del acceso quede en null (revisión de B, m2).
 4. **Regla de la clave activa** (revisión de B, I1): la activa es la última confirmada en este teléfono y no retirada; una clave pendiente nunca cifra. La clave escrita al restaurar:
    - pasa a activa sólo si el llavero no tenía ninguna activa (teléfono nuevo o reinstalado);
    - si ya había una activa (el teléfono creó y confirmó la suya antes de restaurar una copia antigua), se guarda como **retirada**, sólo para descifrar, y las subidas siguientes usan la activa.
@@ -236,6 +236,8 @@ En cada oportunidad de mantenimiento (al abrir la sección de respaldos, antes d
 
 1. **Plazo:** se retira toda entrada `finalized` o `rolledBack` con `resolvedAt` de más de **7 días**.
 2. **Cota:** si quedan más de **2** `finalized`/`rolledBack`, se retiran las más antiguas hasta dejar 2.
+- **Reloj:** el plazo usa el reloj del teléfono. Si se adelanta, las copias se retiran antes; si se atrasa, después. Es un límite declarado, igual que no prometer el séptimo día exacto (revisión de B, m3).
+- **Un solo estado por proceso:** la cola de operaciones del registro y el conjunto de restauraciones en curso son únicos por carpeta `previo/` en todo el proceso, aunque haya varias instancias del servicio (revisión de B, C1).
 3. **Protegidas:** nunca se retiran una `preparing` ni una `interrupted`, ni la base activa.
 4. **Retirar** borra exactamente los archivos que nombra la entrada, dentro de `previo/`, y después la entrada. Nada de patrones.
 

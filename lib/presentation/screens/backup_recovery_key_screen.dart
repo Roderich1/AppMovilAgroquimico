@@ -243,20 +243,20 @@ Future<void> revealActiveRecoveryKey(
   final keyring = ref.read(backupKeyringProvider);
   final active = await keyring.activeKey();
   if (active == null || !context.mounted) return;
-  final authorized = await ref.read(backupKeyAuthorizerProvider)(
+  final authorization = await ref.read(backupKeyAuthorizerProvider)(
     context,
     BackupKeyAction.show,
     active.keyId,
   );
-  if (!context.mounted) return;
-  if (!authorized) {
-    showError(
-      context,
-      'Para volver a ver la clave hace falta la autorización del titular en '
-      'este teléfono. La clave no se mostró.',
-    );
+  final BackupRecoveryKey? key;
+  try {
+    key = await keyring.revealActive(authorization: authorization);
+  } on BackupKeyAuthorizationRequired catch (error) {
+    if (context.mounted) showError(context, error.message);
     return;
   }
+  if (key == null || !context.mounted) return;
+  final BackupRecoveryKey revealed = key;
   await showDialog<void>(
     context: context,
     builder: (dialogContext) => AlertDialog(
@@ -266,7 +266,7 @@ Future<void> revealActiveRecoveryKey(
         children: [
           const Text('Compruebe que coincide con la que tiene anotada.'),
           const SizedBox(height: 8),
-          RecoveryKeyDisplay(active.key),
+          RecoveryKeyDisplay(revealed),
         ],
       ),
       actions: [

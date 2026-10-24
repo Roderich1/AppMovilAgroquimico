@@ -28,9 +28,18 @@ void main() {
   late _MemoryVault vault;
   late BackupKeyring keyring;
 
+  // Autorización simulada del titular: sólo este objeto se acepta.
+  final owner = Object();
+  final consumed = <(BackupKeyAction, String)>[];
+  Future<void> consume(Object auth, BackupKeyAction action, String id) async {
+    if (!identical(auth, owner)) throw StateError('autorización no válida');
+    consumed.add((action, id));
+  }
+
   setUp(() {
     vault = _MemoryVault();
-    keyring = BackupKeyring(vault);
+    keyring = BackupKeyring(vault, consumeAuthorization: consume);
+    consumed.clear();
   });
 
   test('sin clave → mostrada sin confirmar → confirmada', () async {
@@ -64,7 +73,7 @@ void main() {
   test('descartar la pendiente no afecta a la activa', () async {
     final first = await keyring.pendingKey();
     await keyring.confirmPending(first.displayText);
-    await keyring.pendingKey();
+    await keyring.startRotation(authorization: owner);
     await keyring.discardPending();
     expect(await keyring.readiness(), KeyringReadiness.ready);
     expect((await keyring.activeKey())!.key.sameAs(first), isTrue);
@@ -77,7 +86,8 @@ void main() {
       await keyring.confirmPending(first.displayText);
       final firstId = (await keyring.activeKey())!.keyId;
       await keyring.recordUpload('copia-1', firstId);
-      final second = await keyring.pendingKey();
+      final second = await keyring.startRotation(authorization: owner);
+      expect(consumed, [(BackupKeyAction.rotate, firstId)]);
       // Mientras no se confirma, la activa sigue siendo la primera.
       expect((await keyring.activeKey())!.key.sameAs(first), isTrue);
       await keyring.confirmPending(second.displayText);
@@ -111,6 +121,59 @@ void main() {
     expect((await other.activeKey())!.key.sameAs(own), isTrue);
     expect((await other.keyFor(await paper.keyId()))!.sameAs(paper), isTrue);
   });
+
+  test('mostrar la clave activa exige y consume la autorización del titular, también sin pasar por la pantalla', () async {
+    final key = await keyring.pendingKey();
+    await keyring.confirmPending(key.displayText);
+    final id = keyIdHex(await key.keyId());
+    await expectLater(
+      keyring.revealActive(authorization: null),
+      throwsA(isA<BackupKeyAuthorizationRequired>()),
+    );
+    await expectLater(
+      keyring.revealActive(authorization: Object()),
+      throwsA(isA<BackupKeyAuthorizationRequired>()),
+    );
+    expect(consumed, isEmpty);
+    final shown = await keyring.revealActive(authorization: owner);
+    expect(shown!.sameAs(key), isTrue);
+    expect(consumed, [(BackupKeyAction.show, id)]);
+  });
+
+  test(
+    'sin conectar con la credencial local, mostrar y cambiar fallan cerrados',
+    () async {
+      final closed = BackupKeyring(_MemoryVault());
+      final key = await closed.pendingKey();
+      await closed.confirmPending(key.displayText);
+      await expectLater(
+        closed.revealActive(authorization: Object()),
+        throwsA(isA<BackupKeyAuthorizationRequired>()),
+      );
+      await expectLater(
+        closed.startRotation(authorization: Object()),
+        throwsA(isA<BackupKeyAuthorizationRequired>()),
+      );
+    },
+  );
+
+  test(
+    'con una clave activa no nace otra pendiente sin autorización',
+    () async {
+      final key = await keyring.pendingKey();
+      await keyring.confirmPending(key.displayText);
+      await expectLater(
+        keyring.pendingKey(),
+        throwsA(isA<BackupKeyAuthorizationRequired>()),
+      );
+      await expectLater(
+        keyring.startRotation(authorization: null),
+        throwsA(isA<BackupKeyAuthorizationRequired>()),
+      );
+      expect(await keyring.readiness(), KeyringReadiness.ready);
+      expect(vault.value, isNot(contains('"pending"')));
+    },
+  );
 
   test('un llavero ilegible no se sobrescribe solo', () async {
     vault.value = '{dañado';

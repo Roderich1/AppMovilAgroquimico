@@ -21,6 +21,7 @@ void main() {
   DateTime clock() => now;
 
   setUp(() async {
+    RestoreSafetyCopies.forgetProcessStateForTesting();
     workspace = await Directory.systemTemp.createTemp('agro_f08_previo_');
     now = DateTime.utc(2026, 10, 23, 12);
   });
@@ -127,7 +128,8 @@ void main() {
       now = DateTime.utc(2026, 9, 1);
       final slot = await first.begin();
       await File(slot.databasePath).writeAsString('datos de entonces');
-      // El proceso murió: otra instancia (la app reabierta) la encuentra.
+      // El proceso murió: la app reabierta la encuentra.
+      RestoreSafetyCopies.forgetProcessStateForTesting();
       final reopened = copies();
       now = DateTime.utc(2026, 10, 23);
       final report = await reopened.maintain();
@@ -166,6 +168,7 @@ void main() {
     test('una interrumpida bloquea otra restauración hasta que el titular la resuelve', () async {
       final first = copies();
       final slot = await first.begin();
+      RestoreSafetyCopies.forgetProcessStateForTesting();
       final reopened = copies();
       await expectLater(
         reopened.ensureCanStartRestore(),
@@ -211,16 +214,32 @@ void main() {
       expect(legacy.existsSync(), isFalse);
     });
 
-    test('una en preparación que no es de este proceso bloquea aunque no se haya guardado como interrumpida', () async {
-      final first = copies();
-      await first.begin();
-      // Otra instancia del mismo proceso lógico que no la empezó (o un
-      // guardado de «interrumpida» que falló): no admite otra restauración.
-      final other = copies();
+    test('una en preparación de un proceso anterior bloquea aunque nunca se haya guardado como interrumpida', () async {
+      await copies().begin();
+      RestoreSafetyCopies.forgetProcessStateForTesting();
+      final reopened = copies();
       await expectLater(
-        other.ensureCanStartRestore(),
+        reopened.ensureCanStartRestore(),
         throwsA(same(RestoreBlockedException.unresolved)),
       );
+    });
+
+    test('dos instancias en el mismo proceso: el mantenimiento de una no toma por interrumpida la restauración en curso de la otra ni pierde entradas', () async {
+      final restoring = copies();
+      final screen = copies();
+      final slot = await restoring.begin();
+      expect((await screen.maintain()).interrupted, isEmpty);
+      expect((await screen.entries()).single.state, SafetyCopyState.preparing);
+      // Escrituras simultáneas de las dos: ninguna se pierde.
+      await Future.wait([
+        screen.maintain(),
+        restoring.markFinalized(slot),
+        screen.maintain(),
+        finishedAt(restoring, now.add(const Duration(minutes: 1))),
+      ]);
+      final entries = await screen.entries();
+      expect(entries, hasLength(2));
+      expect(entries.map((e) => e.state).toSet(), {SafetyCopyState.finalized});
     });
 
     test('el registro, su temporal, los apartados y los .part propios no se ofrecen para borrar', () async {

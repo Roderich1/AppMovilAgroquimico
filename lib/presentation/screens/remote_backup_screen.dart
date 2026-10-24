@@ -132,20 +132,20 @@ class _RemoteBackupScreenState extends ConsumerState<RemoteBackupScreen> {
   Future<void> _rotate() async {
     final active = await ref.read(backupKeyringProvider).activeKey();
     if (active == null || !mounted) return;
-    final authorized = await ref.read(backupKeyAuthorizerProvider)(
+    final authorization = await ref.read(backupKeyAuthorizerProvider)(
       context,
       BackupKeyAction.rotate,
       active.keyId,
     );
-    if (!mounted) return;
-    if (!authorized) {
-      showError(
-        context,
-        'Cambiar la clave requiere la autorización del titular en este '
-        'teléfono. No se cambió nada.',
-      );
+    try {
+      await ref
+          .read(backupKeyringProvider)
+          .startRotation(authorization: authorization);
+    } on BackupKeyAuthorizationRequired catch (error) {
+      if (mounted) showError(context, error.message);
       return;
     }
+    if (!mounted) return;
     await _openKeyScreen(rotation: true);
   }
 

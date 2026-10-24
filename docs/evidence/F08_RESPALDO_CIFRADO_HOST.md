@@ -54,7 +54,7 @@ Después de `e4f16bf` hubo cambios (revisión de B y A, la comprobación del est
 
 | Archivo | Resultado | Cubre |
 |---|---|---|
-| `f08_backup_encryption_test.dart` | 32 PASS | Vectores RFC 8439 §2.8.2 y RFC 5869 A.1 contra la biblioteca fijada. AAD autenticado en streaming. Ida y vuelta 0 / 1 / 65535 / 65536 / 300001 bytes. Clave incorrecta (por identificador). Sin clave, no escribe. Bit alterado en el ciphertext, en el último bloque y en la etiqueta. Sal y nonce alterados. Versión, algoritmo y flags. Magic. Truncado de cuatro formas, también con la longitud ajustada. Bytes añadidos. Límite antes de descifrar. Longitud enorme. El destino previo no se pierde |
+| `f08_backup_encryption_test.dart` | 33 PASS | Vectores RFC 8439 §2.8.2 y RFC 5869 A.1 contra la biblioteca fijada. AAD autenticado en streaming. Ida y vuelta 0 / 1 / 65535 / 65536 / 300001 bytes. Clave incorrecta (por identificador). Sin clave, no escribe. Bit alterado en el ciphertext, en el último bloque y en la etiqueta. Sal y nonce alterados. Versión, algoritmo y flags. Magic. Truncado de cuatro formas, también con la longitud ajustada. Bytes añadidos. Límite antes de descifrar. Longitud enorme. El destino previo no se pierde |
 | `f08_backup_keyring_test.dart` | 9 PASS | Pendiente → confirmada. Confirmación errónea. Descarte. Rotación (la anterior sigue descifrando). Clave recuperada activa o retirada. Llavero ilegible no sobrescrito. Escrituras simultáneas. El llavero no está en SQLite. Exclusiones en los XML |
 | `f08_restore_safety_copies_test.dart` | 15 PASS | Reloj de prueba. Cota con 3 finalizadas el mismo día. Plazo con 1 sola (7 días exactos no; 7 días + 1 s sí). Plazo desde la resolución también en un rollback. Sin mantenimiento no se borra nada. `interrupted` protegida para siempre y bloqueante hasta «Mantener los actuales». Restauración en curso no interrumpida. Heredadas y ajenas intactas. Registro ilegible. Registro atómico. Con `BackupService`: 3 restauraciones dejan 2; un rollback terminado queda `rolledBack`; un rollback que no termina queda `interrupted` y bloquea la siguiente sin tocar la base; un esquema distinto tras restaurar provoca rollback; un rechazo antes de preparar no deja copia |
 | `f08_recovery_key_screen_test.dart` | 1 PASS | No se continúa sin «la anoté». Campo sin sugerencias, sin autocorrección y sin aprendizaje del teclado. Clave con un carácter cambiado rechazada. Clave correcta activada |
@@ -114,3 +114,17 @@ Corregidos en el commit siguiente a `6190a05`, con su prueba de regresión:
 Además, una observación de diseño: la cota de 2 cuenta juntas las `finalized` y las `rolledBack`. Dos restauraciones fallidas seguidas retiran la copia previa de la última que terminó, aunque las `rolledBack` dupliquen los datos actuales. Es lo ratificado; se informa a Roderich.
 
 Archivos ejecutados tras las correcciones: keyring 10, previo 17 y remoto 43 (70 en total, PASS), más 130 de restauración, cifrado, pantalla y borradores (PASS). `flutter analyze`: limpio.
+
+## 5. Revisión de la implementación por B (lectura de `6a1c5bd` BE y `3a83cef` Mobile; no ejecutó pruebas)
+
+Veredicto de B: LISTO CON CONDICIONES. Las condiciones se resolvieron en el commit siguiente a `3a83cef`:
+
+- **C1, importante.** Ahora la cola del registro `.previo` y el conjunto de restauraciones en curso son únicos por carpeta en todo el proceso. Antes, una segunda instancia de `BackupService` podía tomar por interrumpida una restauración en curso o perder entradas. Prueba: con dos instancias, el mantenimiento de una no marca la restauración en curso de la otra, y las escrituras simultáneas no pierden entradas. Con el código anterior, esta prueba falla.
+- **C2, importante.** El llavero exige y consume la autorización del titular en `revealActive` y en `startRotation`, también sin pasar por la pantalla. Pruebas: sin autorización, con una ajena y sin conectar (cerrado); con la válida se consume con el propósito y el `keyId`; con una activa no nace otra pendiente sin `startRotation`.
+- **m1:** el AAD de descifrado son los 80 bytes leídos (prueba).
+- **m2:** se anota en el ADR.
+- **m3:** el reloj del teléfono, como límite, en el ADR.
+- **m4:** `OwnerScope` tiene igualdad de valor; lo cubren las pruebas de subida.
+
+Archivos ejecutados después: F08 (keyring 13, cifrado 33, previo 18, remoto 43 y pantalla 1: 108 PASS), más 119 de restauración, contenedor, borradores y sesión (PASS). `flutter analyze` limpio.
+
