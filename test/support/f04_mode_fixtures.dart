@@ -160,6 +160,13 @@ const syncTablesV9 = [
   'campaign_bindings',
 ];
 
+/// Tablas que añadió v11 (RF-13 y RF-03), en orden de borrado.
+const reviewAuditTablesV11 = [
+  'reversal_audit_effects',
+  'reversal_audit',
+  'late_operation_drafts',
+];
+
 /// Quita todo lo que añadió v11 (RF-13 y RF-03): tablas, índices y triggers.
 Future<void> dropReviewAuditSchemaV11(DatabaseExecutor db) async {
   final triggers = await db.rawQuery(
@@ -169,11 +176,7 @@ Future<void> dropReviewAuditSchemaV11(DatabaseExecutor db) async {
   for (final row in triggers) {
     await db.execute('DROP TRIGGER IF EXISTS "${row['name']}"');
   }
-  for (final table in [
-    'reversal_audit_effects',
-    'reversal_audit',
-    'late_operation_drafts',
-  ]) {
+  for (final table in reviewAuditTablesV11) {
     await db.execute('DROP TABLE IF EXISTS $table');
   }
 }

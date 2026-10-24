@@ -91,7 +91,12 @@ void main() {
       expect(
         await dumpTables(
           db,
-          except: {'owner_bindings', 'app_settings', ...syncTablesV9},
+          except: {
+            'owner_bindings',
+            'app_settings',
+            ...syncTablesV9,
+            ...reviewAuditTablesV11,
+          },
         ),
         {...before}..remove('app_settings'),
       );
