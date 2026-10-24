@@ -63,14 +63,6 @@ class OperationsScreen extends ConsumerWidget {
               isForm: false,
             ),
           (
-            title: 'Operaciones tardías',
-            subtitle:
-                'Compras y aplicaciones de campañas cerradas, en revisión',
-            path: '/operaciones/tardias',
-            icon: Icons.history_edu_outlined,
-            isForm: false,
-          ),
-          (
             title: 'Reportes',
             subtitle: 'Exportar inventario, costos y cuentas a CSV o PDF',
             path: '/reportes',
@@ -102,6 +94,15 @@ class OperationsScreen extends ConsumerWidget {
             subtitle: 'Dictar una compra, un plan o una aplicación y revisarlo',
             path: '/voz',
             icon: Icons.mic_none_outlined,
+            isForm: false,
+          ),
+          // RF-03, también al final para no mover las demás tarjetas.
+          (
+            title: 'Operaciones tardías',
+            subtitle:
+                'Compras y aplicaciones de campañas cerradas, en revisión',
+            path: '/operaciones/tardias',
+            icon: Icons.history_edu_outlined,
             isForm: false,
           ),
         ];
