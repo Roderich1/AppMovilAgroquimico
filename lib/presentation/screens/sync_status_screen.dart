@@ -262,7 +262,10 @@ class _SyncStatusScreenState extends ConsumerState<SyncStatusScreen> {
                             'creada ${formatDate(entry.createdAt)}',
                             if (entry.ackedAt != null)
                               'ACK ${formatDate(entry.ackedAt)}',
-                          ].join(' · '),
+                          ].join(' · ') +
+                              (entry.interventionMessage == null
+                                  ? ''
+                                  : '\nRequiere intervención: ${entry.interventionMessage}'),
                         ),
                       ),
                   ],

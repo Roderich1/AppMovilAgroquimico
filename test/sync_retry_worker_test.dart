@@ -277,6 +277,41 @@ void main() {
     expect(entries.last.status, OutboxStatus.pending);
   });
 
+  test('REJECTED CAMPAIGN_SEALED: terminal, explicado, sin reintento ni al reiniciar', () async {
+    final h = await harness([
+      (r) => ack(r, outcome: 'REJECTED', code: 'CAMPAIGN_SEALED'),
+    ]);
+    await declare(h.fixture, 1000);
+    final report = await h.worker.run();
+    expect(report.rejected, 1);
+    final entry = (await h.entries()).single;
+    expect(entry.status, OutboxStatus.rejected);
+    expect(entry.lastCode, 'CAMPAIGN_SEALED');
+    expect(entry.interventionMessage, contains('sellada'));
+    // Neither this worker nor a new one (app restart) sends it again.
+    expect((await h.worker.run()).sent, 0);
+    final restarted = SyncWorker(
+      outbox: h.fixture.outbox,
+      owners: h.fixture.owners,
+      api: () => SyncApi(
+        AuthHttpClient(
+          config: ApiEndpointConfig(Uri.parse('https://sindicato.example')),
+          client: h.transport.client,
+        ),
+      ),
+      access: h.access,
+      clock: () => now.add(const Duration(days: 1)),
+      budget: 5,
+    );
+    expect((await restarted.run()).sent, 0);
+    expect((await h.entries()).single.attempts, entry.attempts);
+  });
+
+  test('CAMPAIGN_NOT_OPEN explains without saying sealed', () {
+    expect(rejectionExplanation('CAMPAIGN_NOT_OPEN'), isNot(contains('sellad')));
+    expect(rejectionExplanation('QUANTITY_INVALID'), isNull);
+  });
+
   for (final rejected in [
     (400, 'INVALID_REQUEST'),
     (413, 'REQUEST_TOO_LARGE'),
