@@ -348,7 +348,7 @@ Future<F06Farm> seedF06Farm({
             ),
           );
         case 'REVERSAL':
-          await repo.reverseApplication(
+          await repo.reverseApplicationUnauditedForTesting(
             applicationOf[group]!,
             reason: 'dataset F06 fila ${lines.first.row}',
           );

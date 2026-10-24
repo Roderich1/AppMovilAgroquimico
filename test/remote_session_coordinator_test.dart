@@ -805,4 +805,133 @@ void main() {
       expect(exposed, isNot(contains(secret)));
     }
   });
+
+  // F03 (DEVICE del 2026-10-24): acreditar al titular para el PIN con la
+  // sesión sana. reauthenticate sólo recupera una sesión en cuarentena: en el
+  // teléfono abortaba sin red y dejaba la pantalla en «volver a autenticar».
+  group('confirmAccount (PIN del titular)', () {
+    test('reauthenticate on a healthy session never reaches the network', () {
+      // Control del fallo observado en el teléfono: por eso el PIN no puede
+      // usar reauthenticate.
+      final h = _Harness();
+      return h
+          .coordinator()
+          .reauthenticate(email: 'farmer@example.test', password: _password)
+          .then((result) {
+            expect(result.problem, RemoteSessionProblem.quarantined);
+            expect(h.paths, isEmpty);
+          });
+    });
+
+    test('healthy session: same account confirmed, new login closed, nothing else changes', () async {
+      final h = _Harness();
+      final states = <RemoteSessionState>[];
+      final coordinator = RemoteSessionCoordinator(
+        readSession: () async => h.readResult,
+        secureSession: h.commit,
+        guard: h.guard,
+        apiFactory: () => AuthV2Api(
+          AuthHttpClient(
+            config: ApiEndpointConfig(Uri.parse('https://api.example.test')),
+            client: MockClient(h._respond),
+            timeout: const Duration(milliseconds: 20),
+          ),
+        ),
+        clock: () => DateTime.utc(2026, 10, 1),
+        onStateChanged: states.add,
+      );
+      final ok = await coordinator.confirmAccount(
+        email: 'farmer@example.test',
+        password: _password,
+      );
+      expect(ok, isTrue);
+      expect(h.paths, [_loginPath, _logoutPath]);
+      expect(h.commit.calls, 0);
+      expect(h.events, isNot(contains('guard-read')));
+      expect(h.events, isNot(contains('guard-set')));
+      expect(h.events, isNot(contains('guard-clear')));
+      expect(states, isEmpty);
+      expect(coordinator.state.phase, RemoteSessionPhase.idle);
+    });
+
+    for (final (name, context) in [
+      (
+        'other account',
+        _context(session: 'session-2', registration: null, account: 'other'),
+      ),
+      (
+        'other member',
+        _context(session: 'session-2', registration: null, member: 'other'),
+      ),
+      (
+        'other tenant',
+        _context(session: 'session-2', registration: null, tenant: 'other'),
+      ),
+      (
+        'inactive',
+        _context(
+          session: 'session-2',
+          registration: null,
+          accountActive: false,
+        ),
+      ),
+    ]) {
+      test('$name is not confirmed and its new login is closed', () async {
+        final h = _Harness();
+        h.overrides[_loginPath] = (_) async =>
+            _json(200, _response(refresh: _loginRefresh, context: context));
+        final ok = await h.coordinator().confirmAccount(
+          email: 'farmer@example.test',
+          password: _password,
+        );
+        expect(ok, isFalse);
+        expect(h.paths, [_loginPath, _logoutPath]);
+        expect(h.commit.calls, 0);
+      });
+    }
+
+    test('wrong password or no network is not confirmed', () async {
+      for (final response in [
+        (_) async => _json(401, {'error': 'invalid'}),
+        (_) async => throw http.ClientException('offline'),
+      ]) {
+        final h = _Harness();
+        h.overrides[_loginPath] = response;
+        final ok = await h.coordinator().confirmAccount(
+          email: 'farmer@example.test',
+          password: _password,
+        );
+        expect(ok, isFalse);
+        expect(h.paths, [_loginPath]);
+        expect(h.commit.calls, 0);
+      }
+    });
+
+    test('unreadable local session never sends the login', () async {
+      final h = _Harness();
+      h.readResult = const SessionReadResult(SessionReadStatus.unavailable);
+      final ok = await h.coordinator().confirmAccount(
+        email: 'farmer@example.test',
+        password: _password,
+      );
+      expect(ok, isFalse);
+      expect(h.paths, isEmpty);
+    });
+
+    test('another remote operation in progress is not confirmed', () async {
+      final h = _Harness();
+      final gate = Completer<http.Response>();
+      h.overrides[_refreshPath] = (_) => gate.future;
+      final refreshing = h.coordinator().refreshOnDemand();
+      await Future<void>.delayed(Duration.zero);
+      final ok = await h.coordinator().confirmAccount(
+        email: 'farmer@example.test',
+        password: _password,
+      );
+      expect(ok, isFalse);
+      expect(h.paths, isNot(contains(_loginPath)));
+      gate.complete(_json(200, _response()));
+      await refreshing;
+    });
+  });
 }

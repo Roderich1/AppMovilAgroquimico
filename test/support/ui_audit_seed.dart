@@ -1354,15 +1354,15 @@ Future<UiAuditSeedResult> seedUiAudit(
 
   // ------------------------------------------------------------- REVERSIONES
   // Se hacen al final para que las precondiciones (lotes intactos) se cumplan.
-  await repo.reverseApplication(
+  await repo.reverseApplicationUnauditedForTesting(
     applicationToReverse,
     reason: 'Dataset de auditoría: caso revertido.',
   );
-  await repo.reverseTransfer(
+  await repo.reverseTransferUnauditedForTesting(
     transferToReverse,
     reason: 'Dataset de auditoría: caso revertido.',
   );
-  await repo.reversePurchase(
+  await repo.reversePurchaseUnauditedForTesting(
     purchaseToReverse,
     reason: 'Dataset de auditoría: caso revertido.',
   );

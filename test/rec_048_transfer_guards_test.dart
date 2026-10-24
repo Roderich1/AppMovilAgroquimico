@@ -129,7 +129,7 @@ void main() {
     final before = await dumpTables(db);
 
     await expectLater(
-      repo.reverseTransfer(transfer, reason: 'Error'),
+      repo.reverseTransferUnauditedForTesting(transfer, reason: 'Error'),
       rejected(
         'El stock transferido ya tuvo movimientos. Reviértalos antes de continuar.',
       ),
@@ -145,8 +145,8 @@ void main() {
 
     // Al revertir la aplicación, el lote destino vuelve a tener lo recibido
     // y la transferencia sí se revierte.
-    await repo.reverseApplication(application);
-    await repo.reverseTransfer(transfer);
+    await repo.reverseApplicationUnauditedForTesting(application);
+    await repo.reverseTransferUnauditedForTesting(transfer);
     expect(await status(transfer), 'REVERSED');
     final stock = await stockByPersonProduct(db);
     expect(stock[(ana, glifosato)], 10000);
@@ -169,7 +169,7 @@ void main() {
     final before = await dumpTables(db);
 
     await expectLater(
-      repo.reverseTransfer(transfer),
+      repo.reverseTransferUnauditedForTesting(transfer),
       rejected(
         'El stock transferido ya tuvo movimientos. Reviértalos antes de continuar.',
       ),

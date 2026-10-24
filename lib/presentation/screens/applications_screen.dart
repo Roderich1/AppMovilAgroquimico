@@ -2,6 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../services/auth/local_owner_credential.dart'
+    show AuthorizationPurpose;
+import '../widgets/owner_reversal_flow.dart';
+
 import '../../app.dart';
 import '../../domain/money.dart';
 import '../widgets/common.dart';
@@ -63,23 +67,31 @@ class _ApplicationsScreenState extends ConsumerState<ApplicationsScreen> {
   }
 
   Future<void> reverse(Map<String, Object?> row) async {
-    final confirmed = await confirmDestructiveAction(
+    final id = row['id']! as int;
+    // RF-13: motivo y PIN del titular; el actor sale de la autorización.
+    final approval = await requestOwnerApproval(
       context,
+      ref,
+      purpose: AuthorizationPurpose.reverseApplication,
+      subjectRef: 'application:$id',
       title: '¿Revertir esta aplicación?',
-      detail:
+      effects:
           '${row['person_name']} · ${row['farm_name']}\n'
           '${row['campaign_name']}\n'
           'Costo ${formatBob(row['total_cost_bob_minor']! as int)}\n\n'
           'Se devolverá el producto consumido al inventario y se anulará el '
-          'cargo correspondiente. Esta acción no se puede deshacer.',
+          'cargo correspondiente. Esta acción no se puede deshacer. La '
+          'aplicación original conserva su responsable y su fecha.',
+      confirmLabel: 'Revertir aplicación',
     );
-    if (!confirmed || !mounted) return;
+    if (approval == null || !mounted) return;
     try {
       await ref
           .read(repositoryProvider)
           .reverseApplication(
-            row['id']! as int,
-            reason: 'Reversión solicitada por usuario',
+            id,
+            reason: approval.reason,
+            authorization: approval.authorization,
           );
       if (mounted) refresh();
     } catch (e) {
@@ -182,10 +194,22 @@ class _ApplicationsScreenState extends ConsumerState<ApplicationsScreen> {
                         '${row['person_name']} · ${row['farm_name']}',
                         style: const TextStyle(fontWeight: FontWeight.w700),
                       ),
-                      subtitle: Text(
-                        '${row['campaign_name']} · ${row['item_count']} producto(s)'
-                        '${row['status'] == 'REVERSED' ? ' · ${operationStatusLabel(row['status'])}' : ''}'
-                        '\n${formatItemsSummary(row['items_summary'])}',
+                      subtitle: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '${row['campaign_name']} · ${row['item_count']} producto(s)'
+                            '${row['status'] == 'REVERSED' ? ' · ${operationStatusLabel(row['status'])}' : ''}'
+                            '\n${formatItemsSummary(row['items_summary'])}',
+                          ),
+                          // RF-13 §1.3: quién autorizó la reversión, o «Actor
+                          // no registrado» si es anterior a la auditoría.
+                          if (row['status'] == 'REVERSED')
+                            ReversalActorText(
+                              operationType: 'APPLICATION',
+                              operationId: row['id']! as int,
+                            ),
+                        ],
                       ),
                       trailing: Wrap(
                         crossAxisAlignment: WrapCrossAlignment.center,

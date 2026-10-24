@@ -240,9 +240,65 @@ void main() {
       await pickPastDay(tester, tile, previousMonth: choice.previousMonth);
       final before = await dump(tester, h.database);
       await confirm(tester, button);
+      // RF-03: se explica la campaña cerrada y se ofrece registrarla para
+      // revisión; cancelar no escribe nada (ni un borrador tardío).
+      final explanation = find.byKey(const Key('late-explanation'));
+      expect(explanation, findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.byType(AlertDialog),
+          matching: find.textContaining('campaña cerrada'),
+        ),
+        findsWidgets,
+      );
+      await tester.tap(
+        find.descendant(
+          of: find.byType(AlertDialog),
+          matching: find.text('Cancelar'),
+        ),
+      );
+      await settle(tester);
+      expect(explanation, findsNothing);
       expect(find.textContaining('campaña cerrada'), findsOneWidget);
       expect(find.byKey(button), findsOneWidget);
       expect(await dump(tester, h.database), before);
+    });
+
+    // DEVICE del 2026-10-24: al registrarla para revisión desde la lista de
+    // compras, la lista anunciaba «Compra multiproducto confirmada; lotes e
+    // inventario creados» aunque no se creó nada.
+    testWidgets('registrarla para revisión desde la lista no anuncia una '
+        'compra confirmada ni crea nada', (tester) async {
+      final h = await home(tester, 'compra-tardia', closedBeforeToday: true);
+      final c = await pumpModeApp(tester, h.database);
+      c.read(routerProvider).go('/compras');
+      await settle(tester);
+      await tester.tap(find.text('Nueva compra'));
+      await waitFor(tester, field('Cantidad comprada'));
+      await settle(tester);
+      await fillPurchase(tester);
+      final choice = pastDayChoice(DateTime.now());
+      await pickPastDay(tester, tile, previousMonth: choice.previousMonth);
+      final purchasesBefore = await rows(tester, h.database, 'purchases');
+      await confirm(tester, button);
+      await tester.enterText(
+        find.byKey(const Key('late-reason')),
+        'Factura tardía',
+      );
+      await tester.tap(find.byKey(const Key('late-register')));
+      await settle(tester);
+      expect(find.textContaining('Guardada para revisión'), findsOneWidget);
+      // Los avisos se encolan: el de la lista aparecía al cerrarse éste.
+      for (var i = 0; i < 3; i++) {
+        await tester.pump(const Duration(seconds: 5));
+        await settle(tester);
+        expect(find.textContaining('lotes e inventario creados'), findsNothing);
+      }
+      expect(await rows(tester, h.database, 'purchases'), purchasesBefore);
+      expect(
+        await rows(tester, h.database, 'late_operation_drafts'),
+        hasLength(1),
+      );
     });
   });
 
@@ -345,6 +401,48 @@ void main() {
       expect(find.textContaining('ninguna campaña'), findsOneWidget);
       expect(find.byKey(button), findsOneWidget);
       expect(await dump(tester, h.database), before);
+    });
+
+    // Mismo defecto que en compras (DEVICE del 2026-10-24): la lista decía
+    // «Aplicación multiproducto confirmada» de una que sólo quedó pendiente.
+    testWidgets('registrarla para revisión desde la lista no anuncia una '
+        'aplicación confirmada ni crea nada', (tester) async {
+      final h = await home(
+        tester,
+        'aplicacion-tardia',
+        closedBeforeToday: true,
+      );
+      final c = await pumpModeApp(tester, h.database);
+      c.read(routerProvider).go('/aplicaciones');
+      await settle(tester);
+      await tester.tap(find.text('Registrar'));
+      await waitFor(tester, picker('Chaco'));
+      await settle(tester);
+      await fillApplication(tester);
+      final choice = pastDayChoice(DateTime.now());
+      await pickPastDay(tester, tile, previousMonth: choice.previousMonth);
+      final before = await rows(tester, h.database, 'applications');
+      await confirm(tester, button);
+      await tester.enterText(
+        find.byKey(const Key('late-reason')),
+        'Aplicación anotada tarde',
+      );
+      await tester.tap(find.byKey(const Key('late-register')));
+      await settle(tester);
+      expect(find.textContaining('Guardada para revisión'), findsOneWidget);
+      for (var i = 0; i < 3; i++) {
+        await tester.pump(const Duration(seconds: 5));
+        await settle(tester);
+        expect(
+          find.textContaining('Aplicación multiproducto confirmada'),
+          findsNothing,
+        );
+      }
+      expect(await rows(tester, h.database, 'applications'), before);
+      expect(
+        await rows(tester, h.database, 'late_operation_drafts'),
+        hasLength(1),
+      );
     });
   });
 }

@@ -1,5 +1,6 @@
 import '../../data/installation_client_id_store.dart';
 import '../../data/installation_identity_initializer.dart';
+import '../../domain/installation_access.dart' show OwnerScope;
 import 'auth_api_exception.dart';
 import 'auth_v2_api.dart';
 import 'auth_v2_models.dart';
@@ -37,6 +38,12 @@ enum FirstActivationProblem {
   unexpected,
   alreadyRunning,
   cancelled,
+
+  /// F03: the account that signed in is not the titular of these data.
+  ownerMismatch,
+
+  /// F03: the stored session can be neither read nor replaced (unavailable).
+  sessionNotReplaceable,
 }
 
 enum RemoteCleanup { notNeeded, confirmed, unconfirmed }
@@ -65,6 +72,8 @@ extension FirstActivationProblemMessage on FirstActivationProblem {
     FirstActivationProblem.cancelled =>
       'La activación se canceló sin cambiar sus datos locales.',
     FirstActivationProblem.unexpected => 'No se pudo completar la activación. Sus datos locales siguen disponibles.',
+    FirstActivationProblem.ownerMismatch => 'Esa cuenta no es la del titular de estos datos. No se guardó ninguna sesión y sus datos no cambiaron.',
+    FirstActivationProblem.sessionNotReplaceable => 'El almacenamiento seguro no está disponible ahora. No se cambió nada; reintente más tarde.',
   };
 }
 
@@ -127,6 +136,13 @@ abstract interface class SecureSessionCommitPort {
   Future<void> commitAndVerify(SessionCommitCandidate candidate);
 }
 
+/// F03 «Recuperar acceso» (docs/architecture/F03_RECUPERACION_IDENTIDAD_LOCAL.md
+/// §2.6): the same durable commit with readback, over a session record that
+/// cannot be read. Never used by first activation or reauthentication.
+abstract interface class UnreadableSessionReplacementPort {
+  Future<void> replaceUnreadableAndVerify(SessionCommitCandidate candidate);
+}
+
 abstract interface class SecureSessionCommitOutcomeUnknown
     implements Exception {}
 
@@ -145,12 +161,14 @@ class FirstActivationCoordinator {
     required InstallationClientIdStore identityStore,
     required AuthV2Api Function() apiFactory,
     required SecureSessionCommitPort secureSession,
+    UnreadableSessionReplacementPort? sessionReplacement,
     DateTime Function()? clock,
     void Function(FirstActivationState)? onStateChanged,
   }) : _identity = identity,
        _identityStore = identityStore,
        _apiFactory = apiFactory,
        _secureSession = secureSession,
+       _sessionReplacement = sessionReplacement,
        _clock = clock ?? DateTime.now,
        _onStateChanged = onStateChanged;
 
@@ -158,6 +176,7 @@ class FirstActivationCoordinator {
   final InstallationClientIdStore _identityStore;
   final AuthV2Api Function() _apiFactory;
   final SecureSessionCommitPort _secureSession;
+  final UnreadableSessionReplacementPort? _sessionReplacement;
   final DateTime Function() _clock;
   final void Function(FirstActivationState)? _onStateChanged;
 
@@ -184,9 +203,17 @@ class FirstActivationCoordinator {
     return true;
   }
 
+  /// [requiredScope] (F03 «Recuperar acceso»): the signed-in Member and
+  /// tenant must be exactly the active owner binding; otherwise the attempt
+  /// aborts right after login, before the client is registered, and nothing
+  /// is stored. [replaceUnreadableSession]: commit over an unreadable stored
+  /// session (corrupt or incompatible) instead of requiring it absent.
   Future<FirstActivationState> activate({
     required String email,
     required String password,
+    OwnerScope? requiredScope,
+    bool replaceUnreadableSession = false,
+    bool Function()? requiredScopeStillValid,
   }) async {
     if (_running) {
       return const FirstActivationState(
@@ -237,6 +264,16 @@ class FirstActivationCoordinator {
       login = await api.login(LoginV2Request(email: email, password: password));
       _checkCancellation();
       _validateLogin(login);
+      if (requiredScope != null &&
+          (login.context.member.id != requiredScope.memberId ||
+              login.context.tenant.id != requiredScope.tenantId)) {
+        throw const _ActivationAbort(FirstActivationProblem.ownerMismatch);
+      }
+      if (replaceUnreadableSession && _sessionReplacement == null) {
+        throw const _ActivationAbort(
+          FirstActivationProblem.sessionNotReplaceable,
+        );
+      }
 
       _emit(
         const FirstActivationState(
@@ -273,24 +310,32 @@ class FirstActivationCoordinator {
       final current = await api.currentContext(login.accessToken);
       _checkCancellation();
       _validateCurrent(login, current, registration.registrationId);
+      // F03 (revisión de B): una restauración pudo terminar mientras tanto y
+      // cambiar el titular; se vuelve a comprobar justo antes de guardar.
+      if (requiredScopeStillValid != null && !requiredScopeStillValid()) {
+        throw const _ActivationAbort(FirstActivationProblem.ownerMismatch);
+      }
 
       _emit(
         const FirstActivationState(
           phase: FirstActivationPhase.committingSession,
         ),
       );
-      await _secureSession.commitAndVerify(
-        SessionCommitCandidate(
-          refreshToken: login.refreshToken,
-          installationClientId: clientId,
-          registrationId: registration.registrationId,
-          accountId: current.account.id,
-          memberId: current.member.id,
-          tenantId: current.tenant.id,
-          sessionId: current.session.id,
-          expiresAt: login.sessionExpiresAt,
-        ),
+      final candidate = SessionCommitCandidate(
+        refreshToken: login.refreshToken,
+        installationClientId: clientId,
+        registrationId: registration.registrationId,
+        accountId: current.account.id,
+        memberId: current.member.id,
+        tenantId: current.tenant.id,
+        sessionId: current.session.id,
+        expiresAt: login.sessionExpiresAt,
       );
+      if (replaceUnreadableSession) {
+        await _sessionReplacement!.replaceUnreadableAndVerify(candidate);
+      } else {
+        await _secureSession.commitAndVerify(candidate);
+      }
       _emit(const FirstActivationState(phase: FirstActivationPhase.completed));
     } on _ActivationAbort catch (error) {
       failure = error.problem;
