@@ -96,9 +96,9 @@ No se fija ningún tiempo ni consumo para Android: se mide en el ensayo del tel�
 - **B2 real (#151):** BLOQUEADO. No existen los perfiles `b151-*`; sólo la clave amplia, que no se usa.
 - **Usabilidad:** pendiente. Que la persona anote y vuelva a escribir la clave se prueba con un widget, no con personas.
 - **Mostrar o cambiar la clave de nuevo:** en esta rama **falla cerrado** a propósito (`backupKeyAuthorizerProvider`). Se conecta con la credencial local de A en la composición (`comp/f01-f08-mob`). No es un defecto del ensayo.
-- **La base activa en el auto-backup de Google:** sigue incluida. Es una decisión pendiente de Roderich (CONTROL §8b).
+- **La base activa en el auto-backup de Google:** resuelto en `c703347` (§6). Queda pendiente comprobarlo en el APK y en el dispositivo.
 - **Exportación local manual:** sigue sin cifrar (EVO-001).
-- **La pantalla que muestra la clave no usa `FLAG_SECURE`:** la miniatura de «recientes» y las capturas de pantalla pueden conservarla. Hace falta un canal en `MainActivity` (archivo general de A): queda como limitación declarada y propuesta.
+- **`FLAG_SECURE`:** implementado en `22d8d47` (§6). En el host sólo se prueban la cuenta y el orden, con el canal simulado. Que la ventana bloquee la captura y deje en blanco la miniatura de recientes es DEVICE, pendiente del turno de A. El Kotlin aún no se ha compilado (falta el turno de compilación del APK).
 
 ## 4. Revisión de defectos de la implementación (agente de revisión de C, sólo lectura; no es una revisión de B ni independiente)
 
@@ -127,4 +127,35 @@ Veredicto de B: LISTO CON CONDICIONES. Las condiciones se resolvieron en el comm
 - **m4:** `OwnerScope` tiene igualdad de valor; lo cubren las pruebas de subida.
 
 Archivos ejecutados después: F08 (keyring 13, cifrado 33, previo 18, remoto 43 y pantalla 1: 108 PASS), más 119 de restauración, contenedor, borradores y sesión (PASS). `flutter analyze` limpio.
+
+## 6. Respaldo automático de Android y `FLAG_SECURE` (2026-10-23, encargo de A dentro de F08)
+
+| Campo | Valor |
+|---|---|
+| Commits | `c703347` (reglas), `22d8d47` (`FLAG_SECURE`), `f2d8fc4` (ADR §3.4 punto 4 y §3.8) |
+| Entorno | HOST, Windows 11, Flutter 3.47.2. Canal de Android **simulado** |
+
+**Inventario** de dónde guarda la app cada cosa. Se leyó el código de las versiones fijadas en `pubspec.lock` (`path_provider_android` 2.3.1, `sqflite_android` 2.4.3, `flutter_secure_storage` 11.2.0) y el de la composición `comp/f01-f08-mob` `cf8608f`. Está en el ADR §3.8.
+
+- **Hallazgo:** `getApplicationDocumentsDirectory` es `getDir("flutter")`, es decir, el dominio `root`/`app_flutter`, y no `file`. Ahí están las fotos de factura.
+- **Hallazgo:** `getDownloadsDirectory` es el dominio `external`, que Android respalda por defecto. Ahí van las exportaciones `.agrobackup` sin cifrar.
+- **Lint 32.1.0** (`FullBackupContentDetector`): sólo rechaza los subdirectorios en `sharedpref`, los `//` y los `..`. Acepta `path="."`.
+
+| Comando (sobre `f2d8fc4`) | Resultado |
+|---|---|
+| `flutter test test/f08_android_backup_rules_test.dart test/f08_screen_secure_test.dart test/f08_recovery_key_screen_test.dart test/f08_backup_keyring_test.dart test/secure_session_store_test.dart test/refresh_guard_test.dart` | **+50, todas PASS** |
+| `flutter analyze` | Sin problemas |
+
+| Archivo | Cubre |
+|---|---|
+| `f08_android_backup_rules_test.dart` (4) | Sin inclusiones. Los cinco dominios excluidos enteros en `full-backup-content`, `cloud-backup` y `device-transfer`. Cada ubicación privada del inventario, y los tres archivos de cada almacén seguro, queda cubierta. Ninguna regla fuera de las secciones. El manifiesto usa las dos reglas. Las comprobaciones detectan una regla parcial |
+| `f08_screen_secure_test.dart` (9) | Anidado: una sola petición y se quita al devolver la última. La segunda espera a la primera. Fallo al poner la marca: no hay permiso y la cuenta queda a cero. Fallo al quitarla: sigue protegida. Fuera de Android, no llama. La clave no se pinta antes de que Android confirme. Segundo plano y vuelta sin quitar la marca. Cancelar la libera. Si no se confirma, no se muestra la clave y se puede reintentar. El diálogo de volver a verla, sobre otra pantalla protegida, no la desprotege. Pedir la clave para recuperar sigue siendo usable, sin menú de copiar y pegar, y queda liberada al cancelar o al aceptar |
+
+**Control negativo:** con `contextMenuBuilder` quitado del campo, la prueba del menú falla (aparece `AdaptiveTextSelectionToolbar`). Se restauró el archivo antes del commit.
+
+**No acreditado todavía:**
+
+- el manifiesto fusionado y las reglas empaquetadas en el APK (`aapt2`), y la compilación del Kotlin: pendientes del turno de compilación;
+- la marca real en la ventana y la miniatura de recientes: DEVICE, lo opera A;
+- que Google o la transferencia entre teléfonos no lleven nada: no se ha ensayado una restauración real de Android.
 
