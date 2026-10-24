@@ -114,6 +114,10 @@ enum RemoteBackupErrorKind {
   /// No se pudo escribir en el almacenamiento del teléfono (p. ej. sin
   /// espacio). No dice nada de la integridad de la copia remota.
   localStorage,
+
+  /// 422 BACKUP_FORMAT_INVALID o BACKUP_ENCRYPTION_REQUIRED: el servidor no
+  /// admite el formato de la copia (F08-ADR-003). Nada se guardó.
+  formatRejected,
 }
 
 class RemoteBackupException implements Exception {
@@ -148,6 +152,9 @@ class RemoteBackupException implements Exception {
     RemoteBackupErrorKind.localStorage =>
       'No se pudo guardar la copia en el teléfono (¿falta espacio?). Sus '
           'datos actuales se conservan.',
+    RemoteBackupErrorKind.formatRejected =>
+      'El servidor no admite el formato de esta copia. No se guardó nada; '
+          'actualice la aplicación.',
   };
 
   /// La operación pudo completarse en el servidor aunque no llegó respuesta.
@@ -488,6 +495,9 @@ class RemoteBackupApi {
       (409, 'BACKUP_QUOTA_EXCEEDED') => RemoteBackupErrorKind.quotaExceeded,
       (413, _) => RemoteBackupErrorKind.tooLarge,
       (422, 'BACKUP_SHA256_MISMATCH') => RemoteBackupErrorKind.integrity,
+      (422, 'BACKUP_FORMAT_INVALID') => RemoteBackupErrorKind.formatRejected,
+      (422, 'BACKUP_ENCRYPTION_REQUIRED') =>
+        RemoteBackupErrorKind.formatRejected,
       (500, 'BACKUP_INTEGRITY_FAILED') => RemoteBackupErrorKind.integrity,
       (400, 'BACKUP_TRANSFER_INCOMPLETE') => RemoteBackupErrorKind.integrity,
       _ => RemoteBackupErrorKind.unavailable,

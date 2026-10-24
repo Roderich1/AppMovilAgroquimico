@@ -219,7 +219,7 @@ void main() {
         expect(await AgroRepository(current).people(), peopleBefore);
         expect(await photosNow(), photosBefore);
         final leftovers = workspace
-            .listSync()
+            .listSync(recursive: true)
             .map((e) => p.basename(e.path))
             .where((name) => name.contains('.previo-'));
         expect(
