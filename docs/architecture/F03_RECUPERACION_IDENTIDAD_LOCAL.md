@@ -203,3 +203,11 @@ Que `OwnerAuthorization._` sea privado no impedía ninguno de los dos.
     - la emitida antes de restablecer el PIN.
 - **Reloj y consumo antes del commit:** siguen como en §7, aceptados para el entorno sintético.
 - La autorización de la clave de recuperación del respaldo (F08, sesión C) usa el mismo `consumeOwnerAuthorization`. En la composición pasa `installation: ref.read(localOwnerCredentialProvider)`, con los propósitos de mostrar y rotar la clave, `subjectRef` = identificador de la clave y el vínculo vigente (m1 de B).
+
+## 9. Acreditación del titular con la sesión sana (DEVICE, 2026-10-24)
+
+- **FAIL en DEVICE** (POCO X5 Pro, composición `bfee4dc`): la acreditación en línea para enrolar o restablecer el PIN usaba `reauthenticate`, que sólo recupera una sesión en cuarentena. Con la sesión sana abortaba sin salir a la red y dejaba la app en «volver a autenticar» hasta reabrirla. Las pruebas de host simulaban `reauthenticate` y no lo detectaban. Evidencia: `docs/evidence/F01_F08_DEVICE_COMPOSICION_2026-10-24.md`.
+- **Corrección:** `RemoteSessionCoordinator.confirmAccount` hace un login nuevo y lo valida igual que la reautenticación: misma cuenta, Member y tenant, agricultor activo y sin registro de cliente. Después lo cierra siempre con `logout`. No toca la sesión guardada, el guard ni el estado publicado. B la revisó (LISTO).
+- **Resultado único (n1 de B):** «otra operación remota en curso», «sin red», 401/429 y «otra cuenta» dan el mismo `false` (fail-closed). El mensaje de la pantalla lo dice: revisar la cuenta, la contraseña y la conexión, o esperar si el teléfono se está sincronizando. Un resultado tipado queda como mejora posible.
+- **Límite declarado (n2 de B):** si falla el `logout` del login nuevo, o si el servidor crea la sesión y la respuesta del login se pierde, queda en el servidor una sesión **sin registro de cliente** hasta su TTL. Su refresh token sólo estuvo en memoria y se descarta, así que nadie la usa. No se registra.
+- **Pendiente:** repetir en DEVICE el enrolamiento, la verificación, el restablecimiento y la invalidación (§8) con un APK que incluya la corrección.
