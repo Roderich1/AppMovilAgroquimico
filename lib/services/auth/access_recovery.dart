@@ -186,6 +186,8 @@ class AccessRecoveryController extends Notifier<FirstActivationState> {
       password: password,
       requiredScope: required,
       replaceUnreadableSession: _unreadable(session),
+      requiredScopeStillValid: () =>
+          ref.read(installationAccessProvider.notifier).boundScope == required,
     );
     if (result.isCompleted) {
       // Sólo tras commitAndVerify: el acceso se recalcula con la sesión nueva.

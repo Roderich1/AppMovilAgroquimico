@@ -107,6 +107,9 @@ class FirstActivationController extends Notifier<FirstActivationState> {
       email: email,
       password: password,
       requiredScope: requiredScope,
+      requiredScopeStillValid: () =>
+          ref.read(installationAccessProvider.notifier).boundScope ==
+          requiredScope,
     );
     // completed is emitted only after commitAndVerify has returned. Keep the
     // local binding coherent even if the activation screen has unmounted.

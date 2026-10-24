@@ -225,6 +225,20 @@ void main() {
       });
     }
 
+    test('a titular changed before the commit (restore finished) stores nothing', () async {
+      final backend = _Backend();
+      final commit = _Commit();
+      final result = await _coordinator(backend, commit).activate(
+        email: 'farmer@example.test',
+        password: 'pw',
+        requiredScope: _owner,
+        requiredScopeStillValid: () => false,
+      );
+      expect(result.problem, FirstActivationProblem.ownerMismatch);
+      expect(commit.calls, 0);
+      expect(backend.paths.last, _logoutPath);
+    });
+
     test('an unreadable session is replaced through the replacement port only', () async {
       final backend = _Backend();
       final commit = _Commit();

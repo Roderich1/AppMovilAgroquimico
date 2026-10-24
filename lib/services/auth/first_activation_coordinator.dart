@@ -213,6 +213,7 @@ class FirstActivationCoordinator {
     required String password,
     OwnerScope? requiredScope,
     bool replaceUnreadableSession = false,
+    bool Function()? requiredScopeStillValid,
   }) async {
     if (_running) {
       return const FirstActivationState(
@@ -309,6 +310,11 @@ class FirstActivationCoordinator {
       final current = await api.currentContext(login.accessToken);
       _checkCancellation();
       _validateCurrent(login, current, registration.registrationId);
+      // F03 (revisión de B): una restauración pudo terminar mientras tanto y
+      // cambiar el titular; se vuelve a comprobar justo antes de guardar.
+      if (requiredScopeStillValid != null && !requiredScopeStillValid()) {
+        throw const _ActivationAbort(FirstActivationProblem.ownerMismatch);
+      }
 
       _emit(
         const FirstActivationState(
