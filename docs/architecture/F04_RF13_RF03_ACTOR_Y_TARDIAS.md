@@ -1,7 +1,7 @@
 # F04: actor de reversión (RF-13) y operación tardía con revisión (RF-03) — contrato
 
 - **Fecha real:** 2026-10-23 (America/La_Paz). Sesión A, sobre Mobile `b0d169b` + `f90d330` (dependencia `cryptography`) y F03 (`cc88fdd`, `7713f9c`).
-- **Fuente:** `01_DECISIONES_APROBADAS.md` §3, §4 y §9. Es una decisión del autor para el entorno sintético, no una aprobación institucional.
+- **Fuente:** decisión de Roderich Rendón del 2026-10-23 (bloque de decisiones F01–F08, §3, §4 y §9; el archivo de trabajo no está en el repositorio). Es una decisión del autor para el entorno sintético, no una aprobación institucional.
 - **Revisión:** C revisa la identidad y la auditoría (§1) y su relación con la restauración; B revisa el diseño temporal (§2) y su relación con el sellado (§3).
 - **Trazabilidad:** RF-03, RF-13, RN-15, RN-16, CU-06, CU-09 y DAT.
 - **Esquema:** Mobile **v11**, reservada para A en CONTROL.
@@ -34,15 +34,16 @@ Este contrato añade los dos circuitos, sin quitar esas guardas para el registro
 | `actor_method` (`LOCAL_PIN`) y `credential_enrolment_ref` | Cómo se verificó. No se guarda el PIN |
 | `recorded_at` | Fecha de registro (UTC) |
 
-`reversal_audit_effects`: las filas compensatorias que escribió la reversión. Una por fila, con `(audit_id, table_name, row_id)`, de `inventory_movements`, `account_transactions`, `inventory_lots` o `provider_payments`.
+`reversal_audit_effects`: las filas compensatorias que escribió o anuló la reversión. Una por fila, con `(audit_id, table_name, row_id)`. Un CHECK limita la tabla a `inventory_movements`, `account_transactions`, `inventory_lots`, `provider_payments` y `application_consumptions`.
 
-**Atomicidad.** Los efectos, la fila de auditoría y sus referencias se escriben en **la misma transacción**. Si algo falla, no queda nada.
+**Atomicidad.** Los efectos, la fila de auditoría y sus referencias se escriben en **la misma transacción**, por `_write`, que respeta la exclusión de sustitución de la base (`DatabaseReplacementGuard`; R4 de C). Si algo falla, no queda nada.
 
 **Lo que esto no prueba.** La credencial identifica una **autorización**, no quién sostenía el teléfono.
 
 ### 1.3 Reversiones anteriores y bases sin titular
 
 - **Reversiones sin auditoría** (anteriores a v11): se muestran como «Actor no registrado». No se infiere el actor y no se hace backfill.
+- **Credencial de otra instalación** (R3 de C). `credential_enrolment_ref` apunta a un enrolamiento del almacén seguro, que no viaja en el respaldo. Tras restaurar en otro teléfono, la auditoría sigue mostrando al titular de `actor_*` como autorizante con su PIN: nunca un error ni «Actor no registrado».
 - **Base sin titular vinculado** (`legacyUnbound`) o sin PIN enrolado: **no se pueden autorizar reversiones nuevas** hasta activar, elegir el titular y configurar el PIN (F03 §5). El resto de la gestión privada sigue igual: no se bloquean compras, aplicaciones, transferencias ni consultas.
 
 ### 1.4 Privacidad
@@ -77,6 +78,7 @@ La auditoría es privada:
 ### 2.2 Tabla `late_operation_drafts` (v11)
 
 - **Identidad y contenido:** `draft_ref` (UUID), `kind` (`PURCHASE` o `APPLICATION`), `campaign_id` (la clasificada al capturar), `effective_date`, `captured_at`, `reason` (no vacío) y `payload` (JSON del borrador del formulario, el mismo `PurchaseDraft` o `ApplicationDraft`).
+- **Foto de factura** (R1 de C): va en la columna propia `invoice_image_path`, sólo si `kind = PURCHASE`, nunca dentro del JSON. Así el respaldo la incluye y la reapunta igual que la de `purchases`; el cambio del módulo de respaldos lo hace C. La ruta se puede reapuntar también en un borrador resuelto, sin tocar nada más.
 - **Estado:**
   - `status` (`PENDING`, `CONFIRMED` o `REJECTED`);
   - `last_conflict_code` y `last_conflict_at`: el último intento de confirmar que no pudo aplicarse;
@@ -101,18 +103,32 @@ Una confirmación doble falla, porque el borrador ya no está `PENDING` dentro d
 - El lote nuevo queda disponible desde ahora para operaciones futuras.
 
 **Aplicación tardía.** FIFO con validación temporal, para cada línea (persona y producto):
-1. **Lotes elegibles:** no anulados y con `acquired_date` ≤ fecha efectiva. Nunca un lote adquirido después.
-2. **Cupo de cada lote:** `min` del saldo del lote al final del día efectivo y de su saldo tras cada movimiento posterior a ese día. Así, restar la cantidad en la fecha efectiva **no deja negativo ningún saldo histórico ni el actual**. No se consume material que otra operación ya usó después.
+1. **Lotes elegibles:** no anulados y con día de `acquired_date` ≤ día efectivo. **Un lote adquirido el mismo día es elegible.** Nunca uno adquirido después.
+2. **Cupo de cada lote** (I1 de B):
+   - Los movimientos del lote se ordenan por **día efectivo** (`movement_date`) y, dentro del día, por `id`. Nunca sólo por `id` ni por orden de inserción: un movimiento tardío se inserta después con una fecha anterior.
+   - **La operación tardía se coloca al final de su día efectivo**, después de todo lo de ese día.
+   - El cupo es el `min` del saldo acumulado al final del día efectivo y del saldo acumulado al final de cada día posterior con movimientos.
+   - Así, restar la cantidad en la fecha efectiva **no deja negativo ningún saldo histórico ni el actual**. No se consume material que otra operación ya usó después.
 3. **Orden:** FIFO por `acquired_date, id`. El costo es el del lote.
 4. **Si el cupo total no alcanza**, la confirmación **no se aplica**:
    - el borrador sigue `PENDING`, con `last_conflict_code = LATE_STOCK_UNAVAILABLE` y un mensaje que dice la causa;
    - camino explícito: rechazarlo, o registrar antes la compra tardía que faltaba (también con revisión) y volver a confirmar;
    - no se presenta como aceptada.
 
+**Lote de una compra tardía** (m1 de B): los lotes no van por campaña. Un lote creado por una compra tardía confirmada puede consumirlo el FIFO ordinario de la campaña activa, como cualquier lote del titular con saldo, con la regla de arrastre vigente. No se crea ninguna regla nueva.
+
+**Vistas privadas de saldo e historial** (I1 de B): ordenan por día efectivo y, dentro del día, por `id`, para que una tardía no muestre saldos intermedios negativos o incoherentes.
+
+**La publicación no cambia por una confirmación** (I2 de B):
+- confirmar una operación tardía **no encola nada**: ningún PUBLISH ni SUPERSEDE automático hacia una campaña cerrada o sellada;
+- al confirmar, la interfaz avisa: «Es una corrección privada de una campaña cerrada. El consolidado del sindicato (sellado o no) no se actualiza con ella».
+
 **Liquidación y reportes privados de la campaña cerrada.** Cambian sólo por la confirmación expresa:
 - se añaden los cargos y consumos de la operación confirmada;
 - las vistas privadas de esa campaña muestran «Incluye operaciones tardías confirmadas»;
 - la auditoría (el borrador resuelto) dice cuándo y por quién.
+
+**La campaña ya no es la misma al confirmar** (I4 de B): si la fecha efectiva ya no clasifica en `draft.campaign_id` (cambió un período o una campaña), la confirmación **no se aplica**. El borrador sigue `PENDING` con `last_conflict_code = LATE_CAMPAIGN_CHANGED`. Nunca se confirma en otra campaña sin una revisión nueva: el camino es rechazarlo y capturar uno nuevo.
 
 ### 2.4 Campaña cerrada frente a consolidado sellado (con B)
 
@@ -120,9 +136,10 @@ Una confirmación doble falla, porque el borrador ya no está `PENDING` dentro d
 - **Una confirmación tardía es privada:** **no se publica automáticamente**, y la publicación de consumo sigue siendo una acción expresa del agricultor.
 - **Si el agricultor intenta publicar un valor de una campaña cerrada o sellada**, Central responde `REJECTED / CAMPAIGN_NOT_OPEN` o `REJECTED / CAMPAIGN_SEALED` (contrato de B, `F07_SEALED_HISTORY_CONTRACT.md` §7). Mobile:
   - acepta `CAMPAIGN_SEALED` en la lista cerrada de códigos de `REJECTED` (`sync_wire.dart`);
-  - lo trata como un **fallo terminal que requiere intervención**: sin backoff ni reintentos, sin reasignar a otra campaña;
+  - lo trata como un **fallo terminal que requiere intervención**: sin backoff ni reintentos, sin reasignar a otra campaña. **Tampoco se reenvía al reiniciar la app** (m4 de B): queda en el estado terminal de la outbox;
   - conserva el dato local;
   - explica: «Esta campaña está sellada en el sindicato: el histórico colectivo sellado no se actualiza con correcciones posteriores. Su registro privado se conserva».
+  - El mensaje de `CAMPAIGN_NOT_OPEN` no dice «sellada» (m3 de B): «La campaña ya no admite publicaciones en el sindicato. Su registro privado se conserva».
 - **Se distinguen tres cosas:**
   - un replay ya aceptado, que conserva su resultado original;
   - una retirada (CANCEL), que sigue la causalidad de siempre;
@@ -133,13 +150,21 @@ Una confirmación doble falla, porque el borrador ya no está `PENDING` dentro d
 
 Si la fecha no está en ninguna campaña, `addHistoricalCampaign(name, start, end)`:
 - crea una campaña `CLOSED` con inicio y fin **anteriores a hoy**;
-- exige que **no se solape** con ninguna campaña;
+- exige que **no se solape** con ninguna campaña local, **incluidas las vinculadas a campañas centrales** (I3 de B);
 - **no cambia la campaña activa ni el orden** de las demás;
 - es una acción expresa, con confirmación en la interfaz.
+
+**Un período local no es una campaña central** (I3 de B):
+- no tiene `campaign_ref` y **nunca se publica desde él**; la interfaz lo explica;
+- si después llega del Central una campaña que se solapa, nada se reclasifica ni se reasigna solo: los borradores pendientes quedan en conflicto (`LATE_CAMPAIGN_CHANGED` al intentar confirmar) y las tardías confirmadas se quedan en su período local.
 
 Después, la fecha clasifica en ese período cerrado y sigue el recorrido de §2.1. **No se reabren campañas.**
 
 ## 3. Pruebas mínimas
+
+Además de las de abajo (m2 de B y el oráculo de I1):
+- el historial de saldos de un lote, contra un oráculo, antes, durante y después de varias tardías confirmadas en un orden distinto del cronológico, incluida una reversión posterior de una compra;
+- la reversión (RF-13) de una compra tardía cuyo lote ya consumió otra tardía: se rechaza porque tiene consumos, como cualquier compra.
 
 - **RF-13:**
   - reversión con autorización: efectos, auditoría y referencias juntos;
@@ -160,4 +185,9 @@ Después, la fecha clasifica en ese período cerrado y sigue el recorrido de §2
   - cupo consumido por una operación posterior: `LATE_STOCK_UNAVAILABLE`, sin efectos, y después la resolución válida;
   - fechas futura, ambigua o sin campaña, con el período histórico creado sin cambiar la activa;
   - persistencia al reabrir;
-  - `CAMPAIGN_SEALED` terminal, sin reintentos.
+  - `CAMPAIGN_SEALED` terminal, sin reintentos, tampoco al reiniciar.
+
+## 4. Revisiones aplicadas (2026-10-23)
+
+- **C** (identidad, auditoría y restauración), sobre `bdfeb66`: LISTO con condiciones. R1–R4 aplicados en §1.2, §1.3 y §2.2. R5 es información.
+- **B** (diseño temporal y sellado), sobre `bdfeb66`: LISTO con condiciones. I1–I4 y m1–m5 aplicados en §2.3, §2.4, §2.5 y §3, y la fuente corregida (m5).
