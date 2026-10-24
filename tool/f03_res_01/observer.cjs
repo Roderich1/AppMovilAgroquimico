@@ -26,6 +26,9 @@ const crypto = require('node:crypto');
 const [listenPort, apiPort, logFile] = process.argv.slice(2);
 const faultFile = `${logFile}.fault`;
 const pushPath = '/api/v1/sync/v1/push';
+// Variante de ensayo F01–F08 (A, 2026-10-24): también retiene la respuesta de UN
+// refresh (modo drop-refresh-response) para provocar una cuarentena real.
+const refreshPath = '/api/v1/auth/v2/refresh';
 const uuid = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
 const record = (line) => fs.appendFileSync(logFile, `${new Date().toISOString()} ${line}\n`);
 
@@ -51,7 +54,7 @@ const INJECT = {
 const GENERIC_500 = JSON.stringify({ statusCode: 500, message: 'Internal server error' });
 
 function takeFault(method, path) {
-  if (method !== 'POST' || path !== pushPath) return null;
+  if (method !== 'POST' || (path !== pushPath && path !== refreshPath)) return null;
   let lines;
   try {
     lines = fs.readFileSync(faultFile, 'utf8').split('\n').map((line) => line.trim()).filter(Boolean);
@@ -59,8 +62,11 @@ function takeFault(method, path) {
     return null;
   }
   const [mode, ...rest] = lines;
+  // Cada modo sólo se consume en su ruta: el de refresh no toca un push ni al revés.
+  if ((path === refreshPath) !== (mode === 'drop-refresh-response')) return null;
   if (rest.length > 0) fs.writeFileSync(faultFile, `${rest.join('\n')}\n`);
   else fs.rmSync(faultFile, { force: true });
+  if (mode === 'drop-refresh-response') return 'drop-push-response';
   return WITHHOLD.has(mode) || mode in INJECT ? mode : null;
 }
 
