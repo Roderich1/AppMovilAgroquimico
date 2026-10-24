@@ -29,7 +29,7 @@ Recuperar uno no concede los otros. **El PIN nunca se usa como clave criptográf
 | `newRequiresActivation`, `legacyUnbound` y `activationPendingOwner` | Sin cambios (activación y elección del titular existentes) | — | — |
 
 **Reglas comunes:**
-1. **Nada se borra:** ni la base SQLite, ni los titulares, ni los vínculos, ni el historial, ni la outbox. Ninguna operación se reasigna. La base histórica no se convierte en nueva. El propietario no cambia porque otra persona inicie sesión.
+1. **Nada se borra:** ni la base SQLite, ni los titulares, ni los vínculos, ni el historial, ni la outbox, ni los archivos del respaldo (llavero `agrocuentas_backup_keys_v1`, `<databases>/previo`, `remote_backups`; R5 de C). Ninguna operación se reasigna. La base histórica no se convierte en nueva. El propietario no cambia porque otra persona inicie sesión.
 2. **Cuenta equivocada:** se aborta en cuanto el login devuelve otro Member o tenant, antes de `registerClient`. Se intenta cerrar ese login (`logout`) y no se guarda ninguna credencial. El estado anterior queda intacto.
 3. **Cancelación** antes de guardar: se aceptan como en la primera activación (`requestCancel`). Desde que empieza la escritura atómica, no se cancela.
 4. **Red caída o respuesta perdida:** no se guarda nada y el estado anterior se conserva. No hay reintento automático de login, bind ni `/me`.
@@ -64,6 +64,7 @@ Recuperar uno no concede los otros. **El PIN nunca se usa como clave criptográf
   3. Recálculo del acceso.
   - No toca SQLite.
 - **Interfaz:** `AccessStatusScreen` muestra la acción según el §2 y `/recuperar` abre el formulario.
+- **Espacios de nombres del almacén seguro (R3 de C).** Cada almacén borra sólo sus propias claves. `SecureSessionStore.delete()`, `ForeignSessionSignOut`, «Olvidé el PIN» y el bloqueo tras 10 fallos actúan sobre su espacio de nombres: la sesión (`agrocuentas_secure_session_v1`) o la credencial (`agrocuentas_owner_credential_v1`). **Nunca** llaman a `deleteAll()`. El llavero del respaldo de C (`agrocuentas_backup_keys_v1`) sobrevive a todos ellos por diseño (ADR F08-ADR-003 §3.6). Una prueba lo afirma.
 
 ## 4. Credencial local del titular (PIN)
 
@@ -75,6 +76,7 @@ Recuperar uno no concede los otros. **El PIN nunca se usa como clave criptográf
 | Límite declarado | Un PIN de 6 dígitos tiene 10⁶ valores. Si alguien extrajera el verificador del almacén seguro, lo probaría por fuerza bruta fuera del teléfono aunque use PBKDF2. Su protección real es que el almacén está cifrado con claves de Android Keystore no exportables, junto con el límite de intentos de la app. Por eso el PIN **no** protege los respaldos (§1), que usan una clave aleatoria de C |
 | Forma del PIN | 6 dígitos. Se rechazan las secuencias triviales: todos iguales, ascendente o descendente |
 | Enrolamiento | Sólo en el estado `activated`: vínculo activo y sesión legible del mismo Member y tenant. Requiere **acreditar en línea al mismo titular**: contraseña de la cuenta y la reautenticación existente (`reauthenticate`), que verifica el mismo registro de cliente y el ámbito. Después se piden dos veces el PIN y se guarda el verificador con el ámbito del vínculo |
+| Ejecución | El PBKDF2 se calcula **fuera del hilo de la interfaz** (`Isolate.run`), en el enrolamiento y en cada verificación. El tiempo en el teléfono se mide y se registra (R4 de C) |
 | Comprobación | Funciona **sin red**: verificador local, comparación en tiempo constante y ámbito igual al vínculo activo. Si el vínculo cambió (otra base restaurada), el verificador **no vale** y hay que enrolar de nuevo |
 | Intentos | El contador vive en el mismo almacén seguro y no se reinicia al cerrar la app. Tras 5 fallos seguidos hay una espera creciente: 30 s, 2 min y 10 min. Tras 10 fallos se bloquea y sólo se restablece acreditando al titular en línea. Un acierto pone el contador a cero |
 | Recuperación del PIN | «Olvidé el PIN»: acreditar en línea al mismo titular, como en el enrolamiento, y enrolar de nuevo. **Sin red no se puede restablecer.** Restablecer el PIN **no** descifra copias ni recupera la clave del respaldo |
@@ -91,6 +93,13 @@ abstract interface class LocalOwnerCredential {
   Future<void> resetAfterOnlineVerification({required String pin, required String pinConfirmation});
 }
 ```
+
+**Propósitos** (`AuthorizationPurpose`):
+- de A: `REVERSE_PURCHASE`, `REVERSE_APPLICATION`, `REVERSE_TRANSFER`, `CONFIRM_LATE_OPERATION` y `REJECT_LATE_OPERATION`;
+- de C (R1): `SHOW_BACKUP_RECOVERY_KEY` y `ROTATE_BACKUP_RECOVERY_KEY`, con `subjectRef` = keyId en hex. Sólo **autorizan** mostrar o rotar la clave. El PIN no entra en ninguna derivación.
+- Sin un PIN enrolado, C muestra la clave sin PIN **sólo** en su primer enrolamiento; para volver a mostrarla exige el PIN o la acreditación en línea. Aceptado.
+
+**Consumo (R2 de C).** Al **consumirla**, en la misma transacción que la acción, el repositorio compara su `bindingId`, Member y tenant con el **vínculo activo en ese momento**, no sólo en `verify`. Así, una autorización emitida antes de una restauración (que `GuardedRestore` puede completar dentro de los 120 s) no vale después.
 
 `OwnerAuthorization` es un objeto de **un solo uso**, de vida corta (120 s) y ligado a un propósito y a un objeto (por ejemplo `REVERSE_PURCHASE:<id>`). Se crea sólo en `verify`, con un constructor privado. El repositorio lo consume en la misma transacción que la acción. **Llamar al repositorio sin una autorización válida falla**: no basta con saltarse la pantalla.
 
