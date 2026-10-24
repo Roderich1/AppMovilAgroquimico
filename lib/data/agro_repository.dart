@@ -153,21 +153,21 @@ class ReversalEffects {
 }
 
 class AgroRepository {
-  /// [ownerEnrolment] da el enrolamiento del PIN vigente en la instalación
-  /// (`LocalOwnerCredential.knownEnrolmentId`): las acciones autorizadas por
-  /// el titular lo comparan con el de la autorización, dentro de su
-  /// transacción y sin esperar. Sin él, ninguna autorización vale.
+  /// [ownerCredential] da la credencial del titular de la instalación: las
+  /// acciones autorizadas exigen que la autorización la haya emitido ella con
+  /// el PIN vigente (`LocalOwnerCredential.accepts`), dentro de su
+  /// transacción y sin esperar. Sin ella, ninguna autorización vale.
   AgroRepository(
     this.appDatabase, {
     FarmerOperationGate gate = const FarmerOperationGate.unrestricted(),
-    String? Function()? ownerEnrolment,
+    LocalOwnerCredential? Function()? ownerCredential,
   }) : _gate = gate,
-       _ownerEnrolment = ownerEnrolment ?? _noEnrolment;
+       _ownerCredential = ownerCredential ?? _noCredential;
   final AppDatabase appDatabase;
   final FarmerOperationGate _gate;
-  final String? Function() _ownerEnrolment;
+  final LocalOwnerCredential? Function() _ownerCredential;
 
-  static String? _noEnrolment() => null;
+  static LocalOwnerCredential? _noCredential() => null;
 
   Future<Database> get _db => appDatabase.database;
   String _date(DateTime date) => date.toUtc().toIso8601String();
@@ -1583,10 +1583,10 @@ class AgroRepository {
   }) => _write((txn, context) async {
     // El vínculo vigente y el PIN vigente, leídos justo antes de consumir.
     final current = await _currentOwnerBinding(txn);
-    final enrolment = _ownerEnrolment();
+    final installation = _ownerCredential();
     consumeOwnerAuthorization(
       authorization,
-      currentEnrolmentId: enrolment,
+      installation: installation,
       purpose: AuthorizationPurpose.confirmLateOperation,
       subjectRef: 'late:$draftRef',
       current: current,
@@ -1695,10 +1695,10 @@ class AgroRepository {
   }) => _write((txn, context) async {
     // El vínculo vigente y el PIN vigente, leídos justo antes de consumir.
     final current = await _currentOwnerBinding(txn);
-    final enrolment = _ownerEnrolment();
+    final installation = _ownerCredential();
     consumeOwnerAuthorization(
       authorization,
-      currentEnrolmentId: enrolment,
+      installation: installation,
       purpose: AuthorizationPurpose.rejectLateOperation,
       subjectRef: 'late:$draftRef',
       current: current,
@@ -2531,10 +2531,10 @@ class AgroRepository {
     await _write((txn, context) async {
       // El vínculo vigente y el PIN vigente, leídos justo antes de consumir.
       final current = await _currentOwnerBinding(txn);
-      final enrolment = _ownerEnrolment();
+      final installation = _ownerCredential();
       consumeOwnerAuthorization(
         authorization,
-        currentEnrolmentId: enrolment,
+        installation: installation,
         purpose: purpose,
         subjectRef: '${type.toLowerCase()}:$operationId',
         current: current,

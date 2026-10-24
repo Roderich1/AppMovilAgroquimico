@@ -204,3 +204,4 @@ Además de las de abajo (m2 de B y el oráculo de I1):
   - Restablecer el PIN invalida al instante las autorizaciones anteriores.
   - Una credencial fabricada sobre otro almacén no autoriza nada.
   - Detalle, pruebas y límites en F03 §8.
+  - Revisión de B sobre `f4c85c5`: R1 y R3 importantes, R2 recomendada; aplicadas. La autorización vale sólo si la emitió el almacén de la instalación con el PIN vigente (`installation.accepts`).

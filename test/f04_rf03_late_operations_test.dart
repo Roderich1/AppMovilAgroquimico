@@ -112,10 +112,7 @@ Future<_World> _world() async {
   final database = openDb(inMemoryDatabasePath);
   final bound = await seedActivatedInstallation(database);
   late LocalOwnerCredential credential;
-  final repo = AgroRepository(
-    database,
-    ownerEnrolment: () => credential.knownEnrolmentId,
-  );
+  final repo = AgroRepository(database, ownerCredential: () => credential);
   final h = await seedHousehold(repo);
   final history = await repo.addHistoricalCampaign(
     name: 'Campaña 2025',
@@ -279,6 +276,59 @@ void main() {
         expect(await db.query('purchases'), hasLength(1));
       },
     );
+
+    test('a failure while applying the confirmation rolls everything back and the draft stays pending', () async {
+      final w = await _world();
+      final ref = await w.repo.captureLatePurchase(
+        w.purchase(_d(2025, 8, 10), 500),
+        reason: 'Factura encontrada',
+      );
+      final db = await w.db;
+      await db.execute(
+        "CREATE TRIGGER test_fail BEFORE INSERT ON inventory_lots "
+        "BEGIN SELECT RAISE(ABORT, 'injected'); END",
+      );
+      final before = await dumpTables(db);
+      await expectLater(w.confirm(ref), throwsA(anything));
+      expect(await dumpTables(db), before);
+      expect(
+        (await db.query('late_operation_drafts')).single['status'],
+        'PENDING',
+      );
+      await db.execute('DROP TRIGGER test_fail');
+      final result = await w.confirm(ref);
+      expect(result.outcome, LateResolutionOutcome.confirmed);
+      expect(await db.query('purchases'), hasLength(1));
+    });
+
+    test('confirming late operations publishes nothing: every sync table is unchanged', () async {
+      final w = await _world();
+      final purchase = await w.repo.captureLatePurchase(
+        w.purchase(_d(2025, 8, 10), 500),
+        reason: 'Factura encontrada',
+      );
+      final application = await w.repo.captureLateApplication(
+        w.application(_d(2025, 8, 20), 200),
+        reason: 'Cuaderno de campo',
+      );
+      Map<String, List<Map<String, Object?>>> sync(
+        Map<String, List<Map<String, Object?>>> dump,
+      ) => {
+        for (final e in dump.entries)
+          if (e.key.startsWith('sync_')) e.key: e.value,
+      };
+      final before = sync(await dumpTables(await w.db));
+      expect(before, isNotEmpty);
+      expect(
+        (await w.confirm(purchase)).outcome,
+        LateResolutionOutcome.confirmed,
+      );
+      expect(
+        (await w.confirm(application)).outcome,
+        LateResolutionOutcome.confirmed,
+      );
+      expect(sync(await dumpTables(await w.db)), before);
+    });
 
     test(
       'a rejected draft has no effect and cannot be confirmed afterwards',

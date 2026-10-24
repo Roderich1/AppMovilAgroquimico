@@ -39,10 +39,7 @@ void main() {
       await tester.runAsync(() async {
         database = openDb(inMemoryDatabasePath);
         final bound = await seedActivatedInstallation(database);
-        repo = AgroRepository(
-          database,
-          ownerEnrolment: () => credential.knownEnrolmentId,
-        );
+        repo = AgroRepository(database, ownerCredential: () => credential);
         final h = await seedHousehold(repo);
         await repo.addHistoricalCampaign(
           name: 'Campaña 2025',

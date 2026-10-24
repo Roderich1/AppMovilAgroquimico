@@ -115,7 +115,9 @@ class OwnerOnlineVerification {
 }
 
 /// Autorización del titular: un solo uso, 120 s, propósito y objeto fijos.
-/// Sólo la crea [LocalOwnerCredential.verify]. No contiene el PIN.
+/// Sólo la crea [LocalOwnerCredential.verify]. No contiene el PIN. Recuerda,
+/// en privado, el almacén que la emitió (R3 de B): [enrolmentId] no es un
+/// secreto (está en la auditoría y en los respaldos), así que no basta.
 class OwnerAuthorization {
   OwnerAuthorization._({
     required this.id,
@@ -126,7 +128,10 @@ class OwnerAuthorization {
     required this.personId,
     required this.scope,
     required this.verifiedAt,
-  });
+    required CredentialStorage issuer,
+  }) : _issuer = issuer;
+
+  final CredentialStorage _issuer;
 
   final String id;
   final AuthorizationPurpose purpose;
@@ -169,16 +174,17 @@ class OwnerAuthorizationRejected implements Exception {
 
 /// Comprueba y consume [authorization] (R2 de C): una sola vez, dentro de su
 /// vida, para [purpose] y [subjectRef], para el vínculo vigente [current] y
-/// para el PIN configurado ahora en el almacén de la instalación
-/// ([currentEnrolmentId]), los dos leídos justo antes de la acción.
+/// para la credencial de la instalación [installation], leídos justo antes de
+/// la acción.
 ///
-/// Esto último es lo que da autoridad a una autorización: una emitida por una
-/// credencial sobre otro almacén (fabricada) o antes de restablecer el PIN no
-/// coincide con el enrolamiento vigente y se rechaza. Que [OwnerAuthorization]
-/// tenga constructor privado no basta por sí solo.
+/// Esto último es lo que da autoridad a una autorización: tiene que haberla
+/// emitido el almacén de la instalación con el PIN vigente
+/// ([LocalOwnerCredential.accepts]). Una emitida sobre otro almacén, aunque
+/// copie el enrolamiento, o antes de restablecer el PIN, se rechaza. Que
+/// [OwnerAuthorization] tenga constructor privado no basta por sí solo.
 void consumeOwnerAuthorization(
   OwnerAuthorization? authorization, {
-  required String? currentEnrolmentId,
+  required LocalOwnerCredential? installation,
   required AuthorizationPurpose purpose,
   required String subjectRef,
   required OwnerBindingContext? current,
@@ -211,7 +217,7 @@ void consumeOwnerAuthorization(
       'El titular de estos datos cambió. Vuelva a confirmar con el PIN.',
     );
   }
-  if (currentEnrolmentId == null || currentEnrolmentId != auth.enrolmentId) {
+  if (installation == null || !installation.accepts(auth)) {
     throw const OwnerAuthorizationRejected(
       'El PIN del titular cambió o no está configurado en este teléfono. '
       'Vuelva a confirmar con el PIN.',
@@ -339,11 +345,13 @@ class LocalOwnerCredential {
   /// solo almacén por ProviderScope.
   static final _tails = Expando<Future<void>>('owner-credential-lock');
 
-  /// El enrolamiento leído o escrito por última vez en cada almacén, en este
-  /// proceso. [enroll] lo cambia justo después de escribir el verificador
-  /// nuevo: ése es el instante en que el restablecimiento surte efecto, y
-  /// desde ahí ninguna autorización anterior vale. [verify] lo lee antes de
-  /// emitir, así que toda autorización de este almacén lo encuentra fijado.
+  /// El enrolamiento vigente de cada almacén según este proceso. Sólo lo
+  /// publican los caminos de la cola (R1 de B): [verify], al leer el
+  /// verificador antes de emitir, y [enroll], que lo borra antes de escribir
+  /// el verificador nuevo y lo fija después (R2 de B). Mientras se
+  /// restablece, o si la escritura falla, no vale nada. Una lectura fuera de
+  /// la cola ([status], [currentEnrolmentId]) no lo toca: si empezó antes de
+  /// un restablecimiento, no puede devolverle el PIN anterior.
   static final _enrolments = Expando<String>('owner-credential-enrolment');
 
   Future<T> _serialized<T>(Future<T> Function() body) {
@@ -359,7 +367,7 @@ class LocalOwnerCredential {
   final DateTime Function() _clock;
   final Random _random;
 
-  Future<_Verifier?> _verifier() async {
+  Future<_Verifier?> _verifier({bool publish = false}) async {
     final raw = await _storage.read(_verifierKey);
     _Verifier? verifier;
     if (raw != null) {
@@ -369,7 +377,7 @@ class LocalOwnerCredential {
         // Un verificador ilegible no autoriza nada; se enrola de nuevo.
       }
     }
-    _enrolments[_storage] = verifier?.enrolmentId;
+    if (publish) _enrolments[_storage] = verifier?.enrolmentId;
     return verifier;
   }
 
@@ -389,10 +397,19 @@ class LocalOwnerCredential {
   Future<String?> currentEnrolmentId() async =>
       (await _verifier())?.enrolmentId;
 
-  /// El enrolamiento vigente según este proceso, sin esperar al almacén: lo
-  /// que comparan las acciones autorizadas dentro de su transacción. null si
-  /// aún no se ha leído o no hay PIN, y entonces nada se autoriza.
+  /// El enrolamiento vigente según este proceso, sin esperar al almacén. null
+  /// si aún no se ha verificado ni enrolado, durante un restablecimiento o si
+  /// no hay PIN; entonces nada se autoriza.
   String? get knownEnrolmentId => _enrolments[_storage];
+
+  /// Si [authorization] la emitió este mismo almacén con el PIN vigente. Lo
+  /// usa [consumeOwnerAuthorization], de forma síncrona.
+  bool accepts(OwnerAuthorization authorization) {
+    final known = _enrolments[_storage];
+    return known != null &&
+        identical(authorization._issuer, _storage) &&
+        authorization.enrolmentId == known;
+  }
 
   Future<CredentialStatus> status(OwnerBindingContext? binding) async {
     final verifier = await _verifier();
@@ -467,6 +484,7 @@ class LocalOwnerCredential {
       enrolmentId: _randomId(),
       enrolledAt: _clock().toUtc(),
     );
+    _enrolments[_storage] = null;
     await _storage.write(_verifierKey, verifier.encode());
     _enrolments[_storage] = verifier.enrolmentId;
     await _storage.write(_attemptsKey, const _Attempts(0, null).encode());
@@ -512,7 +530,7 @@ class LocalOwnerCredential {
       case CredentialState.enrolled:
         break;
     }
-    final verifier = (await _verifier())!;
+    final verifier = (await _verifier(publish: true))!;
     // El intento se cuenta como fallo antes del KDF (P1 de B) y se deshace
     // sólo si el PIN es correcto: cerrar la app a mitad no deja un intento
     // sin contar.
@@ -540,6 +558,7 @@ class LocalOwnerCredential {
       personId: binding.personId,
       scope: binding.scope,
       verifiedAt: _clock(),
+      issuer: _storage,
     );
   }
 

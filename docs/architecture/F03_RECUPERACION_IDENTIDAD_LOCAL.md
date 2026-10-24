@@ -158,10 +158,10 @@ En `legacyUnbound` no hay titular vinculado:
 Que `OwnerAuthorization._` sea privado no impedía ninguno de los dos.
 
 **Control aplicado:**
-- **Enrolamiento vigente de la instalación.** `consumeOwnerAuthorization` exige `currentEnrolmentId`, el enrolamiento del PIN vigente en el almacén de la instalación, y rechaza la autorización si no coincide con el suyo o si es null. El repositorio lo recibe de la raíz de composición (`repositoryProvider` → `localOwnerCredentialProvider.knownEnrolmentId`) y lo compara dentro de la transacción de la acción, sin esperar a nada. Sin ese lector, ninguna autorización vale.
+- **Credencial de la instalación.** `consumeOwnerAuthorization` exige `installation`, la credencial del titular de la instalación, y rechaza la autorización salvo que `installation.accepts(auth)`: la emitió **ese mismo almacén** (`identical`, guardado en privado en la autorización) con el enrolamiento vigente. El repositorio recibe la credencial de la raíz de composición (`repositoryProvider` → `localOwnerCredentialProvider`) y la comprueba dentro de la transacción de la acción, sin esperar a nada. Sin ella, ninguna autorización vale. *(Primera versión del 2026-10-24: comparaba sólo el `enrolmentId`; sustituida por R3 de B, más abajo.)*
 - **El enrolamiento que conoce el proceso** (`knownEnrolmentId`):
-  - lo fija `verify`, y también `status`, al leer el verificador;
-  - lo cambia `enroll` justo después de escribir el verificador nuevo. Ése es el instante en que el restablecimiento surte efecto.
+  - sólo lo publican los caminos de la cola: `verify`, al leer el verificador antes de emitir, y `enroll`. Una lectura fuera de la cola (`status`, `currentEnrolmentId`) no lo toca (R1 de B);
+  - `enroll` lo borra justo antes de escribir el verificador nuevo y lo fija justo después. Mientras se restablece, o si la escritura informa de un fallo, no vale nada hasta la siguiente verificación (R2 de B). Fijarlo es el instante en que el restablecimiento surte efecto.
   - Va con el objeto almacén (`Expando`), igual que la cola, y el almacén Android es único en el proceso.
   - Una primera versión leía el almacén con una espera dentro de la transacción. Bloqueaba las pruebas de pantalla (`rec_050`), se detectó al ejecutarlas y se sustituyó por esta comparación síncrona.
 - **Comprobante de la acreditación propia.** `enroll` sólo acepta un `OnlineOwnerProof` emitido por la `OwnerOnlineVerification` con la que se configuró la credencial, que en la app es la reautenticación real (`ownerOnlineVerificationProvider`). Un comprobante de otra instancia, armada con funciones cualesquiera, se rechaza sin escribir nada.
@@ -175,17 +175,31 @@ Que `OwnerAuthorization._` sea privado no impedía ninguno de los dos.
   - restablecer invalida al instante;
   - restablecimiento concurrente con una verificación, en los dos órdenes;
   - comprobante de otra acreditación rechazado, sin escribir el almacén;
-  - autorización de otro almacén rechazada;
+  - credencial con otro enrolamiento rechazada, y también la que **copia** el enrolamiento de la instalación en otro almacén (R3 de B);
+  - una lectura lenta que empezó antes del restablecimiento no devuelve el PIN anterior (R1 de B);
+  - escritura del verificador informada como fallida: nada vale hasta la siguiente verificación (R2 de B);
   - enrolamiento conocido: desconocido hasta leerlo, cambiado al restablecer y por almacén.
 - **`f04_rf13_reversal_audit_test`**, cada rechazo con la base y la auditoría intactas (volcado completo):
   - verificar, restablecer y usar la autorización anterior: se rechaza;
   - credencial fabricada sobre otro almacén: se rechaza;
   - repositorio sin lector: se rechaza;
   - restablecimiento concurrente con la reversión: o se aplica con el enrolamiento anterior o se rechaza.
-- **Mutaciones detectadas:** sin la cola, falla la prueba de los 4 PIN simultáneos; sin actualizar el enrolamiento al restablecer, falla la prueba de verificar, restablecer y usar.
+- **Mutaciones detectadas:**
+  - sin la cola, falla la prueba de los 4 PIN simultáneos;
+  - sin actualizar el enrolamiento al restablecer, falla la de verificar, restablecer y usar;
+  - si las lecturas fuera de la cola publican, falla la de R1;
+  - sin la comprobación del almacén emisor, falla la de la copia (R3);
+  - sin borrar antes de escribir, falla la de R2.
 
 **Límites declarados:**
 - **Sin protección entre isolates ni entre procesos.** El enrolamiento conocido y la cola viven en el isolate principal; un segundo proceso o isolate con su propio almacén no se coordina con ellos. La app no tiene ninguno de los dos.
-- **Escribir el almacén directamente.** El código con acceso al espacio de nombres seguro, ya sea construyendo `FlutterSecureStorage` o una `LocalOwnerCredential` nueva sobre ese mismo almacén con una acreditación propia, puede escribir un verificador. Equivale a código con todos los privilegios de la app: nada en Dart lo impide, y no se afirma lo contrario. Lo que sí queda cerrado es la vía de las API públicas desde la pantalla, el repositorio o la credencial de la app.
+- **La frontera es el código del proceso** (redacción pedida por B, R3):
+  - los constructores de `LocalOwnerCredential`, `OwnerOnlineVerification` y `AndroidCredentialStorage` (singleton) son públicos;
+  - `enrolmentId` es un identificador y no un secreto: está en la auditoría y en los respaldos;
+  - el código dentro del proceso puede construir una `LocalOwnerCredential` sobre el almacén Android real con una acreditación propia, y re-enrolar el PIN, o escribir `FlutterSecureStorage` directamente. Así funciona `TestOwnerPin` en las pruebas, sobre memoria.
+  - Nada en Dart impide eso y no se afirma lo contrario. Lo que queda cerrado:
+    - la vía de las API públicas sin re-enrolar: pantalla, repositorio y credencial de la app;
+    - la autorización emitida con otro enrolamiento, o desde otro almacén aunque copie el enrolamiento;
+    - la emitida antes de restablecer el PIN.
 - **Reloj y consumo antes del commit:** siguen como en §7, aceptados para el entorno sintético.
 - La autorización de la clave de recuperación del respaldo (F08, sesión C) usa el mismo `consumeOwnerAuthorization`. En la composición debe pasar `knownEnrolmentId`.

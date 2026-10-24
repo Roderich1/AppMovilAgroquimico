@@ -40,10 +40,7 @@ Future<_Fixture> _fixture() async {
   final database = openDb(inMemoryDatabasePath);
   final bound = await seedActivatedInstallation(database);
   late TestOwnerPin pin;
-  final repo = AgroRepository(
-    database,
-    ownerEnrolment: () => pin.credential.knownEnrolmentId,
-  );
+  final repo = AgroRepository(database, ownerCredential: () => pin.credential);
   final household = await seedHousehold(repo);
   final binding = OwnerBindingContext(
     bindingId: bound.id,

@@ -66,8 +66,7 @@ final repositoryProvider = Provider<AgroRepository>(
     gate: FarmerOperationGate(() => ref.read(installationAccessProvider)),
     // RF-13/RF-03: una autorización del titular vale sólo con el PIN
     // configurado ahora en el almacén de la instalación.
-    ownerEnrolment: () =>
-        ref.read(localOwnerCredentialProvider).knownEnrolmentId,
+    ownerCredential: () => ref.read(localOwnerCredentialProvider),
   ),
 );
 
