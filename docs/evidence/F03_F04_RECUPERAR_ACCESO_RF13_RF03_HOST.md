@@ -65,3 +65,28 @@ La rama `comp/f01-f08-mob` integra `e5bf32b` (`feat/f08-respaldo-cifrado`) con `
 - **Una aplicación tardía no se vincula a un plan:** si viene de un plan, no se ofrece el registro para revisión.
 - **Pago al proveedor:** en una compra tardía se registra después de confirmarla, no al capturarla.
 - **Revisiones:** las de B y C fueron por lectura de contratos y código; no ejecutaron estas pruebas.
+
+## Actualización del 2026-10-23 (noche): revisiones de código de B y C
+
+**Commits:**
+- **`f7f6a73`**, revisiones de C (RF-13) y de B (PIN):
+  - **R1 y R2:** texto del actor; un fallo de lectura no se muestra como «Actor no registrado», y se distingue el PIN de este teléfono de uno que ya no está configurado;
+  - **R3:** prueba del respaldo;
+  - **P1:** cola y conteo del intento antes del KDF.
+- **`cf4ae8a`:** la cola del PIN es por almacén y no estática. La versión estática encadenaba esperas entre pruebas de widget y colgó `rec_050`: se detectó al ejecutarlo y se descartó.
+- **`f706e11`:** `AndroidCredentialStorage` único por proceso (nota de B).
+
+**Resultados sobre `cf4ae8a`** (formato sin cambios, `flutter analyze` sin avisos, un archivo por invocación):
+- recuperación 13, app 3, credencial 16;
+- RF-13 13, **RF-13 respaldo 3** (nuevo), RF-03 11 + 2;
+- sesión 25, retry 36, rec_050 6, migraciones 6 + 7, sesión existente 6, activación 15.
+
+**Sobre `f706e11`:** credencial 17, con la prueba del almacén único.
+
+**Mutación:** sin la cola, la prueba de 4 verificaciones simultáneas falla. Comprobado sobre las dos versiones de la cola; el código se restauró después de cada comprobación.
+
+**Revisiones, por lectura:**
+- **B:** PIN LISTO sobre `cf4ae8a`.
+- **C:** RF-13 LISTO sobre `f7f6a73`.
+
+**`f04_rf13_reversal_backup_test`** usa la exportación y la restauración locales (el contenedor). El formato 2 de C sólo envuelve la subida remota, así que esta prueba no lo cubre.

@@ -255,6 +255,72 @@ void main() {
       },
     );
 
+    test(
+      'concurrent wrong PINs, even from two instances, are all counted',
+      () async {
+        final storage = _Storage();
+        final clock = _Clock();
+        final first = _credential(storage, clock);
+        final second = _credential(storage, clock);
+        await _enroll(first, clock);
+        Future<void> wrong(LocalOwnerCredential c) => expectLater(
+          c.verify(
+            pin: '000001',
+            purpose: AuthorizationPurpose.reversePurchase,
+            subjectRef: 's',
+            binding: _binding,
+          ),
+          throwsA(isA<CredentialException>()),
+        );
+        await Future.wait([
+          wrong(first),
+          wrong(second),
+          wrong(first),
+          wrong(second),
+        ]);
+        expect((await first.status(_binding)).state, CredentialState.enrolled);
+        await wrong(second);
+        expect((await first.status(_binding)).state, CredentialState.locked);
+      },
+    );
+
+    test(
+      'the Android storage is one object, so every instance shares the queue',
+      () {
+        expect(
+          identical(AndroidCredentialStorage(), AndroidCredentialStorage()),
+          isTrue,
+        );
+      },
+    );
+
+    test('an attempt interrupted during the KDF stays counted', () async {
+      final storage = _Storage();
+      final clock = _Clock();
+      await _enroll(_credential(storage, clock), clock);
+      final interrupted = LocalOwnerCredential(
+        storage: storage,
+        iterations: 1000,
+        clock: clock.call,
+        kdf: (_, __, ___) => Future.error(StateError('proceso terminado')),
+      );
+      for (var i = 0; i < 5; i++) {
+        await expectLater(
+          interrupted.verify(
+            pin: '284917',
+            purpose: AuthorizationPurpose.reversePurchase,
+            subjectRef: 's',
+            binding: _binding,
+          ),
+          throwsA(isA<StateError>()),
+        );
+      }
+      expect(
+        (await interrupted.status(_binding)).state,
+        CredentialState.locked,
+      );
+    });
+
     test('a success resets the failure counter', () async {
       final storage = _Storage();
       final clock = _Clock();

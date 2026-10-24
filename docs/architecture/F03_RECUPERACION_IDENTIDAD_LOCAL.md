@@ -131,3 +131,18 @@ En `legacyUnbound` no hay titular vinculado:
   - ámbito distinto tras restaurar;
   - autorización de un solo uso y caducada;
   - llamada directa al repositorio sin autorización.
+
+## 7. Revisión del código del PIN (2026-10-23)
+
+**B, sobre `7713f9c`**, por lectura: LISTO con condiciones.
+- **P1, aplicado: intentos contados sin carreras.**
+  - `enroll` y `verify` van serializados **por almacén**: la cola va con el objeto almacén, de modo que dos instancias sobre el mismo almacén también se esperan. `AndroidCredentialStorage` es único en el proceso (nota de B sobre `cf4ae8a`), así que dos objetos no pueden quedar sobre el mismo espacio de nombres sin esperarse.
+  - Una primera versión con un candado estático en todo el proceso encadenaba esperas entre pruebas de widget y colgaba `rec_050`; se descartó.
+  - El fallo se cuenta **antes** del KDF y se pone a cero sólo si el PIN es correcto, así que cerrar la app durante el KDF no deja un intento sin contar.
+  - Coste: si la app se cierra durante una verificación correcta, ese intento cuenta como fallo.
+  - Pruebas: 4 verify() simultáneos con PIN erróneo sobre 2 instancias cuentan 4, y el 5.º bloquea (sin el candado, la prueba falla); un KDF interrumpido 5 veces bloquea.
+- **Límites declarados:**
+  - **P2, reloj:** las esperas usan el reloj del teléfono. Adelantarlo las acorta, pero no salta el tope de 10 fallos, que exige restablecer en línea.
+  - **P3, constructor público:** `OwnerOnlineVerification` es público y acepta funciones. El modelo de amenaza es saltarse la pantalla, no código malicioso dentro de la app. El proveedor de la app lo conecta con la reautenticación real.
+  - **P4, PIN restablecido:** `consumeOwnerAuthorization` no compara el enrolamiento con el PIN vigente. Una autorización emitida justo antes de restablecer el PIN vale como mucho sus 120 s.
+- **R4 de C y punto 1 de B, se consume antes de aplicar:** la autorización se marca usada antes de aplicar los efectos. Si la transacción se deshace, hay que volver a poner el PIN.

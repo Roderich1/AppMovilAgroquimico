@@ -191,3 +191,12 @@ Además de las de abajo (m2 de B y el oráculo de I1):
 
 - **C** (identidad, auditoría y restauración), sobre `bdfeb66`: LISTO con condiciones. R1–R4 aplicados en §1.2, §1.3 y §2.2. R5 es información.
 - **B** (diseño temporal y sellado), sobre `bdfeb66`: LISTO con condiciones. I1–I4 y m1–m5 aplicados en §2.3, §2.4, §2.5 y §3, y la fuente corregida (m5).
+- **C sobre el código de RF-13** (`6e5db96`, `48dd1b7`, y su relación con la restauración), 2026-10-23, por lectura: LISTO con condiciones.
+  - **R1, un fallo de lectura no es «sin actor»:** si no se puede leer la auditoría, la pantalla dice «No se pudo leer quién autorizó esta reversión». «Actor no registrado» queda sólo para las reversiones anteriores a v11 (`reversalActorLabel`).
+  - **R2, otra credencial:** la pantalla compara `credential_enrolment_ref` con el enrolamiento del PIN configurado ahora.
+    - Si coinciden: «con el PIN de este teléfono».
+    - Si no coinciden: «con un PIN que ya no está configurado en este teléfono (anterior o de otra instalación)».
+    - El enrolamiento cambia también al restablecer el PIN en el mismo teléfono, así que no se afirma «otra instalación».
+    - Si no se puede leer el PIN: «con su PIN (no se pudo comprobar en este teléfono)».
+  - **R3, prueba del respaldo:** `f04_rf13_reversal_backup_test`. Exporta una base con una reversión auditada y la restaura en otra base. `reversal_audit` y `reversal_audit_effects` llegan idénticas, el texto es el de otro PIN y revertir de nuevo la misma operación falla sin escribir nada.
+  - **R4, se consume antes de aplicar** (también lo señala B en la revisión del PIN): la autorización se marca usada antes de los efectos. Si la transacción se deshace, hay que volver a poner el PIN. Es deliberado, porque falla cerrado.

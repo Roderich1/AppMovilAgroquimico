@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app.dart' show repositoryProvider;
 import '../../services/auth/local_owner_credential.dart';
+import '../../services/auth/local_owner_credential_providers.dart';
 import '../screens/owner_credential_screen.dart';
 
 /// Motivo y autorización del titular para una acción (RF-13, RF-03).
@@ -112,10 +113,41 @@ class _ReasonDialogState extends State<_ReasonDialog> {
   );
 }
 
-/// RF-13 §1.3: quién autorizó una reversión. Las anteriores a la auditoría
-/// (v11) quedan «Actor no registrado»: no se infiere nadie. Una autorización
-/// con la credencial de otra instalación (base restaurada) sigue siendo la del
-/// titular registrado en la auditoría, no un error.
+/// RF-13 §1.3: el texto de quién autorizó una reversión.
+/// - [readFailed]: no se pudo leer la auditoría. No es lo mismo que no
+///   tenerla, así que no se presenta como «sin actor» (R1 de C).
+/// - Sin auditoría ([audit] null): reversión anterior a v11, «Actor no
+///   registrado»; no se infiere nadie.
+/// - Con auditoría, se compara su enrolamiento con el PIN configurado ahora
+///   ([currentEnrolmentId]; [enrolmentReadable] false si no se pudo leer).
+///   Si no coincide, la autorizó el titular con un PIN que ya no está aquí:
+///   uno anterior a restablecerlo o el de otra instalación (base restaurada).
+///   El enrolamiento no distingue esos dos casos, así que no se afirma
+///   ninguno (R2 de C).
+String reversalActorLabel(
+  Map<String, Object?>? audit, {
+  bool readFailed = false,
+  String? currentEnrolmentId,
+  bool enrolmentReadable = true,
+}) {
+  if (readFailed) return 'No se pudo leer quién autorizó esta reversión';
+  if (audit == null) return 'Actor no registrado';
+  final how = !enrolmentReadable
+      ? 'con su PIN (no se pudo comprobar en este teléfono)'
+      : audit['credential_enrolment_ref'] == currentEnrolmentId
+      ? 'con el PIN de este teléfono'
+      : 'con un PIN que ya no está configurado en este teléfono '
+            '(anterior o de otra instalación)';
+  return 'Autorizada por el titular $how · ${audit['reason']}';
+}
+
+typedef _ActorInfo = ({
+  Map<String, Object?>? audit,
+  String? enrolmentId,
+  bool enrolmentReadable,
+});
+
+/// Quién autorizó una reversión ([reversalActorLabel]).
 class ReversalActorText extends ConsumerWidget {
   const ReversalActorText({
     super.key,
@@ -126,22 +158,38 @@ class ReversalActorText extends ConsumerWidget {
   final String operationType;
   final int operationId;
 
+  Future<_ActorInfo> _load(WidgetRef ref) async {
+    final audit = await ref
+        .read(repositoryProvider)
+        .reversalAudit(operationType, operationId);
+    if (audit == null) {
+      return (audit: null, enrolmentId: null, enrolmentReadable: true);
+    }
+    try {
+      final enrolmentId = await ref
+          .read(localOwnerCredentialProvider)
+          .currentEnrolmentId();
+      return (audit: audit, enrolmentId: enrolmentId, enrolmentReadable: true);
+    } on Object {
+      return (audit: audit, enrolmentId: null, enrolmentReadable: false);
+    }
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) =>
-      FutureBuilder<Map<String, Object?>?>(
-        future: ref
-            .read(repositoryProvider)
-            .reversalAudit(operationType, operationId),
+      FutureBuilder<_ActorInfo>(
+        future: _load(ref),
         builder: (context, snapshot) {
-          if (!snapshot.hasData &&
-              !snapshot.hasError &&
-              snapshot.connectionState != ConnectionState.done) {
+          if (!snapshot.hasData && !snapshot.hasError) {
             return const SizedBox.shrink();
           }
-          final audit = snapshot.data;
-          final text = audit == null
-              ? 'Actor no registrado'
-              : 'Autorizada por el titular con su PIN · ${audit['reason']}';
+          final info = snapshot.data;
+          final text = reversalActorLabel(
+            info?.audit,
+            readFailed: snapshot.hasError,
+            currentEnrolmentId: info?.enrolmentId,
+            enrolmentReadable: info?.enrolmentReadable ?? true,
+          );
           return Text(
             text,
             key: Key('reversal-actor-$operationType-$operationId'),

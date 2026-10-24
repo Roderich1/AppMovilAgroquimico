@@ -214,7 +214,14 @@ abstract interface class CredentialStorage {
 }
 
 class AndroidCredentialStorage implements CredentialStorage {
-  AndroidCredentialStorage()
+  /// Uno solo por proceso: la cola de [LocalOwnerCredential] va con el objeto
+  /// almacén, y dos objetos sobre el mismo espacio de nombres no se
+  /// esperarían entre sí (nota de B a P1).
+  factory AndroidCredentialStorage() => _instance;
+
+  static final _instance = AndroidCredentialStorage._();
+
+  AndroidCredentialStorage._()
     : _storage = const FlutterSecureStorage(
         aOptions: AndroidOptions(
           storageNamespace: LocalOwnerCredential.androidNamespace,
@@ -304,6 +311,19 @@ class LocalOwnerCredential {
   static const _attemptsKey = 'attempts';
   static const _version = 1;
 
+  /// Un solo enrolamiento o verificación a la vez por almacén (P1 de B): dos
+  /// verify() en paralelo leerían el mismo contador y se perdería un fallo.
+  /// La cola va con el objeto almacén, no con la instancia, para que dos
+  /// instancias sobre el mismo almacén también se esperen; la app tiene un
+  /// solo almacén por ProviderScope.
+  static final _tails = Expando<Future<void>>('owner-credential-lock');
+
+  Future<T> _serialized<T>(Future<T> Function() body) {
+    final run = (_tails[_storage] ?? Future<void>.value()).then((_) => body());
+    _tails[_storage] = run.then<void>((_) {}, onError: (_) {});
+    return run;
+  }
+
   final CredentialStorage _storage;
   final PinKdf _kdf;
   final int iterations;
@@ -331,6 +351,11 @@ class LocalOwnerCredential {
       return const _Attempts(onlineResetAfterFailures, null);
     }
   }
+
+  /// Enrolamiento del PIN configurado ahora (null si no hay). Cambia al
+  /// restablecer el PIN y es otro en cada instalación.
+  Future<String?> currentEnrolmentId() async =>
+      (await _verifier())?.enrolmentId;
 
   Future<CredentialStatus> status(OwnerBindingContext? binding) async {
     final verifier = await _verifier();
@@ -373,6 +398,20 @@ class LocalOwnerCredential {
     required String pinConfirmation,
     required OnlineOwnerProof? proof,
     required OwnerBindingContext binding,
+  }) => _serialized(
+    () => _enroll(
+      pin: pin,
+      pinConfirmation: pinConfirmation,
+      proof: proof,
+      binding: binding,
+    ),
+  );
+
+  Future<void> _enroll({
+    required String pin,
+    required String pinConfirmation,
+    required OnlineOwnerProof? proof,
+    required OwnerBindingContext binding,
   }) async {
     final problem = pinProblem(pin);
     if (problem != null) throw CredentialException(problem);
@@ -401,6 +440,20 @@ class LocalOwnerCredential {
     required AuthorizationPurpose purpose,
     required String subjectRef,
     required OwnerBindingContext binding,
+  }) => _serialized(
+    () => _verify(
+      pin: pin,
+      purpose: purpose,
+      subjectRef: subjectRef,
+      binding: binding,
+    ),
+  );
+
+  Future<OwnerAuthorization> _verify({
+    required String pin,
+    required AuthorizationPurpose purpose,
+    required String subjectRef,
+    required OwnerBindingContext binding,
   }) async {
     final current = await status(binding);
     switch (current.state) {
@@ -421,15 +474,17 @@ class LocalOwnerCredential {
         break;
     }
     final verifier = (await _verifier())!;
+    // El intento se cuenta como fallo antes del KDF (P1 de B) y se deshace
+    // sólo si el PIN es correcto: cerrar la app a mitad no deja un intento
+    // sin contar.
+    final failures = (await _attempts()).failures + 1;
+    final wait = lockoutAfter(failures);
+    await _storage.write(
+      _attemptsKey,
+      _Attempts(failures, wait == null ? null : _clock().add(wait)).encode(),
+    );
     final candidate = await _kdf(pin, verifier.salt, verifier.iterations);
     if (!_constantTimeEquals(candidate, verifier.hash)) {
-      final attempts = await _attempts();
-      final failures = attempts.failures + 1;
-      final wait = lockoutAfter(failures);
-      await _storage.write(
-        _attemptsKey,
-        _Attempts(failures, wait == null ? null : _clock().add(wait)).encode(),
-      );
       throw CredentialException(
         failures >= onlineResetAfterFailures
             ? 'El PIN quedó bloqueado. Restablézcalo acreditando al titular en línea.'
