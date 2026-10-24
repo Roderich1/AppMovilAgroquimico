@@ -21,7 +21,21 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+import 'package:agroquimicos/services/auth/local_owner_credential.dart';
+import 'package:agroquimicos/services/auth/local_owner_credential_providers.dart';
+
+import 'support/f04_app_access.dart';
 import 'support/f04_mode_fixtures.dart';
+
+class _Storage implements CredentialStorage {
+  final values = <String, String>{};
+  @override
+  Future<String?> read(String key) async => values[key];
+  @override
+  Future<void> write(String key, String value) async => values[key] = value;
+  @override
+  Future<void> delete(String key) async => values.remove(key);
+}
 
 void main() {
   sqfliteFfiInit();
@@ -125,7 +139,7 @@ void main() {
       final itemsBefore = await rows('application_items');
       final consumptionsBefore = await rows('application_consumptions');
 
-      await repo.reverseApplication(
+      await repo.reverseApplicationUnauditedForTesting(
         application,
         reason: 'Dosis registrada dos veces',
       );
@@ -207,11 +221,11 @@ void main() {
     });
 
     test('una aplicación ya revertida no se revierte otra vez', () async {
-      await repo.reverseApplication(application, reason: 'Error');
+      await repo.reverseApplicationUnauditedForTesting(application, reason: 'Error');
       final after = await dumpTables(db);
 
       await expectLater(
-        repo.reverseApplication(application, reason: 'Otra vez'),
+        repo.reverseApplicationUnauditedForTesting(application, reason: 'Otra vez'),
         rejected('La aplicación ya fue revertida o no existe.'),
       );
       expect(await dumpTables(db), after);
@@ -230,7 +244,7 @@ void main() {
       () async {
         final before = await dumpTables(db);
         await expectLater(
-          repo.reversePurchase(purchase, reason: 'Error'),
+          repo.reversePurchaseUnauditedForTesting(purchase, reason: 'Error'),
           rejected(
             'La compra tiene lotes consumidos. Revierta primero las aplicaciones relacionadas.',
           ),
@@ -250,8 +264,8 @@ void main() {
         });
 
         // Revertida la aplicación, la compra sí se revierte.
-        await repo.reverseApplication(application);
-        await repo.reversePurchase(purchase);
+        await repo.reverseApplicationUnauditedForTesting(application);
+        await repo.reversePurchaseUnauditedForTesting(purchase);
         expect(
           (await rows(
             'purchases',
@@ -280,7 +294,7 @@ void main() {
       )).single;
       expect(charge['amount_bob_minor_signed'], 27000);
 
-      await repo.reversePurchase(second, reason: 'Factura duplicada');
+      await repo.reversePurchaseUnauditedForTesting(second, reason: 'Factura duplicada');
       expect(
         (await rows(
           'inventory_movements',
@@ -302,7 +316,7 @@ void main() {
         productId: glifosato,
         quantityBase: 2000,
       );
-      await repo.reverseTransfer(transfer, reason: 'Destino equivocado');
+      await repo.reverseTransferUnauditedForTesting(transfer, reason: 'Destino equivocado');
       expect(
         (await rows(
           'inventory_movements',
@@ -337,6 +351,37 @@ void main() {
       await tester.pump(const Duration(milliseconds: 50));
     }
 
+    // RF-13: the titular is bound and has a PIN; the screens ask for the reason
+    // and the PIN (docs/architecture/F04_RF13_RF03_ACTOR_Y_TARDIAS.md §1.1).
+    late LocalOwnerCredential credential;
+    Future<void> enrolTitular() async {
+      final bound = await seedActivatedInstallation(database);
+      final binding = OwnerBindingContext(
+        bindingId: bound.id,
+        personId: bound.personId,
+        scope: memberA,
+      );
+      credential = LocalOwnerCredential(storage: _Storage(), iterations: 1000);
+      await credential.enroll(
+        pin: '284917',
+        pinConfirmation: '284917',
+        proof: await OwnerOnlineVerification(
+          reauthenticate: (_, __) async => true,
+          readSessionScope: () async => memberA,
+        ).verify(email: 'e', password: 'p', binding: binding),
+        binding: binding,
+      );
+    }
+
+    Future<void> approve(WidgetTester tester, String reason) async {
+      await tester.enterText(find.byKey(const Key('approval-reason')), reason);
+      await tester.tap(find.byKey(const Key('approval-continue')));
+      await settle(tester);
+      await tester.enterText(find.byKey(const Key('owner-pin-input')), '284917');
+      await tester.tap(find.byKey(const Key('owner-pin-submit')));
+      await settle(tester, frames: 30);
+    }
+
     Future<void> pump(WidgetTester tester, Widget screen) async {
       tester.view.physicalSize = const Size(500, 900);
       tester.view.devicePixelRatio = 1;
@@ -344,7 +389,10 @@ void main() {
       addTearDown(tester.view.resetDevicePixelRatio);
       await tester.pumpWidget(
         ProviderScope(
-          overrides: [repositoryProvider.overrideWithValue(repo)],
+          overrides: [
+            repositoryProvider.overrideWithValue(repo),
+            localOwnerCredentialProvider.overrideWithValue(credential),
+          ],
           child: MaterialApp(home: Scaffold(body: screen)),
         ),
       );
@@ -372,6 +420,7 @@ void main() {
           path: inMemoryDatabasePath,
         );
         await people();
+        await enrolTitular();
         purchase = await buy(
           {ana: 6000, tercero: 4000},
           10000,
@@ -400,13 +449,13 @@ void main() {
       expect(await status(tester, 'purchases', purchase), 'CONFIRMED');
 
       await askToReverse();
-      await tester.tap(find.widgetWithText(FilledButton, 'Revertir compra'));
-      await settle(tester);
+      await approve(tester, 'Factura duplicada');
       expect(await status(tester, 'purchases', purchase), 'REVERSED');
       final stock = (await tester.runAsync(() => stockByPersonProduct(db)))!;
       expect(stock[(ana, glifosato)], 0);
       expect(stock[(tercero, glifosato)], 0);
-      // La pantalla pasa su motivo fijo, que queda en los movimientos.
+      // RF-13: el motivo que escribe el titular queda en los movimientos y en
+      // la auditoría, con el actor de la autorización.
       final notes = (await tester.runAsync(
         () => db.query(
           'inventory_movements',
@@ -414,7 +463,10 @@ void main() {
           where: "type='PURCHASE_REVERSAL'",
         ),
       ))!.map((m) => m['notes']).toSet();
-      expect(notes, {'Reversión solicitada por usuario'});
+      expect(notes, {'Factura duplicada'});
+      final audit = (await tester.runAsync(() => db.query('reversal_audit')))!;
+      expect(audit.single['reason'], 'Factura duplicada');
+      expect(audit.single['actor_method'], 'LOCAL_PIN');
     });
 
     testWidgets('revertir una transferencia pide confirmación; cancelar no '
@@ -426,6 +478,7 @@ void main() {
           path: inMemoryDatabasePath,
         );
         await people();
+        await enrolTitular();
         await buy({ana: 10000}, 10000, DateTime.utc(2026, 1, 5));
         transfer = await repo.transferProductFifo(
           fromPersonId: ana,
@@ -451,8 +504,7 @@ void main() {
 
       await tester.tap(find.byIcon(Icons.undo));
       await settle(tester);
-      await tester.tap(find.widgetWithText(FilledButton, 'Revertir'));
-      await settle(tester);
+      await approve(tester, 'Transferencia equivocada');
       expect(await status(tester, 'transfers', transfer), 'REVERSED');
       final stock = (await tester.runAsync(() => stockByPersonProduct(db)))!;
       expect(stock[(ana, glifosato)], 10000);

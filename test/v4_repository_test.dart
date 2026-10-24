@@ -96,7 +96,7 @@ void main() {
         (await repo.personStockSummary(receiver)).single['available_base'],
         25000,
       );
-      await repo.reverseTransfer(transfer);
+      await repo.reverseTransferUnauditedForTesting(transfer);
       expect(
         (await repo.personStockSummary(owner)).single['available_base'],
         30000,

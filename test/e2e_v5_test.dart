@@ -169,7 +169,7 @@ void main() {
     );
     expect(await repo.settlements(), hasLength(2));
 
-    await repo.reverseApplication(application, reason: 'Control E2E');
+    await repo.reverseApplicationUnauditedForTesting(application, reason: 'Control E2E');
     // El plan permanece APPLIED: revertir la aplicación no lo devuelve a la
     // cola de pendientes (UIBUG-045, MODELO A).
     expect(

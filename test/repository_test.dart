@@ -201,7 +201,7 @@ void main() {
           ],
         ),
       );
-      await repo.reverseApplication(applicationId, reason: 'Error de carga');
+      await repo.reverseApplicationUnauditedForTesting(applicationId, reason: 'Error de carga');
       expect((await repo.stock()).single['quantity_base'], 50000);
       final settlement = (await repo.settlements()).firstWhere(
         (row) => row['id'] == familyId,
@@ -225,7 +225,7 @@ void main() {
       ),
     );
     expect(
-      () => repo.reversePurchase(id),
+      () => repo.reversePurchaseUnauditedForTesting(id),
       throwsA(isA<BusinessRuleException>()),
     );
   });

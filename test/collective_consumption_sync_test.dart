@@ -57,7 +57,7 @@ void main() {
     );
     expect(await f.publisher.publish(preview), 3);
 
-    await f.sync.repo.reverseApplication(multi, reason: 'error de carga');
+    await f.sync.repo.reverseApplicationUnauditedForTesting(multi, reason: 'error de carga');
     preview = await f.publisher.preview();
     // La reversión resta la aplicación entera de cada total; lo que queda en
     // cero se corrige a cero, no se deja el valor anterior en Central.

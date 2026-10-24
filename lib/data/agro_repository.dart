@@ -4,7 +4,12 @@ import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart'
     show Database, DatabaseExecutor, Sqflite, Transaction;
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
+
 import '../domain/campaign_calendar.dart';
+import '../domain/installation_access.dart' show OwnerScope;
+import '../domain/sync/operation_id.dart' show newOperationId;
+import '../services/auth/local_owner_credential.dart';
 import '../domain/models.dart';
 import '../domain/money.dart';
 import '../domain/operation_mode.dart';
@@ -95,6 +100,30 @@ class PersonalModeRestrictionException extends BusinessRuleException {
 
 /// Modalidad y titular vigentes, leídos dentro de la transacción que escribe.
 typedef WriteContext = ({OperationMode mode, int? ownerPersonId});
+
+/// RF-13: responsable y fecha efectiva de la operación revertida, tal como
+/// estaban (la operación original no se reasigna).
+typedef OriginalOperation = ({int? personId, String? effectiveDate});
+
+/// RF-13: las filas compensatorias que escribe o anula una reversión, para
+/// referenciarlas en `reversal_audit_effects`.
+class ReversalEffects {
+  ReversalEffects() : _discard = false;
+  ReversalEffects.discard() : _discard = true;
+
+  final bool _discard;
+  final List<(String, int)> _rows = [];
+
+  List<(String, int)> get rows => List.unmodifiable(_rows);
+
+  void add(String table, int rowId) {
+    if (_discard) return;
+    if (!AppDatabase.reversalEffectTables.contains(table)) {
+      throw ArgumentError.value(table, 'table', 'not a reversal effect table');
+    }
+    _rows.add((table, rowId));
+  }
+}
 
 class AgroRepository {
   AgroRepository(
@@ -1274,8 +1303,47 @@ class AgroRepository {
     });
   }
 
-  Future<void> reverseApplication(int applicationId, {String? reason}) async {
-    await _write((txn, context) async {
+  /// RF-13: revierte una aplicación con la autorización del titular, el
+  /// motivo y la auditoría en la misma transacción
+  /// (docs/architecture/F04_RF13_RF03_ACTOR_Y_TARDIAS.md §1).
+  Future<void> reverseApplication(
+    int applicationId, {
+    required String reason,
+    required OwnerAuthorization authorization,
+  }) => _authorizedReversal(
+    type: 'APPLICATION',
+    operationId: applicationId,
+    purpose: AuthorizationPurpose.reverseApplication,
+    reason: reason,
+    authorization: authorization,
+    effects: (txn, context, recorder) =>
+        _reverseApplicationIn(txn, context, applicationId, reason.trim(), recorder),
+  );
+
+  /// Sólo pruebas: los efectos de la reversión sin auditoría ni autorización.
+  /// El análisis estático impide usarlo desde la app.
+  @visibleForTesting
+  Future<void> reverseApplicationUnauditedForTesting(
+    int applicationId, {
+    String? reason,
+  }) => _write(
+    (txn, context) => _reverseApplicationIn(
+      txn,
+      context,
+      applicationId,
+      reason,
+      ReversalEffects.discard(),
+    ),
+  );
+
+  Future<OriginalOperation> _reverseApplicationIn(
+    Transaction txn,
+    WriteContext context,
+    int applicationId,
+    String? reason,
+    ReversalEffects effects,
+  ) async {
+    {
       final rows = await txn.query(
         'applications',
         where: 'id = ? AND reversed_at IS NULL',
@@ -1300,7 +1368,7 @@ class AgroRepository {
         [applicationId],
       );
       for (final consumption in consumptions) {
-        await txn.insert('inventory_movements', {
+        effects.add('inventory_movements', await txn.insert('inventory_movements', {
           'lot_id': consumption['inventory_lot_id'],
           'product_id': consumption['product_id'],
           'owner_person_id': application['person_id'],
@@ -1310,7 +1378,8 @@ class AgroRepository {
           'reference_type': 'APPLICATION_REVERSAL',
           'reference_id': applicationId,
           'notes': reason,
-        });
+        }));
+        effects.add('application_consumptions', consumption['id']! as int);
       }
       await txn.update(
         'application_consumptions',
@@ -1324,7 +1393,7 @@ class AgroRepository {
         whereArgs: [applicationId],
       );
       for (final charge in charges) {
-        await txn.insert('account_transactions', {
+        effects.add('account_transactions', await txn.insert('account_transactions', {
           'person_id': charge['person_id'],
           'campaign_id': charge['campaign_id'],
           'transaction_date': _date(DateTime.now()),
@@ -1335,7 +1404,7 @@ class AgroRepository {
           'reference_id': applicationId,
           'notes': reason,
           'reversal_of_id': charge['id'],
-        });
+        }));
       }
       await txn.update(
         'applications',
@@ -1348,11 +1417,49 @@ class AgroRepository {
       // Reabrirlo en silencio dejaba un plan listo para volver a aplicarse sin
       // que nadie lo hubiera pedido, y borraba el rastro de que ya se usó. Si
       // hay que ejecutar otra vez la planificación, se crea un plan nuevo.
-    });
+      return (
+        personId: application['person_id'] as int?,
+        effectiveDate: application['applied_at'] as String?,
+      );
+    }
   }
 
-  Future<void> reversePurchase(int purchaseId, {String? reason}) async {
-    await _write((txn, _) async {
+  /// RF-13: revierte una compra con la autorización del titular (§1).
+  Future<void> reversePurchase(
+    int purchaseId, {
+    required String reason,
+    required OwnerAuthorization authorization,
+  }) => _authorizedReversal(
+    type: 'PURCHASE',
+    operationId: purchaseId,
+    purpose: AuthorizationPurpose.reversePurchase,
+    reason: reason,
+    authorization: authorization,
+    effects: (txn, context, recorder) =>
+        _reversePurchaseIn(txn, purchaseId, reason.trim(), recorder),
+  );
+
+  /// Sólo pruebas: los efectos de la reversión sin auditoría ni autorización.
+  @visibleForTesting
+  Future<void> reversePurchaseUnauditedForTesting(
+    int purchaseId, {
+    String? reason,
+  }) => _write(
+    (txn, _) => _reversePurchaseIn(
+      txn,
+      purchaseId,
+      reason,
+      ReversalEffects.discard(),
+    ),
+  );
+
+  Future<OriginalOperation> _reversePurchaseIn(
+    Transaction txn,
+    int purchaseId,
+    String? reason,
+    ReversalEffects effects,
+  ) async {
+    {
       final consumed =
           Sqflite.firstIntValue(
             await txn.rawQuery(
@@ -1405,7 +1512,7 @@ class AgroRepository {
           throw BusinessRuleException(
             'El lote fue transferido o ajustado; requiere reversión consistente previa.',
           );
-        await txn.insert('inventory_movements', {
+        effects.add('inventory_movements', await txn.insert('inventory_movements', {
           'lot_id': lot['id'],
           'product_id': lot['product_id'],
           'owner_person_id': lot['owner_person_id'],
@@ -1415,13 +1522,14 @@ class AgroRepository {
           'reference_type': 'PURCHASE_REVERSAL',
           'reference_id': purchaseId,
           'notes': reason,
-        });
+        }));
         await txn.update(
           'inventory_lots',
           {'reversed_at': _date(DateTime.now())},
           where: 'id=?',
           whereArgs: [lot['id']],
         );
+        effects.add('inventory_lots', lot['id']! as int);
       }
       final allocationCharges = await txn.rawQuery(
         '''SELECT t.* FROM account_transactions t JOIN purchase_allocations a ON
@@ -1430,7 +1538,7 @@ class AgroRepository {
         [purchaseId],
       );
       for (final charge in allocationCharges) {
-        await txn.insert('account_transactions', {
+        effects.add('account_transactions', await txn.insert('account_transactions', {
           'person_id': charge['person_id'],
           'campaign_id': charge['campaign_id'],
           'transaction_date': _date(DateTime.now()),
@@ -1441,7 +1549,15 @@ class AgroRepository {
           'reference_id': purchaseId,
           'notes': reason,
           'reversal_of_id': charge['id'],
-        });
+        }));
+      }
+      for (final payment in await txn.query(
+        'provider_payments',
+        columns: ['id'],
+        where: 'purchase_id=? AND reversed_at IS NULL',
+        whereArgs: [purchaseId],
+      )) {
+        effects.add('provider_payments', payment['id']! as int);
       }
       await txn.update(
         'provider_payments',
@@ -1455,7 +1571,12 @@ class AgroRepository {
         where: 'id=?',
         whereArgs: [purchaseId],
       );
-    });
+      // Una compra se asigna a varias personas: no tiene un único responsable.
+      return (
+        personId: null,
+        effectiveDate: purchase.single['purchase_date'] as String?,
+      );
+    }
   }
 
   Future<int> transferStock({
@@ -1648,8 +1769,44 @@ class AgroRepository {
     });
   }
 
-  Future<void> reverseTransfer(int transferId, {String? reason}) async {
-    await _write((txn, context) async {
+  /// RF-13: revierte una transferencia con la autorización del titular (§1).
+  Future<void> reverseTransfer(
+    int transferId, {
+    required String reason,
+    required OwnerAuthorization authorization,
+  }) => _authorizedReversal(
+    type: 'TRANSFER',
+    operationId: transferId,
+    purpose: AuthorizationPurpose.reverseTransfer,
+    reason: reason,
+    authorization: authorization,
+    effects: (txn, context, recorder) =>
+        _reverseTransferIn(txn, context, transferId, reason.trim(), recorder),
+  );
+
+  /// Sólo pruebas: los efectos de la reversión sin auditoría ni autorización.
+  @visibleForTesting
+  Future<void> reverseTransferUnauditedForTesting(
+    int transferId, {
+    String? reason,
+  }) => _write(
+    (txn, context) => _reverseTransferIn(
+      txn,
+      context,
+      transferId,
+      reason,
+      ReversalEffects.discard(),
+    ),
+  );
+
+  Future<OriginalOperation> _reverseTransferIn(
+    Transaction txn,
+    WriteContext context,
+    int transferId,
+    String? reason,
+    ReversalEffects effects,
+  ) async {
+    {
       // Revertir mueve existencias entre responsables: en modo propio no hay
       // transferencias, tampoco para deshacerlas (#26/#27).
       _rejectTransferInPersonal(context);
@@ -1710,13 +1867,13 @@ class AgroRepository {
             'type': 'TRANSFER_REVERSAL_OUT',
           },
         ]) {
-          await txn.insert('inventory_movements', {
+          effects.add('inventory_movements', await txn.insert('inventory_movements', {
             ...movement,
             'movement_date': reversedAt,
             'reference_type': 'TRANSFER_REVERSAL',
             'reference_id': transferId,
             'notes': reason,
-          });
+          }));
         }
         await txn.update(
           'inventory_lots',
@@ -1724,6 +1881,7 @@ class AgroRepository {
           where: 'id=?',
           whereArgs: [item['destination_lot_id']],
         );
+        effects.add('inventory_lots', item['destination_lot_id']! as int);
       }
       await txn.update(
         'transfers',
@@ -1731,7 +1889,96 @@ class AgroRepository {
         where: 'id=?',
         whereArgs: [transferId],
       );
+      return (
+        personId: transfer['from_person_id'] as int?,
+        effectiveDate: transfer['transfer_date'] as String?,
+      );
+    }
+  }
+
+  /// El vínculo de titular vigente, leído en la transacción que escribe.
+  Future<OwnerBindingContext?> _currentOwnerBinding(DatabaseExecutor txn) async {
+    final rows = await txn.query(
+      'owner_bindings',
+      columns: ['id', 'person_id', 'member_id', 'tenant_id'],
+      where: 'ended_at IS NULL',
+    );
+    if (rows.isEmpty) return null;
+    final row = rows.single;
+    return OwnerBindingContext(
+      bindingId: row['id']! as int,
+      personId: row['person_id']! as int,
+      scope: OwnerScope(
+        memberId: row['member_id']! as String,
+        tenantId: row['tenant_id']! as String,
+      ),
+    );
+  }
+
+  /// RF-13 (§1): consume la autorización contra el vínculo vigente, aplica los
+  /// efectos y escribe la auditoría y sus referencias, todo en una
+  /// transacción. Una reversión por operación (doble toque o reintento).
+  Future<void> _authorizedReversal({
+    required String type,
+    required int operationId,
+    required AuthorizationPurpose purpose,
+    required String reason,
+    required OwnerAuthorization authorization,
+    required Future<OriginalOperation> Function(
+      Transaction txn,
+      WriteContext context,
+      ReversalEffects effects,
+    )
+    effects,
+  }) async {
+    final trimmed = reason.trim();
+    if (trimmed.isEmpty) {
+      throw BusinessRuleException('Indique el motivo de la reversión.');
+    }
+    await _write((txn, context) async {
+      consumeOwnerAuthorization(
+        authorization,
+        purpose: purpose,
+        subjectRef: '${type.toLowerCase()}:$operationId',
+        current: await _currentOwnerBinding(txn),
+        now: DateTime.now(),
+      );
+      final recorder = ReversalEffects();
+      final original = await effects(txn, context, recorder);
+      final auditId = await txn.insert('reversal_audit', {
+        'reversal_ref': newOperationId(),
+        'operation_type': type,
+        'operation_id': operationId,
+        'original_person_id': original.personId,
+        'original_effective_date': original.effectiveDate,
+        'reason': trimmed,
+        'actor_person_id': authorization.personId,
+        'actor_binding_id': authorization.bindingId,
+        'actor_member_id': authorization.scope.memberId,
+        'actor_tenant_id': authorization.scope.tenantId,
+        'actor_method': authorization.method,
+        'credential_enrolment_ref': authorization.enrolmentId,
+        'recorded_at': _date(DateTime.now()),
+      });
+      for (final (table, rowId) in recorder.rows) {
+        await txn.insert('reversal_audit_effects', {
+          'audit_id': auditId,
+          'table_name': table,
+          'row_id': rowId,
+        });
+      }
     });
+  }
+
+  /// Auditoría de la reversión de una operación, o null si se revirtió antes
+  /// de v11 («Actor no registrado») o no está revertida.
+  Future<Map<String, Object?>?> reversalAudit(String type, int operationId) async {
+    final rows = await (await _db).query(
+      'reversal_audit',
+      where: 'operation_type=? AND operation_id=?',
+      whereArgs: [type, operationId],
+    );
+    return rows.isEmpty ? null : rows.single;
   }
 
   Future<List<Map<String, Object?>>> transfers({int limit = 50}) async =>

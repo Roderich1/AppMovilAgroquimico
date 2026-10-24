@@ -160,8 +160,35 @@ const syncTablesV9 = [
   'campaign_bindings',
 ];
 
+/// Quita todo lo que añadió v11 (RF-13 y RF-03): tablas, índices y triggers.
+Future<void> dropReviewAuditSchemaV11(DatabaseExecutor db) async {
+  final triggers = await db.rawQuery(
+    "SELECT name FROM sqlite_master WHERE type='trigger' AND "
+    "(name LIKE 'trg_reversal_audit%' OR name LIKE 'trg_late_drafts%')",
+  );
+  for (final row in triggers) {
+    await db.execute('DROP TRIGGER IF EXISTS "${row['name']}"');
+  }
+  for (final table in [
+    'reversal_audit_effects',
+    'reversal_audit',
+    'late_operation_drafts',
+  ]) {
+    await db.execute('DROP TABLE IF EXISTS $table');
+  }
+}
+
+/// Deja una base creada con la versión actual exactamente como una v10.
+Future<void> downgradeToV10(String path) async {
+  final db = await databaseFactoryFfi.openDatabase(path);
+  await dropReviewAuditSchemaV11(db);
+  await db.execute('PRAGMA user_version = 10');
+  await db.close();
+}
+
 /// Quita todo lo que añadió v9: tablas, índices y triggers.
 Future<void> dropSyncSchemaV9(DatabaseExecutor db) async {
+  await dropReviewAuditSchemaV11(db);
   final triggers = await db.rawQuery(
     "SELECT name FROM sqlite_master WHERE type='trigger' AND "
     "(name LIKE 'trg_sync_outbox_%' OR name LIKE 'trg_declared_need%')",

@@ -28,6 +28,13 @@ void main() {
     'trg_declared_needs_no_delete',
     'trg_declared_need_versions_no_delete',
     'trg_declared_need_versions_no_update',
+    // v11 (RF-13 y RF-03): auditoría de reversiones y borradores tardíos.
+    'trg_reversal_audit_no_update',
+    'trg_reversal_audit_no_delete',
+    'trg_reversal_audit_effects_no_update',
+    'trg_reversal_audit_effects_no_delete',
+    'trg_late_drafts_no_delete',
+    'trg_late_drafts_resolved_immutable',
   };
 
   test('una base nueva nace en la versión vigente marcada NEW_UNDER_POLICY y sin titular', () async {

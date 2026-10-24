@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../services/auth/local_owner_credential.dart' show AuthorizationPurpose;
+import '../widgets/owner_reversal_flow.dart';
 
 import '../../app.dart';
 import '../../domain/money.dart';
@@ -31,19 +33,31 @@ class _TransfersScreenState extends ConsumerState<TransfersScreen> {
   }
 
   Future<void> reverse(Map<String, Object?> row) async {
-    final confirmed = await confirmDestructiveAction(
+    final id = row['id']! as int;
+    // RF-13: motivo y PIN del titular; el actor sale de la autorización.
+    final approval = await requestOwnerApproval(
       context,
+      ref,
+      purpose: AuthorizationPurpose.reverseTransfer,
+      subjectRef: 'transfer:$id',
       title: '¿Revertir esta transferencia?',
-      detail:
+      confirmLabel: 'Revertir transferencia',
+      effects:
           '${row['from_person_name']} → ${row['to_person_name']}\n'
           '${formatItemsSummary(row['products_summary'])}\n'
           'Costo ${formatBob(row['total_cost_bob_minor']! as int)}\n\n'
           'El stock volverá a la persona de origen. Esta acción no se puede '
           'deshacer.',
     );
-    if (!confirmed || !mounted) return;
+    if (approval == null || !mounted) return;
     try {
-      await ref.read(repositoryProvider).reverseTransfer(row['id']! as int);
+      await ref
+          .read(repositoryProvider)
+          .reverseTransfer(
+            id,
+            reason: approval.reason,
+            authorization: approval.authorization,
+          );
       if (mounted) refresh();
     } catch (error) {
       if (mounted) showError(context, error);
@@ -108,7 +122,17 @@ class _TransfersScreenState extends ConsumerState<TransfersScreen> {
                         onPressed: () => reverse(row),
                         icon: const Icon(Icons.undo),
                       )
-                    : const Text('Revertida'),
+                    : Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          const Text('Revertida'),
+                          ReversalActorText(
+                            operationType: 'TRANSFER',
+                            operationId: row['id']! as int,
+                          ),
+                        ],
+                      ),
                 children: [
                   Padding(
                     padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),

@@ -300,7 +300,7 @@ void main() {
       );
       // **Revertir NO reabre el plan** (UIBUG-045, MODELO A). La reversión
       // corrige un movimiento que ocurrió; el plan ya se consumió.
-      await repo.reverseApplication(application);
+      await repo.reverseApplicationUnauditedForTesting(application);
       expect(
         (await database.query(
           'application_plans',
