@@ -136,7 +136,7 @@ En `legacyUnbound` no hay titular vinculado:
 
 **B, sobre `7713f9c`**, por lectura: LISTO con condiciones.
 - **P1, aplicado: intentos contados sin carreras.**
-  - `enroll` y `verify` van serializados **por almacén**: la cola va con el objeto almacén, de modo que dos instancias sobre el mismo almacén también se esperan. La app tiene un solo almacén por `ProviderScope`.
+  - `enroll` y `verify` van serializados **por almacén**: la cola va con el objeto almacén, de modo que dos instancias sobre el mismo almacén también se esperan. `AndroidCredentialStorage` es único en el proceso (nota de B sobre `cf4ae8a`), así que dos objetos no pueden quedar sobre el mismo espacio de nombres sin esperarse.
   - Una primera versión con un candado estático en todo el proceso encadenaba esperas entre pruebas de widget y colgaba `rec_050`; se descartó.
   - El fallo se cuenta **antes** del KDF y se pone a cero sólo si el PIN es correcto, así que cerrar la app durante el KDF no deja un intento sin contar.
   - Coste: si la app se cierra durante una verificación correcta, ese intento cuenta como fallo.

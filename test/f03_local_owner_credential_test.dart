@@ -284,6 +284,16 @@ void main() {
       },
     );
 
+    test(
+      'the Android storage is one object, so every instance shares the queue',
+      () {
+        expect(
+          identical(AndroidCredentialStorage(), AndroidCredentialStorage()),
+          isTrue,
+        );
+      },
+    );
+
     test('an attempt interrupted during the KDF stays counted', () async {
       final storage = _Storage();
       final clock = _Clock();

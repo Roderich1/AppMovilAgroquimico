@@ -214,7 +214,14 @@ abstract interface class CredentialStorage {
 }
 
 class AndroidCredentialStorage implements CredentialStorage {
-  AndroidCredentialStorage()
+  /// Uno solo por proceso: la cola de [LocalOwnerCredential] va con el objeto
+  /// almacén, y dos objetos sobre el mismo espacio de nombres no se
+  /// esperarían entre sí (nota de B a P1).
+  factory AndroidCredentialStorage() => _instance;
+
+  static final _instance = AndroidCredentialStorage._();
+
+  AndroidCredentialStorage._()
     : _storage = const FlutterSecureStorage(
         aOptions: AndroidOptions(
           storageNamespace: LocalOwnerCredential.androidNamespace,
