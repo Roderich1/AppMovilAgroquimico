@@ -136,7 +136,8 @@ En `legacyUnbound` no hay titular vinculado:
 
 **B, sobre `7713f9c`**, por lectura: LISTO con condiciones.
 - **P1, aplicado: intentos contados sin carreras.**
-  - `enroll` y `verify` van serializados en todo el proceso con un candado estático, porque cada `ProviderScope` crea su propia instancia sobre el mismo almacén.
+  - `enroll` y `verify` van serializados **por almacén**: la cola va con el objeto almacén, de modo que dos instancias sobre el mismo almacén también se esperan. La app tiene un solo almacén por `ProviderScope`.
+  - Una primera versión con un candado estático en todo el proceso encadenaba esperas entre pruebas de widget y colgaba `rec_050`; se descartó.
   - El fallo se cuenta **antes** del KDF y se pone a cero sólo si el PIN es correcto, así que cerrar la app durante el KDF no deja un intento sin contar.
   - Coste: si la app se cierra durante una verificación correcta, ese intento cuenta como fallo.
   - Pruebas: 4 verify() simultáneos con PIN erróneo sobre 2 instancias cuentan 4, y el 5.º bloquea (sin el candado, la prueba falla); un KDF interrumpido 5 veces bloquea.

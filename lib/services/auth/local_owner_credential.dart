@@ -304,15 +304,16 @@ class LocalOwnerCredential {
   static const _attemptsKey = 'attempts';
   static const _version = 1;
 
-  /// Un solo enrolamiento o verificación a la vez en todo el proceso (P1 de
-  /// B): dos verify() en paralelo leerían el mismo contador y un fallo se
-  /// perdería. Es estático porque cada ProviderScope crea su instancia sobre
-  /// el mismo almacén.
-  static Future<void> _tail = Future<void>.value();
+  /// Un solo enrolamiento o verificación a la vez por almacén (P1 de B): dos
+  /// verify() en paralelo leerían el mismo contador y se perdería un fallo.
+  /// La cola va con el objeto almacén, no con la instancia, para que dos
+  /// instancias sobre el mismo almacén también se esperen; la app tiene un
+  /// solo almacén por ProviderScope.
+  static final _tails = Expando<Future<void>>('owner-credential-lock');
 
-  static Future<T> _serialized<T>(Future<T> Function() body) {
-    final run = _tail.then((_) => body());
-    _tail = run.then<void>((_) {}, onError: (_) {});
+  Future<T> _serialized<T>(Future<T> Function() body) {
+    final run = (_tails[_storage] ?? Future<void>.value()).then((_) => body());
+    _tails[_storage] = run.then<void>((_) {}, onError: (_) {});
     return run;
   }
 
