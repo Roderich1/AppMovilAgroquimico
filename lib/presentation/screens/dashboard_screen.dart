@@ -542,6 +542,12 @@ class _RemoteSessionControls extends ConsumerWidget {
               label: const Text('Verificar acceso en línea'),
             ),
           TextButton.icon(
+            key: const Key('open-owner-pin'),
+            onPressed: () => context.push('/titular/pin'),
+            icon: const Icon(Icons.pin_outlined),
+            label: const Text('PIN del titular'),
+          ),
+          TextButton.icon(
             key: const Key('open-sync-status'),
             onPressed: () => context.push('/sincronizacion'),
             icon: const Icon(Icons.sync),
