@@ -134,6 +134,7 @@ class _RemoteBackupScreenState extends ConsumerState<RemoteBackupScreen> {
     if (active == null || !mounted) return;
     final authorization = await ref.read(backupKeyAuthorizerProvider)(
       context,
+      ref,
       BackupKeyAction.rotate,
       active.keyId,
     );

@@ -72,11 +72,12 @@ final backupKeyringProvider = Provider<BackupKeyring>(
 /// ([backupKeyAuthorizationConsumerProvider]). Sin conectar, devuelve null.
 typedef BackupKeyAuthorizer = Future<Object?> Function(
   BuildContext context,
+  WidgetRef ref,
   BackupKeyAction action,
   String keyIdHex,
 );
 
 final backupKeyAuthorizerProvider = Provider<BackupKeyAuthorizer>(
   (ref) =>
-      (context, action, keyIdHex) async => null,
+      (context, ref, action, keyIdHex) async => null,
 );
