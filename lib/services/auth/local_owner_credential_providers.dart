@@ -4,7 +4,6 @@ import '../../app.dart' show repositoryProvider;
 import '../../data/owner_binding_store.dart';
 import '../../installation_access.dart';
 import 'local_owner_credential.dart';
-import 'remote_session_coordinator.dart';
 import 'remote_session_providers.dart';
 
 final credentialStorageProvider = Provider<CredentialStorage>(
@@ -35,16 +34,14 @@ final ownerBindingContextReaderProvider =
       };
     });
 
-/// La acreditación en línea reutiliza la reautenticación existente (mismo
-/// registro de cliente) y relee el ámbito de la sesión guardada.
+/// La acreditación en línea confirma la cuenta con un login que se cierra en
+/// el acto (no la reautenticación, que sólo recupera una sesión en cuarentena)
+/// y relee el ámbito de la sesión guardada.
 final ownerOnlineVerificationProvider = Provider<OwnerOnlineVerification>(
   (ref) => OwnerOnlineVerification(
-    reauthenticate: (email, password) async =>
-        (await ref
-                .read(remoteSessionProvider.notifier)
-                .reauthenticate(email: email, password: password))
-            .phase ==
-        RemoteSessionPhase.remoteAvailable,
+    confirmAccount: (email, password) => ref
+        .read(remoteSessionProvider.notifier)
+        .confirmAccount(email: email, password: password),
     readSessionScope: () => ref.read(sessionScopeReaderProvider)(),
   ),
 );

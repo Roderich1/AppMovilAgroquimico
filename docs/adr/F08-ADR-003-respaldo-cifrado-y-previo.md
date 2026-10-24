@@ -98,7 +98,7 @@ Cada copia tiene su propia clave, de modo que el nonce nunca se reutiliza con la
    - **Sin un primer fotograma desprotegido:** lo sensible se pinta sólo cuando Android ya confirmó la marca (`ScreenSecureChannel`, canal `agrocuentas/screen_secure`, que responde desde el hilo de la interfaz con el estado que quedó). Hasta entonces se ve un indicador.
    - **Cuenta anidada:** cada pantalla o diálogo toma su permiso (`ScreenSecure.acquire`) y la marca se quita al devolver el último. Cerrar un diálogo no desprotege la pantalla que sigue abierta debajo. El permiso se devuelve cuando la pantalla terminó de cerrarse.
    - **Falla cerrado:** si Android no confirma la marca, la clave no se muestra y se ofrece reintentar. Si lo que falla es quitarla, la pantalla sigue protegida.
-   - **Límite declarado:** protege contra capturas y grabación del sistema, no contra una cámara apuntando a la pantalla. La marca real en la ventana se comprueba en el dispositivo (DEVICE, lo opera A). En el host se prueba la cuenta y el orden con el canal simulado.
+   - **Límite declarado:** protege contra capturas y grabación del sistema, no contra una cámara apuntando a la pantalla. **Tampoco oculta la clave al árbol de accesibilidad** (§8). La marca real en la ventana se comprueba en el dispositivo (DEVICE, lo opera A). En el host se prueba la cuenta y el orden con el canal simulado.
 
 ### 3.5 Teléfono nuevo, reinstalación o llavero ilegible
 
@@ -302,6 +302,11 @@ En cada oportunidad de mantenimiento (al abrir la sección de respaldos, antes d
 - **No hay firma:** un servidor comprometido puede borrar o retener copias (disponibilidad), pero no fabricar una que pase la etiqueta sin K_r.
 - **Paquete de un solo mantenedor (§2.3).**
 - **Rendimiento en el dispositivo: NOT_MEASURED** hasta el ensayo.
+- **Accesibilidad (añadido el 2026-10-24):** `FLAG_SECURE` no oculta la clave al árbol de accesibilidad.
+  - **Qué se vio:** en el ensayo DEVICE de A sobre la composición `bfee4dc`, `uiautomator` leyó el texto de dos claves pendientes, en `content-desc` y en el campo de confirmación. Cualquier servicio de accesibilidad con permiso puede leer lo mismo. A las descartó antes de activarlas, así que nunca protegieron ninguna copia.
+  - **No es una regresión:** es el límite de la marca, que sólo actúa sobre la composición de la ventana (capturas, grabación y recientes).
+  - **Por qué no se oculta:** quitar la semántica a la clave dejaría sin poder anotarla ni confirmarla a quien usa TalkBack. **Ocultarla o no es decisión de Roderich.** Hasta que decida, el código no cambia y el riesgo se declara.
+  - **Lo que reduce el riesgo:** el servicio de accesibilidad debe estar activado por la persona en Ajustes. La clave sólo se muestra al crearla, al volver a verla con el PIN y al escribirla para recuperar.
 
 ## 9. Pruebas previstas
 

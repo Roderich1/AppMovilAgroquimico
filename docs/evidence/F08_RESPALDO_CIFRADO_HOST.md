@@ -192,3 +192,46 @@ Las pruebas se lanzaron de una en una. La suite completa la da la CI de #144.
 **No acreditado:** el diálogo del PIN y la clave en el dispositivo (DEVICE, lo opera A), ni la suite completa sobre este HEAD, que queda pendiente de la CI.
 
 **CI de `08b6b4d` (run 40087815617, 2026-10-24): FALLO en el paso de formato** («Changed test/f08_recovery_key_screen_test.dart»). El análisis y las pruebas no llegaron a ejecutarse. La causa es que el `import` de `BackupRecoveryKey` se añadió en `2220683` después del último `dart format` y superaba la longitud de línea. Se corrige en el commit siguiente, que sólo cambia el formato. Con él, `dart format --output=none --set-exit-if-changed lib test` sale con código 0.
+
+## 8. DEVICE de la composición, según la evidencia de A (2026-10-24)
+
+| Campo | Valor |
+|---|---|
+| Quién operó | **A**, el único operador físico. C no ejecutó nada en el dispositivo |
+| Evidencia de origen | `docs/evidence/F01_F08_DEVICE_COMPOSICION_2026-10-24.md`, en la rama de A (`09a6dc3`, sin publicar cuando se escribe esto) |
+| Código | Composición `bfee4dc`, cuyo árbol es el de `84f9d82` de esta rama |
+| APK | `.f01f08`, SHA-256 `87d0f478a0cb86f8655696efc037d3e51c647c47c688b51a13a19f624eb35511`, igual al `base.apk` instalado |
+| Dispositivo | POCO X5 Pro (`cc14247a`) |
+
+**F08, según A:**
+- `FLAG_SECURE`: en la pantalla de la clave, `dumpsys` muestra `fl=SECURE` y `screencap` devuelve 0 bytes. Fuera de ella el flag desaparece y la captura vuelve a funcionar.
+- Ver la clave sin PIN: se niega.
+- Confirmación de la clave: PASS.
+- Subida cifrada: el objeto empieza por `AGROENC `, no contiene texto plano y tiene una entropía de 7,98.
+- Restauración con la clave del llavero: PASS.
+- Clave señuelo bien formada tras `pm clear`: «no corresponde a esta copia», la base no cambia, no se crea `previo/` y `remote_backups` queda vacío.
+- `.previo` finalizada: `rw-------`, conserva el estado anterior.
+- **NOT_RUN:**
+  - pausa y liberación de la cola: no había Sync vinculado;
+  - ver o cambiar la clave con el PIN: el enrolamiento del PIN falla en el frente de A, cuya corrección está pendiente de aprobación.
+
+**aapt2 2.20, según A** (inspección del paquete; no se ejecutó un Auto Backup ni una transferencia D2D):
+- el manifiesto apunta a `@xml/backup_rules` y `@xml/data_extraction_rules`, y no declara `allowBackup`;
+- `backup_rules`, `cloud-backup` y `device-transfer` excluyen lo mismo que dice el ADR §3.8, sin ninguna regla `include`.
+
+Esto acredita lo que el §6 daba como pendiente sobre el paquete. El Auto Backup y la transferencia real siguen sin ensayar.
+
+**Dominios `device_*` (comprobación de código de C, no del teléfono):** no se excluyen porque nada escribe en ellos.
+- Ni `lib/` ni `android/` usan `DeviceProtected`, `createDeviceProtectedStorageContext` ni `directBootAware`.
+- Tampoco las fuentes fijadas de `path_provider_android` 2.3.1, `sqflite_android` 2.4.3 y `flutter_secure_storage` 11.2.0.
+
+**Hallazgo: accesibilidad** (ADR §8).
+- **Qué pasó:** durante el ensayo, `uiautomator` leyó el texto de dos claves pendientes, en `content-desc` y en el campo de confirmación. `FLAG_SECURE` no oculta la clave al árbol de accesibilidad.
+- **Qué quedó expuesto:** A descartó esas dos claves en la app antes de activarlas, así que nunca cifraron ninguna copia. La clave activa nunca se mostró.
+- **Limpieza, según A:**
+  - sus volcados se borraban en el mismo comando;
+  - no queda ningún `window_dump.xml` en el teléfono;
+  - ningún archivo local de A contiene fragmentos de las claves;
+  - sólo constan en la transcripción de su sesión, y está declarado.
+- **Decisión pendiente:** se declara como límite, sin cambiar el código. Ocultar la semántica (perjudica a TalkBack) es decisión de Roderich.
+

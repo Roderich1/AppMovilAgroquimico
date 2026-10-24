@@ -83,21 +83,22 @@ class OnlineOwnerProof {
   String toString() => 'OnlineOwnerProof(redacted)';
 }
 
-/// Acreditación en línea del titular para enrolar o restablecer el PIN: la
-/// reautenticación existente (mismo registro de cliente) y, después, la sesión
+/// Acreditación en línea del titular para enrolar o restablecer el PIN: un
+/// login de la misma cuenta, Member y tenant que la sesión guardada, que se
+/// cierra en el acto sin tocarla ([confirmAccount]), y después la sesión
 /// releída con el mismo Member y tenant que el vínculo. Sólo entonces emite
 /// el comprobante. Sin red no hay comprobante.
 class OwnerOnlineVerification {
   OwnerOnlineVerification({
     required Future<bool> Function(String email, String password)
-    reauthenticate,
+    confirmAccount,
     required Future<OwnerScope?> Function() readSessionScope,
     DateTime Function()? clock,
-  }) : _reauthenticate = reauthenticate,
+  }) : _confirmAccount = confirmAccount,
        _readSessionScope = readSessionScope,
        _clock = clock ?? DateTime.now;
 
-  final Future<bool> Function(String email, String password) _reauthenticate;
+  final Future<bool> Function(String email, String password) _confirmAccount;
   final Future<OwnerScope?> Function() _readSessionScope;
   final DateTime Function() _clock;
 
@@ -107,7 +108,7 @@ class OwnerOnlineVerification {
     required String password,
     required OwnerBindingContext binding,
   }) async {
-    if (!await _reauthenticate(email, password)) return null;
+    if (!await _confirmAccount(email, password)) return null;
     final scope = await _readSessionScope();
     if (scope == null || scope != binding.scope) return null;
     return OnlineOwnerProof._(scope, _clock(), this);

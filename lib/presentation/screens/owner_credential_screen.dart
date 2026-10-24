@@ -65,7 +65,8 @@ class _OwnerCredentialScreenState extends ConsumerState<OwnerCredentialScreen> {
         _proof = proof;
         _message = proof == null
             ? 'No se pudo acreditar al titular en línea. Revise la cuenta, la '
-                  'contraseña y la conexión.'
+                  'contraseña y la conexión, o espere un momento si el teléfono '
+                  'se está sincronizando, y vuelva a intentarlo.'
             : null;
       });
     } finally {
