@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/widgets.dart' show BuildContext;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -49,4 +50,23 @@ final remoteBackupServiceProvider = Provider<RemoteBackupService>(
 /// Llavero de claves de recuperación del respaldo, en el almacén seguro.
 final backupKeyringProvider = Provider<BackupKeyring>(
   (ref) => BackupKeyring(const SecureStorageBackupKeyVault()),
+);
+
+enum BackupKeyAction { show, rotate }
+
+/// Autoriza volver a mostrar o cambiar la clave de recuperación
+/// (F08-ADR-003 §3.3). La composición lo conecta con la credencial local del
+/// titular (`LocalOwnerCredential.verify` de A, propósitos
+/// SHOW_BACKUP_RECOVERY_KEY y ROTATE_BACKUP_RECOVERY_KEY, `subjectRef` = el
+/// identificador de la clave en hex). Esa credencial sólo autoriza: nunca
+/// interviene en la derivación de la clave. Sin conectar, falla cerrado.
+typedef BackupKeyAuthorizer = Future<bool> Function(
+  BuildContext context,
+  BackupKeyAction action,
+  String keyIdHex,
+);
+
+final backupKeyAuthorizerProvider = Provider<BackupKeyAuthorizer>(
+  (ref) =>
+      (context, action, keyIdHex) async => false,
 );

@@ -121,7 +121,7 @@ void main() {
     });
 
     test('longitud o caracteres inválidos se rechazan', () {
-      for (final bad in ['', 'ABCD-EFGH', '${'U' * 56}']) {
+      for (final bad in ['', 'ABCD-EFGH', 'U' * 56]) {
         expect(
           () => BackupRecoveryKey.parse(bad),
           throwsA(isA<RecoveryKeyFormatException>()),
