@@ -18,7 +18,7 @@ class AppDatabase {
   /// Toda base, creada desde cero o migrada desde cualquier versión anterior,
   /// debe terminar con el mismo esquema. `test/schema_equivalence_test.dart`
   /// lo verifica automáticamente.
-  static const int schemaVersion = 10;
+  static const int schemaVersion = 11;
 
   /// Primera versión con `owner_bindings` e `install_origin`: una base
   /// anterior es histórica y no declara titular.
@@ -27,6 +27,10 @@ class AppDatabase {
   /// Primera versión con la sincronización F05 (vínculos centrales,
   /// necesidad declarada y outbox).
   static const int syncSinceVersion = 9;
+
+  /// Primera versión con la auditoría de reversiones (RF-13) y los borradores
+  /// de operaciones tardías con revisión (RF-03).
+  static const int reviewAuditSinceVersion = 11;
 
   /// Clave en `app_settings` con cuántos vínculos de campaña anteriores a la
   /// regla de período (D-F04-C2, v10) quedaron marcados «período sin
@@ -206,6 +210,101 @@ class AppDatabase {
       BEGIN SELECT RAISE(ABORT, 'declared_need_versions no admite borrado'); END''',
     '''CREATE TRIGGER trg_declared_need_versions_no_update BEFORE UPDATE ON declared_need_versions
       BEGIN SELECT RAISE(ABORT, 'declared_need_versions es un historial inmutable'); END''',
+  ];
+
+  /// Tablas compensatorias que puede referenciar una reversión (RF-13).
+  static const List<String> reversalEffectTables = <String>[
+    'inventory_movements',
+    'account_transactions',
+    'inventory_lots',
+    'provider_payments',
+    'application_consumptions',
+  ];
+
+  /// v11 — RF-13 y RF-03 (docs/architecture/F04_RF13_RF03_ACTOR_Y_TARDIAS.md).
+  /// Datos privados del titular: viajan en el respaldo y nunca en Sync v1.
+  static const List<String> reviewAuditSchema = <String>[
+    // Una fila por reversión, inmutable: quién la autorizó, cómo, cuándo y por
+    // qué, y la operación original tal como estaba (no se reasigna).
+    '''CREATE TABLE reversal_audit (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        reversal_ref TEXT NOT NULL UNIQUE CHECK(length(reversal_ref) = 36),
+        operation_type TEXT NOT NULL CHECK(operation_type IN ('PURCHASE','APPLICATION','TRANSFER')),
+        operation_id INTEGER NOT NULL,
+        original_person_id INTEGER,
+        original_effective_date TEXT,
+        reason TEXT NOT NULL CHECK(length(trim(reason)) > 0),
+        actor_person_id INTEGER NOT NULL REFERENCES persons(id),
+        actor_binding_id INTEGER NOT NULL REFERENCES owner_bindings(id),
+        actor_member_id TEXT NOT NULL CHECK(length(actor_member_id) > 0),
+        actor_tenant_id TEXT NOT NULL CHECK(length(actor_tenant_id) > 0),
+        actor_method TEXT NOT NULL CHECK(actor_method IN ('LOCAL_PIN')),
+        credential_enrolment_ref TEXT NOT NULL CHECK(length(credential_enrolment_ref) > 0),
+        recorded_at TEXT NOT NULL,
+        UNIQUE(operation_type, operation_id))''',
+    // Las filas compensatorias que escribió cada reversión.
+    '''CREATE TABLE reversal_audit_effects (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        audit_id INTEGER NOT NULL REFERENCES reversal_audit(id),
+        table_name TEXT NOT NULL CHECK(table_name IN ('inventory_movements','account_transactions','inventory_lots','provider_payments','application_consumptions')),
+        row_id INTEGER NOT NULL,
+        UNIQUE(audit_id, table_name, row_id))''',
+    '''CREATE TRIGGER trg_reversal_audit_no_update BEFORE UPDATE ON reversal_audit
+      BEGIN SELECT RAISE(ABORT, 'reversal_audit es un registro inmutable'); END''',
+    '''CREATE TRIGGER trg_reversal_audit_no_delete BEFORE DELETE ON reversal_audit
+      BEGIN SELECT RAISE(ABORT, 'reversal_audit no admite borrado'); END''',
+    '''CREATE TRIGGER trg_reversal_audit_effects_no_update BEFORE UPDATE ON reversal_audit_effects
+      BEGIN SELECT RAISE(ABORT, 'reversal_audit_effects es un registro inmutable'); END''',
+    '''CREATE TRIGGER trg_reversal_audit_effects_no_delete BEFORE DELETE ON reversal_audit_effects
+      BEGIN SELECT RAISE(ABORT, 'reversal_audit_effects no admite borrado'); END''',
+    // Borrador de una compra o aplicación de una campaña cerrada: sin efectos
+    // hasta que el titular lo confirma; una vez resuelto no cambia. La foto de
+    // factura va en su propia columna (no en el JSON) para que el respaldo la
+    // incluya y la reapunte como la de purchases (R1 de C).
+    '''CREATE TABLE late_operation_drafts (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        draft_ref TEXT NOT NULL UNIQUE CHECK(length(draft_ref) = 36),
+        kind TEXT NOT NULL CHECK(kind IN ('PURCHASE','APPLICATION')),
+        campaign_id INTEGER NOT NULL REFERENCES campaigns(id),
+        effective_date TEXT NOT NULL,
+        captured_at TEXT NOT NULL,
+        reason TEXT NOT NULL CHECK(length(trim(reason)) > 0),
+        payload TEXT NOT NULL,
+        invoice_image_path TEXT,
+        status TEXT NOT NULL DEFAULT 'PENDING' CHECK(status IN ('PENDING','CONFIRMED','REJECTED')),
+        last_conflict_code TEXT, last_conflict_at TEXT,
+        resolved_at TEXT, resolution_note TEXT,
+        resolver_person_id INTEGER REFERENCES persons(id),
+        resolver_binding_id INTEGER REFERENCES owner_bindings(id),
+        resolver_member_id TEXT, resolver_tenant_id TEXT,
+        resolver_method TEXT CHECK(resolver_method IS NULL OR resolver_method IN ('LOCAL_PIN')),
+        resolver_enrolment_ref TEXT,
+        result_operation_id INTEGER,
+        CHECK(kind = 'PURCHASE' OR invoice_image_path IS NULL),
+        CHECK((status = 'PENDING') = (resolved_at IS NULL)),
+        CHECK((status = 'CONFIRMED') = (result_operation_id IS NOT NULL)),
+        CHECK(status = 'PENDING' OR (resolver_person_id IS NOT NULL
+          AND resolver_binding_id IS NOT NULL AND resolver_member_id IS NOT NULL
+          AND resolver_tenant_id IS NOT NULL AND resolver_method IS NOT NULL
+          AND resolver_enrolment_ref IS NOT NULL)))''',
+    'CREATE INDEX idx_late_operation_drafts_status ON late_operation_drafts(status, captured_at)',
+    '''CREATE TRIGGER trg_late_drafts_no_delete BEFORE DELETE ON late_operation_drafts
+      BEGIN SELECT RAISE(ABORT, 'late_operation_drafts no admite borrado'); END''',
+    // Un borrador resuelto no cambia. Uno pendiente sólo cambia su conflicto o
+    // se resuelve, sin tocar lo capturado. La ruta de la foto sí puede
+    // reapuntarse (restauración en otro teléfono), sin cambiar nada más.
+    '''CREATE TRIGGER trg_late_drafts_resolved_immutable BEFORE UPDATE ON late_operation_drafts
+      WHEN (OLD.status <> 'PENDING' AND (NEW.status IS NOT OLD.status
+          OR NEW.resolved_at IS NOT OLD.resolved_at OR NEW.result_operation_id IS NOT OLD.result_operation_id
+          OR NEW.resolver_person_id IS NOT OLD.resolver_person_id OR NEW.resolver_binding_id IS NOT OLD.resolver_binding_id
+          OR NEW.resolver_enrolment_ref IS NOT OLD.resolver_enrolment_ref OR NEW.resolution_note IS NOT OLD.resolution_note
+          OR NEW.last_conflict_code IS NOT OLD.last_conflict_code))
+        OR NEW.draft_ref IS NOT OLD.draft_ref OR NEW.kind IS NOT OLD.kind
+        OR NEW.campaign_id IS NOT OLD.campaign_id
+        OR NEW.effective_date IS NOT OLD.effective_date
+        OR NEW.captured_at IS NOT OLD.captured_at
+        OR NEW.reason IS NOT OLD.reason OR NEW.payload IS NOT OLD.payload
+      BEGIN SELECT RAISE(ABORT, 'late_operation_drafts: un borrador resuelto o capturado no se modifica'); END''',
   ];
 
   /// Vínculo de campaña (v10). `central_start_day`/`central_end_day` son días
@@ -421,6 +520,9 @@ class AppDatabase {
     for (final statement in syncSchema) {
       await db.execute(statement);
     }
+    for (final statement in reviewAuditSchema) {
+      await db.execute(statement);
+    }
     // Una base creada por esta versión nace bajo la política de activación.
     await db.insert('app_settings', {
       'key': installOriginKey,
@@ -574,6 +676,25 @@ class AppDatabase {
     }
     if (oldVersion < 10) {
       await _upgradeToV10(db);
+    }
+    if (oldVersion < 11) {
+      await _upgradeToV11(db);
+    }
+  }
+
+  /// Migración a la versión 11 — **auditoría de reversiones (RF-13) y
+  /// operaciones tardías con revisión (RF-03)**.
+  ///
+  /// Sólo crea tablas nuevas, vacías. No hace backfill: las reversiones
+  /// anteriores siguen sin actor («Actor no registrado») y ninguna operación
+  /// existente se atribuye a nadie ni cambia.
+  Future<void> _upgradeToV11(Database db) async {
+    final existingTables = (await db.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type='table'",
+    )).map((row) => row['name'] as String).toSet();
+    if (existingTables.contains('reversal_audit')) return;
+    for (final statement in reviewAuditSchema) {
+      await db.execute(statement);
     }
   }
 

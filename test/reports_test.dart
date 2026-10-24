@@ -168,7 +168,7 @@ void main() {
 
     test('una aplicación revertida deja de contar', () async {
       final applicationId = (await repo.applications()).single['id']! as int;
-      await repo.reverseApplication(applicationId);
+      await repo.reverseApplicationUnauditedForTesting(applicationId);
 
       final rows = await repo.productCostReport(campaignId: campaign1);
       final glifo = rows.firstWhere((r) => r['name'] == 'Glifosato');
@@ -198,7 +198,7 @@ void main() {
 
     test('una aplicación revertida no suma', () async {
       final applicationId = (await repo.applications()).single['id']! as int;
-      await repo.reverseApplication(applicationId);
+      await repo.reverseApplicationUnauditedForTesting(applicationId);
       final rows = await repo.farmCostReport(campaignId: campaign1);
       expect(rows.single['total_cost_bob_minor'], 0);
     });

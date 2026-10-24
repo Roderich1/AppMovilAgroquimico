@@ -3,10 +3,16 @@ import 'package:agroquimicos/data/agro_repository.dart';
 import 'package:agroquimicos/data/app_database.dart';
 import 'package:agroquimicos/domain/models.dart';
 import 'package:agroquimicos/presentation/screens/applications_screen.dart';
+import 'package:agroquimicos/services/auth/local_owner_credential.dart';
+import 'package:agroquimicos/services/auth/local_owner_credential_providers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+
+import 'support/f04_app_access.dart';
+import 'support/f04_mode_fixtures.dart';
+import 'support/f04_owner_pin.dart';
 
 /// STAB-010: revertir ajusta inventario y saldos y no se puede deshacer desde
 /// la interfaz. No debe ejecutarse con un solo toque accidental.
@@ -15,6 +21,8 @@ void main() {
 
   late AppDatabase database;
   late AgroRepository repo;
+  // RF-13: revertir exige motivo y el PIN del titular vinculado.
+  late TestOwnerPin pin;
 
   Future<void> settle(WidgetTester tester, {int frames = 15}) async {
     await tester.runAsync(
@@ -36,7 +44,15 @@ void main() {
       factory: databaseFactoryFfi,
       path: inMemoryDatabasePath,
     );
-    repo = AgroRepository(database);
+    repo = AgroRepository(database, ownerCredential: () => pin.credential);
+    final bound = await seedActivatedInstallation(database);
+    pin = await TestOwnerPin.enrolled(
+      OwnerBindingContext(
+        bindingId: bound.id,
+        personId: bound.personId,
+        scope: memberA,
+      ),
+    );
     final family = await repo.addPerson(
       name: 'Familiar',
       role: PersonRole.family,
@@ -88,7 +104,10 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
     await tester.pumpWidget(
       ProviderScope(
-        overrides: [repositoryProvider.overrideWithValue(repo)],
+        overrides: [
+          repositoryProvider.overrideWithValue(repo),
+          localOwnerCredentialProvider.overrideWithValue(pin.credential),
+        ],
         child: const MaterialApp(home: Scaffold(body: ApplicationsScreen())),
       ),
     );
@@ -148,8 +167,15 @@ void main() {
 
     await tester.tap(find.byIcon(Icons.undo));
     await settle(tester);
-    await tester.tap(find.widgetWithText(FilledButton, 'Revertir'));
+    await tester.enterText(
+      find.byKey(const Key('approval-reason')),
+      'Dosis registrada por error',
+    );
+    await tester.tap(find.byKey(const Key('approval-continue')));
     await settle(tester);
+    await tester.enterText(find.byKey(const Key('owner-pin-input')), '284917');
+    await tester.tap(find.byKey(const Key('owner-pin-submit')));
+    await settle(tester, frames: 30);
 
     final applications = (await tester.runAsync(repo.applications))!;
     expect(applications.single['status'], 'REVERSED');

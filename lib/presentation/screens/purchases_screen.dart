@@ -4,6 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../services/auth/local_owner_credential.dart'
+    show AuthorizationPurpose;
+import '../widgets/owner_reversal_flow.dart';
+
 import '../../app.dart';
 import '../../domain/money.dart';
 import '../../domain/operation_mode.dart';
@@ -119,10 +123,15 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> {
 
   Future<void> _reverse(Map<String, Object?> purchase) async {
     final paid = purchase['paid_bob_minor']! as int;
-    final confirmed = await confirmDestructiveAction(
+    final id = purchase['id']! as int;
+    // RF-13: motivo y PIN del titular; el actor sale de la autorización.
+    final approval = await requestOwnerApproval(
       context,
+      ref,
+      purpose: AuthorizationPurpose.reversePurchase,
+      subjectRef: 'purchase:$id',
       title: '¿Revertir esta compra?',
-      detail:
+      effects:
           '${purchase['supplier_name']} · '
           '${purchase['invoice_number'] ?? 'Sin factura'}\n'
           'Total ${formatBob(purchase['total_bob_minor']! as int)}\n\n'
@@ -131,13 +140,14 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> {
           'Esta acción no se puede deshacer.',
       confirmLabel: 'Revertir compra',
     );
-    if (!confirmed || !mounted) return;
+    if (approval == null || !mounted) return;
     try {
       await ref
           .read(repositoryProvider)
           .reversePurchase(
-            purchase['id']! as int,
-            reason: 'Reversión solicitada por usuario',
+            id,
+            reason: approval.reason,
+            authorization: approval.authorization,
           );
       if (mounted) _refresh();
     } catch (error) {
@@ -244,6 +254,11 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> {
                               Text(
                                 '${row['campaign_name']} · ${row['item_count']} producto${row['item_count'] == 1 ? '' : 's'} · Total ${formatBob(row['total_bob_minor']! as int)} · pagado ${formatBob(row['paid_bob_minor']! as int)} · ${row['status'] == 'CONFIRMED' ? 'Confirmada' : 'Revertida'}',
                               ),
+                              if (row['status'] == 'REVERSED')
+                                ReversalActorText(
+                                  operationType: 'PURCHASE',
+                                  operationId: row['id']! as int,
+                                ),
                             ],
                           ),
                         ),

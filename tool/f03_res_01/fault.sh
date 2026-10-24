@@ -3,6 +3,8 @@
 #   fault.sh drop-push-response   Central procesa la intención (commit confirmado) y su
 #                                 respuesta no llega al teléfono
 #   fault.sh hold-push-request    la intención no llega a Central; el teléfono queda esperando
+#   fault.sh drop-refresh-response  Central rota el refresh y su respuesta no llega: cuarentena
+#                                 real de la sesión (F01–F08, 2026-10-24)
 #   fault.sh ack-incomplete | ack-contradictory | ack-other-operation
 #                                 se reenvía a Central y el teléfono recibe un 200 con su ACK
 #                                 alterado (sin hora, otra disposition u otro operationId)
@@ -15,7 +17,7 @@ set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$here/config.sh"
 file="$F03_RUN_DIR/requests.log.fault"
-modes='drop-push-response|hold-push-request|ack-incomplete|ack-contradictory|ack-other-operation|status-500-after|status-500-before'
+modes='drop-refresh-response|drop-push-response|hold-push-request|ack-incomplete|ack-contradictory|ack-other-operation|status-500-after|status-500-before'
 case "${1:-}" in
   clear) rm -f "$file"; echo "sin fallo preparado" ;;
   status) [ -f "$file" ] && echo "preparado: $(tr '\n' ' ' < "$file")" || echo "sin fallo preparado" ;;

@@ -44,7 +44,7 @@ void main() {
   test(
     'las claves foráneas están activas y el motor rechaza una inválida',
     () async {
-      expect(AppDatabase.schemaVersion, 10);
+      expect(AppDatabase.schemaVersion, 11);
       final pragma = await db.rawQuery('PRAGMA foreign_keys');
       expect(pragma.single.values.single, 1);
 

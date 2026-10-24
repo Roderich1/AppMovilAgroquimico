@@ -49,6 +49,13 @@ internal object SecureSessionPointerChannel {
                                 flushEncryptedPrefs(app)
                                 null
                             }
+                            // F03 «Recuperar acceso»: only a pointer that is
+                            // still corrupt is removed. A valid or absent
+                            // pointer is never touched.
+                            "resetCorruptPointer" -> {
+                                resetCorruptPointer(app)
+                                null
+                            }
                             "readRefreshGuard" -> readRefreshGuard(app)
                             "setRefreshGuard" -> {
                                 if (readRefreshGuard(app)) throw IllegalStateException("Refresh already quarantined")
@@ -89,6 +96,15 @@ internal object SecureSessionPointerChannel {
         if (next == null) editor.remove(pointerKey) else editor.putString(pointerKey, next)
         if (!editor.commit() || read(context) != next) {
             throw IllegalStateException("Pointer commit not verified")
+        }
+    }
+
+    private fun resetCorruptPointer(context: Context) {
+        val raw = preferences(context).getString(pointerKey, null)
+        if (raw == null || raw == "a" || raw == "b") throw IllegalStateException("Pointer is not corrupt")
+        val editor = preferences(context).edit().remove(pointerKey)
+        if (!editor.commit() || preferences(context).getString(pointerKey, null) != null) {
+            throw IllegalStateException("Pointer reset not verified")
         }
     }
 

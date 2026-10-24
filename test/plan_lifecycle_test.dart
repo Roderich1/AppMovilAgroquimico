@@ -189,14 +189,20 @@ void main() {
     test('revertir la aplicación NO devuelve el plan a pendiente', () async {
       final plan = await newPlan();
       final application = await apply(plan);
-      await repo.reverseApplication(application, reason: 'Corrección');
+      await repo.reverseApplicationUnauditedForTesting(
+        application,
+        reason: 'Corrección',
+      );
       expect(await statusOf(plan), 'APPLIED');
     });
 
     test('tras revertir tampoco se puede reaplicar', () async {
       final plan = await newPlan();
       final application = await apply(plan);
-      await repo.reverseApplication(application, reason: 'Corrección');
+      await repo.reverseApplicationUnauditedForTesting(
+        application,
+        reason: 'Corrección',
+      );
       await expectLater(apply(plan), throwsA(isA<BusinessRuleException>()));
     });
   });

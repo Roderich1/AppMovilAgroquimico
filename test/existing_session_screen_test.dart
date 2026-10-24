@@ -91,11 +91,21 @@ void main() {
       expect(rows!.single['name'], 'Persona local');
       expect(httpCalls, 0);
 
+      // F03 (docs/architecture/F03_RECUPERACION_IDENTIDAD_LOCAL.md §2): with a
+      // bound titular, an absent or unreadable session offers «Recuperar
+      // acceso» (same Member and tenant), never a free first activation.
+      final recover =
+          state == ExistingSessionStartupState.noLocalSession ||
+          state == ExistingSessionStartupState.corrupt ||
+          state == ExistingSessionStartupState.incompatible;
+      expect(find.byKey(const Key('open-first-activation')), findsNothing);
+      expect(
+        find.byKey(const Key('open-access-recovery')),
+        recover ? findsOneWidget : findsNothing,
+      );
       if (state == ExistingSessionStartupState.noLocalSession) {
-        expect(find.byKey(const Key('open-first-activation')), findsOneWidget);
         expect(find.byKey(const Key('local-session-status')), findsNothing);
       } else {
-        expect(find.byKey(const Key('open-first-activation')), findsNothing);
         expect(find.byKey(const Key('local-session-status')), findsOneWidget);
         expect(find.text(state.safeMessage!), findsOneWidget);
       }

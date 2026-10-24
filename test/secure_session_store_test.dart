@@ -107,6 +107,17 @@ class _Pointer implements DurableSessionPointer {
   Future<void> flushEncryptedDeletes() async {
     if (failFlush) throw StateError(_refresh);
   }
+
+  int resets = 0;
+
+  @override
+  Future<void> resetCorruptPointer() async {
+    resets++;
+    if (active == null || active == 'a' || active == 'b') {
+      throw StateError('Pointer is not corrupt');
+    }
+    active = null;
+  }
 }
 
 class _TestPaths extends PathProviderPlatform {
@@ -144,6 +155,95 @@ Future<void> _expectFailure(
 
 void main() {
   sqfliteFfiInit();
+
+  group('F03 replaceUnreadableAndVerify', () {
+    for (final (label, record) in [
+      ('corrupt', 'not-json'),
+      ('incompatible', jsonEncode({'version': 2})),
+    ]) {
+      test('replaces a $label record and leaves a readable session', () async {
+        final slots = _Slots()..values['a'] = record;
+        final pointer = _Pointer()..active = 'a';
+        final store = _store(slots, pointer, _Identity(_id));
+        // The ordinary commit still refuses an unreadable previous session.
+        await _expectFailure(
+          store.commitAndVerify(_candidate()),
+          SecureSessionFailure.existingSessionUnreadable,
+        );
+        await store.replaceUnreadableAndVerify(_candidate(refresh: 'new'));
+        final read = await store.read();
+        expect(read.status, SessionReadStatus.available);
+        expect(read.session!.refreshToken, 'new');
+        expect(pointer.active, 'b');
+        expect(pointer.resets, 0);
+      });
+    }
+
+    test('a corrupt pointer is reset only through replacement', () async {
+      final slots = _Slots();
+      final pointer = _Pointer()..active = 'x';
+      final store = _store(slots, pointer, _Identity(_id));
+      expect((await store.read()).status, SessionReadStatus.corrupt);
+      await _expectFailure(
+        store.commitAndVerify(_candidate()),
+        SecureSessionFailure.existingSessionUnreadable,
+      );
+      expect(pointer.resets, 0);
+      await store.replaceUnreadableAndVerify(_candidate());
+      expect(pointer.resets, 1);
+      expect((await store.read()).status, SessionReadStatus.available);
+    });
+
+    test(
+      'refuses a readable session and an absent one, changing nothing',
+      () async {
+        final slots = _Slots();
+        final pointer = _Pointer();
+        final store = _store(slots, pointer, _Identity(_id));
+        await _expectFailure(
+          store.replaceUnreadableAndVerify(_candidate()),
+          SecureSessionFailure.invalidCandidate,
+        );
+        expect(pointer.active, isNull);
+        await store.commitAndVerify(_candidate(refresh: 'kept'));
+        await _expectFailure(
+          store.replaceUnreadableAndVerify(_candidate(refresh: 'other')),
+          SecureSessionFailure.existingSessionUnreadable,
+        );
+        expect((await store.read()).session!.refreshToken, 'kept');
+        expect(pointer.activations, 1);
+      },
+    );
+
+    test('refuses an unavailable store without writing', () async {
+      final slots = _Slots()..values['a'] = 'x';
+      final pointer = _Pointer()..active = 'a';
+      final store = _store(slots, pointer, _Identity(_id));
+      slots.failRead = true;
+      await _expectFailure(
+        store.replaceUnreadableAndVerify(_candidate()),
+        SecureSessionFailure.existingSessionUnreadable,
+      );
+      expect(pointer.active, 'a');
+      expect(pointer.activations, 0);
+    });
+
+    test(
+      'a write failure over an unreadable record keeps the pointer',
+      () async {
+        final slots = _Slots()..values['a'] = 'not-json';
+        final pointer = _Pointer()..active = 'a';
+        final store = _store(slots, pointer, _Identity(_id));
+        slots.failWrite = true;
+        await _expectFailure(
+          store.replaceUnreadableAndVerify(_candidate()),
+          SecureSessionFailure.writeFailed,
+        );
+        expect(pointer.active, 'a');
+        expect(pointer.activations, 0);
+      },
+    );
+  });
   test(
     'commit verifies one encrypted record and reads matching metadata',
     () async {
