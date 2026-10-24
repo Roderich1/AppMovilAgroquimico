@@ -13,6 +13,7 @@ import '../domain/installation_access.dart';
 import '../domain/restore_ownership.dart';
 import 'app_database.dart';
 import 'backup_container_reader.dart';
+import 'backup_encryption.dart' show BackupEnvelopeHeader;
 import 'database_replacement.dart';
 import 'invoice_storage.dart';
 import 'restore_safety_copies.dart';
@@ -271,7 +272,36 @@ class BackupService {
   /// y sólo entonces se mueve al destino definitivo. Un respaldo que la
   /// aplicación no sabe releer no protege de nada, y la única forma de saberlo
   /// es intentarlo.
-  Future<BackupExportResult> export() async {
+  Future<BackupExportResult> export() => _buildContainer(
+    (packed, attachmentCount, warnings) async => BackupExportResult(
+      path: await _publish(packed),
+      attachmentCount: attachmentCount,
+      warnings: warnings,
+    ),
+  );
+
+  /// Genera y valida un contenedor igual que [export], pero **no lo publica**
+  /// en la carpeta de respaldos: [use] lo recibe en la carpeta temporal
+  /// privada de la app y, al terminar (o fallar), se borra. Es lo que usa el
+  /// respaldo remoto para cifrarlo sin dejar una copia legible en
+  /// `Descargas` (F08-ADR-003 §5.2).
+  Future<T> withPrivateContainer<T>(
+    Future<T> Function(File container, BackupExportResult info) use,
+  ) => _buildContainer(
+    (packed, attachmentCount, warnings) => use(
+      packed,
+      BackupExportResult(
+        path: '',
+        attachmentCount: attachmentCount,
+        warnings: warnings,
+      ),
+    ),
+  );
+
+  Future<T> _buildContainer<T>(
+    Future<T> Function(File packed, int attachmentCount, List<String> warnings)
+    use,
+  ) async {
     final database = await appDatabase.database;
     final source = appDatabase.openedPath;
     if (source == null || source == ':memory:') {
@@ -386,12 +416,7 @@ class BackupService {
         );
       }
 
-      final target = await _publish(File(packed));
-      return BackupExportResult(
-        path: target,
-        attachmentCount: attachments.length,
-        warnings: warnings,
-      );
+      return await use(File(packed), attachments.length, warnings);
     } finally {
       await _deleteQuietly(staging);
     }
@@ -501,7 +526,16 @@ class BackupService {
     if (await file.length() == 0) {
       return const BackupValidation.invalid('El archivo está vacío.');
     }
-    return _looksLikeZip(await _firstBytes(file, 4))
+    final header = await _firstBytes(file, 8);
+    if (BackupEnvelopeHeader.hasMagic(header)) {
+      // Sólo el respaldo remoto descifra, con la clave de recuperación: una
+      // copia cifrada no es un respaldo local que se pueda abrir sin ella.
+      return const BackupValidation.invalid(
+        'Esta copia está cifrada. Se restaura desde «Respaldo en la nube», '
+        'con su clave de recuperación.',
+      );
+    }
+    return _looksLikeZip(header)
         ? _validateContainer(path)
         : _validateDatabaseFile(path);
   }
@@ -852,7 +886,15 @@ class BackupService {
     if (await file.length() == 0) {
       throw const BackupException('El archivo está vacío.');
     }
-    final isContainer = _looksLikeZip(await _firstBytes(file, 4));
+    final header = await _firstBytes(file, 8);
+    if (BackupEnvelopeHeader.hasMagic(header)) {
+      // Nunca se sustituye la base con algo que no se descifró y validó.
+      throw const BackupException(
+        'Esta copia está cifrada. Se restaura desde «Respaldo en la nube», '
+        'con su clave de recuperación.',
+      );
+    }
+    final isContainer = _looksLikeZip(header);
     final directory = isContainer
         ? await _extract(path)
         : await Directory.systemTemp.createTemp('agro_backup_open_');

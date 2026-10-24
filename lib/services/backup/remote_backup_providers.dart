@@ -11,6 +11,7 @@ import '../auth/auth_api_exception.dart';
 import '../auth/first_activation_providers.dart';
 import '../sync/sync_access.dart';
 import '../sync/sync_providers.dart';
+import 'backup_keyring.dart';
 import 'remote_backup_api.dart';
 import 'remote_backup_service.dart';
 
@@ -40,6 +41,12 @@ final remoteBackupServiceProvider = Provider<RemoteBackupService>(
       ref.read(databaseProvider),
     ).activeBinding())?.scope,
     workDirectory: remoteBackupWorkDirectory,
+    keyring: ref.watch(backupKeyringProvider),
     onAccessRejected: () => ref.read(syncAccessHolderProvider).clear(),
   ),
+);
+
+/// Llavero de claves de recuperación del respaldo, en el almacén seguro.
+final backupKeyringProvider = Provider<BackupKeyring>(
+  (ref) => BackupKeyring(const SecureStorageBackupKeyVault()),
 );

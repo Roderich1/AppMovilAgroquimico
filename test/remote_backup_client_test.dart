@@ -11,6 +11,7 @@ import 'dart:typed_data';
 import 'package:agroquimicos/app.dart';
 import 'package:agroquimicos/data/agro_repository.dart';
 import 'package:agroquimicos/data/app_database.dart';
+import 'package:agroquimicos/data/backup_encryption.dart';
 import 'package:agroquimicos/data/backup_service.dart';
 import 'package:agroquimicos/data/owner_binding_store.dart';
 import 'package:agroquimicos/data/sync/central_binding_store.dart';
@@ -28,6 +29,7 @@ import 'package:agroquimicos/services/auth/existing_session_providers.dart';
 import 'package:agroquimicos/services/auth/existing_session_startup.dart';
 import 'package:agroquimicos/services/auth/remote_session_coordinator.dart';
 import 'package:agroquimicos/services/auth/remote_session_providers.dart';
+import 'package:agroquimicos/services/backup/backup_keyring.dart';
 import 'package:agroquimicos/services/backup/remote_backup_api.dart';
 import 'package:agroquimicos/services/backup/remote_backup_service.dart';
 import 'package:agroquimicos/services/sync/sync_access.dart';
@@ -69,10 +71,17 @@ String _hex(List<int> bytes) => sha256.convert(bytes).toString();
 
 /// Copia guardada por el servidor falso.
 class _Stored {
-  _Stored(this.id, this.bytes, this.schemaVersion, this.createdAt);
+  _Stored(
+    this.id,
+    this.bytes,
+    this.schemaVersion,
+    this.createdAt, {
+    this.formatVersion = 2,
+  });
   final String id;
   final Uint8List bytes;
   final int schemaVersion;
+  final int formatVersion;
   final DateTime createdAt;
   late String declaredSha = _hex(bytes);
 
@@ -81,7 +90,7 @@ class _Stored {
     'sha256': declaredSha,
     'sizeBytes': bytes.length,
     'contentType': 'application/octet-stream',
-    'formatVersion': 1,
+    'formatVersion': formatVersion,
     'schemaVersion': schemaVersion,
     'createdAt': createdAt.toUtc().toIso8601String(),
   };
@@ -152,6 +161,7 @@ class _FakeServer {
         bytes,
         int.parse(request.headers['X-Backup-Schema-Version']!),
         DateTime.utc(2026, 10, 16, 12, stored.length),
+        formatVersion: int.parse(request.headers['X-Backup-Format-Version']!),
       );
       stored[entry.id] = entry;
       if (loseUploadResponse) {
@@ -232,8 +242,15 @@ class _Phone {
     this.directory,
     this.invoices,
     this.syncRequests,
+    this.keyring,
+    this.recoveryKey,
   );
   final ProviderContainer container;
+
+  /// Llavero de este teléfono (almacén en memoria) y la clave confirmada con
+  /// la que sube; null si se creó sin clave.
+  final BackupKeyring keyring;
+  final BackupRecoveryKey? recoveryKey;
   final AppDatabase database;
   final Directory directory;
   final Directory invoices;
@@ -270,7 +287,17 @@ class _Phone {
     ownerScope: () async =>
         (await OwnerBindingStore(database).activeBinding())?.scope,
     workDirectory: () async => Directory(p.join(directory.path, 'privado')),
+    keyring: keyring,
   );
+}
+
+/// Almacén seguro simulado: un valor en memoria.
+class _MemoryVault implements BackupKeyVault {
+  String? value;
+  @override
+  Future<String?> read() async => value;
+  @override
+  Future<void> write(String value) async => this.value = value;
 }
 
 void main() {
@@ -296,6 +323,8 @@ void main() {
     required String installationRef,
     Future<void> Function(AppDatabase database, Directory invoices)? seed,
     _FakeRemote? remote,
+    bool enrollKey = true,
+    BackupRecoveryKey? recoveryKey,
   }) async {
     final directory = await Directory(p.join(workspace.path, name))
         .create(recursive: true);
@@ -349,7 +378,25 @@ void main() {
       container.dispose();
     });
     await container.read(installationAccessProvider.notifier).refresh();
-    return _Phone(container, database, directory, invoices, syncRequests);
+    // Clave de recuperación: la que la persona ya tenía anotada
+    // ([recoveryKey]) o una nueva, mostrada y confirmada (F08-ADR-003 §3.4).
+    final keyring = BackupKeyring(_MemoryVault());
+    BackupRecoveryKey? key = recoveryKey;
+    if (key != null) {
+      await keyring.adoptRecovered(key);
+    } else if (enrollKey) {
+      key = await keyring.pendingKey();
+      await keyring.confirmPending(key.displayText);
+    }
+    return _Phone(
+      container,
+      database,
+      directory,
+      invoices,
+      syncRequests,
+      keyring,
+      key,
+    );
   }
 
   /// Datos del titular A: hogar, compra con fotografía y una cola con una
@@ -850,12 +897,30 @@ void main() {
       final uploaded = await original.service(server, memberA).uploadNew();
       expect(server.stored, hasLength(1));
       expect(uploaded.entry.sha256, _hex(server.stored.values.single.bytes));
+      // El servidor sólo recibió el formato cifrado: ni la base ni el
+      // manifiesto en texto legible.
+      final served = server.stored.values.single;
+      expect(served.formatVersion, 2);
+      expect(served.bytes.sublist(0, 7), 'AGROENC'.codeUnits);
+      final asText = String.fromCharCodes(served.bytes);
+      expect(asText, isNot(contains('SQLite format 3')));
+      expect(asText, isNot(contains('manifest.json')));
+      expect(asText, isNot(contains('agrocuentas')));
+      // Ni copia legible en la carpeta de respaldos locales (`Descargas`).
+      expect(
+        original.directory.listSync().where(
+          (e) => p.basename(e.path).endsWith('.agrobackup'),
+        ),
+        isEmpty,
+      );
 
-      // Instalación limpia: activada para A en otro teléfono, sin datos.
+      // Instalación limpia: activada para A en otro teléfono, sin datos y sin
+      // la clave (llavero vacío, como tras perder el teléfono).
       final fresh = await phone(
         'nuevo',
         session: memberA,
         installationRef: installationElsewhere,
+        enrollKey: false,
         seed: (db, _) async {
           await seedActivatedInstallation(
             db,
@@ -867,10 +932,50 @@ void main() {
       final listed = await service.list();
       expect(listed.single.id, uploaded.entry.id);
 
-      final prepared = await service.prepareRestore(listed.single);
+      final freshBefore = await fresh.dump();
+      final pending = await service
+          .prepareRestore(listed.single)
+          .then<PendingDecryption>(
+            (_) => fail('sin la clave no se puede preparar'),
+            onError: (Object error) => (error as RecoveryKeyRequired).pending,
+          );
+      // Clave equivocada y clave mal escrita: nada cambia y se puede reintentar.
+      await expectLater(
+        service.prepareWithRecoveryKey(
+          pending,
+          BackupRecoveryKey.generate().displayText,
+        ),
+        throwsA(
+          isA<BackupEnvelopeException>().having(
+            (e) => e.problem,
+            'problem',
+            BackupEnvelopeProblem.wrongKey,
+          ),
+        ),
+      );
+      final typo = original.recoveryKey!.displayText.split('');
+      typo[3] = typo[3] == 'A' ? 'B' : 'A';
+      await expectLater(
+        service.prepareWithRecoveryKey(pending, typo.join()),
+        throwsA(isA<RecoveryKeyFormatException>()),
+      );
+      expect(await fresh.dump(), freshBefore);
+      expect(await fresh.keyring.readiness(), KeyringReadiness.noKey);
+
+      final prepared = await service.prepareWithRecoveryKey(
+        pending,
+        original.recoveryKey!.displayText.toLowerCase(),
+      );
       expect(prepared.ownership.accepted, isTrue);
       expect(prepared.validation.attachmentCount, 1);
+      expect(prepared.unencrypted, isFalse);
       final outcome = await service.restorePrepared(prepared);
+      // La persona demostró tener la clave: queda en el llavero, activa.
+      expect(await fresh.keyring.readiness(), KeyringReadiness.ready);
+      expect(
+        (await fresh.keyring.activeKey())!.key.sameAs(original.recoveryKey!),
+        isTrue,
+      );
 
       expect(outcome.access, InstallationAccessState.activated);
       expect(fresh.access, InstallationAccessState.activated);
@@ -950,11 +1055,13 @@ void main() {
         seed: (db, invoices) => farmerData(db, invoices),
       );
       await a.service(server, memberA).uploadNew();
-      // Un servidor que, por error, entregara la copia de A a B.
+      // Un servidor que, por error, entregara la copia de A a B, y B con la
+      // clave de A: aun así la propiedad la rechaza.
       final b = await phone(
         'b',
         session: memberB,
         installationRef: installationElsewhere,
+        recoveryKey: a.recoveryKey,
         seed: (db, _) async {
           await seedActivatedInstallation(
             db,
@@ -1058,9 +1165,19 @@ void main() {
       final before = await a.dump();
       // Se altera la base de dentro del contenedor y el servidor publica el
       // SHA-256 del contenedor alterado (p. ej. una copia reemplazada).
+      // Se descifra con la clave del titular, se altera la base de dentro y se
+      // vuelve a cifrar con la misma clave: el cifrado no lo detecta, la
+      // validación interna sí.
       final stored = server.stored.values.single;
+      final envelope = File(p.join(workspace.path, 'alterado.agroenc'));
+      await envelope.writeAsBytes(stored.bytes);
       final tampered = File(p.join(workspace.path, 'alterado.agrobackup'));
-      await tampered.writeAsBytes(stored.bytes);
+      await const BackupEncryption().decryptFile(
+        envelope,
+        tampered,
+        keyFor: (_) async => a.recoveryKey,
+        maxPlaintextBytes: 1 << 28,
+      );
       final inner = await extractDatabaseFrom(tampered.path);
       final raw = await databaseFactoryFfi.openDatabase(inner);
       await raw.update('persons', {'name': 'Otra persona'}, where: 'id=1');
@@ -1070,9 +1187,14 @@ void main() {
         'database.db',
         await File(inner).readAsBytes(),
       );
+      await const BackupEncryption().encryptFile(
+        tampered,
+        envelope,
+        a.recoveryKey!,
+      );
       final replaced = _Stored(
         stored.id,
-        await tampered.readAsBytes(),
+        await envelope.readAsBytes(),
         stored.schemaVersion,
         stored.createdAt,
       );
@@ -1106,6 +1228,7 @@ void main() {
         session: memberA,
         installationRef: installationElsewhere,
         remote: remote,
+        recoveryKey: source.recoveryKey,
         seed: (db, _) => seedActivatedInstallation(
           db,
           installationRef: installationElsewhere,
