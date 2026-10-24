@@ -60,8 +60,9 @@ AuthorizationPurpose _purposeOf(BackupKeyAction action) => switch (action) {
 
 /// Consume en el llavero la autorización del titular (composición con F03):
 /// `consumeOwnerAuthorization` de A, de un solo uso, para el propósito y la
-/// clave ([keyIdHex]) exactos y contra el vínculo vigente, leído ahora. Lo que
-/// no sea una `OwnerAuthorization` válida falla cerrado.
+/// clave ([keyIdHex]) exactos, contra el vínculo vigente, leído ahora, y sólo
+/// si la emitió el almacén de credencial de esta instalación con su PIN
+/// vigente. Lo que no sea una `OwnerAuthorization` válida falla cerrado.
 final backupKeyAuthorizationConsumerProvider =
     Provider<BackupKeyAuthorizationConsumer>(
       (ref) => (authorization, action, keyIdHex) async {
@@ -71,6 +72,7 @@ final backupKeyAuthorizationConsumerProvider =
         try {
           consumeOwnerAuthorization(
             authorization,
+            installation: ref.read(localOwnerCredentialProvider),
             purpose: _purposeOf(action),
             subjectRef: keyIdHex,
             current: await ref.read(ownerBindingContextReaderProvider)(),
