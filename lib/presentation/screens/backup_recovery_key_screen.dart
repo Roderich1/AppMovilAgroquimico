@@ -144,11 +144,14 @@ class RecoveryKeyDisplay extends StatelessWidget {
 /// la anota fuera del teléfono y la vuelve a escribir completa. Sólo entonces
 /// se activa (F08-ADR-003 §3.4). Devuelve true si quedó confirmada.
 class BackupRecoveryKeyScreen extends ConsumerStatefulWidget {
-  const BackupRecoveryKeyScreen({super.key, this.rotation = false});
+  const BackupRecoveryKeyScreen({super.key, this.rotationKey});
 
-  /// Cambio de una clave ya activa: la anterior se conserva para las copias
-  /// ya subidas.
-  final bool rotation;
+  /// Cambio de una clave ya activa: la pendiente que devolvió
+  /// `startRotation`, con la autorización del titular. La anterior se
+  /// conserva para las copias ya subidas.
+  final BackupRecoveryKey? rotationKey;
+
+  bool get rotation => rotationKey != null;
 
   @override
   ConsumerState<BackupRecoveryKeyScreen> createState() =>
@@ -177,7 +180,9 @@ class _BackupRecoveryKeyScreenState
 
   Future<void> _load() async {
     try {
-      final key = await ref.read(backupKeyringProvider).pendingKey();
+      final key =
+          widget.rotationKey ??
+          await ref.read(backupKeyringProvider).pendingKey();
       if (mounted) setState(() => _key = key);
     } on Object catch (error) {
       if (mounted) setState(() => _error = friendlyError(error));

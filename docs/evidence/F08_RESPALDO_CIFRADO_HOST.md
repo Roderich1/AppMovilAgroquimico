@@ -5,7 +5,7 @@
 | Fecha real | 2026-10-23 (America/La_Paz) |
 | Origen | Implementación nueva de este bloque (no reconstruida) |
 | Diseño | `docs/adr/F08-ADR-003-respaldo-cifrado-y-previo.md` (revisión de B: LISTO sobre el texto en `dfbcc7b`; A: LISTO con alineaciones, aplicadas) |
-| Rama | `feat/f08-respaldo-cifrado`, sobre `f90d330` (dependencia común `cryptography: 2.9.0`, de A) sobre `b0d169b` |
+| Rama | `feat/f08-respaldo-cifrado`, sobre `f90d330` (dependencia común `cryptography: 2.9.0`, de A) sobre `b0d169b`. Desde el 2026-10-24 se apila sobre `feat/f03-recuperar-acceso` (`c100265`, #143) con el merge `71a6ba7` (§7) |
 | Entorno | **HOST**: Windows 11, Flutter 3.47.2 stable, `sqflite_common_ffi`. **Nada de esto es DEVICE ni B2 real** |
 | Datos | Sintéticos: bases y fotos generadas por las pruebas, claves efímeras generadas en cada prueba. Ninguna clave se imprime ni se guarda |
 
@@ -95,10 +95,10 @@ No se fija ningún tiempo ni consumo para Android: se mide en el ensayo del tel�
 - **DEVICE:** pendiente del turno de A con un paquete aislado.
 - **B2 real (#151):** BLOQUEADO. No existen los perfiles `b151-*`; sólo la clave amplia, que no se usa.
 - **Usabilidad:** pendiente. Que la persona anote y vuelva a escribir la clave se prueba con un widget, no con personas.
-- **Mostrar o cambiar la clave de nuevo:** en esta rama **falla cerrado** a propósito (`backupKeyAuthorizerProvider`). Se conecta con la credencial local de A en la composición (`comp/f01-f08-mob`). No es un defecto del ensayo.
+- **Mostrar o cambiar la clave de nuevo:** hasta `8b99277` fallaba cerrado a propósito en esta rama. Desde el 2026-10-24 el puente con la credencial local de A está en esta rama (§7), movido desde la composición (#145). Se prueba en el host con el diálogo real del PIN; en el dispositivo, no.
 - **La base activa en el auto-backup de Google:** resuelto en `c703347` (§6). Queda pendiente comprobarlo en el APK y en el dispositivo.
 - **Exportación local manual:** sigue sin cifrar (EVO-001).
-- **`FLAG_SECURE`:** implementado en `22d8d47` (§6). En el host sólo se prueban la cuenta y el orden, con el canal simulado. Que la ventana bloquee la captura y deje en blanco la miniatura de recientes es DEVICE, pendiente del turno de A. El Kotlin aún no se ha compilado (falta el turno de compilación del APK).
+- **`FLAG_SECURE`:** implementado en `22d8d47` (§6). En el host sólo se prueban la cuenta y el orden, con el canal simulado. Que la ventana bloquee la captura y deje en blanco la miniatura de recientes es DEVICE, pendiente del turno de A. El Kotlin compila: lo acredita la CI de #144 («Build de release (sin firmar)», run 40061522171 sobre `8b99277`), no una compilación local.
 
 ## 4. Revisión de defectos de la implementación (agente de revisión de C, sólo lectura; no es una revisión de B ni independiente)
 
@@ -155,7 +155,38 @@ Archivos ejecutados después: F08 (keyring 13, cifrado 33, previo 18, remoto 43 
 
 **No acreditado todavía:**
 
-- el manifiesto fusionado y las reglas empaquetadas en el APK (`aapt2`), y la compilación del Kotlin: pendientes del turno de compilación;
+- el manifiesto fusionado y las reglas empaquetadas en el APK (`aapt2`): pendientes. La CI no publica el APK. La compilación del Kotlin sí está acreditada por la CI (§3);
 - la marca real en la ventana y la miniatura de recientes: DEVICE, lo opera A;
 - que Google o la transferencia entre teléfonos no lleven nada: no se ha ensayado una restauración real de Android.
 
+## 7. #144 apilada sobre #143 y puente F03/F08 (2026-10-24)
+
+| Campo | Valor |
+|---|---|
+| Base | `feat/f03-recuperar-acceso` `c100265` (#143), traída con `git merge --no-ff` en `71a6ba7`. Sin rebase ni reescritura |
+| Puente, traído de la composición `comp/f01-f08-mob` (#145) con `cherry-pick -x` | `1e06cf9` (← `6c77c83`, consumidor y autorizador de la clave conectados a la credencial local), `a80ae16` (← `c704692`, fotos de borradores tardíos sobre la tabla v11), `cff028e` (← `c10908b`, `installation:`: sólo la autorización del almacén de esta instalación), `419c31f` (← `8fbad14`, pruebas con el diálogo real del PIN). `d13ef03` no se trae porque equivale a `cc7f5aa`, que ya está en la rama |
+| Endurecimiento | `2220683`: observación O1 de A (ver más abajo) |
+| Entorno | HOST, Windows 11, Flutter 3.47.2. Canal de Android simulado |
+
+**Comparación con la composición.** `git diff 419c31f 8364528` sólo muestra 53 líneas de `docs/evidence/F03_F04_RECUPERAR_ACCESO_RF13_RF03_HOST.md`: la actualización del 2026-10-24 de A, que trae `c100265` y la composición todavía no. En el código no hay ninguna diferencia.
+
+**Observación O1 de A**, corregida en `2220683`:
+- antes, `pendingKey()` entregaba sin autorización la pendiente de una rotación interrumpida aunque hubiera una clave activa. Desde la UI no se alcanzaba;
+- ahora, con una activa, `pendingKey()` rechaza con `BackupKeyAuthorizationRequired`. La pendiente sólo la devuelve `startRotation()`, que consume la autorización del titular, y la pantalla de cambio recibe esa clave (`rotationKey`).
+
+| Comando | Sobre | Resultado |
+|---|---|---|
+| `flutter test test/f08_recovery_key_owner_pin_test.dart` | `419c31f` y de nuevo sobre el código de `2220683` | 6 PASS |
+| `flutter test test/f08_late_draft_photos_test.dart` | `419c31f` | 2 PASS |
+| `flutter test test/f03_local_owner_credential_test.dart` | `419c31f` | 25 PASS |
+| `flutter test test/f08_screen_secure_test.dart` | `419c31f` y de nuevo sobre el código de `2220683` | 9 PASS |
+| `flutter test test/f08_backup_keyring_test.dart` | `2220683` | 14 PASS (1 nueva) |
+| `flutter test test/remote_backup_client_test.dart` | código de `2220683` | 43 PASS |
+| `flutter test test/f08_recovery_key_screen_test.dart` | `2220683` | 2 PASS (1 nueva) |
+| `flutter analyze` | `2220683` | Sin problemas |
+
+Las pruebas se lanzaron de una en una. La suite completa la da la CI de #144.
+
+**Control negativo:** con el `pendingKey()` de `419c31f` y la prueba nueva, `f08_backup_keyring_test` falla en «la pendiente de una rotación interrumpida sólo se entrega con autorización». Se restauró el archivo antes del commit.
+
+**No acreditado:** el diálogo del PIN y la clave en el dispositivo (DEVICE, lo opera A), ni la suite completa sobre este HEAD, que queda pendiente de la CI.

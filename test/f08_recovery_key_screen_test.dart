@@ -1,5 +1,6 @@
 // F08-ADR-003 §3.4: la clave se muestra, se anota fuera del teléfono y se
 // vuelve a escribir completa antes de activarse. Clave efímera de la prueba.
+import 'package:agroquimicos/data/backup_encryption.dart' show BackupRecoveryKey;
 import 'package:agroquimicos/presentation/screens/backup_recovery_key_screen.dart';
 import 'package:agroquimicos/services/backup/backup_keyring.dart';
 import 'package:agroquimicos/services/backup/remote_backup_providers.dart';
@@ -16,12 +17,18 @@ class _MemoryVault implements BackupKeyVault {
 }
 
 void main() {
-  Future<BackupKeyring> pump(WidgetTester tester) async {
-    final keyring = BackupKeyring(_MemoryVault());
+  Future<BackupKeyring> pump(
+    WidgetTester tester, {
+    BackupKeyring? keyring,
+    BackupRecoveryKey? rotationKey,
+  }) async {
+    keyring ??= BackupKeyring(_MemoryVault());
     await tester.pumpWidget(
       ProviderScope(
         overrides: [backupKeyringProvider.overrideWithValue(keyring)],
-        child: const MaterialApp(home: BackupRecoveryKeyScreen()),
+        child: MaterialApp(
+          home: BackupRecoveryKeyScreen(rotationKey: rotationKey),
+        ),
       ),
     );
     await tester.pump();
@@ -75,6 +82,46 @@ void main() {
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 50));
       expect(await keyring.readiness(), KeyringReadiness.ready);
+    },
+  );
+
+  testWidgets(
+    'el cambio muestra la pendiente que devolvió la rotación autorizada, '
+    'que pendingKey ya no entrega con una activa',
+    (tester) async {
+      final owner = Object();
+      final keyring = BackupKeyring(
+        _MemoryVault(),
+        consumeAuthorization: (authorization, _, _) async {
+          if (!identical(authorization, owner)) {
+            throw const BackupKeyAuthorizationRequired();
+          }
+        },
+      );
+      final first = (await tester.runAsync(() async {
+        final key = await keyring.pendingKey();
+        await keyring.confirmPending(key.displayText);
+        return key;
+      }))!;
+      final next = (await tester.runAsync(
+        () => keyring.startRotation(authorization: owner),
+      ))!;
+      await pump(tester, keyring: keyring, rotationKey: next);
+
+      expect(find.text('Cambiar la clave de recuperación'), findsOneWidget);
+      for (final group in next.displayText.split('-')) {
+        expect(find.textContaining(group), findsWidgets);
+      }
+      await tester.runAsync(
+        () => expectLater(
+          keyring.pendingKey(),
+          throwsA(isA<BackupKeyAuthorizationRequired>()),
+        ),
+      );
+      expect(
+        (await tester.runAsync(keyring.activeKey))!.key.sameAs(first),
+        isTrue,
+      );
     },
   );
 }
