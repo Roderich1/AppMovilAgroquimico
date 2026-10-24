@@ -14,6 +14,7 @@ import '../../domain/person_roles.dart';
 import '../../operation_mode_controller.dart';
 import '../widgets/adaptive_entity_picker.dart';
 import '../widgets/common.dart';
+import 'late_operations_screen.dart' show offerLateRegistration;
 import '../widgets/mode_notice.dart';
 
 class PurchaseFormScreen extends ConsumerStatefulWidget {
@@ -269,12 +270,12 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
       saving = true;
     });
     final repo = ref.read(repositoryProvider);
+    PurchaseDraft? draft;
     try {
       final imagePath = invoiceImage == null
           ? null
           : await repo.storeInvoiceImage(invoiceImage!.path);
-      final purchaseId = await repo.confirmPurchase(
-        PurchaseDraft(
+      draft = PurchaseDraft(
           supplierId: supplierId!,
           campaignId: campaignId!,
           // Hoy: el instante real. Otro día: su medianoche local (#121).
@@ -310,8 +311,8 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
                       ],
               ),
           ],
-        ),
-      );
+        );
+      final purchaseId = await repo.confirmPurchase(draft);
       if (payProvider) {
         await repo.addProviderPayment(
           purchaseId: purchaseId,
@@ -329,7 +330,29 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
         if (mounted) Navigator.of(context).pop(true);
       });
     } catch (error) {
-      if (mounted) showError(context, error);
+      if (!mounted) return;
+      // RF-03: una fecha de una campaña cerrada se ofrece para revisión.
+      final late = draft;
+      final captured = late != null &&
+          await offerLateRegistration(
+            context,
+            error: error,
+            what: 'esta compra',
+            extraNote: payProvider
+                ? 'El pago al proveedor se registra después de confirmarla.'
+                : null,
+            capture: (reason) =>
+                repo.captureLatePurchase(late, reason: reason),
+          );
+      if (!mounted) return;
+      if (captured) {
+        setState(() => dirty = false);
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) Navigator.of(context).pop(true);
+        });
+      } else {
+        showError(context, error);
+      }
     } finally {
       if (mounted) {
         setState(() {

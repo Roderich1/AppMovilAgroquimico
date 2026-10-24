@@ -12,6 +12,7 @@ import '../../domain/person_roles.dart';
 import '../../operation_mode_controller.dart';
 import '../widgets/adaptive_entity_picker.dart';
 import '../widgets/common.dart';
+import 'late_operations_screen.dart' show offerLateRegistration;
 import '../widgets/mode_notice.dart';
 
 typedef _ApplicationCatalogs = ({
@@ -335,22 +336,19 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
       );
     }
     setState(() => saving = true);
+    final application = ApplicationDraft(
+      personId: personId!,
+      farmId: farmId!,
+      campaignId: data.campaign['id'] as int,
+      // Hoy: el instante real. Otro día: su medianoche local (#121).
+      appliedAt: effectiveInstantForDay(effectiveDay, DateTime.now()),
+      notes: notes.text.trim(),
+      treatedAreaM2: _areaM2,
+      planId: widget.planId,
+      lines: drafts,
+    );
     try {
-      await ref
-          .read(repositoryProvider)
-          .confirmApplication(
-            ApplicationDraft(
-              personId: personId!,
-              farmId: farmId!,
-              campaignId: data.campaign['id'] as int,
-              // Hoy: el instante real. Otro día: su medianoche local (#121).
-              appliedAt: effectiveInstantForDay(effectiveDay, DateTime.now()),
-              notes: notes.text.trim(),
-              treatedAreaM2: _areaM2,
-              planId: widget.planId,
-              lines: drafts,
-            ),
-          );
+      await ref.read(repositoryProvider).confirmApplication(application);
       if (!mounted) return;
       setState(() {
         dirty = false;
@@ -360,8 +358,27 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
         if (mounted) Navigator.of(context).pop(true);
       });
     } catch (error) {
-      if (mounted) {
-        setState(() => saving = false);
+      if (!mounted) return;
+      // RF-03: una fecha de una campaña cerrada se ofrece para revisión. Una
+      // aplicación tardía no se vincula a un plan.
+      final captured =
+          widget.planId == null &&
+          await offerLateRegistration(
+            context,
+            error: error,
+            what: 'esta aplicación',
+            capture: (reason) => ref
+                .read(repositoryProvider)
+                .captureLateApplication(application, reason: reason),
+          );
+      if (!mounted) return;
+      setState(() => saving = false);
+      if (captured) {
+        setState(() => dirty = false);
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) Navigator.of(context).pop(true);
+        });
+      } else {
         showError(context, error);
       }
     }

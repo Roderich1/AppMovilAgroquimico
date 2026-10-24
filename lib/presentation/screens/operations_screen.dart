@@ -63,6 +63,13 @@ class OperationsScreen extends ConsumerWidget {
               isForm: false,
             ),
           (
+            title: 'Operaciones tardías',
+            subtitle: 'Compras y aplicaciones de campañas cerradas, en revisión',
+            path: '/operaciones/tardias',
+            icon: Icons.history_edu_outlined,
+            isForm: false,
+          ),
+          (
             title: 'Reportes',
             subtitle: 'Exportar inventario, costos y cuentas a CSV o PDF',
             path: '/reportes',

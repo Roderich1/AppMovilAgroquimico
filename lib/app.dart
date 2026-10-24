@@ -42,6 +42,7 @@ import 'presentation/screens/transfers_screen.dart';
 import 'presentation/screens/transfer_form_screen.dart';
 import 'presentation/screens/access_recovery_screen.dart';
 import 'presentation/screens/owner_credential_screen.dart';
+import 'presentation/screens/late_operations_screen.dart';
 import 'services/reports/report_export_service.dart';
 import 'services/reports/report_storage.dart';
 import 'presentation/voice/voice_application_draft_screen.dart';
@@ -274,6 +275,10 @@ final routerProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/titular/pin',
         builder: (_, __) => const OwnerCredentialScreen(),
+      ),
+      GoRoute(
+        path: '/operaciones/tardias',
+        builder: (_, __) => const LateOperationsScreen(),
       ),
       GoRoute(
         path: '/transferencias/nueva',
