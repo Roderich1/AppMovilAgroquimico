@@ -2,8 +2,8 @@
 
 | Campo | Valor |
 |---|---|
-| Fecha real | 2026-10-23 (America/La_Paz) |
-| Estado | **Propuesto, para revisión** (B y A). No aprueba GATE-F08 ni habilita datos reales |
+| Fecha real | 2026-10-23 (America/La_Paz), redacción |
+| Estado | **Aceptado para el alcance académico con datos sintéticos** (decisión de Roderich del 2026-10-24). No aprueba GATE-F08 ni habilita datos reales. Historial y alcance en el §0 |
 | Autor | Sesión C del bloque INICIO_F01_F08_2026-10-23 |
 | Decisión de origen | Decisión de Roderich del 2026-10-23 (F08: cifrado en el teléfono, cinco copias y limpieza de `.previo`), ratificada para el bloque sintético |
 | Trazabilidad | RF-26, RF-27, RNF-04, RNF-10, DAT-14, CU-14, CU-15 |
@@ -11,9 +11,76 @@
 
 La numeración 003 evita chocar con `BE-ADR-002` (renumeración de fases), que ya está en esta carpeta.
 
+## 0. Estado y aceptación
+
+### 0.1 Historial de estado
+
+| Fecha real | Estado | Fuente |
+|---|---|---|
+| 2026-10-23 | **Propuesto, para revisión** (B y A). No aprueba GATE-F08 ni habilita datos reales | Cabecera original de este ADR. Revisado sobre el texto por B y por A |
+| 2026-10-24 | **Aceptado para el alcance académico con datos sintéticos** | Decisión de Roderich del 2026-10-24 por la noche (hora local −04:00), transmitida por la sesión A. La registra la sesión C |
+
+Las secciones 1 a 10 conservan el texto con el que se propuso. Donde describían como «actual» o «previsto» un estado anterior, llevan una **aclaración del 2026-10-24** que no reescribe lo anterior.
+
+### 0.2 Qué acepta y qué no
+
+**Acepta**, para la entrega académica con datos sintéticos, el diseño de este ADR:
+- la biblioteca (§2);
+- las claves y su custodia (§3);
+- el formato 2 (§4);
+- el reparto de responsabilidades (§5);
+- la compatibilidad con el formato 1 (§6);
+- la limpieza de `.previo` (§7).
+
+**No** aprueba ni cambia:
+- GATE-F08 (Roderich1/Agro_Sindicato_Backend-Web#41), que conserva su decisión del 2026-10-16;
+- la admisión de datos reales: `BACKUP_PRODUCTION_ADMISSION` sigue cerrada y `BACKUP_REQUIRE_CLIENT_ENCRYPTION` sigue desactivada por defecto;
+- Roderich1/Agro_Sindicato_Backend-Web#151, que sigue abierta.
+
+**La aceptación conserva los riesgos declarados:**
+- **Exportación local sin cifrar:** la exportación manual a `Descargas` sigue siendo el contenedor legible de EVO-001 (§6 y §8).
+- **Límites de accesibilidad:** `FLAG_SECURE` actúa sólo sobre la composición de la ventana (capturas, grabación y miniatura de recientes). **No es una protección frente a los servicios de accesibilidad autorizados**: un servicio que la persona activó en Ajustes puede leer la clave mientras se muestra o se escribe (§3.4 y §8).
+- **Pérdida de la clave de recuperación:** perder a la vez el teléfono y la clave anotada hace irrecuperables las copias cifradas, porque no hay escrow (§3.3 y §3.6).
+- **Condiciones pendientes para producción** (§0.4).
+
+### 0.3 Accesibilidad de la clave (decisión del 2026-10-24)
+
+**Se mantiene la accesibilidad de la clave para TalkBack.** La clave conserva su semántica mientras se muestra y mientras se escribe, para que quien usa un lector de pantalla pueda anotarla y confirmarla.
+
+El riesgo del §8 se acepta tal como está declarado y el código no cambia. Lo que lo reduce sigue siendo lo mismo:
+- un servicio de accesibilidad sólo actúa si la persona lo activó;
+- la clave sólo se muestra al crearla, al volver a verla con el PIN y al escribirla para recuperar.
+
+### 0.4 Pruebas que siguen pendientes y condiciones para producción
+
+**Pruebas que siguen pendientes.** Se conservan como tales; la aceptación no las da por ejecutadas:
+- **Rendimiento** del cifrado en Dart puro en el dispositivo: **NOT_MEASURED** (§2.3).
+- **Rotación completada en DEVICE**, con descifrado posterior de la copia antigua. En el teléfono sólo se probó cambiar y cancelar (D6e, segunda ronda).
+- **Archivo alterado o truncado en DEVICE.** Está cubierto en el host; en el teléfono sólo se probó una clave incorrecta (D7c).
+- **Auto Backup y transferencia D2D reales.** En el teléfono sólo se inspeccionó el paquete con `aapt2` (D9).
+- **Comprobación con personas** de cómo se guarda la clave fuera del teléfono. Hoy sólo la cubre una prueba de widget.
+
+También siguen pendientes, según la conciliación del 2026-10-24:
+- restaurar con la clave correcta escrita en una instalación nueva;
+- restaurar en un teléfono de otro modelo (#151, ítem 7);
+- el cambio de contraseña de la cuenta en DEVICE;
+- el plazo, la cota y una `interrupted` de `.previo` en DEVICE;
+- una copia cifrada **por el teléfono** que pase por B2 real y se restaure en el teléfono. Las comprobaciones en B2 del 2026-10-24 usaron sobres sintéticos del formato 2.
+
+Lo que se ejecute después se anotará con su propia evidencia y su fecha real, no en este ADR.
+
+**Condiciones para producción**, separadas de la entrega académica:
+- las condiciones del §5 del modelo de amenazas del BE (`F08_BACKUP_THREAT_MODEL.md`) que siguen abiertas, con su enmienda: `BACKUP_REQUIRE_CLIENT_ENCRYPTION=true`;
+- revisar el paquete `cryptography` antes de cualquier admisión real (§2.3);
+- claves del proveedor por entorno y de mínimo privilegio, con su rotación y su revocación (#151);
+- retención institucional y ciclo de cierre de cuenta o servicio para datos reales (el plazo de 30 días no está aprobado);
+- la admisión productiva, que decide Roderich.
+
 ## 1. Contexto
 
 Hoy el teléfono sube al servidor el contenedor `.agrobackup` (un ZIP con `manifest.json`, `database.db` e `invoices/…`) **en texto legible**. SSE-B2 cifra en reposo, pero el proveedor descifra para quien tenga la clave de la cuenta B2. Por eso el modelo de amenazas deja abierta **T3**: el operador del servidor o del bucket puede leer los respaldos.
+
+> **Aclaración del 2026-10-24.** «Hoy» es el 2026-10-23, antes de este ADR. Desde Mobile #144 (`main` `1d77c14`) el teléfono sólo sube el formato 2: lo prueba el host (`F08_RESPALDO_CIFRADO_HOST.md` §2.3). En el teléfono lo vio el caso D7a de la primera ronda DEVICE, sobre el árbol `84f9d82`: el objeto empezaba por `AGROENC\0` y no contenía «SQLite format». Ese objeto quedó en el disco del Backend desechable, no en B2.
 
 Roderich decidió cifrar en el teléfono antes de subir. Este ADR fija:
 
@@ -56,6 +123,7 @@ Roderich decidió cifrar en el teléfono antes de subir. Este ADR fija:
 
 - **Mantenedor único y 11 meses sin publicación.** Se fija la versión exacta, se ejecutan vectores RFC 8439 propios en la suite (§9) y se revisa el paquete antes de cualquier admisión real.
 - **Rendimiento en Dart puro: NOT_MEASURED en el dispositivo.** No se fija un tiempo ni un consumo de memoria. Se mide en el ensayo del teléfono (turno de A) y se registra lo observado.
+  - *Aclaración del 2026-10-24:* las tres rondas DEVICE del 2026-10-24 no lo midieron, así que sigue en **NOT_MEASURED** (§0.4). Lo único medido es orientativo y en el host (`F08_RESPALDO_CIFRADO_HOST.md` §2.4).
 - **`decryptStream` entrega texto descifrado antes de verificar la etiqueta**, como cualquier AEAD de un solo mensaje. Mitigación obligatoria (§5.3): se escribe sólo a un `.part` en la carpeta privada, y se descarta si la etiqueta falla. Nada lo lee antes de la verificación.
 
 ## 3. Claves
@@ -88,6 +156,7 @@ Cada copia tiene su propia clave, de modo que el nonce nunca se reutiliza con la
 - **Sin escrow ni recuperación centralizada:** no hay escrow administrativo, ni clave maestra, ni copia en el servidor, ni recuperación por parte de la Directiva.
 - **Nada se registra en logs:** ni la clave ni el `toString()` de sus objetos.
 - **Mostrarla de nuevo o cambiarla es una acción deliberada.** Exige una `OwnerAuthorization` de un solo uso (`LocalOwnerCredential.verify(pin:, purpose:, subjectRef:)` de A, propósitos `SHOW_BACKUP_RECOVERY_KEY` y `ROTATE_BACKUP_RECOVERY_KEY`, `subjectRef` = `keyId` en hex), consumida contra el vínculo vigente. La credencial autoriza, pero nunca se usa para derivar la clave. **El llavero exige y consume la autorización**, no la pantalla: `revealActive(authorization:)` y `startRotation(authorization:)` llaman al consumidor inyectado (`consumeOwnerAuthorization` de A en la composición) contra el `keyId`, y con una clave activa no nace otra pendiente sin `startRotation`. Revisión de B, C2. Una clave **pendiente** (la primera o la de una rotación ya autorizada) se puede volver a mostrar sin otra autorización hasta que se confirme o se descarte: es deliberado, porque nada se ha cifrado con ella ni se cifrará antes de confirmarla. En esta rama el consumidor y el punto de enganche de la interfaz (`backupKeyAuthorizationConsumerProvider` y `backupKeyAuthorizerProvider`) **fallan cerrados** y se conectan en la composición. El primer enrolamiento de la clave no pide PIN: nada depende todavía de ella.
+  - *Aclaración del 2026-10-24:* «en esta rama» describe la rama antes del puente con F03. En `main` `1d77c14` los dos puntos están conectados: `backupKeyAuthorizationConsumerProvider` llama a `consumeOwnerAuthorization` y `backupKeyAuthorizerProvider` pide el PIN con `requestOwnerAuthorization` (`lib/services/backup/remote_backup_providers.dart`; HOST §7). En el teléfono, en la segunda ronda DEVICE (árbol `d6d9c8c`), la clave se negó sin PIN (D6a), se mostró con el PIN correcto (D6d), el PIN anterior se rechazó (D3c) y se probó cambiar y cancelar (D6e).
 
 ### 3.4 Confirmación antes de depender de la copia cifrada
 
@@ -99,6 +168,7 @@ Cada copia tiene su propia clave, de modo que el nonce nunca se reutiliza con la
    - **Cuenta anidada:** cada pantalla o diálogo toma su permiso (`ScreenSecure.acquire`) y la marca se quita al devolver el último. Cerrar un diálogo no desprotege la pantalla que sigue abierta debajo. El permiso se devuelve cuando la pantalla terminó de cerrarse.
    - **Falla cerrado:** si Android no confirma la marca, la clave no se muestra y se ofrece reintentar. Si lo que falla es quitarla, la pantalla sigue protegida.
    - **Límite declarado:** protege contra capturas y grabación del sistema, no contra una cámara apuntando a la pantalla. **Tampoco oculta la clave al árbol de accesibilidad** (§8). La marca real en la ventana se comprueba en el dispositivo (DEVICE, lo opera A). En el host se prueba la cuenta y el orden con el canal simulado.
+   - *Aclaración del 2026-10-24:* «protegida» se refiere sólo a la composición de la ventana; **no es una protección frente a los servicios de accesibilidad autorizados** (§0.2 y §0.3). La marca en la ventana se comprobó en el teléfono: `fl=SECURE` y `screencap` de 0 bytes con la clave pendiente (D6b, primera ronda, árbol `84f9d82`) y al volver a mostrarla con el PIN (D6d, segunda ronda, árbol `d6d9c8c`).
 
 ### 3.5 Teléfono nuevo, reinstalación o llavero ilegible
 
@@ -237,12 +307,16 @@ Se conservan sin cambios: el owner-scoping, el staging, la validación antes de 
   - **Límite:** en este bloque sólo existen copias sintéticas del formato 1.
 - **Subidas nuevas del formato 1:** el Backend las sigue admitiendo para no romper la herramienta B2 de #160 (`tool/f08_b2`), que sube contenedores sintéticos del formato 1. `BACKUP_REQUIRE_CLIENT_ENCRYPTION=true` rechaza el formato 1 con 422 `BACKUP_ENCRYPTION_REQUIRED`.
   - Es una condición para admitir datos reales (enmienda del §5 del modelo de amenazas) y no altera la admisión, que sigue cerrada.
+  - *Aclaración del 2026-10-24:* la herramienta de #160 integrada en BE `main` `4bcb1ea` también sube sobres sintéticos del formato 2, y exige elegir el formato con `F08_B151_FORMATO` para el ítem 6. El formato 1 sigue admitido por defecto.
 - **Exportación local manual (`Descargas`):** sigue siendo el contenedor sin cifrar, que es la función de compartir de EVO-001. Fuera del alcance de este ADR; se declara como riesgo residual (§8).
 - **Herramienta #160:** se conserva la versión del ensayo original. Un ensayo nuevo del formato 2 usa otra subcarpeta y una versión etiquetada de la herramienta, para no mezclar resultados.
+  - *Aclaración del 2026-10-24:* los ensayos del formato 2 en B2 real se hicieron ese día bajo la raíz `ensayo-f08/b151-20261024/`, con una subcarpeta por ejecución. No se creó una etiqueta git: cada ejecución queda atada al SHA de la herramienta y del código que usó (BE `docs/evidence/F08_BKP_08_HERRAMIENTA_B151.md`, nota del 2026-10-24). La versión integrada (`8ce0263`) no se usó en ninguna de ellas y exige una raíz explícita (`F08_B151_RAIZ`), sin valor por defecto.
 
 ## 7. Limpieza local de `.previo`
 
 **Qué es una `.previo`:** la copia de la base activa que `BackupService.restore` guarda antes de sustituirla. Hoy se escribe junto a la base como `<db>.previo-<stamp>.db` y **nunca se limpia**. La carpeta de fotografías previa ya se borra al terminar.
+
+> **Aclaración del 2026-10-24.** «Hoy» es el estado anterior a #144. En `main` `1d77c14` las copias nuevas van a `previo/`, con su registro, y se limpian con las reglas del §7.2 (`maxResolved = 2` y `maxAge = 7 días`, en `restore_safety_copies.dart`). En el teléfono sólo se vio una entrada `finalized`, con `rw-------` y el estado anterior conservado (D8, primera ronda, árbol `84f9d82`). El plazo, la cota y una `interrupted` siguen sin ensayarse en DEVICE (§0.4).
 
 ### 7.1 Registro durable
 
@@ -301,14 +375,23 @@ En cada oportunidad de mantenimiento (al abrir la sección de respaldos, antes d
 - **Sin un respaldo propio válido, desinstalar o cambiar de teléfono pierde los datos** (§3.8).
 - **No hay firma:** un servidor comprometido puede borrar o retener copias (disponibilidad), pero no fabricar una que pase la etiqueta sin K_r.
 - **Paquete de un solo mantenedor (§2.3).**
-- **Rendimiento en el dispositivo: NOT_MEASURED** hasta el ensayo.
+- **Rendimiento en el dispositivo: NOT_MEASURED** hasta el ensayo. *Aclaración del 2026-10-24:* sigue sin medirse (§0.4).
 - **Accesibilidad (añadido el 2026-10-24):** `FLAG_SECURE` no oculta la clave al árbol de accesibilidad.
   - **Qué se vio:** en el ensayo DEVICE de A sobre la composición `bfee4dc`, `uiautomator` leyó el texto de dos claves pendientes, en `content-desc` y en el campo de confirmación. Cualquier servicio de accesibilidad con permiso puede leer lo mismo. A las descartó antes de activarlas, así que nunca protegieron ninguna copia.
   - **No es una regresión:** es el límite de la marca, que sólo actúa sobre la composición de la ventana (capturas, grabación y recientes).
   - **Por qué no se oculta:** quitar la semántica a la clave dejaría sin poder anotarla ni confirmarla a quien usa TalkBack. **Ocultarla o no es decisión de Roderich.** Hasta que decida, el código no cambia y el riesgo se declara.
   - **Lo que reduce el riesgo:** el servicio de accesibilidad debe estar activado por la persona en Ajustes. La clave sólo se muestra al crearla, al volver a verla con el PIN y al escribirla para recuperar.
+  - *Aclaración del 2026-10-24:* **Roderich decidió mantener la accesibilidad de la clave para TalkBack** (§0.3). La semántica no se oculta y el riesgo se acepta tal como está declarado. `FLAG_SECURE` no protege frente a los servicios de accesibilidad autorizados.
 
 ## 9. Pruebas previstas
+
+> **Aclaración del 2026-10-24.** Esta lista es la que se planificó el 2026-10-23. Lo ejecutado está en sus evidencias, cada una con su SHA y su entorno; este ADR no lo resume como cumplido:
+> - **HOST** (dobles): Mobile `docs/evidence/F08_RESPALDO_CIFRADO_HOST.md`.
+> - **PostgreSQL desechable** (CI): BE `backups.postgres.spec.ts`, en la CI de `main` `4bcb1ea`.
+> - **B2 real**, con sobres sintéticos: BE `docs/evidence/F08_BKP_08_B2_REAL_FORMATO2.md`, `…_REPETICION.md` y `…_ACOTADA.md`. Conservan sus FAIL y NO_CONCLUYENTE.
+> - **DEVICE**: Mobile `docs/evidence/F01_F08_DEVICE_COMPOSICION_2026-10-24.md`, de A, en tres rondas sobre árboles distintos.
+>
+> Lo que sigue pendiente está en el §0.4.
 
 - **Vectores** RFC 8439 §2.8.2 y RFC 5869 A.1, contra la biblioteca fijada.
 - **Ida y vuelta** en streaming, con clave correcta e incorrecta. Cabecera manipulada: versión, algoritmo, flags, `keyId`, sal, nonce y longitud. Ciphertext truncado, ampliado y con un bit alterado. Etiqueta alterada. Tamaño inconsistente. Límite de longitud.
@@ -318,6 +401,10 @@ En cada oportunidad de mantenimiento (al abrir la sección de respaldos, antes d
 - **Backend:** forma exterior 422, formato 3 rechazado, `BACKUP_REQUIRE_CLIENT_ENCRYPTION` y la conservación de la rotación de 5 con el formato 2. Con dobles y PostgreSQL desechable. **El doble no acredita B2.**
 
 ## 10. Cambios compartidos que se piden a A
+
+> **Aclaración del 2026-10-24.** Estado en los `main` integrados, comprobado con `git grep`:
+> - Mobile `1d77c14`: `cryptography: 2.9.0` (`pubspec.yaml:46`); `MainActivity.kt` registra `ScreenSecureChannel`; las reglas de Android excluyen los cinco dominios (D9, inspección del paquete).
+> - BE `4bcb1ea`: `BACKUP_REQUIRE_CLIENT_ENCRYPTION` está en `env.schema.ts`, y `docs/api/openapi-f08-backups.json` documenta `BACKUP_FORMAT_INVALID`.
 
 - **Mobile `pubspec.yaml`/lock:** `cryptography: 2.9.0`, en el mismo turno que A (que también lo usará).
 - **Mobile `android/app/src/main/res/xml/backup_rules.xml` y `data_extraction_rules.xml`:** exclusión de los cinco dominios (§3.8). Asignado por A a este frente el 2026-10-23.

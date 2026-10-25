@@ -100,6 +100,12 @@ No se fija ningún tiempo ni consumo para Android: se mide en el ensayo del tel�
 - **Exportación local manual:** sigue sin cifrar (EVO-001).
 - **`FLAG_SECURE`:** implementado en `22d8d47` (§6). En el host sólo se prueban la cuenta y el orden, con el canal simulado. Que la ventana bloquee la captura y deje en blanco la miniatura de recientes es DEVICE, pendiente del turno de A. El Kotlin compila: lo acredita la CI de #144 («Build de release (sin firmar)», run 40061522171 sobre `8b99277`), no una compilación local.
 
+> **Nota del 2026-10-24.** Las dos primeras líneas de este apartado («DEVICE: pendiente…» y «B2 real (#151): BLOQUEADO…») describen el estado del 2026-10-23 y se conservan. Las superan:
+> - **B2 real:** las evidencias BE del 2026-10-24 (`docs/evidence/F08_BKP_08_B2_REAL_FORMATO2.md`, `…_REPETICION.md` y `…_ACOTADA.md`, en BE `main` `4bcb1ea`), hechas con los perfiles temporales `b151-*` y sobres sintéticos del formato 2. No hay una copia cifrada por el teléfono que haya pasado por B2.
+> - **DEVICE:** la evidencia de la composición `docs/evidence/F01_F08_DEVICE_COMPOSICION_2026-10-24.md`, de A (resumida en el §8), en tres rondas sobre árboles distintos.
+>
+> Lo que sigue pendiente está en F08-ADR-003 §0.4.
+
 ## 4. Revisión de defectos de la implementación (agente de revisión de C, sólo lectura; no es una revisión de B ni independiente)
 
 Corregidos en el commit siguiente a `6190a05`, con su prueba de regresión:
