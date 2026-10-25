@@ -14,6 +14,7 @@ No se repiten los casos ya cubiertos por `F01_F08_DEVICE_COMPOSICION_2026-10-24.
 
 | Pieza | Valor |
 |---|---|
+| Fecha real | El 2026-10-24 de 20:35 a 21:46 en America/La_Paz (−04:00), que son las 00:35Z–01:46Z del **2026-10-25 UTC**. Las horas con `Z` de esta evidencia son de ese día UTC; las horas sin `Z`, del 24/10 local |
 | Teléfono | POCO X5 Pro 5G, modelo `22101320G`, serial `cc14247a`, Android 12, zona `America/La_Paz` (`adb devices -l`, `getprop`) |
 | Mobile | `main` `1d77c140d347210bf4f924b05f5f59f31e284738` (merge de #144), en un worktree desacoplado y limpio |
 | APK | `tool/f03_res_01/build_isolated_apk.sh`, debug, con el origen del túnel del día |
@@ -91,7 +92,7 @@ Sin red durante B1–B3.
 | | | | `GET …/seal`: `NOT_SEALED`, `can_seal true`, `blocked_by []`. `POST …/seal` con `review_ref` y confirmación: 200, `SEALED`, `created: true`, versión 1, `seal_ref` `f5811735-d2fc-4d56-8aeb-d9702de5d6e1`, `sealed_at` 01:08:51.123Z, rol `ADMINISTRADOR` |
 | C3 | Corrección privada posterior: 45 L | **PASS** | «Sustituye el total anterior; no se suma». Un solo `push` 200 (01:09:40.970Z) |
 | | | | `0cb4f25d` `SUPERSEDE`, predecesora `ac9da368`, en `REJECTED`, código `CAMPAIGN_SEALED`, **1 intento**. La necesidad queda «45 L · Rechazado (CAMPAIGN_SEALED)» |
-| C4 | Reacción de Mobile y sin reintentos indefinidos | **PASS** | En Sincronización: «Sincronizado: 1 · Rechazado: 1» y «Necesidad declarada · Sustituir · 45 L Rechazado · CAMPAIGN_SEALED … Requiere intervención: Esta campaña está sellada en el sindicato: el histórico colectivo sellado no se actualiza con correcciones posteriores. Su registro privado se conserva.» |
+| C4 | Reacción de Mobile y sin reintentos (ventana observada: unos 2 minutos, de 01:09:40Z a 01:11:48Z, con dos «Sincronizar ahora») | **PASS** | En Sincronización: «Sincronizado: 1 · Rechazado: 1» y «Necesidad declarada · Sustituir · 45 L Rechazado · CAMPAIGN_SEALED … Requiere intervención: Esta campaña está sellada en el sindicato: el histórico colectivo sellado no se actualiza con correcciones posteriores. Su registro privado se conserva.» |
 | | | | Tras 60 s de espera y dos «Sincronizar ahora» (hasta las 01:11:48Z), el observador no registra ningún `push` más y el intento sigue en 1 |
 | C5 | Histórico sellado intacto | **PASS** | `central_state.sh` al sellar y después de la corrección: `CollectiveSeal` (1 fila) y `CollectiveSealEntry` (1 fila) con el **mismo md5**; `SyncV1Contribution` igual (1 fila, el mismo md5) |
 | | | | Sólo `SyncV1OperationJournal` pasa de 1 a 2: es el rechazo guardado, para que un reenvío obtenga la misma respuesta (`push-operation.use-case.ts`) |
@@ -108,6 +109,9 @@ Sin red durante B1–B3.
 |---|---|---|---|
 | D1 | Clave de recuperación | **PASS** | «Respaldo en la nube» › «Crear la clave». La ventana con la clave tenía `fl=… SECURE` |
 | | | | `key_holder.cjs` la leyó del volcado de UI, la guardó **sólo en su memoria, fuera de la instalación**, y la tecleó en el campo de confirmación. Después aparecen «Ver la clave» y «Cambiar la clave» |
+| | | | **Canal de accesibilidad.** La clave se leyó por el árbol de accesibilidad (`uiautomator`), el canal que Roderich aceptó el 2026-10-24 (F08-ADR-003 §0.3) |
+| | | | El volcado se escribió en `/sdcard/a_k.xml`, se leyó por tubería (`adb exec-out cat`) dentro del proceso y se borró en el mismo comando (`finally`). No pasó por ningún archivo del PC |
+| | | | Los volcados de navegación (`/sdcard/a_u.xml` y `/sdcard/f03_ui.xml`) siguieron el mismo camino, filtrados antes de mostrarse |
 | D2 | Respaldo cifrado generado por el teléfono → B2 | **PASS** | Estado antes de subir guardado con `fin_snapshot.sh preD`: esquema 11, 32 tablas, 38 filas y 2 fotos. «Subir respaldo» › «Subir»: `POST /me/backups` 201 (01:36:43.993Z). La lista dice «Copia del 24/10/2026 21:36 22 KB · esquema 11 · cifrada con su clave actual» |
 | | | | Backend (`BackupMetadata`): `AVAILABLE`, `formatVersion` 2, `schemaVersion` 11, 22 098 bytes, SHA-256 `6ec161c1b2a16df4080f29f88a8d5113a1219cb66a262a6a73c5711aca3342bd` |
 | | | | B2: una sola versión, en `objects/f3e4c498-…`, de 22 098 bytes, con cabecera `AGROENC\0`, SSE `AES256`, sin «SQLite format» y con el **mismo SHA-256**. Ningún resto de staging ni de multiparte |
@@ -127,7 +131,7 @@ Sin red durante B1–B3.
 - **PIN:** no viaja en el respaldo.
   - «PIN del titular» pide de nuevo «Primero confirme la cuenta del titular en línea».
   - La reversión restaurada muestra «Autorizada por el titular con un PIN que ya no está configurado en este teléfono (anterior o de otra instalación) · Factura duplicada ensayo sin red».
-- **Llavero:** después de restaurar contiene la clave escrita en D4 («Ver la clave» y «Cambiar la clave»).
+- **Llavero:** después de restaurar hay una clave activa: aparecen «Ver la clave» y «Cambiar la clave». Que sea la escrita en D4 se deduce del código (`backup_keyring.dart`: sin una clave activa previa, la de la restauración pasa a activa). No se mostró, porque sin PIN no se puede.
 - **Pausa de la cola:** no se produjo, porque la copia no traía envíos pendientes. Sus dos entradas ya eran terminales: `ac9da368` en `ACKED` y `0cb4f25d` en `REJECTED / CAMPAIGN_SEALED`, y siguen idénticas. La pausa y la liberación con un envío pendiente están en la ronda 3 de `F01_F08_DEVICE_COMPOSICION_2026-10-24.md` (D7e).
 - **`.previo`:** una entrada `finalized` en `databases/previo/registro.json`, con `rw-------`. `files/remote_backups` queda vacío.
 
@@ -159,5 +163,7 @@ En las dos se salió con HOME, sin pulsar el obturador y sin capturas. `/sdcard/
 - **D se hizo en el mismo modelo de teléfono.** Una instalación nueva no es un teléfono de otro modelo: #151 ítem 7 y MOB #36 siguen pendientes.
 - **La clave se conservó fuera de la instalación en la memoria de un proceso del PC, no en papel.** Comprobar con personas cómo anotan y guardan la clave sigue pendiente (F08-ADR-003 §0.4).
 - **La pausa de la cola no se volvió a ejercitar en D** (véase D5).
+- **D3 no ejecuta un Auto Backup ni un D2D.** `adb install` no restaura nada desde un transporte de Android, así que «nada se recuperó de la anterior» no prueba las reglas de respaldo de Android. Siguen sin ensayar (F08-ADR-003 §0.4).
+- **Siguen abiertos del ADR §0.4**, porque D no los cubre: la rotación completada en DEVICE y el archivo alterado o truncado en DEVICE.
 - La copia tenía 22 KB: no se midió el rendimiento del cifrado en el dispositivo, que sigue en NOT_MEASURED.
 - Ningún caso declara cumplidos RF-03, RF-13, F07 ni F08 por sí solo: cada uno es un hueco de evidencia que se cubre.
