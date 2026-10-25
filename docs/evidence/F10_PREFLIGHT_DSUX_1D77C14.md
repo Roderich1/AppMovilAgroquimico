@@ -55,7 +55,11 @@ Es el mismo de `tool/f10_ux/README.md` y del preflight del 2026-10-19:
 4. vuelve al teléfono con `adb push` a `/data/local/tmp`, `run-as cp` y el borrado del temporal;
 5. se compara su SHA-256 en el PC y en el teléfono antes de abrir la app.
 
-El journal residual de 512 bytes que dejó la activación se descartó antes de sembrar. La base estaba en modo `delete` e íntegra.
+**Paso adicional, no previsto en el README ni en el preflight del 19/10:** el journal residual. Tras la activación, `databases/` tenía también `agroquimicos_v2.db-journal` de 512 bytes, en las dos modalidades. **No se comprobó si su cabecera lo hacía «caliente».**
+- **PROPIA:** se copió al PC junto a la base. SQLite (Python) abrió la base con el journal al lado, de modo que, si hubiera sido caliente, lo habría deshecho al abrir. Después la copia del journal se descartó. La base abrió en modo `delete`, con `integrity_check` ok, esquema 11 y sólo el titular (fila 2).
+- **COMPARTIDA:** se copió sólo la base, sin el journal. La abrió el generador, cuyas comprobaciones previas de base recién activada (sólo el titular, nada más) pasaron.
+- **En las dos:** el journal del teléfono se borró antes de `run-as cp`.
+- `integrity_check` ok no prueba que no se perdiera una transacción a medias. Lo que se observó es una base recién activada con el contenido esperado.
 
 ## 4. Límites
 
@@ -63,4 +67,6 @@ El journal residual de 512 bytes que dejó la activación se descartó antes de 
 - No se ejecutaron las tareas T1–T6. Para el piloto, `.f10ux` se compila desde `1d77c14` el día de cada sesión, con el túnel del día, y se activa por participante según el protocolo.
 - `.f10prefin` es profile, igual que `.f10ux`, pero con otro sufijo. La APK de `.f10ux` sobre `1d77c14` todavía no existe.
 - No se repiten las series de rendimiento ni la compatibilidad (R1–R6). Diferencia de base que hay que declarar: R6 midió respaldos del formato 1 sin cifrar, y la base nueva cifra en el teléfono.
-- **Fecha DS-UX:** el preflight del 2026-10-19 usó `F10_UX_SESSION_DATE=2026-10-18` explícita en Mobile. El generador de Mobile no tiene valor por defecto. El valor por defecto dependiente de la zona horaria estaba sólo en `run-dsux.sh`, del Backend, y se corrige allí aparte.
+- **Fecha DS-UX:** el preflight del 2026-10-19 usó `F10_UX_SESSION_DATE=2026-10-18` explícita en Mobile.
+  - El generador de Mobile no tiene valor por defecto (lo comprobó la sesión C).
+  - Según la sesión B, el valor por defecto dependiente de la zona horaria estaba en `run-dsux.sh` y en `run-exportaciones.sh`, del Backend, y se corrige allí aparte (`fix/f10-dsux-fecha-explicita`).
