@@ -137,7 +137,10 @@ Sin red durante B1–B3.
 
 **Limpieza del ensayo:**
 - **B2:** limpieza del prefijo con la misma clave (01:44Z). Antes: 1 versión. Después: 0 versiones, 0 marcas y 0 multipartes. No se tocó nada fuera de `ensayo-f08-final-20261024/`.
-- **Revocación:** la clave temporal la revoca Roderich con `revocar_clave_final_rw.ps1`, que exige la clave maestra. Su resultado se registra aparte, con la hora que dé B2.
+- **Revocación:** Roderich ejecutó en su propia ventana `revocar_clave_final_rw.ps1` (SHA-256 `ddacd495…5afa`), que exige la clave maestra.
+  - **B2 confirmó la revocación.** La salida local que transmitió Roderich dice: «Revocada: agrocuentas-final-rw (2026-10-25T02:48:39Z)».
+  - **Archivo local, comprobado aparte por A** (2026-10-25T02:53:30Z): `%LOCALAPPDATA%\Agrocuentas\secretos\final-rw.clixml` ya no existe. El script sólo lo borra si B2 confirma la revocación. La clave amplia `backblaze-b2.clixml` sigue sin tocar.
+  - **No se probó ningún acceso posterior con la clave revocada.**
 - **Teléfono:**
   - paquete `.f01f08fin` desinstalado; quedan 26 paquetes `com.comunidad.agro*`, como antes del ensayo;
   - las dos imágenes sintéticas, borradas (MediaStore: «No result found»);
