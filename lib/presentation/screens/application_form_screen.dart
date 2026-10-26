@@ -462,10 +462,10 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
     try {
       await ref.read(repositoryProvider).confirmApplication(application);
       if (!mounted) return;
-      setState(() {
-        dirty = false;
-        saving = false;
-      });
+      // `saving` se queda en true hasta cerrar: si bajara aquí, el botón
+      // volvería a habilitarse durante el fotograma previo al `pop` y un
+      // segundo toque podría escribir otra aplicación (revisión cruzada X01).
+      setState(() => dirty = false);
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) Navigator.of(context).pop(true);
       });
@@ -484,7 +484,6 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
                 .captureLateApplication(application, reason: reason),
           );
       if (!mounted) return;
-      setState(() => saving = false);
       if (captured) {
         setState(() => dirty = false);
         // Sólo quedó pendiente de revisión: false, para que la lista no
@@ -493,6 +492,7 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
           if (mounted) Navigator.of(context).pop(false);
         });
       } else {
+        setState(() => saving = false);
         showError(context, error);
       }
     }
@@ -672,8 +672,23 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
         onTap: saving ? null : _pickDate,
       ),
       const SizedBox(height: 12),
-      // En propio aplica el titular: se muestra, no se elige.
-      if (personalMode)
+      // Con un plan, persona y chaco son los del plan: se muestran, no se
+      // eligen. Antes cambiar de persona vaciaba las cantidades previstas y el
+      // chaco, pero la aplicación seguía vinculada al plan (revisión cruzada
+      // X01); el área exacta del plan tampoco debe sobrescribirse.
+      if (widget.planId != null) ...[
+        InputDecorator(
+          key: const Key('application-plan-person'),
+          decoration: const InputDecoration(labelText: 'Persona del plan'),
+          child: Text(person?['name']?.toString() ?? ''),
+        ),
+        const SizedBox(height: 12),
+        InputDecorator(
+          key: const Key('application-plan-farm'),
+          decoration: const InputDecoration(labelText: 'Chaco del plan'),
+          child: Text(farm?['name']?.toString() ?? ''),
+        ),
+      ] else if (personalMode)
         InputDecorator(
           key: const Key('application-personal-owner'),
           decoration: const InputDecoration(labelText: 'Aplica el titular'),
@@ -689,16 +704,18 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
           secondaryOf: (p) => personRoleLabel(p['role']),
           onChanged: selectPerson,
         ),
-      const SizedBox(height: 12),
-      AdaptiveEntityPicker<Map<String, Object?>>(
-        label: 'Chaco',
-        items: farms,
-        value: farm,
-        labelOf: (f) => f['name'] as String,
-        secondaryOf: (f) => formatHectares(f['area_m2'] as int),
-        onChanged: selectFarm,
-        enabled: personId != null,
-      ),
+      if (widget.planId == null) ...[
+        const SizedBox(height: 12),
+        AdaptiveEntityPicker<Map<String, Object?>>(
+          label: 'Chaco',
+          items: farms,
+          value: farm,
+          labelOf: (f) => f['name'] as String,
+          secondaryOf: (f) => formatHectares(f['area_m2'] as int),
+          onChanged: selectFarm,
+          enabled: personId != null,
+        ),
+      ],
       const SizedBox(height: 12),
       TextField(
         controller: area,

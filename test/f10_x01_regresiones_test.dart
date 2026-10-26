@@ -11,11 +11,15 @@
 //    «Pagador» sin opciones y la confirmación se negaba sin salida.
 //
 // La primera versión de estas pruebas (misma intención, recorrido de la
-// interfaz anterior) FALLÓ sobre `f9a4b76` (`lib/` = `1d77c14`, la base del
-// piloto): «Productos (1)» no existía porque había dos tarjetas, y «Pagador»
-// estaba en pantalla sin opciones. Registro: evidencia F10 del piloto X01.
+// interfaz anterior: elegir en «Elegir producto» y activar «Registrar pago
+// total ahora») se ejecutó sobre `f9a4b76` (`lib/` = `1d77c14`, la base del
+// piloto) antes de cambiar `lib/` y FALLÓ: «Productos (1)» no existía porque
+// había dos tarjetas, y «Pagador» estaba en pantalla sin opciones. Esa versión
+// no está en el repositorio (la interfaz que recorría ya no existe); su salida
+// está transcrita en `docs/evidence/F10_X01_CORRECCIONES_22E4E45.md` §2.
 // Esta versión recorre la interfaz corregida: pasos, «Agregar producto →
-// cantidad → Agregar a la mezcla» y «¿Pagaste toda esta compra?».
+// cantidad → Agregar a la mezcla» y «¿Pagaste toda esta compra?»; sobre
+// `f9a4b76` fallaría por claves inexistentes, no por el defecto.
 import 'package:agroquimicos/app.dart';
 import 'package:agroquimicos/domain/models.dart';
 import 'package:agroquimicos/presentation/widgets/adaptive_entity_picker.dart';

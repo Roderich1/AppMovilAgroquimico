@@ -335,22 +335,27 @@ void main() {
     },
   );
 
-  testWidgets('volver a elegir el chaco toma su área exacta, no con dos '
-      'decimales', (tester) async {
+  testWidgets('con un plan, persona y chaco son los del plan (sin selector) y '
+      'el área exacta se conserva', (tester) async {
     final form = (await tester.runAsync(() => seed('formulario-chaco')))!;
     await openForm(tester, form.repo, form.plan);
-    final picker = find.byWidgetPredicate(
-      (w) =>
-          w is AdaptiveEntityPicker<Map<String, Object?>> && w.label == 'Chaco',
+    // Revisión cruzada X01: antes se podía cambiar la persona o el chaco de
+    // una aplicación vinculada a un plan (se vaciaban las cantidades previstas
+    // y el área exacta podía sobrescribirse). Ahora se muestran fijos.
+    expect(
+      find.byWidgetPredicate(
+        (w) => w is AdaptiveEntityPicker<Map<String, Object?>>,
+      ),
+      findsNothing,
     );
-    final chaco = tester
-        .widget<AdaptiveEntityPicker<Map<String, Object?>>>(picker)
-        .items
-        .singleWhere((f) => f['id'] == form.farm);
-    tester
-        .widget<AdaptiveEntityPicker<Map<String, Object?>>>(picker)
-        .onChanged(chaco);
-    await settle(tester);
+    expect(find.byKey(const Key('application-plan-person')), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('application-plan-farm')),
+        matching: find.text('Impar'),
+      ),
+      findsOneWidget,
+    );
     expect(areaText(tester), '1,0001');
     await setBellatorReal(tester, '2');
     await confirmForm(tester);

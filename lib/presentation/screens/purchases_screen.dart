@@ -10,7 +10,6 @@ import '../widgets/owner_reversal_flow.dart';
 
 import '../../app.dart';
 import '../../domain/money.dart';
-import '../../domain/operation_mode.dart';
 import '../../domain/person_roles.dart';
 import '../widgets/common.dart';
 
@@ -83,14 +82,16 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> {
 
   Future<void> _pay(Map<String, Object?> purchase) async {
     final repo = ref.read(repositoryProvider);
-    // En compartido pagan los administradores de pagos; en propio, el titular.
-    final admins = await repo.peopleFor(PersonPurpose.providerPayer);
-    final operating = await repo.operatingContext();
+    // Regla del pagador (piloto X01): paga el titular vigente, en las dos
+    // modalidades. La lista sólo trae al titular; si está vacía es que no hay
+    // titular vinculado, y registrar otra persona no lo arreglaría.
+    final payers = await repo.peopleFor(PersonPurpose.providerPayer);
     if (!mounted) return;
-    if (admins.isEmpty) {
+    if (payers.isEmpty) {
       showError(
         context,
-        'Registra una persona administradora para pagar al proveedor.',
+        'No hay un titular vinculado: el pago al proveedor lo registra el '
+        'titular.',
       );
       return;
     }
@@ -100,11 +101,11 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> {
     final result = await showDialog<(int, int)?>(
       context: context,
       builder: (_) => _PaymentDialog(
-        people: admins,
+        people: payers,
         maxMinor: remaining,
         title: 'Pago al proveedor',
-        fixedPayer:
-            operating.mode == OperationMode.personal && admins.length == 1,
+        // El pagador no se elige: es el titular (en propio y en compartido).
+        fixedPayer: payers.length == 1,
       ),
     );
     if (result == null) return;

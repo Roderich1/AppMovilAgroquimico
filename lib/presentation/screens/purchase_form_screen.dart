@@ -340,6 +340,7 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
     });
     final repo = ref.read(repositoryProvider);
     PurchaseDraft? draft;
+    var done = false;
     try {
       final imagePath = invoiceImage == null
           ? null
@@ -386,10 +387,11 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
       // guardada sin avisar, y reintentar no la duplica.
       await repo.confirmPurchase(draft, paidInFullByOwner: paid);
       if (!mounted) return;
-      setState(() {
-        dirty = false;
-        saving = false;
-      });
+      // `saving` se queda en true hasta cerrar: si bajara aquí, el botón
+      // volvería a habilitarse durante el fotograma previo al `pop` y un
+      // segundo toque podría escribir otra compra (revisión cruzada X01).
+      done = true;
+      setState(() => dirty = false);
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) Navigator.of(context).pop(true);
       });
@@ -403,13 +405,18 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
             context,
             error: error,
             what: 'esta compra',
+            // La revisión no guarda el pago, y confirmarla tampoco lo crea:
+            // se dice en activa y con el camino para anotarlo después.
             extraNote: paid
-                ? 'El pago al proveedor se registra después de confirmarla.'
+                ? 'El pago al proveedor no se guarda con la revisión. Si el '
+                      'titular la confirma, anótalo después en Operaciones, '
+                      'Compras, «Registrar pago».'
                 : null,
             capture: (reason) => repo.captureLatePurchase(late, reason: reason),
           );
       if (!mounted) return;
       if (captured) {
+        done = true;
         setState(() => dirty = false);
         // Sólo quedó pendiente de revisión: false, para que la lista no
         // anuncie una operación confirmada (DEVICE del 2026-10-24).
@@ -420,7 +427,7 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
         showError(context, error);
       }
     } finally {
-      if (mounted) {
+      if (mounted && !done) {
         setState(() {
           saving = false;
         });
