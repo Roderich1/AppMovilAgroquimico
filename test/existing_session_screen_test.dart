@@ -7,6 +7,8 @@ import 'package:agroquimicos/services/auth/existing_session_providers.dart';
 import 'package:agroquimicos/services/auth/existing_session_startup.dart';
 import 'package:agroquimicos/services/auth/first_activation_coordinator.dart';
 import 'package:agroquimicos/services/auth/first_activation_providers.dart';
+import 'package:agroquimicos/services/auth/refresh_guard.dart';
+import 'package:agroquimicos/services/auth/remote_session_providers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -16,6 +18,19 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'support/f04_app_access.dart';
 import 'support/f04_mode_fixtures.dart';
+
+/// Guardián sin cuarentena y sin almacén seguro: en el host no hay plugin y el
+/// guardián real falla, lo que cambia el mensaje de estado. Antes la prueba no
+/// lo veía porque el estado de sesión se pintaba sólo después de cargar el
+/// resumen; desde el piloto X01 se pinta de inmediato, así que se fija.
+class _ClearGuard implements RefreshGuard {
+  @override
+  Future<bool> isQuarantined() async => false;
+  @override
+  Future<void> quarantine() async {}
+  @override
+  Future<void> clear() async {}
+}
 
 class _NeverCommit implements SecureSessionCommitPort {
   @override
@@ -56,6 +71,7 @@ void main() {
             ...startupAccessOverrides(sessionScope: readable ? memberA : null),
             authHttpTransportProvider.overrideWithValue(client),
             secureSessionCommitProvider.overrideWithValue(_NeverCommit()),
+            refreshGuardProvider.overrideWithValue(_ClearGuard()),
           ],
           child: const AgroApp(),
         ),

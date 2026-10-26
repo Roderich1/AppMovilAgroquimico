@@ -47,6 +47,8 @@ class AppShell extends StatelessWidget {
     '/transferencias',
     '/reportes',
     '/voz',
+    // «Más»: las funciones poco frecuentes, agrupadas (piloto X01).
+    '/mas',
   };
 
   /// Rutas de detalle que no son destinos propios: heredan el destino desde el
@@ -65,7 +67,13 @@ class AppShell extends StatelessWidget {
   ///
   /// En las pantallas de voz el micrófono ya es la acción primaria y el FAB
   /// taparía «Registrar».
+  ///
+  /// En Inicio (piloto X01, 2026-10-25) los cuatro accesos principales
+  /// —Registrar compra, Registrar aplicación, Ver cuánto queda y Enviar al
+  /// sindicato— son la acción primaria; un «Nuevo» flotante competiría con
+  /// ellos. En el resto de secciones el FAB sigue.
   static const _routesWithoutGlobalFab = <String>{
+    '/',
     '/catalogos',
     '/voz',
     '/compras/voz',

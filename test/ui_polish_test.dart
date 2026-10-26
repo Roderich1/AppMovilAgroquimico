@@ -7,6 +7,7 @@ import 'package:agroquimicos/presentation/screens/catalogs_screen.dart';
 import 'package:agroquimicos/presentation/screens/dashboard_screen.dart';
 import 'package:agroquimicos/presentation/screens/purchase_form_screen.dart';
 import 'package:agroquimicos/presentation/screens/transfer_form_screen.dart';
+import 'package:agroquimicos/presentation/widgets/adaptive_entity_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -315,15 +316,23 @@ void main() {
   });
 
   group('UIBUG-040 · proveedor y campaña legibles', () {
-    testWidgets('en ancho de móvil no comparten fila', (tester) async {
+    testWidgets('el proveedor ocupa todo el ancho; la campaña va en la '
+        'revisión, plegada', (tester) async {
       await resize(tester, pixel8Portrait);
       await pump(tester, const PurchaseFormScreen(), inScaffold: false);
 
-      final proveedor = tester.getRect(find.text('Proveedor'));
-      final campana = tester.getRect(find.text('Campaña'));
-
-      // Apilados: la campaña queda por debajo del proveedor, no a su lado.
-      expect(campana.top, greaterThan(proveedor.bottom));
+      // Tras el piloto X01 el paso 1 sólo tiene el proveedor: ningún campo
+      // lo comprime. La campaña (la activa, por defecto) se cambia en el
+      // paso 2, dentro de «Factura, notas y campaña (opcional)».
+      final proveedor = tester.getRect(
+        find.byWidgetPredicate(
+          (w) =>
+              w is AdaptiveEntityPicker<Map<String, Object?>> &&
+              w.label == 'Proveedor',
+        ),
+      );
+      expect(proveedor.width, greaterThan(pixel8Portrait.width - 40));
+      expect(find.text('Campaña'), findsNothing);
     });
 
     testWidgets('cantidad y moneda tampoco se comprimen en móvil', (
@@ -338,16 +347,6 @@ void main() {
       final moneda = tester.getRect(find.text('Moneda'));
       expect(moneda.top, greaterThan(cantidad.bottom));
     });
-
-    testWidgets('en pantalla ancha siguen compartiendo fila', (tester) async {
-      await resize(tester, const Size(1200, 2400));
-      await pump(tester, const PurchaseFormScreen(), inScaffold: false);
-
-      final proveedor = tester.getRect(find.text('Proveedor'));
-      final campana = tester.getRect(find.text('Campaña'));
-      expect(campana.left, greaterThan(proveedor.left));
-      expect((campana.center.dy - proveedor.center.dy).abs(), lessThan(1));
-    });
   });
 
   group('UIBUG-047 · una sola acción primaria en Catálogos', () {
@@ -357,10 +356,15 @@ void main() {
         child: SizedBox.shrink(),
       );
       expect(catalogs.hidesGlobalFab, isTrue);
+      // En Inicio los cuatro accesos principales son la acción primaria
+      // (piloto X01): tampoco hay FAB.
+      expect(
+        const AppShell(location: '/', child: SizedBox.shrink()).hidesGlobalFab,
+        isTrue,
+      );
 
-      // Y sólo ahí: el resto de destinos conserva su FAB.
+      // El resto de destinos conserva su FAB.
       for (final path in const [
-        '/',
         '/operaciones',
         '/planificacion',
         '/compras',

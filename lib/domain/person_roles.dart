@@ -4,8 +4,16 @@
 //   - Titular: la persona local que un Member eligió explícitamente
 //     (`owner_bindings`). Decide de quién son los datos.
 //   - Rol privado de negocio: `persons.role` (ADMIN, FAMILY, THIRD_PARTY).
-//     Decide cargos y liquidación: ADMIN paga a los proveedores, su política
-//     es MANUAL y no participa en la liquidación. No es un permiso.
+//     Decide cargos y liquidación: la política de ADMIN es MANUAL y no
+//     participa en la liquidación. No es un permiso. Desde la regla del
+//     2026-10-26 (piloto X01) ya NO decide quién paga al proveedor.
+//
+// Pagador del proveedor: el titular vigente de la instalación, en las dos
+// modalidades. Son tres papeles distintos que no se mezclan:
+//   - titular: la identidad vinculada a la instalación;
+//   - pagador: el titular, cuando paga al proveedor;
+//   - destinatarios de las existencias: titular y/o familiares, según la
+//     asignación de cada línea de la compra.
 //   - Rol central de seguridad: el del Member en el servicio (AGRICULTOR,
 //     ADMINISTRADOR, DIRECTIVA). Vive en la sesión, nunca en `persons`, y no
 //     concede acceso a operaciones privadas.
@@ -65,6 +73,13 @@ enum PersonPurpose {
 /// privado se conservan; además el titular puede aplicar y transferir aunque
 /// figure como administrador de pagos, para que pueda completar sus propias
 /// operaciones. Ningún caso cambia su rol ni sus reglas de cargo.
+///
+/// Pagador del proveedor (regla aprobada el 2026-10-26, tras el piloto X01):
+/// el titular vigente, en las dos modalidades. Antes sólo podía pagar una
+/// persona ADMIN; en un hogar sin ADMIN (titular y familiar, como el dataset
+/// DS-UX) no había a quién elegir y la compra no podía quedar pagada. El
+/// titular no se convierte en ADMIN para cumplir la regla: la decide
+/// `isOwner`, que sale del vínculo real de la instalación.
 bool canActAs(
   PersonPurpose purpose, {
   required PersonRole? role,
@@ -76,7 +91,7 @@ bool canActAs(
   }
   return switch (purpose) {
     PersonPurpose.purchaseAllocation || PersonPurpose.farmOwner => true,
-    PersonPurpose.providerPayer => role == PersonRole.admin,
+    PersonPurpose.providerPayer => isOwner,
     PersonPurpose.applicator ||
     PersonPurpose.transferParty => role != PersonRole.admin || isOwner,
   };

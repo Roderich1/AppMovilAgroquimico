@@ -339,28 +339,23 @@ void main() {
         );
       }
 
-      // Importes de las tarjetas visibles sin desplazar: ninguno bajo el FAB.
-      final fab = tester.getRect(find.byType(FloatingActionButton));
-      final amounts = find.byWidgetPredicate(
-        (w) => w is Text && RegExp(r'\d,\d\d Bs').hasMatch(w.data ?? ''),
-      );
-      final viewport = tester.getRect(find.byType(CustomScrollView));
-      for (final element in amounts.evaluate()) {
-        final rect = tester.getRect(
-          find.byElementPredicate((e) => e == element),
-        );
-        if (rect.top >= viewport.bottom) continue;
-        expect(
-          rect.overlaps(fab),
-          isFalse,
-          reason:
-              'el importe «${(element.widget as Text).data}» ($rect) queda '
-              'bajo el botón «Nuevo» ($fab)',
-        );
+      // Tras el piloto X01, Inicio no tiene el botón «Nuevo»: los cuatro
+      // accesos principales son la acción primaria y ningún importe puede
+      // quedar bajo un FAB. Sus etiquetas tampoco se parten dentro de una
+      // palabra.
+      expect(find.byType(FloatingActionButton), findsNothing);
+      for (final access in [
+        'Registrar compra',
+        'Registrar aplicación',
+        'Ver cuánto queda',
+        'Enviar al sindicato',
+      ]) {
+        expectWordsWhole(tester, find.text(access), 'acceso «$access»');
       }
 
-      // Al final del desplazamiento, el último elemento queda por encima del
-      // FAB (reserva de ContentInsets).
+      // Al final del desplazamiento, el último elemento queda entero dentro
+      // de la pantalla (sin FAB no hay reserva que comprobar; sí que no quede
+      // recortado por el borde ni por la barra inferior).
       final scrollable = find.byType(CustomScrollView);
       for (var i = 0; i < 20; i++) {
         await tester.drag(scrollable, const Offset(0, -2000));
@@ -368,10 +363,11 @@ void main() {
       }
       await tester.pump(const Duration(seconds: 1));
       final last = tester.getRect(find.byType(Card).last);
+      final viewport = tester.getRect(scrollable);
       expect(
         last.bottom,
-        lessThanOrEqualTo(fab.top),
-        reason: 'último elemento bajo el botón «Nuevo»',
+        lessThanOrEqualTo(viewport.bottom + 0.5),
+        reason: 'último elemento recortado al final del desplazamiento',
       );
     });
   }

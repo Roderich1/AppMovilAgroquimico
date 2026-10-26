@@ -2,10 +2,13 @@ import 'dart:io';
 
 import 'package:agroquimicos/data/agro_repository.dart';
 import 'package:agroquimicos/data/app_database.dart';
+import 'package:agroquimicos/data/owner_binding_store.dart';
 import 'package:agroquimicos/domain/models.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+
+import 'support/f04_mode_fixtures.dart';
 
 /// Tests de las consultas de LECTURA: reportes, dashboard, inventario y
 /// perfiles. Cubren el hueco identificado como STAB-006.
@@ -45,6 +48,13 @@ void main() {
 
     family = await repo.addPerson(name: 'Familiar', role: PersonRole.family);
     admin = await repo.addPerson(name: 'Admin', role: PersonRole.admin);
+    // Regla del pagador (piloto X01): paga el titular vigente, aquí el ADMIN.
+    await OwnerBindingStore(database).bindExistingPerson(
+      personId: admin,
+      scope: memberA,
+      installationRef: installationHere,
+      confirmAdministrator: true,
+    );
     supplier = await repo.addSupplier(name: 'Proveedor');
     farm = await repo.addFarm(
       ownerId: family,

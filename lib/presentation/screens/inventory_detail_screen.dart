@@ -48,7 +48,7 @@ class InventoryDetailScreen extends ConsumerWidget {
       final committed = h['committed_base'] as int;
       return PageFrame(
         title: h['product_name'] as String,
-        subtitle: 'Detalle físico y trazabilidad FIFO. El inventario continúa entre campañas.',
+        subtitle: 'Cuánto hay, de qué compras viene y en qué se usó. El inventario continúa entre campañas.',
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [

@@ -68,6 +68,8 @@ void main() {
     app.c.read(routerProvider).go('/operaciones');
     await settle(tester);
 
+    // F09 queda en segundo plano, dentro de «Más» (piloto X01).
+    await tapVisible(tester, find.text('Más'));
     await tapVisible(tester, find.text('Registrar por voz'));
     expect(find.byType(VoiceEntryScreen), findsOneWidget);
 

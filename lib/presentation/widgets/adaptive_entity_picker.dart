@@ -16,6 +16,7 @@ class AdaptiveEntityPicker<T> extends StatefulWidget {
     this.error,
     this.emptyMessage = 'No hay opciones disponibles.',
     this.allowClear = true,
+    this.autoSelectSingle = true,
   });
 
   final String label;
@@ -29,6 +30,17 @@ class AdaptiveEntityPicker<T> extends StatefulWidget {
   final Object? error;
   final String emptyMessage;
   final bool allowClear;
+
+  /// Si, con una sola opción y sin valor, el selector la deja elegida solo.
+  ///
+  /// Sirve para rellenar un **valor de referencia** (el único proveedor, la
+  /// única campaña, el único chaco). **No** debe usarse cuando `onChanged`
+  /// ejecuta una acción que añade algo: en el piloto X01 el formulario de
+  /// aplicación agregaba cada selección al instante y, con dos productos en
+  /// existencia, elegir uno dejaba una sola opción, que entraba sola. Ese
+  /// recorrido pasa ahora por una confirmación explícita y abre su selector
+  /// con `autoSelectSingle: false`.
+  final bool autoSelectSingle;
 
   @override
   State<AdaptiveEntityPicker<T>> createState() =>
@@ -48,7 +60,8 @@ class _AdaptiveEntityPickerState<T> extends State<AdaptiveEntityPicker<T>> {
   }
 
   void _autoSelectSingle() {
-    if (autoSelectionScheduled ||
+    if (!widget.autoSelectSingle ||
+        autoSelectionScheduled ||
         !widget.enabled ||
         widget.value != null ||
         widget.items.length != 1) {

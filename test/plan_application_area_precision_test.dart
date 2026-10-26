@@ -182,10 +182,42 @@ void main() {
   String areaText(WidgetTester tester) =>
       tester.widget<TextField>(areaField()).controller!.text;
 
-  Finder realField(String unit, int index) =>
-      find.widgetWithText(TextField, 'Cantidad real ($unit)').at(index);
+  Future<void> tapKey(WidgetTester tester, String key) async {
+    final finder = find.byKey(Key(key));
+    await tester.ensureVisible(finder);
+    await tester.pump();
+    await tester.tap(finder, warnIfMissed: false);
+    await settle(tester);
+  }
 
+  /// Cambia la cantidad real de Bellator por el recorrido explícito del
+  /// piloto X01: paso 2, «Editar» en su tarjeta, cantidad y «Guardar cambios».
+  Future<void> setBellatorReal(WidgetTester tester, String text) async {
+    await tapKey(tester, 'application-continue');
+    final editar = find.descendant(
+      of: find.widgetWithText(Card, 'Bellator'),
+      matching: find.byWidgetPredicate(
+        (w) =>
+            w.key is ValueKey<String> &&
+            (w.key! as ValueKey<String>).value.startsWith(
+              'application-line-edit-',
+            ),
+      ),
+    );
+    await tester.ensureVisible(editar.first);
+    await tester.pump();
+    await tester.tap(editar.first, warnIfMissed: false);
+    await settle(tester);
+    await tester.enterText(
+      find.byKey(const Key('application-line-quantity')),
+      text,
+    );
+    await tapKey(tester, 'application-line-add');
+  }
+
+  /// Del paso 2 al resumen y confirmar.
   Future<void> confirmForm(WidgetTester tester, {int taps = 1}) async {
+    await tapKey(tester, 'application-continue');
     final button = find.byKey(const Key('application-confirm'));
     await tester.ensureVisible(button);
     await tester.pump();
@@ -233,8 +265,7 @@ void main() {
       // Se muestra lo que se guardará: 1,0001 ha, no «1».
       expect(areaText(tester), '1,0001');
       // Las líneas siguen el orden del plan: Glifosato y Bellator, ambas en L.
-      await tester.enterText(realField('L', 1), '2');
-      await settle(tester);
+      await setBellatorReal(tester, '2');
       await confirmForm(tester);
 
       final app = (await tester.runAsync(() => rows(form.db, 'applications')))!
@@ -277,8 +308,7 @@ void main() {
 
       await openForm(tester, form.repo, form.plan);
       await tester.enterText(areaField(), '1,2345');
-      await tester.enterText(realField('L', 1), '2');
-      await settle(tester);
+      await setBellatorReal(tester, '2');
       await confirmForm(tester);
 
       final app = (await tester.runAsync(() => rows(form.db, 'applications')))!
@@ -322,8 +352,7 @@ void main() {
         .onChanged(chaco);
     await settle(tester);
     expect(areaText(tester), '1,0001');
-    await tester.enterText(realField('L', 1), '2');
-    await settle(tester);
+    await setBellatorReal(tester, '2');
     await confirmForm(tester);
     final app = (await tester.runAsync(() => rows(form.db, 'applications')))!
         .single;
@@ -340,8 +369,7 @@ void main() {
     );
 
     await openForm(tester, form.repo, form.plan);
-    await tester.enterText(realField('L', 1), '2');
-    await settle(tester);
+    await setBellatorReal(tester, '2');
     await confirmForm(tester, taps: 2);
 
     expect(

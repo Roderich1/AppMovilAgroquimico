@@ -385,14 +385,39 @@ void main() {
       );
 
       c.read(routerProvider).push('/compras/nueva');
-      await waitFor(tester, find.text('Registrar pago total ahora'));
+      await waitFor(tester, find.text('Agregar producto'));
       await settle(tester);
-      await tester.ensureVisible(find.text('Registrar pago total ahora'));
-      await tester.tap(find.text('Registrar pago total ahora'));
+      // Paso 1: proveedor y una línea; en propio no hay reparto que elegir.
+      for (final label in ['Proveedor', 'Producto']) {
+        final w = tester.widget<AdaptiveEntityPicker<Map<String, Object?>>>(
+          find.byWidgetPredicate(
+            (w) =>
+                w is AdaptiveEntityPicker<Map<String, Object?>> &&
+                w.label == label,
+          ),
+        );
+        w.onChanged(w.items.first);
+        await settle(tester);
+      }
+      await tester.enterText(
+        find.widgetWithText(TextField, 'Cantidad comprada'),
+        '1',
+      );
+      await tester.enterText(
+        find.widgetWithText(TextField, 'Precio BOB/L'),
+        '10',
+      );
       await settle(tester);
+      await tester.ensureVisible(find.byKey(const Key('purchase-continue')));
+      await tester.tap(find.byKey(const Key('purchase-continue')));
+      await settle(tester);
+      // Paso 2 (piloto X01): ningún selector de pagador; con «Sí» paga el
+      // titular, nunca el otro administrador.
       expect(find.text('Pagador'), findsNothing);
-      expect(find.byKey(const Key('purchase-personal-payer')), findsOneWidget);
-      expect(find.text('Paga el titular: Titular'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('purchase-paid-yes')));
+      await settle(tester);
+      expect(find.byKey(const Key('purchase-payer-owner')), findsOneWidget);
+      expect(find.text('Pago registrado por: Titular'), findsOneWidget);
       expect(ids.payer, isNot(ids.titular));
     },
   );
@@ -552,6 +577,8 @@ void main() {
         c.read(routerProvider).go('/operaciones');
         await settle(tester);
         expect(find.text('Transferencias'), findsNothing);
+        c.read(routerProvider).go('/mas');
+        await settle(tester);
         expect(find.text('Ahora: inventario propio'), findsOneWidget);
       },
     );

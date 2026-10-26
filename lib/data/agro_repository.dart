@@ -937,21 +937,68 @@ class AgroRepository {
     });
   }
 
-  Future<int> confirmPurchase(PurchaseDraft draft) async {
+  /// Confirma la compra y, con [paidInFullByOwner], deja registrado en la
+  /// **misma transacción** el pago total al proveedor a nombre del titular
+  /// vigente. Antes el formulario escribía la compra y después el pago en dos
+  /// transacciones: si la segunda fallaba, la compra ya estaba guardada, la
+  /// pantalla anunciaba un error y reintentar la duplicaba. Ahora un fallo
+  /// deshace las dos escrituras y no hay éxito parcial que anunciar.
+  Future<int> confirmPurchase(
+    PurchaseDraft draft, {
+    bool paidInFullByOwner = false,
+  }) async {
     final purchaseTotal = _validatePurchaseDraft(draft);
     return _write((txn, context) async {
       _requireOwnerInPersonal(context, [
         for (final item in draft.items)
           for (final allocation in item.allocations) allocation.personId,
       ], 'En inventario propio la compra se asigna sólo al titular.');
+      // El pagador se comprueba antes de escribir nada: sin titular no se
+      // guarda ni la compra ni el pago.
+      final payer = paidInFullByOwner ? _requireOwnerPayer(context) : null;
       await _ensureCampaignActive(txn, draft.campaignId);
       await _ensureEffectiveDateInCampaign(
         txn,
         draft.campaignId,
         draft.purchaseDate,
       );
-      return _insertPurchase(txn, draft, purchaseTotal);
+      final purchaseId = await _insertPurchase(txn, draft, purchaseTotal);
+      if (payer != null) {
+        await _insertProviderPayment(
+          txn,
+          purchaseId: purchaseId,
+          payerPersonId: payer,
+          amountBobMinor: purchaseTotal,
+          method: 'TRANSFER',
+          // Pagada al comprar: el pago lleva la fecha efectiva de la compra,
+          // no la del teléfono al confirmar, para que una compra registrada
+          // con atraso no quede pagada en otro día que el de la compra.
+          date: draft.purchaseDate,
+        );
+      }
+      return purchaseId;
     });
+  }
+
+  /// Regla del pagador (aprobada el 2026-10-26, tras el piloto X01): el pago
+  /// al proveedor lo registra el **titular vigente** de la instalación, en las
+  /// dos modalidades. Se lee del vínculo real (`owner_bindings`, en la misma
+  /// transacción que escribe), nunca del rol ADMIN, del nombre ni de la
+  /// primera fila. Devuelve su `person_id`.
+  int _requireOwnerPayer(WriteContext context, {int? payerPersonId}) {
+    final owner = context.ownerPersonId;
+    if (owner == null) {
+      throw BusinessRuleException(
+        'Para registrar el pago al proveedor, la instalación necesita un '
+        'titular vinculado.',
+      );
+    }
+    if (payerPersonId != null && payerPersonId != owner) {
+      throw BusinessRuleException(
+        'El pago al proveedor lo registra el titular vigente, no otra persona.',
+      );
+    }
+    return owner;
   }
 
   /// Validaciones de una compra que no dependen de la base. Devuelve el total.
@@ -1116,32 +1163,55 @@ class AgroRepository {
       _requireOwnerInPersonal(context, [
         payerPersonId,
       ], 'En inventario propio el pago al proveedor lo registra el titular.');
-      final purchase = (await txn.query(
-        'purchases',
-        where: 'id = ? AND reversed_at IS NULL',
-        whereArgs: [purchaseId],
-        limit: 1,
-      ));
-      if (purchase.isEmpty)
-        throw BusinessRuleException('La compra no está activa.');
-      final paid =
-          Sqflite.firstIntValue(
-            await txn.rawQuery(
-              'SELECT COALESCE(SUM(amount_bob_minor),0) FROM provider_payments WHERE purchase_id = ? AND reversed_at IS NULL',
-              [purchaseId],
-            ),
-          ) ??
-          0;
-      final total = purchase.single['total_bob_minor']! as int;
-      if (paid + amountBobMinor > total)
-        throw BusinessRuleException('El pago supera el saldo de la compra.');
-      return txn.insert('provider_payments', {
-        'purchase_id': purchaseId,
-        'payer_person_id': payerPersonId,
-        'payment_date': _date(date ?? DateTime.now()),
-        'amount_bob_minor': amountBobMinor,
-        'method': method,
-      });
+      // Regla del pagador: el titular vigente, también en compartido. Los
+      // pagos ya guardados no se reasignan; sólo se juzgan los nuevos.
+      _requireOwnerPayer(context, payerPersonId: payerPersonId);
+      return _insertProviderPayment(
+        txn,
+        purchaseId: purchaseId,
+        payerPersonId: payerPersonId,
+        amountBobMinor: amountBobMinor,
+        method: method,
+        date: date ?? DateTime.now(),
+      );
+    });
+  }
+
+  /// Escribe un pago al proveedor ya autorizado, dentro de la transacción de
+  /// quien lo llama (la compra que se confirma pagada, o un pago posterior).
+  Future<int> _insertProviderPayment(
+    Transaction txn, {
+    required int purchaseId,
+    required int payerPersonId,
+    required int amountBobMinor,
+    required String method,
+    required DateTime date,
+  }) async {
+    final purchase = (await txn.query(
+      'purchases',
+      where: 'id = ? AND reversed_at IS NULL',
+      whereArgs: [purchaseId],
+      limit: 1,
+    ));
+    if (purchase.isEmpty)
+      throw BusinessRuleException('La compra no está activa.');
+    final paid =
+        Sqflite.firstIntValue(
+          await txn.rawQuery(
+            'SELECT COALESCE(SUM(amount_bob_minor),0) FROM provider_payments WHERE purchase_id = ? AND reversed_at IS NULL',
+            [purchaseId],
+          ),
+        ) ??
+        0;
+    final total = purchase.single['total_bob_minor']! as int;
+    if (paid + amountBobMinor > total)
+      throw BusinessRuleException('El pago supera el saldo de la compra.');
+    return txn.insert('provider_payments', {
+      'purchase_id': purchaseId,
+      'payer_person_id': payerPersonId,
+      'payment_date': _date(date),
+      'amount_bob_minor': amountBobMinor,
+      'method': method,
     });
   }
 

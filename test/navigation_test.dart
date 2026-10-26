@@ -83,10 +83,11 @@ void main() {
     await settle(tester, frames: 30);
     await settle(tester, frames: 30);
     // 'Nueva compra' es ambiguo: es a la vez el título del formulario y la
-    // etiqueta del botón de la lista. 'Factura' (título de la primera sección) solo existe en el
-    // formulario, así que identifica la pantalla sin ambigüedad.
+    // etiqueta del botón de la lista. La cabecera del paso 1 sólo existe en el
+    // formulario (piloto X01), así que identifica la pantalla sin ambigüedad.
+    const formMarker = 'Paso 1 de 2 · Proveedor y productos';
     expect(
-      find.text('Factura'),
+      find.text(formMarker),
       findsOneWidget,
       reason: 'El formulario de compra debería haberse abierto.',
     );
@@ -110,7 +111,7 @@ void main() {
       reason: 'Volver atrás no debe lanzar ninguna excepción del router.',
     );
     expect(
-      find.text('Factura'),
+      find.text(formMarker),
       findsNothing,
       reason: 'El formulario debería haberse cerrado.',
     );
@@ -123,7 +124,7 @@ void main() {
     );
   }
 
-  testWidgets('STAB-001: FAB Nuevo -> Compra -> atrás vuelve al inicio', (
+  testWidgets('STAB-001: Inicio «Registrar compra» -> atrás vuelve al inicio', (
     tester,
   ) async {
     final repo = (await tester.runAsync(fixture))!;
@@ -132,9 +133,9 @@ void main() {
     await expectPurchaseFormReturnsCleanly(
       tester,
       open: () async {
-        await tester.tap(find.byType(FloatingActionButton).first);
-        await settle(tester);
-        await tester.tap(find.text('Compra'));
+        // Inicio ya no tiene «Nuevo» (piloto X01): el acceso principal abre
+        // el formulario directamente.
+        await tester.tap(find.byKey(const Key('home-registrar-compra')));
       },
       expectedReturnText: 'Inicio',
     );
@@ -177,6 +178,8 @@ void main() {
     await pumpApp(tester, repo);
 
     await tester.tap(find.text('Operaciones').first);
+    await settle(tester);
+    await tester.tap(find.text('Más'));
     await settle(tester);
     await tester.tap(find.text('Administrar datos'));
     await settle(tester);

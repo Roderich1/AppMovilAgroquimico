@@ -66,8 +66,11 @@ void main() {
     expect(find.textContaining('Usa inventario propio'), findsOneWidget);
     c.read(routerProvider).go('/operaciones');
     await settle(tester);
-    expect(find.text('Ahora: inventario propio'), findsOneWidget);
     expect(find.text('Transferencias'), findsNothing);
+    // La modalidad vigente se consulta en Más (piloto X01).
+    c.read(routerProvider).go('/mas');
+    await settle(tester);
+    expect(find.text('Ahora: inventario propio'), findsOneWidget);
     expect(offline.requests, 0);
   });
 
@@ -85,7 +88,7 @@ void main() {
       () async => dumpTables(await s.database.database),
     );
 
-    c.read(routerProvider).go('/operaciones');
+    c.read(routerProvider).go('/mas');
     await settle(tester);
     await tester.tap(find.text('Modo de uso'));
     await settle(tester);

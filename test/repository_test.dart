@@ -1,8 +1,11 @@
 import 'package:agroquimicos/data/agro_repository.dart';
 import 'package:agroquimicos/data/app_database.dart';
+import 'package:agroquimicos/data/owner_binding_store.dart';
 import 'package:agroquimicos/domain/models.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+
+import 'support/f04_mode_fixtures.dart';
 
 void main() {
   sqfliteFfiInit();
@@ -30,6 +33,14 @@ void main() {
     thirdId = await repo.addPerson(
       name: 'Tercero',
       role: PersonRole.thirdParty,
+    );
+    // Regla del pagador (piloto X01): paga el titular vigente. El
+    // administrador es el titular de esta instalación de prueba.
+    await OwnerBindingStore(database).bindExistingPerson(
+      personId: adminId,
+      scope: memberA,
+      installationRef: installationHere,
+      confirmAdministrator: true,
     );
     supplierId = await repo.addSupplier(name: 'Proveedor');
     campaignId = await repo.addCampaign(

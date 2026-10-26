@@ -17,6 +17,17 @@ import '../widgets/common.dart';
 import 'late_operations_screen.dart' show offerLateRegistration;
 import '../widgets/mode_notice.dart';
 
+/// Nueva compra en dos pasos (ajuste tras el piloto X01, 2026-10-25):
+///
+/// 1. **Proveedor y productos**: proveedor, fecha (hoy por defecto) y las
+///    líneas con su cantidad, precio y, en compartido, su reparto explícito.
+/// 2. **Revisión y pago**: lo que se va a guardar, la pregunta
+///    «¿Pagaste toda esta compra?» (sin respuesta por defecto) y, plegados,
+///    factura, notas y campaña.
+///
+/// El pago al proveedor lo registra el titular vigente, en las dos
+/// modalidades; no hay pagador que elegir. Compra y pago se guardan en una
+/// sola transacción (`confirmPurchase(paidInFullByOwner:)`).
 class PurchaseFormScreen extends ConsumerStatefulWidget {
   const PurchaseFormScreen({super.key});
 
@@ -76,23 +87,42 @@ class _PurchaseLineEditor {
   }
 }
 
+enum _PurchaseStep { items, review }
+
+/// Catálogos del formulario y el contexto (modalidad y titular) con que se
+/// cargaron.
+typedef _PurchaseCatalogs = ({
+  List<Map<String, Object?>> suppliers,
+  List<Map<String, Object?>> campaigns,
+  List<Map<String, Object?>> products,
+  List<Map<String, Object?>> people,
+});
+
 class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
-  late Future<List<List<Map<String, Object?>>>> catalogs;
+  late Future<_PurchaseCatalogs> catalogs;
   final invoiceNumber = TextEditingController();
+  final notes = TextEditingController();
   final lines = <_PurchaseLineEditor>[_PurchaseLineEditor()];
   int? supplierId;
   int? campaignId;
+  _PurchaseStep step = _PurchaseStep.items;
 
   /// Día de la compra (#121): hoy por defecto, editable hacia atrás.
   String effectiveDay = localDay(DateTime.now());
-  bool payProvider = false;
-  int? payerId;
+
+  /// Respuesta a «¿Pagaste toda esta compra?». Nula hasta que la persona
+  /// elige: no se registra ningún pago por defecto.
+  bool? paidInFull;
 
   /// Modalidad con la que se cargaron las personas (#26).
   OperationMode? loadedMode;
 
-  /// En inventario propio, el titular: recibe todo lo comprado y paga al
-  /// proveedor sin que se elija persona (#26). Nulo en compartido.
+  /// Titular vigente, del vínculo real de la instalación. Paga al proveedor
+  /// en las dos modalidades; en propio además recibe todo lo comprado.
+  int? ownerPersonId;
+
+  /// En inventario propio, el titular recibe todo lo comprado sin que se elija
+  /// persona (#26). Nulo en compartido.
   int? personalOwnerId;
   XFile? invoiceImage;
   bool saving = false;
@@ -157,12 +187,11 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
     catalogs = _loadCatalogs();
   }
 
-  Future<List<List<Map<String, Object?>>>> _loadCatalogs() async {
+  Future<_PurchaseCatalogs> _loadCatalogs() async {
     final repo = ref.read(repositoryProvider);
-    // Asignación y pagador según rol privado, titular y modalidad: en modo
-    // propio sólo el titular, también como pagador.
-    // La modalidad y el titular llegan en la misma consulta que las
-    // personas de la asignación.
+    // Asignación según rol privado, titular y modalidad: en modo propio sólo
+    // el titular. La modalidad y el titular llegan en la misma consulta.
+    // Todas las lecturas se lanzan juntas: una sola ida y vuelta a la base.
     final allocation = repo.peopleAndContextFor(
       PersonPurpose.purchaseAllocation,
     );
@@ -171,21 +200,27 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
       repo.campaigns(),
       repo.products(),
       allocation.then((value) => value.people),
-      repo.peopleFor(PersonPurpose.providerPayer),
     ]);
     final operating = (await allocation).context;
     final active = result[1].where((row) => row['status'] == 'ACTIVE');
     campaignId = active.isEmpty ? null : active.first['id'] as int;
     loadedMode = operating.mode;
+    ownerPersonId = operating.ownerPersonId;
     personalOwnerId = operating.mode == OperationMode.personal
         ? operating.ownerPersonId
         : null;
-    return result;
+    return (
+      suppliers: result[0],
+      campaigns: result[1],
+      products: result[2],
+      people: result[3],
+    );
   }
 
   @override
   void dispose() {
     invoiceNumber.dispose();
+    notes.dispose();
     for (final line in lines) {
       line.dispose();
     }
@@ -215,15 +250,16 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
     }
   }
 
-  Future<void> _confirm(List<Map<String, Object?>> people) async {
-    if (saving) return;
-    if (supplierId == null || campaignId == null) {
-      showError(context, 'Seleccione proveedor y campaña.');
-      return;
+  /// Comprueba el paso 1 y explica qué falta. Devuelve `true` si se puede
+  /// pasar a la revisión.
+  bool _validateItems() {
+    if (supplierId == null) {
+      showError(context, 'Elige el proveedor.');
+      return false;
     }
     if (lines.isEmpty) {
-      showError(context, 'Agregue al menos un producto.');
-      return;
+      showError(context, 'Agrega al menos un producto.');
+      return false;
     }
     for (var index = 0; index < lines.length; index++) {
       final line = lines[index];
@@ -232,37 +268,70 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
           line.priceMinor <= 0) {
         showError(
           context,
-          'Complete producto, cantidad y precio del ítem ${index + 1}.',
+          'Completa producto, cantidad y precio del producto ${index + 1}.',
         );
-        return;
+        return false;
       }
       if (line.currency == CurrencyCode.usd &&
           (line.exchangeRateScaled ?? 0) <= 0) {
         showError(
           context,
-          'Seleccione un tipo de cambio para el ítem ${index + 1}.',
+          'Escribe el tipo de cambio del producto ${index + 1}.',
         );
-        return;
+        return false;
       }
       // En propio todo es del titular: no hay reparto que comprobar.
       if (personalOwnerId != null) continue;
       if (line.allocations.any((allocation) => allocation.personId == null)) {
-        showError(context, 'Seleccione la persona de cada asignación.');
-        return;
+        showError(
+          context,
+          'Elige para quién es cada parte del producto ${index + 1}.',
+        );
+        return false;
       }
       if (line.assignedBase != line.quantityBase) {
         showError(
           context,
           line.assignedBase > line.quantityBase
-              ? 'La suma asignada supera la cantidad comprada en el ítem ${index + 1}.'
-              : 'Falta asignar parte de la cantidad del ítem ${index + 1}.',
+              ? 'Lo repartido supera la cantidad comprada del producto ${index + 1}.'
+              : 'Falta repartir parte de la cantidad del producto ${index + 1}.',
         );
-        return;
+        return false;
       }
     }
-    final payer = personalOwnerId ?? payerId;
-    if (payProvider && payer == null) {
-      showError(context, 'Seleccione quién paga al proveedor.');
+    return true;
+  }
+
+  void _goToReview() {
+    if (!_validateItems()) return;
+    setState(() => step = _PurchaseStep.review);
+  }
+
+  void _backToItems() => setState(() => step = _PurchaseStep.items);
+
+  Future<void> _confirm(_PurchaseCatalogs data) async {
+    if (saving) return;
+    if (!_validateItems()) {
+      setState(() => step = _PurchaseStep.items);
+      return;
+    }
+    if (campaignId == null) {
+      showError(
+        context,
+        'No hay una campaña activa. Actívala en Más, Administrar datos.',
+      );
+      return;
+    }
+    final paid = paidInFull;
+    if (paid == null) {
+      showError(context, 'Indica si pagaste toda esta compra.');
+      return;
+    }
+    if (paid && ownerPersonId == null) {
+      showError(
+        context,
+        'No hay un titular vinculado: la compra no puede quedar pagada.',
+      );
       return;
     }
 
@@ -282,6 +351,7 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
         purchaseDate: effectiveInstantForDay(effectiveDay, DateTime.now()),
         invoiceNumber: invoiceNumber.text.trim(),
         invoiceImagePath: imagePath,
+        notes: notes.text.trim().isEmpty ? null : notes.text.trim(),
         exchangeRateSource:
             lines.any((line) => line.currency == CurrencyCode.usd)
             ? ExchangeRateSource.agreedWithSupplier
@@ -312,15 +382,9 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
             ),
         ],
       );
-      final purchaseId = await repo.confirmPurchase(draft);
-      if (payProvider) {
-        await repo.addProviderPayment(
-          purchaseId: purchaseId,
-          payerPersonId: payer!,
-          amountBobMinor: totalBob,
-          method: 'TRANSFER',
-        );
-      }
+      // Compra y pago en una sola transacción: un fallo no deja una compra
+      // guardada sin avisar, y reintentar no la duplica.
+      await repo.confirmPurchase(draft, paidInFullByOwner: paid);
       if (!mounted) return;
       setState(() {
         dirty = false;
@@ -339,7 +403,7 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
             context,
             error: error,
             what: 'esta compra',
-            extraNote: payProvider
+            extraNote: paid
                 ? 'El pago al proveedor se registra después de confirmarla.'
                 : null,
             capture: (reason) => repo.captureLatePurchase(late, reason: reason),
@@ -366,43 +430,110 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
 
   @override
   Widget build(BuildContext context) => PopScope(
-    canPop: !dirty && !saving,
+    canPop: !dirty && !saving && step == _PurchaseStep.items,
     onPopInvokedWithResult: (didPop, _) {
-      if (!didPop && !saving) _close();
+      if (didPop || saving) return;
+      // Desde la revisión, Atrás vuelve al paso 1 sin perder nada.
+      if (step == _PurchaseStep.review) {
+        _backToItems();
+      } else {
+        _close();
+      }
     },
     child: Scaffold(
-      // **#97 — «Confirmar» fuera de la barra superior.** Junto al título, con
-      // la fuente al 130 % el título se truncaba («Nueva com…»). Abajo y fijo,
-      // como en Aplicación y Planificación, el título cabe entero y la acción
-      // sigue siempre visible y con su texto.
+      appBar: AppBar(
+        title: const Text('Nueva compra'),
+        actions: [
+          // F09: la misma operación por voz. Si el formulario tiene
+          // cambios, se pregunta antes de descartarlos.
+          IconButton(
+            key: const Key('form-dictar'),
+            tooltip: 'Dictar con voz',
+            icon: const Icon(Icons.mic_none_outlined),
+            onPressed: saving
+                ? null
+                : () async {
+                    if (dirty &&
+                        !await confirmDestructiveAction(
+                          context,
+                          title: '¿Descartar cambios?',
+                          detail:
+                              'Lo escrito en el formulario no se '
+                              'guardó. Se abrirá el borrador por voz.',
+                          confirmLabel: 'Descartar y dictar',
+                        )) {
+                      return;
+                    }
+                    if (!context.mounted) return;
+                    setState(() => dirty = false);
+                    context.pushReplacement('/compras/voz');
+                  },
+          ),
+        ],
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: saving
+              ? null
+              : step == _PurchaseStep.review
+              ? _backToItems
+              : _close,
+        ),
+      ),
+      // **#97 — la acción fuera de la barra superior.** Abajo y fija, como en
+      // Aplicación y Planificación, el título cabe entero y la acción sigue
+      // siempre visible y con su texto.
       bottomNavigationBar: SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(12),
-          child: FutureBuilder(
+          child: FutureBuilder<_PurchaseCatalogs>(
             future: catalogs,
-            builder: (context, snapshot) => FilledButton.icon(
-              key: const Key('purchase-confirm'),
-              onPressed:
+            builder: (context, snapshot) {
+              final blocked =
                   saving ||
-                      !snapshot.hasData ||
-                      modeChangedSince(
-                        loadedMode,
-                        ref.watch(operationModeProvider),
-                      )
-                  ? null
-                  : () => _confirm(snapshot.data![3]),
-              icon: saving
-                  ? const SizedBox.square(
-                      dimension: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.check),
-              label: Text(saving ? 'Guardando…' : 'Confirmar compra'),
-            ),
+                  !snapshot.hasData ||
+                  modeChangedSince(
+                    loadedMode,
+                    ref.watch(operationModeProvider),
+                  );
+              if (step == _PurchaseStep.items) {
+                return FilledButton.icon(
+                  key: const Key('purchase-continue'),
+                  onPressed: blocked ? null : _goToReview,
+                  icon: const Icon(Icons.arrow_forward),
+                  label: const Text('Continuar'),
+                );
+              }
+              return Row(
+                children: [
+                  OutlinedButton.icon(
+                    key: const Key('purchase-back'),
+                    onPressed: saving ? null : _backToItems,
+                    icon: const Icon(Icons.arrow_back),
+                    label: const Text('Atrás'),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: FilledButton.icon(
+                      key: const Key('purchase-confirm'),
+                      onPressed: blocked
+                          ? null
+                          : () => _confirm(snapshot.data!),
+                      icon: saving
+                          ? const SizedBox.square(
+                              dimension: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.check),
+                      label: Text(saving ? 'Guardando…' : 'Confirmar compra'),
+                    ),
+                  ),
+                ],
+              );
+            },
           ),
         ),
       ),
-      body: FutureBuilder(
+      body: FutureBuilder<_PurchaseCatalogs>(
         future: catalogs,
         builder: (context, snapshot) {
           // Sin esta rama, un fallo al cargar los catálogos dejaba el
@@ -414,284 +545,340 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
             );
           if (!snapshot.hasData)
             return const Center(child: CircularProgressIndicator());
-          final suppliers = snapshot.data![0];
-          final campaigns = snapshot.data![1];
-          final products = snapshot.data![2];
-          final people = snapshot.data![3];
-          final admins = snapshot.data![4];
+          final data = snapshot.data!;
           final modeChanged = modeChangedSince(
             loadedMode,
             ref.watch(operationModeProvider),
           );
-          final ownerName = personalOwnerId == null
-              ? null
-              : people
-                    .where((row) => row['id'] == personalOwnerId)
-                    .firstOrNull?['name']
-                    ?.toString();
-          return CustomScrollView(
-            slivers: [
-              SliverAppBar(
-                pinned: true,
-                title: const Text('Nueva compra'),
-                actions: [
-                  // F09: la misma operación por voz. Si el formulario tiene
-                  // cambios, se pregunta antes de descartarlos.
-                  IconButton(
-                    key: const Key('form-dictar'),
-                    tooltip: 'Dictar con voz',
-                    icon: const Icon(Icons.mic_none_outlined),
-                    onPressed: saving
-                        ? null
-                        : () async {
-                            if (dirty &&
-                                !await confirmDestructiveAction(
-                                  context,
-                                  title: '¿Descartar cambios?',
-                                  detail:
-                                      'Lo escrito en el formulario no se '
-                                      'guardó. Se abrirá el borrador por voz.',
-                                  confirmLabel: 'Descartar y dictar',
-                                )) {
-                              return;
-                            }
-                            if (!context.mounted) return;
-                            setState(() => dirty = false);
-                            context.pushReplacement('/compras/voz');
-                          },
-                  ),
+          return SafeArea(
+            child: ListView(
+              // Este formulario está fuera del `ShellRoute` y no hereda su
+              // `SafeArea` (UIBUG-064); la barra inferior ya reserva su alto.
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+              children: [
+                if (modeChanged) ...[
+                  const ModeChangedNotice(),
+                  const SizedBox(height: 12),
                 ],
-                leading: IconButton(
-                  icon: const Icon(Icons.arrow_back),
-                  onPressed: saving ? null : _close,
+                _StepHeader(
+                  key: const Key('purchase-step'),
+                  step: step == _PurchaseStep.items ? 1 : 2,
+                  total: 2,
+                  title: step == _PurchaseStep.items
+                      ? 'Proveedor y productos'
+                      : 'Revisión y pago',
                 ),
-              ),
-              SliverPadding(
-                // Los 120 px fijos no contaban el inset del sistema, así que
-                // la tarjeta TOTAL COMPRA quedaba parcialmente bajo la barra de
-                // gestos. Este formulario está fuera del `ShellRoute` y no
-                // hereda su `SafeArea` (UIBUG-064).
-                padding: EdgeInsets.fromLTRB(
-                  16,
-                  12,
-                  16,
-                  120 + MediaQuery.viewPaddingOf(context).bottom,
-                ),
-                sliver: SliverList.list(
-                  children: [
-                    if (modeChanged) ...[
-                      const ModeChangedNotice(),
-                      const SizedBox(height: 12),
-                    ],
-                    _Section(
-                      title: 'Factura',
-                      child: Column(
-                        children: [
-                          // Proveedor y campaña compartían una fila a medias,
-                          // así que en ancho de móvil ambos nombres se
-                          // truncaban justo cuando hay que leerlos para
-                          // confirmar la compra (UIBUG-040). Por debajo del
-                          // umbral se apilan: dos campos legibles pesan más
-                          // que una fila compacta ilegible.
-                          _responsivePair(
-                            _dropdown('Proveedor', suppliers, supplierId, (
-                              value,
-                            ) {
-                              setState(() {
-                                supplierId = value;
-                                dirty = true;
-                              });
-                            }),
-                            _dropdown(
-                              'Campaña',
-                              campaigns
-                                  .where((row) => row['status'] == 'ACTIVE')
-                                  .toList(),
-                              campaignId,
-                              (value) {
-                                setState(() {
-                                  campaignId = value;
-                                  dirty = true;
-                                });
-                              },
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-                          ListTile(
-                            key: const Key('purchase-date'),
-                            contentPadding: EdgeInsets.zero,
-                            leading: const Icon(Icons.event_outlined),
-                            title: const Text('Fecha de la compra'),
-                            subtitle: Text(
-                              '${formatDate(effectiveDay)}'
-                              '${effectiveDay == localDay(DateTime.now()) ? ' (hoy)' : ''}',
-                            ),
-                            trailing: const Text('Cambiar'),
-                            onTap: saving ? null : _pickDate,
-                          ),
-                          const SizedBox(height: 10),
-                          TextField(
-                            controller: invoiceNumber,
-                            onChanged: (_) => _markDirty(),
-                            decoration: const InputDecoration(
-                              labelText: 'N.º de factura',
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-                          Row(
-                            children: [
-                              OutlinedButton.icon(
-                                onPressed: () => _pickImage(ImageSource.camera),
-                                icon: const Icon(Icons.photo_camera_outlined),
-                                label: const Text('Cámara'),
-                              ),
-                              const SizedBox(width: 8),
-                              OutlinedButton.icon(
-                                onPressed: () =>
-                                    _pickImage(ImageSource.gallery),
-                                icon: const Icon(Icons.photo_library_outlined),
-                                label: const Text('Galería'),
-                              ),
-                              if (invoiceImage != null) ...[
-                                const SizedBox(width: 10),
-                                ClipRRect(
-                                  borderRadius: BorderRadius.circular(8),
-                                  child: Image.file(
-                                    File(invoiceImage!.path),
-                                    width: 48,
-                                    height: 48,
-                                    fit: BoxFit.cover,
-                                  ),
-                                ),
-                              ],
-                            ],
-                          ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    // Título y acción en un `Wrap`, no en una fila: con la
-                    // fuente al 130 % en 360 dp el título se partía en
-                    // «Producto / s (1)» (#129).
-                    SectionHeading(
-                      title: 'Productos (${lines.length})',
-                      action: FilledButton.tonalIcon(
-                        onPressed: () {
-                          setState(() {
-                            lines.add(_PurchaseLineEditor());
-                            dirty = true;
-                          });
-                        },
-                        icon: const Icon(Icons.add),
-                        label: const Text('Agregar producto'),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    for (var index = 0; index < lines.length; index++)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 10),
-                        child: _LineCard(
-                          key: ObjectKey(lines[index]),
-                          index: index,
-                          line: lines[index],
-                          products: products,
-                          people: people,
-                          personalOwnerName: personalOwnerId == null
-                              ? null
-                              : ownerName ?? 'Titular',
-                          usedProductIds: {
-                            for (final other in lines)
-                              if (!identical(other, lines[index]) &&
-                                  other.productId != null)
-                                other.productId!,
-                          },
-                          onChanged: _markDirty,
-                          onRemove: lines.length == 1
-                              ? null
-                              : () {
-                                  final removed = lines.removeAt(index);
-                                  removed.dispose();
-                                  setState(() => dirty = true);
-                                },
-                        ),
-                      ),
-                    _Section(
-                      title: 'Pago al proveedor',
-                      child: Column(
-                        children: [
-                          SwitchListTile(
-                            contentPadding: EdgeInsets.zero,
-                            title: const Text('Registrar pago total ahora'),
-                            subtitle: Text('Importe: ${formatBob(totalBob)}'),
-                            value: payProvider,
-                            onChanged: (value) => setState(() {
-                              payProvider = value;
-                              dirty = true;
-                              if (value && admins.length == 1)
-                                payerId = admins.single['id']! as int;
-                            }),
-                          ),
-                          // En propio paga el titular: no se elige pagador.
-                          if (payProvider && personalOwnerId != null)
-                            Align(
-                              alignment: Alignment.centerLeft,
-                              child: Text(
-                                'Paga el titular: ${ownerName ?? 'Titular'}',
-                                key: const Key('purchase-personal-payer'),
-                              ),
-                            )
-                          else if (payProvider)
-                            _dropdown(
-                              'Pagador',
-                              admins,
-                              payerId,
-                              (value) => setState(() {
-                                payerId = value;
-                                dirty = true;
-                              }),
-                            ),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    Card(
-                      color: Theme.of(context).colorScheme.primaryContainer,
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Row(
-                          children: [
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  const Text('TOTAL COMPRA'),
-                                  Text(
-                                    '${lines.length} producto${lines.length == 1 ? '' : 's'} · ${invoiceImage == null ? 'sin foto' : 'factura adjunta'}',
-                                  ),
-                                ],
-                              ),
-                            ),
-                            Text(
-                              formatBob(totalBob),
-                              style: Theme.of(context).textTheme.headlineSmall
-                                  ?.copyWith(fontWeight: FontWeight.w800),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
+                const SizedBox(height: 12),
+                if (step == _PurchaseStep.items)
+                  ..._itemsStep(context, data)
+                else
+                  ..._reviewStep(context, data),
+              ],
+            ),
           );
         },
       ),
     ),
   );
 
-  Widget _responsivePair(Widget first, Widget second) =>
-      _ResponsivePair(first: first, second: second);
+  String? _ownerName(_PurchaseCatalogs data) => data.people
+      .where((row) => row['id'] == ownerPersonId)
+      .firstOrNull?['name']
+      ?.toString();
+
+  List<Widget> _itemsStep(BuildContext context, _PurchaseCatalogs data) {
+    final ownerName = _ownerName(data);
+    return [
+      _dropdown('Proveedor', data.suppliers, supplierId, (value) {
+        setState(() {
+          supplierId = value;
+          dirty = true;
+        });
+      }),
+      const SizedBox(height: 10),
+      ListTile(
+        key: const Key('purchase-date'),
+        contentPadding: EdgeInsets.zero,
+        leading: const Icon(Icons.event_outlined),
+        title: const Text('Fecha de la compra'),
+        subtitle: Text(
+          '${formatDate(effectiveDay)}'
+          '${effectiveDay == localDay(DateTime.now()) ? ' (hoy)' : ''}',
+        ),
+        trailing: const Text('Cambiar'),
+        onTap: saving ? null : _pickDate,
+      ),
+      const SizedBox(height: 12),
+      // Título y acción en un `Wrap`, no en una fila: con la fuente al 130 %
+      // en 360 dp el título se partía en «Producto / s (1)» (#129).
+      SectionHeading(
+        title: 'Productos (${lines.length})',
+        action: FilledButton.tonalIcon(
+          onPressed: () {
+            setState(() {
+              lines.add(_PurchaseLineEditor());
+              dirty = true;
+            });
+          },
+          icon: const Icon(Icons.add),
+          label: const Text('Agregar producto'),
+        ),
+      ),
+      const SizedBox(height: 8),
+      for (var index = 0; index < lines.length; index++)
+        Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: _LineCard(
+            key: ObjectKey(lines[index]),
+            index: index,
+            line: lines[index],
+            products: data.products,
+            people: data.people,
+            personalOwnerName: personalOwnerId == null
+                ? null
+                : ownerName ?? 'Titular',
+            usedProductIds: {
+              for (final other in lines)
+                if (!identical(other, lines[index]) && other.productId != null)
+                  other.productId!,
+            },
+            onChanged: _markDirty,
+            onRemove: lines.length == 1
+                ? null
+                : () {
+                    final removed = lines.removeAt(index);
+                    removed.dispose();
+                    setState(() => dirty = true);
+                  },
+          ),
+        ),
+    ];
+  }
+
+  List<Widget> _reviewStep(BuildContext context, _PurchaseCatalogs data) {
+    final theme = Theme.of(context);
+    final ownerName = _ownerName(data) ?? 'Titular';
+    final supplierName =
+        data.suppliers
+            .where((row) => row['id'] == supplierId)
+            .firstOrNull?['name']
+            ?.toString() ??
+        '';
+    String personName(int? id) =>
+        data.people
+            .where((row) => row['id'] == id)
+            .firstOrNull?['name']
+            ?.toString() ??
+        '';
+    String productName(int? id) =>
+        data.products
+            .where((row) => row['id'] == id)
+            .firstOrNull?['name']
+            ?.toString() ??
+        '';
+    String productUnit(int? id) =>
+        data.products
+            .where((row) => row['id'] == id)
+            .firstOrNull?['unit']
+            ?.toString() ??
+        '';
+    return [
+      _Section(
+        key: const Key('purchase-review'),
+        title: 'Lo que se va a guardar',
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _reviewRow(Icons.storefront_outlined, 'Proveedor', supplierName),
+            _reviewRow(
+              Icons.event_outlined,
+              'Fecha',
+              '${formatDate(effectiveDay)}'
+                  '${effectiveDay == localDay(DateTime.now()) ? ' (hoy)' : ''}',
+            ),
+            const Divider(height: 20),
+            for (final line in lines) ...[
+              Text(
+                '${productName(line.productId)} · '
+                '${formatQuantity(line.quantityBase, productUnit(line.productId))} · '
+                '${formatBob(line.subtotalBob)}',
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+              Text(
+                personalOwnerId != null
+                    ? 'Para el titular: $ownerName'
+                    : 'Para: ${line.allocations.map((a) => '${personName(a.personId)} ${formatQuantity(tryParseBase(a.quantity.text) ?? 0, productUnit(line.productId))}').join(', ')}',
+                style: theme.textTheme.bodySmall,
+              ),
+              const SizedBox(height: 8),
+            ],
+            const Divider(height: 20),
+            Row(
+              children: [
+                const Expanded(
+                  child: Text(
+                    'TOTAL COMPRA',
+                    style: TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                ),
+                Text(
+                  formatBob(totalBob),
+                  key: const Key('purchase-total'),
+                  style: theme.textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+      const SizedBox(height: 12),
+      _Section(
+        key: const Key('purchase-paid-question'),
+        title: '¿Pagaste toda esta compra?',
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Importe: ${formatBob(totalBob)}'),
+            const SizedBox(height: 10),
+            // Sin respuesta por defecto: la persona elige. `SegmentedButton`
+            // admite la selección vacía y muestra la elegida.
+            SegmentedButton<bool>(
+              key: const Key('purchase-paid-choice'),
+              emptySelectionAllowed: true,
+              showSelectedIcon: true,
+              expandedInsets: EdgeInsets.zero,
+              segments: const [
+                ButtonSegment(
+                  value: true,
+                  icon: Icon(Icons.payments_outlined),
+                  label: Text('Sí, pagué todo', key: Key('purchase-paid-yes')),
+                ),
+                ButtonSegment(
+                  value: false,
+                  icon: Icon(Icons.schedule_outlined),
+                  label: Text('No, todavía no', key: Key('purchase-paid-no')),
+                ),
+              ],
+              selected: {?paidInFull},
+              onSelectionChanged: saving
+                  ? null
+                  : (selection) => setState(() {
+                      paidInFull = selection.isEmpty ? null : selection.single;
+                      dirty = true;
+                    }),
+            ),
+            const SizedBox(height: 10),
+            switch (paidInFull) {
+              // El pagador no se edita: es el titular del vínculo real.
+              true => Row(
+                key: const Key('purchase-payer-owner'),
+                children: [
+                  Icon(
+                    Icons.check_circle_outline,
+                    color: theme.colorScheme.primary,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(child: Text('Pago registrado por: $ownerName')),
+                ],
+              ),
+              false => const Text(
+                'La compra queda sin pago. Puedes anotarlo después en '
+                'Operaciones, Compras.',
+                key: Key('purchase-no-payment'),
+              ),
+              null => Text(
+                'Elige una opción para poder confirmar.',
+                key: const Key('purchase-paid-pending'),
+                style: TextStyle(color: theme.colorScheme.outline),
+              ),
+            },
+          ],
+        ),
+      ),
+      const SizedBox(height: 12),
+      Card(
+        child: ExpansionTile(
+          key: const Key('purchase-details'),
+          title: const Text('Factura, notas y campaña (opcional)'),
+          childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+          children: [
+            TextField(
+              controller: invoiceNumber,
+              onChanged: (_) => _markDirty(),
+              decoration: const InputDecoration(labelText: 'N.º de factura'),
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                OutlinedButton.icon(
+                  onPressed: () => _pickImage(ImageSource.camera),
+                  icon: const Icon(Icons.photo_camera_outlined),
+                  label: const Text('Cámara'),
+                ),
+                const SizedBox(width: 8),
+                OutlinedButton.icon(
+                  onPressed: () => _pickImage(ImageSource.gallery),
+                  icon: const Icon(Icons.photo_library_outlined),
+                  label: const Text('Galería'),
+                ),
+                if (invoiceImage != null) ...[
+                  const SizedBox(width: 10),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: Image.file(
+                      File(invoiceImage!.path),
+                      width: 48,
+                      height: 48,
+                      fit: BoxFit.cover,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+            const SizedBox(height: 10),
+            TextField(
+              controller: notes,
+              onChanged: (_) => _markDirty(),
+              maxLines: 2,
+              decoration: const InputDecoration(labelText: 'Notas'),
+            ),
+            const SizedBox(height: 10),
+            _dropdown(
+              'Campaña',
+              data.campaigns.where((row) => row['status'] == 'ACTIVE').toList(),
+              campaignId,
+              (value) {
+                setState(() {
+                  campaignId = value;
+                  dirty = true;
+                });
+              },
+            ),
+          ],
+        ),
+      ),
+    ];
+  }
+
+  Widget _reviewRow(IconData icon, String label, String value) => Padding(
+    padding: const EdgeInsets.only(bottom: 6),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 20),
+        const SizedBox(width: 8),
+        Text('$label: '),
+        Expanded(
+          child: Text(
+            value,
+            style: const TextStyle(fontWeight: FontWeight.w700),
+          ),
+        ),
+      ],
+    ),
+  );
 
   Widget _dropdown(
     String label,
@@ -710,8 +897,34 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
   }
 }
 
+/// «Paso n de m · título», en una línea que crece con la fuente.
+class _StepHeader extends StatelessWidget {
+  const _StepHeader({
+    super.key,
+    required this.step,
+    required this.total,
+    required this.title,
+  });
+  final int step;
+  final int total;
+  final String title;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+    decoration: BoxDecoration(
+      color: Theme.of(context).colorScheme.primaryContainer,
+      borderRadius: BorderRadius.circular(12),
+    ),
+    child: Text(
+      'Paso $step de $total · $title',
+      style: const TextStyle(fontWeight: FontWeight.w800),
+    ),
+  );
+}
+
 class _Section extends StatelessWidget {
-  const _Section({required this.title, required this.child});
+  const _Section({super.key, required this.title, required this.child});
   final String title;
   final Widget child;
   @override
@@ -836,6 +1049,7 @@ class _LineCard extends StatelessWidget {
         trailing: onRemove == null
             ? null
             : IconButton(
+                tooltip: 'Quitar producto',
                 onPressed: onRemove,
                 icon: const Icon(Icons.delete_outline),
               ),
@@ -958,7 +1172,9 @@ class _LineCard extends StatelessWidget {
               children: [
                 const Expanded(
                   child: Text(
-                    'Asignaciones',
+                    // En compartido el reparto es explícito: se dice para
+                    // quién es cada parte; nada se asigna solo al titular.
+                    '¿Para quién es?',
                     style: TextStyle(fontWeight: FontWeight.w700),
                   ),
                 ),

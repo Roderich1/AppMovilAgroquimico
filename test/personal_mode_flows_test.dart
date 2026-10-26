@@ -74,8 +74,8 @@ void main() {
       c.read(routerProvider).go('/operaciones');
       await settle(tester);
       expect(find.text('Transferencias'), findsNothing);
-      expect(find.text('Ahora: inventario propio'), findsOneWidget);
       expect(find.text('Compras'), findsOneWidget);
+      expect(find.text('Más'), findsOneWidget);
       await openNewSheet(tester);
       expect(find.text('Transferencia'), findsNothing);
       expect(find.text('Compra'), findsOneWidget);
@@ -86,9 +86,14 @@ void main() {
       await switchModeBehindScreen(tester, c, s.database, OperationMode.shared);
       // La misma pantalla, abierta, cambia sin reiniciar.
       expect(find.text('Transferencias'), findsOneWidget);
-      expect(find.text('Ahora: inventario compartido'), findsOneWidget);
       await openNewSheet(tester);
       expect(find.text('Transferencia'), findsOneWidget);
+      Navigator.of(tester.element(find.text('Compra'))).pop();
+      await settle(tester);
+      // La modalidad vigente se lee en Más, Modo de uso (piloto X01).
+      c.read(routerProvider).go('/mas');
+      await settle(tester);
+      expect(find.text('Ahora: inventario compartido'), findsOneWidget);
     });
 
     testWidgets('propio: abrir directamente una ruta de transferencias '
@@ -171,7 +176,7 @@ void main() {
       await settle(tester);
       expect(currentPath(c), '/operaciones');
       expect(find.byType(TransfersScreen), findsNothing);
-      expect(find.text('Ahora: inventario propio'), findsOneWidget);
+      expect(find.text('Más'), findsOneWidget);
     });
 
     testWidgets('si la pantalla de transferencias llegara a mostrarse en '
@@ -206,7 +211,7 @@ void main() {
       c.read(routerProvider).push('/compras/nueva');
       await waitFor(tester, field('Cantidad comprada'));
       await settle(tester);
-      expect(find.text('Asignaciones'), findsOneWidget);
+      expect(find.text('¿Para quién es?'), findsOneWidget);
       expect(picker('Persona'), findsOneWidget);
       final sharedInputs = inputCount(tester);
       c.read(routerProvider).pop();
@@ -221,7 +226,7 @@ void main() {
       c.read(routerProvider).push('/compras/nueva');
       await waitFor(tester, field('Cantidad comprada'));
       await settle(tester);
-      expect(find.text('Asignaciones'), findsNothing);
+      expect(find.text('¿Para quién es?'), findsNothing);
       expect(picker('Persona'), findsNothing);
       expect(find.text('Para el titular: Titular'), findsOneWidget);
       expect(inputCount(tester), lessThan(sharedInputs));
@@ -231,11 +236,14 @@ void main() {
       await tester.enterText(field('Cantidad comprada'), '4');
       await tester.enterText(field('Precio BOB/L'), '50');
       await settle(tester);
-      await tester.ensureVisible(find.text('Registrar pago total ahora'));
-      await tester.tap(find.text('Registrar pago total ahora'));
+      // Paso 2: la pregunta explícita; paga el titular, sin elegir pagador.
+      await tester.ensureVisible(find.byKey(const Key('purchase-continue')));
+      await tester.tap(find.byKey(const Key('purchase-continue')));
       await settle(tester);
       expect(find.text('Pagador'), findsNothing);
-      expect(find.text('Paga el titular: Titular'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('purchase-paid-yes')));
+      await settle(tester);
+      expect(find.text('Pago registrado por: Titular'), findsOneWidget);
       await tester.tap(find.byKey(const Key('purchase-confirm')));
       await settle(tester);
 
@@ -449,7 +457,7 @@ void main() {
       expect(
         tester
             .widget<ButtonStyleButton>(
-              find.byKey(const Key('purchase-confirm')),
+              find.byKey(const Key('purchase-continue')),
             )
             .onPressed,
         isNull,

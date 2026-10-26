@@ -77,7 +77,7 @@ class _TransfersScreenState extends ConsumerState<TransfersScreen> {
 
   Widget _list(BuildContext context) => PageFrame(
     title: 'Transferencias',
-    subtitle: 'Operaciones multiproducto con trazabilidad FIFO.',
+    subtitle: 'Pases de productos de una persona a otra, con su costo.',
     action: FilledButton.icon(
       onPressed: () async {
         final saved = await context.push<bool>('/transferencias/nueva');

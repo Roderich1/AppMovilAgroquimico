@@ -17,7 +17,10 @@
 //   * superficie       = metros cuadrados     (hectáreas × 10000)
 
 import 'package:agroquimicos/data/agro_repository.dart';
+import 'package:agroquimicos/data/owner_binding_store.dart';
 import 'package:agroquimicos/domain/models.dart';
+
+import 'f04_mode_fixtures.dart';
 
 /// Identificadores generados por [seedUiAudit], para que quien lo invoque pueda
 /// reportar el dataset o navegar directamente a una entidad concreta.
@@ -115,6 +118,14 @@ Future<UiAuditSeedResult> seedUiAudit(
       role: PersonRole.thirdParty,
     ),
   };
+  // Regla del pagador (piloto X01): paga el titular vigente. La
+  // administración es la titular de esta instalación sintética.
+  await OwnerBindingStore(repo.appDatabase).bindExistingPerson(
+    personId: personIds['admin']!,
+    scope: memberA,
+    installationRef: installationHere,
+    confirmAdministrator: true,
+  );
 
   // ------------------------------------------------------------------ CHACOS
   // Superficies elegidas para cubrir: entero grande, decimal .5, decimal .3
