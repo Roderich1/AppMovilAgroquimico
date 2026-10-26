@@ -122,7 +122,7 @@ Las categorías «reconstruir la pantalla» del punto 6 se dejan como están: la
 
 ## 7. Cierre
 
-- **Suite completa sobre `b6f5974`** (`flutter test`, 2026-10-26 05:50Z–06:14Z): **1 832 pasan, 3 omitidas, 0 fallan** («All other tests passed!», 01:24). `flutter analyze`: No issues found.
-- **Suite completa sobre el HEAD final** (tras las correcciones de la revisión, §5): se anota al pie de este archivo.
+- **Suite completa sobre `b6f5974`** (`flutter test`): **1 832 pasan, 3 omitidas, 0 fallan** («All other tests passed!», 01:24). `flutter analyze`: No issues found.
+- **Suite completa sobre `34afe20`** (las correcciones de la revisión, §5; `flutter test` terminado el 2026-10-26 05:52Z): **1 835 pasan, 3 omitidas, 0 fallan** («All other tests passed!», 01:22). `flutter analyze`: No issues found.
 - **Revisión cruzada:** §5.
 - **CI del PR:** se registra literalmente en el PR, con el nombre y la conclusión de cada check.
