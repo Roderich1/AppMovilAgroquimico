@@ -724,7 +724,7 @@ Future<UiAuditSeedResult> seedUiAudit(
       purchaseId: purchaseIds[2], // R-77, se paga completa
       payerPersonId: personIds['admin']!,
       amountBobMinor: 71400, // 25,5 L × 28,00
-      method: 'EFECTIVO',
+      method: PaymentMethod.cash,
       date: DateTime.utc(2025, 6, 3),
     ),
   );
@@ -733,7 +733,7 @@ Future<UiAuditSeedResult> seedUiAudit(
       purchaseId: purchaseIds[0], // pago parcial
       payerPersonId: personIds['admin']!,
       amountBobMinor: 1500000, // 15 000,00 Bs
-      method: 'TRANSFERENCIA',
+      method: PaymentMethod.transfer,
       date: DateTime.utc(2025, 6, 5),
     ),
   );
@@ -1303,7 +1303,7 @@ Future<UiAuditSeedResult> seedUiAudit(
       purchaseId: purchaseIds[4], // F-0101-2026, pago parcial
       payerPersonId: personIds['admin']!,
       amountBobMinor: 2000000,
-      method: 'TRANSFERENCIA',
+      method: PaymentMethod.transfer,
       date: DateTime.utc(2026, 1, 20),
     ),
   );
@@ -1312,7 +1312,7 @@ Future<UiAuditSeedResult> seedUiAudit(
       purchaseId: purchaseIds[8], // F-0103-2026
       payerPersonId: personIds['admin']!,
       amountBobMinor: 500000,
-      method: 'CHEQUE',
+      method: PaymentMethod.unspecified, // antes «CHEQUE», un texto libre que la app nunca ofreció
       date: DateTime.utc(2026, 3, 3),
     ),
   );

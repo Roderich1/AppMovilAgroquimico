@@ -330,7 +330,7 @@ void main() {
         purchaseId: purchase,
         payerPersonId: farmer,
         amountBobMinor: 20000,
-        method: 'CASH',
+        method: PaymentMethod.cash,
       );
 
       expect(await stockByPersonProduct(db), {
@@ -399,7 +399,7 @@ void main() {
         purchaseId: purchase,
         payerPersonId: farmer,
         amountBobMinor: 10000,
-        method: 'CASH',
+        method: PaymentMethod.cash,
       );
       await household.apply(farmer, household.titularFarm, 2000);
       final before = await dumpTables(db);

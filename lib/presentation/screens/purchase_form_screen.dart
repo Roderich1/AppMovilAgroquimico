@@ -14,6 +14,7 @@ import '../../domain/person_roles.dart';
 import '../../operation_mode_controller.dart';
 import '../widgets/adaptive_entity_picker.dart';
 import '../widgets/common.dart';
+import '../widgets/provider_payment_fields.dart';
 import 'late_operations_screen.dart' show offerLateRegistration;
 import '../widgets/mode_notice.dart';
 
@@ -26,8 +27,11 @@ import '../widgets/mode_notice.dart';
 ///    factura, notas y campaña.
 ///
 /// El pago al proveedor lo registra el titular vigente, en las dos
-/// modalidades; no hay pagador que elegir. Compra y pago se guardan en una
-/// sola transacción (`confirmPurchase(paidInFullByOwner:)`).
+/// modalidades; no hay pagador que elegir. Con «Sí, pagué todo» el importe es
+/// el total de la compra, y el medio y la fecha del pago se muestran y se
+/// pueden corregir: el medio empieza en «Sin indicar» (explícito) y la fecha
+/// en el día de la compra; nada se supone sin verse. Compra y pago se guardan
+/// en una sola transacción (`confirmPurchase(paidInFull:)`).
 class PurchaseFormScreen extends ConsumerStatefulWidget {
   const PurchaseFormScreen({super.key});
 
@@ -114,6 +118,22 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
   /// elige: no se registra ningún pago por defecto.
   bool? paidInFull;
 
+  /// Medio del pago si «Sí, pagué todo»: empieza en «Sin indicar», que se
+  /// guarda tal cual (`UNSPECIFIED`); no se supone transferencia ni efectivo.
+  PaymentMethod paymentMethod = PaymentMethod.unspecified;
+
+  /// Día del pago elegido a mano; nulo = el día de la compra, que la pantalla
+  /// muestra como tal. Nunca anterior al día de la compra.
+  String? paymentDay;
+
+  String get effectivePaymentDay {
+    final chosen = paymentDay;
+    if (chosen == null || chosen.compareTo(effectiveDay) < 0) {
+      return effectiveDay;
+    }
+    return chosen;
+  }
+
   /// Modalidad con la que se cargaron las personas (#26).
   OperationMode? loadedMode;
 
@@ -143,6 +163,11 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
     if (picked == null || !mounted) return;
     setState(() {
       effectiveDay = localDay(picked);
+      // Un día de pago anterior a la nueva fecha de compra vuelve al día de
+      // la compra (y se ve así en la revisión).
+      if (paymentDay != null && paymentDay!.compareTo(effectiveDay) < 0) {
+        paymentDay = null;
+      }
       dirty = true;
     });
   }
@@ -384,8 +409,20 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
         ],
       );
       // Compra y pago en una sola transacción: un fallo no deja una compra
-      // guardada sin avisar, y reintentar no la duplica.
-      await repo.confirmPurchase(draft, paidInFullByOwner: paid);
+      // guardada sin avisar, y reintentar no la duplica. Del pago van el
+      // medio y el día que la pantalla mostró (hoy: el instante real).
+      await repo.confirmPurchase(
+        draft,
+        paidInFull: paid
+            ? ProviderPaymentDetails(
+                method: paymentMethod,
+                date: effectiveInstantForDay(
+                  effectivePaymentDay,
+                  DateTime.now(),
+                ),
+              )
+            : null,
+      );
       if (!mounted) return;
       // `saving` se queda en true hasta cerrar: si bajara aquí, el botón
       // volvería a habilitarse durante el fotograma previo al `pop` y un
@@ -778,16 +815,43 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
             ),
             const SizedBox(height: 10),
             switch (paidInFull) {
-              // El pagador no se edita: es el titular del vínculo real.
-              true => Row(
-                key: const Key('purchase-payer-owner'),
+              // El pagador no se edita: es el titular del vínculo real. El
+              // medio y la fecha sí se ven y se corrigen: no se guardan
+              // valores que la persona no haya visto.
+              true => Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Icon(
-                    Icons.check_circle_outline,
-                    color: theme.colorScheme.primary,
+                  Row(
+                    key: const Key('purchase-payer-owner'),
+                    children: [
+                      Icon(
+                        Icons.check_circle_outline,
+                        color: theme.colorScheme.primary,
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(child: Text('Pago registrado por: $ownerName')),
+                    ],
                   ),
-                  const SizedBox(width: 8),
-                  Expanded(child: Text('Pago registrado por: $ownerName')),
+                  const SizedBox(height: 10),
+                  ProviderPaymentFields(
+                    method: paymentMethod,
+                    onMethodChanged: (value) => setState(() {
+                      paymentMethod = value;
+                      dirty = true;
+                    }),
+                    day: effectivePaymentDay,
+                    dayHint: effectivePaymentDay == localDay(DateTime.now())
+                        ? ' (hoy)'
+                        : paymentDay == null
+                        ? ' (el día de la compra)'
+                        : '',
+                    firstDay: effectiveDay,
+                    onDayChanged: (value) => setState(() {
+                      paymentDay = value;
+                      dirty = true;
+                    }),
+                    enabled: !saving,
+                  ),
                 ],
               ),
               false => const Text(

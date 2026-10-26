@@ -937,17 +937,20 @@ class AgroRepository {
     });
   }
 
-  /// Confirma la compra y, con [paidInFullByOwner], deja registrado en la
-  /// **misma transacción** el pago total al proveedor a nombre del titular
-  /// vigente. Antes el formulario escribía la compra y después el pago en dos
-  /// transacciones: si la segunda fallaba, la compra ya estaba guardada, la
-  /// pantalla anunciaba un error y reintentar la duplicaba. Ahora un fallo
-  /// deshace las dos escrituras y no hay éxito parcial que anunciar.
+  /// Confirma la compra y, con [paidInFull], deja registrado en la **misma
+  /// transacción** el pago del total al proveedor a nombre del titular
+  /// vigente, con el medio y la fecha que indicó la persona: aquí no se
+  /// supone ningún dato del pago. Antes el formulario escribía la compra y
+  /// después el pago en dos transacciones: si la segunda fallaba, la compra ya
+  /// estaba guardada, la pantalla anunciaba un error y reintentar la
+  /// duplicaba. Ahora un fallo deshace las dos escrituras y no hay éxito
+  /// parcial que anunciar.
   Future<int> confirmPurchase(
     PurchaseDraft draft, {
-    bool paidInFullByOwner = false,
+    ProviderPaymentDetails? paidInFull,
   }) async {
     final purchaseTotal = _validatePurchaseDraft(draft);
+    final payment = paidInFull;
     return _write((txn, context) async {
       _requireOwnerInPersonal(context, [
         for (final item in draft.items)
@@ -955,7 +958,7 @@ class AgroRepository {
       ], 'En inventario propio la compra se asigna sólo al titular.');
       // El pagador se comprueba antes de escribir nada: sin titular no se
       // guarda ni la compra ni el pago.
-      final payer = paidInFullByOwner ? _requireOwnerPayer(context) : null;
+      final payer = payment == null ? null : _requireOwnerPayer(context);
       await _ensureCampaignActive(txn, draft.campaignId);
       await _ensureEffectiveDateInCampaign(
         txn,
@@ -963,17 +966,16 @@ class AgroRepository {
         draft.purchaseDate,
       );
       final purchaseId = await _insertPurchase(txn, draft, purchaseTotal);
-      if (payer != null) {
+      if (payer != null && payment != null) {
         await _insertProviderPayment(
           txn,
           purchaseId: purchaseId,
           payerPersonId: payer,
           amountBobMinor: purchaseTotal,
-          method: 'TRANSFER',
-          // Pagada al comprar: el pago lleva la fecha efectiva de la compra,
-          // no la del teléfono al confirmar, para que una compra registrada
-          // con atraso no quede pagada en otro día que el de la compra.
-          date: draft.purchaseDate,
+          // Medio y fecha tal como los indicó la persona (o `unspecified`,
+          // explícito). La fecha se valida contra la de la compra y hoy.
+          method: payment.method,
+          date: payment.date,
         );
       }
       return purchaseId;
@@ -1150,11 +1152,13 @@ class AgroRepository {
     return purchaseId;
   }
 
+  /// Pago posterior al proveedor. [method] y [date] son lo que indicó la
+  /// persona; sin [date], el pago es de ahora (el momento de registrarlo).
   Future<int> addProviderPayment({
     required int purchaseId,
     required int payerPersonId,
     required int amountBobMinor,
-    required String method,
+    required PaymentMethod method,
     DateTime? date,
   }) async {
     if (amountBobMinor <= 0)
@@ -1179,12 +1183,15 @@ class AgroRepository {
 
   /// Escribe un pago al proveedor ya autorizado, dentro de la transacción de
   /// quien lo llama (la compra que se confirma pagada, o un pago posterior).
+  /// La fecha del pago va del día de la compra a hoy: un pago ya hecho no es
+  /// futuro, y el pago «de esta compra» no es anterior a ella. Sólo se juzgan
+  /// los pagos nuevos; los guardados no se tocan.
   Future<int> _insertProviderPayment(
     Transaction txn, {
     required int purchaseId,
     required int payerPersonId,
     required int amountBobMinor,
-    required String method,
+    required PaymentMethod method,
     required DateTime date,
   }) async {
     final purchase = (await txn.query(
@@ -1195,6 +1202,24 @@ class AgroRepository {
     ));
     if (purchase.isEmpty)
       throw BusinessRuleException('La compra no está activa.');
+    final day = localDay(date);
+    final today = localDay(DateTime.now());
+    if (day.compareTo(today) > 0) {
+      throw BusinessRuleException(
+        'La fecha del pago (${displayDay(day)}) es posterior a hoy '
+        '(${displayDay(today)}). Un pago ya hecho no puede tener una fecha '
+        'futura. No se registró nada.',
+      );
+    }
+    final purchaseDay = storedLocalDay(
+      purchase.single['purchase_date']! as String,
+    );
+    if (day.compareTo(purchaseDay) < 0) {
+      throw BusinessRuleException(
+        'La fecha del pago (${displayDay(day)}) es anterior a la compra '
+        '(${displayDay(purchaseDay)}). No se registró nada.',
+      );
+    }
     final paid =
         Sqflite.firstIntValue(
           await txn.rawQuery(
@@ -1211,7 +1236,7 @@ class AgroRepository {
       'payer_person_id': payerPersonId,
       'payment_date': _date(date),
       'amount_bob_minor': amountBobMinor,
-      'method': method,
+      'method': method.code,
     });
   }
 

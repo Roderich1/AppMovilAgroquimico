@@ -140,7 +140,7 @@ void main() {
         purchaseId: purchase,
         payerPersonId: household.titular,
         amountBobMinor: 5000,
-        method: 'CASH',
+        method: PaymentMethod.cash,
       );
       expect((await payments()).single['payer_person_id'], household.titular);
     });
@@ -154,7 +154,7 @@ void main() {
             purchaseId: purchase,
             payerPersonId: payer,
             amountBobMinor: 100,
-            method: 'CASH',
+            method: PaymentMethod.cash,
           ),
           'titular vigente',
         );
@@ -185,13 +185,18 @@ void main() {
             ),
           ],
         ),
-        paidInFullByOwner: true,
+        // Medio y fecha tal como los indicó la persona.
+        paidInFull: ProviderPaymentDetails(
+          method: PaymentMethod.cash,
+          date: date,
+        ),
       );
       final row = (await payments()).single;
       expect(row['purchase_id'], purchase);
       expect(row['payer_person_id'], household.titular);
       expect(row['amount_bob_minor'], 9000);
       expect(row['payment_date'], date.toIso8601String());
+      expect(row['method'], 'CASH');
       expect((await household.repo.purchases()).single['paid_bob_minor'], 9000);
     });
 
@@ -229,7 +234,10 @@ void main() {
                 ),
               ],
             ),
-            paidInFullByOwner: true,
+            paidInFull: ProviderPaymentDetails(
+              method: PaymentMethod.unspecified,
+              date: DateTime.utc(2026, 1, 20),
+            ),
           ),
           throwsA(
             isA<BusinessRuleException>().having(
@@ -262,7 +270,7 @@ void main() {
         purchaseId: purchase,
         payerPersonId: household.titular,
         amountBobMinor: 2000,
-        method: 'CASH',
+        method: PaymentMethod.cash,
       );
       final after = await payments();
       expect(after.first, before.single, reason: 'no se reasigna');

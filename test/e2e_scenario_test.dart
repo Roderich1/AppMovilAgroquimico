@@ -110,7 +110,7 @@ void main() {
       purchaseId: purchase,
       payerPersonId: admin,
       amountBobMinor: 5600000,
-      method: 'TRANSFER',
+      method: PaymentMethod.transfer,
     );
     expect(await repo.list('inventory_lots'), hasLength(3));
     final inventory = await repo.inventorySummary();

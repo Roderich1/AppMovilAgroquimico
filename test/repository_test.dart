@@ -100,7 +100,7 @@ void main() {
       purchaseId: purchaseId,
       payerPersonId: adminId,
       amountBobMinor: 560000,
-      method: 'TRANSFER',
+      method: PaymentMethod.transfer,
     );
     expect((await repo.purchases()).single['paid_bob_minor'], 560000);
 

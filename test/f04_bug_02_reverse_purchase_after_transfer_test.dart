@@ -153,7 +153,7 @@ void main() {
         purchaseId: purchase,
         payerPersonId: a,
         amountBobMinor: 1000,
-        method: 'CASH',
+        method: PaymentMethod.cash,
       );
       final transfer = await repo.transferProductsFifo(
         fromPersonId: a,

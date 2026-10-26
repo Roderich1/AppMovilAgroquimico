@@ -243,7 +243,7 @@ void main() {
         purchaseId: purchaseId,
         payerPersonId: admin,
         amountBobMinor: 100000, // Bs 1 000,00
-        method: 'TRANSFER',
+        method: PaymentMethod.transfer,
       );
       await repo.addAccountPayment(
         personId: family,

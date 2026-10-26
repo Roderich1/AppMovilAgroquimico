@@ -188,8 +188,11 @@ política después no reescribe la historia), `amount_bob_minor_if_allocation_ch
 
 #### `provider_payments`
 `purchase_id`, `payer_person_id`, `payment_date`, `amount_bob_minor`
-`CHECK(amount_bob_minor > 0)`, `method` NOT NULL (la UI **siempre** manda `'TRANSFER'`),
-`notes`, `reversed_at`.
+`CHECK(amount_bob_minor > 0)`, `method` NOT NULL con los códigos de `PaymentMethod`:
+`CASH`, `TRANSFER` o `UNSPECIFIED` («Sin indicar», el valor explícito cuando la persona no
+indicó el medio; hasta el 2026-10-26 la UI mandaba siempre `'TRANSFER'` sin preguntar, y esas
+filas no se reescriben), `notes`, `reversed_at`. `payment_date` es el día que la persona vio y
+pudo corregir, entre el día de la compra y hoy.
 
 ---
 
