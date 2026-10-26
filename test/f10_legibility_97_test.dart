@@ -141,7 +141,7 @@ void main() {
         await tester.runAsync(seeded.database.close);
       });
 
-      testWidgets('Nueva compra: título entero, «Confirmar compra» visible y '
+      testWidgets('Nueva compra: título entero, «Continuar» visible y '
           'el nombre de la asignación sin truncar ($label)', (tester) async {
         await tester.binding.setSurfaceSize(Size(width, 1400));
         addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -172,8 +172,9 @@ void main() {
         );
         await settle(tester);
         expectWhole(tester, find.text('Nueva compra'), 'título');
-        expectWhole(tester, find.text('Confirmar compra'), 'acción');
-        expectOnScreen(tester, find.text('Confirmar compra'), width);
+        // Paso 1 de 2 (piloto X01): la acción fija es «Continuar».
+        expectWhole(tester, find.text('Continuar'), 'acción');
+        expectOnScreen(tester, find.text('Continuar'), width);
 
         final person = find.byWidgetPredicate(
           (w) =>

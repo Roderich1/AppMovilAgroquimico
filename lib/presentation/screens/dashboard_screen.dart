@@ -65,6 +65,37 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     });
   }
 
+  /// Acceso directo al formulario (piloto X01): al volver con la compra
+  /// guardada se avisa con un mensaje específico y se recarga el resumen. Un
+  /// borrador tardío devuelve `false` y no se anuncia como confirmado.
+  Future<void> _newPurchase() async {
+    final saved = await context.push<bool>('/compras/nueva');
+    if (!mounted) return;
+    if (saved == true) {
+      _refresh();
+      showSuccess(context, 'Compra guardada.');
+    }
+  }
+
+  Future<void> _newApplication() async {
+    final active = await ref.read(repositoryProvider).activeCampaign();
+    if (!mounted) return;
+    if (active == null) {
+      showError(
+        context,
+        'Activa una campaña antes de registrar aplicaciones: Operaciones, '
+        'Más, Administrar datos.',
+      );
+      return;
+    }
+    final saved = await context.push<bool>('/aplicaciones/nueva');
+    if (!mounted) return;
+    if (saved == true) {
+      _refresh();
+      showSuccess(context, 'Aplicación guardada.');
+    }
+  }
+
   @override
   Widget build(BuildContext context) =>
       _build(context, ref.watch(effectiveLocalSessionProvider));
@@ -79,338 +110,375 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       onPressed: _refresh,
       icon: const Icon(Icons.refresh),
     ),
-    child: FutureBuilder<_DashboardData>(
-      future: future,
-      builder: (context, snapshot) {
-        if (snapshot.hasError)
-          return EmptyState(
-            icon: Icons.error_outline,
-            message: friendlyError(snapshot.error!),
-          );
-        if (!snapshot.hasData)
-          return const Center(child: CircularProgressIndicator());
-        final data = snapshot.data!;
-        final searching = inventoryQuery.isNotEmpty;
-        final matchingInventory = data.inventory
-            .where(
-              (row) =>
-                  !searching || matchesSearch(row.productName, inventoryQuery),
-            )
-            .toList();
-        // Sin busqueda se mantiene el resumen corto de siempre; al buscar se
-        // recorre todo el inventario.
-        final visibleInventory = searching
-            ? matchingInventory
-            : matchingInventory.take(5).toList();
-        final activeCampaign = data.campaigns
-            .where((campaign) => campaign.isActive)
-            .firstOrNull;
-        final cards = [
-          (
-            'Compras',
-            formatBob(data.summary.purchasesBobMinor),
-            Icons.shopping_bag_outlined,
-          ),
-          (
-            'Pagado proveedores',
-            formatBob(data.summary.providerPaidMinor),
-            Icons.storefront_outlined,
-          ),
-          (
-            'Familias por cobrar',
-            formatBob(data.summary.familyReceivableMinor),
-            Icons.family_restroom_outlined,
-          ),
-          (
-            'Terceros por cobrar',
-            formatBob(data.summary.thirdPartyReceivableMinor),
-            Icons.person_outline,
-          ),
-          (
-            'Pagos recibidos',
-            formatBob(data.summary.receivedMinor),
-            Icons.payments_outlined,
-          ),
-        ];
-        final recoverAsOwner =
-            accessRecoveryModeFor(
-              ref.watch(installationAccessProvider),
-              existingSession,
-            ) ==
-            AccessRecoveryMode.signInAsOwner;
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // F03: con titular vinculado y sesión ausente o ilegible, la entrada
-            // es «Recuperar acceso» (mismo Member y tenant), nunca una activación
-            // libre que pudiera guardar la sesión de otra cuenta.
-            if (existingSession == ExistingSessionStartupState.noLocalSession &&
-                !recoverAsOwner)
-              OutlinedButton.icon(
-                key: const Key('open-first-activation'),
-                onPressed: () => context.push('/activar'),
-                icon: const Icon(Icons.verified_user_outlined),
-                label: const Text('Activar cuenta en línea'),
-              )
-            else if (_allowsRemote(existingSession))
-              _SessionStatus(existingSession)
-            else if (existingSession.safeMessage != null)
-              Text(
-                existingSession.safeMessage!,
-                key: const Key('local-session-status'),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Los avisos de sesión y de acceso, y los cuatro accesos principales
+        // (piloto X01), no dependen del resumen: se muestran aunque los datos
+        // tarden o fallen. Los dos primeros accesos abren el formulario
+        // directamente; «Enviar al sindicato» abre la pantalla de
+        // sincronización y no publica nada por sí solo: conserva su
+        // autorización y su confirmación.
+        ..._sessionBlock(context, existingSession),
+        const _InstallationAccessNotice(),
+        const SizedBox(height: 10),
+        _PrimaryActions(
+          onPurchase: _newPurchase,
+          onApplication: _newApplication,
+          onInventory: () => context.go('/inventario'),
+          onSync: () => context.push('/sincronizacion'),
+        ),
+        const SizedBox(height: 10),
+        FutureBuilder<_DashboardData>(
+          future: future,
+          builder: (context, snapshot) {
+            if (snapshot.hasError)
+              return EmptyState(
+                icon: Icons.error_outline,
+                message: friendlyError(snapshot.error!),
+              );
+            if (!snapshot.hasData)
+              return const Center(child: CircularProgressIndicator());
+            final data = snapshot.data!;
+            final searching = inventoryQuery.isNotEmpty;
+            final matchingInventory = data.inventory
+                .where(
+                  (row) =>
+                      !searching ||
+                      matchesSearch(row.productName, inventoryQuery),
+                )
+                .toList();
+            // Sin busqueda se mantiene el resumen corto de siempre; al buscar se
+            // recorre todo el inventario.
+            final visibleInventory = searching
+                ? matchingInventory
+                : matchingInventory.take(5).toList();
+            final activeCampaign = data.campaigns
+                .where((campaign) => campaign.isActive)
+                .firstOrNull;
+            final cards = [
+              (
+                'Compras',
+                formatBob(data.summary.purchasesBobMinor),
+                Icons.shopping_bag_outlined,
               ),
-            if (recoverAsOwner)
-              OutlinedButton.icon(
-                key: const Key('open-access-recovery'),
-                onPressed: () => context.push('/recuperar'),
-                icon: const Icon(Icons.key_outlined),
-                label: const Text('Recuperar acceso'),
+              (
+                'Pagado proveedores',
+                formatBob(data.summary.providerPaidMinor),
+                Icons.storefront_outlined,
               ),
-            if (existingSession ==
-                    ExistingSessionStartupState.localSessionAvailable ||
-                existingSession ==
-                    ExistingSessionStartupState.localSessionExpired)
-              const _RemoteSessionControls(),
-            const _InstallationAccessNotice(),
-            const SizedBox(height: 10),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.primaryContainer,
-                borderRadius: BorderRadius.circular(12),
+              (
+                'Familias por cobrar',
+                formatBob(data.summary.familyReceivableMinor),
+                Icons.family_restroom_outlined,
               ),
-              child: Row(
-                children: [
-                  const Icon(Icons.calendar_month_outlined),
-                  const SizedBox(width: 8),
-                  // Sin `Expanded` el texto reclamaba su ancho natural y la
-                  // fila desbordaba con un nombre de campaña largo o con la
-                  // fuente ampliada: `RenderFlex overflowed` y la cinta
-                  // recortada en la primera pantalla de la aplicación
-                  // (UIBUG-067). Ahora se reparte en varias líneas.
-                  Expanded(
-                    child: Text(
-                      'Campaña activa: ${activeCampaign?.name ?? 'Sin campaña activa'}',
-                      style: const TextStyle(fontWeight: FontWeight.w700),
-                    ),
+              (
+                'Terceros por cobrar',
+                formatBob(data.summary.thirdPartyReceivableMinor),
+                Icons.person_outline,
+              ),
+              (
+                'Pagos recibidos',
+                formatBob(data.summary.receivedMinor),
+                Icons.payments_outlined,
+              ),
+            ];
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 10,
                   ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 10),
-            LayoutBuilder(
-              builder: (context, constraints) {
-                // **#129 — ninguna etiqueta se parte dentro de una palabra.**
-                // Con dos columnas fijas en 360 dp y la fuente al 130 %,
-                // «Pagado proveedores» salía «Pagado pr / oveedores». El número
-                // de columnas se decide midiendo la palabra más larga de las
-                // etiquetas con la fuente y la escala reales del dispositivo:
-                // si a una tarjeta no le cabe, se quitan columnas (hasta una).
-                // Al 100 % en 360 dp siguen siendo dos; al 130 % pasa a una,
-                // con la etiqueta y el importe enteros y a la izquierda, fuera
-                // del botón «Nuevo».
-                final labelStyle = Theme.of(context).textTheme.bodyMedium;
-                final widestWord = cards
-                    .expand((card) => card.$1.split(' '))
-                    .map((word) => measureText(context, word, labelStyle))
-                    .fold(0.0, math.max);
-                // Lo que la tarjeta ocupa además de la etiqueta: su margen
-                // (el del tema), relleno 12+12, icono 24, separación 10 y
-                // 4 dp de holgura.
-                final cardMargin =
-                    (Theme.of(context).cardTheme.margin ??
-                            const EdgeInsets.all(4))
-                        .horizontal;
-                final minCardWidth = widestWord + cardMargin + _cardChrome;
-                var columns = constraints.maxWidth > 1000
-                    ? 5
-                    : constraints.maxWidth > 600
-                    ? 3
-                    : 2;
-                double widthFor(int columns) =>
-                    (constraints.maxWidth - (columns - 1) * 8) / columns;
-                while (columns > 1 && widthFor(columns) < minCardWidth) {
-                  columns--;
-                }
-                final width = widthFor(columns);
-                return Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    for (final card in cards)
-                      SizedBox(
-                        width: width,
-                        child: Card(
-                          child: Padding(
-                            padding: const EdgeInsets.all(12),
-                            child: Row(
-                              children: [
-                                Icon(
-                                  card.$3,
-                                  color: Theme.of(context).colorScheme.primary,
-                                ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(card.$1, style: labelStyle),
-                                      const SizedBox(height: 3),
-                                      FittedBox(
-                                        fit: BoxFit.scaleDown,
-                                        alignment: Alignment.centerLeft,
-                                        child: Text(
-                                          card.$2,
-                                          style: Theme.of(context)
-                                              .textTheme
-                                              .titleMedium
-                                              ?.copyWith(
-                                                fontWeight: FontWeight.w800,
-                                              ),
-                                        ),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.primaryContainer,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.calendar_month_outlined),
+                      const SizedBox(width: 8),
+                      // Sin `Expanded` el texto reclamaba su ancho natural y la
+                      // fila desbordaba con un nombre de campaña largo o con la
+                      // fuente ampliada: `RenderFlex overflowed` y la cinta
+                      // recortada en la primera pantalla de la aplicación
+                      // (UIBUG-067). Ahora se reparte en varias líneas.
+                      Expanded(
+                        child: Text(
+                          'Campaña activa: ${activeCampaign?.name ?? 'Sin campaña activa'}',
+                          style: const TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 10),
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    // **#129 — ninguna etiqueta se parte dentro de una palabra.**
+                    // Con dos columnas fijas en 360 dp y la fuente al 130 %,
+                    // «Pagado proveedores» salía «Pagado pr / oveedores». El número
+                    // de columnas se decide midiendo la palabra más larga de las
+                    // etiquetas con la fuente y la escala reales del dispositivo:
+                    // si a una tarjeta no le cabe, se quitan columnas (hasta una).
+                    // Al 100 % en 360 dp siguen siendo dos; al 130 % pasa a una,
+                    // con la etiqueta y el importe enteros y a la izquierda, fuera
+                    // del botón «Nuevo».
+                    final labelStyle = Theme.of(context).textTheme.bodyMedium;
+                    final widestWord = cards
+                        .expand((card) => card.$1.split(' '))
+                        .map((word) => measureText(context, word, labelStyle))
+                        .fold(0.0, math.max);
+                    // Lo que la tarjeta ocupa además de la etiqueta: su margen
+                    // (el del tema), relleno 12+12, icono 24, separación 10 y
+                    // 4 dp de holgura.
+                    final cardMargin =
+                        (Theme.of(context).cardTheme.margin ??
+                                const EdgeInsets.all(4))
+                            .horizontal;
+                    final minCardWidth = widestWord + cardMargin + _cardChrome;
+                    var columns = constraints.maxWidth > 1000
+                        ? 5
+                        : constraints.maxWidth > 600
+                        ? 3
+                        : 2;
+                    double widthFor(int columns) =>
+                        (constraints.maxWidth - (columns - 1) * 8) / columns;
+                    while (columns > 1 && widthFor(columns) < minCardWidth) {
+                      columns--;
+                    }
+                    final width = widthFor(columns);
+                    return Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: [
+                        for (final card in cards)
+                          SizedBox(
+                            width: width,
+                            child: Card(
+                              child: Padding(
+                                padding: const EdgeInsets.all(12),
+                                child: Row(
+                                  children: [
+                                    Icon(
+                                      card.$3,
+                                      color: Theme.of(context)
+                                          .colorScheme
+                                          .primary,
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: Column(
+                                        mainAxisSize: MainAxisSize.min,
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(card.$1, style: labelStyle),
+                                          const SizedBox(height: 3),
+                                          FittedBox(
+                                            fit: BoxFit.scaleDown,
+                                            alignment: Alignment.centerLeft,
+                                            child: Text(
+                                              card.$2,
+                                              style: Theme.of(context)
+                                                  .textTheme
+                                                  .titleMedium
+                                                  ?.copyWith(
+                                                    fontWeight: FontWeight.w800,
+                                                  ),
+                                            ),
+                                          ),
+                                        ],
                                       ),
-                                    ],
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                      ],
+                    );
+                  },
+                ),
+                const SizedBox(height: 20),
+                // Encabezados en `SectionHeading` (#129): el título conserva su
+                // ancho y la acción baja de línea si no caben los dos.
+                SectionHeading(
+                  title: 'Inventario proyectado',
+                  action: TextButton(
+                    onPressed: () => context.go('/inventario'),
+                    child: const Text('Ver todos'),
+                  ),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  onChanged: (value) => setState(() {
+                    inventoryQuery = value.trim();
+                  }),
+                  decoration: const InputDecoration(
+                    prefixIcon: Icon(Icons.search),
+                    labelText: 'Buscar producto',
+                    isDense: true,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Card(
+                  child: visibleInventory.isEmpty
+                      // No es lo mismo no tener inventario que no encontrar nada:
+                      // el mensaje unico hacia creer que el almacen estaba vacio
+                      // (UIBUG-007).
+                      ? EmptyState(
+                          icon: searching
+                              ? Icons.search_off_outlined
+                              : Icons.inventory_2_outlined,
+                          message: searching
+                              ? 'Ningún producto coincide con "$inventoryQuery".'
+                              : 'Aún no hay inventario.',
+                        )
+                      // En ancho de móvil la tabla no cabía y había que
+                      // desplazarla en horizontal: al hacerlo la columna
+                      // "Producto" salía de la pantalla y quedaban cifras sin
+                      // dueño visible (UIBUG-023). En vez de fijar la primera
+                      // columna, el ancho estrecho usa una lista donde el nombre
+                      // encabeza cada fila y las cifras van etiquetadas: no hay
+                      // desplazamiento horizontal que perder.
+                      : LayoutBuilder(
+                          builder: (context, constraints) =>
+                              constraints.maxWidth < _tableMinWidth
+                              ? _InventoryCards(rows: visibleInventory)
+                              : SingleChildScrollView(
+                                  scrollDirection: Axis.horizontal,
+                                  child: _inventoryTable(
+                                    context,
+                                    visibleInventory,
                                   ),
                                 ),
-                              ],
+                        ),
+                ),
+                const SizedBox(height: 20),
+                SectionHeading(
+                  title: 'Aplicaciones recientes',
+                  action: TextButton(
+                    onPressed: () => context.go('/aplicaciones'),
+                    child: const Text('Ver todas'),
+                  ),
+                ),
+                Card(
+                  child: Column(
+                    children: [
+                      for (final row in data.applications.take(5))
+                        ListTile(
+                          dense: true,
+                          leading: const Icon(Icons.agriculture_outlined),
+                          title: Text(
+                            '${row['person_name']} · ${row['farm_name']}',
+                          ),
+                          subtitle: Text(
+                            '${row['campaign_name']}'
+                            '${row['status'] == 'REVERSED' ? ' · ${operationStatusLabel(row['status'])}' : ''}',
+                          ),
+                          // El inicio mostraba el importe de una aplicación anulada
+                          // como si siguiera vigente, mientras el reporte de costos
+                          // sí la excluía: dos cifras para el mismo hecho
+                          // (UIBUG-010).
+                          trailing: Text(
+                            formatBob(row['total_cost_bob_minor']! as int),
+                            style: TextStyle(
+                              decoration: row['status'] == 'REVERSED'
+                                  ? TextDecoration.lineThrough
+                                  : null,
+                              color: row['status'] == 'REVERSED'
+                                  ? Theme.of(context).colorScheme.outline
+                                  : null,
                             ),
                           ),
                         ),
-                      ),
-                  ],
-                );
-              },
-            ),
-            const SizedBox(height: 20),
-            // Encabezados en `SectionHeading` (#129): el título conserva su
-            // ancho y la acción baja de línea si no caben los dos.
-            SectionHeading(
-              title: 'Inventario proyectado',
-              action: TextButton(
-                onPressed: () => context.go('/inventario'),
-                child: const Text('Ver todos'),
-              ),
-            ),
-            const SizedBox(height: 8),
-            TextField(
-              onChanged: (value) => setState(() {
-                inventoryQuery = value.trim();
-              }),
-              decoration: const InputDecoration(
-                prefixIcon: Icon(Icons.search),
-                labelText: 'Buscar producto',
-                isDense: true,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Card(
-              child: visibleInventory.isEmpty
-                  // No es lo mismo no tener inventario que no encontrar nada:
-                  // el mensaje unico hacia creer que el almacen estaba vacio
-                  // (UIBUG-007).
-                  ? EmptyState(
-                      icon: searching
-                          ? Icons.search_off_outlined
-                          : Icons.inventory_2_outlined,
-                      message: searching
-                          ? 'Ningún producto coincide con "$inventoryQuery".'
-                          : 'Aún no hay inventario.',
-                    )
-                  // En ancho de móvil la tabla no cabía y había que
-                  // desplazarla en horizontal: al hacerlo la columna
-                  // "Producto" salía de la pantalla y quedaban cifras sin
-                  // dueño visible (UIBUG-023). En vez de fijar la primera
-                  // columna, el ancho estrecho usa una lista donde el nombre
-                  // encabeza cada fila y las cifras van etiquetadas: no hay
-                  // desplazamiento horizontal que perder.
-                  : LayoutBuilder(
-                      builder: (context, constraints) =>
-                          constraints.maxWidth < _tableMinWidth
-                          ? _InventoryCards(rows: visibleInventory)
-                          : SingleChildScrollView(
-                              scrollDirection: Axis.horizontal,
-                              child: _inventoryTable(context, visibleInventory),
-                            ),
-                    ),
-            ),
-            const SizedBox(height: 20),
-            SectionHeading(
-              title: 'Aplicaciones recientes',
-              action: TextButton(
-                onPressed: () => context.go('/aplicaciones'),
-                child: const Text('Ver todas'),
-              ),
-            ),
-            Card(
-              child: Column(
-                children: [
-                  for (final row in data.applications.take(5))
-                    ListTile(
-                      dense: true,
-                      leading: const Icon(Icons.agriculture_outlined),
-                      title: Text(
-                        '${row['person_name']} · ${row['farm_name']}',
-                      ),
-                      subtitle: Text(
-                        '${row['campaign_name']}'
-                        '${row['status'] == 'REVERSED' ? ' · ${operationStatusLabel(row['status'])}' : ''}',
-                      ),
-                      // El inicio mostraba el importe de una aplicación anulada
-                      // como si siguiera vigente, mientras el reporte de costos
-                      // sí la excluía: dos cifras para el mismo hecho
-                      // (UIBUG-010).
-                      trailing: Text(
-                        formatBob(row['total_cost_bob_minor']! as int),
-                        style: TextStyle(
-                          decoration: row['status'] == 'REVERSED'
-                              ? TextDecoration.lineThrough
-                              : null,
-                          color: row['status'] == 'REVERSED'
-                              ? Theme.of(context).colorScheme.outline
-                              : null,
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 20),
+                SectionHeading(
+                  title: 'Principales saldos',
+                  action: TextButton(
+                    onPressed: () => context.go('/liquidacion'),
+                    child: const Text('Ver todos'),
+                  ),
+                ),
+                Card(
+                  child: Column(
+                    children: [
+                      for (final row
+                          in (data.debts.toList()..sort(
+                                (a, b) =>
+                                    b.balanceMinor.compareTo(a.balanceMinor),
+                              ))
+                              .take(5))
+                        ListTile(
+                          dense: true,
+                          title: Text(row.name),
+                          subtitle: Text(
+                            row.role == 'FAMILY' ? 'Familiar' : 'Tercero',
+                          ),
+                          trailing: Text(
+                            formatBob(row.balanceMinor),
+                            style: const TextStyle(fontWeight: FontWeight.w700),
+                          ),
                         ),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 20),
-            SectionHeading(
-              title: 'Principales saldos',
-              action: TextButton(
-                onPressed: () => context.go('/liquidacion'),
-                child: const Text('Ver todos'),
-              ),
-            ),
-            Card(
-              child: Column(
-                children: [
-                  for (final row
-                      in (data.debts.toList()..sort(
-                            (a, b) => b.balanceMinor.compareTo(a.balanceMinor),
-                          ))
-                          .take(5))
-                    ListTile(
-                      dense: true,
-                      title: Text(row.name),
-                      subtitle: Text(
-                        row.role == 'FAMILY' ? 'Familiar' : 'Tercero',
-                      ),
-                      trailing: Text(
-                        formatBob(row.balanceMinor),
-                        style: const TextStyle(fontWeight: FontWeight.w700),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          ],
-        );
-      },
+                    ],
+                  ),
+                ),
+              ],
+            );
+          },
+        ),
+      ],
     ),
   );
+
+  /// Estado y acciones de la sesión (F03): no dependen del resumen.
+  List<Widget> _sessionBlock(
+    BuildContext context,
+    ExistingSessionStartupState existingSession,
+  ) {
+    final recoverAsOwner =
+        accessRecoveryModeFor(
+          ref.watch(installationAccessProvider),
+          existingSession,
+        ) ==
+        AccessRecoveryMode.signInAsOwner;
+    return [
+      // F03: con titular vinculado y sesión ausente o ilegible, la entrada
+      // es «Recuperar acceso» (mismo Member y tenant), nunca una activación
+      // libre que pudiera guardar la sesión de otra cuenta.
+      if (existingSession == ExistingSessionStartupState.noLocalSession &&
+          !recoverAsOwner)
+        OutlinedButton.icon(
+          key: const Key('open-first-activation'),
+          onPressed: () => context.push('/activar'),
+          icon: const Icon(Icons.verified_user_outlined),
+          label: const Text('Activar cuenta en línea'),
+        )
+      else if (_allowsRemote(existingSession))
+        _SessionStatus(existingSession)
+      else if (existingSession.safeMessage != null)
+        Text(
+          existingSession.safeMessage!,
+          key: const Key('local-session-status'),
+        ),
+      if (recoverAsOwner)
+        OutlinedButton.icon(
+          key: const Key('open-access-recovery'),
+          onPressed: () => context.push('/recuperar'),
+          icon: const Icon(Icons.key_outlined),
+          label: const Text('Recuperar acceso'),
+        ),
+      if (existingSession ==
+              ExistingSessionStartupState.localSessionAvailable ||
+          existingSession == ExistingSessionStartupState.localSessionExpired)
+        const _RemoteSessionControls(),
+    ];
+  }
 
   /// Ancho por debajo del cual la tabla de inventario obligaría a desplazarse
   /// en horizontal. Las seis columnas no caben en el ancho útil de un móvil
@@ -541,20 +609,115 @@ class _RemoteSessionControls extends ConsumerWidget {
               icon: const Icon(Icons.cloud_done_outlined),
               label: const Text('Verificar acceso en línea'),
             ),
-          TextButton.icon(
-            key: const Key('open-owner-pin'),
-            onPressed: () => context.push('/titular/pin'),
-            icon: const Icon(Icons.pin_outlined),
-            label: const Text('PIN del titular'),
-          ),
-          TextButton.icon(
-            key: const Key('open-sync-status'),
-            onPressed: () => context.push('/sincronizacion'),
-            icon: const Icon(Icons.sync),
-            label: const Text('Sincronización con el sindicato'),
-          ),
+          // «PIN del titular» pasó a Más y «Sincronización con el sindicato»
+          // es ahora el acceso principal «Enviar al sindicato» (piloto X01):
+          // aquí quedan sólo los avisos y acciones de la sesión.
         ],
       ),
+    );
+  }
+}
+
+/// Los cuatro accesos principales de Inicio, con icono y texto, en dos
+/// columnas (una si la etiqueta más larga no cabe con la fuente del
+/// dispositivo, como las tarjetas de importes de #129).
+class _PrimaryActions extends StatelessWidget {
+  const _PrimaryActions({
+    required this.onPurchase,
+    required this.onApplication,
+    required this.onInventory,
+    required this.onSync,
+  });
+
+  final VoidCallback onPurchase;
+  final VoidCallback onApplication;
+  final VoidCallback onInventory;
+  final VoidCallback onSync;
+
+  static const actions = <({String key, String label, IconData icon})>[
+    (
+      key: 'home-registrar-compra',
+      label: 'Registrar compra',
+      icon: Icons.shopping_bag_outlined,
+    ),
+    (
+      key: 'home-registrar-aplicacion',
+      label: 'Registrar aplicación',
+      icon: Icons.agriculture_outlined,
+    ),
+    (
+      key: 'home-ver-cuanto-queda',
+      label: 'Ver cuánto queda',
+      icon: Icons.inventory_2_outlined,
+    ),
+    (
+      key: 'home-enviar-sindicato',
+      label: 'Enviar al sindicato',
+      icon: Icons.cloud_upload_outlined,
+    ),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final handlers = [onPurchase, onApplication, onInventory, onSync];
+    final labelStyle = theme.textTheme.titleMedium?.copyWith(
+      fontWeight: FontWeight.w700,
+    );
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Dos columnas si la palabra más larga cabe en media fila con la
+        // fuente real; si no, una columna. Nada se abrevia ni se trunca.
+        final widestWord = actions
+            .expand((action) => action.label.split(' '))
+            .map((word) => measureText(context, word, labelStyle))
+            .fold(0.0, math.max);
+        // Lo que la tarjeta ocupa además de la palabra: relleno 14 + 14,
+        // icono 32, separación 12 y 16 dp de holgura (#129): la medida del
+        // texto y su pintado difieren en unos píxeles con la fuente ampliada.
+        const chrome = 14 + 14 + 32 + 12 + 16;
+        final columns = (constraints.maxWidth - 8) / 2 >= widestWord + chrome
+            ? 2
+            : 1;
+        final width = (constraints.maxWidth - (columns - 1) * 8) / columns;
+        return Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            for (final (index, action) in actions.indexed)
+              SizedBox(
+                width: width,
+                child: Card(
+                  color: theme.colorScheme.secondaryContainer,
+                  child: InkWell(
+                    key: Key(action.key),
+                    borderRadius: BorderRadius.circular(12),
+                    onTap: handlers[index],
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 14,
+                        vertical: 16,
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            action.icon,
+                            size: 32,
+                            color: theme.colorScheme.onSecondaryContainer,
+                          ),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: Text(action.label, style: labelStyle),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
     );
   }
 }

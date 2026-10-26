@@ -178,7 +178,7 @@ usa, lo que puede llevar a un desarrollador nuevo a suposiciones erróneas.
 | **Filtros de la bitácora de chaco** | `farmLogbook` acepta `campaignId` y `productId`; `FarmLogbookScreen` **nunca los pasa**. La capacidad existe en datos, no en UI |
 | **Fecha de operación** | `confirmPurchase`, `confirmApplication` y `transferProductsFifo` aceptan fecha; las tres pantallas envían siempre `DateTime.now()`. **No se puede registrar una operación con fecha pasada** |
 | **`ExchangeRateSource`** | El enum tiene 4 valores; la UI **siempre** envía `agreedWithSupplier` |
-| **`method` de pago a proveedor** | Columna `NOT NULL`; la UI **siempre** envía `'TRANSFER'` |
+| **`method` de pago a proveedor** | **Resuelto el 2026-10-26**: la UI pide el medio (`PaymentMethod`: `CASH`, `TRANSFER`, `UNSPECIFIED` = «Sin indicar») y la fecha, visibles y corregibles; hasta entonces enviaba siempre `'TRANSFER'` |
 | **`SettlementPolicy` personalizada** | `addPerson` acepta `policy`; la UI nunca la pasa |
 | **Plataforma web** | Carpeta presente; la app **no funciona** en navegador |
 | **`archiveCatalog` para campañas** | Implementado, pero **inalcanzable**: la pestaña de campañas dirige al menú de `_campaignAction`, que nunca llama a `_archive` |

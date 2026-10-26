@@ -6,6 +6,10 @@ import '../../domain/operation_mode.dart';
 import '../../operation_mode_controller.dart';
 import '../widgets/common.dart';
 
+/// Operaciones: lo que el agricultor registra y consulta a diario. Las
+/// funciones menos frecuentes (reportes, datos, modo de uso, respaldos,
+/// operaciones tardías, voz) viven en «Más» (`/mas`), con todos sus accesos y
+/// guardas (ajuste tras el piloto X01, 2026-10-25).
 class OperationsScreen extends ConsumerWidget {
   const OperationsScreen({super.key});
 
@@ -14,104 +18,56 @@ class OperationsScreen extends ConsumerWidget {
     // En inventario propio no hay transferencias entre responsables (#26).
     final mode = ref.watch(operationModeProvider);
     final personal = mode == OperationMode.personal;
-    // `isForm` marca las rutas declaradas FUERA del ShellRoute. Deben apilarse
-    // con `push`; navegar a ellas con `go` reemplaza la pila y deja el botón
-    // atrás del formulario sin ninguna página a la que volver.
     final actions =
-        <
-          ({
-            String title,
-            String subtitle,
-            String path,
-            IconData icon,
-            bool isForm,
-          })
-        >[
-          (
-            title: 'Planificación',
-            subtitle: 'Necesidades por chaco y planes guardados',
-            path: '/planificacion',
-            icon: Icons.event_note_outlined,
-            isForm: false,
-          ),
+        <({String title, String subtitle, String path, IconData icon})>[
           // Lleva al LISTADO, no directamente al formulario (UIBUG-002): era la
           // única puerta a `/compras`, y sin ella quedaban inalcanzables el
           // historial, los pagos a proveedor posteriores, el visor de factura y
           // la reversión de compras. Desde el listado se abre el formulario con
           // "Nueva compra", que además sí acusa recibo al volver (UIBUG-011).
-          // Queda igual que las tarjetas de aplicaciones y transferencias.
+          // El acceso directo al formulario está en Inicio («Registrar compra»).
           (
             title: 'Compras',
-            subtitle: 'Historial, facturas y pagos a proveedor',
+            subtitle: 'Lo comprado, sus facturas y los pagos al proveedor',
             path: '/compras',
             icon: Icons.shopping_bag_outlined,
-            isForm: false,
           ),
           (
             title: 'Aplicaciones',
-            subtitle: 'Historial y registro de consumo real con FIFO',
+            subtitle: 'Lo aplicado en cada chaco y cuánto costó',
             path: '/aplicaciones',
             icon: Icons.agriculture_outlined,
-            isForm: false,
+          ),
+          (
+            title: 'Planificación',
+            subtitle:
+                'Lo que se va a aplicar por chaco y la necesidad declarada '
+                'al sindicato',
+            path: '/planificacion',
+            icon: Icons.event_note_outlined,
           ),
           if (!personal)
             (
               title: 'Transferencias',
-              subtitle: 'Historial y movimiento de stock entre personas',
+              subtitle: 'Pasar productos de una persona a otra',
               path: '/transferencias',
               icon: Icons.swap_horiz,
-              isForm: false,
             ),
           (
-            title: 'Reportes',
-            subtitle: 'Exportar inventario, costos y cuentas a CSV o PDF',
-            path: '/reportes',
-            icon: Icons.summarize_outlined,
-            isForm: false,
-          ),
-          (
-            title: 'Modo de uso',
-            subtitle: switch (mode) {
-              OperationMode.personal => 'Ahora: inventario propio',
-              OperationMode.shared => 'Ahora: inventario compartido',
-              null => 'Inventario propio o compartido',
-            },
-            path: '/modo',
-            icon: Icons.tune_outlined,
-            isForm: false,
-          ),
-          (
-            title: 'Administrar datos',
-            subtitle: 'Campañas, chacos, productos y proveedores',
-            path: '/catalogos',
-            icon: Icons.settings_outlined,
-            isForm: false,
-          ),
-          // F09, al final para no mover las demás tarjetas. No promete registrar nada por sí sola: lleva a borradores
-          // que se revisan y se confirman con un toque.
-          (
-            title: 'Registrar por voz',
-            subtitle: 'Dictar una compra, un plan o una aplicación y revisarlo',
-            path: '/voz',
-            icon: Icons.mic_none_outlined,
-            isForm: false,
-          ),
-          // RF-03, también al final para no mover las demás tarjetas.
-          (
-            title: 'Operaciones tardías',
+            title: 'Más',
             subtitle:
-                'Compras y aplicaciones de campañas cerradas, en revisión',
-            path: '/operaciones/tardias',
-            icon: Icons.history_edu_outlined,
-            isForm: false,
+                'Reportes, datos, modo de uso, respaldos, operaciones tardías '
+                'y voz',
+            path: '/mas',
+            icon: Icons.more_horiz,
           ),
         ];
     return PageFrame(
       title: 'Operaciones',
       subtitle: personal
-          ? 'Acciones del trabajo diario. Inventario propio: registra sólo '
+          ? 'Lo del trabajo diario. Inventario propio: registra sólo '
                 'el titular y no hay transferencias.'
-          : 'Acciones del trabajo diario.',
+          : 'Lo del trabajo diario.',
       child: LayoutBuilder(
         builder: (context, constraints) {
           final width = constraints.maxWidth >= 700

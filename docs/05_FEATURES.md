@@ -104,9 +104,10 @@ compra"* — con un `personId` inexistente, no queda ni compra, ni ítems, ni lo
 | Campo | Contenido |
 |---|---|
 | **Propósito** | Registrar cuánto se le pagó al proveedor por una compra, separado de las cuentas internas |
-| **Pantallas** | `PurchaseFormScreen` (switch "Registrar pago total ahora"), `PurchasesScreen` (menú "Registrar pago" con `_PaymentDialog`) |
-| **Archivos** | `agro_repository.dart` `addProviderPayment`; `purchases_screen.dart` `_pay` |
-| **Actor pagador** | **Solo personas con rol `ADMIN`**: ambas pantallas filtran `role == 'ADMIN'` antes de ofrecer el selector |
+| **Pantallas** | `PurchaseFormScreen` (paso 2, «¿Pagaste toda esta compra?»: el importe es el total; medio y fecha visibles y corregibles con `ProviderPaymentFields`), `PurchasesScreen` (menú "Registrar pago" con `_PaymentDialog`, mismos campos) |
+| **Archivos** | `agro_repository.dart` `confirmPurchase(paidInFull:)` y `addProviderPayment`; `purchases_screen.dart` `_pay`; `widgets/provider_payment_fields.dart` |
+| **Actor pagador** | El **titular vigente** de la instalación (`owner_bindings`), en las dos modalidades; no se elige (regla aprobada el 2026-10-26 tras el piloto X01). No depende del rol `ADMIN` |
+| **Medio y fecha** | Nunca supuestos: el medio empieza en «Sin indicar» (`UNSPECIFIED`) y la fecha en el día de la compra (formulario) o en hoy (pago posterior); ambos se muestran y se cambian. La fecha no puede ser futura (el repositorio lo exige para los pagos nuevos); un anticipo anterior a la compra se admite |
 | **Reglas** | RN-09 (importe > 0), RN-10 (pagado acumulado + nuevo ≤ total de la compra), compra no revertida |
 | **Almacenamiento** | `provider_payments` |
 | **Estados** | El diálogo precarga el saldo pendiente `total − pagado` como importe por defecto y lo muestra como "Máximo" |

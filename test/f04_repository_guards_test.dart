@@ -79,7 +79,7 @@ void main() {
           purchaseId: purchase,
           payerPersonId: household.titular,
           amountBobMinor: 1,
-          method: 'CASH',
+          method: PaymentMethod.cash,
         ),
         'confirmApplication': () =>
             household.apply(household.titular, household.titularFarm, 1),
@@ -243,7 +243,7 @@ void main() {
           purchaseId: purchase,
           payerPersonId: household.relative,
           amountBobMinor: 100,
-          method: 'CASH',
+          method: PaymentMethod.cash,
         ),
       );
       // El titular sí registra su pago, aunque sea familiar y no ADMIN.
@@ -251,7 +251,7 @@ void main() {
         purchaseId: purchase,
         payerPersonId: household.titular,
         amountBobMinor: 100,
-        method: 'CASH',
+        method: PaymentMethod.cash,
       );
     });
 

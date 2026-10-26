@@ -432,7 +432,10 @@ void main() {
       await waitFor(tester, find.text('Operaciones').first);
 
       await tester.tap(find.text('Operaciones').first);
-      await waitFor(tester, find.text('Acciones del trabajo diario.'));
+      await waitFor(tester, find.text('Lo del trabajo diario.'));
+      // Reportes vive en «Más» (piloto X01).
+      await tester.tap(find.text('Más'));
+      await waitFor(tester, find.text('Lo que se usa de vez en cuando.'));
       expect(find.text('Reportes'), findsOneWidget);
 
       await tester.tap(find.text('Reportes'));
@@ -446,8 +449,8 @@ void main() {
       );
 
       await tester.tap(find.byTooltip('Volver'));
-      await waitFor(tester, find.text('Acciones del trabajo diario.'));
-      expect(find.text('Acciones del trabajo diario.'), findsOneWidget);
+      await waitFor(tester, find.text('Lo que se usa de vez en cuando.'));
+      expect(find.text('Lo que se usa de vez en cuando.'), findsOneWidget);
       expect(tester.takeException(), isNull);
       // Deja terminar la animación de transición: `waitFor` para en cuanto
       // aparece el texto, y una ruta a medio animar deja un temporizador vivo.

@@ -92,11 +92,11 @@ Future<Household> _adminFarmerHousehold(AgroRepository repo) async {
       ],
     ),
   );
-  await repo.addProviderPayment(
-    purchaseId: purchase,
-    payerPersonId: household.titular,
-    amountBobMinor: 10000,
-    method: 'CASH',
+  await _legacyProviderPayment(
+    repo,
+    purchase: purchase,
+    payer: household.titular,
+    amount: 10000,
   );
   await household.apply(household.relative, household.relativeFarm, 4000);
   await repo.addAccountPayment(
@@ -127,13 +127,31 @@ Future<Household> _soloAdminFarmer(AgroRepository repo) async {
     );
   household.relativeFarm = household.titularFarm;
   final purchase = await household.buy(farmer, 5000);
-  await repo.addProviderPayment(
-    purchaseId: purchase,
-    payerPersonId: farmer,
-    amountBobMinor: 20000,
-    method: 'CASH',
+  await _legacyProviderPayment(
+    repo,
+    purchase: purchase,
+    payer: farmer,
+    amount: 20000,
   );
   return household;
+}
+
+/// Pago al proveedor anterior a la regla del pagador (2026-10-26, piloto
+/// X01): se escribe como quedó en las bases históricas, sin la validación
+/// nueva, que exige el titular vinculado. Los pagos históricos se conservan.
+Future<void> _legacyProviderPayment(
+  AgroRepository repo, {
+  required int purchase,
+  required int payer,
+  required int amount,
+}) async {
+  await (await repo.appDatabase.database).insert('provider_payments', {
+    'purchase_id': purchase,
+    'payer_person_id': payer,
+    'payment_date': '2026-01-03T12:00:00.000Z',
+    'amount_bob_minor': amount,
+    'method': 'CASH',
+  });
 }
 
 Future<List<Map<String, Object?>>> _accountRows(
@@ -312,7 +330,7 @@ void main() {
         purchaseId: purchase,
         payerPersonId: farmer,
         amountBobMinor: 20000,
-        method: 'CASH',
+        method: PaymentMethod.cash,
       );
 
       expect(await stockByPersonProduct(db), {
@@ -381,7 +399,7 @@ void main() {
         purchaseId: purchase,
         payerPersonId: farmer,
         amountBobMinor: 10000,
-        method: 'CASH',
+        method: PaymentMethod.cash,
       );
       await household.apply(farmer, household.titularFarm, 2000);
       final before = await dumpTables(db);
@@ -424,9 +442,9 @@ void main() {
             isOwner: owner,
             mode: OperationMode.shared,
           );
-      // Un ADMIN que no es titular sigue como antes: paga, no aplica ni
-      // transfiere.
-      expect(can(PersonPurpose.providerPayer, PersonRole.admin), isTrue);
+      // Un ADMIN que no es titular no aplica ni transfiere; desde la regla
+      // del 2026-10-26 (piloto X01) tampoco paga: paga el titular.
+      expect(can(PersonPurpose.providerPayer, PersonRole.admin), isFalse);
       expect(can(PersonPurpose.applicator, PersonRole.admin), isFalse);
       expect(can(PersonPurpose.transferParty, PersonRole.admin), isFalse);
       // El titular ADMIN, además, aplica y transfiere.
@@ -438,10 +456,14 @@ void main() {
         can(PersonPurpose.transferParty, PersonRole.admin, owner: true),
         isTrue,
       );
-      // El pago al proveedor sigue reservado al rol ADMIN en compartido.
+      // El pago al proveedor es del titular, sea familiar o ADMIN.
       expect(
         can(PersonPurpose.providerPayer, PersonRole.family, owner: true),
-        isFalse,
+        isTrue,
+      );
+      expect(
+        can(PersonPurpose.providerPayer, PersonRole.admin, owner: true),
+        isTrue,
       );
       for (final role in PersonRole.values) {
         expect(can(PersonPurpose.purchaseAllocation, role), isTrue);

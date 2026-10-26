@@ -60,6 +60,43 @@ class PurchaseDraft {
   final List<PurchaseItemDraft> items;
 }
 
+/// Medio con que se pagó al proveedor, tal como lo indicó la persona. La
+/// tabla `provider_payments` exige un medio (`method NOT NULL`) y la interfaz
+/// mandaba siempre `TRANSFER` aunque nadie lo hubiera dicho. `unspecified`
+/// («Sin indicar») es el valor explícito para «no lo indicó»: se guarda como
+/// `UNSPECIFIED`, nunca como un medio supuesto. El código almacenado es
+/// [EnumCode.code]: `CASH`, `TRANSFER`, `UNSPECIFIED`.
+enum PaymentMethod {
+  cash('Efectivo'),
+  transfer('Transferencia'),
+  unspecified('Sin indicar');
+
+  const PaymentMethod(this.label);
+
+  /// Etiqueta que ve la persona.
+  final String label;
+
+  static PaymentMethod? fromCode(String code) {
+    for (final method in values) {
+      if (method.code == code) return method;
+    }
+    return null;
+  }
+}
+
+/// Pago total al proveedor que acompaña a una compra confirmada: **cómo** y
+/// **cuándo** se pagó, tal como lo indicó la persona. El importe es el total de
+/// la compra y el pagador el titular vigente; ninguno de los dos se elige aquí.
+class ProviderPaymentDetails {
+  const ProviderPaymentDetails({required this.method, required this.date});
+
+  final PaymentMethod method;
+
+  /// Instante efectivo del día del pago (medianoche local de otro día, o el
+  /// instante real si es hoy).
+  final DateTime date;
+}
+
 class ApplicationLineDraft {
   const ApplicationLineDraft({
     required this.productId,

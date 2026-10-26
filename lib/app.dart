@@ -27,6 +27,7 @@ import 'presentation/screens/reauthentication_screen.dart';
 import 'presentation/screens/farm_logbook_screen.dart';
 import 'presentation/screens/inventory_detail_screen.dart';
 import 'presentation/screens/inventory_screen.dart';
+import 'presentation/screens/more_screen.dart';
 import 'presentation/screens/operation_mode_screen.dart';
 import 'presentation/screens/operations_screen.dart';
 import 'presentation/screens/owner_setup_screen.dart';
@@ -150,6 +151,8 @@ final routerProvider = Provider<GoRouter>((ref) {
             path: '/operaciones',
             builder: (_, __) => const OperationsScreen(),
           ),
+          // «Más»: funciones poco frecuentes, bajo Operaciones (piloto X01).
+          GoRoute(path: '/mas', builder: (_, __) => const MoreScreen()),
           GoRoute(
             path: '/catalogos',
             builder: (_, __) => const CatalogsScreen(),

@@ -135,10 +135,16 @@ void main() {
 
       await tester.tap(find.text('Operaciones').last);
       await settle(tester);
+      // Las funciones poco frecuentes viven en «Más» (piloto X01).
+      await tester.tap(find.text('Más'));
+      await settle(tester, frames: 30);
+      expect(currentLocation(tester), '/mas');
       await tester.tap(find.text('Administrar datos'));
       await settle(tester, frames: 30);
       expect(currentLocation(tester), '/catalogos');
 
+      await systemBack(tester);
+      expect(currentLocation(tester), '/mas');
       await systemBack(tester);
       expect(
         currentLocation(tester),
@@ -190,6 +196,7 @@ void main() {
       const cases = <String, int>{
         '/': 0,
         '/operaciones': 1,
+        '/mas': 1,
         '/catalogos': 1,
         '/planificacion': 1,
         '/compras': 1,
@@ -219,6 +226,7 @@ void main() {
       const cases = <String, String?>{
         '/': null,
         '/operaciones': '/',
+        '/mas': '/operaciones',
         '/catalogos': '/operaciones',
         '/compras': '/operaciones',
         '/reportes': '/operaciones',

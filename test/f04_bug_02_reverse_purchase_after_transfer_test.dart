@@ -4,6 +4,7 @@
 // produce dos restituciones.
 import 'package:agroquimicos/data/agro_repository.dart';
 import 'package:agroquimicos/data/app_database.dart';
+import 'package:agroquimicos/data/owner_binding_store.dart';
 import 'package:agroquimicos/domain/models.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -99,6 +100,12 @@ void main() {
         name: 'Tercero',
         role: PersonRole.thirdParty,
       );
+      // Regla del pagador (piloto X01): paga el titular vigente; aquí, A.
+      await OwnerBindingStore(database).bindExistingPerson(
+        personId: a,
+        scope: memberA,
+        installationRef: installationHere,
+      );
       supplier = await repo.addSupplier(name: 'Proveedor');
       campaign = await repo.addCampaign(
         name: 'Campaña 1',
@@ -146,7 +153,7 @@ void main() {
         purchaseId: purchase,
         payerPersonId: a,
         amountBobMinor: 1000,
-        method: 'CASH',
+        method: PaymentMethod.cash,
       );
       final transfer = await repo.transferProductsFifo(
         fromPersonId: a,

@@ -9,10 +9,12 @@ import '../../services/auth/local_owner_credential.dart'
 import '../widgets/owner_reversal_flow.dart';
 
 import '../../app.dart';
+import '../../domain/campaign_calendar.dart';
+import '../../domain/models.dart';
 import '../../domain/money.dart';
-import '../../domain/operation_mode.dart';
 import '../../domain/person_roles.dart';
 import '../widgets/common.dart';
+import '../widgets/provider_payment_fields.dart';
 
 class PurchasesScreen extends ConsumerStatefulWidget {
   const PurchasesScreen({super.key});
@@ -83,37 +85,41 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> {
 
   Future<void> _pay(Map<String, Object?> purchase) async {
     final repo = ref.read(repositoryProvider);
-    // En compartido pagan los administradores de pagos; en propio, el titular.
-    final admins = await repo.peopleFor(PersonPurpose.providerPayer);
-    final operating = await repo.operatingContext();
+    // Regla del pagador (piloto X01): paga el titular vigente, en las dos
+    // modalidades. La lista sólo trae al titular; si está vacía es que no hay
+    // titular vinculado, y registrar otra persona no lo arreglaría.
+    final payers = await repo.peopleFor(PersonPurpose.providerPayer);
     if (!mounted) return;
-    if (admins.isEmpty) {
+    if (payers.isEmpty) {
       showError(
         context,
-        'Registra una persona administradora para pagar al proveedor.',
+        'No hay un titular vinculado: el pago al proveedor lo registra el '
+        'titular.',
       );
       return;
     }
     final remaining =
         (purchase['total_bob_minor']! as int) -
         (purchase['paid_bob_minor']! as int);
-    final result = await showDialog<(int, int)?>(
+    final result = await showDialog<_PaymentInput?>(
       context: context,
       builder: (_) => _PaymentDialog(
-        people: admins,
+        people: payers,
         maxMinor: remaining,
         title: 'Pago al proveedor',
-        fixedPayer:
-            operating.mode == OperationMode.personal && admins.length == 1,
+        // El pagador no se elige: es el titular (en propio y en compartido).
+        fixedPayer: payers.length == 1,
       ),
     );
     if (result == null) return;
     try {
+      // Medio y fecha: los que la persona vio y pudo corregir en el diálogo.
       await repo.addProviderPayment(
         purchaseId: purchase['id']! as int,
         payerPersonId: result.$1,
         amountBobMinor: result.$2,
-        method: 'TRANSFER',
+        method: result.$3,
+        date: result.$4,
       );
       _refresh();
     } catch (error) {
@@ -323,11 +329,14 @@ class _PaymentDialog extends StatefulWidget {
   final int maxMinor;
   final String title;
 
-  /// En inventario propio paga el titular: no se elige pagador (#26).
+  /// Paga el titular: no se elige pagador (#26 y regla del piloto X01).
   final bool fixedPayer;
   @override
   State<_PaymentDialog> createState() => _PaymentDialogState();
 }
+
+/// Lo que devuelve el diálogo: pagador, importe, medio y fecha del pago.
+typedef _PaymentInput = (int, int, PaymentMethod, DateTime);
 
 class _PaymentDialogState extends State<_PaymentDialog> {
   late int? person = widget.fixedPayer
@@ -340,62 +349,81 @@ class _PaymentDialogState extends State<_PaymentDialog> {
   late final amount = TextEditingController(
     text: formatForInput(widget.maxMinor / 100, maxDecimals: 2),
   );
+
+  /// Medio y día del pago: visibles y corregibles, sin valores supuestos.
+  /// El medio empieza en «Sin indicar»; el día, en hoy (se registra ahora).
+  PaymentMethod method = PaymentMethod.unspecified;
+  late String day = localDay(DateTime.now());
+
   @override
   void dispose() {
     amount.dispose();
     super.dispose();
   }
 
+  void _submit() {
+    final payer = person;
+    if (payer == null) return;
+    Navigator.pop<_PaymentInput>(context, (
+      payer,
+      parseMinor(amount.text),
+      method,
+      effectiveInstantForDay(day, DateTime.now()),
+    ));
+  }
+
   @override
   Widget build(BuildContext context) => AlertDialog(
     title: Text(widget.title),
-    content: Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        if (widget.fixedPayer)
-          Align(
-            alignment: Alignment.centerLeft,
-            child: Text(
+    content: SingleChildScrollView(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (widget.fixedPayer)
+            Text(
               'Paga el titular: ${widget.people.single['name']}',
               key: const Key('payment-personal-payer'),
+            )
+          else
+            DropdownButtonFormField<int>(
+              initialValue: person,
+              decoration: const InputDecoration(labelText: 'Pagador'),
+              items: [
+                for (final p in widget.people)
+                  DropdownMenuItem(
+                    value: p['id']! as int,
+                    child: Text(p['name']! as String),
+                  ),
+              ],
+              onChanged: (value) => setState(() => person = value),
             ),
-          )
-        else
-          DropdownButtonFormField<int>(
-            initialValue: person,
-            decoration: const InputDecoration(labelText: 'Pagador'),
-            items: [
-              for (final p in widget.people)
-                DropdownMenuItem(
-                  value: p['id']! as int,
-                  child: Text(p['name']! as String),
-                ),
-            ],
-            onChanged: (value) => setState(() => person = value),
+          const SizedBox(height: 12),
+          TextField(
+            controller: amount,
+            keyboardType: TextInputType.number,
+            decoration: InputDecoration(
+              labelText: 'Importe BOB',
+              helperText: 'Máximo ${formatBob(widget.maxMinor)}',
+            ),
           ),
-        const SizedBox(height: 12),
-        TextField(
-          controller: amount,
-          keyboardType: TextInputType.number,
-          decoration: InputDecoration(
-            labelText: 'Importe BOB',
-            helperText: 'Máximo ${formatBob(widget.maxMinor)}',
+          const SizedBox(height: 12),
+          ProviderPaymentFields(
+            method: method,
+            onMethodChanged: (value) => setState(() => method = value),
+            day: day,
+            dayHint: day == localDay(DateTime.now()) ? ' (hoy)' : '',
+            onDayChanged: (value) => setState(() => day = value),
           ),
-        ),
-      ],
+        ],
+      ),
     ),
     actions: [
       TextButton(
         onPressed: () => Navigator.pop(context),
         child: const Text('Cancelar'),
       ),
-      FilledButton(
-        onPressed: () {
-          if (person != null)
-            Navigator.pop(context, (person!, parseMinor(amount.text)));
-        },
-        child: const Text('Registrar'),
-      ),
+      FilledButton(onPressed: _submit, child: const Text('Registrar')),
     ],
   );
 }

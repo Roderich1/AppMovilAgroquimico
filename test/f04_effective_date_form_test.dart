@@ -159,6 +159,14 @@ void main() {
     await settle(tester);
   }
 
+  /// Compra (piloto X01): del paso 1 a la revisión, respondiendo «No» a
+  /// «¿Pagaste toda esta compra?».
+  Future<void> toReview(WidgetTester tester) async {
+    await confirm(tester, const Key('purchase-continue'));
+    await tester.tap(find.byKey(const Key('purchase-paid-no')));
+    await settle(tester);
+  }
+
   group('compra', () {
     const tile = Key('purchase-date');
     const button = Key('purchase-confirm');
@@ -190,6 +198,7 @@ void main() {
       );
       // Elegir la fecha no toca el resto del borrador.
       expect(fieldText(tester, 'Cantidad comprada'), '4');
+      await toReview(tester);
       await confirm(tester, button);
 
       final purchases = await rows(tester, h.database, 'purchases');
@@ -239,6 +248,7 @@ void main() {
       final choice = pastDayChoice(DateTime.now());
       await pickPastDay(tester, tile, previousMonth: choice.previousMonth);
       final before = await dump(tester, h.database);
+      await toReview(tester);
       await confirm(tester, button);
       // RF-03: se explica la campaña cerrada y se ofrece registrarla para
       // revisión; cancelar no escribe nada (ni un borrador tardío).
@@ -280,13 +290,16 @@ void main() {
       final choice = pastDayChoice(DateTime.now());
       await pickPastDay(tester, tile, previousMonth: choice.previousMonth);
       final purchasesBefore = await rows(tester, h.database, 'purchases');
+      await toReview(tester);
       await confirm(tester, button);
       await tester.enterText(
         find.byKey(const Key('late-reason')),
         'Factura tardía',
       );
       await tester.tap(find.byKey(const Key('late-register')));
-      await settle(tester);
+      // La captura escribe en la base en tiempo real: con la suite completa
+      // en marcha el aviso puede tardar más que un `settle` fijo.
+      await waitFor(tester, find.textContaining('Guardada para revisión'));
       expect(find.textContaining('Guardada para revisión'), findsOneWidget);
       // Los avisos se encolan: el de la lista aparecía al cerrarse éste.
       for (var i = 0; i < 3; i++) {
@@ -306,8 +319,9 @@ void main() {
     const tile = Key('application-date');
     const button = Key('application-confirm');
 
-    /// Con un solo chaco y un solo producto en stock, el selector los deja
-    /// elegidos al abrir; si no, se eligen aquí.
+    /// Con un solo chaco, el selector lo deja elegido al abrir; si no, se
+    /// elige aquí. Después, el recorrido explícito del producto (piloto X01):
+    /// «Agregar producto → elegir → cantidad → Agregar a la mezcla».
     Future<void> fillApplication(WidgetTester tester) async {
       Future<void> chooseIfOffered(String label, String name) async {
         final w = tester.widget<AdaptiveEntityPicker<Row>>(picker(label));
@@ -317,10 +331,21 @@ void main() {
       }
 
       await chooseIfOffered('Chaco', 'Chaco titular');
-      await chooseIfOffered('Elegir producto', 'Glifosato');
-      expect(field('Cantidad real (L)'), findsOneWidget);
-      await tester.enterText(field('Cantidad real (L)'), '2');
-      await settle(tester);
+      await confirm(tester, const Key('application-continue'));
+      await confirm(tester, const Key('application-add-product'));
+      await choose(tester, 'Producto', 'Glifosato');
+      await tester.enterText(
+        find.byKey(const Key('application-line-quantity')),
+        '2',
+      );
+      await confirm(tester, const Key('application-line-add'));
+      expect(find.text('2 L'), findsOneWidget);
+    }
+
+    /// Del paso 2 al resumen, y confirmar.
+    Future<void> confirmApplication(WidgetTester tester, {int taps = 1}) async {
+      await confirm(tester, const Key('application-continue'));
+      await confirm(tester, button, taps: taps);
     }
 
     testWidgets('un día pasado se guarda a medianoche local, con el área '
@@ -339,11 +364,12 @@ void main() {
         ),
         findsOneWidget,
       );
-      await fillApplication(tester);
+      // La fecha vive en el paso 1; se elige antes de armar la mezcla.
       final choice = pastDayChoice(DateTime.now());
       await pickPastDay(tester, tile, previousMonth: choice.previousMonth);
-      expect(fieldText(tester, 'Cantidad real (L)'), '2');
-      await confirm(tester, button, taps: 2);
+      await fillApplication(tester);
+      expect(find.text('2 L'), findsOneWidget);
+      await confirmApplication(tester, taps: 2);
 
       final applications = await rows(tester, h.database, 'applications');
       expect(applications, hasLength(1));
@@ -372,6 +398,8 @@ void main() {
       await waitFor(tester, picker('Chaco'));
       await settle(tester);
       await fillApplication(tester);
+      // La fecha vive en el paso 1: volver atrás conserva la mezcla.
+      await confirm(tester, const Key('application-back'));
       await cancelPicker(tester, tile);
       expect(
         find.descendant(
@@ -380,7 +408,8 @@ void main() {
         ),
         findsOneWidget,
       );
-      expect(fieldText(tester, 'Cantidad real (L)'), '2');
+      await confirm(tester, const Key('application-continue'));
+      expect(find.text('2 L'), findsOneWidget);
       expect(await rows(tester, h.database, 'applications'), isEmpty);
     });
 
@@ -397,7 +426,7 @@ void main() {
       await settle(tester);
       await fillApplication(tester);
       final before = await dump(tester, h.database);
-      await confirm(tester, button);
+      await confirmApplication(tester);
       expect(find.textContaining('ninguna campaña'), findsOneWidget);
       expect(find.byKey(button), findsOneWidget);
       expect(await dump(tester, h.database), before);
@@ -418,17 +447,19 @@ void main() {
       await tester.tap(find.text('Registrar'));
       await waitFor(tester, picker('Chaco'));
       await settle(tester);
-      await fillApplication(tester);
       final choice = pastDayChoice(DateTime.now());
       await pickPastDay(tester, tile, previousMonth: choice.previousMonth);
+      await fillApplication(tester);
       final before = await rows(tester, h.database, 'applications');
-      await confirm(tester, button);
+      await confirmApplication(tester);
       await tester.enterText(
         find.byKey(const Key('late-reason')),
         'Aplicación anotada tarde',
       );
       await tester.tap(find.byKey(const Key('late-register')));
-      await settle(tester);
+      // La captura escribe en la base en tiempo real: con la suite completa
+      // en marcha el aviso puede tardar más que un `settle` fijo.
+      await waitFor(tester, find.textContaining('Guardada para revisión'));
       expect(find.textContaining('Guardada para revisión'), findsOneWidget);
       for (var i = 0; i < 3; i++) {
         await tester.pump(const Duration(seconds: 5));

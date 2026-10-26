@@ -343,7 +343,7 @@ class _TransferFormScreenState extends ConsumerState<TransferFormScreen> {
                             style: const TextStyle(fontWeight: FontWeight.w700),
                           ),
                           subtitle: Text(
-                            '${formatQuantity(row['available_base'] as int, unit)} disponibles · ${row['lot_count']} lote(s) · próximo FIFO ${formatBob(row['next_fifo_cost_minor'] as int)}/$unit',
+                            '${formatQuantity(row['available_base'] as int, unit)} disponibles · ${row['lot_count']} lote(s) · costo ${formatBob(row['next_fifo_cost_minor'] as int)}/$unit',
                           ),
                           trailing: SizedBox(
                             width: 105,
