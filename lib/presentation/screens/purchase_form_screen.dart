@@ -123,16 +123,10 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
   PaymentMethod paymentMethod = PaymentMethod.unspecified;
 
   /// Día del pago elegido a mano; nulo = el día de la compra, que la pantalla
-  /// muestra como tal. Nunca anterior al día de la compra.
+  /// muestra como tal («el día de la compra»).
   String? paymentDay;
 
-  String get effectivePaymentDay {
-    final chosen = paymentDay;
-    if (chosen == null || chosen.compareTo(effectiveDay) < 0) {
-      return effectiveDay;
-    }
-    return chosen;
-  }
+  String get effectivePaymentDay => paymentDay ?? effectiveDay;
 
   /// Modalidad con la que se cargaron las personas (#26).
   OperationMode? loadedMode;
@@ -163,11 +157,6 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
     if (picked == null || !mounted) return;
     setState(() {
       effectiveDay = localDay(picked);
-      // Un día de pago anterior a la nueva fecha de compra vuelve al día de
-      // la compra (y se ve así en la revisión).
-      if (paymentDay != null && paymentDay!.compareTo(effectiveDay) < 0) {
-        paymentDay = null;
-      }
       dirty = true;
     });
   }
@@ -845,7 +834,6 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
                         : paymentDay == null
                         ? ' (el día de la compra)'
                         : '',
-                    firstDay: effectiveDay,
                     onDayChanged: (value) => setState(() {
                       paymentDay = value;
                       dirty = true;

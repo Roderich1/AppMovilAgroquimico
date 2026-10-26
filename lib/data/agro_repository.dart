@@ -1183,9 +1183,11 @@ class AgroRepository {
 
   /// Escribe un pago al proveedor ya autorizado, dentro de la transacción de
   /// quien lo llama (la compra que se confirma pagada, o un pago posterior).
-  /// La fecha del pago va del día de la compra a hoy: un pago ya hecho no es
-  /// futuro, y el pago «de esta compra» no es anterior a ella. Sólo se juzgan
-  /// los pagos nuevos; los guardados no se tocan.
+  /// La fecha del pago no es futura: un pago ya hecho no puede tener una
+  /// fecha posterior a hoy (como la compra, `_ensureEffectiveDateInCampaign`).
+  /// No se exige que sea posterior a la compra: un anticipo al proveedor es
+  /// legítimo y el contrato no lo prohíbe. Sólo se juzgan los pagos nuevos;
+  /// los guardados no se tocan.
   Future<int> _insertProviderPayment(
     Transaction txn, {
     required int purchaseId,
@@ -1209,15 +1211,6 @@ class AgroRepository {
         'La fecha del pago (${displayDay(day)}) es posterior a hoy '
         '(${displayDay(today)}). Un pago ya hecho no puede tener una fecha '
         'futura. No se registró nada.',
-      );
-    }
-    final purchaseDay = storedLocalDay(
-      purchase.single['purchase_date']! as String,
-    );
-    if (day.compareTo(purchaseDay) < 0) {
-      throw BusinessRuleException(
-        'La fecha del pago (${displayDay(day)}) es anterior a la compra '
-        '(${displayDay(purchaseDay)}). No se registró nada.',
       );
     }
     final paid =

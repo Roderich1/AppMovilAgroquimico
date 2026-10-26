@@ -3,8 +3,9 @@
 // total. El medio y la fecha no se suponen: el medio empieza en «Sin indicar»
 // (explícito, `UNSPECIFIED`) y la fecha en el día de la compra; los dos se ven
 // y se corrigen antes de confirmar. El pago posterior desde Compras muestra
-// los mismos campos (día: hoy). El repositorio sólo admite fechas de pago
-// entre el día de la compra y hoy, y compra y pago siguen en una transacción.
+// los mismos campos (día: hoy). El repositorio rechaza fechas de pago futuras
+// (un anticipo anterior a la compra sí se admite: el contrato no lo prohíbe),
+// y compra y pago siguen en una transacción.
 import 'package:agroquimicos/app.dart';
 import 'package:agroquimicos/data/agro_repository.dart';
 import 'package:agroquimicos/data/app_database.dart';
@@ -131,62 +132,54 @@ void main() {
       },
     );
 
-    test('fecha de pago anterior a la compra: no se escribe nada', () async {
-      await rejectedWithoutChanges(
-        () => household.repo.confirmPurchase(
+    test(
+      'fecha de pago anterior a la compra (anticipo): se admite tal cual; el '
+      'contrato no la prohíbe',
+      () async {
+        final date = DateTime.utc(2026, 1, 10, 14);
+        await household.repo.confirmPurchase(
           draft(DateTime.utc(2026, 1, 20, 14)),
           paidInFull: ProviderPaymentDetails(
             method: PaymentMethod.cash,
-            date: DateTime.utc(2026, 1, 10, 14),
+            date: date,
           ),
-        ),
-        'anterior a la compra',
-      );
-    });
+        );
+        final row = (await payments()).single;
+        expect(row['payment_date'], date.toIso8601String());
+        expect(row['method'], 'CASH');
+      },
+    );
 
-    test(
-      'pago posterior: mismas reglas de fecha; el medio se guarda',
-      () async {
-        final purchase = await household.buy(
-          household.titular,
-          1000,
-          date: DateTime.utc(2026, 1, 20, 14),
-        );
-        await rejectedWithoutChanges(
-          () => household.repo.addProviderPayment(
-            purchaseId: purchase,
-            payerPersonId: household.titular,
-            amountBobMinor: 1000,
-            method: PaymentMethod.transfer,
-            date: DateTime.utc(2026, 1, 10, 14),
-          ),
-          'anterior a la compra',
-        );
-        await rejectedWithoutChanges(
-          () => household.repo.addProviderPayment(
-            purchaseId: purchase,
-            payerPersonId: household.titular,
-            amountBobMinor: 1000,
-            method: PaymentMethod.transfer,
-            date: DateTime.now().add(const Duration(days: 1)),
-          ),
-          'posterior a hoy',
-        );
-        await household.repo.addProviderPayment(
+    test('pago posterior: no futuro; el medio y la fecha se guardan', () async {
+      final purchase = await household.buy(
+        household.titular,
+        1000,
+        date: DateTime.utc(2026, 1, 20, 14),
+      );
+      await rejectedWithoutChanges(
+        () => household.repo.addProviderPayment(
           purchaseId: purchase,
           payerPersonId: household.titular,
           amountBobMinor: 1000,
           method: PaymentMethod.transfer,
-          date: DateTime.now(),
-        );
-        final row = (await payments()).single;
-        expect(row['method'], 'TRANSFER');
-        expect(
-          storedLocalDay(row['payment_date']! as String),
-          localDay(DateTime.now()),
-        );
-      },
-    );
+          date: DateTime.now().add(const Duration(days: 1)),
+        ),
+        'posterior a hoy',
+      );
+      await household.repo.addProviderPayment(
+        purchaseId: purchase,
+        payerPersonId: household.titular,
+        amountBobMinor: 1000,
+        method: PaymentMethod.transfer,
+        date: DateTime.now(),
+      );
+      final row = (await payments()).single;
+      expect(row['method'], 'TRANSFER');
+      expect(
+        storedLocalDay(row['payment_date']! as String),
+        localDay(DateTime.now()),
+      );
+    });
   });
 
   group('pantallas', () {

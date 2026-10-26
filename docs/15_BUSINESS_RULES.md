@@ -153,6 +153,12 @@ Las validaciones exclusivamente de interfaz se listan aparte en
   `paid + amount > total` → *"El pago supera el saldo de la compra."*
 - **Además**: importe > 0 (*"El pago debe ser mayor a cero."*) y compra no revertida
   (*"La compra no está activa."*).
+- **Desde el 2026-10-26**: la fecha del pago no puede ser posterior a hoy (*"La fecha del
+  pago (…) es posterior a hoy (…). Un pago ya hecho no puede tener una fecha futura. No se
+  registró nada."*), como la de la compra. No se exige que sea posterior a la compra (un
+  anticipo es legítimo). El medio se guarda tal como lo indicó la persona (`PaymentMethod`,
+  con `UNSPECIFIED` = «Sin indicar»); el pagador es el titular vigente. Sólo para pagos
+  nuevos: los guardados no se reescriben.
 - **Impacto**: Alto. Impide sobrepagar a un proveedor.
 - **Asimetría notable**: los pagos a **personas** (`addAccountPayment`) **no tienen tope**.
   Ver [16_VALIDATIONS](16_VALIDATIONS.md).

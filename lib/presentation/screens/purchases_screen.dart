@@ -107,7 +107,6 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> {
         people: payers,
         maxMinor: remaining,
         title: 'Pago al proveedor',
-        purchaseDay: storedLocalDay(purchase['purchase_date']! as String),
         // El pagador no se elige: es el titular (en propio y en compartido).
         fixedPayer: payers.length == 1,
       ),
@@ -324,15 +323,11 @@ class _PaymentDialog extends StatefulWidget {
     required this.people,
     required this.maxMinor,
     required this.title,
-    required this.purchaseDay,
     this.fixedPayer = false,
   });
   final List<Map<String, Object?>> people;
   final int maxMinor;
   final String title;
-
-  /// Día local de la compra: el pago no puede ser anterior.
-  final String purchaseDay;
 
   /// Paga el titular: no se elige pagador (#26 y regla del piloto X01).
   final bool fixedPayer;
@@ -418,7 +413,6 @@ class _PaymentDialogState extends State<_PaymentDialog> {
             onMethodChanged: (value) => setState(() => method = value),
             day: day,
             dayHint: day == localDay(DateTime.now()) ? ' (hoy)' : '',
-            firstDay: widget.purchaseDay,
             onDayChanged: (value) => setState(() => day = value),
           ),
         ],

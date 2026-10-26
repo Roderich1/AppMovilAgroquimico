@@ -8,8 +8,8 @@ import '../../domain/models.dart';
 /// La tabla exige un medio y una fecha; la interfaz no los inventa. El medio
 /// empieza en «Sin indicar» (un valor explícito, no un medio supuesto) y la
 /// fecha en [day], que quien lo muestra explica con [dayHint] («(hoy)», «(el
-/// día de la compra)»). El selector de fecha va de [firstDay] (el día de la
-/// compra) a hoy: un pago ya hecho no es futuro ni anterior a la compra.
+/// día de la compra)»). El selector de fecha no ofrece el futuro (un pago ya
+/// hecho no es futuro); sí admite días anteriores a la compra (anticipos).
 class ProviderPaymentFields extends StatelessWidget {
   const ProviderPaymentFields({
     super.key,
@@ -17,7 +17,6 @@ class ProviderPaymentFields extends StatelessWidget {
     required this.onMethodChanged,
     required this.day,
     required this.dayHint,
-    required this.firstDay,
     required this.onDayChanged,
     this.enabled = true,
   });
@@ -28,19 +27,19 @@ class ProviderPaymentFields extends StatelessWidget {
   /// Día local `aaaa-mm-dd` del pago.
   final String day;
   final String dayHint;
-
-  /// Primer día que admite el selector (el de la compra).
-  final String firstDay;
   final ValueChanged<String> onDayChanged;
   final bool enabled;
 
   Future<void> _pickDay(BuildContext context) async {
     final now = DateTime.now();
+    final initial = startOfLocalDay(day);
     final picked = await showDatePicker(
       context: context,
-      initialDate: startOfLocalDay(day),
-      firstDate: startOfLocalDay(firstDay),
-      lastDate: now,
+      initialDate: initial,
+      firstDate: DateTime(2000),
+      // Si el día mostrado quedara después del reloj (reloj atrasado o base
+      // restaurada), el selector no debe abrirse con un rango inválido.
+      lastDate: now.isBefore(initial) ? initial : now,
       helpText: 'Fecha del pago',
     );
     if (picked != null) onDayChanged(localDay(picked));
