@@ -20,7 +20,8 @@ String actionLabel(SyncAction action) => switch (action) {
 };
 
 /// Estado de lo que se envía al sindicato (RF-18): pendiente, enviando,
-/// sincronizado, conflicto, rechazado o pausado, con la fecha del último ACK.
+/// sincronizado, conflicto, rechazado o pausado, con la fecha de la última
+/// confirmación de Central.
 /// No muestra nada de otras personas: la outbox sólo tiene totales propios.
 class SyncStatusScreen extends ConsumerStatefulWidget {
   const SyncStatusScreen({super.key});
@@ -133,9 +134,18 @@ class _SyncStatusScreenState extends ConsumerState<SyncStatusScreen> {
                     Chip(
                       avatar: const Icon(Icons.schedule, size: 16),
                       label: Text(
+                        // Lenguaje del agricultor (bloque X01): «confirmación»
+                        // en vez de «ACK». Es el mismo estado real
+                        // (`lastAcceptedAt`): que no haya confirmación no
+                        // dice que Central no recibiera el envío.
                         summary.lastAcceptedAt == null
-                            ? 'Sin ACK todavía'
-                            : 'Último ACK: ${formatDate(summary.lastAcceptedAt)}',
+                            ? 'Todavía sin confirmación'
+                            : 'Última confirmación: ${formatDate(summary.lastAcceptedAt)}',
+                        // El `Chip` desvanece en silencio lo que no cabe en
+                        // una línea; con fuente ampliada en 360 px la fecha
+                        // no cabía. Dos líneas, nunca truncado.
+                        softWrap: true,
+                        maxLines: 2,
                       ),
                     ),
                   ],
@@ -261,7 +271,7 @@ class _SyncStatusScreenState extends ConsumerState<SyncStatusScreen> {
                                   entry.lastCode!,
                                 'creada ${formatDate(entry.createdAt)}',
                                 if (entry.ackedAt != null)
-                                  'ACK ${formatDate(entry.ackedAt)}',
+                                  'Confirmado: ${formatDate(entry.ackedAt)}',
                               ].join(' · ') +
                               (entry.interventionMessage == null
                                   ? ''
