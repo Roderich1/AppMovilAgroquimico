@@ -115,9 +115,9 @@ class _OwnerSetupScreenState extends ConsumerState<OwnerSetupScreen> {
         modeNotice ??
             (_mode == OperationMode.personal
                 ? 'Titular vinculado. Usa inventario propio; puede cambiarlo '
-                      'en Operaciones › Modo de uso.'
+                      'en Operaciones › Más › Modo de uso.'
                 : 'Titular vinculado. Usa inventario compartido; puede '
-                      'cambiarlo en Operaciones › Modo de uso.'),
+                      'cambiarlo en Operaciones › Más › Modo de uso.'),
       );
       context.go('/');
     } on Object catch (error) {
@@ -215,7 +215,7 @@ class _OwnerSetupScreenState extends ConsumerState<OwnerSetupScreen> {
               ),
               const Text(
                 'Elija cómo se registra el inventario en este teléfono. Podrá '
-                'cambiarlo después en Operaciones › Modo de uso, sin perder '
+                'cambiarlo después en Operaciones › Más › Modo de uso, sin perder '
                 'registros y sin conexión.',
                 key: Key('owner-mode-help'),
               ),
