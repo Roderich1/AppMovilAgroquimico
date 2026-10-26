@@ -133,9 +133,13 @@ class _SyncStatusScreenState extends ConsumerState<SyncStatusScreen> {
                     Chip(
                       avatar: const Icon(Icons.schedule, size: 16),
                       label: Text(
+                        // Lenguaje del agricultor (bloque X01): «confirmación»
+                        // en vez de «ACK». Es el mismo estado real
+                        // (`lastAcceptedAt`): que no haya confirmación no
+                        // dice que Central no recibiera el envío.
                         summary.lastAcceptedAt == null
-                            ? 'Sin ACK todavía'
-                            : 'Último ACK: ${formatDate(summary.lastAcceptedAt)}',
+                            ? 'Todavía sin confirmación'
+                            : 'Última confirmación: ${formatDate(summary.lastAcceptedAt)}',
                       ),
                     ),
                   ],
@@ -261,7 +265,7 @@ class _SyncStatusScreenState extends ConsumerState<SyncStatusScreen> {
                                   entry.lastCode!,
                                 'creada ${formatDate(entry.createdAt)}',
                                 if (entry.ackedAt != null)
-                                  'ACK ${formatDate(entry.ackedAt)}',
+                                  'Confirmado: ${formatDate(entry.ackedAt)}',
                               ].join(' · ') +
                               (entry.interventionMessage == null
                                   ? ''

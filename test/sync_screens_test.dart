@@ -359,7 +359,7 @@ void main() {
       await settle(tester);
       expect(find.text('Pendiente: 1'), findsOneWidget);
       expect(find.text('Rechazado: 1'), findsOneWidget);
-      expect(find.text('Sin ACK todavía'), findsOneWidget);
+      expect(find.text('Todavía sin confirmación'), findsOneWidget);
       expect(
         find.textContaining('Necesidad declarada · Publicar · 1,5 L'),
         findsOneWidget,
