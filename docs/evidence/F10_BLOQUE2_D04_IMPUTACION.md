@@ -118,3 +118,37 @@ En «hoy», la columna «I» es Cuentas filtrada por Invierno 2026 (filtro por d
 - No está implementada la leyenda «Incluye operaciones tardías confirmadas» (carencia previa, C-13).
 - La comprobación en el emulador y la confirmación de C-09 en dispositivo quedan para la verificación integrada.
 - Lo propio del titular es E-15, en la rama apilada `feat/e15-consumo-propio-titular`. En D-04 el titular sigue siendo una persona más de la lista.
+
+## Revisión cruzada 2 (2026-10-27, ajustes en `500f5ad`)
+
+La revisión cruzada de `4970124` dio «listo con ajustes», sin errores contables, y recalculó los diez ejemplos. Ajustes aplicados:
+
+- **Fin del período (media).** El período terminó si `endDay` es anterior a hoy, sea cual sea el estado; es el mismo criterio en `periodClosed` y en el diálogo de pago. Antes una campaña ACTIVA con fin pasado (#125) cortaba las filas y aun así rotulaba «Saldo a hoy», lo que rompía I-4.
+- **Documentos.** F-11 y D-R7: Personas sigue con `detailedStatementTyped` hasta E-15. D-R8 (`withDetails: false`), §2.2/§2.4/RN-42 (fin por fecha) y la nota de §4 sobre las imputaciones guardadas por instante.
+- **Lecturas heredadas** (`settlements*`, `personCampaignBalance*`, `statement`, `detailedStatement`, `ReportComposer.accountStatement`) marcadas «sólo caracterización». No se usó `@Deprecated`, porque las pruebas de caracterización lo convertirían en avisos del análisis.
+- **Pruebas nuevas:**
+  - campaña ACTIVA con fin pasado y pago posterior;
+  - asiento en un hueco entre campañas;
+  - 07h seguido de un pago nuevo (la imputación histórica intacta y el pago nuevo a c2);
+  - PDF de `ledgerStatement` filtrado por Invierno con sus cifras;
+  - I-4 con fin e I-5 de terceros dentro de las invariantes;
+  - M-4/D04-06 con la confirmación tardía RF-03 y la reversión RF-13 reales, con PIN de prueba (`d04_imputacion_real_ops_test.dart`). Allí la tardía, con id mayor, recibe primero la imputación por su día (2025) y el cierre de «Campaña 2025» pasa de 0,00 a 50,00. La reversión libera 50,00 y un pago posterior no se imputa.
+
+```text
+$ flutter test --timeout 120s <tanda>                                   # sobre 500f5ad
+d04_imputacion_ledger_test, d04_imputacion_base_test, d04_imputacion_real_ops_test -> +48: All tests passed!
+regression_widget_test, report_export_service_test, report_composer_test           -> +68: All tests passed!
+report_pdf_test, navigation_test, sync_screens_test                                -> +35: All tests passed!
+f10_mensajes_autorizacion_test, reports_test, report_reads_characterization_test   -> +42: All tests passed!
+typed_reads_parity_test, payment_dialog_test, reports_screen_test                  -> +44: All tests passed!
+$ dart format lib test -> Formatted 330 files (0 changed)
+$ flutter analyze      -> No issues found!
+
+# Discriminación de las pruebas nuevas
+$ flutter test test/d04_imputacion_ledger_test.dart --plain-name "revisión cruzada 2"   # lib/ de 4970124
+test/d04_imputacion_ledger_test.dart:1104:9: Error: No named parameter with the name 'now'.
+00:00 +0 -1: Some tests failed.
+$ flutter test test/d04_imputacion_real_ops_test.dart test/d04_imputacion_ledger_test.dart   # lib/ de ed9c55c
+test/d04_imputacion_real_ops_test.dart:95:32: Error: The method 'accountLedger' isn't defined for the type 'AgroRepository'.
+(las dos no compilan sobre las bases; el árbol se restauró con git checkout HEAD -- lib/ y quedó limpio)
+```

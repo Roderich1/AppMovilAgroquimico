@@ -33,7 +33,14 @@ class D04World {
 
   /// «Verano 2026» del 01/01 al 30/06, CERRADA; «Invierno 2026» desde el
   /// 01/07, ACTIVA. Familiar Demo, Tercero Demo y un administrador.
-  static Future<D04World> create() async {
+  ///
+  /// Con [activateInvierno] en `false`, Verano sigue ACTIVA con su fin ya
+  /// pasado (la sucesora existe y no se activó, #125). Con [veranoEnd], Verano
+  /// termina antes y queda un hueco hasta Invierno.
+  static Future<D04World> create({
+    bool activateInvierno = true,
+    DateTime? veranoEnd,
+  }) async {
     final database = AppDatabase(
       factory: databaseFactoryFfi,
       path: inMemoryDatabasePath,
@@ -55,12 +62,15 @@ class D04World {
     world.verano = await repo.addCampaign(
       name: 'Verano 2026',
       start: DateTime(2026, 1, 1),
+      end: veranoEnd,
     );
     world.invierno = await repo.addCampaign(
       name: 'Invierno 2026',
       start: DateTime(2026, 7, 1),
     );
-    await repo.activateCampaign(world.invierno, closeCurrent: true);
+    if (activateInvierno) {
+      await repo.activateCampaign(world.invierno, closeCurrent: true);
+    }
     return world;
   }
 

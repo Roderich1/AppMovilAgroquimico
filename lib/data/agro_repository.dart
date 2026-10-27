@@ -3244,9 +3244,8 @@ class AgroRepository {
       // D-04: deuda pendiente por origen de la campaña, sin ADMIN (D-R6). Ya
       // no es la suma con signo de los asientos con ese `campaign_id`, que
       // restaba pagos de otras deudas y omitía los registrados sin campaña.
-      'receivable_bob_minor': (await accountLedger()).pendingForCampaign(
-        campaignId,
-      ),
+      'receivable_bob_minor': (await accountLedger(withDetails: false))
+          .pendingForCampaign(campaignId),
     };
   }
 
@@ -3271,8 +3270,16 @@ class AgroRepository {
   /// quien ha sido titular (A, para el consumo propio de E-15). Con
   /// [personId], sólo esa persona (los vínculos se leen siempre todos).
   /// La clasificación y los cálculos son Dart puro (`AccountLedger`).
-  Future<AccountLedger> accountLedger({int? personId}) async {
+  ///
+  /// Con [withDetails] en `false` no se resuelven concepto ni chaco (sin
+  /// `GROUP_CONCAT`): basta para cifras (lista, Inicio, resumen).
+  Future<AccountLedger> accountLedger({
+    int? personId,
+    bool withDetails = true,
+  }) async {
     final one = personId != null;
+    final concept = withDetails ? _conceptSql : 'NULL';
+    final farm = withDetails ? _farmSql : 'NULL';
     final rows = await (await _db).rawQuery(
       '''SELECT 'K' kind, c.id id, NULL person_id, c.name name, c.start_date d1,
         c.end_date d2, c.status code, NULL amount, NULL ref1, NULL ref2,
@@ -3283,7 +3290,7 @@ class AgroRepository {
       UNION ALL
       SELECT 'T', t.id, t.person_id, NULL, t.transaction_date, NULL, t.type,
         t.amount_bob_minor_signed, t.campaign_id, t.reversal_of_id,
-        $_conceptSql, $_farmSql, t.notes
+        $concept, $farm, t.notes
         FROM account_transactions t ${one ? 'WHERE t.person_id=?' : ''}
       UNION ALL
       SELECT 'L', a.id, NULL, NULL, NULL, NULL, NULL, a.amount_bob_minor,
@@ -3309,7 +3316,8 @@ class AgroRepository {
   /// Filas de la lista de Cuentas (§2.3): sin ADMIN, con el alcance de
   /// [campaignId] y el saldo neto de todas las campañas.
   Future<List<AccountSummary>> accountSummaries({int? campaignId}) async =>
-      (await accountLedger()).summaries(campaignId: campaignId);
+      (await accountLedger(withDetails: false))
+          .summaries(campaignId: campaignId);
 
   /// Estado de cuenta (§2.5): desglose por campaña de origen y cronológico
   /// por período de fechas con apertura.
@@ -3320,6 +3328,7 @@ class AgroRepository {
       (await accountLedger(personId: personId))
           .statement(personId, campaignId: campaignId);
 
+  /// Heredada: sólo caracterización (EVO-004); la app usa `accountStatement` (D-04).
   Future<Map<String, Object?>> personCampaignBalance(
     int personId,
     int campaignId,
@@ -3418,6 +3427,7 @@ class AgroRepository {
     return cost;
   }
 
+  /// Heredada: sólo caracterización (EVO-004); la app usa `accountSummaries` (D-04).
   Future<List<Map<String, Object?>>> settlements({int? campaignId}) async =>
       (await _db).rawQuery(
         '''SELECT p.id, p.name, p.role,
@@ -3436,6 +3446,8 @@ class AgroRepository {
         WHERE p.role<>'ADMIN' GROUP BY p.id ORDER BY balance DESC,p.name LIMIT ?''',
         [limit],
       );
+
+  /// Heredada: sólo caracterización (EVO-004); la app usa `accountStatement` (D-04).
   Future<List<Map<String, Object?>>> statement(
     int personId, {
     int? campaignId,
@@ -3445,6 +3457,7 @@ class AgroRepository {
     [personId, if (campaignId != null) campaignId],
   );
 
+  /// Heredada: sólo caracterización (EVO-004); la app usa `accountStatement`; Personas la usa hasta E-15 (D-04).
   Future<List<Map<String, Object?>>> detailedStatement(
     int personId, {
     int? campaignId,
@@ -3504,7 +3517,7 @@ class AgroRepository {
     // D-04 (§2.7): «por cobrar» = Σ max(0, saldo neto) por persona, y lo que
     // queda a favor se informa aparte. Una sola lectura del libro sustituye a
     // las tres sumas por rol y por tipo.
-    final ledger = await accountLedger();
+    final ledger = await accountLedger(withDetails: false);
     final family = ledger.receivableByRole('FAMILY');
     final third = ledger.receivableByRole('THIRD_PARTY');
     final received = ledger.receivedMinor();
