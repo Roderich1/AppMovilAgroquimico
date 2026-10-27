@@ -980,6 +980,20 @@ class _ProductSheetState extends State<_ProductSheet> {
     super.dispose();
   }
 
+  /// Lo que pide el usuario por encima de lo que hay (E-08): con ese texto
+  /// la hoja no deja agregar ni guardar. Es sólo la primera barrera: la
+  /// validación definitiva sigue en `confirmApplication`, dentro de su
+  /// transacción, por si las existencias cambian entre medio.
+  String? get _insufficient {
+    final available = product?['available_base'] as int?;
+    final typed = tryParseBase(quantity.text) ?? 0;
+    if (available == null || typed <= available) return null;
+    final unit = product!['unit'] as String;
+    return 'Pediste ${formatQuantity(typed, unit)} y hay '
+        '${formatQuantity(available, unit)}. Baja la cantidad o registra '
+        'primero la compra.';
+  }
+
   void _confirm() {
     final chosen = product;
     if (chosen == null) {
@@ -991,6 +1005,8 @@ class _ProductSheetState extends State<_ProductSheet> {
       setState(() => error = 'Escribe la cantidad que usaste, mayor que cero.');
       return;
     }
+    // Nada entra en la mezcla por encima de lo disponible.
+    if (_insufficient != null) return;
     Navigator.pop(context, _LineInput(chosen, base));
   }
 
@@ -999,7 +1015,7 @@ class _ProductSheetState extends State<_ProductSheet> {
     final theme = Theme.of(context);
     final unit = product?['unit']?.toString();
     final available = product?['available_base'] as int?;
-    final typed = tryParseBase(quantity.text) ?? 0;
+    final insufficient = _insufficient;
     final editing = widget.initial != null;
     return SafeArea(
       child: Padding(
@@ -1053,25 +1069,12 @@ class _ProductSheetState extends State<_ProductSheet> {
                 helperText: available == null
                     ? 'Primero elige el producto.'
                     : 'Hay ${formatQuantity(available, unit!)}.',
-                helperStyle: available != null && typed > available
-                    ? TextStyle(color: theme.colorScheme.error)
-                    : null,
-                errorText: error,
+                // Disponible y pedido, con unidades, como error del propio
+                // campo; el botón de abajo queda deshabilitado a la vez.
+                errorText: error ?? insufficient,
+                errorMaxLines: 3,
               ),
             ),
-            if (available != null && typed > available)
-              Padding(
-                padding: const EdgeInsets.only(top: 8),
-                child: Text(
-                  'Con esa cantidad la aplicación no se podrá guardar: hay '
-                  '${formatQuantity(available, unit!)}.',
-                  key: const Key('application-line-insufficient'),
-                  style: TextStyle(
-                    color: theme.colorScheme.error,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
             const SizedBox(height: 16),
             Row(
               children: [
@@ -1084,7 +1087,7 @@ class _ProductSheetState extends State<_ProductSheet> {
                 Expanded(
                   child: FilledButton.icon(
                     key: const Key('application-line-add'),
-                    onPressed: _confirm,
+                    onPressed: insufficient == null ? _confirm : null,
                     icon: Icon(editing ? Icons.check : Icons.add),
                     label: Text(
                       editing ? 'Guardar cambios' : 'Agregar a la mezcla',
