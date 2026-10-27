@@ -2110,7 +2110,7 @@ class AgroRepository {
     reason: reason,
     authorization: authorization,
     effects: (txn, context, recorder) =>
-        _reversePurchaseIn(txn, purchaseId, reason.trim(), recorder),
+        _reversePurchaseIn(txn, context, purchaseId, reason.trim(), recorder),
   );
 
   /// Sólo pruebas: los efectos de la reversión sin auditoría ni autorización.
@@ -2119,12 +2119,18 @@ class AgroRepository {
     int purchaseId, {
     String? reason,
   }) => _write(
-    (txn, _) =>
-        _reversePurchaseIn(txn, purchaseId, reason, ReversalEffects.discard()),
+    (txn, context) => _reversePurchaseIn(
+      txn,
+      context,
+      purchaseId,
+      reason,
+      ReversalEffects.discard(),
+    ),
   );
 
   Future<OriginalOperation> _reversePurchaseIn(
     Transaction txn,
+    WriteContext context,
     int purchaseId,
     String? reason,
     ReversalEffects effects,
@@ -2154,6 +2160,29 @@ class AgroRepository {
       final lots = await txn.rawQuery(
         'SELECT l.* FROM inventory_lots l JOIN purchase_items i ON i.id=l.purchase_item_id WHERE i.purchase_id=?',
         [purchaseId],
+      );
+      final allocationCharges = await txn.rawQuery(
+        '''SELECT t.* FROM account_transactions t JOIN purchase_allocations a ON
+        t.reference_type='PURCHASE_ALLOCATION' AND t.reference_id=a.id JOIN purchase_items i ON i.id=a.purchase_item_id
+        WHERE i.purchase_id=?''',
+        [purchaseId],
+      );
+      // Revertir anula los lotes y abona los cargos a quien se le asignó la
+      // compra. En modo propio eso crearía actividad de otra persona
+      // (#26/#27, #102), como en las reversiones de aplicación y de
+      // transferencia. Se comprueba antes de escribir y sólo sobre lo que se
+      // va a escribir: un lote ya anulado (F04-BUG-02) no cuenta. La compra
+      // sigue disponible para revertirse en inventario compartido.
+      _requireOwnerInPersonal(
+        context,
+        [
+          for (final lot in lots)
+            if (lot['reversed_at'] == null) lot['owner_person_id']! as int,
+          for (final charge in allocationCharges) charge['person_id']! as int,
+        ],
+        'En inventario propio sólo se revierten compras asignadas al titular. '
+        'Para revertir una compra con asignaciones a otras personas, cambie '
+        'a inventario compartido.',
       );
       for (final lot in lots) {
         final available =
@@ -2204,12 +2233,6 @@ class AgroRepository {
         );
         effects.add('inventory_lots', lot['id']! as int);
       }
-      final allocationCharges = await txn.rawQuery(
-        '''SELECT t.* FROM account_transactions t JOIN purchase_allocations a ON
-        t.reference_type='PURCHASE_ALLOCATION' AND t.reference_id=a.id JOIN purchase_items i ON i.id=a.purchase_item_id
-        WHERE i.purchase_id=?''',
-        [purchaseId],
-      );
       for (final charge in allocationCharges) {
         effects.add(
           'account_transactions',

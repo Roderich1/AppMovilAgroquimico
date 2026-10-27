@@ -399,6 +399,58 @@ void main() {
     },
   );
 
+  test(
+    '422 y reanudación explícita del titular (C25): el mismo envelope sale '
+    'otra vez y el ACK lo deja sincronizado; un 422 repetido vuelve a pausar',
+    () async {
+      final h = await harness([
+        (_) =>
+            error(422, 'CONTRACT_VERSION_MISMATCH', 'KEEP_FOR_RECONCILIATION'),
+        (_) =>
+            error(422, 'CONTRACT_VERSION_MISMATCH', 'KEEP_FOR_RECONCILIATION'),
+        (r) => ack(r),
+      ]);
+      await declare(h.fixture, 1000);
+      expect((await h.worker.run()).blocker, SyncBlocker.versionMismatch);
+      final paused = (await h.entries()).single;
+      expect(paused.status, OutboxStatus.versionMismatch);
+      expect(paused.attempts, 1);
+      // Volver a arrancar el worker no reanuda nada: no es automático.
+      expect((await h.worker.run()).blocker, SyncBlocker.versionMismatch);
+      expect(h.transport.requests, hasLength(1));
+
+      // El titular reanuda; la fila conserva su identidad y contenido.
+      expect(
+        await h.fixture.outbox.resumeVersionMismatch(h.fixture.ownerBindingId),
+        1,
+      );
+      final resumed = (await h.entries()).single;
+      expect(resumed.status, OutboxStatus.outcomeUnknown);
+      expect(resumed.operationId, paused.operationId);
+      expect(resumed.predecessorOperationId, paused.predecessorOperationId);
+      expect(resumed.quantityBase, paused.quantityBase);
+
+      // Central sigue en otra versión: se pausa de nuevo en el mismo ciclo.
+      expect((await h.worker.run()).blocker, SyncBlocker.versionMismatch);
+      expect((await h.entries()).single.status, OutboxStatus.versionMismatch);
+      expect(h.transport.bodies[1], h.transport.bodies[0]);
+
+      // Tras actualizar: reanudación explícita, mismo envelope, ACK.
+      await h.fixture.outbox.resumeVersionMismatch(h.fixture.ownerBindingId);
+      final report = await h.worker.run();
+      expect(report.blocker, isNull);
+      expect(report.accepted, 1);
+      expect(h.transport.requests, hasLength(3));
+      expect(h.transport.bodies[2], h.transport.bodies[0]);
+      final acked = (await h.entries()).single;
+      expect(acked.status, OutboxStatus.acked);
+      expect(acked.operationId, paused.operationId);
+      expect(acked.attempts, 3);
+      // Nada más se reanuda ni se envía al ciclo siguiente.
+      expect((await h.worker.run()).sent, 0);
+    },
+  );
+
   for (final incoherent in <String, String Function(String id)>{
     'otro operationId': (id) => ackJson('99999999-9999-4999-8999-999999999999'),
     'ACK sin hora de aceptación': (id) =>
