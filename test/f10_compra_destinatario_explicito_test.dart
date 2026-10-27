@@ -257,8 +257,20 @@ void main() {
     expect(inStep1(), isTrue);
     await hideSnackBar(tester);
 
+    // La misma persona en dos filas se rechaza aunque las partes sumen.
     await tester.enterText(field('Cantidad').at(1), '1');
-    await settle(tester);
+    await choose(tester, 'Persona', 'Titular', position: 1);
+    await tapKey(tester, 'purchase-continue');
+    expect(
+      find.text(
+        'La misma persona aparece dos veces en el reparto de Glifosato.',
+      ),
+      findsOneWidget,
+    );
+    expect(inStep1(), isTrue);
+    await hideSnackBar(tester);
+
+    await choose(tester, 'Persona', 'Hermana', position: 1);
     expect(
       find.textContaining('Repartida: Titular 1 L · Hermana 1 L'),
       findsOneWidget,
@@ -298,7 +310,7 @@ void main() {
     await tapKey(tester, 'purchase-continue');
     expect(
       find.text(
-        'Indica para quién es Glifosato: toda para una persona o repartida '
+        'Indique para quién es Glifosato: toda para una persona o repartida '
         'entre varias.',
       ),
       findsOneWidget,
@@ -308,9 +320,84 @@ void main() {
 
     await tapKey(tester, 'purchase-alloc-single-0');
     await tapKey(tester, 'purchase-continue');
-    expect(find.text('Elige para quién es Glifosato.'), findsOneWidget);
+    expect(find.text('Elija para quién es Glifosato.'), findsOneWidget);
     expect(inStep1(), isTrue);
     expect(await rows(tester, s.database, 'purchases'), isEmpty);
+  });
+
+  testWidgets('(h) cambiar de opción limpia la anterior en ambos sentidos; '
+      'volver a tocar la opción activa no borra nada', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 3000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final s = await activatedHousehold(tester, 'dest-h');
+    final c = await pumpModeApp(tester, s.database);
+    await openForm(tester, c);
+    await fillLine(tester);
+
+    // Una persona → Titular; re-tocar la opción activa conserva la elección.
+    await tapKey(tester, 'purchase-alloc-single-0');
+    await choose(tester, 'Persona', 'Titular');
+    expect(find.textContaining('Para: Titular'), findsOneWidget);
+    await tapKey(tester, 'purchase-alloc-single-0');
+    expect(find.textContaining('Para: Titular'), findsOneWidget);
+    expect(
+      tester.widget<AdaptiveEntityPicker<Row>>(picker('Persona')).value,
+      isNotNull,
+    );
+
+    // Pasar a «Repartir»: la persona única no se arrastra a ninguna fila.
+    await tapKey(tester, 'purchase-alloc-split-0');
+    expect(picker('Persona'), findsNWidgets(2));
+    for (final p in tester.widgetList<AdaptiveEntityPicker<Row>>(
+      picker('Persona'),
+    )) {
+      expect(p.value, isNull);
+    }
+    expect(find.textContaining('Para: Titular'), findsNothing);
+    expect(find.textContaining('Pendiente de persona'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+
+    // Rellenar el reparto; re-tocar «Repartir» conserva las filas.
+    await choose(tester, 'Persona', 'Hermana');
+    await choose(tester, 'Persona', 'Vecino', position: 1);
+    await tester.enterText(field('Cantidad').at(0), '1');
+    await tester.enterText(field('Cantidad').at(1), '1');
+    await settle(tester);
+    expect(
+      find.textContaining('Repartida: Hermana 1 L · Vecino 1 L'),
+      findsOneWidget,
+    );
+    await tapKey(tester, 'purchase-alloc-split-0');
+    expect(
+      find.textContaining('Repartida: Hermana 1 L · Vecino 1 L'),
+      findsOneWidget,
+    );
+    expect(picker('Persona'), findsNWidgets(2));
+
+    // Volver a «Toda para una persona»: sin persona ni filas heredadas.
+    await tapKey(tester, 'purchase-alloc-single-0');
+    expect(picker('Persona'), findsOneWidget);
+    expect(
+      tester.widget<AdaptiveEntityPicker<Row>>(picker('Persona')).value,
+      isNull,
+    );
+    expect(field('Cantidad'), findsNothing);
+    expect(find.textContaining('Pendiente de destinatario'), findsOneWidget);
+    expect(find.textContaining('Repartida:'), findsNothing);
+    expect(tester.takeException(), isNull);
+
+    // Y al volver a «Repartir», dos filas nuevas vacías (no las anteriores).
+    await tapKey(tester, 'purchase-alloc-split-0');
+    expect(picker('Persona'), findsNWidgets(2));
+    for (final p in tester.widgetList<AdaptiveEntityPicker<Row>>(
+      picker('Persona'),
+    )) {
+      expect(p.value, isNull);
+    }
+    for (final f in tester.widgetList<TextField>(field('Cantidad'))) {
+      expect(f.controller!.text, isEmpty);
+    }
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('(e) en propio no se pregunta: todo al titular', (tester) async {
@@ -370,7 +457,7 @@ void main() {
     await settle(tester);
     await tapKey(tester, 'purchase-continue');
     expect(
-      find.text('Revisa la cantidad comprada de Glifosato.'),
+      find.text('Revise la cantidad comprada de Glifosato.'),
       findsOneWidget,
     );
     expect(

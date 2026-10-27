@@ -347,18 +347,18 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
     for (var index = 0; index < lines.length; index++) {
       final line = lines[index];
       if (line.productId == null) {
-        return 'Elige el producto de la línea ${index + 1}.';
+        return 'Elija el producto de la línea ${index + 1}.';
       }
       final name = _productName(line.productId);
 
       final quantity = parseNumericInput(line.quantity.text);
       switch (quantity.status) {
         case NumericInputStatus.empty:
-          return 'Escribe la cantidad comprada de $name.';
+          return 'Escriba la cantidad comprada de $name.';
         case NumericInputStatus.ambiguous:
         case NumericInputStatus.malformed:
           line.quantityError = quantity.message;
-          return 'Revisa la cantidad comprada de $name.';
+          return 'Revise la cantidad comprada de $name.';
         case NumericInputStatus.valid:
           if (line.quantityBase <= 0) {
             return 'La cantidad comprada de $name debe ser mayor que cero.';
@@ -368,11 +368,11 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
       final price = parseNumericInput(line.price.text);
       switch (price.status) {
         case NumericInputStatus.empty:
-          return 'Escribe el precio de $name.';
+          return 'Escriba el precio de $name.';
         case NumericInputStatus.ambiguous:
         case NumericInputStatus.malformed:
           line.priceError = price.message;
-          return 'Revisa el precio de $name.';
+          return 'Revise el precio de $name.';
         case NumericInputStatus.valid:
           if (line.priceMinor <= 0) {
             return 'El precio de $name debe ser mayor que cero.';
@@ -383,11 +383,11 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
         final fx = parseNumericInput(line.fx.text);
         switch (fx.status) {
           case NumericInputStatus.empty:
-            return 'Escribe el tipo de cambio de $name.';
+            return 'Escriba el tipo de cambio de $name.';
           case NumericInputStatus.ambiguous:
           case NumericInputStatus.malformed:
             line.fxError = fx.message;
-            return 'Revisa el tipo de cambio de $name.';
+            return 'Revise el tipo de cambio de $name.';
           case NumericInputStatus.valid:
             if ((line.exchangeRateScaled ?? 0) <= 0) {
               return 'El tipo de cambio de $name debe ser mayor que cero.';
@@ -399,30 +399,37 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
       if (personalOwnerId != null) continue;
       switch (line.allocationMode) {
         case null:
-          return 'Indica para quién es $name: toda para una persona o '
+          return 'Indique para quién es $name: toda para una persona o '
               'repartida entre varias.';
         case _AllocationMode.single:
           if (line.singlePersonId == null) {
-            return 'Elige para quién es $name.';
+            return 'Elija para quién es $name.';
           }
         case _AllocationMode.split:
           for (final allocation in line.allocations) {
             if (allocation.personId == null) {
-              return 'Elige la persona de cada parte de $name.';
+              return 'Elija la persona de cada parte de $name.';
             }
             final part = parseNumericInput(allocation.quantity.text);
             switch (part.status) {
               case NumericInputStatus.empty:
-                return 'Escribe la cantidad de cada parte de $name.';
+                return 'Escriba la cantidad de cada parte de $name.';
               case NumericInputStatus.ambiguous:
               case NumericInputStatus.malformed:
                 allocation.quantityError = part.message;
-                return 'Revisa las cantidades repartidas de $name.';
+                return 'Revise las cantidades repartidas de $name.';
               case NumericInputStatus.valid:
                 if ((part.value ?? 0) <= 0) {
                   return 'Cada parte de $name debe ser mayor que cero.';
                 }
             }
+          }
+          // Repartir es entre personas distintas: la misma dos veces sería
+          // una sola parte escrita en dos filas.
+          final people = line.allocations.map((a) => a.personId).toList();
+          if (people.toSet().length != people.length) {
+            return 'La misma persona aparece dos veces en el reparto de '
+                '$name.';
           }
           if (line.assignedBase != line.quantityBase) {
             return line.assignedBase > line.quantityBase
@@ -1465,8 +1472,21 @@ class _LineCard extends StatelessWidget {
             label: const Text('Toda para una persona'),
             selected: line.allocationMode == _AllocationMode.single,
             onSelected: (selected) {
-              if (!selected) return;
+              // Volver a tocar la opción activa no borra nada.
+              if (!selected || line.allocationMode == _AllocationMode.single) {
+                return;
+              }
               line.allocationMode = _AllocationMode.single;
+              // Cambiar de opción limpia la anterior: las filas del reparto
+              // no se arrastran. Sus controladores se liberan después del
+              // fotograma, cuando los campos que los usaban ya no existen.
+              final discarded = List.of(line.allocations);
+              line.allocations.clear();
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                for (final allocation in discarded) {
+                  allocation.dispose();
+                }
+              });
               onChanged();
             },
           ),
@@ -1475,8 +1495,12 @@ class _LineCard extends StatelessWidget {
             label: const Text('Repartir entre varias'),
             selected: line.allocationMode == _AllocationMode.split,
             onSelected: (selected) {
-              if (!selected) return;
+              if (!selected || line.allocationMode == _AllocationMode.split) {
+                return;
+              }
               line.allocationMode = _AllocationMode.split;
+              // La persona única no se arrastra a una fila del reparto.
+              line.singlePersonId = null;
               // Repartir es entre dos o más: dos filas vacías para empezar,
               // sin ninguna persona prellenada.
               while (line.allocations.length < 2) {
@@ -1490,7 +1514,7 @@ class _LineCard extends StatelessWidget {
       const SizedBox(height: 8),
       switch (line.allocationMode) {
         null => Text(
-          'Elige una opción para indicar a quién va este producto.',
+          'Elija una opción para indicar a quién va este producto.',
           key: Key('purchase-alloc-pending-$index'),
           style: TextStyle(color: theme.colorScheme.outline),
         ),
