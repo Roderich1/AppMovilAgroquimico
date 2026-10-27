@@ -5,10 +5,14 @@ import 'package:go_router/go_router.dart';
 import '../../app.dart';
 import '../../data/operation_mode_store.dart';
 import '../../data/owner_binding_store.dart';
+import '../../domain/installation_access.dart' show InstallationAccessState;
 import '../../domain/operation_mode.dart';
 import '../../domain/person_roles.dart';
 import '../../installation_access.dart';
 import '../../operation_mode_controller.dart';
+import '../../services/auth/first_activation_providers.dart';
+import '../../services/auth/local_owner_credential.dart';
+import '../../services/auth/local_owner_credential_providers.dart';
 import '../widgets/common.dart';
 import 'operation_mode_screen.dart' show operationModeExplanation;
 
@@ -50,10 +54,79 @@ class _OwnerSetupScreenState extends ConsumerState<OwnerSetupScreen> {
   OperationMode _mode = OperationMode.shared;
   bool _saving = false;
 
+  // F03 §4 bis: el controlador se guarda al entrar para anular la acreditación
+  // de activación si se sale sin vincular, sin usar `ref` en dispose (H9).
+  FirstActivationController? _activation;
+  bool _bound = false;
+
+  FirstActivationController? _activationController() {
+    try {
+      return ref.exists(firstActivationProvider)
+          ? ref.read(firstActivationProvider.notifier)
+          : null;
+    } on Object {
+      return null;
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _activation = _activationController();
+  }
+
   @override
   void dispose() {
+    if (!_bound) _activation?.discardActivationEvidence();
     _newName.dispose();
     super.dispose();
+  }
+
+  /// F03 §4 bis.2, paso 2: ata la acreditación al vínculo recién creado, sólo
+  /// en la secuencia activationPendingOwner → activated. Debe llamarse antes
+  /// de recalcular el acceso.
+  bool _attachActivation(
+    InstallationAccessState accessBefore,
+    OwnerBinding binding,
+  ) {
+    final activation = _activationController();
+    if (activation == null) return false;
+    if (accessBefore != InstallationAccessState.activationPendingOwner) {
+      activation.discardActivationEvidence();
+      return false;
+    }
+    return activation.attachOwnerBinding(activationBindingRefOf(binding));
+  }
+
+  /// La oferta del PIN: acceso `activated` y un titular sin PIN propio en el
+  /// teléfono (notEnrolled o scopeMismatch). Si `status()` lanza, no hay
+  /// oferta (H8). Si no hay oferta, la acreditación se anula.
+  Future<bool> _pinOffer(OwnerBinding binding) async {
+    final activation = _activationController();
+    if (activation == null || !activation.hasActivationEvidence) return false;
+    try {
+      if (ref.read(installationAccessProvider) ==
+          InstallationAccessState.activated) {
+        final status = await ref
+            .read(localOwnerCredentialProvider)
+            .status(
+              OwnerBindingContext(
+                bindingId: binding.id,
+                personId: binding.personId,
+                scope: binding.scope,
+              ),
+            );
+        if ((status.state == CredentialState.notEnrolled ||
+                status.state == CredentialState.scopeMismatch) &&
+            activation.hasActivationEvidence) {
+          return true;
+        }
+      }
+    } on Object {
+      // Sin estado legible no se ofrece nada.
+    }
+    activation.discardActivationEvidence();
+    return false;
   }
 
   Future<void> _confirm() async {
@@ -83,14 +156,15 @@ class _OwnerSetupScreenState extends ConsumerState<OwnerSetupScreen> {
     final database = ref.read(repositoryProvider).appDatabase;
     final store = OwnerBindingStore(database);
     try {
+      final OwnerBinding binding;
       if (_createNew) {
-        await store.bindNewPerson(
+        binding = await store.bindNewPerson(
           name: _newName.text,
           scope: scope,
           installationRef: installationRef,
         );
       } else {
-        await store.bindExistingPerson(
+        binding = await store.bindExistingPerson(
           personId: _selected!,
           scope: scope,
           installationRef: installationRef,
@@ -98,6 +172,8 @@ class _OwnerSetupScreenState extends ConsumerState<OwnerSetupScreen> {
               _selectedIsAdministrator && _administratorConfirmed,
         );
       }
+      _bound = true;
+      final attached = _attachActivation(access, binding);
       String? modeNotice;
       if (_mode == OperationMode.personal) {
         try {
@@ -110,6 +186,22 @@ class _OwnerSetupScreenState extends ConsumerState<OwnerSetupScreen> {
       await controller.refresh();
       await ref.read(operationModeProvider.notifier).reload();
       if (!mounted) return;
+      final offer = attached && await _pinOffer(binding);
+      if (!mounted) return;
+      if (offer) {
+        // F03 §4 bis.2, paso 3: el aviso de modalidad va en la oferta.
+        context.go(
+          '/titular/pin/activacion',
+          extra:
+              modeNotice ??
+              (_mode == OperationMode.personal
+                  ? 'Usa inventario propio; puede cambiarlo en Operaciones › '
+                        'Más › Modo de uso.'
+                  : 'Usa inventario compartido; puede cambiarlo en '
+                        'Operaciones › Más › Modo de uso.'),
+        );
+        return;
+      }
       showSuccess(
         context,
         modeNotice ??
@@ -121,6 +213,8 @@ class _OwnerSetupScreenState extends ConsumerState<OwnerSetupScreen> {
       );
       context.go('/');
     } on Object catch (error) {
+      // Un error en el paso 2 anula la acreditación de activación.
+      _activationController()?.discardActivationEvidence();
       if (mounted) {
         setState(() => _saving = false);
         showError(context, error);

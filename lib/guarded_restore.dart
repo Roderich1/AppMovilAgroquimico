@@ -27,6 +27,8 @@ import 'domain/restore_ownership.dart';
 import 'installation_access.dart';
 import 'operation_mode_controller.dart';
 import 'services/auth/existing_session_providers.dart';
+import 'services/auth/first_activation_providers.dart'
+    show firstActivationProvider;
 
 class GuardedRestoreOutcome {
   const GuardedRestoreOutcome(this.result, this.access);
@@ -67,6 +69,16 @@ class GuardedRestore {
     String path, {
     @visibleForTesting Future<void> Function()? afterReplace,
   }) {
+    // F03 §4 bis (H4): la acreditación de activación no sobrevive a una base
+    // nueva. Se anula antes de sustituir; la garantía sigue siendo la
+    // comprobación del vínculo al consumirla.
+    try {
+      if (_ref.exists(firstActivationProvider)) {
+        _ref.read(firstActivationProvider.notifier).discardActivationEvidence();
+      }
+    } on Object {
+      // Sin controlador utilizable no hay acreditación que anular.
+    }
     final database = _ref.read(databaseProvider);
     final backup = _ref.read(backupServiceProvider);
     final access = _ref.read(installationAccessProvider.notifier);

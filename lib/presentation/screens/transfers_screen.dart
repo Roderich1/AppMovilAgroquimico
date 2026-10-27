@@ -50,6 +50,7 @@ class _TransfersScreenState extends ConsumerState<TransfersScreen> {
           'Costo ${formatBob(row['total_cost_bob_minor']! as int)}\n\n'
           'El stock volverá a la persona de origen. Esta acción no se puede '
           'deshacer.',
+      revalidate: reversalStillPending(ref, 'transfers', id),
     );
     if (approval == null || !mounted) return;
     try {

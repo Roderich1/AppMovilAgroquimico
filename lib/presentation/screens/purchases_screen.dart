@@ -145,6 +145,7 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> {
           '${paid > 0 ? ', y se revertirán los pagos al proveedor por ${formatBob(paid)}' : ''}. '
           'Esta acción no se puede deshacer.',
       confirmLabel: 'Revertir compra',
+      revalidate: reversalStillPending(ref, 'purchases', id),
     );
     if (approval == null || !mounted) return;
     try {
