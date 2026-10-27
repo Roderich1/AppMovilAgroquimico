@@ -331,8 +331,33 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
   /// Área × dosis en enteros, con la misma regla que la cantidad requerida
   /// del plan (`addPlanMulti`) y la aplicación por voz. En coma flotante,
   /// 1,2345 ha × 5 L/ha daba 6172 en vez de 6173.
-  int theoretical(_ApplicationLineEditor line) =>
-      divideRoundedHalfUp(_areaM2 * (tryParseBase(line.dose.text) ?? 0), 10000);
+  ///
+  /// Sin dosis no hay teórico: se devuelve `null` y se guarda nulo, en vez
+  /// de «teórico 0» y «desvío = toda la cantidad» (B-04).
+  int? theoretical(_ApplicationLineEditor line) {
+    final dose = tryParseBase(line.dose.text);
+    if (dose == null) return null;
+    return divideRoundedHalfUp(_areaM2 * dose, 10000);
+  }
+
+  /// Mensaje de formato de la dosis escrita, o `null` si está vacía o bien
+  /// escrita (convenio es-BO de `numeric_input.dart`).
+  String? doseError(_ApplicationLineEditor line) =>
+      parseNumericInput(line.dose.text).message;
+
+  /// Área tratada del paso 1: vacía o mal escrita se rechaza al continuar
+  /// con el mensaje de formato; antes se guardaba como 0 ha (B-04).
+  String? areaError;
+
+  String? _validateArea() {
+    final parsed = parseNumericInput(area.text);
+    if (parsed.status == NumericInputStatus.empty) {
+      return 'Escribe el área tratada en hectáreas.';
+    }
+    if (!parsed.isValid) return parsed.message;
+    if (parsed.value! <= 0) return 'El área tratada debe ser mayor que cero.';
+    return null;
+  }
 
   Future<bool> confirmDiscard() async =>
       await showDialog<bool>(
@@ -396,6 +421,11 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
           );
           return;
         }
+        final invalidArea = _validateArea();
+        if (invalidArea != null) {
+          setState(() => areaError = invalidArea);
+          return;
+        }
         setState(() => step = _ApplicationStep.products);
       case _ApplicationStep.products:
         if (lines.isEmpty) {
@@ -434,6 +464,15 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
           '${formatQuantity(stock, line.unit)} y escribiste '
           '${formatQuantity(real, line.unit)}. Baja la cantidad o registra '
           'primero la compra.',
+        );
+        return;
+      }
+      final invalidDose = doseError(line);
+      if (invalidDose != null) {
+        // Una dosis mal escrita no se guarda en silencio como «sin dosis».
+        showError(
+          context,
+          'Dosis de ${line.product['product_name']}: $invalidDose',
         );
         return;
       }
@@ -718,14 +757,20 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
       ],
       const SizedBox(height: 12),
       TextField(
+        key: const Key('application-area'),
         controller: area,
         onChanged: (_) {
-          setState(() => dirty = true);
+          setState(() {
+            dirty = true;
+            areaError = null;
+          });
         },
         keyboardType: const TextInputType.numberWithOptions(decimal: true),
-        decoration: const InputDecoration(
+        decoration: InputDecoration(
           labelText: 'Área tratada (ha)',
           helperText: 'Se toma del chaco; puedes cambiarla.',
+          errorText: areaError,
+          errorMaxLines: 3,
         ),
       ),
     ];
@@ -788,6 +833,7 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
           key: ValueKey(line.product['product_id']),
           line: line,
           theoretical: theoretical(line),
+          doseError: doseError(line),
           onEdit: saving ? null : () => _editLine(line),
           onRemove: saving ? null : () => _removeLine(line),
           onDoseChanged: () => setState(() => dirty = true),
@@ -1158,12 +1204,16 @@ class _LineCard extends StatelessWidget {
     super.key,
     required this.line,
     required this.theoretical,
+    required this.doseError,
     required this.onEdit,
     required this.onRemove,
     required this.onDoseChanged,
   });
   final _ApplicationLineEditor line;
-  final int theoretical;
+
+  /// Cantidad teórica por dosis y área, o `null` sin dosis.
+  final int? theoretical;
+  final String? doseError;
   final VoidCallback? onEdit;
   final VoidCallback? onRemove;
   final VoidCallback onDoseChanged;
@@ -1245,15 +1295,21 @@ class _LineCard extends StatelessWidget {
                   ),
                   decoration: InputDecoration(
                     labelText: 'Dosis (${line.unit}/ha)',
+                    helperText: 'Opcional.',
+                    errorText: doseError,
+                    errorMaxLines: 3,
                   ),
                 ),
                 const SizedBox(height: 8),
                 Align(
                   alignment: Alignment.centerLeft,
                   child: Text(
-                    'Teórico por dosis y área: '
-                    '${formatQuantity(theoretical, line.unit)} · '
-                    'Costo estimado: ${formatBob(line.cost)}',
+                    theoretical == null
+                        ? 'Sin dosis no se calcula el teórico · '
+                              'Costo estimado: ${formatBob(line.cost)}'
+                        : 'Teórico por dosis y área: '
+                              '${formatQuantity(theoretical!, line.unit)} · '
+                              'Costo estimado: ${formatBob(line.cost)}',
                     style: theme.textTheme.bodySmall,
                   ),
                 ),
