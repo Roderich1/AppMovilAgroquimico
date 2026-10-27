@@ -414,9 +414,10 @@ void main() {
         findsOneWidget,
       );
       expect(find.textContaining('REFERENCE_UNAVAILABLE'), findsNothing);
-      // C-05: desde el rechazo se puede ir a decidir; la pendiente no lo
-      // ofrece.
-      expect(find.widgetWithText(TextButton, 'Decidir…'), findsOneWidget);
+      // C-05: desde el rechazo se puede ir a revisar («Decidir…» queda
+      // para los conflictos); la pendiente no ofrece nada.
+      expect(find.widgetWithText(TextButton, 'Revisar…'), findsOneWidget);
+      expect(find.widgetWithText(TextButton, 'Decidir…'), findsNothing);
       // El código sigue disponible, plegado en «Detalle técnico».
       expect(find.text('Detalle técnico'), findsOneWidget);
       await tester.tap(find.text('Detalle técnico'));

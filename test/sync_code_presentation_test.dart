@@ -2,6 +2,7 @@
 // `last_code` tiene una frase en palabras del agricultor; el código no cambia
 // ni se pierde (sigue en la fila y en el detalle técnico de Sincronización).
 import 'package:agroquimicos/domain/sync/sync_types.dart';
+import 'package:agroquimicos/presentation/screens/sync_status_screen.dart';
 import 'package:agroquimicos/presentation/widgets/sync_status_banner.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -42,13 +43,8 @@ void main() {
       }
     });
 
-    test('autorización', () {
-      for (final code in [
-        'AUTH_REQUIRED',
-        'AUTH_CONTEXT_FORBIDDEN',
-        'OWNERSHIP_NOT_PROVEN',
-        'PURPOSE_NOT_AUTHORIZED',
-      ]) {
+    test('autorización (401/403): la intención espera, no es rechazo', () {
+      for (final code in ['AUTH_REQUIRED', 'AUTH_CONTEXT_FORBIDDEN']) {
         expect(
           syncCodeFamily(code),
           SyncCodeFamily.authorization,
@@ -57,6 +53,23 @@ void main() {
         expect(
           syncCodeExplanation(code),
           'Falta verificar el acceso',
+          reason: code,
+        );
+      }
+    });
+
+    test('titularidad no reconocida: rechazo terminal, frase propia', () {
+      for (final code in ['OWNERSHIP_NOT_PROVEN', 'PURPOSE_NOT_AUTHORIZED']) {
+        expect(syncCodeFamily(code), SyncCodeFamily.ownership, reason: code);
+        expect(
+          syncCodeExplanation(code),
+          'El sindicato no reconoció a esta cuenta como titular de estos '
+          'datos; este envío no se aplicó',
+          reason: code,
+        );
+        expect(
+          syncCodeExplanation(code),
+          isNot(contains('verificar el acceso')),
           reason: code,
         );
       }
@@ -78,21 +91,43 @@ void main() {
       }
     });
 
-    test('causalidad y conflicto', () {
+    test('códigos de ACK CONFLICT: decide el propietario', () {
       for (final code in [
         'CAUSAL_FORK',
         'STALE_PREDECESSOR',
         'CANCELLED_PREDECESSOR',
         'RECONCILIATION_STALE',
-        'IDEMPOTENCY_MISMATCH',
-        'INVALID_PREDECESSOR',
-        'INVALID_TRANSITION',
-        'CAUSAL_FENCED',
       ]) {
         expect(syncCodeFamily(code), SyncCodeFamily.causality, reason: code);
         expect(
           syncCodeExplanation(code),
           'Hay otra versión en el sindicato: decida en Necesidades o Consumo',
+          reason: code,
+        );
+      }
+    });
+
+    test('códigos de ACK REJECTED por causalidad: no hay nada que decidir', () {
+      for (final code in [
+        'IDEMPOTENCY_MISMATCH',
+        'INVALID_PREDECESSOR',
+        'INVALID_TRANSITION',
+        'CAUSAL_FENCED',
+      ]) {
+        expect(
+          syncCodeFamily(code),
+          SyncCodeFamily.rejectedVersion,
+          reason: code,
+        );
+        expect(
+          syncCodeExplanation(code),
+          'El sindicato ya tenía otra versión; este envío no se aplicó. Si '
+          'hace falta, declare o publique de nuevo',
+          reason: code,
+        );
+        expect(
+          syncCodeExplanation(code),
+          isNot(contains('decida')),
           reason: code,
         );
       }
@@ -137,8 +172,10 @@ void main() {
         'TIMEOUT',
         'HTTP_500',
         'AUTH_REQUIRED',
+        'OWNERSHIP_NOT_PROVEN',
         'REFERENCE_UNAVAILABLE',
         'CAUSAL_FORK',
+        'IDEMPOTENCY_MISMATCH',
         'CAMPAIGN_SEALED',
         'INVALID_REQUEST',
         'OTRO',
@@ -148,6 +185,61 @@ void main() {
         expect(text, isNot(contains('ACK')), reason: code);
         expect(text, isNot(contains('_')), reason: code);
       }
+    });
+  });
+
+  group('fila de Sincronización', () {
+    OutboxEntry entry(OutboxStatus status, String? code, {int attempts = 1}) =>
+        OutboxEntry(
+          id: 1,
+          operationId: '7a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d',
+          ownerBindingId: 1,
+          projectionType: ProjectionType.declaredNeed,
+          action: SyncAction.publish,
+          campaignRef: 'c',
+          productRef: 'p',
+          baseUnit: BaseUnit.ml,
+          quantityBase: '1000',
+          predecessorOperationId: null,
+          predecessorKind: null,
+          reconciliationReference: null,
+          status: status,
+          attempts: attempts,
+          lastCode: code,
+          createdAt: '2026-10-26T12:00:00.000Z',
+        );
+
+    test('pausa por autorización: una sola frase, sin repetir', () {
+      final row = entry(OutboxStatus.authPaused, 'AUTH_CONTEXT_FORBIDDEN');
+      expect(rowExplanation(row), isNull);
+      final text = rowSubtitle(row);
+      expect(text, contains('Pausado: el sindicato no autorizó esta cuenta'));
+      expect(text, isNot(contains('Falta verificar el acceso')));
+    });
+
+    test('pendiente tras un 401: la explicación sí añade algo', () {
+      final row = entry(OutboxStatus.pending, 'AUTH_REQUIRED');
+      expect(rowExplanation(row), 'Falta verificar el acceso');
+    });
+
+    test('«Decidir…» sólo en conflicto; «Revisar…» en rechazos', () {
+      expect(
+        decisionLabel(entry(OutboxStatus.conflict, 'CAUSAL_FORK')),
+        'Decidir…',
+      );
+      expect(
+        decisionLabel(entry(OutboxStatus.rejected, 'IDEMPOTENCY_MISMATCH')),
+        'Revisar…',
+      );
+      expect(
+        decisionLabel(entry(OutboxStatus.failed, 'INVALID_REQUEST')),
+        'Revisar…',
+      );
+      expect(
+        needsDecision(entry(OutboxStatus.pending, null, attempts: 0)),
+        isFalse,
+      );
+      expect(needsDecision(entry(OutboxStatus.acked, 'OK')), isFalse);
     });
   });
 
@@ -194,7 +286,15 @@ void main() {
       );
       expect(
         outboxStatusPhrase(OutboxStatus.authPaused, attempts: 1),
-        'Pausado: falta verificar el acceso',
+        'Pausado: el sindicato no autorizó esta cuenta',
+      );
+      expect(
+        outboxStatusPhrase(
+          OutboxStatus.authPaused,
+          attempts: 1,
+          feminine: true,
+        ),
+        'Pausada: el sindicato no autorizó esta cuenta',
       );
       expect(
         outboxStatusPhrase(OutboxStatus.restorePaused, attempts: 0),

@@ -268,14 +268,23 @@ enum SyncCodeFamily {
   network,
 
   /// Falta verificar el acceso o el sindicato no autorizó la cuenta o el
-  /// dispositivo (401/403, o el ACK negó la titularidad).
+  /// dispositivo (401/403). La intención espera; no es un rechazo.
   authorization,
+
+  /// Rechazo terminal (ACK REJECTED): Central no reconoció a la cuenta
+  /// como titular de la contribución o del propósito.
+  ownership,
 
   /// Central no reconoce la referencia, la unidad o la cantidad (F06 §6).
   references,
 
-  /// Causalidad: hay otra versión en Central y decide el propietario.
+  /// ACK CONFLICT: hay otra versión en Central y decide el propietario.
   causality,
+
+  /// Rechazo terminal (ACK REJECTED) por causalidad o idempotencia: Central
+  /// ya tenía otra versión y este envío no se aplicó; no hay conflicto que
+  /// decidir, se declara o publica de nuevo si hace falta.
+  rejectedVersion,
 
   /// La campaña central no admite el envío (sellada o no abierta).
   campaignState,
@@ -303,21 +312,20 @@ SyncCodeFamily syncCodeFamily(String? code) {
     'RATE_LIMITED' ||
     'OPERATION_IN_PROGRESS' ||
     'DEPENDENCY_PENDING' => SyncCodeFamily.network,
-    'AUTH_REQUIRED' ||
-    'AUTH_CONTEXT_FORBIDDEN' ||
+    'AUTH_REQUIRED' || 'AUTH_CONTEXT_FORBIDDEN' => SyncCodeFamily.authorization,
     'OWNERSHIP_NOT_PROVEN' ||
-    'PURPOSE_NOT_AUTHORIZED' => SyncCodeFamily.authorization,
+    'PURPOSE_NOT_AUTHORIZED' => SyncCodeFamily.ownership,
     'REFERENCE_UNAVAILABLE' ||
     'UNIT_INCOMPATIBLE' ||
     'QUANTITY_INVALID' => SyncCodeFamily.references,
     'CAUSAL_FORK' ||
     'STALE_PREDECESSOR' ||
     'CANCELLED_PREDECESSOR' ||
-    'RECONCILIATION_STALE' ||
+    'RECONCILIATION_STALE' => SyncCodeFamily.causality,
     'IDEMPOTENCY_MISMATCH' ||
     'INVALID_PREDECESSOR' ||
     'INVALID_TRANSITION' ||
-    'CAUSAL_FENCED' => SyncCodeFamily.causality,
+    'CAUSAL_FENCED' => SyncCodeFamily.rejectedVersion,
     'CAMPAIGN_SEALED' || 'CAMPAIGN_NOT_OPEN' => SyncCodeFamily.campaignState,
     'INVALID_REQUEST' ||
     'FIELD_NOT_ALLOWED' ||
@@ -336,11 +344,17 @@ String? syncCodeExplanation(String? code) => switch (syncCodeFamily(code)) {
   SyncCodeFamily.network =>
     'Sin respuesta del sindicato; se volverá a intentar con el mismo envío',
   SyncCodeFamily.authorization => 'Falta verificar el acceso',
+  SyncCodeFamily.ownership =>
+    'El sindicato no reconoció a esta cuenta como titular de estos datos; '
+        'este envío no se aplicó',
   SyncCodeFamily.references =>
     'El sindicato no reconoce el producto o la campaña vinculados: revise '
         'los vínculos',
   SyncCodeFamily.causality =>
     'Hay otra versión en el sindicato: decida en Necesidades o Consumo',
+  SyncCodeFamily.rejectedVersion =>
+    'El sindicato ya tenía otra versión; este envío no se aplicó. Si hace '
+        'falta, declare o publique de nuevo',
   SyncCodeFamily.campaignState => rejectionExplanation(code),
   SyncCodeFamily.request =>
     'El sindicato no admitió el envío tal como está; nada se borró. Si hay '

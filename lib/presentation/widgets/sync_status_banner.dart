@@ -62,7 +62,7 @@ String outboxStatusPhrase(
           : 'En conflicto: decida usted',
     OutboxStatus.rejected => 'Rechazad$a por el sindicato',
     OutboxStatus.failed => 'No admitid$a por el sindicato',
-    OutboxStatus.authPaused => 'Pausad$a: falta verificar el acceso',
+    OutboxStatus.authPaused => 'Pausad$a: el sindicato no autorizó esta cuenta',
     OutboxStatus.ownerPaused => 'Pausad$a: otro titular en sesión',
     OutboxStatus.restorePaused => 'Pausad$a: llegó con un respaldo restaurado',
     OutboxStatus.versionMismatch => 'Pausad$a: actualice la aplicación',

@@ -258,14 +258,14 @@ class _SyncStatusScreenState extends ConsumerState<SyncStatusScreen> {
                         title: Text(rowTitle(entry)),
                         subtitle: Text(rowSubtitle(entry)),
                         isThreeLine: true,
-                        // C-05: el conflicto o el rechazo se decide donde
-                        // vive la proyección, no aquí.
+                        // C-05: el conflicto se decide y el rechazo se
+                        // revisa donde vive la proyección, no aquí.
                         trailing: needsDecision(entry)
                             ? TextButton(
                                 key: Key('decide-${entry.operationId}'),
                                 onPressed: () =>
                                     context.push(decisionRoute(entry)),
-                                child: const Text('Decidir…'),
+                                child: Text(decisionLabel(entry)),
                               )
                             : null,
                       ),
@@ -330,16 +330,35 @@ String rowSubtitle(OutboxEntry entry) {
     'creada ${formatDate(entry.createdAt)}',
     if (entry.ackedAt != null) 'Confirmado: ${formatDate(entry.ackedAt)}',
   ].join(' · ');
-  final explanation = entry.status == OutboxStatus.acked
-      ? null
-      : syncCodeExplanation(entry.lastCode);
+  final explanation = rowExplanation(entry);
   return [what, state, if (explanation != null) explanation].join('\n');
+}
+
+/// Explicación por familia del código, salvo cuando no añade nada: aceptado
+/// (`OK`), pausado por autorización (la frase de estado ya lo dice) o una
+/// frase idéntica a la del estado.
+String? rowExplanation(OutboxEntry entry) {
+  if (entry.status == OutboxStatus.acked ||
+      entry.status == OutboxStatus.authPaused) {
+    return null;
+  }
+  final explanation = syncCodeExplanation(entry.lastCode);
+  final phrase = outboxStatusPhrase(
+    entry.status,
+    attempts: entry.attempts,
+    conflictResolved: entry.resolvedAt != null,
+  );
+  return explanation == phrase ? null : explanation;
 }
 
 bool needsDecision(OutboxEntry entry) =>
     (entry.status == OutboxStatus.conflict && entry.resolvedAt == null) ||
     entry.status == OutboxStatus.rejected ||
     entry.status == OutboxStatus.failed;
+
+/// «Decidir…» sólo donde hay una decisión (conflicto); un rechazo se revisa.
+String decisionLabel(OutboxEntry entry) =>
+    entry.status == OutboxStatus.conflict ? 'Decidir…' : 'Revisar…';
 
 String decisionRoute(OutboxEntry entry) => switch (entry.projectionType) {
   ProjectionType.declaredNeed => '/planificacion/necesidades',

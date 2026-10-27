@@ -256,7 +256,8 @@ class _DeclaredNeedsScreenState extends ConsumerState<DeclaredNeedsScreen> {
   /// Estado del envío en palabras (C-03): «Guardada, pendiente de envío»,
   /// «Enviada, sin confirmación», «Aceptada por el sindicato: fecha»,
   /// «Rechazada por el sindicato: explicación», «En conflicto: decida
-  /// usted», «Pausada: falta verificar el acceso»… El código técnico no se
+  /// usted», «Pausada: el sindicato no autorizó esta cuenta»… El código
+  /// técnico no se
   /// muestra aquí; está en el detalle de Sincronización.
   String _syncLabel(DeclaredNeed need) {
     final status = need.syncStatus;
@@ -267,7 +268,10 @@ class _DeclaredNeedsScreenState extends ConsumerState<DeclaredNeedsScreen> {
       feminine: true,
       conflictResolved: need.conflictResolved,
     );
-    final explanation = syncCodeExplanation(need.syncCode);
+    final candidate = syncCodeExplanation(need.syncCode);
+    // La pausa por autorización ya se explica en la frase de estado; una
+    // explicación idéntica a la frase tampoco añade nada.
+    final explanation = candidate == phrase ? null : candidate;
     return switch (status) {
       OutboxStatus.acked =>
         need.syncAckedAt == null
@@ -275,7 +279,7 @@ class _DeclaredNeedsScreenState extends ConsumerState<DeclaredNeedsScreen> {
             : '$phrase: ${formatDate(need.syncAckedAt)}',
       OutboxStatus.rejected || OutboxStatus.failed =>
         explanation == null ? phrase : '$phrase: $explanation',
-      OutboxStatus.conflict => phrase,
+      OutboxStatus.conflict || OutboxStatus.authPaused => phrase,
       _ => explanation == null ? phrase : '$phrase · $explanation',
     };
   }

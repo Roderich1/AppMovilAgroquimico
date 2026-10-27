@@ -81,7 +81,7 @@ void main() {
     await settle(tester);
     expect(find.byType(AlertDialog), findsNothing);
     expect(find.text('Herbicida de prueba'), findsOneWidget);
-    expect(find.textContaining('archivado'), findsNothing);
+    expect(find.textContaining('Se archivó'), findsNothing);
     final products = (await tester.runAsync(repo.products))!;
     expect(products.map((p) => p['name']), contains('Herbicida de prueba'));
   });
@@ -93,7 +93,7 @@ void main() {
     await tapArchive(tester);
     await tester.tap(find.widgetWithText(FilledButton, 'Archivar'));
     await settle(tester);
-    expect(find.text('Herbicida de prueba archivado.'), findsOneWidget);
+    expect(find.text('Se archivó Herbicida de prueba.'), findsOneWidget);
     expect(find.widgetWithText(ListTile, 'Herbicida de prueba'), findsNothing);
     final products = (await tester.runAsync(repo.products))!;
     expect(

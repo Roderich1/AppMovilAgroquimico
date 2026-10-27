@@ -101,7 +101,7 @@ class _CatalogsScreenState extends ConsumerState<CatalogsScreen>
       await ref
           .read(repositoryProvider)
           .archiveCatalog(tables[tabs.index], row['id']! as int);
-      if (mounted) showSuccess(context, '$name archivado.');
+      if (mounted) showSuccess(context, 'Se archivó $name.');
       _refresh();
     } catch (error) {
       if (mounted) showError(context, error);
