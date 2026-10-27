@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
@@ -316,6 +317,17 @@ class AgroApp extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) => MaterialApp.router(
     title: 'Agrocuentas',
     debugShowCheckedModeBanner: false,
+    // E-13: los widgets del sistema (selector de fecha, tooltips, botones
+    // «Aceptar»/«Cancelar») en español en cualquier teléfono. Sólo textos:
+    // las fechas se siguen interpretando y mostrando con `formatDate` /
+    // `localDay`, y las unidades y la zona horaria no cambian.
+    locale: const Locale('es'),
+    supportedLocales: const [Locale('es')],
+    localizationsDelegates: const [
+      GlobalMaterialLocalizations.delegate,
+      GlobalWidgetsLocalizations.delegate,
+      GlobalCupertinoLocalizations.delegate,
+    ],
     theme: ThemeData(
       colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF35693E)),
       scaffoldBackgroundColor: const Color(0xFFF7F7F1),

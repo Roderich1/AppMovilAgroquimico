@@ -107,6 +107,8 @@ class DeclaredNeed {
     required this.syncStatus,
     required this.syncCode,
     required this.conflictResolved,
+    this.syncAttempts = 0,
+    this.syncAckedAt,
   });
 
   final int id;
@@ -130,6 +132,11 @@ class DeclaredNeed {
 
   /// La última intención es un conflicto que el propietario ya resolvió.
   final bool conflictResolved;
+
+  /// Intentos de envío de la última intención (0: todavía no salió del
+  /// teléfono) y cuándo la confirmó el sindicato; sólo para mostrar.
+  final int syncAttempts;
+  final String? syncAckedAt;
 
   /// Conflicto pendiente de la decisión del propietario.
   bool get needsResolution =>
@@ -666,7 +673,8 @@ class DeclaredNeedStore {
       '''SELECT n.*, c.name AS campaign_name, p.name AS product_name,
         p.base_unit AS product_base_unit, o.operation_id AS sync_operation_id,
         o.status AS sync_status, o.last_code AS sync_code,
-        o.resolved_at AS sync_resolved_at
+        o.resolved_at AS sync_resolved_at, o.attempts AS sync_attempts,
+        o.acked_at AS sync_acked_at
       FROM declared_needs n
       JOIN campaigns c ON c.id = n.campaign_id
       JOIN products p ON p.id = n.product_id
@@ -703,6 +711,8 @@ class DeclaredNeedStore {
                 : OutboxStatus.fromCode(row['sync_status']),
             syncCode: row['sync_code'] as String?,
             conflictResolved: row['sync_resolved_at'] != null,
+            syncAttempts: (row['sync_attempts'] as int?) ?? 0,
+            syncAckedAt: row['sync_acked_at'] as String?,
           ),
         )
         .toList();

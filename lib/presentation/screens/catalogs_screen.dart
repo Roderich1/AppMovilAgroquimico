@@ -81,12 +81,27 @@ class _CatalogsScreenState extends ConsumerState<CatalogsScreen>
     }
   }
 
+  /// Archivar oculta el registro de listas y formularios y conserva su
+  /// historial; no es un borrado y `archiveCatalog` no cambia. Como no se
+  /// deshace desde la aplicación, pide confirmación informada y avisa el
+  /// resultado (A-05).
   Future<void> _archive(Map<String, Object?> row) async {
     const tables = ['persons', 'farms', 'products', 'suppliers', 'campaigns'];
+    final name = row['name'].toString();
+    final confirmed = await confirmDestructiveAction(
+      context,
+      title: '¿Archivar $name?',
+      detail:
+          'Dejará de aparecer en las listas y formularios; su historial se '
+          'conserva.',
+      confirmLabel: 'Archivar',
+    );
+    if (!confirmed || !mounted) return;
     try {
       await ref
           .read(repositoryProvider)
           .archiveCatalog(tables[tabs.index], row['id']! as int);
+      if (mounted) showSuccess(context, 'Se archivó $name.');
       _refresh();
     } catch (error) {
       if (mounted) showError(context, error);

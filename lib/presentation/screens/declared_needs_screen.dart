@@ -48,6 +48,20 @@ class _DeclaredNeedsScreenState extends ConsumerState<DeclaredNeedsScreen> {
     unawaited(ref.read(syncControllerProvider.notifier).kick());
   }
 
+  /// C-01: lo que se guardó está en el teléfono; que el sindicato lo acepte
+  /// se ve después en la fila. [what] es lo guardado («Guardada»,
+  /// «Cambio guardado»…) y [it] el pronombre con que se acepta.
+  String _savedMessage(String what, String it) =>
+      '$what en el teléfono. Se enviará al sindicato; aquí verá cuándo '
+      '$it acepta.';
+
+  /// Misma acción explícita que en Sincronización (C-02): verifica el acceso
+  /// si hace falta y lanza un ciclo. No reanuda nada por sí sola.
+  Future<void> _syncNow() async {
+    await ref.read(syncControllerProvider.notifier).syncNow();
+    if (mounted) _reload();
+  }
+
   Future<bool> _confirmDeclaration(String text) async =>
       await showDialog<bool>(
         context: context,
@@ -95,7 +109,7 @@ class _DeclaredNeedsScreenState extends ConsumerState<DeclaredNeedsScreen> {
         productId: draft.product.productId,
         quantityBase: draft.quantityBase,
       );
-      if (mounted) showSuccess(context, 'Necesidad declarada.');
+      if (mounted) showSuccess(context, _savedMessage('Guardada', 'la'));
       _afterEnqueue();
     } on Object catch (error) {
       if (mounted) showError(context, error);
@@ -120,7 +134,9 @@ class _DeclaredNeedsScreenState extends ConsumerState<DeclaredNeedsScreen> {
     if (!confirmed || !mounted) return;
     try {
       await _store.updateQuantity(need.id, quantity);
-      if (mounted) showSuccess(context, 'Necesidad actualizada.');
+      if (mounted) {
+        showSuccess(context, _savedMessage('Cambio guardado', 'lo'));
+      }
       _afterEnqueue();
     } on Object catch (error) {
       if (mounted) showError(context, error);
@@ -140,7 +156,9 @@ class _DeclaredNeedsScreenState extends ConsumerState<DeclaredNeedsScreen> {
     if (!confirmed || !mounted) return;
     try {
       await _store.withdraw(need.id);
-      if (mounted) showSuccess(context, 'Necesidad anulada.');
+      if (mounted) {
+        showSuccess(context, _savedMessage('Anulación guardada', 'la'));
+      }
       _afterEnqueue();
     } on Object catch (error) {
       if (mounted) showError(context, error);
@@ -226,22 +244,44 @@ class _DeclaredNeedsScreenState extends ConsumerState<DeclaredNeedsScreen> {
       );
       if (choice == null || !mounted) return;
       await _store.resolveConflict(needId: need.id, choice: choice, view: view);
-      if (mounted) showSuccess(context, 'Decisión registrada.');
+      if (mounted) {
+        showSuccess(context, _savedMessage('Decisión guardada', 'la'));
+      }
       _afterEnqueue();
     } on Object catch (error) {
       if (mounted) showError(context, error);
     }
   }
 
+  /// Estado del envío en palabras (C-03): «Guardada, pendiente de envío»,
+  /// «Enviada, sin confirmación», «Aceptada por el sindicato: fecha»,
+  /// «Rechazada por el sindicato: explicación», «En conflicto: decida
+  /// usted», «Pausada: el sindicato no autorizó esta cuenta»… El código
+  /// técnico no se
+  /// muestra aquí; está en el detalle de Sincronización.
   String _syncLabel(DeclaredNeed need) {
     final status = need.syncStatus;
     if (status == null) return 'Sin envío';
-    if (need.needsResolution) return 'Conflicto: decida usted';
-    if (status == OutboxStatus.conflict) return 'Conflicto resuelto';
-    final code = need.syncCode;
-    return status == OutboxStatus.rejected && code != null
-        ? 'Rechazado ($code)'
-        : outboxStatusLabel(status);
+    final phrase = outboxStatusPhrase(
+      status,
+      attempts: need.syncAttempts,
+      feminine: true,
+      conflictResolved: need.conflictResolved,
+    );
+    final candidate = syncCodeExplanation(need.syncCode);
+    // La pausa por autorización ya se explica en la frase de estado; una
+    // explicación idéntica a la frase tampoco añade nada.
+    final explanation = candidate == phrase ? null : candidate;
+    return switch (status) {
+      OutboxStatus.acked =>
+        need.syncAckedAt == null
+            ? phrase
+            : '$phrase: ${formatDate(need.syncAckedAt)}',
+      OutboxStatus.rejected || OutboxStatus.failed =>
+        explanation == null ? phrase : '$phrase: $explanation',
+      OutboxStatus.conflict || OutboxStatus.authPaused => phrase,
+      _ => explanation == null ? phrase : '$phrase · $explanation',
+    };
   }
 
   @override
@@ -256,10 +296,13 @@ class _DeclaredNeedsScreenState extends ConsumerState<DeclaredNeedsScreen> {
         _reload();
       }
     });
-    return _page();
+    // C-02: el motivo por el que el worker no envía (sin acceso verificado,
+    // otra cuenta, 403, 422, sin red) se muestra aquí, no sólo en
+    // Sincronización.
+    return _page(ref.watch(syncControllerProvider));
   }
 
-  Widget _page() => PageFrame(
+  Widget _page(SyncState sync) => PageFrame(
     title: 'Necesidad declarada',
     subtitle:
         'Lo que usted solicita al sindicato para una campaña. No cambia su '
@@ -285,6 +328,14 @@ class _DeclaredNeedsScreenState extends ConsumerState<DeclaredNeedsScreen> {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            if (sync.message != null) ...[
+              SyncNoticeCard(
+                message: sync.message!,
+                busy: sync.busy,
+                onSyncNow: _syncNow,
+              ),
+              const SizedBox(height: 8),
+            ],
             Align(
               alignment: Alignment.centerLeft,
               child: TextButton.icon(

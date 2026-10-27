@@ -4,6 +4,7 @@ import 'dart:convert';
 
 import 'package:agroquimicos/app.dart';
 import 'package:agroquimicos/data/sync/sync_outbox_store.dart';
+import 'package:agroquimicos/domain/money.dart';
 import 'package:agroquimicos/domain/sync/sync_types.dart';
 import 'package:agroquimicos/presentation/screens/central_binding_screen.dart';
 import 'package:agroquimicos/presentation/screens/declared_needs_screen.dart';
@@ -100,7 +101,18 @@ void main() {
       await settle(tester);
 
       expect(find.text('Herbicida local · Campaña local 2026'), findsOneWidget);
-      expect(find.textContaining('25 L · Pendiente'), findsOneWidget);
+      // C-01: el aviso distingue «guardada en el teléfono» de «aceptada».
+      expect(
+        find.text(
+          'Guardada en el teléfono. Se enviará al sindicato; aquí verá cuándo '
+          'la acepta.',
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining('25 L · Guardada, pendiente de envío'),
+        findsOneWidget,
+      );
       final rows = (await tester.runAsync(fixture.outboxEntries))!;
       expect(rows.single.quantityBase, '25000');
       expect(rows.single.status, OutboxStatus.pending);
@@ -159,7 +171,20 @@ void main() {
         }
       });
       await settle(tester);
-      expect(find.textContaining('25 L · Pendiente'), findsOneWidget);
+      expect(
+        find.textContaining('25 L · Guardada, pendiente de envío'),
+        findsOneWidget,
+      );
+      // C-02: la pantalla donde se declaró dice por qué no salió y ofrece
+      // la acción (la verificación sigue siendo explícita).
+      expect(
+        find.text(
+          'Verifique el acceso en línea para enviar. Sus datos siguen '
+          'guardados.',
+        ),
+        findsOneWidget,
+      );
+      expect(find.byKey(const Key('sync-now-notice')), findsOneWidget);
 
       // Llega el acceso y el temporizador dispara un ciclo fuera de la pantalla.
       access.accept('token-sintetico', memberA.memberId, memberA.tenantId);
@@ -171,7 +196,14 @@ void main() {
 
       final rows = (await tester.runAsync(fixture.outboxEntries))!;
       expect(rows.single.status, OutboxStatus.acked);
-      expect(find.textContaining('25 L · Sincronizado'), findsOneWidget);
+      expect(
+        find.textContaining(
+          '25 L · Aceptada por el sindicato: ${formatDate(rows.single.ackedAt)}',
+        ),
+        findsOneWidget,
+      );
+      // Con el ACK el worker ya no tiene motivo que avisar.
+      expect(find.byKey(const Key('sync-now-notice')), findsNothing);
     },
   );
 
@@ -360,11 +392,40 @@ void main() {
       expect(find.text('Pendiente: 1'), findsOneWidget);
       expect(find.text('Rechazado: 1'), findsOneWidget);
       expect(find.text('Todavía sin confirmación'), findsOneWidget);
+      // C-04: cada fila dice qué producto y qué campaña (nombres locales).
+      expect(find.text('Herbicida local · Campaña local 2026'), findsOneWidget);
+      expect(find.text('Fungicida local · Campaña local 2026'), findsOneWidget);
       expect(
         find.textContaining('Necesidad declarada · Publicar · 1,5 L'),
         findsOneWidget,
       );
-      expect(find.textContaining('REFERENCE_UNAVAILABLE'), findsOneWidget);
+      // C-03: estados en palabras y explicación por familia; el código
+      // técnico no está en el texto principal.
+      expect(
+        find.textContaining('Guardado, pendiente de envío'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('Rechazado por el sindicato'), findsOneWidget);
+      expect(
+        find.textContaining(
+          'El sindicato no reconoce el producto o la campaña vinculados: '
+          'revise los vínculos',
+        ),
+        findsOneWidget,
+      );
+      expect(find.textContaining('REFERENCE_UNAVAILABLE'), findsNothing);
+      // C-05: desde el rechazo se puede ir a revisar («Decidir…» queda
+      // para los conflictos); la pendiente no ofrece nada.
+      expect(find.widgetWithText(TextButton, 'Revisar…'), findsOneWidget);
+      expect(find.widgetWithText(TextButton, 'Decidir…'), findsNothing);
+      // El código sigue disponible, plegado en «Detalle técnico».
+      expect(find.text('Detalle técnico'), findsOneWidget);
+      await tester.tap(find.text('Detalle técnico'));
+      await settle(tester);
+      expect(
+        find.textContaining('Código: REFERENCE_UNAVAILABLE · Intentos: 1'),
+        findsOneWidget,
+      );
     },
   );
 }
