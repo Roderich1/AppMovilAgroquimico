@@ -29,12 +29,15 @@ class BusinessRuleException implements Exception {
 }
 
 /// Una aplicación con fecha pasada pide más de lo que la persona tenía ese
-/// día y no se usó después (D-03, precisión de RN-25). [availableBase] es la
-/// existencia elegible de ese día, en unidad base; puede ser cero.
+/// día y no se usó después (D-03, precisión de RN-25). En unidad base:
+/// [heldBase] es lo que tenía al final de ese día y [availableBase] la
+/// existencia elegible, lo que de eso queda sin usar después; las dos pueden
+/// ser cero.
 class HistoricalStockException extends BusinessRuleException {
   HistoricalStockException({
     required this.productId,
     required this.day,
+    required this.heldBase,
     required this.availableBase,
     required this.requestedBase,
     required String message,
@@ -44,6 +47,7 @@ class HistoricalStockException extends BusinessRuleException {
 
   /// Día local efectivo, `aaaa-mm-dd`.
   final String day;
+  final int heldBase;
   final int availableBase;
   final int requestedBase;
 }
@@ -1307,27 +1311,24 @@ class AgroRepository {
   }
 
   /// Rechazo de una aplicación con fecha pasada cuyo cupo histórico no
-  /// alcanza (D-03): nombra el producto, el día y la existencia elegible, y
-  /// no dice «no había» si había una cantidad menor. Si tampoco alcanza el
-  /// saldo de hoy, el rechazo es el de siempre (RN-25): D-03 sólo cambia lo
-  /// que antes se aceptaba.
-  Future<BusinessRuleException> _historicalShortfall(
+  /// alcanza (D-03), también cuando tampoco alcanza el saldo de hoy. Nombra
+  /// el producto, el día y la existencia elegible, y distingue si ese día la
+  /// persona no tenía el producto o si lo tenía y queda menos sin usar en
+  /// operaciones posteriores. Sólo se lee en el camino del rechazo.
+  Future<HistoricalStockException> _historicalShortfall(
     DatabaseExecutor txn,
     ApplicationLineDraft line,
     int personId,
     int available,
     String day,
   ) async {
-    final now = (await _lotsAvailableNow(
-      txn,
-      line.productId,
-      personId,
-    )).fold<int>(0, (sum, row) => sum + (row['available']! as int));
-    if (now < line.quantityBase) {
-      return BusinessRuleException(
-        'Stock insuficiente para confirmar la aplicación.',
-      );
-    }
+    final history = await _lotHistoryAt(txn, line.productId, personId, day);
+    // Lo que tenía al final de ese día, por lote; un saldo histórico
+    // negativo (registros anteriores inconsistentes) cuenta como nada.
+    final held = history.fold<int>(0, (sum, lot) {
+      final atDay = lot['held']! as int;
+      return sum + (atDay > 0 ? atDay : 0);
+    });
     final product = (await txn.query(
       'products',
       columns: ['name', 'unit'],
@@ -1336,18 +1337,34 @@ class AgroRepository {
       limit: 1,
     )).single;
     final unit = product['unit']! as String;
+    final name = product['name']! as String;
+    final when = displayDay(day);
+    final asked = formatQuantity(line.quantityBase, unit);
+    final String what;
+    if (held <= 0) {
+      what =
+          '$name: el $when esa persona no tenía este producto; pidió $asked.';
+    } else if (available == held) {
+      what =
+          '$name: el $when esa persona tenía ${formatQuantity(held, unit)}; '
+          'pidió $asked.';
+    } else {
+      what =
+          '$name: el $when esa persona tenía ${formatQuantity(held, unit)}; '
+          'de eso quedan ${formatQuantity(available, unit)} sin usar en '
+          'operaciones posteriores; pidió $asked.';
+    }
     return HistoricalStockException(
       productId: line.productId,
       day: day,
+      heldBase: held,
       availableBase: available,
       requestedBase: line.quantityBase,
       message:
-          '${product['name']}: el ${displayDay(day)} había '
-          '${formatQuantity(available, unit)} disponibles para esa persona; '
-          'pidió ${formatQuantity(line.quantityBase, unit)}. Una aplicación '
-          'con fecha pasada sólo puede usar lo que esa persona ya tenía ese '
-          'día y no se usó después: no cuenta el producto comprado o recibido '
-          'más tarde. Revise la fecha o la cantidad. No se registró nada.',
+          '$what Una aplicación con fecha pasada sólo puede usar lo que esa '
+          'persona ya tenía ese día y no se usó después: no cuenta el producto '
+          'comprado o recibido más tarde. Revise la fecha o la cantidad. No se '
+          'registró nada.',
     );
   }
 
@@ -1688,11 +1705,25 @@ class AgroRepository {
       );
 
   /// Lotes elegibles para una aplicación del día [day] y su cupo temporal
-  /// (§2.3, I1 de B): adquiridos ese día o antes, no anulados; el cupo es el
-  /// mínimo del saldo al final del día efectivo y al final de cada día
-  /// posterior con movimientos, ordenando por día efectivo y después por id.
-  /// La operación tardía va al final de su día.
+  /// (§2.3, I1 de B; §2.6 para D-03): adquiridos ese día o antes, no
+  /// anulados; el cupo es el mínimo del saldo al final del día efectivo y al
+  /// final de cada día posterior con movimientos, ordenando por día efectivo
+  /// y después por id. La aplicación va al final de su día. Lo usan la
+  /// operación tardía (`confirmLateOperation`) y la aplicación ordinaria con
+  /// fecha pasada (`confirmApplication`, D-03). Sólo lotes con cupo positivo.
   Future<List<Map<String, Object?>>> _lotsAvailableAt(
+    DatabaseExecutor txn,
+    int productId,
+    int personId,
+    String day,
+  ) async => [
+    for (final lot in await _lotHistoryAt(txn, productId, personId, day))
+      if ((lot['available']! as int) > 0) lot,
+  ];
+
+  /// Cada lote adquirido el día [day] o antes, con `held` (saldo al final de
+  /// ese día) y `available` (su cupo, que puede ser cero o negativo).
+  Future<List<Map<String, Object?>>> _lotHistoryAt(
     DatabaseExecutor txn,
     int productId,
     int personId,
@@ -1748,7 +1779,7 @@ class AgroRepository {
         }
       }
       final cap = laterMin == null || atDay < laterMin ? atDay : laterMin;
-      if (cap > 0) eligible.add({...lot, 'available': cap});
+      eligible.add({...lot, 'held': atDay, 'available': cap});
     }
     return eligible;
   }

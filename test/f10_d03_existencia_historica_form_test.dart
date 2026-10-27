@@ -101,12 +101,12 @@ void main() {
     ))!;
     await tapKey(tester, const Key('application-continue'));
     await tapKey(tester, const Key('application-confirm'));
-    await waitFor(tester, find.textContaining('disponibles para esa persona'));
+    await waitFor(tester, find.textContaining('esa persona no tenía'));
 
     expect(
       find.textContaining(
-        'Glifosato: el ${displayDay(day)} había 0 L disponibles para esa '
-        'persona; pidió 2 L.',
+        'Glifosato: el ${displayDay(day)} esa persona no tenía este '
+        'producto; pidió 2 L.',
       ),
       findsOneWidget,
     );

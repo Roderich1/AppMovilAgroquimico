@@ -230,11 +230,13 @@ Las validaciones exclusivamente de interfaz se listan aparte en
   también dentro de la campaña activa, sólo cuentan los lotes con día de `acquired_date`
   ≤ día efectivo y un cupo que no deja negativo ningún saldo posterior (la misma regla de
   RF-03, `docs/architecture/F04_RF13_RF03_ACTOR_Y_TARDIAS.md` §2.3 y §2.6). Si no alcanza,
-  `HistoricalStockException`, sin efectos parciales, con un mensaje que nombra el
-  producto, la fecha y la existencia elegible (*"Bellator: el 15/10/2026 había 0 L
-  disponibles para esa persona; pidió 0,8 L. …"*). Si tampoco alcanza el saldo de hoy, el
-  mensaje sigue siendo el de arriba. Vale para el formulario, la voz y los
-  planes, porque vive en `confirmApplication`. No recalcula costos ni consumos ya
+  `HistoricalStockException` (también si tampoco alcanza el saldo de hoy), sin efectos
+  parciales, con un mensaje que nombra el producto, la fecha y la existencia de ese día:
+  *"Bellator: el 15/10/2026 esa persona no tenía este producto; pidió 0,8 L. …"* o
+  *"Bellator: el 15/10/2026 esa persona tenía 1 L; de eso quedan 0,3 L sin usar en
+  operaciones posteriores; pidió 0,5 L. …"*. Con fecha de hoy, el mensaje sigue siendo el
+  de arriba. Con los productores actuales vale para el formulario, la voz y los planes,
+  porque vive en `confirmApplication`; las transferencias con fecha pasada quedan fuera. No recalcula costos ni consumos ya
   confirmados ni corrige registros históricos. Test:
   `test/f10_d03_existencia_historica_test.dart`.
 

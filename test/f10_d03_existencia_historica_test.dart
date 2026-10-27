@@ -184,9 +184,11 @@ Future<Home> home(String name) async {
 DateTime oct(int day) => DateTime(2026, 10, day);
 
 Matcher historical({
+  required int held,
   required int available,
   required int requested,
   required String message,
+  String day = '2026-10-15',
 }) => throwsA(
   // Se nombra el tipo y se leen sus campos por `dynamic` para que el archivo
   // compile también contra el `lib/` de la base (ed9c55c): así las pruebas
@@ -194,14 +196,16 @@ Matcher historical({
   isA<BusinessRuleException>()
       .having((e) => e.message, 'message', message)
       .having((e) => '${e.runtimeType}', 'type', 'HistoricalStockException')
-      .having((e) => (e as dynamic).day, 'day', '2026-10-15')
+      .having((e) => (e as dynamic).day, 'day', day)
+      .having((e) => (e as dynamic).heldBase, 'heldBase', held)
       .having((e) => (e as dynamic).availableBase, 'availableBase', available)
       .having((e) => (e as dynamic).requestedBase, 'requestedBase', requested)
       .having(
         (e) => e.message.toLowerCase(),
         'message',
         isNot(contains('no había existencias')),
-      ),
+      )
+      .having((e) => e.message, 'message', isNot(contains('había 0 '))),
 );
 
 void main() {
@@ -215,11 +219,44 @@ void main() {
     await expectLater(
       h.repo.confirmApplication(h.application(oct(15), {h.bellator: 800})),
       historical(
+        held: 0,
         available: 0,
         requested: 800,
         message:
-            'Bellator: el 15/10/2026 había 0 L disponibles para esa persona; '
+            'Bellator: el 15/10/2026 esa persona no tenía este producto; '
             'pidió 0,8 L. $_tail',
+      ),
+    );
+    expect(await dumpTables(await h.db), before);
+  });
+
+  test('1b. con fecha pasada, también cuando tampoco alcanza el saldo de '
+      'hoy: el rechazo nombra producto, fecha y existencia', () async {
+    final h = await home('d03-1b');
+    await h.buy(h.titular, h.bellator, 1000, oct(10));
+    final before = await dumpTables(await h.db);
+    await expectLater(
+      h.repo.confirmApplication(h.application(oct(15), {h.bellator: 2000})),
+      historical(
+        held: 1000,
+        available: 1000,
+        requested: 2000,
+        message:
+            'Bellator: el 15/10/2026 esa persona tenía 1 L; pidió 2 L. $_tail',
+      ),
+    );
+    expect(await dumpTables(await h.db), before);
+    // La ruta de hoy conserva su mensaje (RN-25).
+    await expectLater(
+      h.repo.confirmApplication(
+        h.application(DateTime.now(), {h.bellator: 2000}),
+      ),
+      throwsA(
+        isA<BusinessRuleException>().having(
+          (e) => e.message,
+          'message',
+          'Stock insuficiente para confirmar la aplicación.',
+        ),
       ),
     );
     expect(await dumpTables(await h.db), before);
@@ -288,11 +325,12 @@ void main() {
     await expectLater(
       h.repo.confirmApplication(h.application(oct(15), {h.bellator: 500})),
       historical(
+        held: 1000,
         available: 300,
         requested: 500,
         message:
-            'Bellator: el 15/10/2026 había 0,3 L disponibles para esa persona; '
-            'pidió 0,5 L. $_tail',
+            'Bellator: el 15/10/2026 esa persona tenía 1 L; de eso quedan '
+            '0,3 L sin usar en operaciones posteriores; pidió 0,5 L. $_tail',
       ),
     );
     expect(await dumpTables(await h.db), before);
@@ -305,6 +343,185 @@ void main() {
     expect(await h.balance(first), 0);
     expect(await h.balance(later), 1000);
     expect(await h.negativeHistory(), isEmpty);
+  });
+
+  test('3b. un pase posterior que sale del mismo lote, del lado de quien da, '
+      'reduce el cupo', () async {
+    final h = await home('d03-3b');
+    await h.buy(h.titular, h.bellator, 1000, oct(10));
+    // El 18/10 el titular pasa 0,7 L de ese lote a la hermana.
+    await h.repo.transferProductFifo(
+      fromPersonId: h.titular,
+      toPersonId: h.sister,
+      productId: h.bellator,
+      quantityBase: 700,
+      date: oct(18),
+    );
+    // El 20/10 entra otro litro, que el 15/10 no existía.
+    await h.buy(h.titular, h.bellator, 1000, oct(20));
+    final first = await h.lot(h.titular, h.bellator, '2026-10-10');
+    final before = await dumpTables(await h.db);
+    await expectLater(
+      h.repo.confirmApplication(h.application(oct(15), {h.bellator: 500})),
+      historical(
+        held: 1000,
+        available: 300,
+        requested: 500,
+        message:
+            'Bellator: el 15/10/2026 esa persona tenía 1 L; de eso quedan '
+            '0,3 L sin usar en operaciones posteriores; pidió 0,5 L. $_tail',
+      ),
+    );
+    expect(await dumpTables(await h.db), before);
+    final id = await h.repo.confirmApplication(
+      h.application(oct(15), {h.bellator: 300}),
+    );
+    expect(await h.consumptions(id), {first: (300, 3000)});
+    expect(await h.negativeHistory(), isEmpty);
+  });
+
+  test('3c. límite de las reversiones: lo devuelto se fecha el día en que se '
+      'revierte y no cuenta antes (8 L el 21/01 con 7 L elegibles)', () async {
+    // El caso de `fix_inventario_movimientos_test`, en días de enero.
+    final database = openDb(await tempDbPath('d03-3c'));
+    final repo = AgroRepository(database);
+    final ana = await repo.addPerson(name: 'Ana', role: PersonRole.family);
+    final beto = await repo.addPerson(name: 'Beto', role: PersonRole.family);
+    final supplier = await repo.addSupplier(name: 'Agro Sur');
+    final campaign = await repo.addCampaign(
+      name: 'Verano',
+      start: DateTime.utc(2026, 1, 1),
+    );
+    final glifosato = await repo.addProduct(name: 'Glifosato');
+    final farm = await repo.addFarm(
+      ownerId: ana,
+      name: 'Chaco Ana',
+      areaM2: 10000,
+    );
+    DateTime jan(int d) => DateTime.utc(2026, 1, d, 12);
+    Future<int> buy(int quantity, int d) => repo.confirmPurchase(
+      PurchaseDraft(
+        supplierId: supplier,
+        campaignId: campaign,
+        purchaseDate: jan(d),
+        items: [
+          PurchaseItemDraft(
+            productId: glifosato,
+            quantityBase: quantity,
+            currency: CurrencyCode.bob,
+            originalUnitPriceMinor: 10000,
+            allocations: [
+              AllocationDraft(personId: ana, quantityBase: quantity),
+            ],
+          ),
+        ],
+      ),
+    );
+    Future<int> apply(int quantity, int d) => repo.confirmApplication(
+      ApplicationDraft(
+        personId: ana,
+        farmId: farm,
+        campaignId: campaign,
+        appliedAt: jan(d),
+        lines: [
+          ApplicationLineDraft(productId: glifosato, quantityBase: quantity),
+        ],
+      ),
+    );
+    await buy(10000, 5);
+    await apply(3000, 10);
+    await buy(3000, 6);
+    final transfer = await repo.transferProductsFifo(
+      fromPersonId: ana,
+      toPersonId: beto,
+      items: [TransferItemDraft(productId: glifosato, quantityBase: 2000)],
+      date: jan(15),
+    );
+    await repo.reverseTransferUnauditedForTesting(
+      transfer,
+      reason: 'Equivocado',
+    );
+    final reversed = await apply(1000, 17);
+    await repo.reverseApplicationUnauditedForTesting(reversed, reason: 'Error');
+    // Hoy Ana tiene 10 L, pero el 21/01 sólo 4 L + 3 L: los 3 L revertidos
+    // vuelven con la fecha de hoy.
+    final db = await database.database;
+    final before = await dumpTables(db);
+    await expectLater(
+      apply(8000, 21),
+      historical(
+        day: '2026-01-21',
+        held: 7000,
+        available: 7000,
+        requested: 8000,
+        message:
+            'Glifosato: el 21/01/2026 esa persona tenía 7 L; pidió 8 L. $_tail',
+      ),
+    );
+    expect(await dumpTables(db), before);
+  });
+
+  test('3d. un lote con historial negativo previo no aporta cupo', () async {
+    final h = await home('d03-3d');
+    // La hermana compra el 05/10 y le pasa 1 L al titular el 20/10: el
+    // lote recibido conserva la adquisición del 05/10.
+    await h.buy(h.sister, h.bellator, 1000, oct(5));
+    await h.repo.transferProductFifo(
+      fromPersonId: h.sister,
+      toPersonId: h.titular,
+      productId: h.bellator,
+      quantityBase: 1000,
+      date: oct(20),
+    );
+    final received = await h.lot(h.titular, h.bellator, '2026-10-05');
+    // Lo que dejaba la regla anterior: una aplicación del 15/10 que consumió
+    // ese lote recibido el 20/10. Se registra hoy y se le pone la fecha.
+    final old = await h.repo.confirmApplication(
+      h.application(DateTime.now(), {h.bellator: 500}),
+    );
+    final db = await h.db;
+    final stamp = oct(15).toUtc().toIso8601String();
+    await db.update(
+      'applications',
+      {'applied_at': stamp},
+      where: 'id=?',
+      whereArgs: [old],
+    );
+    await db.update(
+      'inventory_movements',
+      {'movement_date': stamp},
+      where: "reference_type='APPLICATION' AND reference_id=?",
+      whereArgs: [old],
+    );
+    // El titular compra 0,4 L propios el 16/10. El lote recibido tiene el
+    // 17/10 un saldo histórico de -0,5 L (hoy, 0,5 L): el FIFO de antes lo
+    // tomaría primero.
+    await h.buy(h.titular, h.bellator, 400, oct(16));
+    final own = await h.lot(h.titular, h.bellator, '2026-10-16');
+    expect(await h.negativeHistory(), [(received, '2026-10-15', -500)]);
+
+    final before = await dumpTables(db);
+    await expectLater(
+      h.repo.confirmApplication(h.application(oct(17), {h.bellator: 600})),
+      historical(
+        day: '2026-10-17',
+        held: 400,
+        available: 400,
+        requested: 600,
+        message:
+            'Bellator: el 17/10/2026 esa persona tenía 0,4 L; pidió 0,6 L. '
+            '$_tail',
+      ),
+    );
+    expect(await dumpTables(db), before);
+    final id = await h.repo.confirmApplication(
+      h.application(oct(17), {h.bellator: 400}),
+    );
+    // Sólo del lote propio; el recibido no aporta nada.
+    expect(await h.consumptions(id), {own: (400, 4000)});
+    expect(await h.balance(received), 500);
+    // El registro anterior no se corrige.
+    expect(await h.negativeHistory(), [(received, '2026-10-15', -500)]);
   });
 
   test('4. rechazo multiproducto sin efectos parciales: ninguna fila nueva '
@@ -334,11 +551,12 @@ void main() {
         h.application(oct(15), {h.bellator: 500, h.expansive: 1000}),
       ),
       historical(
+        held: 0,
         available: 0,
         requested: 1000,
         message:
-            'Expansive: el 15/10/2026 había 0 KG disponibles para esa '
-            'persona; pidió 1 KG. $_tail',
+            'Expansive: el 15/10/2026 esa persona no tenía este producto; '
+            'pidió 1 KG. $_tail',
       ),
     );
     expect(await counts(), countsBefore);
@@ -362,10 +580,11 @@ void main() {
         h.application(oct(15), {h.bellator: 800}, planId: plan),
       ),
       historical(
+        held: 0,
         available: 0,
         requested: 800,
         message:
-            'Bellator: el 15/10/2026 había 0 L disponibles para esa persona; '
+            'Bellator: el 15/10/2026 esa persona no tenía este producto; '
             'pidió 0,8 L. $_tail',
       ),
     );
@@ -457,6 +676,10 @@ void main() {
     expect(await oldRows(), before);
   });
 
+  // En producción la voz confirma siempre con la fecha de hoy
+  // (`VoiceDraftGateway` usa `DateTime.now()`): estas pruebas fijan el reloj
+  // en un día pasado sólo para demostrar que el rechazo del repositorio y su
+  // mensaje llegan igual al borrador de voz.
   group('7. por voz, con la misma regla', () {
     late AppDatabase database;
     late Household household;
@@ -503,7 +726,7 @@ void main() {
       expect(await controller.confirm(), isNull);
       expect(
         controller.error,
-        'Glifosato: el 15/10/2026 había 0 L disponibles para esa persona; '
+        'Glifosato: el 15/10/2026 esa persona no tenía este producto; '
         'pidió 2 L. $_tail',
       );
       expect(await dumpTables(db), before);
