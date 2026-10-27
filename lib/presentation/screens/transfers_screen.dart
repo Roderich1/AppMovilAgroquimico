@@ -47,9 +47,10 @@ class _TransfersScreenState extends ConsumerState<TransfersScreen> {
       effects:
           '${row['from_person_name']} → ${row['to_person_name']}\n'
           '${formatItemsSummary(row['products_summary'])}\n'
-          'Costo ${formatBob(row['total_cost_bob_minor']! as int)}\n\n'
-          'El stock volverá a la persona de origen. Esta acción no se puede '
-          'deshacer.',
+          'Costo ${formatBob(row['total_cost_bob_minor']! as int)}, sólo de '
+          'referencia: la transferencia no generó deuda.\n\n'
+          'El stock volverá a la persona de origen y ninguna cuenta cambia. '
+          'Esta acción no se puede deshacer.',
     );
     if (approval == null || !mounted) return;
     try {
@@ -77,7 +78,11 @@ class _TransfersScreenState extends ConsumerState<TransfersScreen> {
 
   Widget _list(BuildContext context) => PageFrame(
     title: 'Transferencias',
-    subtitle: 'Pases de productos de una persona a otra, con su costo.',
+    // D-07 (RN-35): una transferencia es una entrega de producto, no una
+    // venta ni un cargo; el costo que se muestra es sólo de referencia.
+    subtitle:
+        'Entregas de producto de una persona a otra. No generan deuda; el '
+        'costo es sólo de referencia.',
     action: FilledButton.icon(
       onPressed: () async {
         final saved = await context.push<bool>('/transferencias/nueva');
@@ -116,7 +121,8 @@ class _TransfersScreenState extends ConsumerState<TransfersScreen> {
                 ),
                 subtitle: Text(
                   '${formatDate(row['transfer_date'])} · '
-                  '${formatItemsSummary(row['products_summary'])}',
+                  '${formatItemsSummary(row['products_summary'])}\n'
+                  '$transferNoDebtLabel',
                 ),
                 trailing: row['status'] == 'CONFIRMED'
                     ? IconButton(
@@ -141,7 +147,10 @@ class _TransfersScreenState extends ConsumerState<TransfersScreen> {
                     child: Align(
                       alignment: Alignment.centerLeft,
                       child: Text(
-                        '${row['item_count']} producto(s) · ${row['lot_count']} lote(s) · costo ${formatBob(row['total_cost_bob_minor'] as int)}',
+                        '${row['item_count']} producto(s) · ${row['lot_count']} lote(s) · costo de referencia ${formatBob(row['total_cost_bob_minor'] as int)}\n'
+                        'Es el costo de compra del producto entregado, no un '
+                        'precio de venta: ${row['to_person_name']} no debe '
+                        'nada por esta entrega.',
                       ),
                     ),
                   ),
