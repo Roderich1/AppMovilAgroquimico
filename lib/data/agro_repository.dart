@@ -3040,6 +3040,38 @@ class AgroRepository {
     );
   }
 
+  /// Historial del producto movimiento a movimiento, del más reciente al más
+  /// antiguo, con la persona dueña y la contraparte que explica cada fila:
+  /// el chaco de la aplicación, la otra persona del pase o el proveedor de la
+  /// compra, según `reference_type`/`reference_id` (E-10). Sólo lectura; una
+  /// aplicación que consumió varios lotes aparece una vez por lote, como se
+  /// guardó.
+  Future<List<Map<String, Object?>>> productMovements(
+    int productId, {
+    int limit = 20,
+  }) async => (await _db).rawQuery(
+    '''SELECT m.id, m.movement_date, m.type, m.quantity_signed,
+      m.reference_type, m.reference_id, m.notes, pe.name owner_name,
+      CASE WHEN m.reference_type IN ('APPLICATION','APPLICATION_REVERSAL') THEN
+        (SELECT f.name FROM applications a JOIN farms f ON f.id=a.farm_id
+          WHERE a.id=m.reference_id) END farm_name,
+      CASE WHEN m.reference_type IN ('TRANSFER','TRANSFER_REVERSAL') THEN
+        (SELECT CASE WHEN t.from_person_id=m.owner_person_id THEN pt.name ELSE pf.name END
+          FROM transfers t JOIN persons pf ON pf.id=t.from_person_id
+          JOIN persons pt ON pt.id=t.to_person_id WHERE t.id=m.reference_id) END counterpart_name,
+      CASE WHEN m.reference_type='PURCHASE_ALLOCATION' THEN
+        (SELECT s.name FROM purchase_allocations pa
+          JOIN purchase_items pi ON pi.id=pa.purchase_item_id
+          JOIN purchases pu ON pu.id=pi.purchase_id JOIN suppliers s ON s.id=pu.supplier_id
+          WHERE pa.id=m.reference_id)
+        WHEN m.reference_type='PURCHASE_REVERSAL' THEN
+        (SELECT s.name FROM purchases pu JOIN suppliers s ON s.id=pu.supplier_id
+          WHERE pu.id=m.reference_id) END supplier_name
+      FROM inventory_movements m JOIN persons pe ON pe.id=m.owner_person_id
+      WHERE m.product_id=? ORDER BY m.movement_date DESC, m.id DESC LIMIT ?''',
+    [productId, limit],
+  );
+
   Future<List<Map<String, Object?>>> personProfiles() async =>
       (await _db).rawQuery('''SELECT p.*,
         COALESCE((SELECT SUM(f.area_m2) FROM farms f WHERE f.owner_person_id=p.id AND f.active=1),0) area_m2,
