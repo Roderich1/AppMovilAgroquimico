@@ -214,6 +214,11 @@ void main() {
       await waitFor(tester, field('Cantidad comprada'));
       await settle(tester);
       expect(find.text('¿Para quién es?'), findsOneWidget);
+      // El selector de persona aparece sólo tras elegir «Toda para una
+      // persona» (pilotos X01/X02): se elige para contar sus campos.
+      expect(picker('Persona'), findsNothing);
+      await tester.tap(find.byKey(const Key('purchase-alloc-single-0')));
+      await settle(tester);
       expect(picker('Persona'), findsOneWidget);
       final sharedInputs = inputCount(tester);
       c.read(routerProvider).pop();
@@ -229,6 +234,7 @@ void main() {
       await waitFor(tester, field('Cantidad comprada'));
       await settle(tester);
       expect(find.text('¿Para quién es?'), findsNothing);
+      expect(find.text('Toda para una persona'), findsNothing);
       expect(picker('Persona'), findsNothing);
       expect(find.text('Para el titular: Titular'), findsOneWidget);
       expect(inputCount(tester), lessThan(sharedInputs));
@@ -245,7 +251,7 @@ void main() {
       expect(find.text('Pagador'), findsNothing);
       await tester.tap(find.byKey(const Key('purchase-paid-yes')));
       await settle(tester);
-      expect(find.text('Pago registrado por: Titular'), findsOneWidget);
+      expect(find.text('Paga el titular: Titular'), findsOneWidget);
       await tester.tap(find.byKey(const Key('purchase-confirm')));
       await settle(tester);
 

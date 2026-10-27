@@ -176,6 +176,15 @@ void main() {
         expectWhole(tester, find.text('Continuar'), 'acción');
         expectOnScreen(tester, find.text('Continuar'), width);
 
+        // El selector de persona aparece al elegir «Toda para una persona»
+        // (pilotos X01/X02).
+        await tester.ensureVisible(
+          find.byKey(const Key('purchase-alloc-single-0')),
+        );
+        await tester.pump();
+        await tester.tap(find.byKey(const Key('purchase-alloc-single-0')));
+        await settle(tester);
+
         final person = find.byWidgetPredicate(
           (w) =>
               w is AdaptiveEntityPicker<Map<String, Object?>> &&

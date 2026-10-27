@@ -32,6 +32,16 @@ import '../widgets/mode_notice.dart';
 /// pueden corregir: el medio empieza en «Sin indicar» (explícito) y la fecha
 /// en el día de la compra; nada se supone sin verse. Compra y pago se guardan
 /// en una sola transacción (`confirmPurchase(paidInFull:)`).
+///
+/// Destinatario de cada línea (ajuste tras los pilotos X01 y X02, 2026-10-26):
+/// en ambos pilotos las existencias quedaron a nombre de otra persona y en
+/// X02 faltó el segundo producto. Ahora nada entra por quedar como única
+/// opción: el producto se elige siempre (sin autoselección) y, en compartido,
+/// cada línea pide una decisión explícita —«Toda para una persona» o
+/// «Repartir entre varias»— sin opción marcada por defecto. Con una sola
+/// persona la cantidad asignada se deriva de la cantidad comprada; el reparto
+/// por filas sigue existiendo cuando se elige. El orden de las personas, su
+/// rol o la última selección nunca deciden una asignación.
 class PurchaseFormScreen extends ConsumerStatefulWidget {
   const PurchaseFormScreen({super.key});
 
@@ -39,9 +49,23 @@ class PurchaseFormScreen extends ConsumerStatefulWidget {
   ConsumerState<PurchaseFormScreen> createState() => _PurchaseFormScreenState();
 }
 
+/// Cómo se asigna una línea en compartido. Nulo hasta que la persona elige:
+/// ninguna de las dos opciones viene marcada.
+enum _AllocationMode {
+  /// Toda la cantidad comprada para una persona, sin reteclearla.
+  single,
+
+  /// Varias personas, cada una con su parte; las partes suman la cantidad.
+  split,
+}
+
 class _AllocationEditor {
   int? personId;
   final quantity = TextEditingController();
+
+  /// Mensaje de formato de la cantidad (`parseNumericInput`), fijado al
+  /// validar y borrado al editar el campo.
+  String? quantityError;
   void dispose() => quantity.dispose();
 }
 
@@ -51,7 +75,29 @@ class _PurchaseLineEditor {
   final quantity = TextEditingController();
   final price = TextEditingController();
   final fx = TextEditingController();
-  final allocations = <_AllocationEditor>[_AllocationEditor()];
+
+  /// Mensajes de formato por campo, fijados al validar (B-11).
+  String? quantityError;
+  String? priceError;
+  String? fxError;
+
+  /// Decisión explícita de destinatario (compartido). Nula hasta elegir.
+  _AllocationMode? allocationMode;
+
+  /// Destinatario único con «Toda para una persona». Sin valor por defecto.
+  int? singlePersonId;
+
+  /// Filas de «Repartir entre varias». Vacía hasta que se elige repartir.
+  final allocations = <_AllocationEditor>[];
+
+  void clearErrors() {
+    quantityError = null;
+    priceError = null;
+    fxError = null;
+    for (final allocation in allocations) {
+      allocation.quantityError = null;
+    }
+  }
 
   int get quantityBase {
     final value = tryParseBase(quantity.text) ?? 0;
@@ -110,6 +156,10 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
   int? supplierId;
   int? campaignId;
   _PurchaseStep step = _PurchaseStep.items;
+
+  /// Productos del catálogo cargado, para nombrar cada línea en los mensajes
+  /// de validación («… de Glifosato» y no «… del producto 2»).
+  List<Map<String, Object?>> products = const [];
 
   /// Día de la compra (#121): hoy por defecto, editable hacia atrás.
   String effectiveDay = localDay(DateTime.now());
@@ -223,6 +273,7 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
     personalOwnerId = operating.mode == OperationMode.personal
         ? operating.ownerPersonId
         : null;
+    products = result[2];
     return (
       suppliers: result[0],
       campaigns: result[1],
@@ -264,56 +315,159 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
     }
   }
 
-  /// Comprueba el paso 1 y explica qué falta. Devuelve `true` si se puede
-  /// pasar a la revisión.
+  String _productName(int? id) =>
+      products
+          .where((row) => row['id'] == id)
+          .firstOrNull?['name']
+          ?.toString() ??
+      '';
+
+  /// Comprueba el paso 1 y explica qué falta y en qué producto. Devuelve
+  /// `true` si se puede pasar a la revisión. Un número mal escrito deja su
+  /// mensaje de formato en el propio campo (B-11) además del aviso.
   bool _validateItems() {
-    if (supplierId == null) {
-      showError(context, 'Elige el proveedor.');
-      return false;
+    for (final line in lines) {
+      line.clearErrors();
     }
-    if (lines.isEmpty) {
-      showError(context, 'Agrega al menos un producto.');
+    final problem = _firstProblem();
+    // Repinta: muestra los errores de campo recién fijados o los borra.
+    setState(() {});
+    if (problem != null) {
+      showError(context, problem);
       return false;
-    }
-    for (var index = 0; index < lines.length; index++) {
-      final line = lines[index];
-      if (line.productId == null ||
-          line.quantityBase <= 0 ||
-          line.priceMinor <= 0) {
-        showError(
-          context,
-          'Completa producto, cantidad y precio del producto ${index + 1}.',
-        );
-        return false;
-      }
-      if (line.currency == CurrencyCode.usd &&
-          (line.exchangeRateScaled ?? 0) <= 0) {
-        showError(
-          context,
-          'Escribe el tipo de cambio del producto ${index + 1}.',
-        );
-        return false;
-      }
-      // En propio todo es del titular: no hay reparto que comprobar.
-      if (personalOwnerId != null) continue;
-      if (line.allocations.any((allocation) => allocation.personId == null)) {
-        showError(
-          context,
-          'Elige para quién es cada parte del producto ${index + 1}.',
-        );
-        return false;
-      }
-      if (line.assignedBase != line.quantityBase) {
-        showError(
-          context,
-          line.assignedBase > line.quantityBase
-              ? 'Lo repartido supera la cantidad comprada del producto ${index + 1}.'
-              : 'Falta repartir parte de la cantidad del producto ${index + 1}.',
-        );
-        return false;
-      }
     }
     return true;
+  }
+
+  /// Primer problema del paso 1, en el orden en que se lee el formulario.
+  /// Fija `*Error` en el campo cuyo texto no se puede interpretar.
+  String? _firstProblem() {
+    if (supplierId == null) return 'Elige el proveedor.';
+    if (lines.isEmpty) return 'Agrega al menos un producto.';
+    for (var index = 0; index < lines.length; index++) {
+      final line = lines[index];
+      if (line.productId == null) {
+        return 'Elija el producto de la línea ${index + 1}.';
+      }
+      final name = _productName(line.productId);
+
+      final quantity = parseNumericInput(line.quantity.text);
+      switch (quantity.status) {
+        case NumericInputStatus.empty:
+          return 'Escriba la cantidad comprada de $name.';
+        case NumericInputStatus.ambiguous:
+        case NumericInputStatus.malformed:
+          line.quantityError = quantity.message;
+          return 'Revise la cantidad comprada de $name.';
+        case NumericInputStatus.valid:
+          if (line.quantityBase <= 0) {
+            return 'La cantidad comprada de $name debe ser mayor que cero.';
+          }
+      }
+
+      final price = parseNumericInput(line.price.text);
+      switch (price.status) {
+        case NumericInputStatus.empty:
+          return 'Escriba el precio de $name.';
+        case NumericInputStatus.ambiguous:
+        case NumericInputStatus.malformed:
+          line.priceError = price.message;
+          return 'Revise el precio de $name.';
+        case NumericInputStatus.valid:
+          if (line.priceMinor <= 0) {
+            return 'El precio de $name debe ser mayor que cero.';
+          }
+      }
+
+      if (line.currency == CurrencyCode.usd) {
+        final fx = parseNumericInput(line.fx.text);
+        switch (fx.status) {
+          case NumericInputStatus.empty:
+            return 'Escriba el tipo de cambio de $name.';
+          case NumericInputStatus.ambiguous:
+          case NumericInputStatus.malformed:
+            line.fxError = fx.message;
+            return 'Revise el tipo de cambio de $name.';
+          case NumericInputStatus.valid:
+            if ((line.exchangeRateScaled ?? 0) <= 0) {
+              return 'El tipo de cambio de $name debe ser mayor que cero.';
+            }
+        }
+      }
+
+      // En propio todo es del titular: no hay destinatario que comprobar.
+      if (personalOwnerId != null) continue;
+      switch (line.allocationMode) {
+        case null:
+          return 'Indique para quién es $name: toda para una persona o '
+              'repartida entre varias.';
+        case _AllocationMode.single:
+          if (line.singlePersonId == null) {
+            return 'Elija para quién es $name.';
+          }
+        case _AllocationMode.split:
+          for (final allocation in line.allocations) {
+            if (allocation.personId == null) {
+              return 'Elija la persona de cada parte de $name.';
+            }
+            final part = parseNumericInput(allocation.quantity.text);
+            switch (part.status) {
+              case NumericInputStatus.empty:
+                return 'Escriba la cantidad de cada parte de $name.';
+              case NumericInputStatus.ambiguous:
+              case NumericInputStatus.malformed:
+                allocation.quantityError = part.message;
+                return 'Revise las cantidades repartidas de $name.';
+              case NumericInputStatus.valid:
+                if ((part.value ?? 0) <= 0) {
+                  return 'Cada parte de $name debe ser mayor que cero.';
+                }
+            }
+          }
+          // Repartir es entre personas distintas: la misma dos veces sería
+          // una sola parte escrita en dos filas.
+          final people = line.allocations.map((a) => a.personId).toList();
+          if (people.toSet().length != people.length) {
+            return 'La misma persona aparece dos veces en el reparto de '
+                '$name.';
+          }
+          if (line.assignedBase != line.quantityBase) {
+            return line.assignedBase > line.quantityBase
+                ? 'Lo repartido supera la cantidad comprada de $name.'
+                : 'Falta repartir parte de la cantidad de $name.';
+          }
+      }
+    }
+    return null;
+  }
+
+  /// Asignaciones explícitas de una línea ya validada, tal como las recibe
+  /// `confirmPurchase` (su contrato no cambia). En propio, todo al titular;
+  /// con una sola persona, la cantidad completa de la línea; repartida, cada
+  /// fila con su parte.
+  List<AllocationDraft> _allocationsOf(_PurchaseLineEditor line) {
+    final owner = personalOwnerId;
+    if (owner != null) {
+      return [
+        AllocationDraft(personId: owner, quantityBase: line.quantityBase),
+      ];
+    }
+    return switch (line.allocationMode) {
+      _AllocationMode.single => [
+        AllocationDraft(
+          personId: line.singlePersonId!,
+          quantityBase: line.quantityBase,
+        ),
+      ],
+      _AllocationMode.split => [
+        for (final allocation in line.allocations)
+          AllocationDraft(
+            personId: allocation.personId!,
+            quantityBase: tryParseBase(allocation.quantity.text) ?? 0,
+          ),
+      ],
+      null => const [],
+    };
   }
 
   void _goToReview() {
@@ -379,21 +533,7 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
               currency: line.currency,
               originalUnitPriceMinor: line.priceMinor,
               exchangeRateScaled: line.exchangeRateScaled,
-              allocations: personalOwnerId != null
-                  ? [
-                      AllocationDraft(
-                        personId: personalOwnerId!,
-                        quantityBase: line.quantityBase,
-                      ),
-                    ]
-                  : [
-                      for (final allocation in line.allocations)
-                        AllocationDraft(
-                          personId: allocation.personId!,
-                          quantityBase:
-                              tryParseBase(allocation.quantity.text) ?? 0,
-                        ),
-                    ],
+              allocations: _allocationsOf(line),
             ),
         ],
       );
@@ -623,9 +763,16 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
     final ownerName = _ownerName(data);
     return [
       _dropdown('Proveedor', data.suppliers, supplierId, (value) {
+        // El único proveedor se deja elegido como valor de referencia; eso no
+        // es un cambio de la persona, así que Atrás no debe preguntar
+        // «¿Descartar cambios?» (B-07).
+        final autoSelected =
+            supplierId == null &&
+            data.suppliers.length == 1 &&
+            value == data.suppliers.single['id'];
         setState(() {
           supplierId = value;
-          dirty = true;
+          if (!autoSelected) dirty = true;
         });
       }),
       const SizedBox(height: 10),
@@ -667,6 +814,7 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
             line: lines[index],
             products: data.products,
             people: data.people,
+            ownerPersonId: ownerPersonId,
             personalOwnerName: personalOwnerId == null
                 ? null
                 : ownerName ?? 'Titular',
@@ -730,18 +878,16 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
                   '${effectiveDay == localDay(DateTime.now()) ? ' (hoy)' : ''}',
             ),
             const Divider(height: 20),
-            for (final line in lines) ...[
+            // Por producto: nombre, cantidad, subtotal y destinatario, en una
+            // sola línea legible antes de confirmar (pilotos X01/X02).
+            for (var index = 0; index < lines.length; index++) ...[
               Text(
-                '${productName(line.productId)} · '
-                '${formatQuantity(line.quantityBase, productUnit(line.productId))} · '
-                '${formatBob(line.subtotalBob)}',
+                '${productName(lines[index].productId)} · '
+                '${formatQuantity(lines[index].quantityBase, productUnit(lines[index].productId))} · '
+                '${formatBob(lines[index].subtotalBob)} · '
+                '${_recipientSummary(lines[index], personName, productUnit(lines[index].productId), ownerName)}',
+                key: Key('purchase-review-line-$index'),
                 style: const TextStyle(fontWeight: FontWeight.w700),
-              ),
-              Text(
-                personalOwnerId != null
-                    ? 'Para el titular: $ownerName'
-                    : 'Para: ${line.allocations.map((a) => '${personName(a.personId)} ${formatQuantity(tryParseBase(a.quantity.text) ?? 0, productUnit(line.productId))}').join(', ')}',
-                style: theme.textTheme.bodySmall,
               ),
               const SizedBox(height: 8),
             ],
@@ -818,7 +964,9 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
                         color: theme.colorScheme.primary,
                       ),
                       const SizedBox(width: 8),
-                      Expanded(child: Text('Pago registrado por: $ownerName')),
+                      // Antes de guardar no hay ningún pago registrado: se
+                      // dice quién paga, como en el pago posterior (E-16).
+                      Expanded(child: Text('Paga el titular: $ownerName')),
                     ],
                   ),
                   const SizedBox(height: 10),
@@ -919,6 +1067,23 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
         ),
       ),
     ];
+  }
+
+  /// «Para: X» o «Repartida: A 1 L · B 1 L» para la revisión. En propio,
+  /// «Para: titular».
+  String _recipientSummary(
+    _PurchaseLineEditor line,
+    String Function(int?) personName,
+    String unit,
+    String ownerName,
+  ) {
+    if (personalOwnerId != null) return 'Para: $ownerName';
+    return switch (line.allocationMode) {
+      _AllocationMode.single => 'Para: ${personName(line.singlePersonId)}',
+      _AllocationMode.split =>
+        'Repartida: ${line.allocations.map((a) => '${personName(a.personId)} ${formatQuantity(tryParseBase(a.quantity.text) ?? 0, unit)}').join(' · ')}',
+      null => 'Pendiente de destinatario',
+    };
   }
 
   Widget _reviewRow(IconData icon, String label, String value) => Padding(
@@ -1043,12 +1208,17 @@ class _LineCard extends StatelessWidget {
     required this.people,
     required this.usedProductIds,
     required this.onChanged,
+    this.ownerPersonId,
     this.onRemove,
     this.personalOwnerName,
   });
   final int index;
   final _PurchaseLineEditor line;
   final List<Map<String, Object?>> products, people;
+
+  /// Titular vigente (de `owner_bindings`), para rotularlo «Titular» en la
+  /// lista de personas en vez de con su rol privado (E-14).
+  final int? ownerPersonId;
 
   /// En inventario propio, el titular que recibe la línea entera (#26).
   final String? personalOwnerName;
@@ -1063,29 +1233,54 @@ class _LineCard extends StatelessWidget {
     return null;
   }
 
-  /// Cómo va el reparto de esta línea entre personas (UIBUG-039).
+  String _personName(int? id) =>
+      people
+          .where((person) => person['id'] == id)
+          .firstOrNull?['name']
+          ?.toString() ??
+      '';
+
+  /// Rótulo secundario de una persona: el titular se dice «Titular»; los
+  /// demás, su rol («Familiar», «Tercero»). Nunca «Titular · Familiar».
+  String _personRole(Map<String, Object?> person) =>
+      ownerPersonId != null && person['id'] == ownerPersonId
+      ? 'Titular'
+      : personRoleLabel(person['role']);
+
+  /// Cómo va el destinatario de esta línea (UIBUG-039, pilotos X01/X02).
   ///
-  /// Antes bastaba con que `pendiente == 0` para rotular "asignado", y eso es
-  /// cierto también cuando **no se ha escrito nada**: cero comprado y cero
-  /// repartido dan diferencia cero. Una línea vacía se anunciaba como
-  /// terminada. Una asignación sólo está completa cuando existen todos sus
-  /// datos obligatorios: cantidad comprada, persona en cada reparto y suma
-  /// repartida igual a la comprada. La regla contable no cambia —la valida
-  /// igual `_confirm`—; cambia lo que la tarjeta declara.
+  /// Una línea vacía no se declara terminada: sólo cuando existen todos sus
+  /// datos obligatorios. En compartido lo primero es la decisión explícita
+  /// de destinatario; sin ella, «Pendiente de destinatario». La regla
+  /// contable no cambia —la valida igual `_validateItems`—; cambia lo que la
+  /// tarjeta declara.
   String get _allocationStatus {
-    if (line.quantityBase <= 0) return 'Pendiente de cantidad';
-    if (personalOwnerName != null) return 'Para el titular';
-    if (line.allocations.any((allocation) => allocation.personId == null)) {
-      return 'Pendiente de persona';
+    if (personalOwnerName != null) {
+      return line.quantityBase <= 0
+          ? 'Pendiente de cantidad'
+          : 'Para el titular';
     }
-    final pending = line.quantityBase - line.assignedBase;
-    if (pending > 0) {
-      return 'Pendiente ${formatQuantity(pending, _unit)}';
+    switch (line.allocationMode) {
+      case null:
+        return 'Pendiente de destinatario';
+      case _AllocationMode.single:
+        if (line.singlePersonId == null) return 'Pendiente de destinatario';
+        if (line.quantityBase <= 0) return 'Pendiente de cantidad';
+        return 'Para: ${_personName(line.singlePersonId)}';
+      case _AllocationMode.split:
+        if (line.quantityBase <= 0) return 'Pendiente de cantidad';
+        if (line.allocations.any((allocation) => allocation.personId == null)) {
+          return 'Pendiente de persona';
+        }
+        final pending = line.quantityBase - line.assignedBase;
+        if (pending > 0) {
+          return 'Pendiente ${formatQuantity(pending, _unit)}';
+        }
+        if (pending < 0) {
+          return 'Excede en ${formatQuantity(-pending, _unit)}';
+        }
+        return 'Repartida: ${line.allocations.map((a) => '${_personName(a.personId)} ${formatQuantity(tryParseBase(a.quantity.text) ?? 0, _unit)}').join(' · ')}';
     }
-    if (pending < 0) {
-      return 'Excede en ${formatQuantity(-pending, _unit)}';
-    }
-    return 'Asignado';
   }
 
   String get _unit => selectedProduct?['unit']?.toString() ?? '';
@@ -1131,6 +1326,10 @@ class _LineCard extends StatelessWidget {
             value: selectedProduct,
             labelOf: (product) => product['name']! as String,
             secondaryOf: (product) => product['unit']! as String,
+            // Piloto X02: el último producto del catálogo entraba solo en la
+            // última línea. El producto entra sólo al elegirlo, aunque quede
+            // uno (B-08).
+            autoSelectSingle: false,
             onChanged: (product) {
               line.productId = product?['id'] as int?;
               onChanged();
@@ -1142,7 +1341,10 @@ class _LineCard extends StatelessWidget {
           _ResponsivePair(
             first: TextField(
               controller: line.quantity,
-              onChanged: (_) => onChanged(),
+              onChanged: (_) {
+                line.quantityError = null;
+                onChanged();
+              },
               keyboardType: const TextInputType.numberWithOptions(
                 decimal: true,
               ),
@@ -1153,6 +1355,8 @@ class _LineCard extends StatelessWidget {
               decoration: InputDecoration(
                 labelText: 'Cantidad comprada',
                 suffixText: unit.isEmpty ? null : unit,
+                errorText: line.quantityError,
+                errorMaxLines: 4,
               ),
             ),
             second: DropdownButtonFormField<CurrencyCode>(
@@ -1174,7 +1378,10 @@ class _LineCard extends StatelessWidget {
               Expanded(
                 child: TextField(
                   controller: line.price,
-                  onChanged: (_) => onChanged(),
+                  onChanged: (_) {
+                    line.priceError = null;
+                    onChanged();
+                  },
                   keyboardType: const TextInputType.numberWithOptions(
                     decimal: true,
                   ),
@@ -1186,6 +1393,8 @@ class _LineCard extends StatelessWidget {
                     labelText: hasProduct
                         ? 'Precio ${line.currency == CurrencyCode.usd ? 'USD' : 'BOB'}/$unit'
                         : 'Precio por unidad',
+                    errorText: line.priceError,
+                    errorMaxLines: 4,
                   ),
                 ),
               ),
@@ -1194,11 +1403,18 @@ class _LineCard extends StatelessWidget {
                 Expanded(
                   child: TextField(
                     controller: line.fx,
-                    onChanged: (_) => onChanged(),
+                    onChanged: (_) {
+                      line.fxError = null;
+                      onChanged();
+                    },
                     keyboardType: const TextInputType.numberWithOptions(
                       decimal: true,
                     ),
-                    decoration: const InputDecoration(labelText: 'TC Bs/USD'),
+                    decoration: InputDecoration(
+                      labelText: 'TC Bs/USD',
+                      errorText: line.fxError,
+                      errorMaxLines: 4,
+                    ),
                   ),
                 ),
               ],
@@ -1226,95 +1442,205 @@ class _LineCard extends StatelessWidget {
                 key: Key('purchase-personal-allocation-$index'),
               ),
             )
-          else ...[
-            Row(
-              children: [
-                const Expanded(
-                  child: Text(
-                    // En compartido el reparto es explícito: se dice para
-                    // quién es cada parte; nada se asigna solo al titular.
-                    '¿Para quién es?',
-                    style: TextStyle(fontWeight: FontWeight.w700),
-                  ),
-                ),
-                TextButton.icon(
-                  onPressed: () {
-                    line.allocations.add(_AllocationEditor());
-                    onChanged();
-                  },
-                  icon: const Icon(Icons.add),
-                  label: const Text('Persona'),
-                ),
-              ],
-            ),
-            for (
-              var allocationIndex = 0;
-              allocationIndex < line.allocations.length;
-              allocationIndex++
-            )
-              Padding(
-                padding: const EdgeInsets.only(bottom: 8),
-                // **#97.** Persona y cantidad compartían una fila 3:2 y, con la
-                // fuente al 130 %, el nombre se truncaba («Titular F1…»). Si
-                // no caben con holgura, la persona va arriba a todo el ancho.
-                child: _AllocationRow(
-                  onRemove: line.allocations.length > 1
-                      ? () {
-                          line.allocations.removeAt(allocationIndex).dispose();
-                          onChanged();
-                        }
-                      : null,
-                  children: [
-                    Expanded(
-                      flex: 3,
-                      child: AdaptiveEntityPicker<Map<String, Object?>>(
-                        label: 'Persona',
-                        items: people,
-                        value: people
-                            .where(
-                              (person) =>
-                                  person['id'] ==
-                                  line.allocations[allocationIndex].personId,
-                            )
-                            .firstOrNull,
-                        labelOf: (person) => person['name']! as String,
-                        secondaryOf: (person) =>
-                            personRoleLabel(person['role']),
-                        onChanged: (person) {
-                          line.allocations[allocationIndex].personId =
-                              person?['id'] as int?;
-                          onChanged();
-                        },
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      flex: 2,
-                      child: TextField(
-                        controller: line.allocations[allocationIndex].quantity,
-                        onChanged: (_) => onChanged(),
-                        keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true,
-                        ),
-                        // La etiqueta era la unidad a secas, y sin producto
-                        // elegido quedaba vacía: un recuadro sin nombre junto a
-                        // un selector de persona (UIBUG-038). Ahora el campo
-                        // dice qué es, y la unidad acompaña como sufijo cuando
-                        // se conoce.
-                        decoration: InputDecoration(
-                          labelText: 'Cantidad',
-                          suffixText: unit.isEmpty ? null : unit,
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-          ],
+          else
+            ..._recipientSection(context, unit),
         ],
       ),
     );
   }
+
+  /// «¿Para quién es?» en compartido: dos opciones explícitas, ninguna
+  /// marcada por defecto. El destinatario de las existencias no es el
+  /// pagador (que siempre es el titular, en el paso 2).
+  List<Widget> _recipientSection(BuildContext context, String unit) {
+    final theme = Theme.of(context);
+    return [
+      const Text(
+        '¿Para quién es?',
+        style: TextStyle(fontWeight: FontWeight.w700),
+      ),
+      const SizedBox(height: 6),
+      // Chips en `Wrap`: con fuente ampliada pasan a otra línea en vez de
+      // recortarse (como «¿Cómo pagaste?»).
+      Wrap(
+        key: Key('purchase-alloc-mode-$index'),
+        spacing: 8,
+        runSpacing: 4,
+        children: [
+          ChoiceChip(
+            key: Key('purchase-alloc-single-$index'),
+            label: const Text('Toda para una persona'),
+            selected: line.allocationMode == _AllocationMode.single,
+            onSelected: (selected) {
+              // Volver a tocar la opción activa no borra nada.
+              if (!selected || line.allocationMode == _AllocationMode.single) {
+                return;
+              }
+              line.allocationMode = _AllocationMode.single;
+              // Cambiar de opción limpia la anterior: las filas del reparto
+              // no se arrastran. Sus controladores se liberan después del
+              // fotograma, cuando los campos que los usaban ya no existen.
+              final discarded = List.of(line.allocations);
+              line.allocations.clear();
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                for (final allocation in discarded) {
+                  allocation.dispose();
+                }
+              });
+              onChanged();
+            },
+          ),
+          ChoiceChip(
+            key: Key('purchase-alloc-split-$index'),
+            label: const Text('Repartir entre varias'),
+            selected: line.allocationMode == _AllocationMode.split,
+            onSelected: (selected) {
+              if (!selected || line.allocationMode == _AllocationMode.split) {
+                return;
+              }
+              line.allocationMode = _AllocationMode.split;
+              // La persona única no se arrastra a una fila del reparto.
+              line.singlePersonId = null;
+              // Repartir es entre dos o más: dos filas vacías para empezar,
+              // sin ninguna persona prellenada.
+              while (line.allocations.length < 2) {
+                line.allocations.add(_AllocationEditor());
+              }
+              onChanged();
+            },
+          ),
+        ],
+      ),
+      const SizedBox(height: 8),
+      switch (line.allocationMode) {
+        null => Text(
+          'Elija una opción para indicar a quién va este producto.',
+          key: Key('purchase-alloc-pending-$index'),
+          style: TextStyle(color: theme.colorScheme.outline),
+        ),
+        _AllocationMode.single => _singleRecipient(theme, unit),
+        _AllocationMode.split => _splitRecipients(unit),
+      },
+    ];
+  }
+
+  /// Un destinatario: selector sin valor por defecto ni autoselección; la
+  /// cantidad asignada se deriva de «Cantidad comprada», no se teclea.
+  Widget _singleRecipient(ThemeData theme, String unit) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      AdaptiveEntityPicker<Map<String, Object?>>(
+        label: 'Persona',
+        items: people,
+        value: people
+            .where((person) => person['id'] == line.singlePersonId)
+            .firstOrNull,
+        labelOf: (person) => person['name']! as String,
+        secondaryOf: _personRole,
+        autoSelectSingle: false,
+        onChanged: (person) {
+          line.singlePersonId = person?['id'] as int?;
+          onChanged();
+        },
+      ),
+      if (line.singlePersonId != null) ...[
+        const SizedBox(height: 6),
+        Text(
+          'Recibe toda la cantidad comprada: '
+          '${formatQuantity(line.quantityBase, unit)}.',
+          key: Key('purchase-alloc-derived-$index'),
+          style: theme.textTheme.bodySmall,
+        ),
+      ],
+    ],
+  );
+
+  /// Reparto por filas: persona y cantidad por fila; las partes suman la
+  /// cantidad comprada (lo valida igual `_validateItems`).
+  Widget _splitRecipients(String unit) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Align(
+        alignment: Alignment.centerRight,
+        child: TextButton.icon(
+          onPressed: () {
+            line.allocations.add(_AllocationEditor());
+            onChanged();
+          },
+          icon: const Icon(Icons.add),
+          label: const Text('Persona'),
+        ),
+      ),
+      for (
+        var allocationIndex = 0;
+        allocationIndex < line.allocations.length;
+        allocationIndex++
+      )
+        Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          // **#97.** Persona y cantidad compartían una fila 3:2 y, con la
+          // fuente al 130 %, el nombre se truncaba («Titular F1…»). Si
+          // no caben con holgura, la persona va arriba a todo el ancho.
+          child: _AllocationRow(
+            onRemove: line.allocations.length > 2
+                ? () {
+                    line.allocations.removeAt(allocationIndex).dispose();
+                    onChanged();
+                  }
+                : null,
+            children: [
+              Expanded(
+                flex: 3,
+                child: AdaptiveEntityPicker<Map<String, Object?>>(
+                  label: 'Persona',
+                  items: people,
+                  value: people
+                      .where(
+                        (person) =>
+                            person['id'] ==
+                            line.allocations[allocationIndex].personId,
+                      )
+                      .firstOrNull,
+                  labelOf: (person) => person['name']! as String,
+                  secondaryOf: _personRole,
+                  autoSelectSingle: false,
+                  onChanged: (person) {
+                    line.allocations[allocationIndex].personId =
+                        person?['id'] as int?;
+                    onChanged();
+                  },
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                flex: 2,
+                child: TextField(
+                  controller: line.allocations[allocationIndex].quantity,
+                  onChanged: (_) {
+                    line.allocations[allocationIndex].quantityError = null;
+                    onChanged();
+                  },
+                  keyboardType: const TextInputType.numberWithOptions(
+                    decimal: true,
+                  ),
+                  // La etiqueta era la unidad a secas, y sin producto
+                  // elegido quedaba vacía: un recuadro sin nombre junto a
+                  // un selector de persona (UIBUG-038). Ahora el campo
+                  // dice qué es, y la unidad acompaña como sufijo cuando
+                  // se conoce.
+                  decoration: InputDecoration(
+                    labelText: 'Cantidad',
+                    suffixText: unit.isEmpty ? null : unit,
+                    errorText: line.allocations[allocationIndex].quantityError,
+                    errorMaxLines: 4,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+    ],
+  );
 }
 
 /// Fila de una asignación: persona (flex 3) y cantidad (flex 2) cuando caben;

@@ -127,8 +127,8 @@ void main() {
     await choose(tester, 'Producto', 'Glifosato');
     await tester.enterText(field('Cantidad comprada'), '1');
     await tester.enterText(field('Precio BOB/L'), '10');
+    await tapKey(tester, 'purchase-alloc-single-0');
     await choose(tester, 'Persona', 'Titular');
-    await tester.enterText(field('Cantidad'), '1');
     await settle(tester);
     await tapKey(tester, 'purchase-continue');
     await tester.tap(find.byKey(const Key('purchase-paid-no')));

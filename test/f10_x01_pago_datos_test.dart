@@ -218,8 +218,8 @@ void main() {
       await choose(tester, 'Producto', 'Glifosato');
       await tester.enterText(field('Cantidad comprada'), '2');
       await tester.enterText(field('Precio BOB/L'), '45');
+      await tapKey(tester, 'purchase-alloc-single-0');
       await choose(tester, 'Persona', 'Titular');
-      await tester.enterText(field('Cantidad'), '2');
       await settle(tester);
       await tapKey(tester, 'purchase-continue');
     }
@@ -269,7 +269,7 @@ void main() {
         expect(find.byKey(const Key('payment-method')), findsNothing);
         await tester.tap(find.byKey(const Key('purchase-paid-yes')));
         await settle(tester);
-        expect(find.text('Pago registrado por: Titular'), findsOneWidget);
+        expect(find.text('Paga el titular: Titular'), findsOneWidget);
         expect(find.text('¿Cómo pagaste?'), findsOneWidget);
         expect(chipSelected(tester, 'payment-method-unspecified'), isTrue);
         expect(chipSelected(tester, 'payment-method-cash'), isFalse);

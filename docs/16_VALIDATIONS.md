@@ -235,14 +235,22 @@ declara ahora cuál falta:
 
 | Condición | Qué dice |
 |---|---|
+| compartido: sin elegir «Toda para una persona» / «Repartir entre varias», o sin persona en «Toda para una persona» | `Pendiente de destinatario` |
 | cantidad comprada <= 0 | `Pendiente de cantidad` |
-| alguna asignación sin persona | `Pendiente de persona` |
-| suma repartida < comprada | `Pendiente <cantidad>` |
-| suma repartida > comprada | `Excede en <cantidad>` |
-| todo completo y cuadrado | `Asignado` |
+| propio, con cantidad | `Para el titular` |
+| «Toda para una persona», con persona y cantidad | `Para: <persona>` |
+| «Repartir entre varias»: alguna fila sin persona | `Pendiente de persona` |
+| «Repartir entre varias»: suma repartida < comprada | `Pendiente <cantidad>` |
+| «Repartir entre varias»: suma repartida > comprada | `Excede en <cantidad>` |
+| «Repartir entre varias», completo y cuadrado | `Repartida: <persona> <cantidad> · <persona> <cantidad>` |
 
-**La regla contable no cambió**: `_confirm` valida exactamente lo mismo que antes. Lo que
-cambió es lo que la tarjeta afirma mientras se rellena.
+Tras los pilotos X01 y X02 (2026-10-26) ninguna de las dos opciones viene marcada y el
+producto de cada línea no se autoselecciona aunque quede uno solo. Con «Toda para una
+persona» la cantidad asignada se deriva de «Cantidad comprada» (no se teclea).
+
+**La regla contable no cambió**: `_validateItems` exige que las asignaciones sumen la cantidad
+comprada, igual que el repositorio. Lo que cambió es lo que la tarjeta afirma mientras se
+rellena y cómo se declara el destinatario.
 
 ## Plan (UIBUG-032, verificado en dispositivo)
 
