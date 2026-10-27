@@ -81,6 +81,9 @@ No se ejecutó la suite completa.
 |---|---|---|
 | `regression_widget_test` («estado de cuenta abre y cierra 20 veces») | El repositorio falso devuelve el libro (`accountLedger`) con la misma persona y el mismo adelanto, en lugar de `settlements`/`detailedStatement`. La comprobación del título pasa a `textContaining('Estado de cuenta · ')`, porque el diálogo trae además la cabecera «Estado de cuenta cronológico · …» | D-04 §2.5, D04-01 |
 | `report_export_service_test` («el estado de cuenta cuadra con el saldo») | Espera «Saldo a hoy (Bs);500,00» en lugar de «Saldo final (Bs);500,00». La cifra es la misma | D-04 §2.6, M-8 |
+| `rec_016_export_coherence_test` (resumen de las campañas 1 y 2) | Espera «Deuda pendiente por origen;;530,00» y «Deuda pendiente por origen (Bs);530,00» en lugar de «Saldo por cobrar…», y lo mismo con 297,50 en la campaña 2. Las cifras no cambian | D-04: el resumen de campaña muestra la deuda pendiente por campaña de origen, no un saldo por `campaign_id`, y los dos cálculos no comparten rótulo (§2.3 y §2.7, I-6) |
+
+Nota (2026-10-27, coordinación A): las tandas de la rama no incluían `rec_016_export_coherence_test`. Esa prueba falló en la suite completa de la composición local `ae5d1a3` (`01:58 +2058 ~3 -2`): sólo por el rótulo, con las mismas cifras. Fallaba igual en `b7661ca` y en E-15 `d58ec42`. Se corrigió en esta rama con la justificación de arriba; el archivo sólo, tras el cambio: `00:01 +9: All tests passed!`.
 
 Las demás pruebas existentes pasan sin cambios. Las caracterizaciones de las lecturas heredadas siguen valiendo porque esas lecturas no se tocaron.
 
