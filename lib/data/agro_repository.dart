@@ -2110,7 +2110,7 @@ class AgroRepository {
     reason: reason,
     authorization: authorization,
     effects: (txn, context, recorder) =>
-        _reversePurchaseIn(txn, purchaseId, reason.trim(), recorder),
+        _reversePurchaseIn(txn, context, purchaseId, reason.trim(), recorder),
   );
 
   /// Sólo pruebas: los efectos de la reversión sin auditoría ni autorización.
@@ -2119,12 +2119,18 @@ class AgroRepository {
     int purchaseId, {
     String? reason,
   }) => _write(
-    (txn, _) =>
-        _reversePurchaseIn(txn, purchaseId, reason, ReversalEffects.discard()),
+    (txn, context) => _reversePurchaseIn(
+      txn,
+      context,
+      purchaseId,
+      reason,
+      ReversalEffects.discard(),
+    ),
   );
 
   Future<OriginalOperation> _reversePurchaseIn(
     Transaction txn,
+    WriteContext context,
     int purchaseId,
     String? reason,
     ReversalEffects effects,
@@ -2154,6 +2160,29 @@ class AgroRepository {
       final lots = await txn.rawQuery(
         'SELECT l.* FROM inventory_lots l JOIN purchase_items i ON i.id=l.purchase_item_id WHERE i.purchase_id=?',
         [purchaseId],
+      );
+      final allocationCharges = await txn.rawQuery(
+        '''SELECT t.* FROM account_transactions t JOIN purchase_allocations a ON
+        t.reference_type='PURCHASE_ALLOCATION' AND t.reference_id=a.id JOIN purchase_items i ON i.id=a.purchase_item_id
+        WHERE i.purchase_id=?''',
+        [purchaseId],
+      );
+      // Revertir anula los lotes y abona los cargos a quien se le asignó la
+      // compra. En modo propio eso crearía actividad de otra persona
+      // (#26/#27, #102), como en las reversiones de aplicación y de
+      // transferencia. Se comprueba antes de escribir y sólo sobre lo que se
+      // va a escribir: un lote ya anulado (F04-BUG-02) no cuenta. La compra
+      // sigue disponible para revertirse en inventario compartido.
+      _requireOwnerInPersonal(
+        context,
+        [
+          for (final lot in lots)
+            if (lot['reversed_at'] == null) lot['owner_person_id']! as int,
+          for (final charge in allocationCharges) charge['person_id']! as int,
+        ],
+        'En inventario propio sólo se revierten compras asignadas al titular. '
+        'Para revertir una compra con asignaciones a otras personas, cambie '
+        'a inventario compartido.',
       );
       for (final lot in lots) {
         final available =
@@ -2204,12 +2233,6 @@ class AgroRepository {
         );
         effects.add('inventory_lots', lot['id']! as int);
       }
-      final allocationCharges = await txn.rawQuery(
-        '''SELECT t.* FROM account_transactions t JOIN purchase_allocations a ON
-        t.reference_type='PURCHASE_ALLOCATION' AND t.reference_id=a.id JOIN purchase_items i ON i.id=a.purchase_item_id
-        WHERE i.purchase_id=?''',
-        [purchaseId],
-      );
       for (final charge in allocationCharges) {
         effects.add(
           'account_transactions',
@@ -3039,6 +3062,41 @@ class AgroRepository {
       args,
     );
   }
+
+  /// Historial del producto movimiento a movimiento, del más reciente al más
+  /// antiguo, con la persona dueña y la contraparte que explica cada fila:
+  /// el chaco de la aplicación, la otra persona del pase o el proveedor de la
+  /// compra, según `reference_type`/`reference_id` (E-10). Sólo lectura. Una
+  /// operación que tocó varios lotes (aplicación o pase sobre dos lotes) es
+  /// una sola fila: se agrupa por operación, persona y tipo y se suma la
+  /// cantidad.
+  Future<List<Map<String, Object?>>> productMovements(
+    int productId, {
+    int limit = 20,
+  }) async => (await _db).rawQuery(
+    '''SELECT MIN(m.id) id, m.movement_date, m.type, SUM(m.quantity_signed) quantity_signed,
+      m.reference_type, m.reference_id, MAX(m.notes) notes, pe.name owner_name,
+      CASE WHEN m.reference_type IN ('APPLICATION','APPLICATION_REVERSAL') THEN
+        (SELECT f.name FROM applications a JOIN farms f ON f.id=a.farm_id
+          WHERE a.id=m.reference_id) END farm_name,
+      CASE WHEN m.reference_type IN ('TRANSFER','TRANSFER_REVERSAL') THEN
+        (SELECT CASE WHEN t.from_person_id=m.owner_person_id THEN pt.name ELSE pf.name END
+          FROM transfers t JOIN persons pf ON pf.id=t.from_person_id
+          JOIN persons pt ON pt.id=t.to_person_id WHERE t.id=m.reference_id) END counterpart_name,
+      CASE WHEN m.reference_type='PURCHASE_ALLOCATION' THEN
+        (SELECT s.name FROM purchase_allocations pa
+          JOIN purchase_items pi ON pi.id=pa.purchase_item_id
+          JOIN purchases pu ON pu.id=pi.purchase_id JOIN suppliers s ON s.id=pu.supplier_id
+          WHERE pa.id=m.reference_id)
+        WHEN m.reference_type='PURCHASE_REVERSAL' THEN
+        (SELECT s.name FROM purchases pu JOIN suppliers s ON s.id=pu.supplier_id
+          WHERE pu.id=m.reference_id) END supplier_name
+      FROM inventory_movements m JOIN persons pe ON pe.id=m.owner_person_id
+      WHERE m.product_id=?
+      GROUP BY m.reference_type, m.reference_id, m.owner_person_id, m.type
+      ORDER BY m.movement_date DESC, id DESC LIMIT ?''',
+    [productId, limit],
+  );
 
   Future<List<Map<String, Object?>>> personProfiles() async =>
       (await _db).rawQuery('''SELECT p.*,

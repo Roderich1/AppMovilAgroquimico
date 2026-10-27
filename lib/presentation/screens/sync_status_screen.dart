@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart' show DateFormat;
 
 import '../../domain/money.dart';
 import '../../domain/sync/sync_types.dart';
@@ -81,6 +82,28 @@ class _SyncStatusScreenState extends ConsumerState<SyncStatusScreen> {
     if (released > 0) showSuccess(context, 'Liberados: $released.');
   }
 
+  /// 422 CONTRACT_VERSION_MISMATCH (F05 matriz C25): la reanudación es una
+  /// decisión del titular, nunca automática. Se reenvía el mismo contenido.
+  Future<void> _resumeVersionMismatch() async {
+    final confirmed = await confirmDestructiveAction(
+      context,
+      title: 'Reintentar con esta versión',
+      detail:
+          'El sindicato no aceptó estos envíos porque la aplicación tenía '
+          'una versión distinta. Si ya actualizó la aplicación, se volverán '
+          'a enviar con su mismo contenido. Si el sindicato los sigue '
+          'rechazando, quedarán pausados otra vez; nada se borra.',
+      confirmLabel: 'Reintentar',
+    );
+    if (!confirmed || !mounted) return;
+    final resumed = await ref
+        .read(syncControllerProvider.notifier)
+        .resumeVersionMismatch();
+    if (!mounted) return;
+    _reload();
+    if (resumed > 0) showSuccess(context, 'Reanudados: $resumed.');
+  }
+
   @override
   Widget build(BuildContext context) {
     // Un ciclo del worker que no se esperó aquí (el que lanza «Liberar», el
@@ -107,14 +130,9 @@ class _SyncStatusScreenState extends ConsumerState<SyncStatusScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          if (sync.message != null)
-            Card(
-              color: Theme.of(context).colorScheme.surfaceContainerHighest,
-              child: ListTile(
-                leading: const Icon(Icons.info_outline),
-                title: Text(sync.message!),
-              ),
-            ),
+          // Sin botón propio: «Sincronizar ahora» ya es la acción de la
+          // página.
+          if (sync.message != null) SyncNoticeCard(message: sync.message!),
           if (summary != null) ...[
             const SizedBox(height: 8),
             Card(
@@ -161,9 +179,10 @@ class _SyncStatusScreenState extends ConsumerState<SyncStatusScreen> {
                   leading: Icon(Icons.lock_outline),
                   title: Text('Envíos pausados por autorización'),
                   subtitle: Text(
-                    'El sindicato rechazó un envío (403). No se reanudan '
-                    'solos: con el acceso verificado de la cuenta del '
-                    'titular, pulse «Sincronizar ahora».',
+                    'El sindicato no autorizó esta cuenta o este '
+                    'dispositivo. No se reanudan solos: con el acceso '
+                    'verificado de la cuenta del titular, pulse '
+                    '«Sincronizar ahora».',
                   ),
                 ),
               ),
@@ -207,6 +226,44 @@ class _SyncStatusScreenState extends ConsumerState<SyncStatusScreen> {
                     onPressed: _releaseRestored,
                     child: const Text('Liberar'),
                   ),
+                ),
+              ),
+            ],
+            // 422 CONTRACT_VERSION_MISMATCH: pausado por versión; sólo el
+            // titular lo reanuda, normalmente tras actualizar la aplicación.
+            // Sin consultas nuevas: el contador ya está en el resumen.
+            if (summary.count(OutboxStatus.versionMismatch) > 0) ...[
+              const SizedBox(height: 8),
+              Card(
+                key: const Key('version-mismatch'),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const ListTile(
+                      leading: Icon(Icons.system_update_alt),
+                      title: Text(
+                        'Envíos pausados por una versión distinta de la '
+                        'aplicación',
+                      ),
+                      subtitle: Text(
+                        'El sindicato no los aceptó con la versión anterior. '
+                        'No se reanudan solos ni se borran: actualice la '
+                        'aplicación y vuelva a intentarlo.',
+                      ),
+                    ),
+                    // La etiqueta es larga: debajo del texto, nunca al lado,
+                    // para que quepa con fuente ampliada en 360 px.
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+                        child: TextButton(
+                          onPressed: _resumeVersionMismatch,
+                          child: const Text('Reintentar con esta versión'),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
@@ -256,28 +313,49 @@ class _SyncStatusScreenState extends ConsumerState<SyncStatusScreen> {
               return Card(
                 child: Column(
                   children: [
-                    for (final entry in list)
+                    for (final entry in list) ...[
                       ListTile(
-                        title: Text(
-                          '${projectionLabel(entry.projectionType)} · '
-                          '${actionLabel(entry.action)}'
-                          '${entry.quantityBase == null ? '' : ' · ${formatQuantity(int.parse(entry.quantityBase!), entry.baseUnit.majorUnit)}'}',
-                        ),
-                        subtitle: Text(
-                          [
-                                outboxStatusLabel(entry.status),
-                                if (entry.lastCode != null &&
-                                    entry.status != OutboxStatus.acked)
-                                  entry.lastCode!,
-                                'creada ${formatDate(entry.createdAt)}',
-                                if (entry.ackedAt != null)
-                                  'Confirmado: ${formatDate(entry.ackedAt)}',
-                              ].join(' · ') +
-                              (entry.interventionMessage == null
-                                  ? ''
-                                  : '\nRequiere intervención: ${entry.interventionMessage}'),
-                        ),
+                        title: Text(rowTitle(entry)),
+                        subtitle: Text(rowSubtitle(entry)),
+                        isThreeLine: true,
+                        // C-05: el conflicto se decide y el rechazo se
+                        // revisa donde vive la proyección, no aquí.
+                        trailing: needsDecision(entry)
+                            ? TextButton(
+                                key: Key('decide-${entry.operationId}'),
+                                onPressed: () =>
+                                    context.push(decisionRoute(entry)),
+                                child: Text(decisionLabel(entry)),
+                              )
+                            : null,
                       ),
+                      // El código técnico y los intentos quedan para el
+                      // diagnóstico, plegados; nunca en el texto principal.
+                      if (hasTechnicalDetail(entry))
+                        ExpansionTile(
+                          key: Key('detail-${entry.operationId}'),
+                          dense: true,
+                          tilePadding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                          ),
+                          title: Text(
+                            'Detalle técnico',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                          children: [
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                              child: Align(
+                                alignment: Alignment.centerLeft,
+                                child: Text(
+                                  technicalDetail(entry),
+                                  style: Theme.of(context).textTheme.bodySmall,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                    ],
                   ],
                 ),
               );
@@ -287,4 +365,84 @@ class _SyncStatusScreenState extends ConsumerState<SyncStatusScreen> {
       ),
     );
   }
+}
+
+/// Nombre local del producto y de la campaña; «sin vínculo» si el vínculo ya
+/// no existe (la referencia central sigue en la outbox).
+String rowTitle(OutboxEntry entry) =>
+    '${entry.productName ?? 'producto sin vínculo'} · '
+    '${entry.campaignName ?? 'campaña sin vínculo'}';
+
+/// Qué es el envío, en qué estado está (en palabras), cuándo se creó y, si
+/// aplica, cuándo lo confirmó el sindicato; una última línea explica el
+/// código técnico por familia (no el código).
+String rowSubtitle(OutboxEntry entry) {
+  final what =
+      '${projectionLabel(entry.projectionType)} · '
+      '${actionLabel(entry.action)}'
+      '${entry.quantityBase == null ? '' : ' · ${formatQuantity(int.parse(entry.quantityBase!), entry.baseUnit.majorUnit)}'}';
+  final state = [
+    outboxStatusPhrase(
+      entry.status,
+      attempts: entry.attempts,
+      conflictResolved: entry.resolvedAt != null,
+    ),
+    'creada ${formatDate(entry.createdAt)}',
+    if (entry.ackedAt != null) 'Confirmado: ${formatDate(entry.ackedAt)}',
+  ].join(' · ');
+  final explanation = rowExplanation(entry);
+  return [what, state, if (explanation != null) explanation].join('\n');
+}
+
+/// Explicación por familia del código, salvo cuando no añade nada: aceptado
+/// (`OK`), pausado por autorización (la frase de estado ya lo dice) o una
+/// frase idéntica a la del estado.
+String? rowExplanation(OutboxEntry entry) {
+  if (entry.status == OutboxStatus.acked ||
+      entry.status == OutboxStatus.authPaused) {
+    return null;
+  }
+  final explanation = syncCodeExplanation(entry.lastCode);
+  final phrase = outboxStatusPhrase(
+    entry.status,
+    attempts: entry.attempts,
+    conflictResolved: entry.resolvedAt != null,
+  );
+  return explanation == phrase ? null : explanation;
+}
+
+bool needsDecision(OutboxEntry entry) =>
+    (entry.status == OutboxStatus.conflict && entry.resolvedAt == null) ||
+    entry.status == OutboxStatus.rejected ||
+    entry.status == OutboxStatus.failed;
+
+/// «Decidir…» sólo donde hay una decisión (conflicto); un rechazo se revisa.
+String decisionLabel(OutboxEntry entry) =>
+    entry.status == OutboxStatus.conflict ? 'Decidir…' : 'Revisar…';
+
+String decisionRoute(OutboxEntry entry) => switch (entry.projectionType) {
+  ProjectionType.declaredNeed => '/planificacion/necesidades',
+  ProjectionType.consumptionTotal => '/sincronizacion/consumo',
+};
+
+bool hasTechnicalDetail(OutboxEntry entry) =>
+    entry.attempts > 0 || entry.lastCode != null || entry.nextAttemptAt != null;
+
+/// Código, intentos, próximo intento (hora local del teléfono, como todos
+/// los instantes) y la referencia del envío, para soporte.
+String technicalDetail(OutboxEntry entry) => [
+  'Código: ${entry.lastCode ?? '—'}',
+  'Intentos: ${entry.attempts}',
+  if (entry.nextAttemptAt != null)
+    'Próximo intento: ${formatInstant(entry.nextAttemptAt!)}',
+  'Envío: ${entry.operationId}',
+].join(' · ');
+
+/// `dd/mm/aaaa hh:mm` en hora local; mismo criterio que [formatDate] para
+/// los instantes (`Z` → día y hora del teléfono). Patrón numérico, sin
+/// locale.
+String formatInstant(String iso) {
+  final parsed = DateTime.tryParse(iso)?.toLocal();
+  if (parsed == null) return iso;
+  return DateFormat('dd/MM/yyyy HH:mm').format(parsed);
 }

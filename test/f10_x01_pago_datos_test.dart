@@ -20,6 +20,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'support/f04_mode_fixtures.dart';
+import 'support/es_material_labels.dart';
 import 'support/f04_mode_ui_harness.dart';
 
 typedef Row = Map<String, Object?>;
@@ -217,8 +218,8 @@ void main() {
       await choose(tester, 'Producto', 'Glifosato');
       await tester.enterText(field('Cantidad comprada'), '2');
       await tester.enterText(field('Precio BOB/L'), '45');
+      await tapKey(tester, 'purchase-alloc-single-0');
       await choose(tester, 'Persona', 'Titular');
-      await tester.enterText(field('Cantidad'), '2');
       await settle(tester);
       await tapKey(tester, 'purchase-continue');
     }
@@ -235,6 +236,7 @@ void main() {
 
     /// Elige en el selector de fecha abierto el día [day] y acepta.
     Future<void> pickDayInDialog(WidgetTester tester, int day) async {
+      final es = await esMaterial();
       await tester.tap(
         find.descendant(
           of: find.byType(DatePickerDialog),
@@ -245,7 +247,7 @@ void main() {
       await tester.tap(
         find.descendant(
           of: find.byType(DatePickerDialog),
-          matching: find.text('OK'),
+          matching: find.text(es.okButtonLabel),
         ),
       );
       await settle(tester);
@@ -267,7 +269,7 @@ void main() {
         expect(find.byKey(const Key('payment-method')), findsNothing);
         await tester.tap(find.byKey(const Key('purchase-paid-yes')));
         await settle(tester);
-        expect(find.text('Pago registrado por: Titular'), findsOneWidget);
+        expect(find.text('Paga el titular: Titular'), findsOneWidget);
         expect(find.text('¿Cómo pagaste?'), findsOneWidget);
         expect(chipSelected(tester, 'payment-method-unspecified'), isTrue);
         expect(chipSelected(tester, 'payment-method-cash'), isFalse);
@@ -310,7 +312,9 @@ void main() {
           await tester.tap(
             find.descendant(
               of: find.byType(DatePickerDialog),
-              matching: find.byTooltip('Previous month'),
+              matching: find.byTooltip(
+                (await esMaterial()).previousMonthTooltip,
+              ),
             ),
           );
           await settle(tester);

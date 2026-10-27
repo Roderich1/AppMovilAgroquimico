@@ -75,9 +75,13 @@ class _ConsumptionPublishScreenState
     try {
       final enqueued = await _publisher.publish(shown);
       if (!mounted) return;
+      // C-01: guardado en el teléfono; la aceptación se ve en la fila.
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Consumo listo para enviar: $enqueued total(es).'),
+          content: Text(
+            'Consumo guardado en el teléfono: $enqueued total(es). Se '
+            'enviará al sindicato; aquí verá cuándo lo acepta.',
+          ),
         ),
       );
       unawaited(ref.read(syncControllerProvider.notifier).kick());
@@ -104,7 +108,12 @@ class _ConsumptionPublishScreenState
       await _publisher.withdraw(row);
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Retirada lista para enviar.')),
+        const SnackBar(
+          content: Text(
+            'Retirada guardada en el teléfono. Se enviará al sindicato; aquí '
+            'verá cuándo la acepta.',
+          ),
+        ),
       );
       unawaited(ref.read(syncControllerProvider.notifier).kick());
     } catch (error) {
@@ -122,13 +131,22 @@ class _ConsumptionPublishScreenState
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Decisión registrada: se enviará su total actual.'),
+          content: Text(
+            'Decisión guardada en el teléfono: se enviará su total actual al '
+            'sindicato; aquí verá cuándo lo acepta.',
+          ),
         ),
       );
       unawaited(ref.read(syncControllerProvider.notifier).kick());
     } catch (error) {
       if (mounted) showError(context, error);
     }
+    if (mounted) _reload();
+  }
+
+  /// Misma acción explícita que en Sincronización (C-02).
+  Future<void> _syncNow() async {
+    await ref.read(syncControllerProvider.notifier).syncNow();
     if (mounted) _reload();
   }
 
@@ -140,6 +158,7 @@ class _ConsumptionPublishScreenState
         _reload();
       }
     });
+    final sync = ref.watch(syncControllerProvider);
     return PageFrame(
       title: 'Consumo para el sindicato',
       subtitle:
@@ -162,6 +181,15 @@ class _ConsumptionPublishScreenState
           return Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // C-02: por qué el worker no envía, con la acción pertinente.
+              if (sync.message != null) ...[
+                SyncNoticeCard(
+                  message: sync.message!,
+                  busy: sync.busy,
+                  onSyncNow: _syncNow,
+                ),
+                const SizedBox(height: 8),
+              ],
               FilledButton.icon(
                 key: const Key('publish-consumption'),
                 onPressed: data.hasChanges ? () => _publish(data) : null,
@@ -218,8 +246,9 @@ class _ConsumptionPublishScreenState
     return switch (row.change) {
       ConsumptionChange.publish => 'Nuevo: se publicará',
       ConsumptionChange.supersede => 'Cambió: se sustituirá$previous',
+      // C-12: el estado en palabras, sin dos puntos dobles.
       ConsumptionChange.unchanged =>
-        'Sin cambios: ${outboxStatusLabel(row.prior!.status)}',
+        'Sin cambios · ${outboxStatusPhrase(row.prior!.status, attempts: row.prior!.attempts, conflictResolved: row.prior!.resolvedAt != null)}',
       ConsumptionChange.conflict => 'Conflicto con el sindicato: decida usted',
       ConsumptionChange.blocked =>
         row.prior != null && row.prior!.status == OutboxStatus.acked

@@ -152,6 +152,8 @@ class OutboxEntry {
     this.resolvedAt,
     required this.createdAt,
     this.ackedAt,
+    this.productName,
+    this.campaignName,
   });
 
   final int id;
@@ -189,6 +191,13 @@ class OutboxEntry {
   final String createdAt;
   final String? ackedAt;
 
+  /// Nombres **locales** del producto y la campaña a los que apunta la
+  /// referencia, resueltos por los vínculos del tenant del titular al leer
+  /// la lista (sólo presentación: no viajan ni se guardan en la outbox).
+  /// Null si el vínculo ya no existe.
+  final String? productName;
+  final String? campaignName;
+
   /// Nunca salió del teléfono: todavía puede reescribirse sin riesgo de
   /// IDEMPOTENCY_MISMATCH (el intento se registra antes de enviar).
   bool get isUnsent => status == OutboxStatus.pending && attempts == 0;
@@ -220,6 +229,8 @@ class OutboxEntry {
     resolvedAt: row['resolved_at'] as String?,
     createdAt: row['created_at']! as String,
     ackedAt: row['acked_at'] as String?,
+    productName: row['product_name'] as String?,
+    campaignName: row['campaign_name'] as String?,
   );
 }
 
@@ -242,4 +253,113 @@ String? rejectionExplanation(String? code) => switch (code) {
     'La campaña ya no admite publicaciones en el sindicato. Su registro '
         'privado se conserva.',
   _ => null,
+};
+
+/// Familia de un código técnico de la outbox (`last_code`), sólo para
+/// explicarlo en palabras del agricultor. El código guardado no cambia y
+/// sigue disponible para el diagnóstico.
+enum SyncCodeFamily {
+  /// Sin código, o aceptación (`OK`): no hay nada que explicar.
+  none,
+
+  /// Sin respuesta fiable de Central: red, tiempo de espera, 5xx, ACK
+  /// ilegible, espera pedida por el sindicato o consulta sin resultado. El
+  /// mismo envío se reintenta (F05 §7, §11).
+  network,
+
+  /// Falta verificar el acceso o el sindicato no autorizó la cuenta o el
+  /// dispositivo (401/403). La intención espera; no es un rechazo.
+  authorization,
+
+  /// Rechazo terminal (ACK REJECTED): Central no reconoció a la cuenta
+  /// como titular de la contribución o del propósito.
+  ownership,
+
+  /// Central no reconoce la referencia, la unidad o la cantidad (F06 §6).
+  references,
+
+  /// ACK CONFLICT: hay otra versión en Central y decide el propietario.
+  causality,
+
+  /// Rechazo terminal (ACK REJECTED) por causalidad o idempotencia: Central
+  /// ya tenía otra versión y este envío no se aplicó; no hay conflicto que
+  /// decidir, se declara o publica de nuevo si hace falta.
+  rejectedVersion,
+
+  /// La campaña central no admite el envío (sellada o no abierta).
+  campaignState,
+
+  /// Central no admitió el request tal como está (400/413/415/422).
+  request,
+
+  /// Código que esta versión no clasifica.
+  other,
+}
+
+SyncCodeFamily syncCodeFamily(String? code) {
+  if (code == null || code == 'OK') return SyncCodeFamily.none;
+  if (code.startsWith('HTTP_')) return SyncCodeFamily.network;
+  return switch (code) {
+    'TIMEOUT' ||
+    'NETWORK' ||
+    'TRANSPORT' ||
+    'INVALID_ACK' ||
+    'UNAVAILABLE' ||
+    'INVALID_RESPONSE' ||
+    'OPERATION_NOT_FOUND' ||
+    'TRANSIENT_UNAVAILABLE' ||
+    'TEMPORARILY_UNAVAILABLE' ||
+    'RATE_LIMITED' ||
+    'OPERATION_IN_PROGRESS' ||
+    'DEPENDENCY_PENDING' => SyncCodeFamily.network,
+    'AUTH_REQUIRED' || 'AUTH_CONTEXT_FORBIDDEN' => SyncCodeFamily.authorization,
+    'OWNERSHIP_NOT_PROVEN' ||
+    'PURPOSE_NOT_AUTHORIZED' => SyncCodeFamily.ownership,
+    'REFERENCE_UNAVAILABLE' ||
+    'UNIT_INCOMPATIBLE' ||
+    'QUANTITY_INVALID' => SyncCodeFamily.references,
+    'CAUSAL_FORK' ||
+    'STALE_PREDECESSOR' ||
+    'CANCELLED_PREDECESSOR' ||
+    'RECONCILIATION_STALE' => SyncCodeFamily.causality,
+    'IDEMPOTENCY_MISMATCH' ||
+    'INVALID_PREDECESSOR' ||
+    'INVALID_TRANSITION' ||
+    'CAUSAL_FENCED' => SyncCodeFamily.rejectedVersion,
+    'CAMPAIGN_SEALED' || 'CAMPAIGN_NOT_OPEN' => SyncCodeFamily.campaignState,
+    'INVALID_REQUEST' ||
+    'FIELD_NOT_ALLOWED' ||
+    'UNSUPPORTED_MEDIA_TYPE' ||
+    'REQUEST_TOO_LARGE' ||
+    'CONTRACT_VERSION_MISMATCH' => SyncCodeFamily.request,
+    _ => SyncCodeFamily.other,
+  };
+}
+
+/// Qué le dice al agricultor un código técnico, por familia; null si no hay
+/// nada que explicar (sin código o `OK`). No sustituye al código: la pantalla
+/// lo conserva en su detalle técnico.
+String? syncCodeExplanation(String? code) => switch (syncCodeFamily(code)) {
+  SyncCodeFamily.none => null,
+  SyncCodeFamily.network =>
+    'Sin respuesta del sindicato; se volverá a intentar con el mismo envío',
+  SyncCodeFamily.authorization => 'Falta verificar el acceso',
+  SyncCodeFamily.ownership =>
+    'El sindicato no reconoció a esta cuenta como titular de estos datos; '
+        'este envío no se aplicó',
+  SyncCodeFamily.references =>
+    'El sindicato no reconoce el producto o la campaña vinculados: revise '
+        'los vínculos',
+  SyncCodeFamily.causality =>
+    'Hay otra versión en el sindicato: decida en Necesidades o Consumo',
+  SyncCodeFamily.rejectedVersion =>
+    'El sindicato ya tenía otra versión; este envío no se aplicó. Si hace '
+        'falta, declare o publique de nuevo',
+  SyncCodeFamily.campaignState => rejectionExplanation(code),
+  SyncCodeFamily.request =>
+    'El sindicato no admitió el envío tal como está; nada se borró. Si hay '
+        'una versión nueva de la aplicación, actualícela',
+  SyncCodeFamily.other =>
+    'El sindicato respondió con un código que esta versión no explica; nada '
+        'se borró. Vea el detalle técnico',
 };

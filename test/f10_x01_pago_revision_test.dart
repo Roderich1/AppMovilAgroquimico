@@ -11,6 +11,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+import 'support/es_material_labels.dart';
 import 'support/f04_mode_ui_harness.dart';
 
 typedef Row = Map<String, Object?>;
@@ -52,8 +53,8 @@ void main() {
     await choose(tester, 'Producto', 'Glifosato');
     await tester.enterText(field('Cantidad comprada'), '2');
     await tester.enterText(field('Precio BOB/L'), '45');
+    await tapKey(tester, 'purchase-alloc-single-0');
     await choose(tester, 'Persona', 'Titular');
-    await tester.enterText(field('Cantidad'), '2');
     await settle(tester);
     await tapKey(tester, 'purchase-continue');
   }
@@ -105,7 +106,7 @@ void main() {
       await tester.tap(
         find.descendant(
           of: find.byType(DatePickerDialog),
-          matching: find.byTooltip('Previous month'),
+          matching: find.byTooltip((await esMaterial()).previousMonthTooltip),
         ),
       );
       await settle(tester);
@@ -120,14 +121,14 @@ void main() {
     await tester.tap(
       find.descendant(
         of: find.byType(DatePickerDialog),
-        matching: find.text('OK'),
+        matching: find.text((await esMaterial()).okButtonLabel),
       ),
     );
     await settle(tester);
     await fillStep1(tester);
     await tester.tap(find.byKey(const Key('purchase-paid-yes')));
     await settle(tester);
-    expect(find.text('Pago registrado por: Titular'), findsOneWidget);
+    expect(find.text('Paga el titular: Titular'), findsOneWidget);
     await tapKey(tester, 'purchase-confirm');
     // RF-03: se ofrece la revisión y se avisa de que el pago NO se guarda.
     expect(find.byKey(const Key('late-explanation')), findsOneWidget);

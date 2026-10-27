@@ -331,8 +331,33 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
   /// Área × dosis en enteros, con la misma regla que la cantidad requerida
   /// del plan (`addPlanMulti`) y la aplicación por voz. En coma flotante,
   /// 1,2345 ha × 5 L/ha daba 6172 en vez de 6173.
-  int theoretical(_ApplicationLineEditor line) =>
-      divideRoundedHalfUp(_areaM2 * (tryParseBase(line.dose.text) ?? 0), 10000);
+  ///
+  /// Sin dosis no hay teórico: se devuelve `null` y se guarda nulo, en vez
+  /// de «teórico 0» y «desvío = toda la cantidad» (B-04).
+  int? theoretical(_ApplicationLineEditor line) {
+    final dose = tryParseBase(line.dose.text);
+    if (dose == null) return null;
+    return divideRoundedHalfUp(_areaM2 * dose, 10000);
+  }
+
+  /// Mensaje de formato de la dosis escrita, o `null` si está vacía o bien
+  /// escrita (convenio es-BO de `numeric_input.dart`).
+  String? doseError(_ApplicationLineEditor line) =>
+      parseNumericInput(line.dose.text).message;
+
+  /// Área tratada del paso 1: vacía o mal escrita se rechaza al continuar
+  /// con el mensaje de formato; antes se guardaba como 0 ha (B-04).
+  String? areaError;
+
+  String? _validateArea() {
+    final parsed = parseNumericInput(area.text);
+    if (parsed.status == NumericInputStatus.empty) {
+      return 'Escribe el área tratada en hectáreas.';
+    }
+    if (!parsed.isValid) return parsed.message;
+    if (parsed.value! <= 0) return 'El área tratada debe ser mayor que cero.';
+    return null;
+  }
 
   Future<bool> confirmDiscard() async =>
       await showDialog<bool>(
@@ -396,6 +421,11 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
           );
           return;
         }
+        final invalidArea = _validateArea();
+        if (invalidArea != null) {
+          setState(() => areaError = invalidArea);
+          return;
+        }
         setState(() => step = _ApplicationStep.products);
       case _ApplicationStep.products:
         if (lines.isEmpty) {
@@ -434,6 +464,15 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
           '${formatQuantity(stock, line.unit)} y escribiste '
           '${formatQuantity(real, line.unit)}. Baja la cantidad o registra '
           'primero la compra.',
+        );
+        return;
+      }
+      final invalidDose = doseError(line);
+      if (invalidDose != null) {
+        // Una dosis mal escrita no se guarda en silencio como «sin dosis».
+        showError(
+          context,
+          'Dosis de ${line.product['product_name']}: $invalidDose',
         );
         return;
       }
@@ -718,14 +757,20 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
       ],
       const SizedBox(height: 12),
       TextField(
+        key: const Key('application-area'),
         controller: area,
         onChanged: (_) {
-          setState(() => dirty = true);
+          setState(() {
+            dirty = true;
+            areaError = null;
+          });
         },
         keyboardType: const TextInputType.numberWithOptions(decimal: true),
-        decoration: const InputDecoration(
+        decoration: InputDecoration(
           labelText: 'Área tratada (ha)',
           helperText: 'Se toma del chaco; puedes cambiarla.',
+          errorText: areaError,
+          errorMaxLines: 3,
         ),
       ),
     ];
@@ -788,6 +833,7 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
           key: ValueKey(line.product['product_id']),
           line: line,
           theoretical: theoretical(line),
+          doseError: doseError(line),
           onEdit: saving ? null : () => _editLine(line),
           onRemove: saving ? null : () => _removeLine(line),
           onDoseChanged: () => setState(() => dirty = true),
@@ -795,10 +841,34 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
     ];
   }
 
+  /// Cargo que corresponde a la persona según su política de cobro
+  /// (`persons.settlement_policy`, la misma que lee `confirmApplication`).
+  /// Sólo se describe: cómo se calcula y se escribe el cargo no cambia aquí.
+  String _chargeText(Map<String, Object?>? person, int totalCost) {
+    final name = person?['name']?.toString() ?? '';
+    final policy = person?['settlement_policy'];
+    // En inventario propio aplica el titular sobre lo suyo. Con cobro por
+    // consumo el repositorio sigue anotando el cargo en su cuenta (E-15,
+    // decisión pendiente): se dice, sin cambiar la escritura.
+    if (personalMode) {
+      return policy == 'BY_ACTUAL_USAGE'
+          ? 'Costo propio: ${formatBob(totalCost)} (queda anotado en la '
+                'cuenta de $name)'
+          : 'Costo propio: ${formatBob(totalCost)}';
+    }
+    return switch (policy) {
+      'BY_ACTUAL_USAGE' => 'Se cargará a $name: ${formatBob(totalCost)}',
+      'BY_PURCHASE_ALLOCATION' =>
+        'No genera cargo: $name ya pagó estos productos al comprarlos',
+      _ => 'No genera cargo automático: la cuenta de $name se ajusta a mano',
+    };
+  }
+
   List<Widget> _reviewStep(BuildContext context, _ApplicationCatalogs data) {
     final theme = Theme.of(context);
     final person = _person(data);
     final farm = _farm(data);
+    final totalCost = lines.fold<int>(0, (sum, line) => sum + line.cost);
     return [
       Card(
         key: const Key('application-review'),
@@ -834,12 +904,44 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
               for (final line in lines)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 6),
-                  child: Text(
-                    '${line.product['product_name']} · '
-                    '${formatQuantity(line.quantityBase, line.unit)}',
-                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          '${line.product['product_name']} · '
+                          '${formatQuantity(line.quantityBase, line.unit)}',
+                          style: const TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                      ),
+                      Text(
+                        formatBob(line.cost),
+                        key: Key(
+                          'application-review-cost-${line.product['product_id']}',
+                        ),
+                      ),
+                    ],
                   ),
                 ),
+              const Divider(height: 20),
+              // Lo que cuesta y lo que se cobra son dos cosas (B-06): el
+              // costo sale de las compras que se irán usando; el cargo, de la
+              // política de la persona. Se muestran por separado.
+              Text(
+                'Costo total estimado: ${formatBob(totalCost)}',
+                key: const Key('application-review-cost'),
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+              Text(
+                'Según el precio de las compras que se irán usando, las más '
+                'antiguas primero.',
+                style: theme.textTheme.bodySmall,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                _chargeText(person, totalCost),
+                key: const Key('application-review-charge'),
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
             ],
           ),
         ),
@@ -980,6 +1082,20 @@ class _ProductSheetState extends State<_ProductSheet> {
     super.dispose();
   }
 
+  /// Lo que pide el usuario por encima de lo que hay (E-08): con ese texto
+  /// la hoja no deja agregar ni guardar. Es sólo la primera barrera: la
+  /// validación definitiva sigue en `confirmApplication`, dentro de su
+  /// transacción, por si las existencias cambian entre medio.
+  String? get _insufficient {
+    final available = product?['available_base'] as int?;
+    final typed = tryParseBase(quantity.text) ?? 0;
+    if (available == null || typed <= available) return null;
+    final unit = product!['unit'] as String;
+    return 'Pediste ${formatQuantity(typed, unit)} y hay '
+        '${formatQuantity(available, unit)}. Baja la cantidad o registra '
+        'primero la compra.';
+  }
+
   void _confirm() {
     final chosen = product;
     if (chosen == null) {
@@ -991,6 +1107,8 @@ class _ProductSheetState extends State<_ProductSheet> {
       setState(() => error = 'Escribe la cantidad que usaste, mayor que cero.');
       return;
     }
+    // Nada entra en la mezcla por encima de lo disponible.
+    if (_insufficient != null) return;
     Navigator.pop(context, _LineInput(chosen, base));
   }
 
@@ -999,7 +1117,7 @@ class _ProductSheetState extends State<_ProductSheet> {
     final theme = Theme.of(context);
     final unit = product?['unit']?.toString();
     final available = product?['available_base'] as int?;
-    final typed = tryParseBase(quantity.text) ?? 0;
+    final insufficient = _insufficient;
     final editing = widget.initial != null;
     return SafeArea(
       child: Padding(
@@ -1053,25 +1171,12 @@ class _ProductSheetState extends State<_ProductSheet> {
                 helperText: available == null
                     ? 'Primero elige el producto.'
                     : 'Hay ${formatQuantity(available, unit!)}.',
-                helperStyle: available != null && typed > available
-                    ? TextStyle(color: theme.colorScheme.error)
-                    : null,
-                errorText: error,
+                // Disponible y pedido, con unidades, como error del propio
+                // campo; el botón de abajo queda deshabilitado a la vez.
+                errorText: error ?? insufficient,
+                errorMaxLines: 3,
               ),
             ),
-            if (available != null && typed > available)
-              Padding(
-                padding: const EdgeInsets.only(top: 8),
-                child: Text(
-                  'Con esa cantidad la aplicación no se podrá guardar: hay '
-                  '${formatQuantity(available, unit!)}.',
-                  key: const Key('application-line-insufficient'),
-                  style: TextStyle(
-                    color: theme.colorScheme.error,
-                    fontWeight: FontWeight.w700,
-                  ),
-                ),
-              ),
             const SizedBox(height: 16),
             Row(
               children: [
@@ -1084,7 +1189,7 @@ class _ProductSheetState extends State<_ProductSheet> {
                 Expanded(
                   child: FilledButton.icon(
                     key: const Key('application-line-add'),
-                    onPressed: _confirm,
+                    onPressed: insufficient == null ? _confirm : null,
                     icon: Icon(editing ? Icons.check : Icons.add),
                     label: Text(
                       editing ? 'Guardar cambios' : 'Agregar a la mezcla',
@@ -1107,12 +1212,16 @@ class _LineCard extends StatelessWidget {
     super.key,
     required this.line,
     required this.theoretical,
+    required this.doseError,
     required this.onEdit,
     required this.onRemove,
     required this.onDoseChanged,
   });
   final _ApplicationLineEditor line;
-  final int theoretical;
+
+  /// Cantidad teórica por dosis y área, o `null` sin dosis.
+  final int? theoretical;
+  final String? doseError;
   final VoidCallback? onEdit;
   final VoidCallback? onRemove;
   final VoidCallback onDoseChanged;
@@ -1194,15 +1303,21 @@ class _LineCard extends StatelessWidget {
                   ),
                   decoration: InputDecoration(
                     labelText: 'Dosis (${line.unit}/ha)',
+                    helperText: 'Opcional.',
+                    errorText: doseError,
+                    errorMaxLines: 3,
                   ),
                 ),
                 const SizedBox(height: 8),
                 Align(
                   alignment: Alignment.centerLeft,
                   child: Text(
-                    'Teórico por dosis y área: '
-                    '${formatQuantity(theoretical, line.unit)} · '
-                    'Costo estimado: ${formatBob(line.cost)}',
+                    theoretical == null
+                        ? 'Sin dosis no se calcula el teórico · '
+                              'Costo estimado: ${formatBob(line.cost)}'
+                        : 'Teórico por dosis y área: '
+                              '${formatQuantity(theoretical!, line.unit)} · '
+                              'Costo estimado: ${formatBob(line.cost)}',
                     style: theme.textTheme.bodySmall,
                   ),
                 ),

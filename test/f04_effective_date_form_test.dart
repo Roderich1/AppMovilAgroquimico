@@ -17,6 +17,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'support/f04_mode_fixtures.dart';
+import 'support/es_material_labels.dart';
 import 'support/f04_mode_ui_harness.dart';
 
 typedef Row = Map<String, Object?>;
@@ -74,20 +75,22 @@ void main() {
     Key tile, {
     required bool previousMonth,
   }) async {
+    final es = await esMaterial();
     await openPicker(tester, tile);
     if (previousMonth) {
-      await tester.tap(inPicker(find.byTooltip('Previous month')));
+      await tester.tap(inPicker(find.byTooltip(es.previousMonthTooltip)));
       await settle(tester);
     }
     await tester.tap(inPicker(find.text('1')));
     await tester.pump();
-    await tester.tap(inPicker(find.text('OK')));
+    await tester.tap(inPicker(find.text(es.okButtonLabel)));
     await settle(tester);
   }
 
   Future<void> cancelPicker(WidgetTester tester, Key tile) async {
+    final es = await esMaterial();
     await openPicker(tester, tile);
-    await tester.tap(inPicker(find.text('Cancel')));
+    await tester.tap(inPicker(find.text(es.cancelButtonLabel)));
     await settle(tester);
     expect(find.byType(DatePickerDialog), findsNothing);
   }

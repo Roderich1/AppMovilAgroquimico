@@ -99,7 +99,8 @@ String blockerMessage(SyncBlocker blocker) => switch (blocker) {
         'y pulse «Sincronizar ahora».',
   SyncBlocker.versionMismatch =>
     'Esta versión de la aplicación no es compatible con el sindicato. '
-        'Actualice la aplicación; los envíos quedan guardados.',
+        'Actualice la aplicación; los envíos quedan guardados. Después de '
+        'actualizar, en Sincronización pulse «Reintentar con esta versión».',
   SyncBlocker.unreachable =>
     'No se pudo confirmar el envío. Se reintentará con el mismo contenido.',
   SyncBlocker.throttled => 'El sindicato pidió esperar. Se reintentará.',
@@ -228,6 +229,40 @@ class SyncController extends Notifier<SyncState> {
     await refreshSummary();
     unawaited(kick());
     return released;
+  }
+
+  /// El titular reanuda lo pausado por una versión no compatible (422
+  /// CONTRACT_VERSION_MISMATCH; F05 matriz C25: «no automático»), normalmente
+  /// tras actualizar la aplicación. Igual que [releaseRestored]: exige el
+  /// acceso verificado en línea de la cuenta del titular y nada se reanuda
+  /// al abrir la app. El mismo envelope vuelve a salir; si Central lo sigue
+  /// rechazando con 422, el worker lo pausa de nuevo en ese mismo ciclo.
+  Future<int> resumeVersionMismatch() async {
+    final owner = await OwnerBindingStore(ref.read(databaseProvider))
+        .activeBinding();
+    if (owner == null) {
+      state = state.copyWith(message: blockerMessage(SyncBlocker.noOwner));
+      return 0;
+    }
+    final VerifiedAccess access;
+    try {
+      access = await ensureAccess();
+    } on SyncAccessUnavailable catch (error) {
+      state = state.copyWith(message: error.message);
+      return 0;
+    }
+    if (access.scope != owner.scope) {
+      state = state.copyWith(
+        message: blockerMessage(SyncBlocker.ownerMismatch),
+      );
+      return 0;
+    }
+    final resumed = await ref
+        .read(syncOutboxStoreProvider)
+        .resumeVersionMismatch(owner.id);
+    await refreshSummary();
+    unawaited(kick());
+    return resumed;
   }
 
   /// El acceso vigente, o el resultado de verificarlo ahora: lo pidió el

@@ -242,6 +242,11 @@ void main() {
       await resize(tester, pixel8Portrait);
       await pump(tester, const PurchaseFormScreen(), inScaffold: false);
 
+      // Las filas de reparto existen sólo al elegir «Repartir entre varias»
+      // (pilotos X01/X02): dos filas vacías.
+      await tester.tap(find.byKey(const Key('purchase-alloc-split-0')));
+      await tester.pump();
+
       // Ningún campo del formulario queda como un recuadro sin nombre.
       final unlabelled = find.byWidgetPredicate(
         (widget) =>
@@ -256,7 +261,7 @@ void main() {
           (widget) =>
               widget is TextField && widget.decoration?.labelText == 'Cantidad',
         ),
-        findsOneWidget,
+        findsNWidgets(2),
       );
       expect(
         find.byWidgetPredicate(
@@ -272,10 +277,12 @@ void main() {
       await resize(tester, pixel8Portrait);
       await pump(tester, const PurchaseFormScreen(), inScaffold: false);
 
-      // Recién abierta: sin cantidad y sin persona.
-      expect(find.textContaining('Pendiente de cantidad'), findsOneWidget);
+      // Recién abierta: en compartido lo primero que falta es decidir para
+      // quién es (pilotos X01/X02); nada se declara terminado.
+      expect(find.textContaining('Pendiente de destinatario'), findsOneWidget);
       expect(find.textContaining('· asignado'), findsNothing);
       expect(find.textContaining('· Asignado'), findsNothing);
+      expect(find.textContaining('Repartida:'), findsNothing);
     });
 
     testWidgets('con cantidad pero sin persona dice a quién falta', (
@@ -293,9 +300,15 @@ void main() {
         '20',
       );
       await tester.pump();
+      // Con cantidad y sin decidir el destinatario, sigue faltando éste.
+      expect(find.textContaining('Pendiente de destinatario'), findsOneWidget);
 
+      // «Repartir entre varias» con filas sin persona: falta la persona.
+      await tester.tap(find.byKey(const Key('purchase-alloc-split-0')));
+      await tester.pump();
       expect(find.textContaining('Pendiente de persona'), findsOneWidget);
       expect(find.textContaining('· Asignado'), findsNothing);
+      expect(find.textContaining('Repartida:'), findsNothing);
     });
 
     testWidgets('la tarjeta reserva espacio sobre su primer campo', (
