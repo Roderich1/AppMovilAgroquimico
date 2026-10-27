@@ -571,7 +571,7 @@ void main() {
       },
     );
 
-    test('U14: separación de secretos y nada legible en textos', () async {
+    test('Separación de secretos y nada legible en textos', () async {
       final env = _Env();
       expect(env.evidence.toString(), 'ActivationOwnerEvidence(redacted)');
       expect(e12Identity.toString(), 'SessionIdentity(redacted)');
