@@ -5,6 +5,7 @@
 // App real (base en archivo, router, repositorio y controlador de acceso).
 import 'package:agroquimicos/app.dart';
 import 'package:agroquimicos/data/agro_repository.dart';
+import 'package:agroquimicos/data/app_database.dart';
 import 'package:agroquimicos/data/operation_mode_store.dart';
 import 'package:agroquimicos/data/owner_binding_store.dart';
 import 'package:agroquimicos/domain/operation_mode.dart';
@@ -571,6 +572,111 @@ void main() {
       await s.modes.apply(OperationMode.shared, confirmed: true);
       await h.repo.reverseTransferUnauditedForTesting(transfer);
       expect((await stockByPersonProduct(db))[(h.relative, h.product)], 3000);
+    });
+
+    // D-02 (revisión del 2026-10-26 sobre a68285c): revertir una compra con
+    // asignación a otra persona anulaba sus lotes y le abonaba un
+    // CREDIT_ADJUSTMENT también en propio, al contrario que las reversiones
+    // de aplicación y de transferencia (#102).
+    test('revertir una compra asignada a otra persona se rechaza sin cambios '
+        'en propio; en compartido se revierte', () async {
+      final s = await setup();
+      final h = s.h;
+      // El vecino liquida por asignación de compra: la compra le deja un
+      // lote y un cargo; se paga para que sólo queden las existencias.
+      final purchase = await h.buy(h.thirdParty, 3000);
+      await settleAccount(h, h.thirdParty);
+      final db = await h.repo.appDatabase.database;
+      final charges = await db.query(
+        'account_transactions',
+        where: "reference_type='PURCHASE_ALLOCATION'",
+      );
+      expect(charges.single['person_id'], h.thirdParty);
+      // La transición a propio bloquea por las existencias del vecino:
+      // por la interfaz este estado no se alcanza. Se fuerza la modalidad
+      // como en f04_repository_guards_test (base anterior a la compuerta,
+      // restaurada o escrita por fuera): el repositorio debe fallar cerrado
+      // igual que con la aplicación y la transferencia.
+      await expectLater(
+        s.modes.apply(OperationMode.personal, confirmed: true),
+        throwsA(isA<ModeTransitionException>()),
+      );
+      await db.insert('app_settings', {
+        'key': AppDatabase.operationModeKey,
+        'value': OperationMode.personal.code,
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+      final before = await dumpTables(db);
+
+      await expectLater(
+        h.repo.reversePurchaseUnauditedForTesting(purchase),
+        throwsA(
+          isA<PersonalModeRestrictionException>().having(
+            (e) => e.message,
+            'message',
+            contains('cambie a inventario compartido'),
+          ),
+        ),
+      );
+      expect(await dumpTables(db), before);
+
+      // En compartido la misma compensación sigue disponible: el lote y el
+      // cargo del vecino se compensan, no se reasignan al titular.
+      await s.modes.apply(OperationMode.shared, confirmed: true);
+      await h.repo.reversePurchaseUnauditedForTesting(purchase);
+      expect((await stockByPersonProduct(db))[(h.thirdParty, h.product)], 0);
+      expect((await stockByPersonProduct(db))[(h.titular, h.product)], isNull);
+      final credit = await db.query(
+        'account_transactions',
+        where:
+            "type='CREDIT_ADJUSTMENT' AND reference_type='PURCHASE_REVERSAL'",
+      );
+      expect(credit.single['person_id'], h.thirdParty);
+    });
+
+    test('en propio, una compra sólo del titular sí se revierte', () async {
+      final s = await setup();
+      final h = s.h;
+      await s.modes.apply(OperationMode.personal, confirmed: true);
+      final purchase = await h.buy(h.titular, 2000);
+      final db = await h.repo.appDatabase.database;
+      expect((await stockByPersonProduct(db))[(h.titular, h.product)], 2000);
+
+      await h.repo.reversePurchaseUnauditedForTesting(purchase);
+      expect((await stockByPersonProduct(db))[(h.titular, h.product)], 0);
+      final reversed = await db.query(
+        'purchases',
+        where: 'id=?',
+        whereArgs: [purchase],
+      );
+      expect(reversed.single['status'], 'REVERSED');
+      expect(
+        (await OperationModeStore.thirdPartyActivity(db, h.titular)).isEmpty,
+        isTrue,
+      );
+    });
+
+    test('compra de otra persona ya consumida: en propio sigue rechazada por '
+        'la regla de lotes consumidos, sin cambios', () async {
+      final s = await setup();
+      final h = s.h;
+      final purchase = await h.buy(h.relative, 3000);
+      await h.apply(h.relative, h.relativeFarm, 3000);
+      await settleAccount(h, h.relative);
+      await s.modes.apply(OperationMode.personal, confirmed: true);
+      final db = await h.repo.appDatabase.database;
+      final before = await dumpTables(db);
+
+      await expectLater(
+        h.repo.reversePurchaseUnauditedForTesting(purchase),
+        throwsA(
+          isA<BusinessRuleException>().having(
+            (e) => e.message,
+            'message',
+            contains('lotes consumidos'),
+          ),
+        ),
+      );
+      expect(await dumpTables(db), before);
     });
   });
 }
