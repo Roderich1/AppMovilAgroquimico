@@ -1,6 +1,7 @@
 import '../../data/installation_client_id_store.dart';
 import '../../data/installation_identity_initializer.dart';
 import '../../domain/installation_access.dart' show OwnerScope;
+import 'activation_owner_evidence.dart' show SessionIdentity;
 import 'auth_api_exception.dart';
 import 'auth_v2_api.dart';
 import 'auth_v2_models.dart';
@@ -186,8 +187,14 @@ class FirstActivationCoordinator {
   bool _running = false;
   bool _cancelRequested = false;
   FirstActivationPhase? _cancelledDuring;
+  SessionIdentity? _committed;
 
   FirstActivationState get state => _state;
+
+  /// F03 §4 bis: la identidad de la sesión que el último [activate] escribió
+  /// y releyó, sin credenciales. Sólo existe tras `completed`; cada intento
+  /// nuevo la borra.
+  SessionIdentity? get committedIdentity => _committed;
 
   /// Cancellation is accepted only before the atomic secure commit begins.
   /// The in-flight HTTP request may still finish; cleanup is then attempted.
@@ -224,6 +231,7 @@ class FirstActivationCoordinator {
     _running = true;
     _cancelRequested = false;
     _cancelledDuring = null;
+    _committed = null;
     AuthV2Api? api;
     V2AuthResponse? login;
     FirstActivationProblem? failure;
@@ -336,6 +344,14 @@ class FirstActivationCoordinator {
       } else {
         await _secureSession.commitAndVerify(candidate);
       }
+      _committed = SessionIdentity(
+        accountId: candidate.accountId,
+        memberId: candidate.memberId,
+        tenantId: candidate.tenantId,
+        sessionId: candidate.sessionId,
+        registrationId: candidate.registrationId,
+        installationClientId: candidate.installationClientId,
+      );
       _emit(const FirstActivationState(phase: FirstActivationPhase.completed));
     } on _ActivationAbort catch (error) {
       failure = error.problem;

@@ -6,6 +6,7 @@ import '../../data/agro_repository.dart';
 import '../../services/auth/local_owner_credential.dart';
 import '../../domain/money.dart' show formatDate;
 import '../widgets/common.dart';
+import '../widgets/owner_reversal_flow.dart' show lateDraftStillPending;
 import 'owner_credential_screen.dart';
 
 /// RF-03 (docs/architecture/F04_RF13_RF03_ACTOR_Y_TARDIAS.md §2.1 paso 3): si
@@ -157,6 +158,7 @@ class _LateOperationsScreenState extends ConsumerState<LateOperationsScreen> {
                 'corrección privada: el consolidado del sindicato no cambia.'
           : '${_kind(draft['kind'])} del ${formatDate(draft['effective_date'])}. '
                 'Se descarta sin efectos.',
+      revalidate: lateDraftStillPending(ref, ref_),
     );
     if (authorization == null || !mounted) return;
     setState(() => _busy = true);

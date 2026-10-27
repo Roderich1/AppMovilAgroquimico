@@ -1,5 +1,7 @@
 # 12 — Autenticación y autorización
 
+> **Documento obsoleto (aviso del 2026-10-27).** Describe una versión anterior de la app, sin autenticación ni PIN. La autenticación, la sesión segura, el PIN del titular y la clave del respaldo están en [`architecture/F03_RECUPERACION_IDENTIDAD_LOCAL.md`](architecture/F03_RECUPERACION_IDENTIDAD_LOCAL.md). No se reescribe aquí.
+
 ## Conclusión
 
 **Esta capacidad no fue encontrada en la implementación actual.**

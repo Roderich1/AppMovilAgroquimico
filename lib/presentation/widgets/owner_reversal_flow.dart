@@ -9,10 +9,49 @@ import '../screens/owner_credential_screen.dart';
 /// Motivo y autorización del titular para una acción (RF-13, RF-03).
 typedef OwnerApproval = ({String reason, OwnerAuthorization authorization});
 
+/// F03 §4 bis.6, REVALIDAR: null si la operación de [table] sigue sin
+/// revertir; si no, el motivo. Sólo se consulta al volver de configurar el
+/// PIN. La comprobación definitiva es la del repositorio, en su transacción.
+Future<String?> Function() reversalStillPending(
+  WidgetRef ref,
+  String table,
+  int id,
+) => () async {
+  final db = await ref.read(repositoryProvider).appDatabase.database;
+  final rows = await db.query(
+    table,
+    columns: ['reversed_at'],
+    where: 'id=?',
+    whereArgs: [id],
+  );
+  if (rows.isEmpty) return 'ya no existe';
+  return rows.single['reversed_at'] == null ? null : 'ya fue revertida';
+};
+
+/// F03 §4 bis.6, REVALIDAR: null si el borrador tardío sigue pendiente.
+Future<String?> Function() lateDraftStillPending(
+  WidgetRef ref,
+  String draftRef,
+) => () async {
+  final db = await ref.read(repositoryProvider).appDatabase.database;
+  final rows = await db.query(
+    'late_operation_drafts',
+    columns: ['status'],
+    where: 'draft_ref=?',
+    whereArgs: [draftRef],
+  );
+  if (rows.isEmpty) return 'ya no existe';
+  return rows.single['status'] == 'PENDING' ? null : 'ya se resolvió';
+};
+
 /// Muestra la acción y sus efectos, exige un motivo y después la confirmación
 /// del titular con su PIN (docs/architecture/F04_RF13_RF03_ACTOR_Y_TARDIAS.md
 /// §1.1). Devuelve null si se cancela en cualquier paso. El actor sale de la
 /// autorización, nunca de la pantalla.
+///
+/// Sin PIN, ofrece configurarlo; al volver con un PIN creado y la operación
+/// revalidada ([revalidate]), vuelve a esta revisión con el motivo ya escrito
+/// y editable, y después pide el PIN. Nunca ejecuta nada sola (F03 §4 bis.6).
 Future<OwnerApproval?> requestOwnerApproval(
   BuildContext context,
   WidgetRef ref, {
@@ -21,19 +60,39 @@ Future<OwnerApproval?> requestOwnerApproval(
   required String title,
   required String effects,
   String confirmLabel = 'Continuar',
+  Future<String?> Function()? revalidate,
 }) async {
-  final reason = await showDialog<String>(
-    context: context,
-    builder: (context) => _ReasonDialog(
-      title: title,
-      effects: effects,
-      confirmLabel: confirmLabel,
-    ),
-  );
+  Future<String?> review({String? initialReason, String? header}) =>
+      showDialog<String>(
+        context: context,
+        builder: (context) => _ReasonDialog(
+          title: title,
+          effects: effects,
+          confirmLabel: confirmLabel,
+          initialReason: initialReason,
+          header: header,
+        ),
+      );
+  var reason = await review();
   if (reason == null || !context.mounted) return null;
-  final authorization = await requestOwnerAuthorization(
+  final gate = await ensureOwnerPin(
     context,
     ref,
+    title: title,
+    revalidate: revalidate,
+  );
+  if (gate == null || !context.mounted) return null;
+  if (gate.configuredNow) {
+    reason = await review(
+      initialReason: reason,
+      header: OwnerPinReturnTexts.header,
+    );
+    if (reason == null || !context.mounted) return null;
+  }
+  final authorization = await showOwnerPinDialog(
+    context,
+    ref,
+    gate: gate,
     purpose: purpose,
     subjectRef: subjectRef,
     title: title,
@@ -48,18 +107,22 @@ class _ReasonDialog extends StatefulWidget {
     required this.title,
     required this.effects,
     required this.confirmLabel,
+    this.initialReason,
+    this.header,
   });
 
   final String title;
   final String effects;
   final String confirmLabel;
+  final String? initialReason;
+  final String? header;
 
   @override
   State<_ReasonDialog> createState() => _ReasonDialogState();
 }
 
 class _ReasonDialogState extends State<_ReasonDialog> {
-  final _reason = TextEditingController();
+  late final _reason = TextEditingController(text: widget.initialReason);
   String? _error;
 
   @override
@@ -85,6 +148,10 @@ class _ReasonDialogState extends State<_ReasonDialog> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          if (widget.header != null) ...[
+            Text(widget.header!, key: const Key('approval-return-header')),
+            const SizedBox(height: 8),
+          ],
           Text(widget.effects, key: const Key('approval-effects')),
           const SizedBox(height: 12),
           TextField(

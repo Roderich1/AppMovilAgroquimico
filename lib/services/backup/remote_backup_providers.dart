@@ -123,5 +123,12 @@ final backupKeyAuthorizerProvider = Provider<BackupKeyAuthorizer>(
             'Se creará una clave nueva para los próximos respaldos. Conserve la '
                 'anterior: las copias ya subidas la siguen necesitando.',
         },
+        // F03 §4 bis.6 (C-5): al volver de configurar el PIN, la misma clave
+        // activa. F08 ya informa si no hay autorización: sin doble mensaje.
+        revalidate: () async {
+          final active = await ref.read(backupKeyringProvider).activeKey();
+          return active?.keyId == keyIdHex ? null : 'la clave activa cambió';
+        },
+        announceReturn: false,
       ),
 );

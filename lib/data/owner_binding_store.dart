@@ -205,6 +205,7 @@ class OwnerBindingStore {
     bool confirmAdministrator = false,
   }) async {
     _validateScope(scope);
+    late OwnerBinding created;
     await _transaction((txn) async {
       if (await activeBinding(txn) != null) {
         throw OwnerBindingException('Ya existe un titular vinculado.');
@@ -214,7 +215,7 @@ class OwnerBindingStore {
         personId,
         confirmAdministrator: confirmAdministrator,
       );
-      await txn.insert('owner_bindings', {
+      final id = await txn.insert('owner_bindings', {
         'person_id': personId,
         'member_id': scope.memberId,
         'tenant_id': scope.tenantId,
@@ -222,8 +223,20 @@ class OwnerBindingStore {
         'bound_at': _now(),
       });
       await _writeActivatedInstallation(txn, installationRef);
+      created = await _insertedBinding(txn, id);
     });
-    return (await activeBinding())!;
+    return created;
+  }
+
+  /// F03 §4 bis (H5): la fila recién insertada, leída dentro de la misma
+  /// transacción (nunca una lectura posterior que pudiera ver otra base).
+  Future<OwnerBinding> _insertedBinding(Transaction txn, int id) async {
+    final rows = await txn.query(
+      'owner_bindings',
+      where: 'id=?',
+      whereArgs: [id],
+    );
+    return OwnerBinding.fromRow(rows.single);
   }
 
   /// Crea la persona del titular (familiar) y su vínculo en una transacción.
@@ -237,6 +250,7 @@ class OwnerBindingStore {
     if (name.trim().isEmpty) {
       throw OwnerBindingException('Indique el nombre del titular.');
     }
+    late OwnerBinding created;
     await _transaction((txn) async {
       if (await activeBinding(txn) != null) {
         throw OwnerBindingException('Ya existe un titular vinculado.');
@@ -248,7 +262,7 @@ class OwnerBindingStore {
         'phone': phone?.trim().isEmpty == true ? null : phone?.trim(),
         'created_at': _now(),
       });
-      await txn.insert('owner_bindings', {
+      final id = await txn.insert('owner_bindings', {
         'person_id': personId,
         'member_id': scope.memberId,
         'tenant_id': scope.tenantId,
@@ -256,8 +270,9 @@ class OwnerBindingStore {
         'bound_at': _now(),
       });
       await _writeActivatedInstallation(txn, installationRef);
+      created = await _insertedBinding(txn, id);
     });
-    return (await activeBinding())!;
+    return created;
   }
 
   /// Tras reactivar con el mismo Member en otra instalación (restauración),
