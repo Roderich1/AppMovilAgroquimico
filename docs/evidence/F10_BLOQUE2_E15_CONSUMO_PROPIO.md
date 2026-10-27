@@ -117,6 +117,7 @@ No se ejecutó la suite completa.
 | E15-07: P1 paga 81 tras el cambio | se imputa a su cargo y P1 queda en 0,00 | se imputa a su cargo propio: P1 0,00 con −81 no propio (rompía I-2) | **sin imputar**: P1 **−81,00** (I-2); Familias 0,00; «A favor de familias: 81,00 Bs». Con fecha de su intervalo, el pago es propio y va a su cargo: P1 0,00 |
 | E15-08: inverso | el pago va al cargo de 81; P1 81,00 | igual | el pago propio va al cargo **propio**; P1 **45,00**; Familias 45,00 |
 | E15-09: imputación cruzada histórica | — | P1 0,00 (rompía I-2) | «Imputado a un cargo propio de cuando era titular: 81,00 Bs. Queda a favor.»; P1 −81,00 (I-2) |
+| Pago cruzado de la revisión: P1 titular hasta el 01/09 con un cargo propio de 81; ya familiar, cargo de 40 el 05/09 y pago de 40 el 10/09 | el pago se imputa al 81; P1 queda en 81 y el 40 pendiente | igual en la escritura | el pago va al 40 («Pagado»); P1 **N = 0**; Familias 0,00; suma de los asientos de P1 (81) = N + lo propio (81) |
 | A2: titular anterior en Personas | 126,00 (suma con signo) | 126,00 | **45,00** (sólo lo no propio) |
 | Hallazgo 4: modo propio con un titular anterior | bloqueado (P1 81 ≠ 0) | bloqueado | **permitido** (P1 no propio = 0) |
 
@@ -158,3 +159,18 @@ test/e15_consumo_propio_ledger_test.dart:58:7: Error: Method not found: 'ownCons
 **Pruebas existentes cambiadas en esta revisión:** sólo `fix_aplicacion_costo_cargo_test` («cobro por compra»), que espera el texto neutro de M-7: «Esta aplicación no genera cargo a Vecino: su política cobra al asignar compras.». En esa misma prueba hay una prueba nueva, «Costo propio» en compartida con titular vinculado.
 
 **Contradicción con la cifra del encargo.** El encargo esperaba «changeOwner seguido de un pago de P1 (P1 N = 0)». Con el criterio de clase aplicado literalmente, un pago de P1 registrado **hoy**, cuando ya no es titular, es un asiento no propio. No puede cancelar su cargo propio, así que queda a favor: N = −81,00, Familias 0 e I-2 se cumple. N = 0 sólo sale si el pago lleva fecha dentro de su intervalo (entonces es propio). Las dos variantes están probadas.
+
+### Pago cruzado de la revisión (prueba añadida a petición del coordinador, 2026-10-27)
+
+Entrada exacta: P1 fue titular hasta el 01/09 con un cargo propio de 81 (10/08). Ya como familiar, tiene un cargo de 40 (05/09) y paga 40 (10/09). Prueba: `e15_consumo_propio_base_test.dart`, «pago cruzado de la revisión…».
+
+```text
+$ flutter test --timeout 120s test/e15_consumo_propio_ledger_test.dart test/e15_consumo_propio_base_test.dart
+00:10 +35: All tests passed!
+$ flutter test --timeout 120s test/e15_consumo_propio_base_test.dart --plain-name "pago cruzado de la revisión"   # lib/ de b7661ca
+  Expected: {2: 4000}
+    Actual: {1: 4000}
+00:00 +0 -1: Some tests failed.
+$ dart format lib test -> Formatted 334 files (1 changed: la prueba nueva)
+$ flutter analyze      -> No issues found!
+```

@@ -13,6 +13,7 @@ import 'package:agroquimicos/app.dart';
 import 'package:agroquimicos/data/agro_repository.dart';
 import 'package:agroquimicos/data/app_database.dart';
 import 'package:agroquimicos/data/operation_mode_store.dart';
+import 'package:agroquimicos/domain/account_texts.dart';
 import 'package:agroquimicos/domain/models.dart';
 import 'package:agroquimicos/domain/money.dart';
 import 'package:agroquimicos/domain/operation_mode.dart';
@@ -260,6 +261,43 @@ void main() {
       expect(await e.w.allocationsOf(payment), {own: 4500});
       expect((await e.w.repo.dashboard()).familyReceivableMinor, 4500);
     });
+
+    test(
+      'pago cruzado de la revisión: P1 titular hasta el 01/09 con un cargo '
+      'propio de 81; ya familiar, un cargo de 40 y un pago de 40 → N = 0 y '
+      'el 40 «Pagado» (D-04: el pago va al 81 y queda debiendo 81)',
+      () async {
+        e = await E15World.create();
+        final own = await e.w.charge(e.titular, e.w.invierno, at(8, 10), 8100);
+        await e.changeOwner(e.w.familiar, at(9, 1));
+        final c40 = await e.w.charge(e.titular, e.w.invierno, at(9, 5), 4000);
+        final q = await e.w.pay(
+          e.titular,
+          4000,
+          campaign: e.w.invierno,
+          date: at(9, 10),
+        );
+        expect(await e.w.allocationsOf(q), {c40: 4000});
+        final p1 = (await e.w.repo.accountSummaries()).firstWhere(
+          (r) => r.personId == e.titular,
+        );
+        expect(p1.account.netMinor, 0);
+        expect((await e.w.repo.dashboard()).familyReceivableMinor, 0);
+        final s = await e.w.repo.accountStatement(e.titular);
+        final line = s.lines.firstWhere((l) => l.entry.id == c40);
+        expect(statusText(s.ledger, s.account, line.entry), 'Pagado');
+        expect(s.lines.map((l) => l.entry.id), isNot(contains(own)));
+        // Suma de todos los asientos de P1 = su neto + lo propio (81).
+        final total =
+            (await (await e.w.db).rawQuery(
+                  'SELECT SUM(amount_bob_minor_signed) s FROM account_transactions '
+                  'WHERE person_id=?',
+                  [e.titular],
+                )).single['s']!
+                as int;
+        expect(total, p1.account.netMinor + 8100);
+      },
+    );
 
     test('hallazgo 4 · un titular anterior con sólo asientos propios no '
         'bloquea el paso a modo propio (D-04: lo bloquea)', () async {
