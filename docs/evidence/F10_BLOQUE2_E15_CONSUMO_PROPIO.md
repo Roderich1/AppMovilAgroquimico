@@ -14,7 +14,7 @@
 - **Tarjeta «Consumo y costos propios».** Muestra el consumo aplicado a costo FIFO, calculado desde las aplicaciones no revertidas y no desde `USAGE_CHARGE`, así que también vale con `MANUAL` o `BY_PURCHASE_ALLOCATION`. Las aplicaciones revertidas van aparte. Los asientos se muestran como registro: «cargos anotados», «créditos por reversión» y «pagos y ajustes registrados». El menú tiene «Ver movimientos propios», «Exportar movimientos propios» y conserva pago y adelanto (criterio Q-2, #26).
 - **«Movimientos propios».** Sin acumulado, sin «Pendiente a hoy» y sin «Pagado»; sólo «Revertido el …». Su exportación es «Movimientos propios del titular».
 - **Personas.** El titular aparece con «Consumo propio X». El detalle de un titular anterior muestra «Consumo propio mientras fue titular».
-- **Formulario de aplicación.** Para el titular dice «Costo propio» en las dos modalidades. Con `BY_PURCHASE_ALLOCATION` dice «Esta aplicación no genera cargo: a X se le cargó al comprarlo.».
+- **Formulario de aplicación.** Para el titular dice «Costo propio» en las dos modalidades. Con `BY_PURCHASE_ALLOCATION` dice «Esta aplicación no genera cargo a X: su política cobra al asignar compras.».
 - **Sin cambios de esquema ni de datos.** La carga de Cuentas sigue haciendo 5 consultas SQLite. La de Inicio (`DashboardScreen._load`, contando también `dashboard()`) pasa de 8 consultas en D-04 a 7 en E-15, porque `topSettlements` ya no se lee aparte; en `ed9c55c` eran 10. (El mensaje del commit `fd39326` decía «de 5 a 4», que no era correcto.) Desde la revisión cruzada 2 hay una escritura nueva: la imputación por clase de `registerAccountPayment` (A1), descrita abajo.
 
 ## Comandos y salidas
@@ -77,13 +77,13 @@ No se ejecutó la suite completa.
 
 | Prueba | Cambio | Decisión y ejemplo |
 |---|---|---|
-| `fix_aplicacion_costo_cargo_test` («cobro por compra: el mismo costo y "No genera cargo"») | Espera «Esta aplicación no genera cargo: a Vecino se le cargó al comprarlo.» en lugar de «No genera cargo: Vecino ya pagó estos productos al comprarlos». El texto anterior es falso si el tercero todavía debe la compra | E-15 §B.2; M-7 |
+| `fix_aplicacion_costo_cargo_test` («cobro por compra: el mismo costo y "No genera cargo"») | Espera «Esta aplicación no genera cargo a Vecino: su política cobra al asignar compras.» en lugar de «No genera cargo: Vecino ya pagó estos productos al comprarlos». El texto anterior es falso si el tercero todavía debe la compra | E-15 §B.2; M-7 |
 
 ## Cuentas antes (D-04) y después (E-15), por ejemplo
 
 | Ej. | D-04 (`4970124`) | E-15 (`fd39326`) |
 |---|---|---|
-| E15-01 | Lista: «Titular» con neto 81,00 (primero), Familiar 20,00. Inicio: Familias **101,00** y Titular en «Principales saldos». Resumen I 101,00 | Tarjeta: «Consumo aplicado (costo FIFO) · Invierno 2026 81,00 Bs» · «1 aplicación vigente» · «Asientos en su cuenta (no son deuda): cargos anotados 81,00 Bs · créditos por reversión 0,00 Bs · pagos y ajustes registrados 0,00 Bs». Lista: sólo Familiar 20,00. Inicio: Familias **20,00**, sin Titular. Resumen I 20,00. Personas: «Consumo propio 81,00 Bs». Exportación «Movimientos propios del titular» |
+| E15-01 | Lista: «Titular» con neto 81,00 (primero), Familiar 20,00. Inicio: Familias **101,00** y Titular en «Principales saldos». Resumen I 101,00 | Tarjeta: «Consumo aplicado (costo FIFO) · Invierno 2026 81,00 Bs» · «1 aplicación vigente» · «Asientos en su cuenta · todas las campañas (no son deuda): cargos anotados 81,00 Bs · créditos por reversión 0,00 Bs · pagos y ajustes registrados 0,00 Bs». Lista: sólo Familiar 20,00. Inicio: Familias **20,00**, sin Titular. Resumen I 20,00. Personas: «Consumo propio 81,00 Bs». Exportación «Movimientos propios del titular» |
 | E15-02a | Titular ADMIN fuera de Cuentas; su consumo no se ve | Tarjeta «Consumo aplicado … 81,00 Bs» · «Sin asientos en su cuenta.» |
 | E15-02b | «Titular» con neto 90,00 | Tarjeta consumo **45,00 Bs** · cargos anotados 90,00 Bs; Inicio no lo suma |
 | E15-03 | «Titular» con neto 45,00 | Consumo 45,00 · «1 aplicación vigente · 1 revertida (81,00 Bs, no cuenta)» · cargos anotados 126,00 · créditos por reversión 81,00 |
