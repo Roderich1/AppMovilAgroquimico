@@ -269,7 +269,7 @@ void main() {
       );
       await settle(tester);
       expect(pushes, isEmpty, reason: 'abrir la pantalla no reanuda nada');
-      expect(find.textContaining('Pausado: versión ·'), findsOneWidget);
+      expect(find.text('Pausado: versión: 1'), findsOneWidget);
       // Lenguaje del agricultor: ni «VERSION_MISMATCH» ni «422» en la tarjeta.
       expect(find.byKey(const Key('version-mismatch')), findsOneWidget);
       expect(
@@ -317,9 +317,10 @@ void main() {
       ))!;
       expect(acked['status'], 'ACKED');
       expect(core(acked), core(paused));
-      // La fila, no sólo el resumen, muestra el ACK; la tarjeta desaparece.
-      expect(find.textContaining('Sincronizado · creada'), findsOneWidget);
-      expect(find.textContaining('Pausado: versión'), findsNothing);
+      // El resumen (chips) muestra el ACK y la tarjeta desaparece; la fila la
+      // redacta la pantalla (su texto cambia en otro PR), así que no se fija aquí.
+      expect(find.text('Sincronizado: 1'), findsOneWidget);
+      expect(find.text('Pausado: versión: 1'), findsNothing);
       expect(find.byKey(const Key('version-mismatch')), findsNothing);
     },
     timeout: const Timeout(Duration(minutes: 2)),
