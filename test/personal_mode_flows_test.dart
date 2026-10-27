@@ -8,6 +8,7 @@ import 'package:agroquimicos/data/agro_repository.dart';
 import 'package:agroquimicos/data/app_database.dart';
 import 'package:agroquimicos/data/operation_mode_store.dart';
 import 'package:agroquimicos/data/owner_binding_store.dart';
+import 'package:agroquimicos/domain/models.dart';
 import 'package:agroquimicos/domain/operation_mode.dart';
 import 'package:agroquimicos/operation_mode_controller.dart';
 import 'package:agroquimicos/presentation/screens/transfers_screen.dart';
@@ -677,6 +678,92 @@ void main() {
         ),
       );
       expect(await dumpTables(db), before);
+    });
+
+    test('compra con asignaciones mezcladas (titular y vecino): en propio se '
+        'rechaza sin cambios aunque la parte del titular sea suya', () async {
+      final s = await setup();
+      final h = s.h;
+      final purchase = await h.repo.confirmPurchase(
+        PurchaseDraft(
+          supplierId: h.supplier,
+          campaignId: h.campaign,
+          purchaseDate: DateTime.utc(2026, 1, 2),
+          items: [
+            PurchaseItemDraft(
+              productId: h.product,
+              quantityBase: 5000,
+              currency: CurrencyCode.bob,
+              originalUnitPriceMinor: 10000,
+              allocations: [
+                AllocationDraft(personId: h.titular, quantityBase: 3000),
+                AllocationDraft(personId: h.thirdParty, quantityBase: 2000),
+              ],
+            ),
+          ],
+        ),
+      );
+      await settleAccount(h, h.thirdParty);
+      final db = await h.repo.appDatabase.database;
+      // Bloqueada por las existencias del vecino; se fuerza como arriba.
+      await expectLater(
+        s.modes.apply(OperationMode.personal, confirmed: true),
+        throwsA(isA<ModeTransitionException>()),
+      );
+      await db.insert('app_settings', {
+        'key': AppDatabase.operationModeKey,
+        'value': OperationMode.personal.code,
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+      final before = await dumpTables(db);
+
+      await expectLater(
+        h.repo.reversePurchaseUnauditedForTesting(purchase),
+        throwsA(isA<PersonalModeRestrictionException>()),
+      );
+      expect(await dumpTables(db), before);
+      expect((await stockByPersonProduct(db))[(h.titular, h.product)], 3000);
+      expect((await stockByPersonProduct(db))[(h.thirdParty, h.product)], 2000);
+    });
+
+    test('F04-BUG-02 en propio: el lote destino anulado de una transferencia '
+        'revertida no cuenta como actividad ajena y la compra del titular se '
+        'revierte', () async {
+      final s = await setup();
+      final h = s.h;
+      final purchase = await h.buy(h.titular, 3000);
+      final transfer = await h.repo.transferProductFifo(
+        fromPersonId: h.titular,
+        toPersonId: h.thirdParty,
+        productId: h.product,
+        quantityBase: 1000,
+      );
+      await h.repo.reverseTransferUnauditedForTesting(transfer);
+      final db = await h.repo.appDatabase.database;
+      // El lote destino hereda el purchase_item_id de la compra y quedó
+      // anulado con saldo 0: pertenece al vecino pero no se va a escribir.
+      final lots = await db.rawQuery(
+        'SELECT l.owner_person_id o, l.reversed_at r FROM inventory_lots l '
+        'JOIN purchase_items i ON i.id=l.purchase_item_id WHERE i.purchase_id=?',
+        [purchase],
+      );
+      expect(lots, hasLength(2));
+      expect(lots.singleWhere((l) => l['o'] == h.thirdParty)['r'], isNotNull);
+      // Sin existencias ni saldo del vecino: la transición es legítima.
+      await s.modes.apply(OperationMode.personal, confirmed: true);
+
+      await h.repo.reversePurchaseUnauditedForTesting(purchase);
+      expect((await stockByPersonProduct(db))[(h.titular, h.product)], 0);
+      expect((await stockByPersonProduct(db))[(h.thirdParty, h.product)], 0);
+      expect(
+        (await OperationModeStore.thirdPartyActivity(db, h.titular)).isEmpty,
+        isTrue,
+      );
+      final reversed = await db.query(
+        'purchases',
+        where: 'id=?',
+        whereArgs: [purchase],
+      );
+      expect(reversed.single['status'], 'REVERSED');
     });
   });
 }

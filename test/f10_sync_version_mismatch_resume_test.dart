@@ -12,12 +12,17 @@
 import 'dart:convert';
 
 import 'package:agroquimicos/app.dart';
+import 'package:agroquimicos/domain/installation_access.dart';
+import 'package:agroquimicos/domain/sync/sync_types.dart';
 import 'package:agroquimicos/presentation/screens/sync_status_screen.dart';
 import 'package:agroquimicos/services/auth/api_endpoint_config.dart';
 import 'package:agroquimicos/services/auth/auth_http_client.dart';
+import 'package:agroquimicos/services/auth/remote_session_coordinator.dart';
+import 'package:agroquimicos/services/auth/remote_session_providers.dart';
 import 'package:agroquimicos/services/sync/sync_access.dart';
 import 'package:agroquimicos/services/sync/sync_api.dart';
 import 'package:agroquimicos/services/sync/sync_providers.dart';
+import 'package:agroquimicos/services/sync/sync_worker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -28,8 +33,148 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'support/f04_mode_fixtures.dart';
 import 'support/f05_sync_fixtures.dart';
 
+/// Verificación en línea guionada: concede [grant] o pide reautenticar.
+class _FakeRemote extends RemoteSessionController {
+  _FakeRemote(this.grant);
+  final OwnerScope? grant;
+  int calls = 0;
+
+  @override
+  RemoteSessionState build() =>
+      const RemoteSessionState(RemoteSessionPhase.idle);
+
+  @override
+  Future<RemoteSessionState> verifyOnline() async {
+    calls++;
+    final scope = grant;
+    if (scope == null) {
+      return const RemoteSessionState(
+        RemoteSessionPhase.requiresReauthentication,
+      );
+    }
+    ref
+        .read(syncAccessHolderProvider)
+        .accept('token-sintetico', scope.memberId, scope.tenantId);
+    return const RemoteSessionState(RemoteSessionPhase.remoteAvailable);
+  }
+}
+
 void main() {
   sqfliteFfiInit();
+
+  /// Contenedor con una fila VERSION_MISMATCH del titular (memberA) y un
+  /// transporte que falla si algo llega a enviarse.
+  Future<(ProviderContainer, SyncFixture, _FakeRemote)> containerWith({
+    required OwnerScope? verified,
+    OwnerScope? alreadyInMemory,
+  }) async {
+    final fixture = await seedSyncFixture(path: inMemoryDatabasePath);
+    await fixture.needs.declare(
+      referenceDate: inCampaign,
+      productId: fixture.litreProductId,
+      quantityBase: 30000,
+    );
+    await fixture.outbox.recordVersionMismatch(
+      await fixture.outbox.markSending((await fixture.outbox.entries()).single),
+    );
+    final access = SyncAccessHolder();
+    if (alreadyInMemory != null) {
+      access.accept(
+        'token-sintetico',
+        alreadyInMemory.memberId,
+        alreadyInMemory.tenantId,
+      );
+    }
+    final remote = _FakeRemote(verified);
+    final container = ProviderContainer(
+      overrides: [
+        databaseProvider.overrideWithValue(fixture.database),
+        repositoryProvider.overrideWithValue(fixture.repo),
+        syncOutboxStoreProvider.overrideWithValue(fixture.outbox),
+        syncAccessHolderProvider.overrideWithValue(access),
+        remoteSessionProvider.overrideWith(() => remote),
+        syncApiProvider.overrideWithValue(
+          SyncApi(
+            AuthHttpClient(
+              config: ApiEndpointConfig(Uri.parse('https://sindicato.example')),
+              client: MockClient(
+                (request) async => fail('nada debe enviarse: ${request.url}'),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+    addTearDown(container.dispose);
+    return (container, fixture, remote);
+  }
+
+  // Una base en memoria por prueba: la misma ruta `:memory:` se comparte
+  // dentro de un mismo caso.
+  test('reanudar lo pausado por versión sin acceso verificado: la verificación '
+      'pide reautenticar, devuelve 0 y no toca ninguna fila', () async {
+    final (denied, fixture, remote) = await containerWith(verified: null);
+    expect(
+      (await fixture.outbox.entries()).single.status,
+      OutboxStatus.versionMismatch,
+    );
+    expect(
+      await denied
+          .read(syncControllerProvider.notifier)
+          .resumeVersionMismatch(),
+      0,
+    );
+    expect(remote.calls, 1);
+    expect(denied.read(syncControllerProvider).message, isNotNull);
+    expect(
+      (await fixture.outbox.entries()).single.status,
+      OutboxStatus.versionMismatch,
+    );
+  });
+
+  test(
+    'reanudar lo pausado por versión con otra cuenta verificada (memberB '
+    'sobre el vínculo de memberA): devuelve 0 y no toca ninguna fila',
+    () async {
+      final (other, fixture, remote) = await containerWith(verified: memberB);
+      expect(
+        await other
+            .read(syncControllerProvider.notifier)
+            .resumeVersionMismatch(),
+        0,
+      );
+      expect(remote.calls, 1);
+      expect(
+        other.read(syncControllerProvider).message,
+        blockerMessage(SyncBlocker.ownerMismatch),
+      );
+      expect(
+        (await fixture.outbox.entries()).single.status,
+        OutboxStatus.versionMismatch,
+      );
+    },
+  );
+
+  test('reanudar lo pausado por versión con otra cuenta ya en memoria: no '
+      'vuelve a verificar, devuelve 0 y no toca ninguna fila', () async {
+    final (stale, fixture, remote) = await containerWith(
+      verified: memberA,
+      alreadyInMemory: memberB,
+    );
+    expect(
+      await stale.read(syncControllerProvider.notifier).resumeVersionMismatch(),
+      0,
+    );
+    expect(remote.calls, 0);
+    expect(
+      stale.read(syncControllerProvider).message,
+      blockerMessage(SyncBlocker.ownerMismatch),
+    );
+    expect(
+      (await fixture.outbox.entries()).single.status,
+      OutboxStatus.versionMismatch,
+    );
+  });
 
   Future<void> settle(WidgetTester tester) async {
     for (var round = 0; round < 6; round++) {
