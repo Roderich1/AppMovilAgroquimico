@@ -105,6 +105,231 @@ abstract interface class LocalOwnerCredential {
 
 Lleva `{enrolmentId, personId del titular, bindingId, Member, tenant, método LOCAL_PIN, verificadoEn}`. No lleva el PIN.
 
+## 4 bis. Enrolamiento del PIN dentro de la activación (decisión del autor, Roderich Rendón, 2026-10-27)
+
+- **Fecha real:** 2026-10-27 (America/La_Paz). Diseño de la fase 1, **sin código**. Base: Mobile `main` `ed9c55c`, rama `feat/e12-pin-en-activacion`.
+- **Fuente:** `_briefs/BLOQUE2_DECISIONES_AUTOR_2026-10-27.md`, sección E-12, y el análisis previo `_briefs/REVISION_INTEGRAL_MOB_2026-10-26/01_DECISIONES_DE_NEGOCIO.md` §4 (con el hallazgo A-15). Es una **decisión del autor**; no se atribuye aprobación del tutor ni de la Directiva.
+- **Estado:** diseño pendiente de revisión. Nada de esta sección está implementado en `ed9c55c`.
+- **Trazabilidad:** RF-01, RF-13, RF-03, CU-01 y RNF-04.
+
+**La regla.** Después de confirmar al titular se ofrece crear el PIN, aprovechando la acreditación en línea que el mismo titular acaba de hacer al activar. Es un paso opcional y recomendado. No basta con que exista una sesión. Fuera de ese momento, todo sigue como en el §4.
+
+### 4 bis.1 Punto de partida (leído en `ed9c55c`)
+
+| Tema | Dónde | Qué hace hoy |
+|---|---|---|
+| Activación | `first_activation_screen.dart:35-55`, `first_activation_providers.dart:90-126`, `first_activation_coordinator.dart:211-390` | La pantalla envía el correo y la contraseña. El controlador pasa `requiredScope` = el ámbito del vínculo activo, si lo hay (`first_activation_providers.dart:105-115`). El coordinador hace estos pasos: `login` (264); valida un agricultor activo con la sesión sin cliente registrado (398-406); si hay `requiredScope`, compara el Member y el tenant (267-271); llama a `registerClient` (283), `bindSessionClient` (295) y `/me` (310). `_validateCurrent` (408-425) exige la misma cuenta, el mismo correo, Member, tenant, sesión y registro. Después escribe con `commitAndVerify` (324-338). Sólo entonces emite `completed` (339). El estado de la interfaz no lleva identificadores (80-81) y la contraseña se borra del campo (`first_activation_screen.dart:48`) |
+| Confirmación del titular | `app.dart:107-110`, `owner_setup_screen.dart:59-129`, `owner_binding_store.dart:201-261` | El router lleva `activationPendingOwner` a `/titular`. `_confirm` exige `allowsOwnerBinding`, el ámbito de la sesión legible (62) y `installationRef` (63). Crea el vínculo con `bindExistingPerson` o `bindNewPerson`, que también escriben `activated_installation`. Recalcula el acceso (110) y va a `/` (122). **El `OwnerBinding` que devuelve el almacén se descarta** |
+| Enrolamiento del PIN | `more_screen.dart:66-70`, `app.dart:283-286`, `owner_credential_screen.dart:41-105, 139-192` | Exige `activated` (109-111, 139-144). Pide el correo y la contraseña (147-175) y obtiene un comprobante con `OwnerOnlineVerification.verify` (`local_owner_credential.dart:106-115`). Después pide dos veces el PIN y llama a `enroll` (452-492) |
+| Qué prueba la acreditación en línea | `remote_session_coordinator.dart:269-295, 466-490, 511-518`; `local_owner_credential.dart:112-113` | `confirmAccount` hace un **login nuevo con la contraseña contra Central**. Exige que `account.id`, `member.id` y `tenant.id` sean iguales a los de la sesión guardada, un agricultor activo y la sesión sin registro de cliente. Después cierra ese login con `logout` (289-291) sin tocar la sesión guardada ni el guard. Luego se relee el Member y el tenant de la sesión guardada y se comparan con el vínculo. **No comprueba la instalación** (`installationClientId` ni `registrationId`: el login nuevo no se vincula al cliente) **ni el `bindingId`**. Mobile no lee el `sub` del JWT: la identidad es `account.id`, `member.id` y `tenant.id` del contexto Auth V2. La reautenticación (`reauthenticate`, 297-432) sólo recupera una sesión en cuarentena (313-318) y no se usa para el PIN (§9) |
+| Artefacto que produce | `local_owner_credential.dart:74-84, 434-447`; `owner_credential_screen.dart:27` | Un `OnlineOwnerProof` `{scope, issuedAt, emisor privado, _used}`, sólo en memoria, en el estado de la pantalla. `_requireProof` lo acepta sólo si lo emitió **la misma instancia** configurada (`identical`), si no se usó, si tiene el mismo ámbito, si tiene 5 minutos o menos y si no está fechado en el futuro. Se marca usado antes del KDF. La forma y la igualdad del PIN se validan antes (472-477), así que un error de tecleo no gasta el comprobante |
+| ¿Hay ya una «acreditación reciente» reutilizable? | `remote_session_coordinator.dart:57-58, 128-260`; `existing_session_providers.dart:12-23`; `remote_session_providers.dart:48` | **No.** `remoteAvailable` puede venir de `refreshOnDemand`, que no usa contraseña. `runtimeSecureCommitCompletedProvider` es un booleano sin identidad ni vigencia. El access token en memoria sirve a Sync y no prueba que se conozca la contraseña. Lo único acotado es el `OnlineOwnerProof` de 5 minutos, que sólo existe dentro de `OwnerCredentialScreen` |
+| Invalidación al restablecer | `local_owner_credential.dart:347-362, 406-413, 488-490, 186-228`; `agro_repository.dart:1672-1682, 2643-2653` | Enrolar y restablecer son el mismo camino, `enroll`, en la cola del almacén. `enroll` borra el enrolamiento conocido antes de escribir el verificador y lo fija después. `accepts` exige el mismo almacén y el enrolamiento vigente. El repositorio consume la autorización dentro de la transacción de la acción. No hay una generación numérica: la «época» del PIN es el `enrolmentId` aleatorio |
+| Operación pendiente (A-15) | `owner_reversal_flow.dart:16-44`; `owner_credential_screen.dart:213-257, 198-201` | `requestOwnerApproval` pide el motivo y después llama a `requestOwnerAuthorization`. Sin PIN aparece «Esta acción la autoriza sólo el titular con su PIN. Configure el PIN del titular primero.» (231-233). «Configurar PIN» hace `context.push('/titular/pin')` **sin esperar** y devuelve null (255-256). El llamador abandona la acción: `purchases_screen.dart:130-160`, `applications_screen.dart:72`, `transfers_screen.dart:40`, `late_operations_screen.dart:137-180` y, en F08, `remote_backup_providers.dart:105-125`. «Volver» cierra sin resultado. No se ejecuta nada: es un problema de uso, no de seguridad |
+
+### 4 bis.2 Flujo propuesto
+
+1. **«Activar cuenta»: sin cambios visibles.** Al terminar con `completed`, el controlador guarda en memoria la *acreditación de activación* (§4 bis.3). Sólo lo hace si la activación empezó **sin titular vinculado** (`requiredScope == null`) y sin `replaceUnreadableSession`.
+2. **«Titular de los datos»: sin cambios visibles hasta «Confirmar titular».** Si el vínculo se crea, se ata a la acreditación (§4 bis.3). La oferta del paso 3 se abre sólo si se cumplen **todas** estas condiciones; si falta alguna, la acreditación se borra y se sigue a `/` como hoy:
+   - la acreditación existe, está vigente y está atada a este vínculo;
+   - el acceso recalculado es `activated`;
+   - el estado de la credencial para este vínculo es `notEnrolled` o `scopeMismatch`, es decir, el titular no tiene un PIN válido aquí. Con `enrolled`, `locked` o `requiresOnlineReset` no se ofrece nada, de modo que **un restablecimiento nunca usa esta acreditación**.
+3. **«PIN del titular», modo de activación** (nuevo modo de `OwnerCredentialScreen`; no pide el correo ni la contraseña). Textos propuestos:
+   - Encabezado: «Titular vinculado.», seguido del aviso de modalidad que hoy sale en el mensaje emergente («Usa inventario compartido; puede cambiarlo en Operaciones › Más › Modo de uso.» o su variante para el inventario propio).
+   - Utilidad: «Le recomendamos crear ahora el PIN del titular. Con él, el titular autoriza en este teléfono, incluso sin conexión, las acciones que sólo él puede aprobar: revertir una operación o revisar una operación tardía.»
+   - Por qué ahora: «Acaba de confirmar su cuenta en línea, así que ahora no hace falta volver a escribir la contraseña. Si lo deja para después, tendrá que confirmar la cuenta en línea con su correo y su contraseña.»
+   - Separación: «El PIN no se guarda en el respaldo y no sirve para descifrar copias: la clave de recuperación del respaldo es otra. Tampoco reemplaza la contraseña de su cuenta.»
+   - Formulario: «Elija un PIN de 6 dígitos que no sea una secuencia.», con los campos «PIN» y «Repita el PIN» (los widgets y claves de hoy, `pin-new` y `pin-confirm`).
+   - Botones: «Crear PIN» (principal) y «Ahora no».
+   - Éxito: «PIN del titular creado. Funciona sin conexión.», con el botón «Continuar», que lleva a `/`.
+   - «Ahora no» lleva a `/` con este mensaje: «Puede crear el PIN más tarde en Operaciones › Más › PIN del titular. Entonces se le pedirá confirmar su cuenta en línea.»
+   - Acreditación vencida o anulada: «Ya no se puede crear el PIN con la confirmación de la activación: pasó el tiempo o cambió la cuenta, la instalación o el titular. Puede crearlo más tarde en Operaciones › Más › PIN del titular, confirmando su cuenta en línea.», con el botón «Continuar».
+   - Errores de forma del PIN: los mensajes de hoy (`pinProblem` y «Los dos PIN no coinciden.»). Se comprueban **antes** de tocar la acreditación, así que no la gastan.
+   - Fallo al guardar: «No se pudo guardar el PIN. Puede crearlo más tarde en Operaciones › Más › PIN del titular, confirmando su cuenta en línea.» En este punto la acreditación ya se consumió.
+4. **El paso 3 no hace ninguna petición de red.**
+
+Si el titular se elige más tarde por decisión propia (`legacyUnbound`, «Elegir titular» del Inicio, `dashboard_screen.dart:834-840`), se aplica lo mismo mientras la acreditación siga vigente.
+
+### 4 bis.3 La acreditación de activación
+
+| Aspecto | Decisión |
+|---|---|
+| Qué la origina | **Sólo** `FirstActivationController.activate` cuando el coordinador devuelve `completed`, es decir, después de `commitAndVerify` con relectura. La activación tiene que haber empezado con `requiredScope == null` y sin `replaceUnreadableSession`. **No** la originan: el arranque con una sesión guardada, `refreshOnDemand`, `reauthenticate`, `confirmAccount`, «Recuperar acceso» (`access_recovery.dart:139-199`, que usa otro coordinador) ni una activación con el titular ya vinculado |
+| Qué contiene | `accountId`, `memberId`, `tenantId`, `sessionId` y `registrationId` del `/me` validado; `installationRef` = `installationReference(installationClientId)`; el instante de emisión en el reloj de pared y un cronómetro monotónico. Al vincular se añaden `bindingId`, `personId` y `boundAt` del vínculo creado. **No** contiene la contraseña, el refresh ni el access token, ni el `installationClientId` en claro. `toString` va redactado y nunca se registra |
+| A qué queda atada | **Identidad:** cuenta, Member y tenant (Mobile no tiene `sub`). **Sesión:** `sessionId` y `registrationId`; un refresh conserva ambos y una reautenticación o una sesión nueva los cambian. **Instalación:** el `installationRef` de la identidad actual, el `activated_installation` de la base y el `installationClientId` de la sesión guardada. **Vínculo:** nace sin vínculo y se ata sólo al que se crea en el paso 2, con el mismo Member y tenant y un `boundAt` posterior a la emisión |
+| Dónde vive | **Sólo en memoria**, en un campo privado del `FirstActivationController`, que vive lo que el proceso. Nunca en SQLite, en el almacén seguro, en un respaldo ni en un log. **Por qué:** (a) tiene que morir con el proceso; si sobreviviera a un reinicio, días después cualquiera con el teléfono desbloqueado podría crear el PIN sin la contraseña; (b) el almacén seguro protege un secreto contra la lectura, pero aquí el riesgo es la capacidad que concede, no su lectura, y persistirla exigiría además otro mecanismo de borrado y de vigencia; (c) el flujo es continuo y no la necesita tras reiniciar |
+| Vigencia | **10 minutos** desde `completed`. Se miden con el reloj de pared (`clock`, inyectable) y con un cronómetro monotónico, y vence en cuanto **cualquiera** de los dos los supera. Un reloj de pared anterior a la emisión también la invalida. El comprobante que se emite desde ella conserva la regla existente de 5 minutos y suma un tope `notAfter` = el vencimiento de la acreditación. Así, entre la contraseña y el PIN guardado pasan como mucho 10 minutos. **Justificación:** el paso 2 incluye elegir o crear al titular y la modalidad, con sus explicaciones; con un facilitador puede superar los 5 minutos del comprobante actual. Diez minutos limitan la ventana a la misma sesión presencial. Es una estimación, no una medición: la fase 2 mide la duración real en el emulador (duda D-1) |
+| Consumo | Se **retira** del campo, que queda en null, en cuanto se pulsa «Crear PIN» con un PIN de forma válida y repetido igual. `OwnerOnlineVerification.fromActivation` la retira, la comprueba (§4 bis.4) y, si vale, emite un `OnlineOwnerProof` del **mismo emisor configurado**. `_requireProof`, que ya existe, marca usado ese comprobante. Hay un solo uso: la segunda llamada encuentra el campo vacío |
+| Anulación | Se borra en todos estos casos: «Ahora no»; salir de la pantalla del paso 3 por cualquier vía (Atrás o `dispose`); salir de «Titular de los datos» sin vincular; el vencimiento; cualquier error al emitir o al enrolar, porque ya se retiró; un cambio de sesión en ejecución (`runtimeSessionTransitionProvider`, `signedOut` o `recovered` posteriores a la emisión); la sustitución de la base al restaurar (`recomputeAfterReplacement`, `guarded_restore.dart:100-108`); cualquier estado de acceso fuera de la secuencia `activationPendingOwner` → `activated` (`identityMismatch`, `activatedSessionUnavailable`, `restoredRequiresActivation` o null); una llamada nueva a `activate`; el fin del proceso (app matada o reiniciada). Aunque alguno de estos borrados fallara, la comprobación del consumo la rechaza si algo cambió |
+
+### 4 bis.4 Por qué no basta una sesión cualquiera
+
+Una sesión guardada dura días y se renueva con un refresh, sin contraseña. La tiene quien sostenga el teléfono desbloqueado. Si bastara para enrolar, esa persona podría crear el PIN o, peor, restablecerlo, con lo que invalidaría las autorizaciones del titular (§8). Después podría autorizar reversiones, que es justo lo que el PIN protege. El PIN tiene que nacer de una **prueba reciente de conocer la contraseña, dentro del mismo flujo**.
+
+**Comprobaciones al consumir** (`fromActivation`). Todas fallan cerradas: devuelven null y no escriben nada.
+1. **Existe:** sólo `activate` escribe el campo y no hay un método público para fijarlo. Sin acreditación no hay oferta, y `/titular/pin` sigue pidiendo la contraseña.
+2. **Vigente** según los dos relojes, y el reloj de pared no es anterior a la emisión.
+3. **La misma sesión:** se relee la sesión guardada (`SecureSessionStore.read`). Tiene que estar en `available`, y `accountId`, `memberId`, `tenantId`, `sessionId`, `registrationId` e `installationReference(installationClientId)` tienen que ser iguales a los de la acreditación.
+4. **La misma instalación:** `installationRefProvider`, la acreditación y `activated_installation` de la base coinciden.
+5. **El mismo vínculo:** el vínculo activo (`OwnerBindingStore.activeBinding`) tiene el `id`, el `personId` y el `boundAt` que se ataron; su ámbito es el de la acreditación y su `boundAt` es posterior o igual a la emisión.
+6. El acceso es `activated`.
+7. El estado de la credencial para ese vínculo es `notEnrolled` o `scopeMismatch`.
+
+Sólo entonces se emite el `OnlineOwnerProof`, con el emisor configurado (por eso `enroll` lo acepta, como en el §8) y con `notAfter`.
+
+**Frontera.** Es la misma del §8: el código dentro del proceso puede hacer cualquier cosa. Lo que queda cerrado, por las API públicas: no se obtiene un comprobante sin una activación completada en este proceso, ni desde una sesión anterior, ni con otra cuenta, ni en otra instalación.
+
+### 4 bis.5 Qué no cambia
+
+- **Configurar más tarde:** `/titular/pin`, desde «Más» o desde el diálogo, sigue pidiendo el correo y la contraseña (`confirmAccount` y la relectura del ámbito), con el comprobante de 5 minutos y de un solo uso. Sin red no se puede.
+- **Restablecer un PIN olvidado o bloqueado:** igual que hoy. La acreditación de activación nunca reemplaza un verificador válido del titular (§4 bis.2, paso 2).
+- **Invalidación al restablecer:** el modo de activación usa el mismo `enroll`, con la cola por almacén y el borrado y la fijación de `knownEnrolmentId`. `accepts` y `consumeOwnerAuthorization` no cambian.
+- **Separación de secretos:**
+  - la contraseña sólo viaja a Central al activar y no se retiene; no está en la acreditación;
+  - el PIN sólo produce el verificador PBKDF2 en `agrocuentas_owner_credential_v1`;
+  - la clave del respaldo sigue en `agrocuentas_backup_keys_v1`, intacta, y el PIN no deriva nada.
+  - La acreditación de activación no es ninguno de los tres: es una capacidad que vive en memoria.
+- **El PIN que se teclea al enrolar nunca produce una `OwnerAuthorization`.** Enrolar y autorizar siguen separados.
+- Sin cambios: los 6 dígitos, las secuencias triviales, los intentos, las esperas, el KDF fuera del hilo de la interfaz y las restauraciones (el verificador no viaja).
+
+### 4 bis.6 Retorno a una operación pendiente (A-15)
+
+Máquina de estados de `requestOwnerAuthorization` (y, a través de ella, de `requestOwnerApproval`):
+
+```
+REVISIÓN       --Continuar-------------------------> COMPROBAR_PIN
+COMPROBAR_PIN  --PIN válido para el vínculo--------> PEDIR_PIN
+COMPROBAR_PIN  --bloqueado con espera--------------> CANCELADA (como hoy, sin «Configurar PIN»)
+COMPROBAR_PIN  --sin PIN, ámbito distinto o
+                 restablecimiento en línea---------> SIN_PIN
+SIN_PIN        --Cerrar----------------------------> CANCELADA
+SIN_PIN        --Configurar PIN--------------------> CONFIGURANDO (push esperado de /titular/pin)
+CONFIGURANDO   --vuelve sin PIN creado-------------> CANCELADA
+CONFIGURANDO   --vuelve con PIN creado-------------> REVALIDAR
+REVALIDAR      --ya no aplica o cambió el titular--> CANCELADA (con aviso)
+REVALIDAR      --sigue aplicando-------------------> REVISIÓN (una sola vuelta)
+PEDIR_PIN      --Cancelar--------------------------> CANCELADA
+PEDIR_PIN      --PIN correcto y «Autorizar»--------> AUTORIZADA
+AUTORIZADA     --el llamador llama al repositorio, que revalida y consume en la transacción
+```
+
+**Reglas:**
+1. Se espera `context.push<bool>('/titular/pin')`. La pantalla devuelve `true` sólo si `enroll` terminó en esa visita. «Volver», Atrás del sistema o un fallo devuelven `false` o null.
+2. **REVALIDAR:**
+   - se relee el vínculo (`ownerBindingContextReaderProvider`), que tiene que tener el mismo `bindingId` que al empezar;
+   - el `status` de la credencial tiene que ser `enrolled`;
+   - una función opcional `revalidate`, que da cada llamador, relee el objeto por su identificador: compra, aplicación o transferencia sin revertir, borrador tardío todavía `PENDING` o la misma `keyId` del respaldo. Devuelve el texto de efectos actualizado o el motivo por el que ya no aplica. Todo es local.
+3. **Vuelta a la revisión:**
+   - en las reversiones reaparece el diálogo del motivo, con los efectos actualizados y el motivo ya escrito y editable, encabezado por «PIN del titular creado. Revise la operación y confírmela con su PIN.»; después, el diálogo del PIN;
+   - en las operaciones tardías y en la clave del respaldo, el diálogo del PIN con sus efectos y el mismo encabezado.
+4. **Nunca se ejecuta sola:**
+   - el enrolamiento no devuelve ninguna autorización;
+   - el PIN recién tecleado no se reutiliza;
+   - no hay temporizadores ni acciones automáticas.
+   - Hay que teclear el PIN en el diálogo y pulsar «Autorizar». Después, el repositorio revalida y consume dentro de la transacción (`agro_repository.dart:1672-1682, 2643-2653`), con comprobaciones de existencia como la de `agro_repository.dart:2159`.
+5. **Una sola vuelta.** Si al volver sigue sin haber un PIN válido, la operación termina en CANCELADA con «No se configuró el PIN. La operación no cambió.».
+6. Si la pantalla de la operación se cerró entretanto (`context.mounted` falso), termina en CANCELADA sin ejecutar nada.
+7. **App matada en CONFIGURANDO:** la operación pendiente sólo vivía en memoria. Tras reiniciar no se ejecuta nada y se empieza de nuevo desde la lista.
+8. **Textos:**
+   - «No se configuró el PIN. La operación no cambió.»
+   - «Esta operación ya no está pendiente: <motivo de la revalidación>. No se hizo ningún cambio.»
+   - «El titular de estos datos cambió. No se hizo ningún cambio.»
+9. El retorno usa siempre el modo con contraseña. En ese momento no hay una acreditación de activación, porque se borra al salir del paso 3 o al no ofrecerse.
+
+### 4 bis.7 Matriz de amenazas
+
+| # | Amenaza | Resultado esperado | Prueba |
+|---|---|---|---|
+| T1 | **Identidad diferente:** otra cuenta, Member o tenant entre la activación y el PIN (salir de la sesión y activar otra; vínculo con otro ámbito) | No se ofrece, o `fromActivation` devuelve null. El almacén no se escribe. Sale el texto de anulada. Más tarde el PIN pide la contraseña | U2 |
+| T2 | **Instalación diferente:** `installationRef` actual, `activated_installation` o `installationClientId` de la sesión distintos | null, sin escribir | U3 |
+| T3 | **Acreditación vencida:** más de 10 minutos en cualquiera de los dos relojes, o reloj adelantado o atrasado | null, texto de vencida, sin escribir | U4 |
+| T4 | **Reuso:** doble toque, segundo intento tras un error o re-enrolar con la misma acreditación para cambiar el PIN | Vale el primer uso; los siguientes dan null o `CredentialException`; se escribe un solo verificador | U5 |
+| T5 | **Cancelación:** «Ahora no», Atrás o salir de «Titular de los datos» sin vincular | Acreditación borrada y ningún PIN. `/titular/pin` pide el correo y la contraseña | U6, U7 |
+| T6 | **Fallo de red** | Durante la activación: no hay acreditación ni oferta, porque la activación falla como hoy. Después de activar: el paso 3 no usa la red y el PIN se crea dentro de la vigencia. Configurar más tarde sin red sigue siendo imposible | U9 |
+| T7 | **Restauración de un respaldo** dentro de la ventana, del mismo titular o de otro, venga o no de otro teléfono | La sustitución borra la acreditación. Además, el vínculo restaurado no coincide en `id`, `personId` y `boundAt`. El verificador no viaja. En la base restaurada en otro teléfono no hay acreditación, porque nunca se guarda | U10 |
+| T8 | **App matada a mitad:** (a) tras activar, antes de elegir el titular; (b) en la oferta; (c) durante el KDF de `enroll`; (d) en CONFIGURANDO desde una operación | (a) y (b): la acreditación se pierde; tras reiniciar no hay oferta y el PIN pide la contraseña. (c): el comprobante ya está usado; si el verificador no llegó a escribirse queda `notEnrolled`, y si se escribió el PIN vale, como hoy. (d): no se ejecuta nada | U8, W6 |
+| T9 | **Una sesión cualquiera:** arranque con sesión guardada, refresh, reautenticación, «Recuperar acceso» o activación con el titular ya vinculado | No hay acreditación y no hay oferta | U11 |
+| T10 | **Usarla para restablecer** un PIN existente, olvidado o bloqueado | No se ofrece con `enrolled`, `locked` ni `requiresOnlineReset`, y se borra | U12 |
+| T11 | **Fabricarla** o fabricar el comprobante desde otra instancia | `enroll` rechaza un comprobante de otro emisor (§8) y el campo no tiene un escritor público | U15 y las pruebas existentes del §8 |
+| T12 | **Cambio de titular** dentro del mismo Member (`changeOwner`) en la ventana | El vínculo es distinto: null | U2 |
+| T13 | **Otra persona con el teléfono** durante los 10 minutos | **Límite declarado**, igual que hoy con el comprobante de 5 minutos tras la contraseña. Lo mitiga que la oferta sea inmediata y se anule al salir | — |
+| T14 | **Sesión revocada en el servidor** dentro de la ventana | **Límite declarado:** el paso 3 no consulta la red. La próxima operación remota detecta la revocación | — |
+| T15 | **Retorno a la operación** que se ejecuta solo o con datos viejos | Nunca: exige el PIN y «Autorizar», y se revalida en la interfaz y en la transacción | W1-W5 |
+
+### 4 bis.8 Cambios previstos por archivo (fase 2)
+
+| Archivo | Cambio |
+|---|---|
+| `lib/services/auth/first_activation_coordinator.dart` | Un getter `committedIdentity`, sin token: cuenta, Member, tenant, sesión, registro y `installationClientId`. Se fija sólo al emitir `completed` y se limpia al empezar cada `activate`. `FirstActivationState` no cambia y sigue sin identificadores |
+| `lib/services/auth/activation_owner_evidence.dart` (nuevo) | La clase de la acreditación, inmutable salvo el vínculo atado. Lleva `toString` redactado, la vigencia con los dos relojes y `attachBinding` |
+| `lib/services/auth/first_activation_providers.dart` | El campo privado y su creación en `completed` con `requiredScope == null`. Expone `takeActivationEvidence()`, `attachOwnerBinding(OwnerBinding)`, `discardActivationEvidence()` y `hasActivationEvidence`. Escucha `runtimeSessionTransitionProvider` y `installationAccessProvider` para borrarla. La acreditación se crea **después** de su propia llamada a `recovered()` (118-124) |
+| `lib/services/auth/local_owner_credential.dart` | `OnlineOwnerProof.notAfter`, que `_requireProof` comprueba. `OwnerOnlineVerification.fromActivation({binding})` recibe dependencias inyectadas y opcionales, para no romper las pruebas actuales: tomar la acreditación, leer la sesión guardada, la `installationRef` actual, `activated_installation`, el estado de acceso y el de la credencial. `verify` no cambia |
+| `lib/services/auth/local_owner_credential_providers.dart` | Conecta esas dependencias en `ownerOnlineVerificationProvider` |
+| `lib/presentation/screens/owner_setup_screen.dart` | Conserva el `OwnerBinding` devuelto, lo ata a la acreditación y decide si hay oferta. Si se sale sin vincular, la borra |
+| `lib/presentation/screens/owner_credential_screen.dart` | El modo de activación y sus textos. `pop(true)` tras enrolar en el modo normal. `requestOwnerAuthorization` espera el `push`, revalida y vuelve a mostrar la revisión (parámetro `revalidate`) |
+| `lib/presentation/widgets/owner_reversal_flow.dart` | La vuelta a la revisión con el motivo ya escrito: `_ReasonDialog` recibe `initialReason` y el encabezado |
+| `purchases_screen.dart`, `applications_screen.dart`, `transfers_screen.dart`, `late_operations_screen.dart`, `services/backup/remote_backup_providers.dart` | Pasan `revalidate`, que lee por identificador. Esas consultas se hacen **sólo** en el camino de retorno, para no añadir consultas a las pantallas en su uso normal |
+| `lib/app.dart` | La ruta del modo de activación (`/titular/pin/activacion`, fuera del shell). `accessRedirect` no cambia, porque el estado ya es `activated` |
+| Sin cambios | `secure_session_store.dart`, `remote_session_coordinator.dart`, la lógica de consumo de `agro_repository.dart` y el respaldo |
+| Documentación | Este §4 bis pasa a «implementado en <sha>». Evidencia en `docs/evidence/` (host y emulador), con el SHA, el comando, la salida resumida y la fecha real |
+
+### 4 bis.9 Pruebas previstas, por caso
+
+**Unidad y servicio** (nuevo `test/e12_activation_evidence_test.dart`, con dobles de Auth V2 que cuentan peticiones):
+- **U1. Camino feliz.** Activar, vincular, ofrecer y enrolar sin contraseña: el estado pasa a `enrolled` y **no hay ninguna petición HTTP** después de la activación.
+- **U2. Identidad diferente.** Ámbito del vínculo distinto; sesión de otra cuenta tras salir de la sesión y activar otra; `changeOwner` en la ventana. En los tres: null y el almacén sin escribir.
+- **U3. Instalación diferente.** `installationRef` actual, `activated_installation` o `installationClientId` de la sesión distintos: null.
+- **U4. Vencida.** 10 min + 1 s en el reloj de pared; el cronómetro por encima con el reloj de pared quieto; el reloj atrasado. En los tres: null.
+- **U5. Reuso.** Segundo `fromActivation`: null. Segundo `enroll` con el mismo comprobante: `CredentialException`. Doble toque: un solo verificador.
+- **U6 y U7. Cancelación y salida.** Tras «Ahora no», `dispose` o salir de «Titular de los datos» sin vincular: el campo queda vacío.
+- **U8. Reinicio.** Un contenedor nuevo no tiene acreditación.
+- **U9. Red.** Si la activación falla por conexión, no hay acreditación. Si la red cae después de activar, el enrolamiento funciona igual.
+- **U10. Restauración.** `recomputeAfterReplacement` la borra. Un vínculo restaurado con el mismo `id` y el mismo ámbito pero otro `boundAt` da null.
+- **U11. Otros orígenes.** Activación con `requiredScope`, «Recuperar acceso», reautenticación y arranque con sesión: no hay acreditación.
+- **U12. PIN existente.** Con `enrolled`, `locked` o `requiresOnlineReset` no hay oferta, la acreditación se borra y restablecer sigue pidiendo la contraseña.
+- **U13. Invalidación conservada.** Con un PIN enrolado por activación: verificar, restablecer en el modo normal y usar la autorización anterior. Se rechaza.
+- **U14. Separación.** Los espacios de la sesión y del llavero del respaldo quedan intactos. El verificador no contiene la contraseña. La acreditación no aparece en `toString` ni en los logs.
+- **U15. Mutaciones.** Cada una tiene que hacer fallar su prueba:
+  - quitar la comparación de `sessionId` (U2);
+  - quitar el vencimiento (U4);
+  - no retirar la acreditación al consumir (U5);
+  - quitar la comprobación del vínculo (U10).
+
+**Pantalla** (nuevos `test/e12_pin_offer_screen_test.dart` y `test/e12_pending_operation_return_test.dart`):
+- La oferta muestra los textos del §4 bis.2 y no muestra ni `pin-email` ni `pin-password`.
+- La pantalla de vencida.
+- «Ahora no» y su mensaje.
+- **W1.** Reversión sin PIN → «Configurar PIN» → enrolar → volver: reaparece la revisión con el motivo. El repositorio **no** se llama hasta teclear el PIN y pulsar «Autorizar», y el volcado de la base es idéntico antes de autorizar.
+- **W2.** Volver sin enrolar: CANCELADA, la base intacta y el texto de §4 bis.6.
+- **W3.** La operación se revirtió o se resolvió durante la configuración: aviso, sin diálogo y sin llamar al repositorio.
+- **W4.** Operación tardía: no se confirma ni se rechaza sola.
+- **W5.** El vínculo cambió durante la configuración: CANCELADA.
+- **W6.** Un contenedor nuevo tras CONFIGURANDO: no se ejecuta nada.
+- Se mantienen en verde: `f03_local_owner_credential_test`, `f03_owner_online_confirmation_test`, `first_activation_coordinator_test`, `first_activation_screen_test`, `f03_access_recovery_test`, `f03_access_recovery_app_test`, `f04_owner_binding_test`, `f04_rf03_late_screen_test`, `f04_rf13_reversal_audit_test`, `f08_recovery_key_owner_pin_test` y `purchases_access_test`.
+
+**Emulador:**
+- **E1.** Activación, titular, PIN sin contraseña y reversión autorizada sin red.
+- **E2.** «Ahora no» y, después, el PIN con contraseña.
+- **E3.** Retorno desde una reversión y desde una operación tardía.
+- **E4.** Medición del tiempo real entre `completed` y «Crear PIN», que respalda o corrige los 10 minutos.
+
+### 4 bis.10 Contradicciones con el contrato vigente y dudas (sin resolver)
+
+**Contradicciones:**
+- **C-1. §4, fila «Enrolamiento».** Dice: «Requiere acreditar en línea al mismo titular: contraseña de la cuenta y la reautenticación existente (`reauthenticate`)». El modo de activación enrola sin pedir la contraseña en esa pantalla: la acreditación es el login de la activación. Además, esa fila ya estaba desfasada por el §9, que sustituyó `reauthenticate` por `confirmAccount`. Hay que decidir su redacción nueva.
+- **C-2. §4, interfaz.** `enroll({pin, pinConfirmation})` y `resetAfterOnlineVerification` no coinciden con el código: `enroll` recibe `proof` y `binding`, y enrolar y restablecer son un solo camino. Es una discrepancia anterior a este frente.
+- **C-3. `docs/12_AUTHENTICATION.md`.** Afirma que no hay autenticación, PIN ni almacenamiento seguro, lo que contradice todo el F03. Es un documento desactualizado, anterior a este frente.
+- **C-4. Orden de la decisión frente al vínculo.** La decisión pide anular la acreditación «si cambia el vínculo del titular», pero el vínculo todavía no existe cuando se emite. La interpretación de este diseño es que nace sin vínculo y se ata sólo al que se crea en el mismo flujo.
+- **C-5. Alcance del retorno.** `requestOwnerAuthorization` es compartida con F08 (mostrar y rotar la clave del respaldo). El retorno se aplicaría también ahí, aunque la decisión sólo nombra las reversiones y las tardías.
+- **C-6. Terminología.** El encargo habla de `sub`; Mobile no lo usa. La identidad es `account.id`, `member.id` y `tenant.id`.
+
+**Dudas que cambian materialmente lo aprobado:**
+- **D-1.** Vigencia de 10 minutos, frente a los 5 del comprobante actual.
+- **D-2.** Tras restaurar en otro teléfono hay que volver a enrolar el PIN, y hoy eso exige la contraseña. La decisión sólo cubre «después de confirmar al titular», así que «Recuperar acceso» y la reactivación con el titular ya vinculado quedan **fuera**. ¿Se amplía?
+- **D-3.** ¿Se ofrece también con `scopeMismatch`, es decir, con un verificador de otro Member que el PIN nuevo reemplazaría?
+- **D-4.** ¿Incluye el retorno a F08 (C-5)?
+- **D-5.** Al volver a la revisión, ¿el motivo se conserva escrito y editable, o se pide de nuevo?
+
 ## 5. Bases históricas sin operador
 
 En `legacyUnbound` no hay titular vinculado:
