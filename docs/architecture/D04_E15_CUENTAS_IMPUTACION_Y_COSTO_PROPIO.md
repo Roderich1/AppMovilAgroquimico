@@ -1,11 +1,12 @@
 # D-04 y E-15 · Cuentas: imputación de pagos entre campañas y consumo propio del titular
 
-- **Estado:** fase 1, sólo ejemplos y diseño. No hay código de producción en esta rama. Los ejemplos pasan por revisión cruzada antes de implementar.
+- **Estado:** revisión 2. La revisión cruzada de la revisión 1 (`09963b4`) concluyó «listo con ajustes»: recalculó los 19 ejemplos y confirmó las cifras «hoy». Esta revisión incorpora sus hallazgos, añade los ejemplos M-1 a M-10 y la sección 7, «Criterios de aplicación y puntos que el autor puede revisar». Es la referencia de la implementación (fase 2).
 - **Decisiones de origen:** D-04 y E-15 son **decisiones del autor del proyecto, Roderich Rendón, del 2026-10-27** (`_briefs/BLOQUE2_DECISIONES_AUTOR_2026-10-27.md`). No se atribuye aprobación al tutor ni a la Directiva.
-- **Base verificada:** Mobile `main` `ed9c55c`, rama `feat/d04-imputacion-pagos-campanas`. Las cifras «hoy» salen de leer el código en esa base. No se ejecutó `flutter test` ni ninguna prueba.
-- **Organización:** un solo documento. La parte A es D-04 y la parte B (anexo) es E-15. Se eligió así porque E-15 se apila sobre D-04 y usa su mismo modelo de lectura y los mismos datos de ejemplo; la revisión cruzada es una sola. La rama E-15 (`feat/e15-consumo-propio-titular`) todavía no existe.
-- **Trazabilidad (Cap. III):** RF-06 y CU-05 (modo propio y compartido), RF-12 y CU-09 (aplicaciones con costeo FIFO, base del costo propio), RF-13 y CU-17 (reversiones), RF-03 (operaciones tardías), DAT. Las cuentas, pagos y adelantos **no tienen un RF propio** en el Cap. III: ver la contradicción C-01 (§6).
-- **Numeración de reglas:** en este documento «RN-nn» se refiere a `docs/15_BUSINESS_RULES.md`, como en la propia decisión del autor. Esa numeración no coincide con la del Cap. III. Por eso no se usa en la línea de trazabilidad.
+- **Criterios de §7:** los fija el coordinador para aplicar esas decisiones sin salir de lo aprobado. No son decisiones nuevas del autor, y el autor puede revisarlos.
+- **Base verificada:** Mobile `main` `ed9c55c`. Las cifras «hoy» salen de leer el código en esa base, y la revisión cruzada las comprobó.
+- **Organización:** un solo documento. La parte A es D-04, que va en la rama `feat/d04-imputacion-pagos-campanas`. La parte B (anexo) es E-15, que va en `feat/e15-consumo-propio-titular`, apilada sobre D-04.
+- **Trazabilidad (Cap. III):** RF-06/CU-05 (modo propio y compartido), RF-12/CU-09 (aplicaciones con costeo FIFO, base del costo propio), RF-13/CU-17 (reversiones), RF-03 (operaciones tardías), DAT. Las cuentas, pagos y adelantos no tienen un RF propio en el Cap. III: ver C-01.
+- **Numeración de reglas:** «RN-nn» se refiere a `docs/15_BUSINESS_RULES.md`, como en la propia decisión del autor. Esa numeración no coincide con la del Cap. III, por eso no se usa en la trazabilidad.
 
 ---
 
@@ -15,146 +16,173 @@
 
 | # | Hecho | Dónde |
 |---|---|---|
-| H-01 | Asientos en `account_transactions`: positivo = cargo, negativo = pago/adelanto/crédito. `campaign_id` admite NULL. `payment_allocations(payment_transaction_id, charge_transaction_id, amount_bob_minor > 0)`, `UNIQUE` por par. No hay triggers de inmutabilidad en ninguna de las dos tablas. | `lib/data/app_database.dart:466-476` |
-| H-02 | La migración a v3 crea `payment_allocations` y **no** rellena imputaciones para los pagos que ya existían. | `lib/data/app_database.dart:549-564` |
-| H-03 | Cargo por compra (`PURCHASE_ALLOCATION_CHARGE`) sólo si la política de la persona es `BY_PURCHASE_ALLOCATION`, con la campaña y la fecha de la compra. | `lib/data/agro_repository.dart:1139-1149` |
-| H-04 | Cargo por consumo (`USAGE_CHARGE`) por el costo FIFO total sólo si la política **actual** es `BY_ACTUAL_USAGE`, con la campaña y la fecha de la aplicación. | `lib/data/agro_repository.dart:1392-1401` |
-| H-05 | Compras y aplicaciones exigen campaña (`campaign_id NOT NULL`): todo cargo tiene campaña de origen. | `lib/data/app_database.dart:419,452` |
-| H-06 | `addAccountPayment` inserta el pago o adelanto con el `campaign_id` recibido (puede ser NULL) y la fecha de ahora. Luego imputa a los cargos de la persona con importe > 0, ordenados por `transaction_date, id`, con pendiente = `importe − SUM(imputaciones)`. **No resta las reversiones** (D-15) y no filtra por campaña. El sobrante queda sin imputar. Pago y adelanto son idénticos. | `lib/data/agro_repository.dart:1920-1967` (consulta en 1944-1951) |
-| H-07 | En modo propio, sólo se registran pagos del titular. | `lib/data/agro_repository.dart:1931-1933` |
-| H-08 | Reversión de aplicación: por cada `USAGE_CHARGE` inserta un `CREDIT_ADJUSTMENT` negado, con la **campaña del cargo**, la **fecha de hoy** y `reversal_of_id`. **No toca** las imputaciones del cargo revertido. | `lib/data/agro_repository.dart:2061-2083` |
-| H-09 | Reversión de compra: lo mismo para los `PURCHASE_ALLOCATION_CHARGE`. Además anula los `provider_payments` (RN-45), que no son asientos de cuenta. | `lib/data/agro_repository.dart:2163-2168, 2236-2265` |
-| H-10 | **No existe la reversión de un pago o adelanto de cuenta.** No hay ningún método `PAYMENT_REVERSAL` ni equivalente; `addAccountPayment` sólo lo llama `settlements_screen.dart`. | búsqueda en `lib/` |
-| H-11 | El titular se crea como `FAMILY` con `BY_ACTUAL_USAGE`. Un `ADMIN` histórico puede ser titular con confirmación (`owner_role = ADMIN`); su política por defecto es `MANUAL`. Un tercero no puede serlo. La UI nunca fija la política: sale del rol (RN-01). | `lib/data/owner_binding_store.dart:230-258`; `lib/domain/person_roles.dart:45-49`; `lib/data/agro_repository.dart:254-276` |
+| H-01 | `account_transactions`: positivo = cargo, negativo = pago, adelanto o crédito; `campaign_id` admite NULL. `payment_allocations(payment_transaction_id, charge_transaction_id, amount_bob_minor > 0)` es `UNIQUE` por par. Ninguna de las dos tablas tiene triggers de inmutabilidad | `lib/data/app_database.dart:466-476` |
+| H-02 | La migración a v3 crea `payment_allocations` sin rellenar imputaciones para los pagos que ya existían | `lib/data/app_database.dart:549-564` |
+| H-03 | Cargo por compra (`PURCHASE_ALLOCATION_CHARGE`) sólo con política `BY_PURCHASE_ALLOCATION`, con la campaña y la fecha de la compra | `lib/data/agro_repository.dart:1139-1149` |
+| H-04 | Cargo por consumo (`USAGE_CHARGE`) por el costo FIFO total sólo con la política **actual** `BY_ACTUAL_USAGE`, con la campaña y la fecha de la aplicación | `lib/data/agro_repository.dart:1392-1401` |
+| H-05 | Compras y aplicaciones exigen campaña (`NOT NULL`): todo cargo tiene campaña de origen | `lib/data/app_database.dart:419,452` |
+| H-06 | `addAccountPayment` inserta el pago con el `campaign_id` recibido (puede ser NULL). Imputa a los cargos con importe > 0 de la persona, ordenados por `transaction_date` (instante) y `id`, con pendiente = importe − Σ imputaciones. **No resta las reversiones** (D-15). El sobrante queda sin imputar. Pago y adelanto son idénticos | `lib/data/agro_repository.dart:1920-1967` |
+| H-07 | En modo propio sólo se registran pagos del titular | `lib/data/agro_repository.dart:1931-1933` |
+| H-08 | La reversión de una aplicación inserta, por cada `USAGE_CHARGE`, un `CREDIT_ADJUSTMENT` negado, con la campaña del cargo, la fecha de hoy y `reversal_of_id`. No toca las imputaciones | `lib/data/agro_repository.dart:2061-2083` |
+| H-09 | La reversión de una compra hace lo mismo con los `PURCHASE_ALLOCATION_CHARGE` y anula los `provider_payments` (RN-45), que no son asientos de cuenta | `lib/data/agro_repository.dart:2163-2168, 2236-2265` |
+| H-10 | **No existe la reversión de un pago o adelanto de cuenta** | búsqueda en `lib/` |
+| H-11 | El titular se crea `FAMILY` con `BY_ACTUAL_USAGE`. Un `ADMIN` histórico puede ser titular con confirmación (`MANUAL`) y un tercero no puede serlo. La UI nunca fija la política (RN-01) | `lib/data/owner_binding_store.dart:230-258`; `lib/domain/person_roles.dart:45-49` |
 
 ### 1.2 Lectura y pantallas
 
 | # | Hecho | Dónde |
 |---|---|---|
-| H-12 | Cuentas arranca filtrada por la **campaña activa**; «Todas las campañas» es la opción NULL. | `settlements_screen.dart:62-67, 507-526` |
-| H-13 | «Registrar pago/adelanto» pasa `campaignId: selectedCampaignId`. El diálogo muestra «Campaña X» o «Todas las campañas» y «Saldo pendiente» con el saldo **filtrado** de la tarjeta. | `settlements_screen.dart:85-126, 805-821` |
-| H-14 | `settlements({campaignId})`: con filtro, suma sólo los asientos con `t.campaign_id = K`, cargos y pagos por igual. Excluye `role = 'ADMIN'` (RN-41). Orden: saldo descendente. | `agro_repository.dart:3294-3303` |
-| H-15 | Tarjeta: «Cargos X · pagos/créditos Y» y, a la derecha, «Pendiente · K» o «A favor · K» con el saldo filtrado. | `settlements_screen.dart:563-604` |
-| H-16 | `personCampaignBalance`: saldo inicial = asientos cuya **campaña** empieza antes de K (los NULL no cuentan, KI-05); pagos de la campaña = `campaign_id = K`; `total_balance` sin filtro. | `agro_repository.dart:3196-3219` |
-| H-17 | Detalle («Ver detalle cronológico»): «Saldo inicial de campaña» + filas de `detailedStatement` con `campaign_id = K`, acumulado desde ese saldo inicial. | `settlements_screen.dart:128-237`; `agro_repository.dart:3321-3337`; `read_models.dart:536-546` |
-| H-18 | Exportación del estado de cuenta: mismas lecturas. Columnas Fecha, Concepto, Chaco, Cargo, Crédito, Acumulado. Totales «Total de cargos», «Total de créditos», «Saldo final». | `report_export_service.dart:168-196`; `report_composer.dart:255-322` |
-| H-19 | Inicio: «Familias por cobrar» = suma con signo de **todos** los asientos de personas `role = 'FAMILY'`; «Terceros por cobrar» igual con `THIRD_PARTY`; «Pagos recibidos» = suma de PAYMENT y ADVANCE; «Principales saldos» = `topSettlements` (saldo neto, sin ADMIN). | `agro_repository.dart:3361-3410, 3305-3310`; `dashboard_screen.dart:171-183, 401-427` |
-| H-20 | **El titular `FAMILY` entra en «Familias por cobrar» y en «Principales saldos».** La consulta filtra por `p.role = 'FAMILY'`, sin mirar `owner_bindings`. Esto contradice `01_DECISIONES_DE_NEGOCIO.md` §5 («Inicio no lo suma… ya ocurre»). Ver C-09. | `agro_repository.dart:3380` |
-| H-21 | Resumen de campaña (reporte y diálogo de cierre): «Saldo por cobrar» = suma con signo de los asientos con `campaign_id = K` de todas las personas, titular incluido. | `agro_repository.dart:3190-3192`; `report_composer.dart:231-247`; `catalogs_screen.dart:204` |
-| H-22 | Costo por chaco y por producto: suma `applications.total_cost_bob_minor` / `application_items.cost_bob_minor` de aplicaciones no revertidas, con filtro por `a.campaign_id`. No leen cuentas. | `agro_repository.dart:3339-3359` |
-| H-23 | Personas y su detalle: «saldo total» / «Saldo total · todas las campañas» = suma con signo sin filtro. La pestaña Cuenta muestra todos los movimientos con «Acumulado». Una persona ADMIN aparece como «no participa en la liquidación». | `person_detail_screen.dart:56-83, 133-160`; `persons_screen.dart:99-108` |
-| H-24 | Formulario de aplicación. En modo propio: «Costo propio: X (queda anotado en la cuenta de T)». En compartido, para cualquier `BY_ACTUAL_USAGE`, titular incluido: «Se cargará a T: X». | `application_form_screen.dart:847-866` |
-| H-25 | La publicación de consumo al sindicato lee cantidades de aplicaciones, no cuentas. D-04 y E-15 no la afectan. | `lib/data/sync/consumption_publisher.dart:302-304` |
-| H-26 | Menú de la tarjeta: en modo propio, «Registrar pago/adelanto» sólo para el titular; para los demás aparece deshabilitado «Inventario propio: pagos sólo del titular» (#26). | `settlements_screen.dart:613-662` |
-
-Las cifras «hoy» de cada ejemplo (§3) se derivan de H-06 y H-14 a H-23.
+| H-12 | Cuentas arranca filtrada por la campaña activa; «Todas las campañas» es la opción NULL | `settlements_screen.dart:62-67, 507-526` |
+| H-13 | Registrar un pago pasa `campaignId: selectedCampaignId`. El diálogo muestra «Campaña X» o «Todas las campañas» y «Saldo pendiente» con el saldo **filtrado** | `settlements_screen.dart:85-126, 805-821` |
+| H-14 | `settlements({campaignId})` con filtro suma sólo los asientos con `t.campaign_id = K`, sin ADMIN (RN-41), y ordena por saldo descendente | `agro_repository.dart:3294-3303` |
+| H-15 | Tarjeta: «Cargos X · pagos/créditos Y» · «Pendiente · K» o «A favor · K» | `settlements_screen.dart:563-604` |
+| H-16 | `personCampaignBalance`: saldo inicial = asientos de campañas que empiezan antes de K (los NULL no cuentan, KI-05) | `agro_repository.dart:3196-3219` |
+| H-17 | Detalle: «Saldo inicial de campaña» y filas con `campaign_id = K` | `settlements_screen.dart:128-237`; `agro_repository.dart:3321-3337` |
+| H-18 | Exportación del estado de cuenta con las mismas lecturas; totales «Total de cargos», «Total de créditos», «Saldo final» | `report_export_service.dart:168-196`; `report_composer.dart:255-322` |
+| H-19 | Inicio: «Familias/Terceros por cobrar» = suma con signo por `role`; «Pagos recibidos» = PAYMENT + ADVANCE; «Principales saldos» = `topSettlements` | `agro_repository.dart:3361-3410`; `dashboard_screen.dart:171-183, 401-427` |
+| H-20 | El titular `FAMILY` entra en «Familias por cobrar» y en «Principales saldos» (C-09) | `agro_repository.dart:3380` |
+| H-21 | Resumen de campaña: «Saldo por cobrar» = suma con signo de `campaign_id = K`, sin filtro de rol | `agro_repository.dart:3190-3192`; `report_composer.dart:231-247`; `catalogs_screen.dart:204` |
+| H-22 | Costo por chaco y por producto: aplicaciones no revertidas, filtradas por `a.campaign_id` | `agro_repository.dart:3339-3359` |
+| H-23 | Personas y su detalle muestran la suma con signo; la pestaña Cuenta lleva «Acumulado» | `person_detail_screen.dart:31, 56-83, 133-160`; `persons_screen.dart:99-108` |
+| H-24 | Formulario de aplicación. En modo propio: «Costo propio: X (queda anotado en la cuenta de T)». En compartido: «Se cargará a T: X», o «No genera cargo: T ya pagó estos productos al comprarlos» con `BY_PURCHASE_ALLOCATION`. Ese texto es falso si la compra sigue impaga (M-7) | `application_form_screen.dart:847-866` |
+| H-25 | La publicación de consumo al sindicato lee cantidades, no cuentas | `lib/data/sync/consumption_publisher.dart:302-304` |
+| H-26 | En modo propio, el menú ofrece pago y adelanto sólo al titular (#26) | `settlements_screen.dart:613-662` |
+| H-27 | La leyenda «Incluye operaciones tardías confirmadas» que pide F04 §2.3 no está implementada en ninguna vista de cuentas | búsqueda en `lib/` |
 
 ---
 
 ## 2. Definiciones
 
-### 2.1 Conceptos
+### 2.1 Clasificación de los asientos y conceptos
 
-Para una persona *p*, con importes en centavos y sin redondeos (todo es entero):
+Para una persona *p* (importes enteros en centavos), cada fila de `account_transactions` cae en una sola clase:
 
-- **Cargo** *c*: asiento con importe > 0 y `reversal_of_id IS NULL`. Hoy son `USAGE_CHARGE` y `PURCHASE_ALLOCATION_CHARGE`. Su **campaña de origen** es `c.campaign_id` (nunca NULL, H-05).
-- **Revertido(c)** = −SUM de los `CREDIT_ADJUSTMENT` con `reversal_of_id = c.id`. Vale 0 o el importe completo.
-- **Neto(c)** = importe(c) − revertido(c).
-- **Imputado(c)** = SUM de `payment_allocations.amount_bob_minor` con `charge_transaction_id = c.id`. Son las imputaciones guardadas, tal como están.
-- **Pagos aplicados(c)** = min(imputado(c), neto(c)). Es la parte de las imputaciones que cancela deuda real.
-- **Liberado por reversión(c)** = imputado(c) − pagos aplicados(c). Es lo que se imputó a un cargo que después, o antes (histórico D-15), quedó revertido. Ese dinero queda a favor.
-- **Deuda pendiente(c)** = neto(c) − pagos aplicados(c). Nunca es negativa.
-- **Pago** *q*: asiento `PAYMENT` o `ADVANCE`. Su **campaña de registro** es `q.campaign_id`, que puede ser NULL («registrado sin campaña»). Es un dato del registro. **No decide qué deuda cancela.**
-- **Sin imputar(q)** = |importe(q)| − SUM de imputaciones con `payment_transaction_id = q.id`.
-- **Crédito sin cargo de origen**: un `CREDIT_ADJUSTMENT` con `reversal_of_id IS NULL`. El código actual no los produce; si una base histórica los tuviera, cuentan como a favor sin imputar.
-- **A favor sin imputar(p)** = Σ sin imputar(q) + Σ liberado por reversión(c) + Σ créditos sin cargo de origen. **No se atribuye a ninguna campaña.**
-- **Saldo neto(p)** = Σ deuda pendiente(c) − a favor sin imputar(p). Es igual a la suma con signo de todos los asientos de *p*, es decir, al saldo de hoy.
+| Clase | Condición | Hoy |
+|---|---|---|
+| **Cargo** *c* | importe > 0 y `reversal_of_id IS NULL` | `USAGE_CHARGE`, `PURCHASE_ALLOCATION_CHARGE` |
+| **Reversión de cargo** | importe < 0 y `reversal_of_id` apunta a un cargo | `CREDIT_ADJUSTMENT` de RN-46 |
+| **Crédito** *q* | importe < 0 y no es reversión de cargo | `PAYMENT`, `ADVANCE`; un `CREDIT_ADJUSTMENT` sin cargo de origen |
+| **Compensación de un crédito** *x* | importe > 0 y `reversal_of_id IS NOT NULL` | no existe hoy. Una futura reversión de un pago caería aquí y nunca se tomaría por deuda |
 
-Por campaña de origen K: cargos_K, revertidos_K, pagos aplicados_K y deuda pendiente_K suman sólo los cargos con `campaign_id = K`. Se cumple que cargos_K − revertidos_K − pagos aplicados_K = deuda pendiente_K.
+Las definiciones salen de esa clasificación, no de una lista cerrada de tipos. Un tipo futuro cae en una de las cuatro clases y las identidades siguen valiendo.
+
+- **Revertido(c)** = −Σ de sus reversiones. **Neto(c)** = importe − revertido.
+- **Imputado(c)** = Σ de las imputaciones guardadas hacia *c*. **Pagos aplicados(c)** = min(imputado, neto). **Liberado por reversión(c)** = imputado − aplicados. **Deuda pendiente(c)** = neto − aplicados ≥ 0.
+- **Campaña de origen** de la deuda: `c.campaign_id`. **Campaña de registro** de un crédito: `q.campaign_id`, que puede ser NULL. La de registro **no** decide qué deuda cancela.
+- **Sin imputar(q)** = |importe(q)| − Σ de sus imputaciones.
+- **A favor (no aplicado a deuda)** *F* = *u* + *L* − *X*, donde *u* = Σ sin imputar(q) («pagos sin imputar»), *L* = Σ liberado («liberado por reversión») y *X* = Σ compensaciones («otros ajustes»). *F* no se atribuye a ninguna campaña.
+- **Deuda pendiente** *P* = Σ deuda pendiente(c). **Saldo neto** *N* = *P* − *F*.
+- **Identidad:** *N* = suma con signo de los asientos de *p*. Se demuestra con la clasificación: Σ neto(c) = *P* + Σ aplicados, y Σ\|q\| = Σ imputaciones + *u*.
+
+Por campaña de origen K: cargos_K − revertidos_K − aplicados_K = deuda pendiente_K.
 
 ### 2.2 Dos cálculos distintos, con etiquetas distintas
 
 | | Desglose por campaña de origen de la deuda | Estado de cuenta cronológico con apertura |
 |---|---|---|
-| Pregunta | ¿Cuánto falta pagar **hoy** de lo que se cargó en K? | ¿Cómo evolucionó el saldo en el **período** de K? |
-| Qué asientos entran | Cargos con `campaign_id = K`, con sus reversiones y sus imputaciones guardadas | **Todos** los asientos de la persona cuyo día local de `transaction_date` cae en el período de K (`CampaignPeriod.contains`), de cualquier `campaign_id` y también NULL |
-| Apertura | No tiene | Suma de los asientos con día anterior al inicio de K |
-| Resultado | Deuda pendiente de K, ≥ 0 | Saldo al cierre del período (o a hoy), con signo |
-| Etiquetas | «Deuda por campaña de origen (a hoy)», «Deuda pendiente · K» | «Estado de cuenta cronológico · período de K (dd/mm/aaaa – dd/mm/aaaa)», «Saldo al inicio del período (dd/mm/aaaa)», «Saldo al cierre del período (dd/mm/aaaa)», «Saldo a hoy» |
+| Pregunta | ¿Cuánto falta pagar **hoy** de lo cargado en K? | ¿Cómo evolucionó el saldo en el **período** de K? |
+| Asientos | cargos con `campaign_id = K`, sus reversiones y sus imputaciones guardadas | todos los asientos cuyo **día local** cae en el período de K (`CampaignPeriod.contains`), de cualquier campaña o NULL |
+| Apertura | no tiene | Σ de los asientos con día anterior al inicio |
+| Etiquetas | «Deuda pendiente por origen (a hoy)», «Deuda pendiente por origen · K», «Pendiente a hoy {p}» | «Estado de cuenta cronológico · período de K (dd/mm/aaaa – dd/mm/aaaa\|hoy)», «Saldo al inicio del período (dd/mm/aaaa)», «Saldo al cierre del período (dd/mm/aaaa)», «Saldo a hoy» |
 
-- Con el período abierto (campaña activa), «Saldo a hoy» del cronológico es igual al saldo neto de la persona.
-- Un asiento con fecha en un hueco entre campañas no aparece en ningún período. Sí entra en la apertura del período siguiente y en «Todas».
-- Orden: día local efectivo y, dentro del día, `id` (F04 §2.3, ver C-08).
-- La campaña de registro de un pago **sólo** se muestra como dato de la fila. No mueve ninguna cifra.
-- La campaña de los `CREDIT_ADJUSTMENT` (la del cargo revertido) tampoco ubica la fila en el cronológico: manda su fecha.
+- Orden siempre por día local efectivo y luego `id` (F04 §2.3), también en la imputación (D-R1).
+- La campaña de registro y la campaña de una reversión no mueven ninguna fila del cronológico: manda la fecha.
+- Un asiento con fecha en un hueco entre campañas entra en la apertura del período siguiente y en «Todas».
+- **Operaciones tardías (H-27):** una tardía confirmada en una campaña cerrada añade filas con fecha dentro de ese período. Por eso el «Saldo al cierre del período» de esa campaña **puede cambiar después de confirmarla** (M-4), y la deuda por origen también. La leyenda «Incluye operaciones tardías confirmadas» falta hoy y D-04 **no** la añade. Queda declarada como carencia previa (C-13).
 
 ### 2.3 Cuentas (lista): textos exactos
 
-**Filtro «Todas las campañas»:**
-- línea 1: «Cargos {C} · revertidos {R} · pagos aplicados {A}». El tramo «· revertidos {R}» sólo aparece si R > 0.
-- línea 2: «Deuda pendiente {P} · a favor sin imputar {F}»;
-- derecha: «Saldo neto · todas las campañas» y el importe {N}, naranja si N > 0, verde si N ≤ 0.
-- Orden: saldo neto descendente y luego nombre.
+Notación: `{x}` es `formatBob(x)` sin el espacio final, por ejemplo «81,00 Bs». «revertidos» sólo aparece si es > 0. Con cargos = 0 en el alcance, la línea 1 es «Sin cargos.».
 
-**Filtro de campaña K:**
-- línea 1: «Cargos de K {C_K} · revertidos {R_K} · pagos aplicados {A_K}», con la misma regla para «revertidos»;
-- línea 2, sólo si F > 0: «A favor sin imputar {F} (sin campaña)»;
-- derecha: «Deuda pendiente · K» y el importe {P_K}, naranja si > 0, verde si = 0.
-- Orden: deuda pendiente_K descendente y luego nombre.
+**«Todas las campañas»:**
+- línea 1: «Cargos {C} · revertidos {R} · pagos aplicados {A}»;
+- línea 2: «Deuda pendiente {P} · a favor (no aplicado a deuda) {F}»;
+- derecha: «Saldo neto · todas las campañas» y {N} (naranja si > 0, verde si ≤ 0);
+- orden por *N* descendente y luego nombre.
 
-Se siguen listando todas las personas no ADMIN, aunque tengan cero (igual que hoy). En E-15 se quita al titular (§B).
+**Campaña K:**
+- línea 1: «Cargos de K {C_K} · revertidos {R_K} · pagos aplicados {A_K}»;
+- línea 2: «Saldo neto · todas las campañas {N}»;
+- línea 3, sólo si F ≠ 0: «A favor (no aplicado a deuda) {F} (sin campaña)»;
+- derecha: «Deuda pendiente por origen · K» y {P_K};
+- orden por P_K descendente y luego nombre.
+
+Se listan todas las personas no ADMIN, como hoy. En E-15, sin el titular vigente (§B).
 
 ### 2.4 Diálogo de pago o adelanto
 
-- Líneas: nombre; «Se registra en: K» o «Se registra sin campaña»; «Saldo neto · todas las campañas: {N}»; «Se aplica primero a la deuda más antigua, de cualquier campaña.»
-- Al guardar, el mensaje sale de las imputaciones **escritas**: «Pago de {x} registrado a {persona}. Imputado: {K1} {a1} · {K2} {a2}.» Si sobra, se añade «Sin imputar: {u} (queda a favor).» Si no se imputó nada: «Pago de {x} registrado a {persona}. Sin imputar: {x} (queda a favor).» Para un adelanto, la palabra «Pago» se cambia por «Adelanto».
-- No se exige elegir campaña y la de registro sigue saliendo del filtro, NULL con «Todas».
+- **Líneas:**
+  - nombre;
+  - campaña de registro: «Se registra en: K», «Se registra en: K (cerrada). En el estado cronológico aparecerá por su fecha, {dd/mm/aaaa de hoy}», o «Se registra sin campaña»;
+  - saldo: «Saldo neto · todas las campañas: debe {N}» (N > 0), «… : a favor {−N}» (N < 0) o «… : al día» (N = 0);
+  - «Se aplica primero a la deuda más antigua, de cualquier campaña.».
+- **Al guardar,** el mensaje se arma con las imputaciones **escritas:** «{Pago|Adelanto} de {x} registrado a {persona}.», seguido de « Imputado: {K1} {a1} · {K2} {a2}.» si se imputó algo y de « Sin imputar: {u} (queda a favor).» si sobró.
+- **Formato de «Imputado:»:** suma por campaña de origen; las campañas en el orden FIFO en que se imputaron (día del cargo y luego `id`); separador « · ».
+- No se exige elegir campaña. La de registro sale del filtro, y es NULL con «Todas».
 
 ### 2.5 Detalle: textos exactos
 
-Título «Estado de cuenta · {persona}». Tiene dos secciones.
+Título «Estado de cuenta · {persona}».
 
-1. **«Deuda por campaña de origen (a hoy)»** (siempre todas las campañas con cargos):
-   - una línea por campaña: «{K}: cargos {C_K} · revertidos {R_K} · pagos aplicados {A_K} · pendiente {P_K}». El tramo «revertidos» sólo aparece si es > 0.
-   - si una campaña tiene importe liberado por reversión: «{L} imputados a cargos de {K} que después se revirtieron quedan a favor».
-   - «Deuda pendiente total {P}», «A favor sin imputar {F}», «Saldo neto {N}».
-2. **Estado de cuenta cronológico.** Con «Todas», la cabecera es «Estado de cuenta cronológico · todas las campañas» y no tiene apertura. Con K, la cabecera es «Estado de cuenta cronológico · período de K ({inicio} – {fin|hoy})», precedida de «Saldo al inicio del período ({inicio})».
-   - Cada fila lleva concepto; «{fecha} · {tipo} · {chaco} · {campaña del asiento}» (en los pagos, «registrado en K» o «registrado sin campaña»); una línea de estado; el importe y «Acumulado {X}».
-   - Línea de estado de un cargo: «Pendiente {p}», «Pagado» (p = 0 y no revertido) o «Revertido el {fecha}».
-   - Línea de estado de un pago o adelanto: «Imputado: {K1} {a1} · {K2} {a2}», más «· sin imputar {u} (queda a favor, sin campaña)» si u > 0. Si no tiene ninguna imputación: «Sin imputación registrada: {u} (queda a favor, sin campaña)». Si una imputación apunta a un cargo revertido: «Imputado a un cargo revertido ({K}, {fecha del cargo}): {x}. Queda a favor.»
-   - Cierre: «Saldo al cierre del período ({fin})» si K está cerrada, o «Saldo a hoy».
+1. **«Deuda pendiente por origen (a hoy)»** (o «Sin cargos.»):
+   - una línea por campaña con cargos, por inicio de campaña: «{K}: cargos {C_K} · revertidos {R_K} · pagos aplicados {A_K} · pendiente {P_K}»;
+   - si L_K > 0: «{L_K} imputados a cargos revertidos de {K} quedan a favor»;
+   - «Deuda pendiente total {P}»;
+   - «A favor (no aplicado a deuda) {F}» y, si F ≠ 0, su composición: «pagos sin imputar {u} · liberado por reversión {L} · otros ajustes {−X}», sólo los términos ≠ 0;
+   - «Saldo neto · todas las campañas {N}».
+2. **Estado cronológico:**
+   - cabecera: «Estado de cuenta cronológico · todas las campañas», o «Estado de cuenta cronológico · período de K ({inicio} – {fin|hoy})» seguida de «Saldo al inicio del período ({inicio}) {O}»;
+   - cada fila: concepto; «{fecha} · {tipo} · {chaco} · {campaña del asiento}»; línea de estado; importe; «Acumulado {X}»;
+   - cierre: «Saldo al cierre del período ({fin}) {X}» si K está cerrada, y «Saldo a hoy {X}» si está abierta o con «Todas»;
+   - sin filas ni apertura: «Sin movimientos.».
+   - **Campaña del asiento:** el nombre de su campaña. En los créditos, «registrado en K» o «registrado sin campaña».
+   - **Estado de un cargo:** «Pendiente a hoy {p}», «Pagado» o «Revertido el {fecha}».
+   - **Estado de una reversión de cargo:** «Revierte el cargo del {fecha}».
+   - **Estado de un crédito:** los tramos que correspondan, unidos por « · ».
+     1. «Imputado: {K1} {a1} · …», con el formato de §2.4;
+     2. por cada cargo revertido que recibió imputación: «Imputado a un cargo revertido ({K}, {fecha del cargo}): {x}. Queda a favor.»;
+     3. si u > 0 y no tiene ninguna imputación: «Sin imputación registrada: {u} (queda a favor, sin campaña)»;
+     4. si u > 0 y tiene imputaciones: «sin imputar {u} (queda a favor, sin campaña)».
+     - Un `CREDIT_ADJUSTMENT` sin cargo de origen: «Crédito sin cargo de origen registrado: {x} (queda a favor, sin campaña)».
 
 ### 2.6 Exportación del estado de cuenta
 
-- **Columnas:** Fecha · Concepto · Chaco · Campaña del asiento · Cargo (Bs) · Crédito (Bs) · Imputación · Acumulado (Bs). «Imputación» lleva la misma línea de estado de §2.5.
-- **Filtro:** «Campaña: K (período dd/mm/aaaa – dd/mm/aaaa|hoy)» o «Todas las campañas».
-- **Primera fila (con K):** «Saldo al inicio del período (dd/mm/aaaa)».
-- **Totales del cronológico:** «Saldo al inicio del período (Bs)» (sólo con K), «Total de cargos (Bs)», «Total de créditos (Bs)», «Saldo al cierre del período (Bs)» o «Saldo a hoy (Bs)».
-- **Totales del desglose, a hoy:** con K, «Deuda pendiente por origen · K (Bs)»; con «Todas», una fila «Deuda pendiente por origen · {K} (Bs)» por campaña con cargos y «Deuda pendiente total (Bs)». En los dos casos, «A favor sin imputar (Bs)» y «Saldo neto (Bs)».
-- Desaparecen «Saldo inicial de campaña» y «Saldo final (Bs)».
+- **Columnas:** Fecha · Concepto · Chaco · Campaña del asiento · Cargo (Bs) · Crédito (Bs) · Imputación · Acumulado (Bs). «Imputación» lleva la línea de estado de §2.5.
+- **Filtros:** Persona y Campaña («K (período dd/mm/aaaa – dd/mm/aaaa|hoy)» o «Todas las campañas»).
+- **Con K:** primera fila «Saldo al inicio del período (dd/mm/aaaa)». Totales:
+  - «Saldo al inicio del período (Bs)»;
+  - «Total de cargos (Bs)» y «Total de créditos (Bs)»;
+  - «Saldo al cierre del período (Bs)» o «Saldo a hoy (Bs)»;
+  - «Deuda pendiente por origen · K (Bs)»;
+  - «A favor (no aplicado a deuda) (Bs)»;
+  - «Saldo neto · todas las campañas (Bs)».
+- **Con «Todas»:** totales:
+  - «Total de cargos (Bs)», «Total de créditos (Bs)» y «Saldo a hoy (Bs)»;
+  - una fila «Deuda pendiente por origen · {K} (Bs)» por campaña con cargos;
+  - «Deuda pendiente total (Bs)»;
+  - «A favor (no aplicado a deuda) (Bs)»;
+  - «Saldo neto · todas las campañas (Bs)».
+- CSV y PDF salen del mismo `ReportTable`.
 
 ### 2.7 Inicio, Personas y resumen de campaña
 
-- **«Familias por cobrar»** = Σ, sobre las personas `FAMILY`, de max(0, saldo neto). **«Terceros por cobrar»** igual con `THIRD_PARTY`. El saldo a favor de una persona ya no resta la deuda de otra.
-- **«Pagos recibidos»** y **«Principales saldos»** (saldo neto) no cambian en D-04.
-- **Personas:** el importe es el saldo neto. El rótulo pasa a «saldo neto» y «Saldo neto · todas las campañas».
-- **Resumen de campaña** (reporte y diálogo de cierre): «Saldo por cobrar» pasa a «Deuda pendiente de la campaña (por origen)» = Σ, sobre las personas, de la deuda pendiente_K. El total se rotula «Deuda pendiente de la campaña (Bs)».
+- **«Familias por cobrar»** = Σ, sobre las personas `FAMILY`, de max(0, P − F); debajo, «A favor de familias: {Σ max(0, F − P)}» si es > 0. **Terceros** igual con `THIRD_PARTY`. «Conservan sus reglas» se refiere a las políticas de cargo, no a esta agregación (§7).
+- **«Pagos recibidos»** = Σ \|PAYMENT + ADVANCE\| (en E-15, sin los del titular). **«Principales saldos»** = N por persona.
+- **Personas:** sin cambio en D-04. La cifra sigue siendo la suma con signo, igual a *N*. En E-15 cambia la del titular.
+- **Resumen de campaña** (reporte y diálogo de cierre): «Saldo por cobrar» pasa a «Deuda pendiente por origen» = Σ P_K sobre las personas no ADMIN (en E-15, sin los asientos propios del titular).
 
-### 2.8 «Consumo y costos propios» (E-15)
-
-Definición en §B.1.
-
-### 2.9 Invariantes que deben cumplirse en cualquier base
+### 2.8 Invariantes
 
 | | Invariante |
 |---|---|
-| I-1 | Σ_K deuda pendiente_K = deuda pendiente total |
-| I-2 | Deuda pendiente total − a favor sin imputar = saldo neto = suma con signo de los asientos = importe de Personas |
-| I-3 | Σ de todas las imputaciones guardadas = pagos aplicados + liberado por reversión. Además, Σ \|pagos\| = Σ imputaciones + Σ sin imputar(q) |
-| I-4 | Cronológico de la campaña activa: «Saldo a hoy» = saldo neto. Con «Todas», el último acumulado = saldo neto |
-| I-5 | «Familias por cobrar» = Σ de max(0, saldo neto) de las tarjetas «Todas» de personas `FAMILY` (en E-15, sin el titular) |
-| I-6 | Resumen de K = Σ «Deuda pendiente · K» de la lista filtrada por K (en E-15, sin el titular) |
-| I-7 | Ninguna fila de `payment_allocations` existente cambia ni se borra; ninguna se crea fuera de `addAccountPayment` |
+| I-1 | Σ_K deuda pendiente_K = *P* |
+| I-2 | *P* − *F* = *N* = suma con signo de los asientos = cifra de Personas (D-04) |
+| I-3 | Σ imputaciones guardadas = aplicados + liberado, y Σ\|q\| = Σ imputaciones + *u* |
+| I-4 | Cronológico del período abierto: «Saldo a hoy» = *N*. Con «Todas», el último acumulado = *N* |
+| I-5 | «Familias por cobrar» = Σ max(0, P − F) de las tarjetas «Todas» de personas FAMILY (E-15: sin asientos propios) |
+| I-6 | Resumen de K = Σ «Deuda pendiente por origen · K» de la lista filtrada por K |
+| I-7 | Σ_K Resumen_K = Σ_personas *P* |
+| I-8 | Ninguna fila existente de `payment_allocations` cambia ni se borra. Las imputaciones nuevas sólo las crea `addAccountPayment`, y sólo para el pago que registra. Ninguna lectura crea imputaciones, tampoco para el crédito liberado de D04-06/07h |
 
 ---
 
@@ -163,199 +191,203 @@ Definición en §B.1.
 ### 3.0 Datos comunes
 
 - **Campañas:** «Verano 2026» (V), del 01/01/2026 al 30/06/2026, CERRADA. «Invierno 2026» (I), desde el 01/07/2026, ACTIVA.
-- **Personas:** «Titular» (FAMILY, `BY_ACTUAL_USAGE`, titular vigente en `owner_bindings`); «Familiar Demo» (FAMILY, `BY_ACTUAL_USAGE`); «Tercero Demo» (THIRD_PARTY, `BY_PURCHASE_ALLOCATION`).
-- **Chacos:** «Chaco Norte» (Titular, 1 ha) y «Chaco Familiar» (Familiar Demo, 1 ha).
-- **Modo:** COMPARTIDA, salvo que se diga otra cosa.
-- **Fechas:** días locales de La Paz. Importes en Bs con dos decimales.
-- En los ejemplos D04 el titular no tiene asientos. Su tarjeta sale «0,00» hoy y en D-04, y desaparece de la lista en E-15. Tercero Demo vale 0,00 salvo en D04-05 y D04-08. Sólo se detalla la tarjeta afectada.
-- «Hoy» es la cifra que da `ed9c55c` (por lectura del código). «Esperado» es la cifra tras D-04.
+- **Personas:** «Titular» (FAMILY, `BY_ACTUAL_USAGE`, titular vigente); «Familiar Demo» (FAMILY, `BY_ACTUAL_USAGE`); «Tercero Demo» (THIRD_PARTY, `BY_PURCHASE_ALLOCATION`).
+- **Chacos:** «Chaco Norte» (Titular) y «Chaco Familiar» (Familiar Demo), de 1 ha cada uno. **Modo:** COMPARTIDA, salvo que se diga otra cosa.
+- **Fechas y bases:** las fechas de los pagos se fijan con el parámetro `date` de `addAccountPayment`. Los cargos de los ejemplos D04 se siembran con su fecha y su campaña. Las reversiones y las tardías llevan la fecha real de la prueba (posterior a los pagos del ejemplo, salvo donde se indica). En las pruebas, «25/10/2026» se lee «el día de la prueba».
+- En los ejemplos D04 el titular no tiene asientos: sale con 0,00 y desaparece de la lista en E-15. Tercero Demo tiene 0,00 salvo donde se indica.
+- «Hoy» es `ed9c55c`. «Esperado» es tras D-04, o tras E-15 en la parte B.
 
 ### D04-01 · Ejemplo obligatorio: pago global de 50 Bs
 
 **Entrada (Familiar Demo):**
-- c1: 15/03/2026, V, `USAGE_CHARGE` +81,00 (aplicación en Chaco Familiar: Glifosato 1 L, 45,00, y Bellator 0,2 L, 36,00).
-- c2: 10/08/2026, I, `USAGE_CHARGE` +40,00 (Cipermetrina 0,5 L).
-- q1: 20/10/2026, `PAYMENT` −50,00. Variante **1a**: registrado con «Todas» (`campaign_id` NULL). Variante **1b**: registrado con el filtro por defecto (I).
-- Imputación guardada en las dos variantes: q1 → c1, 50,00.
+- c1: 15/03, V, `USAGE_CHARGE` +81,00.
+- c2: 10/08, I, +40,00.
+- q1: 20/10, `PAYMENT` −50,00. **1a**: con «Todas» (NULL). **1b**: con el filtro I.
+- Imputación: q1 → c1, 50,00.
 
-| Vista | Hoy | Esperado (1a y 1b iguales salvo «registrado…») |
+| Vista | Hoy | Esperado (1a = 1b salvo «registrado…») |
 |---|---|---|
-| Cuentas · Todas | «Cargos 121,00 Bs · pagos/créditos 50,00 Bs» · «Pendiente · todas las campañas» **71,00** | «Cargos 121,00 Bs · pagos aplicados 50,00 Bs» · «Deuda pendiente 71,00 Bs · a favor sin imputar 0,00 Bs» · «Saldo neto · todas las campañas» **71,00** |
-| Cuentas · V | «Cargos 81,00 · pagos/créditos 0,00» · «Pendiente · Verano 2026» **81,00** | «Cargos de Verano 2026 81,00 Bs · pagos aplicados 50,00 Bs» · «Deuda pendiente · Verano 2026» **31,00** |
-| Cuentas · I | 1a: «Cargos 40,00 · pagos/créditos 0,00» · «Pendiente» **40,00**. 1b: «Cargos 40,00 · pagos/créditos 50,00» · «A favor · Invierno 2026» **−10,00** | «Cargos de Invierno 2026 40,00 Bs · pagos aplicados 0,00 Bs» · «Deuda pendiente · Invierno 2026» **40,00** |
-| Detalle · origen | (no existe) | «Verano 2026: cargos 81,00 · pagos aplicados 50,00 · pendiente 31,00»; «Invierno 2026: cargos 40,00 · pagos aplicados 0,00 · pendiente 40,00»; «Deuda pendiente total 71,00» · «A favor sin imputar 0,00» · «Saldo neto 71,00» |
-| Detalle · cronológico Todas | +81 (81), +40 (121), −50 (71) | +81 (81, «Pendiente 31,00»), +40 (121, «Pendiente 40,00»), −50 (71, «registrado sin campaña» en 1a o «registrado en Invierno 2026» en 1b; «Imputado: Verano 2026 50,00»); «Saldo a hoy 71,00» |
-| Detalle · cronológico I | «Saldo inicial de campaña 81,00». 1a: +40 → **121** (no cuadra con 71). 1b: +40 (121), −50 (**71**) | «Saldo al inicio del período (01/07/2026) 81,00»; +40 (121); −50 (71); «Saldo a hoy **71,00**» en las dos variantes |
-| Detalle · cronológico V | «Saldo inicial de campaña 0,00»; +81 (81) | «Saldo al inicio del período (01/01/2026) 0,00»; +81 (81); «Saldo al cierre del período (30/06/2026) 81,00». Es el saldo a esa fecha; la deuda de V **hoy** es 31,00 y lleva otra etiqueta |
-| Exportación · I | 1a: cargos 40,00 · créditos 0,00 · «Saldo final» 121,00. 1b: 40,00 · 50,00 · 71,00 | inicio 81,00 · cargos 40,00 · créditos 50,00 · «Saldo a hoy» 71,00 · «Deuda pendiente por origen · Invierno 2026» 40,00 · «A favor sin imputar» 0,00 · «Saldo neto» 71,00 |
-| Inicio | Familias por cobrar 71,00 · Pagos recibidos 50,00 · Principales saldos: Familiar Demo 71,00 | igual |
-| Resumen de campaña | V «Saldo por cobrar» 81,00. I: 1a 40,00, 1b −10,00 | «Deuda pendiente de la campaña (por origen)»: V **31,00**, I **40,00** |
-| Diálogo de pago (antes de q1, filtro I) | «Campaña Invierno 2026» · «Saldo pendiente 40,00 Bs» | «Se registra en: Invierno 2026» · «Saldo neto · todas las campañas: 121,00 Bs» · «Se aplica primero a la deuda más antigua, de cualquier campaña.» Después: «Pago de 50,00 Bs registrado a Familiar Demo. Imputado: Verano 2026 50,00 Bs.» |
-| Costo por chaco / producto | Chaco Familiar: Todas 121,00, V 81,00, I 40,00 | sin cambio |
+| Cuentas · Todas | «Cargos 121,00 Bs · pagos/créditos 50,00 Bs» · «Pendiente · todas las campañas» 71,00 | «Cargos 121,00 Bs · pagos aplicados 50,00 Bs» · «Deuda pendiente 71,00 Bs · a favor (no aplicado a deuda) 0,00 Bs» · «Saldo neto · todas las campañas» **71,00** |
+| Cuentas · V | «Pendiente · Verano 2026» 81,00 | «Cargos de Verano 2026 81,00 Bs · pagos aplicados 50,00 Bs» · «Saldo neto · todas las campañas 71,00 Bs» · «Deuda pendiente por origen · Verano 2026» **31,00** |
+| Cuentas · I | 1a 40,00 · 1b «A favor · Invierno 2026» −10,00 | «Cargos de Invierno 2026 40,00 Bs · pagos aplicados 0,00 Bs» · «Saldo neto · todas las campañas 71,00 Bs» · **40,00** |
+| Detalle · origen | (no existe) | «Verano 2026: cargos 81,00 Bs · pagos aplicados 50,00 Bs · pendiente 31,00 Bs»; «Invierno 2026: cargos 40,00 Bs · pagos aplicados 0,00 Bs · pendiente 40,00 Bs»; «Deuda pendiente total 71,00 Bs»; «A favor (no aplicado a deuda) 0,00 Bs»; «Saldo neto · todas las campañas 71,00 Bs» |
+| Cronológico Todas | +81 (81), +40 (121), −50 (71) | +81 («Pendiente a hoy 31,00 Bs»), +40 («Pendiente a hoy 40,00 Bs»), −50 («registrado sin campaña» / «registrado en Invierno 2026»; «Imputado: Verano 2026 50,00 Bs»); «Saldo a hoy 71,00 Bs» |
+| Cronológico I | inicial 81,00; 1a: +40 → 121 · 1b: … → 71 | «Saldo al inicio del período (01/07/2026) 81,00 Bs»; +40 (121); −50 (71); «Saldo a hoy 71,00 Bs» |
+| Cronológico V | inicial 0,00; +81 (81) | inicio 0,00; +81; «Saldo al cierre del período (30/06/2026) 81,00 Bs» |
+| Exportación · I | 1a: 40,00 · 0,00 · «Saldo final» 121,00 | inicio 81,00 · cargos 40,00 · créditos 50,00 · «Saldo a hoy» 71,00 · «Deuda pendiente por origen · Invierno 2026» 40,00 · a favor 0,00 · «Saldo neto · todas las campañas» 71,00 |
+| Inicio | Familias 71,00 · Pagos recibidos 50,00 | igual, sin línea de «A favor de familias» |
+| Resumen | V 81,00 · I 1a 40,00 / 1b −10,00 | «Deuda pendiente por origen»: V **31,00** · I **40,00** |
+| Diálogo antes de q1 (filtro I) | «Campaña Invierno 2026» · «Saldo pendiente 40,00 Bs» | «Se registra en: Invierno 2026» · «Saldo neto · todas las campañas: debe 121,00 Bs» · «Se aplica primero a la deuda más antigua, de cualquier campaña.» Al guardar: «Pago de 50,00 Bs registrado a Familiar Demo. Imputado: Verano 2026 50,00 Bs.» |
+| Costo por chaco / producto | Chaco Familiar: Todas 121 · V 81 · I 40 | sin cambio |
 
 **Resultado exigido:** Verano 31, Invierno 40, total 71.
 
 ### D04-02 · Pago registrado en la campaña nueva que cancela deuda antigua
 
-**Entrada (Familiar Demo):** c1 15/03/2026, V, +81,00. q1 20/10/2026, `PAYMENT` −81,00, registrado en I. Imputación: q1 → c1, 81,00.
+**Entrada:** c1 15/03, V, +81. q1 20/10, −81, registrado en I. Imputación: q1 → c1, 81.
 
 | Vista | Hoy | Esperado |
 |---|---|---|
-| Cuentas · Todas | «Pendiente · todas» 0,00 (cargos 81,00 · pagos/créditos 81,00) | «Cargos 81,00 Bs · pagos aplicados 81,00 Bs» · «Deuda pendiente 0,00 Bs · a favor sin imputar 0,00 Bs» · «Saldo neto» **0,00** |
-| Cuentas · V | «Pendiente · Verano 2026» **81,00** | «Cargos de Verano 2026 81,00 Bs · pagos aplicados 81,00 Bs» · «Deuda pendiente · Verano 2026» **0,00** |
-| Cuentas · I | «A favor · Invierno 2026» **−81,00** | «Cargos de Invierno 2026 0,00 Bs · pagos aplicados 0,00 Bs» · «Deuda pendiente · Invierno 2026» **0,00** |
-| Detalle · origen | — | «Verano 2026: cargos 81,00 · pagos aplicados 81,00 · pendiente 0,00»; total 0,00 · a favor 0,00 · neto 0,00 |
-| Cronológico I | inicial 81,00; −81 (0,00) | «Saldo al inicio del período (01/07/2026) 81,00»; −81 (0,00, «registrado en Invierno 2026 · Imputado: Verano 2026 81,00»); «Saldo a hoy 0,00» |
-| Cronológico V | inicial 0,00; +81 (81,00) | inicio 0,00; +81 («Pagado»); «Saldo al cierre del período (30/06/2026) 81,00» |
-| Inicio | Familias 0,00 · Pagos recibidos 81,00 | igual |
-| Resumen | V 81,00 · I −81,00 | V **0,00** · I **0,00** |
+| Cuentas · Todas | «Pendiente · todas» 0,00 | «Cargos 81,00 Bs · pagos aplicados 81,00 Bs» · «Deuda pendiente 0,00 Bs · a favor (no aplicado a deuda) 0,00 Bs» · **0,00** |
+| Cuentas · V | 81,00 | «Cargos de Verano 2026 81,00 Bs · pagos aplicados 81,00 Bs» · **0,00** |
+| Cuentas · I | «A favor · Invierno 2026» −81,00 | «Sin cargos.» · «Saldo neto · todas las campañas 0,00 Bs» · **0,00** |
+| Cronológico I | inicial 81; −81 (0) | inicio 81,00; −81 (0,00; «registrado en Invierno 2026 · Imputado: Verano 2026 81,00 Bs»); «Saldo a hoy 0,00 Bs» |
+| Cronológico V | inicial 0; +81 | inicio 0,00; +81 («Pagado»); «Saldo al cierre del período (30/06/2026) 81,00 Bs» |
+| Inicio | Familias 0 · Pagos recibidos 81 | igual |
+| Resumen | V 81 · I −81 | V **0,00** · I **0,00** |
 
-### D04-03 · Un pago repartido entre deudas de dos campañas
+### D04-03 · Un pago repartido entre dos campañas
 
-**Entrada (Familiar Demo):** c1 15/03/2026, V, +81,00. c2 10/08/2026, I, +40,00. q1 20/10/2026, `PAYMENT` −100,00, registrado en I. Imputaciones: q1 → c1 81,00 y q1 → c2 19,00.
+**Entrada:** c1 15/03, V, +81. c2 10/08, I, +40. q1 20/10, −100, registrado en I. Imputaciones: q1 → c1 81 y q1 → c2 19.
 
 | Vista | Hoy | Esperado |
 |---|---|---|
-| Cuentas · Todas | «Pendiente · todas» 21,00 | «Cargos 121,00 Bs · pagos aplicados 100,00 Bs» · «Deuda pendiente 21,00 Bs · a favor sin imputar 0,00 Bs» · «Saldo neto» **21,00** |
-| Cuentas · V | «Pendiente · Verano 2026» **81,00** | «Cargos de Verano 2026 81,00 · pagos aplicados 81,00» · «Deuda pendiente · Verano 2026» **0,00** |
-| Cuentas · I | «A favor · Invierno 2026» **−60,00** | «Cargos de Invierno 2026 40,00 · pagos aplicados 19,00» · «Deuda pendiente · Invierno 2026» **21,00** |
-| Cronológico I | inicial 81,00; +40 (121); −100 (21) | igual en cifras, con «Saldo a hoy 21,00». El pago lleva «Imputado: Verano 2026 81,00 · Invierno 2026 19,00» |
-| Inicio | Familias 21,00 · Pagos recibidos 100,00 | igual |
-| Resumen | V 81,00 · I −60,00 | V **0,00** · I **21,00** |
+| Cuentas · Todas | 21,00 | «Cargos 121,00 Bs · pagos aplicados 100,00 Bs» · «Deuda pendiente 21,00 Bs · a favor (no aplicado a deuda) 0,00 Bs» · **21,00** |
+| Cuentas · V | 81,00 | «… pagos aplicados 81,00 Bs» · **0,00** |
+| Cuentas · I | −60,00 | «Cargos de Invierno 2026 40,00 Bs · pagos aplicados 19,00 Bs» · **21,00** |
+| Cronológico I | 81; 121; 21 | igual en cifras, con «Imputado: Verano 2026 81,00 Bs · Invierno 2026 19,00 Bs» |
+| Inicio | Familias 21 · Pagos recibidos 100 | igual |
+| Resumen | V 81 · I −60 | V **0,00** · I **21,00** |
 
 ### D04-04 · Exceso de pago
 
-**Entrada (Familiar Demo):** c1 15/03/2026, V, +81,00. q1 20/10/2026, `PAYMENT` −100,00, registrado sin campaña. Imputación: q1 → c1, 81,00. Sin imputar: 19,00.
+**Entrada:** c1 15/03, V, +81. q1 20/10, −100, registrado sin campaña. Imputación: q1 → c1, 81; quedan 19 sin imputar.
 
 | Vista | Hoy | Esperado |
 |---|---|---|
-| Cuentas · Todas | «A favor · todas las campañas» **−19,00** | «Cargos 81,00 Bs · pagos aplicados 81,00 Bs» · «Deuda pendiente 0,00 Bs · a favor sin imputar 19,00 Bs» · «Saldo neto · todas las campañas» **−19,00** (verde) |
-| Cuentas · V | «Pendiente · Verano 2026» **81,00** | «Cargos de Verano 2026 81,00 · pagos aplicados 81,00» · «A favor sin imputar 19,00 Bs (sin campaña)» · «Deuda pendiente · Verano 2026» **0,00** |
-| Cuentas · I | «Pendiente · Invierno 2026» 0,00 | «Cargos de Invierno 2026 0,00 · pagos aplicados 0,00» · «A favor sin imputar 19,00 Bs (sin campaña)» · «Deuda pendiente · Invierno 2026» **0,00** |
-| Detalle · origen | — | V: cargos 81,00 · aplicados 81,00 · pendiente 0,00; total 0,00 · «A favor sin imputar 19,00» · «Saldo neto −19,00» |
-| Cronológico I | sólo «Saldo inicial de campaña 81,00», sin filas (el pago NULL no aparece) | «Saldo al inicio del período (01/07/2026) 81,00»; −100 (−19,00; «registrado sin campaña · Imputado: Verano 2026 81,00 · sin imputar 19,00 (queda a favor, sin campaña)»); «Saldo a hoy −19,00» |
-| Inicio | **Familias por cobrar −19,00** · Pagos recibidos 100,00 | Familias por cobrar **0,00** · Pagos recibidos 100,00 |
-| Resumen | V 81,00 · I 0,00 | V **0,00** · I **0,00** |
+| Cuentas · Todas | «A favor · todas» −19,00 | «Cargos 81,00 Bs · pagos aplicados 81,00 Bs» · «Deuda pendiente 0,00 Bs · a favor (no aplicado a deuda) 19,00 Bs» · **−19,00** |
+| Cuentas · V | 81,00 | «Cargos de Verano 2026 81,00 Bs · pagos aplicados 81,00 Bs» · «Saldo neto · todas las campañas -19,00 Bs» · «A favor (no aplicado a deuda) 19,00 Bs (sin campaña)» · **0,00** |
+| Cuentas · I | 0,00 | «Sin cargos.» · «Saldo neto · todas las campañas -19,00 Bs» · «A favor (no aplicado a deuda) 19,00 Bs (sin campaña)» · **0,00** |
+| Detalle · origen | — | V: cargos 81,00 · aplicados 81,00 · pendiente 0,00; «Deuda pendiente total 0,00 Bs»; «A favor (no aplicado a deuda) 19,00 Bs»; «pagos sin imputar 19,00 Bs»; «Saldo neto · todas las campañas -19,00 Bs» |
+| Cronológico I | sólo «Saldo inicial de campaña 81,00» | inicio 81,00; −100 (−19,00; «registrado sin campaña · Imputado: Verano 2026 81,00 Bs · sin imputar 19,00 Bs (queda a favor, sin campaña)»); «Saldo a hoy -19,00 Bs» |
+| Inicio | **Familias −19,00** · Pagos recibidos 100 | Familias **0,00** · «A favor de familias: 19,00 Bs» · Pagos recibidos 100 |
+| Resumen | V 81 · I 0 | V **0,00** · I **0,00** |
 
 ### D04-05 · Anticipo seguido de cargos posteriores
 
 **Entrada (Tercero Demo):**
-- q1: 05/07/2026, `ADVANCE` −300,00, registrado en I. No hay cargos, así que no se imputa nada.
-- c1: 10/07/2026, compra en I asignada al tercero, `PURCHASE_ALLOCATION_CHARGE` +250,00.
-- c2: 15/08/2026, otra compra, +120,00.
-- Paso **5b**: q2, 20/10/2026, `PAYMENT` −70,00, registrado en I → imputación q2 → c1, 70,00.
+- q1: 05/07, `ADVANCE` −300, registrado en I, con `date` de prueba. Sin cargos, no se imputa.
+- c1: 10/07, compra en I, `PURCHASE_ALLOCATION_CHARGE` +250.
+- c2: 15/08, +120.
+- Paso **5b**: q2, 20/10, −70, registrado en I → imputación q2 → c1, 70.
 
-Hoy no se crea ninguna imputación al llegar un cargo (RN-39, «detalle fino»).
-
-| Vista | Hoy (5a / 5b) | Esperado, diseño base (5a / 5b) |
+| Vista | Hoy (5a / 5b) | Esperado (5a / 5b) |
 |---|---|---|
-| Cuentas · Todas | «Pendiente · todas» 70,00 / 0,00 | 5a: «Cargos 370,00 Bs · pagos aplicados 0,00 Bs» · «Deuda pendiente 370,00 Bs · a favor sin imputar 300,00 Bs» · «Saldo neto» **70,00**. 5b: «Cargos 370,00 · pagos aplicados 70,00» · «Deuda pendiente 300,00 · a favor sin imputar 300,00» · «Saldo neto» **0,00** |
-| Cuentas · I | 70,00 / 0,00 | 5a: «Cargos de Invierno 2026 370,00 · pagos aplicados 0,00» · «A favor sin imputar 300,00 Bs (sin campaña)» · «Deuda pendiente · Invierno 2026» **370,00**. 5b: «… pagos aplicados 70,00» · «A favor sin imputar 300,00 Bs (sin campaña)» · **300,00** |
-| Cronológico I | inicial 0,00; −300 (−300), +250 (−50), +120 (70) [5b: −70 (0)] | igual en cifras. El adelanto lleva «Sin imputación registrada: 300,00 (queda a favor, sin campaña)»; c1 «Pendiente 250,00» (5b: 180,00); c2 «Pendiente 120,00»; q2 «Imputado: Invierno 2026 70,00»; «Saldo a hoy 70,00» / «0,00» |
-| Inicio | Terceros por cobrar 70,00 / 0,00 · Pagos recibidos 300,00 / 370,00 | igual |
-| Resumen I | 70,00 / 0,00 | **370,00 / 300,00** |
-| Si se aprueba Q-1 B (§7) | — | El cargo nuevo consume el crédito disponible al registrarse: c1 ← q1 250,00 y c2 ← q1 50,00. 5a: deuda 70,00 · a favor 0,00 · neto 70,00 · Resumen I 70,00. 5b: q2 → c2 70,00; deuda 0,00 · neto 0,00 · Resumen I 0,00 |
+| Cuentas · Todas | 70,00 / 0,00 | 5a: «Cargos 370,00 Bs · pagos aplicados 0,00 Bs» · «Deuda pendiente 370,00 Bs · a favor (no aplicado a deuda) 300,00 Bs» · **70,00**. 5b: «… pagos aplicados 70,00 Bs» · «Deuda pendiente 300,00 Bs · a favor … 300,00 Bs» · **0,00** |
+| Cuentas · I | 70,00 / 0,00 | 5a: «Cargos de Invierno 2026 370,00 Bs · pagos aplicados 0,00 Bs» · «Saldo neto · todas las campañas 70,00 Bs» · «A favor … 300,00 Bs (sin campaña)» · **370,00**. 5b: … · **300,00** |
+| Cronológico I | inicial 0; −300, +250, +120 [5b: −70] | igual en cifras. q1 «Sin imputación registrada: 300,00 Bs (queda a favor, sin campaña)»; c1 «Pendiente a hoy 250,00 Bs» (5b: 180,00 Bs); c2 «Pendiente a hoy 120,00 Bs»; q2 «Imputado: Invierno 2026 70,00 Bs» |
+| Inicio | Terceros 70 / 0 · Pagos recibidos 300 / 370 | Terceros 70 / 0 (I-5: max(0, 370 − 300) / max(0, 300 − 300)) · igual |
+| Resumen I | 70 / 0 | **370,00 / 300,00** |
 
-El diseño base cumple la decisión aprobada: no fabrica imputaciones y no atribuye el anticipo a Invierno. Pero deja «Deuda pendiente · Invierno 2026: 300,00» a una persona con saldo neto 0,00. Por eso se plantea Q-1.
+Por el criterio Q-1 de §7, el crédito queda separado: la deuda por cargo no se reduce con un anticipo sin imputación.
 
 ### D04-06 · Reversión de un cargo que ya tenía un pago imputado
 
-**Entrada (Familiar Demo):**
-- c1: 15/03/2026, V, +81,00 (aplicación a1).
-- c2: 10/08/2026, I, +40,00.
-- q1: 20/10/2026, −50,00, registrado sin campaña → imputación q1 → c1, 50,00.
-- 25/10/2026: se revierte a1 → r1 `CREDIT_ADJUSTMENT` −81,00, campaña V, fecha 25/10/2026, `reversal_of_id = c1`.
+**Entrada:**
+- c1: 15/03, V, +81 (aplicación a1).
+- c2: 10/08, I, +40.
+- q1: 20/10, −50, sin campaña → imputación q1 → c1, 50.
+- Día de la prueba (25/10): se revierte a1 → r1 −81 (V).
 
 | Vista | Hoy | Esperado |
 |---|---|---|
-| Cuentas · Todas | «A favor · todas» −10,00 (cargos 121,00 · pagos/créditos 131,00) | «Cargos 121,00 Bs · revertidos 81,00 Bs · pagos aplicados 0,00 Bs» · «Deuda pendiente 40,00 Bs · a favor sin imputar 50,00 Bs» · «Saldo neto» **−10,00** |
-| Cuentas · V | «Pendiente · Verano 2026» 0,00 (cargos 81,00 · pagos/créditos 81,00) | «Cargos de Verano 2026 81,00 · revertidos 81,00 · pagos aplicados 0,00» · «A favor sin imputar 50,00 Bs (sin campaña)» · **0,00** |
-| Cuentas · I | «Pendiente · Invierno 2026» 40,00 | «Cargos de Invierno 2026 40,00 · pagos aplicados 0,00» · «A favor sin imputar 50,00 Bs (sin campaña)» · **40,00** |
-| Detalle · origen | — | «Verano 2026: cargos 81,00 · revertidos 81,00 · pagos aplicados 0,00 · pendiente 0,00»; «50,00 imputados a cargos de Verano 2026 que después se revirtieron quedan a favor»; «Invierno 2026: … pendiente 40,00»; total 40,00 · a favor 50,00 · neto −10,00 |
-| Cronológico Todas | +81 (81), +40 (121), −50 (71), −81 (−10) | igual en cifras. c1 «Revertido el 25/10/2026»; q1 «Imputado a un cargo revertido (Verano 2026, 15/03/2026): 50,00. Queda a favor.»; r1 «Crédito por reversión · Verano 2026»; «Saldo a hoy −10,00» |
-| Cronológico I | inicial **0,00** (c1 + r1, de campaña V); +40 → **40,00**. No cuadra con −10 | inicio (01/07/2026) 81,00; +40 (121); −50 (71); −81 (−10); «Saldo a hoy −10,00» |
-| Cronológico V | inicial 0,00; +81 (81), −81 (0) | inicio 0,00; +81; «Saldo al cierre del período (30/06/2026) 81,00». r1 tiene fecha de octubre y no cae en V |
-| Inicio | **Familias −10,00** · Pagos recibidos 50,00 | Familias **0,00** · Pagos recibidos 50,00 |
-| Resumen | V 0,00 · I 40,00 | V 0,00 · I 40,00 |
-| Costo por chaco | Chaco Familiar: Todas 40,00 · V 0,00 · I 40,00 (a1 revertida no cuenta) | sin cambio |
+| Cuentas · Todas | −10,00 | «Cargos 121,00 Bs · revertidos 81,00 Bs · pagos aplicados 0,00 Bs» · «Deuda pendiente 40,00 Bs · a favor (no aplicado a deuda) 50,00 Bs» · **−10,00** |
+| Cuentas · V | 0,00 | «Cargos de Verano 2026 81,00 Bs · revertidos 81,00 Bs · pagos aplicados 0,00 Bs» · «Saldo neto · todas las campañas -10,00 Bs» · «A favor … 50,00 Bs (sin campaña)» · **0,00** |
+| Cuentas · I | 40,00 | «Cargos de Invierno 2026 40,00 Bs · pagos aplicados 0,00 Bs» · neto -10,00 · a favor 50,00 · **40,00** |
+| Detalle · origen | — | «Verano 2026: cargos 81,00 Bs · revertidos 81,00 Bs · pagos aplicados 0,00 Bs · pendiente 0,00 Bs»; «50,00 Bs imputados a cargos revertidos de Verano 2026 quedan a favor»; I … pendiente 40,00; total 40,00; a favor 50,00 («liberado por reversión 50,00 Bs»); neto −10,00 |
+| Cronológico Todas | 81, 121, 71, −10 | c1 «Revertido el {día de la prueba}»; q1 «Imputado a un cargo revertido (Verano 2026, 15/03/2026): 50,00 Bs. Queda a favor.»; r1 «Revierte el cargo del 15/03/2026»; «Saldo a hoy -10,00 Bs» |
+| Cronológico I | inicial 0,00; +40 → 40 (no cuadra) | inicio 81,00; 121; 71; −10; «Saldo a hoy -10,00 Bs» |
+| Inicio | Familias −10 | Familias **0,00** · «A favor de familias: 10,00 Bs» |
+| Resumen | V 0 · I 40 | V 0,00 · I 40,00 |
+
+El crédito liberado no se reimputa a c2: criterio Q-1, I-8.
 
 ### D04-07 · Cargo revertido antes del pago (D-15) y su histórico
 
-**Entrada (Familiar Demo):**
-- c1: 15/03/2026, V, +81,00 (a1).
-- c2: 10/08/2026, I, +40,00.
-- r1: 18/10/2026, reversión de a1, −81,00 (campaña V).
-- q1: 20/10/2026, −50,00, registrado en I.
-
-Con el código de hoy (H-06), el pendiente de c1 es 81 − 0 = 81, porque la reversión no se resta. La imputación queda q1 → c1, 50,00: se imputa a un cargo ya revertido.
-
-**D04-07 (pago registrado tras D-04):** la imputación nueva resta las reversiones (§5, D-R1) y queda q1 → c2, 40,00, con 10,00 sin imputar.
-
-**D04-07h (histórico):** la misma base, pero con la imputación q1 → c1 50,00 ya guardada por el código anterior. Se conserva.
+**Entrada:** c1 15/03, V, +81 (a1). c2 10/08, I, +40. Se revierte a1 → r1 −81. Después, q1 −50, registrado en I.
+- **D04-07:** pago registrado con D-04 → imputación q1 → c2 40; 10 sin imputar.
+- **D04-07h:** la base guardada por el código anterior, con la imputación q1 → c1 50. Se conserva.
 
 | Vista | Hoy | Esperado D04-07 | Esperado D04-07h |
 |---|---|---|---|
-| Cuentas · Todas | «A favor · todas» −10,00 | «Cargos 121,00 · revertidos 81,00 · pagos aplicados 40,00» · «Deuda pendiente 0,00 · a favor sin imputar 10,00» · neto **−10,00** | «Cargos 121,00 · revertidos 81,00 · pagos aplicados 0,00» · «Deuda pendiente 40,00 · a favor sin imputar 50,00» · neto **−10,00** |
-| Cuentas · I | «A favor · Invierno 2026» −10,00 | «Cargos de Invierno 2026 40,00 · pagos aplicados 40,00» · «A favor sin imputar 10,00 Bs (sin campaña)» · **0,00** | «… pagos aplicados 0,00» · «A favor sin imputar 50,00 Bs (sin campaña)» · **40,00** |
-| Cronológico I | inicial 0,00 (c1 + r1); +40 (40); −50 (−10) | inicio 81,00; +40 (121) [10/08]; −81 (40) [18/10]; −50 (−10) [20/10, «Imputado: Invierno 2026 40,00 · sin imputar 10,00»]; «Saldo a hoy −10,00» | iguales cifras; q1 «Imputado a un cargo revertido (Verano 2026, 15/03/2026): 50,00. Queda a favor.» |
-| Inicio | Familias −10,00 | 0,00 | 0,00 |
-| Resumen I | −10,00 | **0,00** | **40,00** |
+| Imputaciones guardadas | q1 → c1 50 | q1 → c2 40 | q1 → c1 50 (sin tocar) |
+| Cuentas · Todas | −10,00 | «Cargos 121,00 Bs · revertidos 81,00 Bs · pagos aplicados 40,00 Bs» · «Deuda pendiente 0,00 Bs · a favor … 10,00 Bs» · **−10,00** | «… pagos aplicados 0,00 Bs» · «Deuda pendiente 40,00 Bs · a favor … 50,00 Bs» · **−10,00** |
+| Cuentas · I | −10,00 | «… pagos aplicados 40,00 Bs» · **0,00** | «… pagos aplicados 0,00 Bs» · **40,00** |
+| Estado del pago | — | «Imputado: Invierno 2026 40,00 Bs · sin imputar 10,00 Bs (queda a favor, sin campaña)» | «Imputado a un cargo revertido (Verano 2026, 15/03/2026): 50,00 Bs. Queda a favor.» |
+| Inicio | Familias −10 | 0,00 · «A favor de familias: 10,00 Bs» | 0,00 · «A favor de familias: 10,00 Bs» |
+| Resumen I | −10 | **0,00** | **40,00** |
 
-El saldo neto es el mismo; el desglose no. La diferencia se debe a que no se reescriben las imputaciones guardadas, como manda la decisión. La base histórica muestra lo que de verdad se guardó.
-
-### D04-08 · Reversión de compra de un tercero con pago imputado; reversión de pagos
+### D04-08 · Reversión de la compra de un tercero con pago imputado; reversión de pagos
 
 **Entrada (Tercero Demo):**
-- c1: 05/03/2026, compra en V asignada al tercero, +250,00.
-- q1: 10/04/2026, `PAYMENT` −100,00, registrado en V → imputación q1 → c1, 100,00.
-- 22/10/2026: se revierte la compra (sin consumos) → r1 −250,00 (V, `reversal_of_id = c1`). Sus `provider_payments` quedan anulados (RN-45, sin efecto en cuentas).
+- c1: 05/03, compra en V, +250.
+- q1: 10/04, −100, registrado en V → imputación q1 → c1, 100.
+- Día de la prueba: se revierte la compra → r1 −250.
 
 | Vista | Hoy | Esperado |
 |---|---|---|
-| Cuentas · Todas | «A favor · todas» −100,00 | «Cargos 250,00 · revertidos 250,00 · pagos aplicados 0,00» · «Deuda pendiente 0,00 · a favor sin imputar 100,00» · neto **−100,00** |
-| Cuentas · V | «A favor · Verano 2026» −100,00 | «Cargos de Verano 2026 250,00 · revertidos 250,00 · pagos aplicados 0,00» · «A favor sin imputar 100,00 Bs (sin campaña)» · **0,00** |
-| Cronológico V | inicial 0,00; +250 (250), −100 (150), −250 (−100) | inicio 0,00; +250 (250); −100 (150, «Imputado a un cargo revertido (Verano 2026, 05/03/2026): 100,00. Queda a favor.»); «Saldo al cierre del período (30/06/2026) 150,00» |
-| Cronológico I | sólo «Saldo inicial de campaña −100,00», sin filas | inicio (01/07/2026) 150,00; −250 (−100, «Crédito por reversión · Verano 2026»); «Saldo a hoy −100,00» |
-| Inicio | **Terceros −100,00** · Pagos recibidos 100,00 | Terceros **0,00** · Pagos recibidos 100,00 |
-| Resumen V | −100,00 | **0,00** |
+| Cuentas · Todas | −100,00 | «Cargos 250,00 Bs · revertidos 250,00 Bs · pagos aplicados 0,00 Bs» · «Deuda pendiente 0,00 Bs · a favor … 100,00 Bs» · **−100,00** |
+| Cuentas · V | −100,00 | «Cargos de Verano 2026 250,00 Bs · revertidos 250,00 Bs · pagos aplicados 0,00 Bs» · neto −100 · a favor 100 · **0,00** |
+| Cronológico V | 0; 250; 150; −100 | inicio 0,00; +250; −100 (150, «Imputado a un cargo revertido (Verano 2026, 05/03/2026): 100,00 Bs. Queda a favor.»); «Saldo al cierre del período (30/06/2026) 150,00 Bs» |
+| Cronológico I | sólo inicial −100 | inicio 150,00; −250 (−100); «Saldo a hoy -100,00 Bs» |
+| Inicio | Terceros −100 | Terceros **0,00** · «A favor de terceros: 100,00 Bs» |
+| Resumen V | −100 | **0,00** |
 
-**Reversión de un pago o adelanto de cuenta:** hoy no existe (H-10). Un pago registrado por error no se puede anular desde la app. D-04 **no** la añade, porque no está en lo aprobado; queda como limitación declarada. El diseño la deja preparada: §2.1 define cargo como importe > 0 **y** `reversal_of_id IS NULL`, así que una futura fila compensatoria positiva de un pago nunca se tomaría como deuda imputable.
+La reversión de pagos de cuenta no existe (H-10) y D-04 no la añade. Si algún día existe, su fila caerá en la clase «compensación de un crédito» de §2.1 y nunca se tomará por deuda.
 
-### D04-09 · Registros históricos sin imputación comprobable
+### D04-09 · Históricos sin imputación comprobable
 
-- **09a. Pago NULL antiguo con imputación:** es D04-01 1a. Se muestra «registrado sin campaña» con su imputación real.
-- **09b. Pago sin imputaciones** (base anterior a v3, H-02). Familiar Demo: c1 15/03/2026, V, +81,00; q1 01/04/2026, −50,00, registrado en V, **sin filas en `payment_allocations`**.
+- **09a:** es D04-01 1a.
+- **09b, pago sin imputaciones** (base anterior a v3): c1 15/03, V, +81. q1 01/04, −50, registrado en V, sin filas en `payment_allocations`.
 
 | Vista | Hoy | Esperado |
 |---|---|---|
-| Cuentas · Todas | «Pendiente · todas» 31,00 | «Cargos 81,00 · pagos aplicados 0,00» · «Deuda pendiente 81,00 · a favor sin imputar 50,00» · neto **31,00** |
-| Cuentas · V | «Pendiente · Verano 2026» 31,00 | «Cargos de Verano 2026 81,00 · pagos aplicados 0,00» · «A favor sin imputar 50,00 Bs (sin campaña)» · **81,00** |
-| Cronológico V | inicial 0,00; +81 (81), −50 (31) | inicio 0,00; +81 («Pendiente 81,00»); −50 (31, «registrado en Verano 2026 · Sin imputación registrada: 50,00 (queda a favor, sin campaña)»); «Saldo al cierre del período (30/06/2026) 31,00» |
-| Inicio | Familias 31,00 | Familias **31,00** (max(0, 31)) |
-| Resumen V | 31,00 | **81,00** |
+| Cuentas · Todas | 31,00 | «Cargos 81,00 Bs · pagos aplicados 0,00 Bs» · «Deuda pendiente 81,00 Bs · a favor … 50,00 Bs» · **31,00** |
+| Cuentas · V | 31,00 | «… pagos aplicados 0,00 Bs» · neto 31,00 · «A favor … 50,00 Bs (sin campaña)» · **81,00** |
+| Cronológico V | 0; 81; 31 | q1 «registrado en Verano 2026 · Sin imputación registrada: 50,00 Bs (queda a favor, sin campaña)»; «Saldo al cierre del período (30/06/2026) 31,00 Bs» |
+| Inicio | Familias 31 | **31,00** |
+| Resumen V | 31 | **81,00** |
 
-No se crea ninguna imputación retroactiva: sería fabricar una asignación que nunca se guardó.
+- **09c:** es D04-04.
+- **09d:** un crédito sin cargo de origen suma a *u* («Crédito sin cargo de origen registrado: …»).
 
-- **09c. Pago NULL parcialmente imputado:** es D04-04.
-- **09d. Crédito sin cargo de origen** (`CREDIT_ADJUSTMENT` sin `reversal_of_id`): el código actual no lo produce. Si aparece, suma a «A favor sin imputar» y su fila dice «Crédito sin cargo de origen registrado: {x} (queda a favor, sin campaña)».
+### Casos adicionales M-1 a M-10
 
-### D04-10 · Consistencia entre vistas
+En estos casos la revisión sólo trajo la lista: las cifras de abajo son mías. Cada caso dice qué fija.
 
-Para cada ejemplo, las pruebas de la fase 2 comprueban las invariantes I-1 a I-7 de §2.9 sobre las mismas filas: lista de Cuentas («Todas» y cada campaña), detalle, exportación (CSV y PDF desde el mismo `ReportTable`), Inicio, Personas y resumen de campaña. Costo por chaco y por producto no cambian en ningún ejemplo D04.
+| Id | Entrada | Hoy | Esperado |
+|---|---|---|---|
+| **M-1** Pago exacto | c1 10/08, I, +40. q1 21/10, −40, en I → q1 → c1 40 | Todas 0,00 · I 0,00 | Todas «Cargos 40,00 Bs · pagos aplicados 40,00 Bs» · «Deuda pendiente 0,00 Bs · a favor … 0,00 Bs» · 0,00; I **0,00**; c1 «Pagado»; q1 «Imputado: Invierno 2026 40,00 Bs»; Inicio 0,00 sin línea a favor |
+| **M-2** Varios pagos sobre el mismo cargo | c1 15/03, V, +81. q1 01/09, −30, en I; q2 15/09, −30, sin campaña; q3 20/10, −30, en I → c1 ← 30, 30 y 21; q3 deja 9 sin imputar | Todas −9,00 · V 81,00 · I −60,00 · Resumen V 81 / I −60 | Todas «Cargos 81,00 Bs · pagos aplicados 81,00 Bs» · «Deuda pendiente 0,00 Bs · a favor … 9,00 Bs» · −9,00; V **0,00**; I **0,00**; q3 «Imputado: Verano 2026 21,00 Bs · sin imputar 9,00 Bs (queda a favor, sin campaña)»; Resumen V 0 / I 0; Inicio 0,00 · «A favor de familias: 9,00 Bs» |
+| **M-2r** Variante revertida | Como M-2, pero tras q1 y q2 (c1 ← 60) se revierte c1 (r1 −81) y luego se registra q3 −30 | El código viejo imputa q3 → c1 21 (cargo revertido) | q3 **no** se imputa (c1 no es deuda). Todas «Cargos 81,00 Bs · revertidos 81,00 Bs · pagos aplicados 0,00 Bs» · «Deuda pendiente 0,00 Bs · a favor … 90,00 Bs» (liberado 60,00 + sin imputar 30,00) · −90,00; q3 «Sin imputación registrada: 30,00 Bs (queda a favor, sin campaña)» |
+| **M-3** Cargos del mismo día | c1 10/08, I, +30 (id menor, instante 18:00). c2 10/08, I, +20 (id mayor, instante 00:00, registrado después con selector de día). q1 21/10, −25, en I | Imputa c2 20 y c1 5 (orden por instante) | Imputa **c1 25** (día y luego id). c1 «Pendiente a hoy 5,00 Bs», c2 «Pendiente a hoy 20,00 Bs»; I **25,00** en los dos casos. El cronológico muestra c1 antes que c2 |
+| **M-4** Cargo tardío en una campaña cerrada | c1 15/03, V, +81. c2 10/08, I, +40. q1 20/10, −50, en I (c1 ← 50). Tardía confirmada con fecha 20/06 en V → c3 +30. Después q2 −40, en I | V 111 · I −50 · Todas 61 | q2 imputa c1 31 y c3 9 (c3 tiene día 20/06, antes que c2). V **21,00** (c3 «Pendiente a hoy 21,00 Bs»), I **40,00**, Todas 61,00. El cronológico de V cierra en **111,00** tras la tardía (81,00 antes de confirmarla) |
+| **M-4b** Pago registrado con el filtro en una campaña cerrada | c1 15/03, V, +81. c2 10/08, I, +40. Filtro V; q1 hoy, −50, registrado en V → c1 ← 50 | V 31 · I 40 · cronológico V 31 (el pago aparece en V) | Diálogo: «Se registra en: Verano 2026 (cerrada). En el estado cronológico aparecerá por su fecha, {hoy}». V **31,00** · I **40,00**. Cronológico V cierra en **81,00** (el pago no cae en su período); cronológico I: inicio 81 → 121 → 71, con q1 «registrado en Verano 2026» |
+| **M-5** Adelanto sin cargos | q1 05/07, `ADVANCE` −100, en I | Todas «A favor» −100 · I −100 · Inicio Familias −100 · Resumen I −100 | Todas «Sin cargos.» · «Deuda pendiente 0,00 Bs · a favor … 100,00 Bs» · −100,00; I «Sin cargos.» · **0,00**; detalle origen «Sin cargos.»; Inicio **0,00** · «A favor de familias: 100,00 Bs»; Resumen I **0,00** |
+| **M-6** Redondeo por lote | Dos compras de 0,25 L de un fungicida a 10,10 Bs/L, asignadas a Familiar (01/07 y 02/07). Aplicación de 0,5 L el 10/08 → 2,53 + 2,53 = **5,06** (0,5 × 10,10 = 5,05 sin redondeo por lote). q1 21/10, −5,05, en I | Todas 0,01 · I 0,01 | El cargo es **5,06 Bs**; c1 «Pendiente a hoy 0,01 Bs»; I **0,01**; costo del producto 5,06. Ningún importe se recalcula |
+| **M-7** Tercero `BY_PURCHASE_ALLOCATION` | Compra 10/07 en I de 2 L de Glifosato a 45,00 para Tercero → +90. El tercero aplica 1 L el 15/08 (sin cargo; costo 45). q1 20/10, −60, sin campaña → c1 ← 60 | Todas 30 · I **90** · Terceros 30. Formulario: «No genera cargo: Tercero Demo ya pagó estos productos al comprarlos» (falso: debe 30) | Todas 30,00; I **30,00**; Terceros 30,00. Costo por chaco 45,00 sin cambio. En E-15 el formulario dice «Esta aplicación no genera cargo: a Tercero Demo se le cargó al comprarlo.» |
+| **M-8** Exportación CSV/PDF | D04-01 1a, filtro I | Columnas Fecha, Concepto, Chaco, Cargo, Crédito, Acumulado; «Saldo final» 121,00 | Columnas de §2.6. Filas: «Saldo al inicio del período (01/07/2026)» 81,00; 10/08 cargo 40,00, «Pendiente a hoy 40,00 Bs», 121,00; 20/10 «Pago», «registrado sin campaña», crédito 50,00, «Imputado: Verano 2026 50,00 Bs», 71,00. Totales de §2.6: 81,00 · 40,00 · 50,00 · 71,00 · 40,00 · 0,00 · 71,00. CSV y PDF con las mismas cifras |
+| **M-9** Titular con FIFO de varios lotes (E-15) | El Titular compra Glifosato 1 L a 45,00 (01/07) y 1 L a 38,00 (05/07) y aplica 2 L el 20/10 en I → 45 + 38 = **83,00** (`USAGE_CHARGE` 83). Variante: se revierte | Titular «Pendiente 83,00»; tras revertir 0,00 | Tarjeta «Consumo aplicado (costo FIFO) · todas las campañas 83,00 Bs» · «1 aplicación vigente». Tras revertir: «Consumo aplicado … 0,00 Bs» · «Sin aplicaciones vigentes · 1 revertida (83,00 Bs, no cuenta)» |
+| **M-10** Transferencia del titular (E-15) | El Titular compra 2 L de Glifosato a 45,00 (01/07). Transfiere 1 L a Familiar el 05/08 (sin cargo, RN-35). El Titular aplica 1 L el 10/08 (+45). Familiar aplica el litro recibido el 12/08 (+45) | Inicio Familias **90** (Titular 45 + Familiar 45) | Tarjeta: consumo **45,00 Bs** (lo transferido no es consumo propio); Familiar: deuda 45,00; Inicio Familias **45,00** |
+
+### D04-10 · Consistencia
+
+Cada prueba comprueba, sobre las mismas filas, las invariantes de §2.8 en la lista de Cuentas («Todas» y cada campaña), el detalle, la exportación, Inicio y el resumen de campaña. Costo por chaco y por producto no cambian en ningún ejemplo D04 ni M.
 
 ---
 
-## 4. Históricos sin imputación comprobable: qué se muestra
+## 4. Históricos sin imputación comprobable
 
-| Situación en la base | Cómo se reconoce | Texto | Dónde cuenta |
+| Situación | Cómo se reconoce | Texto | Dónde cuenta |
 |---|---|---|---|
-| Pago o adelanto sin ninguna imputación (anticipo sin deuda, o base anterior a v3) | `sin imputar(q)` = importe | «Sin imputación registrada: {x} (queda a favor, sin campaña)» | A favor sin imputar |
-| Pago parcialmente imputado | 0 < `sin imputar(q)` < importe | «Imputado: {K} {a} · sin imputar {u} (queda a favor, sin campaña)» | Imputado en su campaña; el resto, a favor |
-| Imputación guardada a un cargo revertido (D-15 o reversión posterior) | `imputado(c)` > `neto(c)` | «Imputado a un cargo revertido ({K}, {fecha}): {x}. Queda a favor.» | Liberado por reversión → a favor |
-| Pago con `campaign_id` NULL | `q.campaign_id IS NULL` | «registrado sin campaña» | Ninguna campaña; manda su fecha en el cronológico |
-| Crédito sin cargo de origen | `CREDIT_ADJUSTMENT` con `reversal_of_id IS NULL` | «Crédito sin cargo de origen registrado: {x} (queda a favor, sin campaña)» | A favor sin imputar |
+| Crédito sin ninguna imputación | u = \|importe\| | «Sin imputación registrada: {u} (queda a favor, sin campaña)» | *u* |
+| Crédito parcialmente imputado | 0 < u < \|importe\| | «Imputado: … · sin imputar {u} (queda a favor, sin campaña)» | aplicados + *u* |
+| Imputación guardada a un cargo revertido | imputado(c) > neto(c) | «Imputado a un cargo revertido ({K}, {fecha}): {x}. Queda a favor.» | *L* |
+| Crédito con `campaign_id` NULL | NULL | «registrado sin campaña» | cronológico por fecha |
+| `CREDIT_ADJUSTMENT` sin cargo de origen | sin `reversal_of_id` | «Crédito sin cargo de origen registrado: {x} (queda a favor, sin campaña)» | *u* |
 
-No se distingue un anticipo sin deuda de un pago anterior a v3: no hay dato que lo pruebe y no se adivina. No se reasignan los NULL, no se crean imputaciones retroactivas y no se edita ninguna fila (I-7).
+- No se distingue un anticipo de un pago anterior a v3: no hay dato que lo pruebe.
+- Nada se reasigna, nada se imputa con retroactividad y no se edita ninguna fila (I-8).
 
 ---
 
@@ -363,100 +395,94 @@ No se distingue un anticipo sin deuda de un pago anterior a v3: no hay dato que 
 
 ### 5.1 D-04 (`feat/d04-imputacion-pagos-campanas`)
 
-**Repositorio (`lib/data/agro_repository.dart`):**
+**Repositorio:**
 
 | Id | Cambio |
 |---|---|
-| D-R1 | `addAccountPayment`: el cargo candidato pasa a ser «importe > 0 y `reversal_of_id IS NULL`», con pendiente = importe − revertido − imputado (subconsulta a los `CREDIT_ADJUSTMENT` con `reversal_of_id`). El orden sigue siendo `transaction_date, id` (RN-38). Devuelve las imputaciones escritas para el mensaje de §2.4. Sin cambios de esquema |
-| D-R2 | Nueva lectura de desglose por persona (y por campaña de origen): cargos, revertidos, pagos aplicados, liberado, deuda pendiente, a favor sin imputar y saldo neto. Va en **una** consulta con CTE: lo exige el límite de consultas de las pruebas de pantalla con *settle* fijo |
-| D-R3 | `settlements({campaignId})` sobre D-R2, con las columnas nuevas. «Todas» ordena por saldo neto y K por deuda_K |
-| D-R4 | `personCampaignBalance` se sustituye por una lectura de período: apertura por día local < inicio, filas del período, cierre. Usa `CampaignPeriod.contains` y ordena por día y luego `id` (F04 §2.3) |
-| D-R5 | `detailedStatement`: filtro por período en lugar de `campaign_id`; añade el nombre de la campaña del asiento y, para pagos y cargos, su estado de imputación (§2.5) |
-| D-R6 | `dashboard()`: «Familias/Terceros por cobrar» = Σ max(0, neto) por rol, sin aumentar el número de consultas |
-| D-R7 | `campaignCloseSummary.receivable_bob_minor` = Σ deuda pendiente_K por origen |
-| D-R8 | `statement()` (sólo lo usan pruebas) queda igual |
+| D-R1 | `addAccountPayment` (y un nuevo `registerAccountPayment` que devuelve las imputaciones escritas). Los candidatos son los **cargos** de §2.1 con pendiente = importe − revertido − imputado. El orden es **día local y luego id**. Sólo afecta a pagos nuevos. Sin esquema nuevo |
+| D-R2 | `accountLedger({personId})`: **una** consulta (`UNION ALL` de campañas, personas, asientos e imputaciones). La clasificación y los cálculos de §2.1 se hacen en Dart puro (`lib/domain/account_ledger.dart`), con los días locales de `campaign_calendar.dart` |
+| D-R3 | `accountSummaries({campaignId})` sobre D-R2: C, R, A y P del alcance, más *P* total, *u*, *L*, *X*, *F* y *N* también con filtro K, sin ADMIN y con el orden de §2.3 |
+| D-R4 | `accountStatement(personId, {campaignId})` sobre D-R2: desglose por origen, cronológico por período con apertura y cierre, y textos de estado (§2.5). Una consulta |
+| D-R5 | `dashboard()`: las cifras de familias, terceros y pagos recibidos salen de **una** lectura de D-R2 (sustituye tres consultas por una), con «A favor de …» |
+| D-R6 | `campaignCloseSummary.receivable_bob_minor` = Σ P_K, sin ADMIN (D-R2 sustituye a una consulta) |
+| D-R7 | Las lecturas heredadas `settlements`, `topSettlements`, `detailedStatement`, `personCampaignBalance` y `statement` y sus versiones tipadas **se conservan sin cambios** para sus consumidores de prueba (caracterización de EVO-004). Las pantallas dejan de usarlas, salvo `topSettlements`, que sigue en Inicio en D-04 |
 
-**Modelos (`lib/domain/read_models.dart`, `typed_reads.dart`):** `SettlementRead` con los campos nuevos; `PersonCampaignBalanceRead` pasa a ser una lectura de período; `StatementEntryRead` gana el nombre de campaña y la imputación. `StatementLine.runningBalance` no cambia.
-
-**Pantallas y reportes:**
-- `settlements_screen.dart`: tarjeta §2.3, diálogo §2.4, detalle §2.5.
-- `report_composer.dart`: estado de cuenta §2.6 y rótulo del resumen §2.7.
+**Pantallas y servicios:**
+- `settlements_screen.dart`: §2.3–§2.5. El número de consultas de `_load` no cambia (5).
+- `report_export_service.dart:168-196` y `report_composer.dart`: §2.6 y rótulo del resumen.
 - `catalogs_screen.dart:204`: rótulo del diálogo de cierre.
-- `person_detail_screen.dart` y `persons_screen.dart`: rótulo «saldo neto».
+- `dashboard_screen.dart`: línea «A favor de …».
+- Selector de Reportes: sin cambio en D-04.
+- `person_detail_screen.dart:31`: sin cambio en D-04.
 
 **Pruebas:**
-- Una prueba de repositorio por ejemplo, D04-01 a D04-09, con las invariantes de §2.9.
-- Una prueba de widget de la tarjeta y del detalle con los textos exactos, y otra de exportación.
-- Hay que actualizar, con nota, las caracterizaciones que fijan el comportamiento viejo: `v4_repository_test` («saldo inicial cruza campañas…»: la apertura por fecha sigue dando 100 000, pero `campaign_payments` desaparece), `report_reads_characterization_test`, `typed_reads_parity_test`, `reports_test`, `report_composer_test`, `report_export_service_test`, `e2e_*`.
+- Un archivo con los ejemplos sobre las lecturas nuevas.
+- Otro sobre las API que ya existían en `ed9c55c` (imputaciones, `dashboard`, `campaignCloseSummary`, textos de Cuentas y de Inicio, exportación), que falla por aserción en la base.
+- `regression_widget_test` cambia su repositorio falso porque la pantalla lee otra fuente (decisión D-04, D04-01).
 
-**Documentos:**
-- `docs/15_BUSINESS_RULES.md` RN-38, RN-39, RN-40, RN-42.
-- `docs/05_FEATURES.md` F-10, F-11, F-15.
-- `docs/27_KNOWN_ISSUES.md` KI-05 (resuelto).
-- `docs/31_TRACEABILITY_MATRIX.md`.
+**Documentos:** RN-37 a RN-42, F-10/F-11, KI-05.
 
-### 5.2 E-15 (`feat/e15-consumo-propio-titular`, apilada sobre D-04)
+### 5.2 E-15 (`feat/e15-consumo-propio-titular`)
 
 | Id | Cambio |
 |---|---|
-| E-R1 | D-R2 recibe el titular vigente (`owner_bindings` con `ended_at IS NULL`, en la misma consulta) y lo excluye de las cuentas por cobrar: `settlements`, `topSettlements`, «Familias/Terceros por cobrar», «Pagos recibidos» y el resumen de campaña. Sin titular vinculado, todo queda como en D-04 |
-| E-R2 | Nueva lectura de consumo propio: desde `applications` del titular con `reversed_at IS NULL` (costo FIFO de `application_consumptions`, ya volcado en `total_cost_bob_minor`), con filtro por la campaña de la aplicación. Cuenta las vigentes y las revertidas (número e importe). Resume los asientos de su cuenta por tipo. Una sola consulta |
-| E-R3 | No cambia ninguna escritura. El titular conserva su política y sigue recibiendo `USAGE_CHARGE`, y sus imputaciones se siguen creando |
+| E-R1 | D-R2 añade a la **misma** consulta los vínculos (`owner_bindings`) y las aplicaciones de las personas que han sido titulares. Un asiento es propio según los intervalos del criterio Q-3 |
+| E-R2 | Consumo propio = aplicaciones no revertidas del titular dentro de su intervalo, con su costo FIFO, más las revertidas aparte. Va **dentro** de D-R2: no se añade ninguna consulta a `_load` de Cuentas |
+| E-R3 | Los asientos propios salen de cuentas por cobrar, Inicio («por cobrar», «Pagos recibidos», «Principales saldos», que pasa a leerse de D-R2 en `dashboard()`) y resumen de campaña. No cambia ninguna escritura |
 
 **Pantallas:**
-- `settlements_screen.dart`: tarjeta «Consumo y costos propios» encima de la lista; el titular sale de la lista; menú según Q-2; textos de lista vacía (§B.2).
-- `dashboard_screen.dart`: sin cambio de código; las cifras vienen de E-R1.
-- `persons_screen.dart` y `person_detail_screen.dart` para el titular.
-- `application_form_screen.dart` `_chargeText` para el titular en modo compartido.
-- `report_composer.dart`: variante «Movimientos propios del titular».
+- Tarjeta «Consumo y costos propios».
+- «Movimientos propios» y su exportación.
+- Personas y su detalle (`person_detail_screen.dart:31` pasa a D-R4).
+- `application_form_screen.dart` (hallazgos 6 y 17).
+- El selector de Reportes conserva a la persona; la exportación del titular se compone como «Movimientos propios del titular».
 
-**Pruebas:**
-- E15-01 a E15-06.
-- Hay que revisar `personal_mode_flows_test` («liquidación: pagos y adelantos sólo del titular», según Q-2) y `f04_historical_admin_owner_test` (el conjunto de `settlements()` no cambia porque sigue sin ADMIN; la tarjeta nueva sí incluye al titular ADMIN).
-
-**Documentos:** RN-27, RN-41 y F-10/F-15 (precisión por titularidad).
+**Documentos:** RN-27, RN-41, F-10, F-15.
 
 ---
 
 ## 6. Contradicciones con contratos y reglas existentes
 
-| Id | Regla o contrato | Contradicción | Tratamiento propuesto |
+| Id | Regla o contrato | Contradicción | Tratamiento |
 |---|---|---|---|
-| **C-01** | `_briefs/BRIEF_00_Rebaseline_Project3.md:244`: MOB #49 `[REC-013] Cuentas, pagos, adelantos y saldos` se clasificó «fuera-de-alcance-tesis… Se conserva sin evolución» (Cap. I, 1.7) | D-04 y E-15 **evolucionan** esa funcionalidad. No hay RF del Cap. III que la cubra | Es una decisión del autor del 2026-10-27. Hay que dejar constancia en el Project o el issue (operación GitHub fuera de esta fase) y no inventar un RF. Ver Q-6 |
-| **C-02** | RN-38: pendiente = `cargo − SUM(imputaciones)` | D-R1 resta además las reversiones y excluye los positivos con `reversal_of_id` (corrige D-15). Cambia qué cargo cancela un pago futuro cuando hay cargos revertidos (D04-07) | Se trata como precisión de RN-38: se conservan el FIFO de deuda y el cruce de campañas. Necesita confirmación (Q-5) |
-| **C-03** | RN-42, F-10 «Continuidad entre campañas» y F-11: la apertura por campaña es la suma de los asientos **de campañas** que empiezan antes | El cronológico con apertura pasa a ser **por fecha** (§2.2). Cambian cifras, por ejemplo el cronológico de I en D04-06: 0,00 pasa a 81,00 | Resuelve KI-05 y la decisión exige separar los dos cálculos. Necesita confirmación (Q-4) |
-| **C-04** | RN-37, interpretación en la UI: saldo > 0 «Saldo pendiente», ≤ 0 «Saldo a favor», con o sin filtro | Con filtro, la cifra grande es la deuda pendiente por origen (≥ 0). «A favor» sólo existe a nivel de persona | Rótulos de §2.3 |
-| **C-05** | RN-39 («detalle fino»: el adelanto previo «compensa» el cargo por suma) | El saldo neto sigue siendo 0, pero el desglose muestra deuda pendiente 250 y a favor 250 por separado (D04-05) | Consecuencia directa de «no fabricar». Q-1 |
-| **C-06** | RN-41: el ADMIN «nunca aparece en la pantalla de cuentas» | En E-15, un titular ADMIN aparece en Cuentas, en «Consumo y costos propios», pero no en la liquidación | Precisión de RN-41: sigue fuera de la liquidación |
-| **C-07** | RN-27 / RN-01: «el familiar paga por lo que usa»; la política sale del rol | El titular FAMILY sigue con `BY_ACTUAL_USAGE` y `USAGE_CHARGE`, pero esos cargos no son deuda | Precisión por titularidad (E-15); no se cambia la política |
-| **C-08** | F04 §2.3: las vistas privadas de saldo e historial ordenan por **día efectivo** y luego `id` | `detailedStatement` ordena hoy por `transaction_date` completo (instante) y `id` | Gana el contrato: D-R4 y D-R5 ordenan por día y luego `id` |
-| **C-09** | `01_DECISIONES_DE_NEGOCIO.md` §5: «Inicio no lo suma en Familias por cobrar (ya ocurre)» | Por lectura, el titular FAMILY **sí** se suma (H-20). No es un contrato, sino un dato del análisis previo | E15-01 fija la cifra. Se recomienda confirmarlo en el emulador en la fase 2 |
-| **C-10** | `01_DECISIONES_DE_NEGOCIO.md` §2: recomendaba exigir campaña al pagar y una línea «Pagos sin campaña asignada» | La decisión del autor la sustituye: no se exige campaña y se usan las imputaciones | Se sigue la decisión del autor |
-| **C-11** | F-15 / Inicio: «Familias por cobrar» como suma de saldos con signo | Pasa a Σ max(0, neto) por persona. En E-15, además, sin el titular | §2.7 |
-| **C-12** | #26 y `personal_mode_flows_test`: en modo propio sólo se ofrece pago o adelanto al titular | Si se acepta Q-2, al titular no se le ofrece; en propio no quedaría ninguna acción de pago | Q-2 |
+| **C-01** | `BRIEF_00_Rebaseline_Project3.md:244`: MOB #49 (REC-013) quedó fuera de alcance, «se conserva sin evolución» | D-04 y E-15 la evolucionan; no hay RF en el Cap. III | Se deja constancia aquí: REC-013 se evoluciona por decisión del autor del 2026-10-27. **No se toca el Project** (orden expresa del autor) |
+| **C-02** | RN-38: pendiente = cargo − Σ imputaciones, ordenado por fecha. `01_DECISIONES:47` decía, para D-15, que no se cambiaba nada | Un pago nuevo deja de imputarse a cargos revertidos y se ordena por día y luego id | Criterio Q-5 (§7) |
+| **C-03** | RN-42, F-10 «Continuidad» y F-11: la apertura se calcula por campaña | La apertura pasa a calcularse por fecha | Criterio Q-4. Se reescriben RN-42 y F-10/F-11 |
+| **C-04** | RN-37 en la UI: «Saldo pendiente» o «Saldo a favor» con y sin filtro | Con filtro, la cifra es la deuda por origen (≥ 0) | §2.3 |
+| **C-05** | RN-39: el adelanto previo «compensa» por suma | La deuda por cargo y el a favor se muestran por separado | Criterio Q-1 |
+| **C-06** | RN-41: el ADMIN nunca aparece en Cuentas | El titular ADMIN aparece en «Consumo y costos propios», fuera de la liquidación | Precisión de RN-41 en E-15 |
+| **C-07** | RN-27/RN-01 | Los cargos por consumo del titular no son deuda | Precisión en E-15 |
+| **C-08** | F04 §2.3: orden por día efectivo y luego id | Hoy el orden es por instante | Gana el contrato: vistas e imputación nueva |
+| **C-09** | `01_DECISIONES` §5: «Inicio no lo suma» | El código lo suma (H-20) | Confirmado en el código; se comprobará en el emulador en la verificación integrada |
+| **C-10** | `01_DECISIONES` §2 recomendaba exigir campaña | La decisión del autor lo sustituye | Se sigue la decisión |
+| **C-11** | F-15: «por cobrar» = suma con signo por rol | Σ max(0, P − F) por persona, con línea «A favor de …» | Criterio C-11 de §7 |
+| **C-12** | #26: en modo propio, pago y adelanto sólo al titular | Se conserva (criterio Q-2) | Sin cambio |
+| **C-13** | F04 §2.3 pide la leyenda «Incluye operaciones tardías confirmadas» | No está implementada (H-27) y D-04 no la añade | Carencia previa declarada; el cierre del período puede cambiar (M-4) |
 
-No se encontró contradicción con F03, con F04 §1 (RF-13, reversiones auditadas: no se toca su escritura) ni con F04 §2 (las tardías añaden cargos con su fecha y su campaña cerrada; aparecen en el período y en el origen correctos). Tampoco con el contrato de sincronización (H-25).
+No hay contradicción con F03, con F04 §1 (no se toca la escritura de las reversiones) ni con el contrato de sincronización (H-25).
 
 ---
 
-## 7. Dudas que cambian materialmente lo aprobado
+## 7. Criterios de aplicación y puntos que el autor puede revisar
 
-| Id | Duda | Opciones | Recomendación |
-|---|---|---|---|
-| **Q-1** | Crédito sin imputar cuando llegan cargos posteriores (D04-05) | **A** (diseño base): no se imputa nunca; la deuda por cargo y el «a favor» se muestran por separado. **B:** al crear un cargo (compra, aplicación, tardía), imputar en la misma transacción el crédito disponible más antiguo, con una imputación real que cambia RN-39. **C:** acción explícita «Aplicar saldo a favor» | A para D-04. B como mejora posterior, si el autor la aprueba |
-| **Q-2** | ¿Se sigue ofreciendo «Registrar pago/adelanto» al titular? | Quitarla (el titular no es deudor) frente a mantenerla como «pago propio» | Quitarla. Los históricos se siguen viendo. Cambia #26 y su prueba |
-| **Q-3** | ¿Quién es «el titular» en el tiempo? | Sólo el vínculo vigente: tras `changeOwner`, el titular anterior aparece como deudor de sus propios consumos y las deudas previas del nuevo pasan a consumo propio. Por intervalos: un asiento es propio si su fecha cae dentro de un vínculo de esa persona | Vínculo vigente en E-15 (simple y fiel a `owner_bindings`), con E15-06 como caso declarado |
-| **Q-4** | Cronológico por **fecha** en lugar de por `campaign_id` (C-03) | Por fecha (propuesta) frente a por campaña de registro más una línea de pagos NULL | Por fecha |
-| **Q-5** | Corregir la imputación nueva para no imputar a cargos revertidos (C-02, D-15) | Sí, en D-04 (D-R1), frente a dejarlo como está | Sí. Sin esto, el desglose nuevo mostraría pagos «perdidos» en cargos revertidos |
-| **Q-6** | Alcance (C-01) | Registrar en el Project que REC-013 se evoluciona por decisión del autor, o tratarlo sólo en este documento | Registrar, con el dry-run del bloque |
+Estos criterios los fija el coordinador, el 2026-10-27, para aplicar las decisiones del autor de esa misma fecha sin salir de lo aprobado. **No son decisiones nuevas atribuidas a Roderich Rendón**, y él puede revisarlos.
 
-La reversión de pagos de cuenta (H-10) no se plantea como duda: no está en lo aprobado y queda como limitación.
+| Punto | Criterio | Razón |
+|---|---|---|
+| **Q-5 / C-02** | Un pago **nuevo** no se imputa a cargos revertidos y se ordena por día local y luego id. Las imputaciones guardadas no se tocan y se muestran como en D04-07h | RN-38 imputa a **deudas**, y un cargo revertido no es deuda pendiente. `01_DECISIONES:47` daba D-15 por «sólo informativo» porque nadie leía las imputaciones. D-04 las convierte en la fuente de «qué deuda quedó pagada» (decisión del autor), así que imputar a un cargo revertido falsearía el desglose (D04-07, M-2r) |
+| **Q-1** | Opción A: el crédito sin imputar y el liberado por reversión quedan separados. Ninguna imputación se crea fuera de `addAccountPayment` (I-8) | La decisión prohíbe atribuir un anticipo a una campaña y fabricar asignaciones |
+| **Q-4 / C-03** | El estado cronológico es por fecha. Se actualizan RN-42 y F-10/F-11 | Es el único que cuadra con los NULL sin asignarles campaña |
+| **Q-2 / C-12** | **No** se quita al titular el pago ni el adelanto: no está aprobado y cambiaría #26. Esos asientos se muestran en «Consumo y costos propios» como «pagos y ajustes registrados», nunca como cobro ni como «Pagos recibidos» de Inicio | — |
+| **Q-3** | **Intervalos de vínculo.** Un asiento o una aplicación es «propio» si su persona era titular en el día local del asiento: día(`bound_at`) ≤ día < día(`ended_at`). Lo anterior al primer `bound_at` se atribuye al primer titular, porque las bases migradas crean el vínculo después de los datos | Es un supuesto de **presentación**: no escribe ni cambia datos. La tarjeta muestra al titular vigente; el detalle de un titular anterior muestra «Consumo propio mientras fue titular» |
+| **C-11** | Inicio: «por cobrar» = Σ max(0, P − F) por persona, más «A favor de familias/terceros: X» si X > 0 | «Conservan sus reglas» se refiere a las políticas de cargo, no a la agregación |
+| **C-01 / Q-6** | No se toca el Project; sólo se deja constancia en este documento | Orden expresa del autor |
+| **C-09** | Confirmado en el código; se comprobará en el emulador en la verificación integrada | — |
 
 ---
 
 ## 8. Origen de las decisiones
 
-D-04 y E-15 son **decisiones del autor del proyecto, Roderich Rendón, del 2026-10-27**. Este documento las desarrolla en ejemplos y diseño para su revisión cruzada. No se atribuye ninguna aprobación al tutor ni a la Directiva. Las opciones de §7 están pendientes de decisión del autor.
+D-04 y E-15 son **decisiones del autor del proyecto, Roderich Rendón, del 2026-10-27**. Este documento las desarrolla. Los criterios de §7 son criterios de aplicación del coordinador y el autor puede revisarlos. No se atribuye ninguna aprobación al tutor ni a la Directiva.
 
 ---
 
@@ -464,115 +490,46 @@ D-04 y E-15 son **decisiones del autor del proyecto, Roderich Rendón, del 2026-
 
 ### B.1 Definición
 
-- **Titular:** `owner_bindings.person_id` con `ended_at IS NULL` (Q-3). No se usa `persons.role`: un titular puede ser FAMILY o ADMIN. Si no hay titular vinculado, no hay tarjeta y todo sigue como en D-04.
-- **Consumo aplicado (costo FIFO):** Σ `applications.total_cost_bob_minor` de las aplicaciones con `person_id` = titular y `reversed_at IS NULL`, con filtro por `applications.campaign_id`. Es el costo FIFO real de los lotes consumidos, sea cual sea su política (H-04 no interviene).
-  - Las aplicaciones revertidas se informan aparte y no cuentan.
-  - Las compras asignadas al titular **no** son costo hasta que se aplican; están en Inventario.
-  - Lo que el titular transfiere a otra persona no es consumo suyo (RN-35, D-07).
-- **Asientos de su cuenta:** sus cargos, créditos por reversión y pagos o adelantos se conservan y se muestran como registro, **no como deuda**. No entran en pendientes, en totales por cobrar, en «Pagos recibidos», en «Principales saldos» ni en el resumen de campaña.
+- **Titular:** en la tarjeta, el vínculo vigente de `owner_bindings`. La propiedad de cada asiento sigue los intervalos de Q-3. No se usa `persons.role`: el titular puede ser FAMILY o ADMIN.
+- **Consumo aplicado (costo FIFO):** Σ `applications.total_cost_bob_minor` de las aplicaciones de la persona dentro de su intervalo y con `reversed_at IS NULL`, filtradas por la campaña de la aplicación. La política de cargo no interviene.
+  - Las revertidas se informan aparte.
+  - Las compras asignadas no son costo hasta que se aplican.
+  - Lo transferido a otros no es consumo propio (M-10).
+- **Asientos propios:** se conservan y se muestran como registro: cargos anotados, créditos por reversión y pagos y ajustes registrados. No entran en pendientes, en «por cobrar», en «Pagos recibidos», en «Principales saldos» ni en el resumen de campaña.
 
 ### B.2 Textos exactos
 
-- **Tarjeta (encima de la lista):** «Consumo y costos propios · {titular}». Contenido:
-  - «Consumo aplicado (costo FIFO) · {todas las campañas | K}» {X};
-  - «{n} aplicación vigente» o «{n} aplicaciones vigentes» y, si m > 0, «· {m} revertida(s) ({y}, no cuentan)», con singular o plural según el número;
-  - «Asientos en su cuenta, todas las campañas (no son deuda): cargos {c} · créditos por reversión {r} · pagos y adelantos propios {q}», o «Sin asientos en su cuenta.».
-  - Menú: «Ver movimientos propios» y «Exportar movimientos propios»; pago y adelanto según Q-2.
-- **Lista vacía sin el titular:** en modo propio, «En inventario propio no hay cuentas por cobrar.»; en compartido, el texto actual. La tarjeta del titular se muestra igual.
+- **Tarjeta (encima de la lista):** cabecera «Consumo y costos propios» y el nombre del titular.
+  - Consumo: «Consumo aplicado (costo FIFO) · {todas las campañas | K} {X}».
+  - Aplicaciones: «1 aplicación vigente», «{n} aplicaciones vigentes» o, con n = 0, «Sin aplicaciones vigentes». Si hay revertidas, se añade « · 1 revertida ({y}, no cuenta)» o « · {m} revertidas ({y}, no cuentan)».
+  - Asientos: «Asientos en su cuenta (no son deuda): cargos anotados {c} · créditos por reversión {r} · pagos y ajustes registrados {q}», o «Sin asientos en su cuenta.».
+  - Menú: «Ver movimientos propios», «Exportar movimientos propios», «Registrar pago», «Registrar adelanto» (Q-2).
+- **Lista sin otras personas:** en modo propio, «En inventario propio no hay cuentas por cobrar.»; en compartido, el texto actual. La tarjeta se muestra igual.
 - **«Movimientos propios · {titular}»:**
-  - sección «Consumo aplicado (costo FIFO)», con una línea por campaña «{K}: {x} ({n} aplicaciones)» y «Aplicaciones revertidas: {m} ({y})»;
-  - sección «Asientos de su cuenta (registro, no deuda)», con las filas del cronológico de §2.5 **sin «Acumulado» ni líneas de saldo**.
-- **Exportación «Movimientos propios del titular»:** columnas Fecha · Concepto · Chaco · Campaña del asiento · Cargo (Bs) · Crédito (Bs); totales «Consumo aplicado, costo FIFO (Bs)», «Cargos anotados (Bs)», «Créditos por reversión (Bs)», «Pagos y adelantos propios (Bs)». Sin «Acumulado» ni «Saldo».
-- **Personas:** fila del titular «Titular · consumo propio {X}». Detalle: subtítulo «{rol} · titular · consumo propio {X}»; tile «Consumo aplicado (costo FIFO) · todas las campañas»; pestaña Cuenta sin «Acumulado».
-- **Formulario de aplicación, modo compartido, titular `BY_ACTUAL_USAGE`:** «Costo propio: {X} (queda anotado en la cuenta de {titular}; no es deuda)». En modo propio, el texto actual (H-24).
+  - sección «Consumo aplicado (costo FIFO)», con «{K}: {x} ({n} aplicación|aplicaciones)», «Aplicaciones revertidas: {m} ({y})» y «Consumo aplicado · todas las campañas {X}»;
+  - sección «Asientos de su cuenta (registro, no deuda)», con filas cronológicas **sin «Acumulado» ni líneas de saldo**. En los cargos no se muestra «Pendiente a hoy» ni «Pagado», sólo «Revertido el …» si procede.
+- **Exportación «Movimientos propios del titular»:** columnas Fecha · Concepto · Chaco · Campaña del asiento · Cargo (Bs) · Crédito (Bs); totales «Consumo aplicado, costo FIFO (Bs)», «Cargos anotados (Bs)», «Créditos por reversión (Bs)», «Pagos y ajustes registrados (Bs)».
+- **Personas:** fila del titular vigente con subtítulo «{rol} · titular · {superficie}» y cifra «Consumo propio {X}». Detalle con subtítulo «{rol} · titular · consumo propio {X}», tile «Consumo aplicado (costo FIFO) · todas las campañas» y pestaña Cuenta sin «Acumulado» para los asientos propios. Un titular anterior muestra además «Consumo propio mientras fue titular {X}».
+- **Formulario de aplicación:**
+  - para el titular, en cualquier modo y con cualquier política: «Costo propio: {X}», con «(queda anotado en la cuenta de {T})» si es `BY_ACTUAL_USAGE`;
+  - para cualquier persona `BY_PURCHASE_ALLOCATION`: «Esta aplicación no genera cargo: a {T} se le cargó al comprarlo.».
 
 ### B.3 Ejemplos
 
-Datos de §3.0. Productos: Glifosato a 45,00 Bs/L, Bellator a 180,00 Bs/L y Cipermetrina a 80,00 Bs/L, todos de lotes FIFO a ese costo.
+Precios: Glifosato a 45,00 Bs/L, Bellator a 180,00 Bs/L y Cipermetrina a 80,00 Bs/L. El titular se vincula en la activación: todo lo anterior se le atribuye por Q-3.
 
-#### E15-01 · Titular con `USAGE_CHARGE` (compartido)
-
-**Entrada:**
-- a_t: 20/10/2026, I, el Titular aplica en Chaco Norte Glifosato 1 L (45,00) y Bellator 0,2 L (36,00) → `USAGE_CHARGE` +81,00.
-- Familiar Demo: 18/10/2026, I, aplica Cipermetrina 0,25 L → +20,00.
-
-| Vista | Hoy | Esperado |
-|---|---|---|
-| Cuentas · Todas | 1.º «Titular · Cargos 81,00 · pagos/créditos 0,00 · Pendiente · todas 81,00»; Familiar Demo 20,00; Tercero 0,00 | Tarjeta: «Consumo aplicado (costo FIFO) · todas las campañas 81,00» · «1 aplicación vigente» · «Asientos…: cargos 81,00 · créditos por reversión 0,00 · pagos y adelantos propios 0,00». Lista: Familiar Demo neto 20,00; Tercero 0,00 (sin Titular) |
-| Cuentas · I | igual que Todas | Tarjeta «Consumo aplicado (costo FIFO) · Invierno 2026 81,00»; Familiar Demo «Deuda pendiente · Invierno 2026» 20,00 |
-| Inicio | **Familias por cobrar 101,00** (Titular + Familiar) · Principales saldos: Titular 81,00 «Familiar», Familiar Demo 20,00, Tercero 0,00 | Familias por cobrar **20,00** · Principales saldos: Familiar Demo 20,00, Tercero 0,00 |
-| Resumen I | «Saldo por cobrar» 101,00 | «Deuda pendiente de la campaña (por origen)» **20,00** («Aplicaciones registradas» 101,00, sin cambio) |
-| Personas | Titular 81,00 | «Titular · consumo propio 81,00» |
-| Exportación del Titular | «Estado de cuenta» … «Saldo final» 81,00 | «Movimientos propios del titular»: consumo aplicado 81,00 · cargos anotados 81,00 · créditos por reversión 0,00 · pagos propios 0,00 |
-| Costo por chaco / producto | Chaco Norte 81,00 · Chaco Familiar 20,00; Glifosato 45,00 · Bellator 36,00 · Cipermetrina 20,00 | sin cambio |
-
-#### E15-02 · Titular con política sin cargo por consumo
-
-**E15-02a, titular ADMIN (`MANUAL`, H-11):** aplica el 20/10/2026 en I, en Chaco Norte, por 81,00. No se crea ningún asiento.
-
-| Vista | Hoy | Esperado |
-|---|---|---|
-| Cuentas | El titular no aparece (RN-41); su costo sólo se ve en «Costo por chaco» (Chaco Norte 81,00) | Tarjeta «Consumo aplicado (costo FIFO) · todas las campañas 81,00» · «1 aplicación vigente» · «Sin asientos en su cuenta.» |
-| Inicio | sin efecto | sin efecto |
-| Personas | «Administrador · no participa en la liquidación» | «Titular · consumo propio 81,00» |
-
-**E15-02b, titular FAMILY con `BY_PURCHASE_ALLOCATION`:** sólo en una base histórica o de prueba; la UI no lo produce (RN-01). Compra el 05/07/2026 en I de 2 L de Glifosato asignados al titular → `PURCHASE_ALLOCATION_CHARGE` +90,00. Aplica 1 L el 20/10/2026 → costo 45,00, sin asiento.
-
-| Vista | Hoy | Esperado |
-|---|---|---|
-| Cuentas · Todas | «Titular · Pendiente · todas 90,00» | Tarjeta «Consumo aplicado (costo FIFO) · todas las campañas **45,00**» · «Asientos…: cargos 90,00 · créditos por reversión 0,00 · pagos y adelantos propios 0,00» |
-| Inicio | Familias por cobrar incluye 90,00 | lo excluye |
-| Inventario | 1 L de Glifosato, valor 45,00 | igual (no es costo) |
-
-#### E15-03 · Titular con aplicación revertida
-
-**Entrada (Titular FAMILY):**
-- a1: 15/10/2026, I, 81,00 → +81,00.
-- 18/10/2026: se revierte a1 → `CREDIT_ADJUSTMENT` −81,00.
-- a2: 20/10/2026, Glifosato 1 L → +45,00.
-
-| Vista | Hoy | Esperado |
-|---|---|---|
-| Cuentas · Todas | «Titular · Cargos 126,00 · pagos/créditos 81,00 · Pendiente 45,00» | Tarjeta «Consumo aplicado (costo FIFO) · todas las campañas **45,00**» · «1 aplicación vigente · 1 revertida (81,00, no cuenta)» · «Asientos…: cargos 126,00 · créditos por reversión 81,00 · pagos y adelantos propios 0,00» |
-| Inicio | Familias por cobrar incluye 45,00 | lo excluye |
-| Costo por chaco | Chaco Norte 45,00 | sin cambio |
-
-El consumo sale de las aplicaciones. Con `BY_ACTUAL_USAGE` coincide con cargos − créditos por reversión (126 − 81), pero no se calcula así.
-
-#### E15-04 · Titular con pago propio
-
-**Entrada (Titular FAMILY, compartido o propio):** a_t, 20/10/2026, 81,00 → +81,00. El 21/10/2026, «Registrar pago» al Titular por 81,00 → `PAYMENT` −81,00, imputado a su cargo.
-
-| Vista | Hoy | Esperado |
-|---|---|---|
-| Cuentas · Todas | «Titular · Cargos 81,00 · pagos/créditos 81,00 · Pendiente 0,00» | Tarjeta «Consumo aplicado (costo FIFO) · todas las campañas **81,00**» (el pago no reduce el costo) · «Asientos…: cargos 81,00 · créditos por reversión 0,00 · pagos y adelantos propios 81,00» |
-| Inicio | **Pagos recibidos 81,00** · Familias 0,00 | Pagos recibidos **0,00** · Familias 0,00 |
-| Movimientos propios | — | El pago aparece como «Pago · registrado en Invierno 2026 · Imputado: Invierno 2026 81,00», sin acumulado |
-
-Si se acepta Q-2, este caso sólo puede salir de datos históricos.
-
-#### E15-05 · Modo propio
-
-**Entrada:** modo PROPIO, Titular FAMILY y Familiar Demo con saldo 0 (condición para pasar a propio). El Titular aplica el 20/10/2026 por 81,00 → +81,00.
-
-| Vista | Hoy | Esperado |
-|---|---|---|
-| Cuentas | «Titular · Pendiente 81,00» con «Registrar pago/adelanto»; «Familiar Demo 0,00» con «Inventario propio: pagos sólo del titular» deshabilitado | Tarjeta «Consumo aplicado (costo FIFO) · todas las campañas 81,00»; lista: Familiar Demo «Saldo neto 0,00», con el mismo menú deshabilitado. Al titular no se le ofrece pago si se acepta Q-2 |
-| Cuentas, base con sólo el titular | Tarjeta del titular con 81,00 | Tarjeta del titular; debajo, «En inventario propio no hay cuentas por cobrar.» |
-| Inicio | Familias por cobrar 81,00 | **0,00** |
-| Formulario de aplicación | «Costo propio: 81,00 Bs (queda anotado en la cuenta de Titular)» | sin cambio |
-
-El modo propio con titular ADMIN es E15-02a.
-
-#### E15-06 · Cambio de titular (caso declarado de Q-3)
-
-**Entrada:** P1 (FAMILY) es titular y aplica el 10/08/2026 por 81,00 → +81,00. P2 (FAMILY) debía 20,00 por una aplicación suya del 05/08/2026. El 22/10/2026, `changeOwner` → P2 pasa a ser el titular.
-
-| Vista | Hoy | Esperado con el vínculo vigente (propuesta) | Si se eligiera «por intervalos» |
+| Id | Entrada | Hoy | Esperado |
 |---|---|---|---|
-| Cuentas | P1 81,00 y P2 20,00, ambos «Pendiente» | Tarjeta de P2: «Consumo aplicado (costo FIFO) · todas las campañas 20,00»; «Asientos…: cargos 20,00 · créditos por reversión 0,00 · pagos y adelantos propios 0,00». Lista: P1 neto **81,00** (deudor) | P1: 81,00 como consumo propio de un titular anterior (fuera de la lista); P2: 20,00 en la lista hasta resolverlo |
-| Inicio | Familias 101,00 | Familias **81,00** | Familias **20,00** |
+| **E15-01** USAGE_CHARGE, compartido | Titular aplica el 20/10 en I: Glifosato 1 L y Bellator 0,2 L → +81. Familiar aplica Cipermetrina 0,25 L el 18/10 → +20 | Cuentas: «Titular … Pendiente · todas 81,00» primero. **Inicio Familias 101,00**; Principales saldos con Titular 81. Resumen I 101 | Tarjeta: «Consumo aplicado (costo FIFO) · todas las campañas 81,00 Bs» · «1 aplicación vigente» · «Asientos en su cuenta (no son deuda): cargos anotados 81,00 Bs · créditos por reversión 0,00 Bs · pagos y ajustes registrados 0,00 Bs». Lista sin el Titular: Familiar 20. Inicio Familias **20,00**; Principales saldos sin el Titular; Resumen I **20,00**; Personas «Consumo propio 81,00 Bs». Costos sin cambio |
+| **E15-02a** Titular ADMIN | La base tiene un **titular ADMIN** (`MANUAL`, vinculado con confirmación) que aplica 81 el 20/10. No hay asientos | El titular no aparece en Cuentas (RN-41) | Tarjeta «Consumo aplicado … 81,00 Bs» · «1 aplicación vigente» · «Sin asientos en su cuenta.». Inicio sin efecto |
+| **E15-02b** Titular `BY_PURCHASE_ALLOCATION` | Base de prueba (la UI no lo produce). Compra 2 L de Glifosato el 05/07 → +90. Aplica 1 L el 20/10 → costo 45, sin asiento | «Titular · Pendiente 90,00» · Inicio incluye 90 | Tarjeta «Consumo aplicado … **45,00** Bs» · «cargos anotados 90,00 Bs». Inicio lo excluye |
+| **E15-03** Aplicación revertida | a1 81 el 15/10 → +81; se revierte (−81); a2 Glifosato 1 L el 20/10 → +45 | «Cargos 126 · pagos/créditos 81 · Pendiente 45» | Tarjeta «Consumo aplicado … **45,00** Bs» · «1 aplicación vigente · 1 revertida (81,00 Bs, no cuenta)» · «cargos anotados 126,00 Bs · créditos por reversión 81,00 Bs · pagos y ajustes registrados 0,00 Bs» |
+| **E15-04** Pago propio | a_t 81 el 20/10 → +81. El 21/10, «Registrar pago» al Titular por 81 **con el filtro I** → `PAYMENT` −81 en I, imputado a su cargo | **Inicio Pagos recibidos 81,00** | Tarjeta: consumo **81,00 Bs** · «pagos y ajustes registrados 81,00 Bs». Inicio Pagos recibidos **0,00**. Movimientos propios: «Pago · registrado en Invierno 2026», con «Imputado: Invierno 2026 81,00 Bs» y sin acumulado |
+| **E15-05** Modo propio | Modo PROPIO; Familiar con saldo 0; Titular aplica 81 el 20/10 | Titular «Pendiente 81» con pago y adelanto; Familiar con el menú deshabilitado; Inicio Familias 81 | Tarjeta con consumo 81 y pago y adelanto (Q-2); Familiar 0,00 con el menú deshabilitado; Inicio Familias **0,00**. Sólo el titular: «En inventario propio no hay cuentas por cobrar.» |
+| **E15-06** Cambio de titular (Q-3) | P1 titular desde la activación aplica el 10/08 → +81. P2 aplicó el 05/08 → +20. Luego `changeOwner` → P2 | Inicio Familias 101 | **Intervalos:** el 81 de P1 es propio de un titular anterior: P1 en la lista con 0,00 y en su detalle «Consumo propio mientras fue titular 81,00 Bs». El 20 de P2 es anterior a su vínculo y no es propio: P2 figura en la lista con 20,00 y su tarjeta dice «Sin aplicaciones vigentes». Inicio Familias **20,00** |
+| **M-9** | Ver la tabla M | | |
+| **M-10** | Ver la tabla M | | |
 
 ---
 
-*Documento de diseño, fase 1. Verificado sobre `ed9c55c` el 2026-10-27 por lectura del código; sin ejecución de pruebas.*
+*Revisión 2, 2026-10-27. Las cifras «hoy» se verificaron sobre `ed9c55c` por lectura del código y por la revisión cruzada.*
