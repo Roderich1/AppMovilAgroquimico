@@ -201,7 +201,7 @@ class _CatalogsScreenState extends ConsumerState<CatalogsScreen>
                     'Periodo: desde ${formatDate(row['start_date'])}.\n\n'
                     'Compras: ${summary.purchasesCount} · aplicaciones: ${summary.applicationsCount}\n'
                     'Planes pendientes: ${summary.pendingPlans}\n'
-                    'Saldo por cobrar: ${formatBob(summary.receivableBobMinor)}\n\n'
+                    'Deuda pendiente por origen: ${formatBob(summary.receivableBobMinor)}\n\n'
                     'La campaña dejará de admitir nuevas compras, aplicaciones, '
                     'transferencias y planes.\n\n'
                     'Una campaña cerrada NO se puede volver a activar desde la '

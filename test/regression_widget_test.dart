@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:agroquimicos/app.dart';
 import 'package:agroquimicos/data/agro_repository.dart';
 import 'package:agroquimicos/data/app_database.dart';
+import 'package:agroquimicos/domain/account_ledger.dart';
 import 'package:agroquimicos/domain/models.dart';
 import 'package:agroquimicos/presentation/screens/plan_form_screen.dart';
 import 'package:agroquimicos/presentation/screens/purchase_form_screen.dart';
@@ -147,7 +148,9 @@ void main() {
         await settle(tester);
         await tester.tap(find.text('Ver detalle cronológico'));
         await settle(tester);
-        expect(find.textContaining('Estado de cuenta'), findsOneWidget);
+        // D-04: el diálogo tiene además la cabecera «Estado de cuenta
+        // cronológico · …»; el título se distingue por «Estado de cuenta · ».
+        expect(find.textContaining('Estado de cuenta · '), findsOneWidget);
         await tester.tap(find.text('Cerrar'));
         await settle(tester);
         expect(find.text('Liquidación y cuentas'), findsOneWidget);
@@ -163,17 +166,28 @@ class _SettlementFakeRepository extends AgroRepository {
         AppDatabase(factory: databaseFactoryFfi, path: inMemoryDatabasePath),
       );
 
+  // D-04 (decisión del autor del 2026-10-27, ejemplo D04-01): Cuentas y su
+  // detalle leen el libro de cuentas (`accountLedger`) en lugar de
+  // `settlements`/`detailedStatement`. El falso devuelve la misma persona con
+  // el mismo adelanto que antes.
   @override
-  Future<List<Map<String, Object?>>> settlements({int? campaignId}) async => [
-    {
-      'id': 1,
-      'name': 'José',
-      'role': 'FAMILY',
-      'balance': -10000,
-      'charges': 0,
-      'payments': 10000,
-    },
-  ];
+  Future<AccountLedger> accountLedger({int? personId}) async =>
+      AccountLedger.build(
+        persons: const [LedgerPerson(id: 1, name: 'José', role: 'FAMILY')],
+        campaigns: const [],
+        entries: const [
+          LedgerEntry(
+            id: 1,
+            personId: 1,
+            campaignId: null,
+            transactionDate: '2026-06-01T00:00:00.000Z',
+            type: 'ADVANCE',
+            amountMinor: -10000,
+            concept: 'Adelanto',
+          ),
+        ],
+        allocations: const [],
+      );
 
   @override
   Future<List<Map<String, Object?>>> farmCostReport({int? campaignId}) async =>
@@ -186,28 +200,4 @@ class _SettlementFakeRepository extends AgroRepository {
 
   @override
   Future<List<Map<String, Object?>>> campaigns() async => [];
-
-  @override
-  Future<List<Map<String, Object?>>> detailedStatement(
-    int personId, {
-    int? campaignId,
-  }) async => [
-    // La fila reproduce lo que devuelve la consulta real: `t.*` más `concept`
-    // y `farm_name`. Antes omitía `campaign_id`, `notes` y `reversal_of_id`,
-    // que la consulta sí trae; el mapper tipado de EVO-004 lo detectó.
-    {
-      'id': 1,
-      'person_id': personId,
-      'campaign_id': campaignId,
-      'transaction_date': '2026-06-01T00:00:00.000Z',
-      'type': 'ADVANCE',
-      'amount_bob_minor_signed': -10000,
-      'reference_type': 'ADVANCE',
-      'reference_id': null,
-      'notes': null,
-      'reversal_of_id': null,
-      'concept': 'Adelanto',
-      'farm_name': null,
-    },
-  ];
 }

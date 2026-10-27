@@ -156,31 +156,45 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             final activeCampaign = data.campaigns
                 .where((campaign) => campaign.isActive)
                 .firstOrNull;
-            final cards = [
+            // D-04 (§2.7): «por cobrar» = Σ max(0, saldo neto) por persona; lo
+            // que queda a favor se dice aparte, sin restarlo de otra persona.
+            final summary = data.summary;
+            final cards = <(String, String, IconData, String?)>[
               (
                 'Compras',
-                formatBob(data.summary.purchasesBobMinor),
+                formatBob(summary.purchasesBobMinor),
                 Icons.shopping_bag_outlined,
+                null,
               ),
               (
                 'Pagado proveedores',
-                formatBob(data.summary.providerPaidMinor),
+                formatBob(summary.providerPaidMinor),
                 Icons.storefront_outlined,
+                null,
               ),
               (
                 'Familias por cobrar',
-                formatBob(data.summary.familyReceivableMinor),
+                formatBob(summary.familyReceivableMinor),
                 Icons.family_restroom_outlined,
+                summary.familyCreditMinor > 0
+                    ? 'A favor de familias: '
+                          '${formatBob(summary.familyCreditMinor).trim()}'
+                    : null,
               ),
               (
                 'Terceros por cobrar',
-                formatBob(data.summary.thirdPartyReceivableMinor),
+                formatBob(summary.thirdPartyReceivableMinor),
                 Icons.person_outline,
+                summary.thirdPartyCreditMinor > 0
+                    ? 'A favor de terceros: '
+                          '${formatBob(summary.thirdPartyCreditMinor).trim()}'
+                    : null,
               ),
               (
                 'Pagos recibidos',
-                formatBob(data.summary.receivedMinor),
+                formatBob(summary.receivedMinor),
                 Icons.payments_outlined,
+                null,
               ),
             ];
             return Column(
@@ -289,6 +303,13 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                                                   ),
                                             ),
                                           ),
+                                          if (card.$4 != null)
+                                            Text(
+                                              card.$4!,
+                                              style: Theme.of(context)
+                                                  .textTheme
+                                                  .bodySmall,
+                                            ),
                                         ],
                                       ),
                                     ),

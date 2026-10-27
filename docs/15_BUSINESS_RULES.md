@@ -319,57 +319,87 @@ Las validaciones exclusivamente de interfaz se listan aparte en
 - **Descripción**: cargo = **positivo**; pago/adelanto/crédito = **negativo**
   (`-amountBobMinor`). El saldo es `SUM(amount_bob_minor_signed)`.
 - **Impacto**: **Máximo.** Es la convención sobre la que se apoyan `settlements`,
-  `topSettlements`, `personProfile`, `personCampaignBalance` y `dashboard`.
-- **Interpretación en la UI**: saldo > 0 = "Saldo pendiente" (naranja); saldo ≤ 0 = "Saldo a
-  favor" (verde).
+  `topSettlements`, `personProfile`, `personCampaignBalance`, el libro de cuentas de D-04 y
+  `dashboard`.
+- **Interpretación en la UI** (D-04, decisión del autor del 2026-10-27): con «Todas las
+  campañas», Cuentas muestra el **saldo neto** (> 0 debe; < 0 a favor). Con una campaña,
+  muestra la **deuda pendiente por origen** de esa campaña (≥ 0) y, aparte, el saldo neto
+  y lo que queda a favor sin campaña. Ver
+  [D04_E15](architecture/D04_E15_CUENTAS_IMPUTACION_Y_COSTO_PROPIO.md) §2.3.
+- **Clases de asiento** (D-04 §2.1):
+  - cargo: > 0, sin `reversal_of_id`;
+  - reversión de cargo: < 0, `reversal_of_id` apunta a un cargo;
+  - crédito: < 0, el resto;
+  - compensación de un crédito: > 0 con `reversal_of_id`; no existe hoy.
+
+  Las cifras salen de la clase, no de una lista cerrada de tipos.
 
 ### RN-38 · Imputación cronológica de pagos a deudas (FIFO de deuda)
-- **Descripción**: tras insertar el pago, se consultan los cargos de esa persona con
-  `amount_bob_minor_signed > 0`, calculando el pendiente de cada uno como
-  `cargo − SUM(payment_allocations ya imputadas)`, ordenados por `transaction_date, id`.
-  Se van creando filas en `payment_allocations` hasta agotar el importe.
-- **Ubicación**: `agro_repository.dart` → `addAccountPayment`.
-- **Impacto**: **Alto.** Determina qué deuda se considera saldada primero.
+- **Descripción**: tras insertar el pago, se consultan los **cargos** de esa persona
+  (importe > 0 y `reversal_of_id IS NULL`), con pendiente =
+  `importe − revertido − SUM(payment_allocations ya imputadas)`, ordenados por **día local
+  de `transaction_date` y luego `id`** (F04 §2.3). Se van creando filas en
+  `payment_allocations` hasta agotar el importe.
+- **Ubicación**: `agro_repository.dart` → `registerAccountPayment` (y `addAccountPayment`,
+  que la llama).
+- **Impacto**: **Alto.** Determina qué deuda se considera saldada primero. Desde D-04 es
+  además la fuente de «qué deuda quedó pagada» en Cuentas, el detalle, la exportación y el
+  resumen de campaña.
 - **Cruza campañas deliberadamente**: la consulta **no filtra por `campaign_id`**. Un pago
-  registrado en la campaña 2 cancela primero deuda de la campaña 1.
-- **Test**: *"saldo inicial cruza campañas y el pago se imputa a deuda antigua"* —
-  `opening_balance` 100 000, pago de 4 000 en la campaña nueva, `total_balance` 96 000, y la
-  única fila de `payment_allocations` vale 4 000, imputada al cargo antiguo.
+  registrado en la campaña 2, o sin campaña, cancela primero deuda de la campaña 1. La
+  campaña del pago es sólo su campaña de registro.
+- **Cargos revertidos** (D-04, criterio Q-5; D-15): un cargo revertido no es deuda
+  pendiente y un pago **nuevo** no se le imputa.
+  - Las imputaciones guardadas antes no se tocan.
+  - Lo imputado a un cargo que después se revirtió queda «liberado por reversión», a favor
+    y sin campaña.
+- **Tests**: *"saldo inicial cruza campañas y el pago se imputa a deuda antigua"* y
+  `d04_imputacion_ledger_test.dart` / `d04_imputacion_base_test.dart` (D04-01 a D04-09,
+  M-1 a M-8).
 
 ### RN-39 · Adelanto y pago comparten mecánica
 - **Descripción**: la única diferencia es `type` (`ADVANCE` vs `PAYMENT`) y
   `reference_type`. Ambos son negativos y **ambos se imputan** a cargos existentes.
 - **Consecuencia**: un "adelanto" registrado cuando ya hay deuda **no queda como crédito
   libre**: se consume contra esa deuda.
-- **Test**: *"tercero genera cargo por allocation y adelanto lo compensa"* — adelanto de
-  336 000 antes de la compra; al confirmarse la compra el cargo es 336 000, los pagos
-  336 000 y el saldo **0**.
-- **Detalle fino**: en ese test el adelanto se registró **antes** que el cargo, por lo que
-  la imputación no ocurrió al pagar sino que el saldo neto quedó en cero por suma de
-  asientos. La `payment_allocation` solo se crea si el cargo ya existía.
+- **Detalle fino**: la `payment_allocation` sólo se crea si el cargo ya existía. Un
+  adelanto anterior a los cargos queda **sin imputar**.
+  - El saldo neto lo compensa por suma.
+  - La deuda por cargo y lo que queda a favor se muestran por separado.
+  - El adelanto no se atribuye a ninguna campaña (D-04, criterio Q-1; ejemplo D04-05).
+  - Ninguna lectura crea imputaciones.
 
 ### RN-40 · El sobrante de un pago no se imputa, pero sí se contabiliza
 - **Descripción**: el bucle de imputación termina cuando `remaining == 0` o se acaban los
   cargos. Si sobra dinero, **no** se crea más `payment_allocations`, pero el asiento
   negativo completo ya está insertado.
-- **Impacto**: Medio. El saldo queda negativo (a favor), correctamente. Pero
-  `payment_allocations` no cuadra con el total pagado, lo que hay que tener en cuenta si
-  alguna vez se hace un informe de conciliación.
+- **Impacto**: Medio. El saldo queda negativo (a favor). Desde D-04 se informa como
+  «A favor (no aplicado a deuda)», sin campaña: pagos sin imputar + liberado por
+  reversión − otros ajustes.
 
 ### RN-41 · Los administradores se excluyen de la liquidación
 - **Descripción**: `settlements` y `topSettlements` filtran `WHERE p.role <> 'ADMIN'`.
+  Desde D-04 también lo hacen la lista de Cuentas y el resumen de campaña.
 - **Impacto**: Medio. El administrador puede tener asientos (si alguien se los creara), pero
-  nunca aparece en la pantalla de cuentas.
+  nunca aparece en la liquidación.
 
-### RN-42 · Saldo inicial de campaña
-- **Descripción**: `personCampaignBalance` calcula `opening_balance` como la suma de los
-  asientos cuyas campañas tienen `start_date` **anterior** a la de la campaña consultada.
-- **Impacto**: Alto. Es lo que permite mostrar un estado de cuenta por campaña sin perder el
-  arrastre.
-- **Caso borde no cubierto**: los asientos con `campaign_id = NULL` (posibles: un pago
-  registrado con "Todas las campañas" seleccionado) hacen `LEFT JOIN campaigns` → `c.start_date`
-  es `NULL` → la comparación `NULL < ?` es falsa → **no cuentan en el saldo inicial** aunque
-  sí en `total_balance`. Registrado en [27_KNOWN_ISSUES](27_KNOWN_ISSUES.md).
+### RN-42 · Estado de cuenta cronológico con apertura (por fecha)
+- **Descripción** (D-04, criterio Q-4; decisión del autor del 2026-10-27): con una
+  campaña K, el estado cronológico muestra **todos** los asientos de la persona cuyo
+  **día local** cae en el período de K, de cualquier campaña o sin campaña.
+  - Empieza por «Saldo al inicio del período», que suma los asientos con día anterior al
+    inicio.
+  - Termina en «Saldo al cierre del período» (K cerrada) o «Saldo a hoy».
+- **Es un cálculo distinto del desglose por campaña de origen**. El desglose dice cuánto
+  falta pagar hoy de los cargos de K, a partir de las imputaciones guardadas («Deuda
+  pendiente por origen · K»). No comparten etiqueta.
+- **Antes**: la apertura sumaba los asientos de las campañas que empezaban antes, y los
+  asientos sin campaña no contaban (KI-05, resuelto). `personCampaignBalance` conserva ese
+  cálculo para su caracterización, pero ninguna pantalla lo usa.
+- **Tardías**: confirmar una operación tardía en una campaña cerrada añade filas en su
+  período, así que el «Saldo al cierre del período» puede cambiar después (ejemplo M-4).
+  La leyenda «Incluye operaciones tardías confirmadas» que pide F04 §2.3 sigue sin
+  implementarse (carencia previa, C-13 de D04_E15).
 
 ---
 

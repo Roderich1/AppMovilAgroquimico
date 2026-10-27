@@ -178,20 +178,13 @@ class ReportExportService {
         if (person == null) {
           throw const ReportFilterException('La persona elegida ya no existe.');
         }
-        final campaignId = request.campaignId;
-        return _composer.accountStatement(
+        // D-04 (§2.6): cronológico por período y deuda por campaña de
+        // origen, desde una sola lectura del libro.
+        return _composer.ledgerStatement(
           generatedAt: generatedAt,
-          personName: person.name,
-          campaignName: campaignName,
-          campaignBalance: campaignId == null
-              ? null
-              : await _repository.personCampaignBalanceTyped(
-                  personId,
-                  campaignId,
-                ),
-          entries: await _repository.detailedStatementTyped(
+          statement: await _repository.accountStatement(
             personId,
-            campaignId: campaignId,
+            campaignId: request.campaignId,
           ),
         );
     }

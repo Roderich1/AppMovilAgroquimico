@@ -8,6 +8,9 @@
 /// puedan discrepar.
 library;
 
+import '../account_ledger.dart';
+import '../account_texts.dart';
+import '../campaign_calendar.dart' show displayDay;
 import '../labels.dart';
 import '../read_models.dart';
 import 'report_table.dart';
@@ -229,8 +232,9 @@ class ReportComposer {
         ReportCount(summary.pendingPlans),
         const ReportBlank(),
       ],
+      // D-04 (§2.7): deuda pendiente por campaña de origen, sin ADMIN.
       [
-        const ReportText('Saldo por cobrar'),
+        const ReportText('Deuda pendiente por origen'),
         const ReportBlank(),
         ReportMoney(summary.receivableBobMinor),
       ],
@@ -242,7 +246,7 @@ class ReportComposer {
         ReportMoney(summary.applicationsBobMinor),
       ),
       ReportTotal(
-        'Saldo por cobrar (Bs)',
+        'Deuda pendiente por origen (Bs)',
         ReportMoney(summary.receivableBobMinor),
       ),
     ],
@@ -317,6 +321,117 @@ class ReportComposer {
         ReportTotal('Total de cargos (Bs)', ReportMoney(charges)),
         ReportTotal('Total de créditos (Bs)', ReportMoney(credits)),
         ReportTotal('Saldo final (Bs)', ReportMoney(closing)),
+      ],
+      emptyMessage: 'Esta persona no tiene movimientos en el periodo elegido.',
+    );
+  }
+
+  /// Estado de cuenta desde el libro (D-04 §2.6): el cronológico por período,
+  /// con apertura y cierre, y el desglose por campaña de origen a hoy, cada
+  /// uno con su etiqueta.
+  ReportTable ledgerStatement({
+    required AccountStatement statement,
+    required DateTime generatedAt,
+  }) {
+    final ledger = statement.ledger;
+    final account = statement.account;
+    final period = statement.period;
+    var charges = 0;
+    var credits = 0;
+    final rows = <List<ReportCell>>[];
+    if (period != null) {
+      rows.add([
+        const ReportBlank(),
+        ReportText(openingLabel(period)),
+        const ReportBlank(),
+        const ReportBlank(),
+        const ReportBlank(),
+        const ReportBlank(),
+        const ReportBlank(),
+        ReportMoney(statement.openingMinor!),
+      ]);
+    }
+    for (final line in statement.lines) {
+      final entry = line.entry;
+      final amount = entry.amountMinor;
+      if (amount > 0) charges += amount;
+      if (amount < 0) credits += -amount;
+      rows.add([
+        ReportDate(entry.transactionDate),
+        ReportText(conceptLabel(entry.concept)),
+        ReportText(entry.farmName ?? ''),
+        ReportText(entryCampaignText(ledger, account, entry)),
+        amount > 0 ? ReportMoney(amount) : const ReportBlank(),
+        amount < 0 ? ReportMoney(-amount) : const ReportBlank(),
+        ReportText(statusText(ledger, account, entry)),
+        ReportMoney(line.balanceMinor),
+      ]);
+    }
+    final closing = statement.periodClosed
+        ? 'Saldo al cierre del período (Bs)'
+        : 'Saldo a hoy (Bs)';
+    final debts = period == null
+        ? [
+            for (final debt in statement.debts)
+              ReportTotal(
+                'Deuda pendiente por origen · '
+                '${ledger.campaignName(debt.campaignId)} (Bs)',
+                ReportMoney(debt.pendingMinor),
+              ),
+            ReportTotal(
+              'Deuda pendiente total (Bs)',
+              ReportMoney(account.pendingMinor),
+            ),
+          ]
+        : [
+            ReportTotal(
+              'Deuda pendiente por origen · ${period.name} (Bs)',
+              ReportMoney(account.debtFor(period.id).pendingMinor),
+            ),
+          ];
+    final end = statement.periodClosed ? displayDay(period!.endDay!) : 'hoy';
+    return ReportTable(
+      title: ReportKind.accountStatement.label,
+      generatedAt: generatedAt,
+      filters: [
+        ReportFilter('Persona', account.person.name),
+        ReportFilter(
+          'Campaña',
+          period == null
+              ? campaignFilterValue(null)
+              : '${period.name} (período ${displayDay(period.startDay)} – '
+                    '$end)',
+        ),
+      ],
+      columns: const [
+        ReportColumn('Fecha', weight: 1.4),
+        ReportColumn('Concepto', weight: 2.6),
+        ReportColumn('Chaco', weight: 1.6),
+        ReportColumn('Campaña del asiento', weight: 2),
+        ReportColumn('Cargo (Bs)', numeric: true, weight: 1.4),
+        ReportColumn('Crédito (Bs)', numeric: true, weight: 1.4),
+        ReportColumn('Imputación', weight: 3),
+        ReportColumn('Acumulado (Bs)', numeric: true, weight: 1.6),
+      ],
+      rows: rows,
+      totals: [
+        if (period != null)
+          ReportTotal(
+            'Saldo al inicio del período (Bs)',
+            ReportMoney(statement.openingMinor!),
+          ),
+        ReportTotal('Total de cargos (Bs)', ReportMoney(charges)),
+        ReportTotal('Total de créditos (Bs)', ReportMoney(credits)),
+        ReportTotal(closing, ReportMoney(statement.closingMinor)),
+        ...debts,
+        ReportTotal(
+          'A favor (no aplicado a deuda) (Bs)',
+          ReportMoney(account.creditMinor),
+        ),
+        ReportTotal(
+          'Saldo neto · todas las campañas (Bs)',
+          ReportMoney(account.netMinor),
+        ),
       ],
       emptyMessage: 'Esta persona no tiene movimientos en el periodo elegido.',
     );
