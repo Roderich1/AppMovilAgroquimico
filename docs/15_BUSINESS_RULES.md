@@ -307,6 +307,29 @@ Las validaciones exclusivamente de interfaz se listan aparte en
 - **Efecto secundario a tener presente**: si un familiar transfiere producto a otro y este
   lo aplica, **el cargo recae en quien aplica**, no en quien compró. Es coherente con
   `BY_ACTUAL_USAGE`, pero conviene que el usuario lo entienda.
+- **Actualización 2026-10-27 (D-07, bloque 2) · la regla se mantiene y se avisa.**
+  Decisión del autor (Roderich Rendón) del 2026-10-27: RN-35 **se mantiene** también
+  cuando el destino es un tercero con cobro por compra (`THIRD_PARTY`,
+  `BY_PURCHASE_ALLOCATION`); no hay `TRANSFER_CHARGE` ni ningún otro asiento por
+  transferir, y no se modifican transferencias, asientos ni saldos históricos. Lo que
+  cambia es la interfaz:
+  - Antes de confirmar, el diálogo «Confirmar transferencia» dice, con el nombre del
+    destinatario: «Esta transferencia entrega producto a [persona], pero no genera una
+    deuda.», seguido de «No se registra ningún cargo ni cobro a [persona]. El costo del
+    producto entregado sólo es de referencia, no un precio de venta.». La frase es la
+    misma con uno o varios productos.
+  - El costo FIFO de una transferencia **no es un precio de venta**: en la lista, el
+    detalle, la reversión y el formulario se rotula como costo de referencia.
+  - El historial dice el carácter de la operación: «Entrega sin deuda» en cada fila de
+    Transferencias y «entrega sin deuda» / «sin deuda» en los movimientos del detalle de
+    producto (pases y sus reversiones).
+  - Queda **fuera** de este bloque vender, prestar o cobrar entregas. Hueco conocido: el
+    tercero que paga por compra no queda debiendo lo que recibe por transferencia (RN-10
+    sólo carga al comprar y RN-27 sólo carga por consumo con `BY_ACTUAL_USAGE`); el
+    titular que lo compró no tiene cómo cobrarlo dentro de la app.
+  - **Prueba**: `test/f10_d07_transferencia_sin_deuda_test.dart`; evidencia en
+    `docs/evidence/F10_BLOQUE2_D07_TRANSFERENCIA_SIN_DEUDA.md`. Trazabilidad: RN-35,
+    RN-10, RN-27, CU-08, RF-11.
 
 ---
 
