@@ -246,6 +246,15 @@ Las validaciones exclusivamente de interfaz se listan aparte en
 - **Diferencia con RN-10**: aquí se lee la política **actual** de la persona, no un
   snapshot; a diferencia de las compras, la aplicación no guarda `charge_policy_snapshot`.
   Es una asimetría de diseño; ver [26_TECHNICAL_DEBT](26_TECHNICAL_DEBT.md).
+- **Titular** (E-15, decisión del autor del 2026-10-27): el titular conserva su política
+  y sus `USAGE_CHARGE` (no pasa a `MANUAL` y no se borra nada). Sus asientos propios no son
+  deuda: no entran en pendientes, en «por cobrar», en «Pagos recibidos», en «Principales
+  saldos» ni en el resumen de campaña.
+  - Se muestran como registro en «Consumo y costos propios».
+  - Su costo propio se calcula desde sus aplicaciones no revertidas, con su costo FIFO
+    real, y no desde el `USAGE_CHARGE`; por eso no desaparece con otra política.
+  - Un asiento es propio si su persona era titular en el día del asiento (criterio Q-3).
+  - Ver [D04_E15](architecture/D04_E15_CUENTAS_IMPUTACION_Y_COSTO_PROPIO.md), parte B.
 
 ### RN-28 · Aplicar desde un plan lo marca como COMPLETED
 - **Descripción**: si `draft.planId != null`, se hace
@@ -382,6 +391,8 @@ Las validaciones exclusivamente de interfaz se listan aparte en
   Desde D-04 también lo hacen la lista de Cuentas y el resumen de campaña.
 - **Impacto**: Medio. El administrador puede tener asientos (si alguien se los creara), pero
   nunca aparece en la liquidación.
+- **Titular ADMIN** (E-15): sigue fuera de la liquidación, pero su consumo propio aparece en
+  Cuentas, en la tarjeta «Consumo y costos propios».
 
 ### RN-42 · Estado de cuenta cronológico con apertura (por fecha)
 - **Descripción** (D-04, criterio Q-4; decisión del autor del 2026-10-27): con una

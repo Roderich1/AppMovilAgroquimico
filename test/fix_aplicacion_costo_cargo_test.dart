@@ -187,9 +187,11 @@ void main() {
       await mixAndReview(tester);
 
       expectCosts(tester, s.h.product, s.bellator);
+      // E-15 (decisión del autor del 2026-10-27, §B.2, ejemplo M-7): el texto
+      // anterior afirmaba que el tercero «ya pagó», falso si debe la compra.
       expect(
         find.text(
-          'No genera cargo: Vecino ya pagó estos productos al comprarlos',
+          'Esta aplicación no genera cargo: a Vecino se le cargó al comprarlo.',
         ),
         findsOneWidget,
       );

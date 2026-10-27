@@ -3,9 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../app.dart';
-import '../../data/typed_reads.dart';
+import '../../domain/account_ledger.dart';
+import '../../domain/account_texts.dart';
 import '../../domain/money.dart';
-import '../../domain/read_models.dart';
 import '../widgets/common.dart';
 
 typedef _PersonData = ({
@@ -15,7 +15,9 @@ typedef _PersonData = ({
   List<Map<String, Object?>> farms,
   List<Map<String, Object?>> applications,
   List<Map<String, Object?>> stock,
-  List<StatementEntryRead> statement,
+  // D-04/E-15: la cuenta sale del libro (una consulta). Para el titular, sus
+  // asientos propios se muestran como registro, sin acumulado.
+  AccountStatement statement,
 });
 
 class PersonDetailScreen extends ConsumerWidget {
@@ -28,7 +30,7 @@ class PersonDetailScreen extends ConsumerWidget {
       farms: await repo.farmsForPerson(personId),
       applications: await repo.applications(personId: personId),
       stock: await repo.personStockSummary(personId),
-      statement: await repo.detailedStatementTyped(personId),
+      statement: await repo.accountStatement(personId),
     );
   }
 
@@ -50,13 +52,17 @@ class PersonDetailScreen extends ConsumerWidget {
       if (!snapshot.hasData)
         return const Center(child: CircularProgressIndicator());
       final d = snapshot.data!;
+      final s = d.statement;
+      final ownCost = s.ledger.ownConsumption(personId).activeCostMinor;
       return _PersonTabs(
         data: d,
         builder: (context, tabs, body) => PageFrame(
           title: d.profile['name'] as String,
-          subtitle:
-              '${personRoleLabel(d.profile['role'])} · saldo total '
-              '${formatBob(d.profile['balance'] as int)}',
+          subtitle: s.isCurrentOwner
+              ? '${personRoleLabel(d.profile['role'])} · titular · consumo '
+                    'propio ${bob(ownCost)}'
+              : '${personRoleLabel(d.profile['role'])} · saldo total '
+                    '${formatBob(d.profile['balance'] as int)}',
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -79,9 +85,26 @@ class PersonDetailScreen extends ConsumerWidget {
                       // de Liquidación puede estar filtrada por campaña:
                       // son conceptos distintos y ahora cada uno lo dice
                       // (UIBUG-013).
-                      title: const Text('Saldo total · todas las campañas'),
-                      trailing: Text(formatBob(d.profile['balance'] as int)),
+                      title: Text(
+                        s.isCurrentOwner
+                            ? 'Consumo aplicado (costo FIFO) · todas las '
+                                  'campañas'
+                            : 'Saldo total · todas las campañas',
+                      ),
+                      trailing: Text(
+                        s.isCurrentOwner
+                            ? formatBob(ownCost)
+                            : formatBob(d.profile['balance'] as int),
+                      ),
                     ),
+                    if (!s.isCurrentOwner && s.hasOwnRecords)
+                      ListTile(
+                        leading: const Icon(Icons.agriculture_outlined),
+                        title: const Text(
+                          'Consumo propio mientras fue titular',
+                        ),
+                        trailing: Text(formatBob(ownCost)),
+                      ),
                   ],
                 ),
                 _Section(
@@ -132,9 +155,7 @@ class PersonDetailScreen extends ConsumerWidget {
                 // de información (UIBUG-028).
                 _Section(
                   children: [
-                    for (final line in StatementLine.runningBalance(
-                      d.statement,
-                    ))
+                    for (final line in s.lines)
                       ListTile(
                         title: Text(conceptLabel(line.entry.concept)),
                         subtitle: Text(formatDate(line.entry.transactionDate)),
@@ -143,7 +164,7 @@ class PersonDetailScreen extends ConsumerWidget {
                           crossAxisAlignment: CrossAxisAlignment.end,
                           children: [
                             Text(
-                              formatBob(line.entry.amountBobMinorSigned),
+                              formatBob(line.entry.amountMinor),
                               style: const TextStyle(
                                 fontWeight: FontWeight.w700,
                               ),
@@ -153,6 +174,18 @@ class PersonDetailScreen extends ConsumerWidget {
                               style: Theme.of(context).textTheme.bodySmall,
                             ),
                           ],
+                        ),
+                      ),
+                    for (final entry in s.ownLines)
+                      ListTile(
+                        title: Text(conceptLabel(entry.concept)),
+                        subtitle: Text(
+                          '${formatDate(entry.transactionDate)} · propio, '
+                          'no es deuda',
+                        ),
+                        trailing: Text(
+                          formatBob(entry.amountMinor),
+                          style: const TextStyle(fontWeight: FontWeight.w700),
                         ),
                       ),
                   ],

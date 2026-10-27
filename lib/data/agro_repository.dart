@@ -3267,7 +3267,9 @@ class AgroRepository {
      WHERE a.id=t.reference_id AND t.reference_type='APPLICATION')''';
 
   /// Libro de cuentas en **una** consulta: campañas (K), personas (P),
-  /// asientos (T) e imputaciones (L). Con [personId], sólo esa persona.
+  /// asientos (T), imputaciones (L), vínculos de titular (B) y aplicaciones de
+  /// quien ha sido titular (A, para el consumo propio de E-15). Con
+  /// [personId], sólo esa persona (los vínculos se leen siempre todos).
   /// La clasificación y los cálculos son Dart puro (`AccountLedger`).
   Future<AccountLedger> accountLedger({int? personId}) async {
     final one = personId != null;
@@ -3287,9 +3289,18 @@ class AgroRepository {
       SELECT 'L', a.id, NULL, NULL, NULL, NULL, NULL, a.amount_bob_minor,
         a.payment_transaction_id, a.charge_transaction_id, NULL, NULL, NULL
         FROM payment_allocations a
-        ${one ? 'WHERE a.payment_transaction_id IN (SELECT id FROM account_transactions WHERE person_id=?)' : ''}''',
+        ${one ? 'WHERE a.payment_transaction_id IN (SELECT id FROM account_transactions WHERE person_id=?)' : ''}
+      UNION ALL
+      SELECT 'B', b.id, b.person_id, NULL, b.bound_at, b.ended_at, NULL, NULL,
+        NULL, NULL, NULL, NULL, NULL FROM owner_bindings b
+      UNION ALL
+      SELECT 'A', a.id, a.person_id, NULL, a.applied_at, a.reversed_at, a.status,
+        a.total_cost_bob_minor, a.campaign_id, NULL, NULL, NULL, NULL
+        FROM applications a
+        WHERE a.person_id IN (SELECT person_id FROM owner_bindings)
+        ${one ? 'AND a.person_id=?' : ''}''',
       [
-        if (one) ...[personId, personId, personId],
+        if (one) ...[personId, personId, personId, personId],
       ],
     );
     return AccountLedger.fromRows(rows);
@@ -3511,6 +3522,15 @@ class AgroRepository {
       thirdPartyReceivableMinor: third.receivableMinor,
       familyCreditMinor: family.creditMinor,
       thirdPartyCreditMinor: third.creditMinor,
+      topBalances: [
+        for (final row in ledger.topBalances())
+          (
+            personId: row.personId,
+            name: row.name,
+            role: row.role,
+            balanceMinor: row.account.netMinor,
+          ),
+      ],
       receivedMinor: received,
       stockBase: stock,
     );

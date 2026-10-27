@@ -3,6 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../app.dart';
+import '../../data/agro_repository.dart';
+import '../../domain/account_ledger.dart';
+import '../../domain/account_texts.dart';
 import '../../domain/money.dart';
 import '../widgets/common.dart';
 
@@ -13,17 +16,22 @@ class PersonsScreen extends ConsumerStatefulWidget {
 }
 
 class _PersonsScreenState extends ConsumerState<PersonsScreen> {
-  late Future<List<Map<String, Object?>>> profiles;
+  late Future<(List<Map<String, Object?>>, AccountLedger)> profiles;
   String query = '';
+
+  /// E-15: el libro dice quién es el titular y su consumo propio.
+  static Future<(List<Map<String, Object?>>, AccountLedger)> _load(
+    AgroRepository repo,
+  ) async => (await repo.personProfiles(), await repo.accountLedger());
 
   @override
   void initState() {
     super.initState();
-    profiles = ref.read(repositoryProvider).personProfiles();
+    profiles = _load(ref.read(repositoryProvider));
   }
 
   void _refresh() {
-    final next = ref.read(repositoryProvider).personProfiles();
+    final next = _load(ref.read(repositoryProvider));
     setState(() {
       profiles = next;
     });
@@ -41,7 +49,7 @@ class _PersonsScreenState extends ConsumerState<PersonsScreen> {
       icon: const Icon(Icons.refresh),
       tooltip: 'Recargar',
     ),
-    child: FutureBuilder<List<Map<String, Object?>>>(
+    child: FutureBuilder<(List<Map<String, Object?>>, AccountLedger)>(
       future: profiles,
       builder: (context, snapshot) {
         if (snapshot.hasError)
@@ -51,7 +59,9 @@ class _PersonsScreenState extends ConsumerState<PersonsScreen> {
           );
         if (!snapshot.hasData)
           return const Center(child: CircularProgressIndicator());
-        final rows = snapshot.data!
+        final (profilesRows, ledger) = snapshot.data!;
+        final owner = ledger.ownerPersonId;
+        final rows = profilesRows
             .where((row) => matchesSearch(row['name'] as String, query))
             .toList();
         return Column(
@@ -97,13 +107,23 @@ class _PersonsScreenState extends ConsumerState<PersonsScreen> {
                         // marca en vez de mostrarle superficie y saldo a cero
                         // como si fuera un familiar más (UIBUG-057).
                         subtitle: Text(
-                          row['role'] == 'ADMIN'
+                          row['id'] == owner
+                              ? '${personRoleLabel(row['role'])} · titular · '
+                                    '${formatHectares(row['area_m2'] as int)}'
+                              : row['role'] == 'ADMIN'
                               ? '${personRoleLabel(row['role'])} · no participa '
                                     'en la liquidación'
                               : '${personRoleLabel(row['role'])} · '
                                     '${formatHectares(row['area_m2'] as int)}',
                         ),
-                        trailing: row['role'] == 'ADMIN'
+                        // E-15: el titular no es deudor de sí mismo; se
+                        // muestra su consumo propio, no un saldo.
+                        trailing: row['id'] == owner
+                            ? Text(
+                                'Consumo propio '
+                                '${bob(ledger.ownConsumption(owner!).activeCostMinor)}',
+                              )
+                            : row['role'] == 'ADMIN'
                             ? null
                             : Text(formatBob(row['balance'] as int)),
                         onTap: () => context.push('/personas/${row['id']}'),

@@ -204,73 +204,192 @@ final class PersonAccount {
   LedgerEntryClass classOf(LedgerEntry entry) => classes[entry.id]!;
 }
 
+/// Vínculo de titular (`owner_bindings`), leído para decidir qué es propio.
+final class LedgerBinding {
+  const LedgerBinding({
+    required this.id,
+    required this.personId,
+    required this.boundAt,
+    this.endedAt,
+  });
+  final int id;
+  final int personId;
+  final String boundAt;
+  final String? endedAt;
+}
+
+/// Aplicación de una persona que ha sido titular: base del consumo propio
+/// (E-15, costo FIFO ya volcado en `total_cost_bob_minor`).
+final class LedgerApplication {
+  const LedgerApplication({
+    required this.id,
+    required this.personId,
+    required this.campaignId,
+    required this.appliedAt,
+    required this.totalCostMinor,
+    required this.reversed,
+  });
+  final int id;
+  final int personId;
+  final int? campaignId;
+  final String appliedAt;
+  final int totalCostMinor;
+  final bool reversed;
+
+  String get day => storedLocalDay(appliedAt);
+}
+
+/// Consumo propio de un titular en un alcance (E-15 §B.1).
+final class OwnConsumption {
+  int activeCount = 0;
+  int activeCostMinor = 0;
+  int reversedCount = 0;
+  int reversedCostMinor = 0;
+
+  void add(LedgerApplication application) {
+    if (application.reversed) {
+      reversedCount++;
+      reversedCostMinor += application.totalCostMinor;
+    } else {
+      activeCount++;
+      activeCostMinor += application.totalCostMinor;
+    }
+  }
+
+  bool get isEmpty => activeCount == 0 && reversedCount == 0;
+}
+
 /// Libro de todas las personas leídas.
+///
+/// E-15 (decisión del autor del 2026-10-27; criterio Q-3 del documento
+/// D04_E15 §7): un asiento o una aplicación es **propio** si su persona era
+/// titular en su día local: día(`bound_at`) ≤ día < día(`ended_at`). Lo
+/// anterior al primer vínculo se atribuye al primer titular. Es un supuesto
+/// de presentación: no escribe ni cambia datos. Lo propio sale de las cuentas
+/// por cobrar y se muestra como «Consumo y costos propios».
 final class AccountLedger {
-  AccountLedger._(this.persons, this.campaigns, this.accounts);
+  AccountLedger._(
+    this.persons,
+    this.campaigns,
+    this.accounts,
+    this.ownAccounts,
+    this.bindings,
+    this._ownApplications,
+  );
 
   final List<LedgerPerson> persons;
 
   /// Por inicio y luego `id`.
   final List<CampaignPeriod> campaigns;
+
+  /// Cuentas por cobrar: sin los asientos propios.
   final Map<int, PersonAccount> accounts;
+
+  /// Asientos propios de quien fue o es titular (registro, no deuda).
+  final Map<int, PersonAccount> ownAccounts;
+  final List<LedgerBinding> bindings;
+  final Map<int, List<LedgerApplication>> _ownApplications;
 
   factory AccountLedger.build({
     required List<LedgerPerson> persons,
     required List<CampaignPeriod> campaigns,
     required List<LedgerEntry> entries,
     required List<LedgerAllocation> allocations,
+    List<LedgerBinding> bindings = const [],
+    List<LedgerApplication> applications = const [],
   }) {
     final sortedCampaigns = [...campaigns]
       ..sort((a, b) {
         final byStart = a.startDay.compareTo(b.startDay);
         return byStart != 0 ? byStart : a.id.compareTo(b.id);
       });
+    final sortedBindings = [...bindings]
+      ..sort((a, b) {
+        final byBound = a.boundAt.compareTo(b.boundAt);
+        return byBound != 0 ? byBound : a.id.compareTo(b.id);
+      });
+    bool ownOn(int personId, String day) {
+      for (var i = 0; i < sortedBindings.length; i++) {
+        final binding = sortedBindings[i];
+        if (binding.personId != personId) continue;
+        final start = i == 0 ? null : storedLocalDay(binding.boundAt);
+        final end = binding.endedAt == null
+            ? null
+            : storedLocalDay(binding.endedAt!);
+        if ((start == null || start.compareTo(day) <= 0) &&
+            (end == null || day.compareTo(end) < 0)) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    final names = {for (final person in persons) person.id: person};
+    PersonAccount newAccount(int id) =>
+        PersonAccount(names[id] ?? LedgerPerson(id: id, name: '', role: ''));
     final accounts = <int, PersonAccount>{
       for (final person in persons) person.id: PersonAccount(person),
     };
+    final ownAccounts = <int, PersonAccount>{};
     final sorted = [...entries]..sort(compareByDayThenId);
     final byId = {for (final entry in sorted) entry.id: entry};
     bool isCharge(LedgerEntry e) => e.amountMinor > 0 && e.reversalOfId == null;
+    bool revertsCharge(LedgerEntry e) {
+      if (e.amountMinor >= 0 || e.reversalOfId == null) return false;
+      final target = byId[e.reversalOfId];
+      return target != null && isCharge(target);
+    }
+
+    // La reversión de un cargo sigue la propiedad de su cargo.
+    final own = <int, bool>{};
     for (final entry in sorted) {
-      final account = accounts.putIfAbsent(
-        entry.personId,
-        () =>
-            PersonAccount(LedgerPerson(id: entry.personId, name: '', role: '')),
-      );
+      if (!revertsCharge(entry))
+        own[entry.id] = ownOn(entry.personId, entry.day);
+    }
+    for (final entry in sorted) {
+      if (revertsCharge(entry))
+        own[entry.id] = own[entry.reversalOfId] ?? false;
+    }
+    for (final entry in sorted) {
+      final account = own[entry.id]!
+          ? ownAccounts.putIfAbsent(
+              entry.personId,
+              () => newAccount(entry.personId),
+            )
+          : accounts.putIfAbsent(
+              entry.personId,
+              () => newAccount(entry.personId),
+            );
       account.entries.add(entry);
       final LedgerEntryClass cls;
       if (isCharge(entry)) {
         cls = LedgerEntryClass.charge;
         account.charges[entry.id] = ChargeState(entry);
-      } else if (entry.amountMinor < 0) {
-        final target = entry.reversalOfId == null
-            ? null
-            : byId[entry.reversalOfId];
-        cls = target != null && isCharge(target)
-            ? LedgerEntryClass.chargeReversal
-            : LedgerEntryClass.credit;
-        if (cls == LedgerEntryClass.credit) {
-          account.credits[entry.id] = CreditState(entry);
-        }
+      } else if (revertsCharge(entry)) {
+        cls = LedgerEntryClass.chargeReversal;
       } else if (entry.amountMinor > 0) {
         cls = LedgerEntryClass.creditCompensation;
         account.compensationMinor += entry.amountMinor;
       } else {
-        // Importe cero: no mueve ninguna cifra; se trata como crédito vacío.
+        // Negativo que no revierte un cargo, o importe cero: crédito.
         cls = LedgerEntryClass.credit;
         account.credits[entry.id] = CreditState(entry);
       }
       account.classes[entry.id] = cls;
     }
-    // Reversiones: se aplican a su cargo (de la misma persona).
-    for (final account in accounts.values) {
+    final all = [...accounts.values, ...ownAccounts.values];
+    final chargesById = {for (final account in all) ...account.charges};
+    final creditsById = {for (final account in all) ...account.credits};
+    // Reversiones: se aplican a su cargo.
+    for (final account in all) {
       for (final entry in account.entries) {
         if (account.classes[entry.id] != LedgerEntryClass.chargeReversal) {
           continue;
         }
-        final charge = accounts[byId[entry.reversalOfId]!.personId]
-            ?.charges[entry.reversalOfId];
+        final charge = chargesById[entry.reversalOfId];
         if (charge == null) continue;
+        // La fila de reversión vive en la cuenta de su cargo.
+        account.charges.putIfAbsent(charge.entry.id, () => charge);
         charge.reversedMinor += -entry.amountMinor;
         final day = entry.day;
         if (charge.reversalDay == null ||
@@ -280,12 +399,6 @@ final class AccountLedger {
       }
     }
     // Imputaciones guardadas: sólo de un crédito a un cargo.
-    final chargesById = {
-      for (final account in accounts.values) ...account.charges,
-    };
-    final creditsById = {
-      for (final account in accounts.values) ...account.credits,
-    };
     for (final allocation in allocations) {
       final charge = chargesById[allocation.chargeId];
       final credit = creditsById[allocation.paymentId];
@@ -298,8 +411,10 @@ final class AccountLedger {
         (a, b) => compareByDayThenId(a.charge.entry, b.charge.entry),
       );
     }
-    for (final account in accounts.values) {
+    for (final account in all) {
       for (final charge in account.charges.values) {
+        // Un cargo cuenta sólo en la cuenta donde está su fila.
+        if (!account.entries.contains(charge.entry)) continue;
         account.total.add(charge);
         account._byCampaign
             .putIfAbsent(
@@ -312,17 +427,82 @@ final class AccountLedger {
         account.unappliedMinor += credit.unappliedMinor;
       }
     }
-    return AccountLedger._(persons, sortedCampaigns, accounts);
+    final ownApplications = <int, List<LedgerApplication>>{};
+    for (final application in applications) {
+      if (ownOn(application.personId, application.day)) {
+        ownApplications
+            .putIfAbsent(application.personId, () => [])
+            .add(application);
+      }
+    }
+    return AccountLedger._(
+      persons,
+      sortedCampaigns,
+      accounts,
+      ownAccounts,
+      sortedBindings,
+      ownApplications,
+    );
   }
+
+  /// Titular vigente (vínculo sin `ended_at`), o nulo.
+  int? get ownerPersonId {
+    for (final binding in bindings) {
+      if (binding.endedAt == null) return binding.personId;
+    }
+    return null;
+  }
+
+  /// Asientos propios de [personId] (vacío si nunca fue titular).
+  PersonAccount ownAccount(int personId) =>
+      ownAccounts[personId] ?? PersonAccount(account(personId).person);
+
+  /// Consumo propio de [personId] en [campaignId] (nulo = todas).
+  OwnConsumption ownConsumption(int personId, {int? campaignId}) {
+    final consumption = OwnConsumption();
+    for (final application in _ownApplications[personId] ?? const []) {
+      if (campaignId == null || application.campaignId == campaignId) {
+        consumption.add(application);
+      }
+    }
+    return consumption;
+  }
+
+  /// Consumo propio por campaña de la aplicación, en orden de campaña.
+  List<({int? campaignId, OwnConsumption consumption})>
+  ownConsumptionByCampaign(int personId) {
+    final byCampaign = <int?, OwnConsumption>{};
+    for (final application in _ownApplications[personId] ?? const []) {
+      byCampaign
+          .putIfAbsent(application.campaignId, OwnConsumption.new)
+          .add(application);
+    }
+    return [
+      for (final id in campaignOrder)
+        if (byCampaign.containsKey(id))
+          (campaignId: id, consumption: byCampaign[id]!),
+      for (final entry in byCampaign.entries)
+        if (!campaignOrder.contains(entry.key))
+          (campaignId: entry.key, consumption: entry.value),
+    ];
+  }
+
+  /// Fue o es titular y tiene algo propio que mostrar.
+  bool hasOwnRecords(int personId) =>
+      (ownAccounts[personId]?.entries.isNotEmpty ?? false) ||
+      (_ownApplications[personId]?.isNotEmpty ?? false);
 
   /// Lee el resultado de la consulta única del repositorio
   /// (`AgroRepository.accountLedger`). Cada fila lleva `kind`:
-  /// K campaña, P persona, T asiento, L imputación.
+  /// K campaña, P persona, T asiento, L imputación, B vínculo de titular y
+  /// A aplicación de quien ha sido titular.
   factory AccountLedger.fromRows(List<Map<String, Object?>> rows) {
     final persons = <LedgerPerson>[];
     final campaigns = <CampaignPeriod>[];
     final entries = <LedgerEntry>[];
     final allocations = <LedgerAllocation>[];
+    final bindings = <LedgerBinding>[];
+    final applications = <LedgerApplication>[];
     for (final row in rows) {
       switch (row['kind']) {
         case 'K':
@@ -367,6 +547,26 @@ final class AccountLedger {
               amountMinor: row['amount']! as int,
             ),
           );
+        case 'B':
+          bindings.add(
+            LedgerBinding(
+              id: row['id']! as int,
+              personId: row['person_id']! as int,
+              boundAt: row['d1']! as String,
+              endedAt: row['d2'] as String?,
+            ),
+          );
+        case 'A':
+          applications.add(
+            LedgerApplication(
+              id: row['id']! as int,
+              personId: row['person_id']! as int,
+              campaignId: row['ref1'] as int?,
+              appliedAt: row['d1']! as String,
+              totalCostMinor: row['amount']! as int,
+              reversed: row['d2'] != null,
+            ),
+          );
       }
     }
     return AccountLedger.build(
@@ -374,6 +574,8 @@ final class AccountLedger {
       campaigns: campaigns,
       entries: entries,
       allocations: allocations,
+      bindings: bindings,
+      applications: applications,
     );
   }
 
@@ -401,9 +603,13 @@ final class AccountLedger {
   /// Filas de la lista de Cuentas (§2.3): personas no ADMIN, con el alcance
   /// de [campaignId] (nulo = todas las campañas).
   List<AccountSummary> summaries({int? campaignId}) {
+    final owner = ownerPersonId;
     final rows = [
       for (final person in persons)
-        if (person.role != 'ADMIN')
+        // E-15: el titular vigente no es deudor de sí mismo. Sólo aparece si
+        // tiene asientos que no son propios (anteriores a su vínculo, Q-3).
+        if (person.role != 'ADMIN' &&
+            (person.id != owner || account(person.id).entries.isNotEmpty))
           AccountSummary(account: account(person.id), campaignId: campaignId),
     ];
     rows.sort((a, b) {
@@ -436,7 +642,12 @@ final class AccountLedger {
     return (receivableMinor: receivable, creditMinor: credit);
   }
 
-  /// «Pagos recibidos»: Σ de pagos y adelantos.
+  /// «Principales saldos» de Inicio: las primeras filas de la lista con
+  /// «Todas las campañas» (saldo neto descendente, sin ADMIN ni lo propio).
+  List<AccountSummary> topBalances({int limit = 5}) =>
+      summaries().take(limit).toList();
+
+  /// «Pagos recibidos»: Σ de pagos y adelantos (sin los propios: E-15).
   int receivedMinor() {
     var total = 0;
     for (final account in accounts.values) {
@@ -475,6 +686,7 @@ final class AccountLedger {
       balance += entry.amountMinor;
       lines.add(LedgerStatementLine(entry: entry, balanceMinor: balance));
     }
+    final own = ownAccount(personId);
     return AccountStatement(
       ledger: this,
       account: account,
@@ -482,6 +694,13 @@ final class AccountLedger {
       openingMinor: opening,
       lines: lines,
       closingMinor: balance,
+      ownAccount: own,
+      ownLines: [
+        for (final entry in own.entries)
+          if (period == null || period.contains(entry.day)) entry,
+      ],
+      ownConsumption: ownConsumption(personId, campaignId: campaignId),
+      isCurrentOwner: ownerPersonId == personId,
     );
   }
 }
@@ -515,10 +734,29 @@ final class AccountStatement {
     required this.openingMinor,
     required this.lines,
     required this.closingMinor,
+    required this.ownAccount,
+    this.ownLines = const [],
+    required this.ownConsumption,
+    this.isCurrentOwner = false,
   });
 
   final AccountLedger ledger;
+
+  /// Cuenta por cobrar (sin lo propio).
   final PersonAccount account;
+
+  /// E-15: asientos propios de quien es o fue titular, y los del período.
+  final PersonAccount ownAccount;
+  final List<LedgerEntry> ownLines;
+
+  /// E-15: consumo propio en el alcance (campaña de la aplicación).
+  final OwnConsumption ownConsumption;
+
+  /// La persona es el titular vigente.
+  final bool isCurrentOwner;
+
+  bool get hasOwnRecords =>
+      ownAccount.entries.isNotEmpty || !ownConsumption.isEmpty;
 
   /// Campaña filtrada, o nula con «Todas las campañas».
   final CampaignPeriod? period;

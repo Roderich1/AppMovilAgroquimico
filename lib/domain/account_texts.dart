@@ -249,3 +249,81 @@ final class AccountPaymentResult {
     return buffer.toString();
   }
 }
+
+// ---------------------------------------------------------------------
+// E-15 · Consumo y costos propios del titular (decisión del autor del
+// 2026-10-27; documento D04_E15, parte B)
+// ---------------------------------------------------------------------
+
+const String ownCardTitle = 'Consumo y costos propios';
+
+String ownConsumptionLine(OwnConsumption consumption, {String? campaignName}) =>
+    'Consumo aplicado (costo FIFO) · ${campaignName ?? 'todas las campañas'} '
+    '${bob(consumption.activeCostMinor)}';
+
+/// «1 aplicación vigente · 1 revertida (81,00 Bs, no cuenta)».
+String ownApplicationsLine(OwnConsumption consumption) {
+  final n = consumption.activeCount;
+  final active = n == 0
+      ? 'Sin aplicaciones vigentes'
+      : n == 1
+      ? '1 aplicación vigente'
+      : '$n aplicaciones vigentes';
+  final m = consumption.reversedCount;
+  if (m == 0) return active;
+  final reversed = m == 1
+      ? '1 revertida (${bob(consumption.reversedCostMinor)}, no cuenta)'
+      : '$m revertidas (${bob(consumption.reversedCostMinor)}, no cuentan)';
+  return '$active · $reversed';
+}
+
+/// Totales de los asientos propios: cargos anotados, créditos por reversión y
+/// pagos y ajustes registrados.
+({int chargesMinor, int reversalsMinor, int paymentsMinor}) ownRecordTotals(
+  PersonAccount own, [
+  Iterable<LedgerEntry>? entries,
+]) {
+  var charges = 0;
+  var reversals = 0;
+  var payments = 0;
+  for (final entry in entries ?? own.entries) {
+    switch (own.classOf(entry)) {
+      case LedgerEntryClass.charge:
+        charges += entry.amountMinor;
+      case LedgerEntryClass.chargeReversal:
+        reversals += -entry.amountMinor;
+      case LedgerEntryClass.credit:
+        payments += -entry.amountMinor;
+      case LedgerEntryClass.creditCompensation:
+        payments -= entry.amountMinor;
+    }
+  }
+  return (
+    chargesMinor: charges,
+    reversalsMinor: reversals,
+    paymentsMinor: payments,
+  );
+}
+
+String ownRecordsLine(PersonAccount own) {
+  if (own.entries.isEmpty) return 'Sin asientos en su cuenta.';
+  final totals = ownRecordTotals(own);
+  return 'Asientos en su cuenta (no son deuda): cargos anotados '
+      '${bob(totals.chargesMinor)} · créditos por reversión '
+      '${bob(totals.reversalsMinor)} · pagos y ajustes registrados '
+      '${bob(totals.paymentsMinor)}';
+}
+
+/// Detalle de un titular anterior.
+String formerOwnerLine(OwnConsumption consumption) =>
+    'Consumo propio mientras fue titular ${bob(consumption.activeCostMinor)}';
+
+/// Línea del consumo propio de una campaña en «Movimientos propios».
+String ownCampaignLine(String campaignName, OwnConsumption consumption) {
+  final n = consumption.activeCount;
+  return '$campaignName: ${bob(consumption.activeCostMinor)} '
+      '($n ${n == 1 ? 'aplicación' : 'aplicaciones'})';
+}
+
+const String ownPaymentDialogText =
+    'Pago propio: se registra aparte y no es un cobro ni una deuda.';

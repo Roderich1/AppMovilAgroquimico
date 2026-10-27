@@ -178,6 +178,7 @@ compra"* — con un `personId` inexistente, no queda ni compra, ni ítems, ni lo
 | **D-04 (decisión del autor del 2026-10-27)** | La campaña donde se registra un pago y la campaña de la deuda que cancela son conceptos distintos. Cuentas distingue **deuda pendiente** por cargo, **pagos aplicados** (de `payment_allocations`) y **a favor (no aplicado a deuda)**. Con «Todas las campañas» muestra el saldo neto; con una campaña, la «Deuda pendiente por origen · K». Los NULL y las imputaciones guardadas se conservan y no se fabrica ninguna. Detalle en [D04_E15](architecture/D04_E15_CUENTAS_IMPUTACION_Y_COSTO_PROPIO.md) |
 | **Continuidad entre campañas** | El estado cronológico de una campaña es por **fecha** (RN-42): la apertura suma los asientos anteriores al inicio, de cualquier campaña o sin campaña. La imputación **no filtra por campaña** |
 | **Inicio y resumen** | «Familias/Terceros por cobrar» = Σ max(0, saldo neto) por persona, con «A favor de …» aparte. El resumen de campaña da la deuda pendiente por origen, sin ADMIN |
+| **E-15 · titular (decisión del autor del 2026-10-27)** | El titular no es deudor de sí mismo. Cuentas muestra la tarjeta «Consumo y costos propios», con el consumo aplicado a costo FIFO (aplicaciones no revertidas), las aplicaciones revertidas aparte y sus asientos como registro («cargos anotados», «créditos por reversión», «pagos y ajustes registrados»). Sus asientos propios no entran en la lista, en «por cobrar», en «Pagos recibidos», en «Principales saldos» ni en el resumen. Conserva el pago y el adelanto (#26). Su exportación es «Movimientos propios del titular». Lo propio sigue los intervalos de `owner_bindings` |
 | **Reportes en la misma pantalla** | Costo por chaco y por hectárea; costo consumido por producto |
 
 ---
@@ -243,7 +244,7 @@ compra"* — con un `personId` inexistente, no queda ni compra, ni ítems, ni lo
 | **Propósito** | Resumen ejecutivo de un vistazo |
 | **Pantalla** | `DashboardScreen` — `/` |
 | **Archivos** | `agro_repository.dart` `dashboard`, `inventorySummary(limit:5)`, `applications(limit:5)`, `topSettlements(limit:5)`, `campaigns` |
-| **Tarjetas** | Compras, Pagado proveedores, Familias por cobrar, Terceros por cobrar, Pagos recibidos. «Por cobrar» = Σ max(0, saldo neto) por persona, con «A favor de familias/terceros: X» si X > 0 (D-04) |
+| **Tarjetas** | Compras, Pagado proveedores, Familias por cobrar, Terceros por cobrar, Pagos recibidos. «Por cobrar» = Σ max(0, saldo neto) por persona, con «A favor de familias/terceros: X» si X > 0 (D-04). Sin los asientos propios del titular, que tampoco aparece en «Principales saldos» (E-15) |
 | **Secciones** | Banner de campaña activa; tabla de inventario proyectado (con buscador en cliente); aplicaciones recientes; principales saldos |
 | **Interacción** | Cada fila de inventario navega a `/inventario/:id`; los enlaces "Ver todos" van a las pantallas completas |
 | **Refresco** | Botón manual de recarga; no hay refresco automático |

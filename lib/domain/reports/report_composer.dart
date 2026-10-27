@@ -436,4 +436,71 @@ class ReportComposer {
       emptyMessage: 'Esta persona no tiene movimientos en el periodo elegido.',
     );
   }
+
+  /// «Movimientos propios del titular» (E-15 §B.2): sus asientos como
+  /// registro, sin acumulado ni saldo, y su consumo aplicado con costo FIFO.
+  ReportTable ownStatement({
+    required AccountStatement statement,
+    required DateTime generatedAt,
+  }) {
+    final ledger = statement.ledger;
+    final own = statement.ownAccount;
+    final period = statement.period;
+    final rows = <List<ReportCell>>[
+      for (final entry in statement.ownLines)
+        [
+          ReportDate(entry.transactionDate),
+          ReportText(conceptLabel(entry.concept)),
+          ReportText(entry.farmName ?? ''),
+          ReportText(entryCampaignText(ledger, own, entry)),
+          entry.amountMinor > 0
+              ? ReportMoney(entry.amountMinor)
+              : const ReportBlank(),
+          entry.amountMinor < 0
+              ? ReportMoney(-entry.amountMinor)
+              : const ReportBlank(),
+        ],
+    ];
+    final totals = ownRecordTotals(own, statement.ownLines);
+    final end = statement.periodClosed ? displayDay(period!.endDay!) : 'hoy';
+    return ReportTable(
+      title: 'Movimientos propios del titular',
+      generatedAt: generatedAt,
+      filters: [
+        ReportFilter('Persona', own.person.name),
+        ReportFilter(
+          'Campaña',
+          period == null
+              ? campaignFilterValue(null)
+              : '${period.name} (período ${displayDay(period.startDay)} – '
+                    '$end)',
+        ),
+      ],
+      columns: const [
+        ReportColumn('Fecha', weight: 1.4),
+        ReportColumn('Concepto', weight: 2.6),
+        ReportColumn('Chaco', weight: 1.6),
+        ReportColumn('Campaña del asiento', weight: 2),
+        ReportColumn('Cargo (Bs)', numeric: true, weight: 1.4),
+        ReportColumn('Crédito (Bs)', numeric: true, weight: 1.4),
+      ],
+      rows: rows,
+      totals: [
+        ReportTotal(
+          'Consumo aplicado, costo FIFO (Bs)',
+          ReportMoney(statement.ownConsumption.activeCostMinor),
+        ),
+        ReportTotal('Cargos anotados (Bs)', ReportMoney(totals.chargesMinor)),
+        ReportTotal(
+          'Créditos por reversión (Bs)',
+          ReportMoney(totals.reversalsMinor),
+        ),
+        ReportTotal(
+          'Pagos y ajustes registrados (Bs)',
+          ReportMoney(totals.paymentsMinor),
+        ),
+      ],
+      emptyMessage: 'El titular no tiene asientos en el periodo elegido.',
+    );
+  }
 }
