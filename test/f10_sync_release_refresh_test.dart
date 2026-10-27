@@ -127,7 +127,10 @@ void main() {
       );
       await settle(tester);
       expect(pushes, isEmpty, reason: 'abrir la pantalla no envía nada');
-      expect(find.textContaining('Pausado: restauración ·'), findsOneWidget);
+      expect(
+        find.textContaining('Pausado: llegó con un respaldo restaurado ·'),
+        findsOneWidget,
+      );
 
       await tester.tap(find.widgetWithText(TextButton, 'Liberar'));
       await settle(tester);
@@ -157,8 +160,11 @@ void main() {
       expect(acked['operation_id'], unknown['operation_id']);
       expect(acked['quantity_base'], unknown['quantity_base']);
       // La fila, no sólo el resumen, muestra el ACK.
-      expect(find.textContaining('Sincronizado · creada'), findsOneWidget);
-      expect(find.textContaining('Pendiente (sin confirmar)'), findsNothing);
+      expect(
+        find.textContaining('Aceptado por el sindicato · creada'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('sin confirmación'), findsNothing);
     },
     timeout: const Timeout(Duration(minutes: 2)),
   );

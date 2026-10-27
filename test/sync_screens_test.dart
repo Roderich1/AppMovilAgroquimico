@@ -360,11 +360,39 @@ void main() {
       expect(find.text('Pendiente: 1'), findsOneWidget);
       expect(find.text('Rechazado: 1'), findsOneWidget);
       expect(find.text('Todavía sin confirmación'), findsOneWidget);
+      // C-04: cada fila dice qué producto y qué campaña (nombres locales).
+      expect(find.text('Herbicida local · Campaña local 2026'), findsOneWidget);
+      expect(find.text('Fungicida local · Campaña local 2026'), findsOneWidget);
       expect(
         find.textContaining('Necesidad declarada · Publicar · 1,5 L'),
         findsOneWidget,
       );
-      expect(find.textContaining('REFERENCE_UNAVAILABLE'), findsOneWidget);
+      // C-03: estados en palabras y explicación por familia; el código
+      // técnico no está en el texto principal.
+      expect(
+        find.textContaining('Guardado, pendiente de envío'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('Rechazado por el sindicato'), findsOneWidget);
+      expect(
+        find.textContaining(
+          'El sindicato no reconoce el producto o la campaña vinculados: '
+          'revise los vínculos',
+        ),
+        findsOneWidget,
+      );
+      expect(find.textContaining('REFERENCE_UNAVAILABLE'), findsNothing);
+      // C-05: desde el rechazo se puede ir a decidir; la pendiente no lo
+      // ofrece.
+      expect(find.widgetWithText(TextButton, 'Decidir…'), findsOneWidget);
+      // El código sigue disponible, plegado en «Detalle técnico».
+      expect(find.text('Detalle técnico'), findsOneWidget);
+      await tester.tap(find.text('Detalle técnico'));
+      await settle(tester);
+      expect(
+        find.textContaining('Código: REFERENCE_UNAVAILABLE · Intentos: 1'),
+        findsOneWidget,
+      );
     },
   );
 }

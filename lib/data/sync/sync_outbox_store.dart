@@ -13,11 +13,15 @@ import '../app_database.dart';
 import '../owner_binding_store.dart' show SyncQueueInspector;
 import 'central_binding_store.dart' show CentralBindingStore;
 
+/// Un conflicto no se resuelve en Sincronización (allí sólo se ve): lo decide
+/// el propietario en la pantalla de la proyección (F05 §6).
 class SyncConflictPendingException extends BusinessRuleException {
   SyncConflictPendingException()
     : super(
-        'El sindicato registró un conflicto con esta necesidad. Resuélvalo '
-        'primero desde Sincronización.',
+        'El sindicato registró un conflicto con este envío. Decida primero '
+        'qué versión vale: en «Necesidad declarada» con «Resolver '
+        'conflicto…», o en «Consumo para el sindicato» con «Enviar mi total '
+        'actual».',
       );
 }
 
@@ -570,12 +574,24 @@ class SyncOutboxStore {
   // ---------------------------------------------------------------------
   // Lecturas.
 
+  /// Todas las intenciones, con el nombre local del producto y de la campaña
+  /// que les corresponde por los vínculos del tenant de su titular (una sola
+  /// consulta; sólo para mostrar). Sin vínculo, los nombres quedan null.
   Future<List<OutboxEntry>> entries() async {
     final db = await _database.database;
-    return (await db.query(
-      'sync_outbox',
-      orderBy: 'id DESC',
-    )).map(OutboxEntry.fromRow).toList();
+    final rows = await db.rawQuery(
+      'SELECT o.*, p.name AS product_name, c.name AS campaign_name '
+      'FROM sync_outbox o '
+      'JOIN owner_bindings w ON w.id = o.owner_binding_id '
+      'LEFT JOIN product_bindings pb ON pb.product_ref = o.product_ref '
+      'AND pb.tenant_id = w.tenant_id '
+      'LEFT JOIN products p ON p.id = pb.product_id '
+      'LEFT JOIN campaign_bindings cb ON cb.campaign_ref = o.campaign_ref '
+      'AND cb.tenant_id = w.tenant_id '
+      'LEFT JOIN campaigns c ON c.id = cb.campaign_id '
+      'ORDER BY o.id DESC',
+    );
+    return rows.map(OutboxEntry.fromRow).toList();
   }
 
   Future<OutboxEntry?> byOperationId(String operationId) async {
