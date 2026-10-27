@@ -145,9 +145,10 @@ void main() {
     await choose(tester, 'Producto', 'Glifosato');
     await tester.enterText(field('Cantidad comprada'), '2');
     await tester.enterText(field('Precio BOB/L'), '45');
-    // Reparto explícito: todo al titular.
+    // Destinatario explícito: toda la línea para el titular (la cantidad se
+    // deriva de la comprada; no se reteclea).
+    await tapKey(tester, 'purchase-alloc-single-0');
     await choose(tester, 'Persona', 'Titular');
-    await tester.enterText(field('Cantidad'), '2');
     await settle(tester);
     await tapKey(tester, 'purchase-continue');
 
@@ -158,7 +159,7 @@ void main() {
     expect(find.byKey(const Key('purchase-paid-pending')), findsOneWidget);
     await tester.tap(find.byKey(const Key('purchase-paid-yes')));
     await settle(tester);
-    expect(find.text('Pago registrado por: Titular'), findsOneWidget);
+    expect(find.text('Paga el titular: Titular'), findsOneWidget);
 
     await tapKey(tester, 'purchase-confirm');
     await tester.pump(const Duration(milliseconds: 500));

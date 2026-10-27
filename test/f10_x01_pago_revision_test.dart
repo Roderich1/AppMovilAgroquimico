@@ -52,8 +52,8 @@ void main() {
     await choose(tester, 'Producto', 'Glifosato');
     await tester.enterText(field('Cantidad comprada'), '2');
     await tester.enterText(field('Precio BOB/L'), '45');
+    await tapKey(tester, 'purchase-alloc-single-0');
     await choose(tester, 'Persona', 'Titular');
-    await tester.enterText(field('Cantidad'), '2');
     await settle(tester);
     await tapKey(tester, 'purchase-continue');
   }
@@ -127,7 +127,7 @@ void main() {
     await fillStep1(tester);
     await tester.tap(find.byKey(const Key('purchase-paid-yes')));
     await settle(tester);
-    expect(find.text('Pago registrado por: Titular'), findsOneWidget);
+    expect(find.text('Paga el titular: Titular'), findsOneWidget);
     await tapKey(tester, 'purchase-confirm');
     // RF-03: se ofrece la revisión y se avisa de que el pago NO se guarda.
     expect(find.byKey(const Key('late-explanation')), findsOneWidget);

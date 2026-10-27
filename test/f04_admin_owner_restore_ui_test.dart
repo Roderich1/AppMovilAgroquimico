@@ -417,7 +417,7 @@ void main() {
       await tester.tap(find.byKey(const Key('purchase-paid-yes')));
       await settle(tester);
       expect(find.byKey(const Key('purchase-payer-owner')), findsOneWidget);
-      expect(find.text('Pago registrado por: Titular'), findsOneWidget);
+      expect(find.text('Paga el titular: Titular'), findsOneWidget);
       expect(ids.payer, isNot(ids.titular));
     },
   );
