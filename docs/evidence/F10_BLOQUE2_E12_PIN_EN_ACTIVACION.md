@@ -1,7 +1,9 @@
 # Bloque 2 · E-12: PIN del titular dentro de la activación (HOST)
 
 - **Tipo:** HOST, sólo pruebas de Flutter en el ordenador. **No** es evidencia en dispositivo ni en emulador.
-- **Fecha real:** 2026-10-27, entre las 13:50 y las 14:35 aproximadamente (America/La_Paz).
+- **Fecha real:** 2026-10-27 (America/La_Paz). Horas reales de los commits y de las corridas:
+  - primera ronda: commits de 13:43:45 (`e5bcd0a`) a 14:31:17 (`19b7799`); corrida de base hacia las 13:59 y corrida con el cambio hacia las 14:30;
+  - segunda ronda: commit `9670558` y pruebas de 15:03:05 a 15:09.
 - **Entorno:** Windows 11 Home; Flutter 3.47.2 (stable, `d3b14c8769`); sqflite_common_ffi en memoria. Sin teléfono ni emulador.
 - **Decisión:** del autor, Roderich Rendón, 2026-10-27 (`_briefs/BLOQUE2_DECISIONES_AUTOR_2026-10-27.md`, E-12). Contrato: `docs/architecture/F03_RECUPERACION_IDENTIDAD_LOCAL.md` §4 y §4 bis.
 - **Trazabilidad:** RF-01, RF-13, RF-03, CU-01 y RNF-04.
@@ -14,7 +16,9 @@
 | `e5bcd0a` | Diseño del §4 bis (fase 1) |
 | `8986c19` | Ajustes H1–H10 de la revisión cruzada y resoluciones C-1…D-5; aviso de obsoleto en `docs/12_AUTHENTICATION.md` |
 | `e3af008` | Implementación y pruebas nuevas |
-| este commit | Esta evidencia y precisiones del §4 bis |
+| `19b7799` | Primera versión de esta evidencia y precisiones del §4 bis |
+| `9670558` | Ajustes de la segunda revisión cruzada (commit «pendiente de verificación»; verificado abajo) |
+| este commit | Evidencia de la segunda ronda |
 
 ## Qué se comprobó
 
@@ -112,11 +116,66 @@ Tras las mutaciones, `git status` sólo muestra los documentos de esta entrega: 
 - Fallo al guardar: «No se pudo guardar el PIN. Puede crearlo más tarde en Operaciones › Más › PIN del titular, confirmando su cuenta en línea.»
 
 **Retorno a la operación:**
-- Encabezado de la revisión y del diálogo del PIN: «PIN del titular creado. Revise la operación y confírmela con su PIN.»
+- Encabezado de la revisión y del diálogo del PIN: «PIN del titular configurado. Revise la operación y autorícela con su PIN.» (segunda ronda; antes, «PIN del titular creado. Revise la operación y confírmela con su PIN.»).
 - Volver sin PIN: «No se configuró el PIN. La operación no cambió.»
 - Operación ya resuelta: «Esta operación ya no está pendiente: ya fue revertida. No se hizo ningún cambio.» (o «ya se resolvió», «ya no existe», «la clave activa cambió»).
 - Titular distinto: «El titular de estos datos cambió. No se hizo ningún cambio.»
+- La revalidación falla (lanza): «No se pudo comprobar la operación. No se hizo ningún cambio.» (segunda ronda).
 - Sin titular vinculado: «Esta acción la autoriza sólo el titular con su PIN. Para habilitarla, active la aplicación, elija el titular y configure el PIN.», sin el botón «Configurar PIN».
+
+## Segunda ronda: ajustes de la revisión cruzada de la implementación
+
+Revisión cruzada de `ed9c55c..19b7799`: «LISTO CON AJUSTES», sin bloqueantes. Ajustes aplicados en `9670558`:
+
+1. **Vencimiento por reloj de pared aislado.** U4 tiene un caso con 10 min 1 s sólo en el reloj de pared y el cronómetro en cero.
+2. **Pruebas de retorno nuevas:**
+   - W1b, reversión de una aplicación;
+   - W1c, reversión de una transferencia;
+   - W3b, tardía resuelta mientras se configuraba el PIN;
+   - W5b, titular cambiado (`ownerChanged`);
+   - W3c, `revalidate` que lanza;
+   - W2c, `requiresOnlineReset` → «Configurar PIN» → restablecer con contraseña sintética → revisión sin ejecutar;
+   - F08 en dos pruebas: misma `keyId` y clave cambiada, en las dos con un solo aviso, el de F08.
+3. **`owner_setup_screen.dart`:** la acreditación se anula en todo retorno sin oferta, también si la pantalla se desmonta después de vincular. Prueba W8b.
+4. **Texto propio** cuando `revalidate` lanza.
+5. **Encabezado del retorno** neutro, porque también sirve para restablecer, rechazar y F08.
+6. **El comprobante de activación** guarda `bindingId` y `personId`, y `_requireProof` los compara. Prueba «comprobación 5 en la credencial».
+7. **Documentos:** las horas reales; la mutación «no retirar» alineada (la detecta la U1 de la emisión real, no la U5, que usa un doble); y los SHA.
+
+En la primera corrida de la segunda ronda, W1c y W3b fallaban por causas de la prueba, no del código:
+- **W1c:** con la transferencia ya revertida, la fila de la lista desborda a 500 px de ancho. Es un defecto de `transfers_screen.dart` fuera de E-12, que el coordinador registra aparte. La prueba termina ahora en «Cancelar» del diálogo del PIN; el camino de autorizar ya lo cubre la compra.
+- **W3b:** la actualización directa violaba un CHECK de la tabla. La versión siguiente, con `verify` y `rejectLateOperation` dentro de `tester.runAsync`, se colgó (más de 10 minutos). Se sustituyó por la actualización completa de la fila resuelta. Las pruebas nuevas no tienen bucles sin límite: todos están acotados a 40 o 60 vueltas.
+
+**Proceso colgado.** El worktree `_wt/A-E12` quedó con un `flutter_tester` colgado de esa corrida: PID 40708, arrancado a las 14:48, con su `dart.exe` padre PID 40952. Retiene `build/native_assets/windows/sqlite3.dll`. **No se terminó**: el control de permisos lo rechazó y la regla es no eludirlo. Por eso las pruebas de esta ronda se corrieron en el worktree aparte `_wt/A-E12-T`:
+- `git worktree add --detach ../A-E12-T HEAD`, sobre `9670558`, y `flutter pub get`;
+- sin editar código, salvo las dos mutaciones temporales, restauradas con `git checkout`. `git status` queda limpio al final;
+- cada `flutter test` con `--timeout 120s`. Ninguna prueba agotó el plazo.
+
+**Salidas en `_wt/A-E12-T` sobre `9670558`** (orden: `flutter test --timeout 120s --concurrency=2 --reporter=compact|expanded <archivos>`, tandas de tres archivos como mucho):
+
+| Tanda | Archivos | Salida |
+|---|---|---|
+| 1 (15:03:05–15:04:31) | `e12_activation_evidence_test`, `e12_pin_offer_screen_test`, `e12_pending_operation_return_test` | `01:07 +47: All tests passed!` (las 37 de la primera ronda y 10 nuevas) |
+| 2 (15:05:01–15:05:19) | `first_activation_screen_test`, `f08_recovery_key_owner_pin_test`, `operation_mode_onboarding_test` | `00:14 +38: All tests passed!` |
+| 3 (15:05:36–15:05:48) | `f04_rf03_late_screen_test`, `rec_050_reversal_rules_test`, `f04_owner_binding_test` | `00:08 +22: All tests passed!` |
+| 4 | `f03_local_owner_credential_test`, `f03_owner_online_confirmation_test`, `f04_activation_app_policy_test` | `00:12 +42: All tests passed!` |
+| 5 | `f04_admin_owner_restore_ui_test`, `destructive_actions_test`, `f04_rf13_reversal_audit_test` | `00:22 +27: All tests passed!` |
+| 6 | `f10_mensajes_autorizacion_test`, `f08_recovery_key_screen_test`, `purchases_access_test` | `00:08 +11: All tests passed!` |
+
+Las tandas 4 a 6 cubren el resto de las pruebas existentes que tocan lo cambiado en esta ronda: la credencial, la pantalla del PIN y la del titular. No se cambió ninguna aserción existente.
+
+**Mutaciones nuevas** (15:08:45–15:08:53, mismo método que M1–M10, con `--timeout 120s`, cada una restaurada sin commit):
+
+| Mutación | Prueba | Resultado |
+|---|---|---|
+| M11 quitar `now.difference(issuedAt) <= lifetime` de `isFresh` | U4 (caso «sólo reloj de pared») | Detectada: `Expected: null`, `Actual: OnlineOwnerProof(redacted)` |
+| M12 `_requireProof` sin comparar `bindingId` ni `personId` | «comprobación 5 en la credencial» | Detectada: `Expected: throws CredentialException`, `Actual: Future<void>` |
+
+**Formato y análisis** en `_wt/A-E12-T`:
+- `dart format --output=none --set-exit-if-changed lib <pruebas e12 y su soporte>` → `Formatted 149 files (0 changed)`, salida 0;
+- `flutter analyze` → `No issues found!`.
+
+**Procesos.** Al terminar sólo sigue el PID 40708 antiguo. Los `flutter_tester` que aparecieron durante la ronda eran de las propias tandas, que se cerraron al acabar, o de otro frente (`e15_*`, arrancados a las 15:06). Esta ronda no dejó ningún proceso colgado nuevo.
 
 ## Pendiente y límites
 
