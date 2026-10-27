@@ -149,8 +149,7 @@ class _TransfersScreenState extends ConsumerState<TransfersScreen> {
                       child: Text(
                         '${row['item_count']} producto(s) · ${row['lot_count']} lote(s) · costo de referencia ${formatBob(row['total_cost_bob_minor'] as int)}\n'
                         'Es el costo de compra del producto entregado, no un '
-                        'precio de venta: ${row['to_person_name']} no debe '
-                        'nada por esta entrega.',
+                        'precio de venta. La entrega no genera deuda.',
                       ),
                     ),
                   ),

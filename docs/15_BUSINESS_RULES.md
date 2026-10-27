@@ -315,9 +315,12 @@ Las validaciones exclusivamente de interfaz se listan aparte en
   cambia es la interfaz:
   - Antes de confirmar, el diálogo «Confirmar transferencia» dice, con el nombre del
     destinatario: «Esta transferencia entrega producto a [persona], pero no genera una
-    deuda.», seguido de «No se registra ningún cargo ni cobro a [persona]. El costo del
-    producto entregado sólo es de referencia, no un precio de venta.». La frase es la
-    misma con uno o varios productos.
+    deuda.», seguido de «Esta transferencia no registra ningún cargo ni cobro a [persona].
+    El costo del producto entregado sólo es de referencia, no un precio de venta.». Ambas
+    van justo después de De/A, antes de las líneas, y el diálogo se desplaza si hay
+    muchas. La frase es la misma con uno o varios productos. El aviso se limita a la
+    operación: no anticipa cargos que nazcan después, por ejemplo al aplicar lo recibido
+    con cobro por consumo (efecto secundario de RN-35, más arriba).
   - El costo FIFO de una transferencia **no es un precio de venta**: en la lista, el
     detalle, la reversión y el formulario se rotula como costo de referencia.
   - El historial dice el carácter de la operación: «Entrega sin deuda» en cada fila de

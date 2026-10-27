@@ -197,8 +197,9 @@ void main() {
       );
       expect(
         inDialog(
-          'No se registra ningún cargo ni cobro a Beto. El costo del '
-          'producto entregado sólo es de referencia, no un precio de venta.',
+          'Esta transferencia no registra ningún cargo ni cobro a Beto. El '
+          'costo del producto entregado sólo es de referencia, no un precio '
+          'de venta.',
         ),
         findsOneWidget,
       );
@@ -249,6 +250,14 @@ void main() {
         ),
         findsOneWidget,
       );
+      expect(
+        inDialog(
+          'Esta transferencia no registra ningún cargo ni cobro a Don '
+          'Carlos. El costo del producto entregado sólo es de referencia, no '
+          'un precio de venta.',
+        ),
+        findsOneWidget,
+      );
 
       await tester.tap(find.text('Confirmar'));
       await settle(tester);
@@ -284,6 +293,69 @@ void main() {
       expect(find.byType(AlertDialog), findsNothing);
       expect(await count(tester, 'transfers'), 0);
       expect(await accountRows(tester), before);
+    });
+
+    testWidgets('con treinta líneas en pantalla pequeña la frase se ve entera '
+        'y la última línea se alcanza desplazando', (tester) async {
+      late List<String> names;
+      await tester.runAsync(() async {
+        await seed();
+        names = [
+          for (var i = 1; i <= 30; i++) 'Producto ${'$i'.padLeft(2, '0')}',
+        ];
+        final ids = [for (final n in names) await repo.addProduct(name: n)];
+        await repo.confirmPurchase(
+          PurchaseDraft(
+            supplierId: supplier,
+            campaignId: campaign,
+            purchaseDate: DateTime.utc(2026, 1, 7, 12),
+            items: [
+              for (final id in ids)
+                PurchaseItemDraft(
+                  productId: id,
+                  quantityBase: 1000,
+                  currency: CurrencyCode.bob,
+                  originalUnitPriceMinor: 1000,
+                  allocations: [
+                    AllocationDraft(personId: ana, quantityBase: 1000),
+                  ],
+                ),
+            ],
+          ),
+        );
+      });
+      addTearDown(() => database.close());
+      await openForm(tester);
+      // Formulario alto para que todas las filas existan al teclear.
+      tester.view.physicalSize = const Size(600, 4000);
+      await tester.pump();
+      await choose(tester, 'Persona origen', 'Ana');
+      for (final name in names) {
+        await quantity(tester, name, '1');
+      }
+      await choose(tester, 'Persona destino', 'Don Carlos');
+
+      // Teléfono pequeño para la confirmación.
+      tester.view.physicalSize = const Size(360, 640);
+      await tester.pump();
+      await tester.tap(find.text('Revisar y confirmar'));
+      await settle(tester, rounds: 3);
+
+      expect(tester.takeException(), isNull, reason: 'sin desbordamiento');
+      final notice = inDialog(
+        'Esta transferencia entrega producto a Don Carlos, pero no genera '
+        'una deuda.',
+      );
+      expect(notice, findsOneWidget);
+      final rect = tester.getRect(notice);
+      expect(rect.top, greaterThanOrEqualTo(0));
+      expect(rect.bottom, lessThanOrEqualTo(640));
+      final last = inDialog('Producto 30: 1 L');
+      expect(last, findsOneWidget);
+      await tester.ensureVisible(last);
+      await tester.pump();
+      expect(tester.getRect(last).bottom, lessThanOrEqualTo(640));
+      expect(find.text('Confirmar'), findsOneWidget);
     });
   });
 
@@ -340,14 +412,15 @@ void main() {
       expect(
         find.textContaining(
           'Es el costo de compra del producto entregado, no un precio de '
-          'venta: Don Carlos no debe nada por esta entrega.',
+          'venta. La entrega no genera deuda.',
         ),
         findsOneWidget,
       );
     });
 
     testWidgets('el aviso de reversión dice que la transferencia no generó '
-        'deuda; cancelar no cambia nada', (tester) async {
+        'deuda; cancelar no cambia nada y una reversión real tampoco toca '
+        'las cuentas', (tester) async {
       await tester.runAsync(seedHistory);
       addTearDown(() => database.close());
       await pump(tester, const Scaffold(body: TransfersScreen()));
@@ -371,6 +444,29 @@ void main() {
       );
       await tester.tap(find.text('Cancelar'));
       await settle(tester, rounds: 3);
+      expect(await accountRows(tester), before);
+
+      // Reversión real de Ana → Don Carlos (sin PIN, efectos del
+      // repositorio): el stock vuelve y `account_transactions` no cambia.
+      final transfer =
+          (await tester.runAsync(
+                () => db.query(
+                  'transfers',
+                  where: 'to_person_id=? AND status=?',
+                  whereArgs: [carlos, 'CONFIRMED'],
+                ),
+              ))!.single['id']!
+              as int;
+      await tester.runAsync(
+        () => repo.reverseTransferUnauditedForTesting(
+          transfer,
+          reason: 'Prueba D-07',
+        ),
+      );
+      final status = (await tester.runAsync(
+        () => db.query('transfers', where: 'id=?', whereArgs: [transfer]),
+      ))!.single['status'];
+      expect(status, 'REVERSED');
       expect(await accountRows(tester), before);
     });
 
