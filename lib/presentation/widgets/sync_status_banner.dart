@@ -65,7 +65,8 @@ String outboxStatusPhrase(
     OutboxStatus.authPaused => 'Pausad$a: el sindicato no autorizó esta cuenta',
     OutboxStatus.ownerPaused => 'Pausad$a: otro titular en sesión',
     OutboxStatus.restorePaused => 'Pausad$a: llegó con un respaldo restaurado',
-    OutboxStatus.versionMismatch => 'Pausad$a: actualice la aplicación',
+    OutboxStatus.versionMismatch =>
+      'Pausad$a: versión distinta de la aplicación',
     OutboxStatus.discarded => 'Descartad$a (no enviad$a)',
   };
 }
