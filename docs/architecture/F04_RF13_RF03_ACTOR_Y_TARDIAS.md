@@ -3,7 +3,7 @@
 - **Fecha real:** 2026-10-23 (America/La_Paz). Sesión A, sobre Mobile `b0d169b` + `f90d330` (dependencia `cryptography`) y F03 (`cc88fdd`, `7713f9c`).
 - **Fuente:** decisión de Roderich Rendón del 2026-10-23 (bloque de decisiones F01–F08, §3, §4 y §9; el archivo de trabajo no está en el repositorio). Es una decisión del autor para el entorno sintético, no una aprobación institucional.
 - **Revisión:** C revisa la identidad y la auditoría (§1) y su relación con la restauración; B revisa el diseño temporal (§2) y su relación con el sellado (§3).
-- **Trazabilidad:** RF-03, RF-13, RN-15, RN-16, CU-06, CU-09 y DAT.
+- **Trazabilidad:** RF-03, RF-13, RN-15, RN-16, CU-06, CU-09 y DAT; §2.6 (2026-10-27) añade RN-25 y RN-26.
 - **Esquema:** Mobile **v11**, reservada para A en CONTROL.
 
 **Qué enmienda.** El código actual (`463d3ec`) tiene dos limitaciones:
@@ -159,6 +159,43 @@ Si la fecha no está en ninguna campaña, `addHistoricalCampaign(name, start, en
 - si después llega del Central una campaña que se solapa, nada se reclasifica ni se reasigna solo: los borradores pendientes quedan en conflicto (`LATE_CAMPAIGN_CHANGED` al intentar confirmar) y las tardías confirmadas se quedan en su período local.
 
 Después, la fecha clasifica en ese período cerrado y sigue el recorrido de §2.1. **No se reabren campañas.**
+
+### 2.6 Aplicación ordinaria con fecha pasada en la campaña activa (D-03)
+
+- **Fuente:** decisión del autor, Roderich Rendón, del 2026-10-27 (bloque 2, D-03). Es una decisión del autor; no se atribuye al tutor ni a la Directiva. Precisa RN-25 (`docs/15_BUSINESS_RULES.md`).
+- **Regla:** una aplicación no puede consumir producto que todavía no existía en su fecha efectiva, tampoco dentro de la campaña activa.
+- **Dónde vive:** en `confirmApplication`, dentro de su transacción y después de las guardas de campaña, fecha (#121) y plan. No es una comprobación del formulario. Con los productores actuales la cumplen todos:
+  - el formulario, también «Aplicar este plan» (`planId`);
+  - la voz (`VoiceDraftGateway.confirmApplication`), que en producción confirma siempre con la fecha de hoy.
+  Esto vale sólo para las aplicaciones. `transferProductsFifo` acepta por API cualquier fecha pasada y no la cumple (ver «Fuera de D-03»).
+- **«Hoy» frente a día pasado:** se compara el día local efectivo (`localDay(appliedAt)`) con el día local de hoy (`localDay(DateTime.now())`), la misma convención de `_ensureEffectiveDateInCampaign` y de §2.3.
+  - **Hoy:** la ruta de siempre (`_lotsAvailableNow`): la misma consulta, el mismo FIFO, el mismo costo y el mismo mensaje de RN-25. Como no se admiten fechas futuras (#121), no puede haber lotes ni movimientos posteriores a hoy, y el saldo de hoy ya es el cupo histórico.
+  - **Día pasado:** la elegibilidad de §2.3 (`_lotsAvailableAt`):
+    - lotes no anulados con día de `acquired_date` ≤ día efectivo (el mismo día es elegible);
+    - un cupo por lote que es el mínimo del saldo al final del día efectivo y al final de cada día posterior con movimientos;
+    - la aplicación va al final de su día;
+    - FIFO por `acquired_date, id` y el costo del lote, como siempre.
+  - Un lote recibido por transferencia conserva el `acquired_date` de su origen, pero su `TRANSFER_IN` tiene la fecha de la transferencia: antes de ella su saldo es cero y no aporta cupo. Un pase posterior que sale de un lote reduce el cupo de quien da.
+- **Si el cupo no alcanza:** se lanza `HistoricalStockException` (subclase de `BusinessRuleException`), **también cuando tampoco alcanza el saldo de hoy**, y la transacción se deshace entera. No queda la aplicación, ni sus líneas, consumos, movimientos o cargos, y el plan no pasa a `APPLIED`. El mensaje nombra el producto, la fecha y la existencia de ese día. Nunca dice «no había» ni «había 0» si ese día la persona tenía producto:
+  - **ese día no tenía nada** de ese producto:
+    > «Bellator: el 15/10/2026 esa persona no tenía este producto; pidió 0,8 L. Una aplicación con fecha pasada sólo puede usar lo que esa persona ya tenía ese día y no se usó después: no cuenta el producto comprado o recibido más tarde. Revise la fecha o la cantidad. No se registró nada.»
+  - **lo tenía, y operaciones posteriores usaron parte:**
+    > «Bellator: el 15/10/2026 esa persona tenía 1 L; de eso quedan 0,3 L sin usar en operaciones posteriores; pidió 0,5 L. …»
+  - **lo tenía y nada posterior lo usó**, pero no alcanza. Es la misma frase sin la cláusula intermedia:
+    > «Bellator: el 15/10/2026 esa persona tenía 1 L; pidió 2 L. …»
+  - «Tenía» es la suma, por lote elegible, del saldo al final de ese día; un saldo histórico negativo cuenta como cero. «Quedan» es el cupo.
+- **Hoy:** el rechazo sigue siendo el de RN-25 («Stock insuficiente para confirmar la aplicación.»).
+- **Límites:**
+  - No se recalculan costos, consumos ni fechas de operaciones ya confirmadas, y no se corrigen registros históricos inconsistentes. Por ejemplo, una aplicación anterior a esta regla que consumió un lote adquirido después. Un lote cuyo saldo histórico ya es negativo por esos registros no aporta cupo a una aplicación con fecha pasada; la ruta de hoy sigue usando el saldo actual.
+  - **Negativos transitorios dentro de un día posterior:** el cupo se comprueba al final de cada día, como en §2.3. Si un día posterior tiene una salida y después una entrada, el saldo intermedio de ese día puede quedar negativo aunque el saldo al final del día no lo sea. Es la convención vigente; no se cambia aquí.
+  - La operación tardía de §2.3 (`confirmLateOperation`) no cambia: ya usaba esta elegibilidad, con su conflicto `LATE_STOCK_UNAVAILABLE`.
+  - **Fuera de D-03: transferencias.** `transferProductsFifo` acepta por API cualquier fecha pasada (`date`) y consume con el saldo de hoy, sin elegibilidad histórica. Por eso la regla se cumple «con los productores actuales» de aplicaciones, no en todo el inventario.
+  - El formulario sigue mostrando la existencia de hoy en la vista previa y no añade consultas. Para un día pasado, el rechazo con la existencia de esa fecha llega del repositorio al confirmar.
+- **Reversiones: decisión pendiente del autor.** Una reversión (de una aplicación o de un pase) devuelve el producto con la fecha en que se revierte, no con la de la operación anulada. Para una aplicación con fecha anterior a la reversión, ese producto no cuenta, aunque la operación revertida haya sido un error. Ejemplo: Ana tiene 10 L hoy, pero el 21/01 se rechazan 8 L con 7 L elegibles (`f10_d03_existencia_historica_test`, prueba 3c). Se mantiene así porque es la convención de §2.3 y nunca deja saldos negativos. Alternativas, sin aplicar:
+  - (a) mantener la convención actual (vigente);
+  - (b) neutralizar en el cálculo los pares operación + reversión, como si la operación anulada no hubiera existido;
+  - (c) guardar una columna de fecha efectiva propia de la reversión;
+  - (d) mostrar un mensaje específico, o pedir un permiso expreso, cuando el rechazo se debe a una reversión posterior.
 
 ## 3. Pruebas mínimas
 

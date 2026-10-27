@@ -281,7 +281,9 @@ void main() {
   test('una aplicación rechazada por stock deja el saldo y las tablas como '
       'estaban', () async {
     final before = await dumpTables(db);
-    // Ana tiene 5 L; pide 5,001 L.
+    // Ana tiene 5 L; pide 5,001 L. D-03 (decisión del autor del 2026-10-27):
+    // con fecha pasada el mensaje indica producto, fecha y existencia
+    // elegible; antes era «Stock insuficiente para confirmar la aplicación.».
     await expectLater(
       repo.confirmApplication(
         ApplicationDraft(
@@ -298,7 +300,11 @@ void main() {
         isA<BusinessRuleException>().having(
           (e) => e.message,
           'message',
-          'Stock insuficiente para confirmar la aplicación.',
+          'Glifosato: el 27/03/2026 esa persona tenía 5 L; pidió 5,001 L. '
+              'Una aplicación con fecha pasada sólo puede usar lo que esa persona '
+              'ya tenía ese día y no se usó después: no cuenta el producto '
+              'comprado o recibido más tarde. Revise la fecha o la cantidad. No '
+              'se registró nada.',
         ),
       ),
     );

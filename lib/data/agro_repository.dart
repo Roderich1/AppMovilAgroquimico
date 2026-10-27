@@ -28,6 +28,30 @@ class BusinessRuleException implements Exception {
   String toString() => message;
 }
 
+/// Una aplicación con fecha pasada pide más de lo que la persona tenía ese
+/// día y no se usó después (D-03, precisión de RN-25). En unidad base:
+/// [heldBase] es lo que tenía al final de ese día y [availableBase] la
+/// existencia elegible, lo que de eso queda sin usar después; las dos pueden
+/// ser cero.
+class HistoricalStockException extends BusinessRuleException {
+  HistoricalStockException({
+    required this.productId,
+    required this.day,
+    required this.heldBase,
+    required this.availableBase,
+    required this.requestedBase,
+    required String message,
+  }) : super(message);
+
+  final int productId;
+
+  /// Día local efectivo, `aaaa-mm-dd`.
+  final String day;
+  final int heldBase;
+  final int availableBase;
+  final int requestedBase;
+}
+
 class CampaignConflictException extends BusinessRuleException {
   CampaignConflictException(this.activeCampaignId, this.activeCampaignName)
     : super(
@@ -1263,8 +1287,85 @@ class AgroRepository {
       if (draft.planId != null) {
         await _ensurePlanNotApplied(txn, draft.planId!);
       }
-      return _insertApplication(txn, draft, lotsFor: _lotsAvailableNow);
+      // D-03 (decisión del autor, 2026-10-27): una aplicación no consume
+      // producto que todavía no existía en su fecha efectiva, tampoco en la
+      // campaña activa. Si el día local efectivo es hoy, nada posterior puede
+      // existir (no se admiten fechas futuras, #121) y el saldo de hoy es el
+      // cupo: se conserva la ruta de siempre, con la misma consulta, el mismo
+      // FIFO y el mismo costo. Si es un día pasado, se usa la elegibilidad de
+      // RF-03 (§2.3): lotes adquiridos ese día o antes y un cupo que no deja
+      // negativo ningún saldo posterior. Todo dentro de esta transacción.
+      final day = localDay(draft.appliedAt);
+      if (day == localDay(DateTime.now())) {
+        return _insertApplication(txn, draft, lotsFor: _lotsAvailableNow);
+      }
+      return _insertApplication(
+        txn,
+        draft,
+        lotsFor: (executor, productId, personId) =>
+            _lotsAvailableAt(executor, productId, personId, day),
+        shortfall: (line, available) =>
+            _historicalShortfall(txn, line, draft.personId, available, day),
+      );
     });
+  }
+
+  /// Rechazo de una aplicación con fecha pasada cuyo cupo histórico no
+  /// alcanza (D-03), también cuando tampoco alcanza el saldo de hoy. Nombra
+  /// el producto, el día y la existencia elegible, y distingue si ese día la
+  /// persona no tenía el producto o si lo tenía y queda menos sin usar en
+  /// operaciones posteriores. Sólo se lee en el camino del rechazo.
+  Future<HistoricalStockException> _historicalShortfall(
+    DatabaseExecutor txn,
+    ApplicationLineDraft line,
+    int personId,
+    int available,
+    String day,
+  ) async {
+    final history = await _lotHistoryAt(txn, line.productId, personId, day);
+    // Lo que tenía al final de ese día, por lote; un saldo histórico
+    // negativo (registros anteriores inconsistentes) cuenta como nada.
+    final held = history.fold<int>(0, (sum, lot) {
+      final atDay = lot['held']! as int;
+      return sum + (atDay > 0 ? atDay : 0);
+    });
+    final product = (await txn.query(
+      'products',
+      columns: ['name', 'unit'],
+      where: 'id=?',
+      whereArgs: [line.productId],
+      limit: 1,
+    )).single;
+    final unit = product['unit']! as String;
+    final name = product['name']! as String;
+    final when = displayDay(day);
+    final asked = formatQuantity(line.quantityBase, unit);
+    final String what;
+    if (held <= 0) {
+      what =
+          '$name: el $when esa persona no tenía este producto; pidió $asked.';
+    } else if (available == held) {
+      what =
+          '$name: el $when esa persona tenía ${formatQuantity(held, unit)}; '
+          'pidió $asked.';
+    } else {
+      what =
+          '$name: el $when esa persona tenía ${formatQuantity(held, unit)}; '
+          'de eso quedan ${formatQuantity(available, unit)} sin usar en '
+          'operaciones posteriores; pidió $asked.';
+    }
+    return HistoricalStockException(
+      productId: line.productId,
+      day: day,
+      heldBase: held,
+      availableBase: available,
+      requestedBase: line.quantityBase,
+      message:
+          '$what Una aplicación con fecha pasada sólo puede usar lo que esa '
+          'persona ya tenía ese día y no se usó después: no cuenta el producto '
+          'comprado o recibido más tarde. Revise la fecha o la cantidad. No se '
+          'registró nada.',
+    );
   }
 
   /// Lotes con saldo hoy, en orden FIFO (registro ordinario).
@@ -1283,7 +1384,9 @@ class AgroRepository {
   );
 
   /// Escribe una aplicación ya validada consumiendo de [lotsFor] (FIFO; cada
-  /// fila trae su cupo en `available`).
+  /// fila trae su cupo en `available`). Si el cupo de una línea no alcanza,
+  /// lanza la excepción de [shortfall] o, sin ella, la de RN-25; la
+  /// transacción se deshace entera.
   Future<int> _insertApplication(
     Transaction txn,
     ApplicationDraft draft, {
@@ -1293,6 +1396,11 @@ class AgroRepository {
       int personId,
     )
     lotsFor,
+    Future<BusinessRuleException> Function(
+      ApplicationLineDraft line,
+      int available,
+    )?
+    shortfall,
   }) async {
     final person = (await txn.query(
       'persons',
@@ -1322,10 +1430,12 @@ class AgroRepository {
         0,
         (sum, row) => sum + (row['available']! as int),
       );
-      if (available < line.quantityBase)
+      if (available < line.quantityBase) {
+        if (shortfall != null) throw await shortfall(line, available);
         throw BusinessRuleException(
           'Stock insuficiente para confirmar la aplicación.',
         );
+      }
       final product = (await txn.query(
         'products',
         columns: ['unit'],
@@ -1595,11 +1705,25 @@ class AgroRepository {
       );
 
   /// Lotes elegibles para una aplicación del día [day] y su cupo temporal
-  /// (§2.3, I1 de B): adquiridos ese día o antes, no anulados; el cupo es el
-  /// mínimo del saldo al final del día efectivo y al final de cada día
-  /// posterior con movimientos, ordenando por día efectivo y después por id.
-  /// La operación tardía va al final de su día.
+  /// (§2.3, I1 de B; §2.6 para D-03): adquiridos ese día o antes, no
+  /// anulados; el cupo es el mínimo del saldo al final del día efectivo y al
+  /// final de cada día posterior con movimientos, ordenando por día efectivo
+  /// y después por id. La aplicación va al final de su día. Lo usan la
+  /// operación tardía (`confirmLateOperation`) y la aplicación ordinaria con
+  /// fecha pasada (`confirmApplication`, D-03). Sólo lotes con cupo positivo.
   Future<List<Map<String, Object?>>> _lotsAvailableAt(
+    DatabaseExecutor txn,
+    int productId,
+    int personId,
+    String day,
+  ) async => [
+    for (final lot in await _lotHistoryAt(txn, productId, personId, day))
+      if ((lot['available']! as int) > 0) lot,
+  ];
+
+  /// Cada lote adquirido el día [day] o antes, con `held` (saldo al final de
+  /// ese día) y `available` (su cupo, que puede ser cero o negativo).
+  Future<List<Map<String, Object?>>> _lotHistoryAt(
     DatabaseExecutor txn,
     int productId,
     int personId,
@@ -1655,7 +1779,7 @@ class AgroRepository {
         }
       }
       final cap = laterMin == null || atDay < laterMin ? atDay : laterMin;
-      if (cap > 0) eligible.add({...lot, 'available': cap});
+      eligible.add({...lot, 'held': atDay, 'available': cap});
     }
     return eligible;
   }

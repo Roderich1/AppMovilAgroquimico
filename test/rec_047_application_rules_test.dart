@@ -90,7 +90,10 @@ void main() {
     () async {
       final before = await dumpTables(db);
       // La Atrazina alcanza (3 de 4 kg) y se procesa primero; el Glifosato
-      // pide 20,001 L de 20 L.
+      // pide 20,001 L de 20 L. D-03 (decisión del autor del 2026-10-27): con
+      // fecha pasada el mensaje indica producto, fecha y existencia
+      // elegible; antes era «Stock insuficiente para confirmar la
+      // aplicación.».
       await expectLater(
         repo.confirmApplication(
           application([
@@ -98,7 +101,13 @@ void main() {
             ApplicationLineDraft(productId: glifosato, quantityBase: 20001),
           ]),
         ),
-        rejected('Stock insuficiente para confirmar la aplicación.'),
+        rejected(
+          'Glifosato: el 28/02/2026 esa persona tenía 20 L; pidió 20,001 L. '
+          'Una aplicación con fecha pasada sólo puede usar lo que esa persona '
+          'ya tenía ese día y no se usó después: no cuenta el producto '
+          'comprado o recibido más tarde. Revise la fecha o la cantidad. No '
+          'se registró nada.',
+        ),
       );
       expect(await dumpTables(db), before);
       for (final table in [
