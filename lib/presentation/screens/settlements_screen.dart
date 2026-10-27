@@ -7,6 +7,9 @@ import 'package:path/path.dart' as p;
 
 import '../../app.dart';
 import '../../data/typed_reads.dart';
+import '../../domain/account_ledger.dart';
+import '../../domain/account_texts.dart';
+import '../../domain/campaign_calendar.dart';
 import '../../domain/money.dart';
 import '../../domain/operation_mode.dart';
 import '../../domain/read_models.dart';
@@ -14,6 +17,7 @@ import '../../domain/reports/report_composer.dart';
 import '../../domain/restore_ownership.dart';
 import '../../guarded_restore.dart';
 import '../../operation_mode_controller.dart';
+import '../widgets/account_statement_view.dart';
 import '../widgets/common.dart';
 
 class SettlementsScreen extends ConsumerStatefulWidget {
@@ -25,7 +29,7 @@ class SettlementsScreen extends ConsumerStatefulWidget {
 class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
   late Future<
     (
-      List<SettlementRead>,
+      AccountLedger,
       List<FarmCostRead>,
       List<ProductCostRead>,
       List<CampaignRead>,
@@ -47,7 +51,7 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
 
   Future<
     (
-      List<SettlementRead>,
+      AccountLedger,
       List<FarmCostRead>,
       List<ProductCostRead>,
       List<CampaignRead>,
@@ -66,7 +70,11 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
       campaignInitialized = true;
     }
     final result = (
-      await repo.settlementsTyped(campaignId: selectedCampaignId),
+      // D-04: deuda por campaña de origen y saldo neto, de las imputaciones
+      // guardadas. Sigue siendo una sola consulta.
+      // E-15: el mismo libro trae lo propio del titular; no se añade
+      // ninguna consulta a esta carga (pruebas con settle fijo).
+      await repo.accountLedger(withDetails: false),
       await repo.farmCostReportTyped(campaignId: selectedCampaignId),
       await repo.productCostReportTyped(campaignId: selectedCampaignId),
       campaigns,
@@ -83,65 +91,66 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
   }
 
   Future<void> _record(
-    SettlementRead person, {
+    AccountSummary person, {
     required bool advance,
-    String? campaignName,
+    required List<CampaignRead> campaigns,
+    bool ownRecord = false,
   }) async {
     // El diálogo es dueño de su propio TextEditingController y lo libera en
     // `State.dispose()`. Antes el controlador se creaba aquí y se liberaba al
     // volver de `showDialog`, mientras el diálogo aún se animaba al cerrarse:
     // el TextField seguía montado y volvía a suscribirse a un controlador ya
     // liberado (UIBUG-005).
+    final selected = _selectedPeriod(campaigns);
     final result = await showDialog<int?>(
       context: context,
       builder: (_) => _RecordPaymentDialog(
         personName: person.name,
-        campaignName: campaignName,
-        balanceMinor: person.balanceMinor,
+        registration: registrationText(selected, DateTime.now()),
+        netMinor: person.account.netMinor,
+        ownRecord: ownRecord,
         advance: advance,
       ),
     );
     if (result == null || !mounted) return;
     try {
-      await ref
+      // D-04: la campaña elegida sólo es la de registro; la imputación va a
+      // la deuda más antigua de cualquier campaña.
+      final payment = await ref
           .read(repositoryProvider)
-          .addAccountPayment(
+          .registerAccountPayment(
             personId: person.personId,
             campaignId: selectedCampaignId,
             amountBobMinor: result,
             advance: advance,
           );
       _refresh();
-      if (mounted) {
-        showSuccess(
-          context,
-          // `formatBob` termina con el espacio del símbolo ("1.500,00 Bs ").
-          '${advance ? 'Adelanto' : 'Pago'} de ${formatBob(result).trim()} '
-          'registrado a ${person.name}.',
-        );
-      }
+      if (mounted) showSuccess(context, payment.message(person.name));
     } catch (error) {
       if (mounted) showError(context, error);
     }
   }
 
-  Future<void> _statement(SettlementRead person) async {
-    final repo = ref.read(repositoryProvider);
-    final rows = await repo.detailedStatementTyped(
-      person.personId,
-      campaignId: selectedCampaignId,
-    );
-    final campaignBalance = selectedCampaignId == null
-        ? null
-        : await repo.personCampaignBalanceTyped(
-            person.personId,
-            selectedCampaignId!,
-          );
+  CampaignPeriod? _selectedPeriod(List<CampaignRead> campaigns) {
+    for (final campaign in campaigns) {
+      if (campaign.id == selectedCampaignId) {
+        return CampaignPeriod.fromRow({
+          'id': campaign.id,
+          'name': campaign.name,
+          'status': campaign.status,
+          'start_date': campaign.startDate,
+          'end_date': campaign.endDate,
+        });
+      }
+    }
+    return null;
+  }
+
+  Future<void> _statement(AccountSummary person) async {
+    final statement = await ref
+        .read(repositoryProvider)
+        .accountStatement(person.personId, campaignId: selectedCampaignId);
     if (!mounted) return;
-    final rowsWithBalance = StatementLine.runningBalance(
-      rows,
-      openingMinor: campaignBalance?.openingBalanceMinor ?? 0,
-    );
     await showDialog<void>(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -149,81 +158,7 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
         content: SizedBox(
           width: 620,
           height: 420,
-          child:
-              rows.isEmpty &&
-                  (campaignBalance == null ||
-                      campaignBalance.openingBalanceMinor == 0)
-              ? const EmptyState(
-                  icon: Icons.receipt_long_outlined,
-                  message: 'Sin movimientos.',
-                )
-              : ListView(
-                  children: [
-                    if (campaignBalance != null)
-                      ListTile(
-                        leading: const Icon(Icons.history),
-                        title: const Text('Saldo inicial de campaña'),
-                        trailing: Text(
-                          formatBob(campaignBalance.openingBalanceMinor),
-                          style: const TextStyle(fontWeight: FontWeight.w700),
-                        ),
-                      ),
-                    if (campaignBalance != null) const Divider(height: 1),
-                    for (final line in rowsWithBalance)
-                      Builder(
-                        builder: (_) {
-                          final row = line.entry;
-                          final amount = row.amountBobMinorSigned;
-                          return ListTile(
-                            leading: Icon(
-                              amount > 0
-                                  ? Icons.add_circle_outline
-                                  : Icons.remove_circle_outline,
-                              color: amount > 0 ? Colors.orange : Colors.green,
-                            ),
-                            title: Text(
-                              conceptLabel(row.concept),
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            subtitle: Text(
-                              '${formatDate(row.transactionDate)} · ${transactionTypeLabel(row.type)}${row.farmName == null ? '' : ' · ${row.farmName}'}',
-                            ),
-                            // Ancho acotado para el importe: sin esto la
-                            // columna de descripcion quedaba tan estrecha que
-                            // el texto se partia por caracter (UIBUG-021).
-                            trailing: SizedBox(
-                              width: 140,
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                crossAxisAlignment: CrossAxisAlignment.end,
-                                children: [
-                                  Text(
-                                    amount > 0
-                                        ? '+${formatBob(amount)}'
-                                        : formatBob(amount),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  ),
-                                  Text(
-                                    'Acumulado ${formatBob(line.balanceMinor)}',
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .bodySmall,
-                                  ),
-                                ],
-                              ),
-                            ),
-                          );
-                        },
-                      ),
-                  ],
-                ),
+          child: AccountStatementView(statement: statement),
         ),
         actions: [
           FilledButton(
@@ -235,9 +170,133 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
     );
   }
 
+  /// «Movimientos propios» del titular (E-15 §B.2).
+  Future<void> _ownMovements(int personId, String name) async {
+    final statement = await ref
+        .read(repositoryProvider)
+        .accountStatement(personId, campaignId: selectedCampaignId);
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('Movimientos propios · $name'),
+        content: SizedBox(
+          width: 620,
+          height: 420,
+          child: OwnMovementsView(statement: statement),
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cerrar'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Tarjeta «Consumo y costos propios» del titular vigente (E-15 §B.2).
+  /// No es una cuenta por cobrar: no lleva pendiente ni saldo.
+  Widget _ownCard(
+    BuildContext context,
+    AccountLedger ledger,
+    int ownerId,
+    List<CampaignRead> campaigns,
+  ) {
+    final person = ledger.account(ownerId).person;
+    final consumption = ledger.ownConsumption(
+      ownerId,
+      campaignId: selectedCampaignId,
+    );
+    final theme = Theme.of(context);
+    final summary = AccountSummary(
+      account: ledger.account(ownerId),
+      campaignId: selectedCampaignId,
+    );
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Card(
+        key: const Key('own-consumption-card'),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const CircleAvatar(child: Icon(Icons.agriculture_outlined)),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      ownCardTitle,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    Text(person.name, style: theme.textTheme.bodyMedium),
+                    const SizedBox(height: 4),
+                    Text(
+                      ownConsumptionLine(
+                        consumption,
+                        campaignName: _campaignName(campaigns),
+                      ),
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    Text(ownApplicationsLine(consumption)),
+                    Text(
+                      ownRecordsLine(
+                        ledger.ownAccount(ownerId),
+                        period: _selectedPeriod(campaigns),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              PopupMenuButton<String>(
+                onSelected: (value) {
+                  switch (value) {
+                    case 'detail':
+                      _ownMovements(ownerId, person.name);
+                    case 'export':
+                      _exportStatement(summary);
+                    default:
+                      _record(
+                        summary,
+                        advance: value == 'advance',
+                        campaigns: campaigns,
+                        ownRecord: true,
+                      );
+                  }
+                },
+                itemBuilder: (_) => const [
+                  PopupMenuItem(
+                    value: 'detail',
+                    child: Text('Ver movimientos propios'),
+                  ),
+                  PopupMenuItem(
+                    value: 'export',
+                    child: Text('Exportar movimientos propios'),
+                  ),
+                  // Criterio Q-2: el titular conserva el pago y el adelanto
+                  // (#26); se registran aparte, nunca como cobro.
+                  PopupMenuItem(value: 'pay', child: Text('Registrar pago')),
+                  PopupMenuItem(
+                    value: 'advance',
+                    child: Text('Registrar adelanto'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   /// Abre Reportes ya situado en el estado de cuenta de esta persona, con la
   /// campaña que se está mirando.
-  void _exportStatement(SettlementRead person) {
+  void _exportStatement(AccountSummary person) {
     final campaign = selectedCampaignId;
     context.push(
       '/reportes?tipo=${ReportKind.accountStatement.name}'
@@ -253,6 +312,142 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
       if (campaign.id == selectedCampaignId) return campaign.name;
     }
     return null;
+  }
+
+  /// Tarjeta de una persona (D-04 §2.3).
+  Widget _accountCard(
+    BuildContext context,
+    AccountSummary row,
+    List<CampaignRead> campaigns,
+    bool personal,
+  ) {
+    final campaignName = _campaignName(campaigns);
+    final filtered = selectedCampaignId != null;
+    final account = row.account;
+    final amount = filtered ? row.scope.pendingMinor : account.netMinor;
+    final lines = filtered
+        ? [
+            chargesLine(row.scope, campaignName: campaignName),
+            netLine(account),
+            ?unattributedCreditLine(account),
+          ]
+        : [chargesLine(row.scope), pendingAndCreditLine(account)];
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Card(
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              CircleAvatar(
+                child: Text(
+                  row.name.isEmpty
+                      ? '?'
+                      : row.name.characters.first.toUpperCase(),
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                flex: 5,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      row.name,
+                      style: Theme.of(context).textTheme.titleMedium
+                          ?.copyWith(fontWeight: FontWeight.w700),
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    // Sin recorte: son cifras contables, no un subtítulo
+                    // decorativo.
+                    for (final line in lines) Text(line, maxLines: 5),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              // Reparto de ancho explícito entre nombre e importe: sin esto la
+              // columna del importe se quedaba con lo que pedía y el nombre se
+              // partía por carácter al 130 % (UIBUG-020, UIBUG-017).
+              Expanded(
+                flex: 4,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: [
+                    Text(
+                      filtered
+                          ? pendingCaption(campaignName ?? 'campaña')
+                          : netCaptionAll,
+                      style: Theme.of(context).textTheme.bodySmall,
+                      textAlign: TextAlign.end,
+                    ),
+                    // El importe NUNCA se trunca: es el dato más importante de
+                    // la tarjeta. Si no cabe se reduce el cuerpo de letra.
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerRight,
+                      child: Text(
+                        formatBob(amount),
+                        maxLines: 1,
+                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.w800,
+                          color: amount > 0
+                              ? Colors.orange.shade800
+                              : Colors.green.shade700,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              PopupMenuButton<String>(
+                onSelected: (value) {
+                  switch (value) {
+                    case 'detail':
+                      _statement(row);
+                    case 'export':
+                      _exportStatement(row);
+                    default:
+                      _record(
+                        row,
+                        advance: value == 'advance',
+                        campaigns: campaigns,
+                      );
+                  }
+                },
+                itemBuilder: (_) => [
+                  const PopupMenuItem(
+                    value: 'detail',
+                    child: Text('Ver detalle cronológico'),
+                  ),
+                  // El estado de cuenta se exporta desde donde se consulta.
+                  const PopupMenuItem(
+                    value: 'export',
+                    child: Text('Exportar estado de cuenta'),
+                  ),
+                  // En inventario propio sólo el titular registra pagos y
+                  // adelantos (#26).
+                  if (!personal || row.personId == ownerPersonId) ...[
+                    const PopupMenuItem(
+                      value: 'pay',
+                      child: Text('Registrar pago'),
+                    ),
+                    const PopupMenuItem(
+                      value: 'advance',
+                      child: Text('Registrar adelanto'),
+                    ),
+                  ] else
+                    const PopupMenuItem(
+                      enabled: false,
+                      child: Text('Inventario propio: pagos sólo del titular'),
+                    ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   Future<void> _backup() async {
@@ -487,14 +682,15 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
           );
         if (!snapshot.hasData)
           return const Center(child: CircularProgressIndicator());
-        final (settlements, farmCosts, productCosts, campaigns) =
-            snapshot.data!;
+        final (ledger, farmCosts, productCosts, campaigns) = snapshot.data!;
+        final settlements = ledger.summaries(campaignId: selectedCampaignId);
+        final ownerId = ledger.ownerPersonId;
         final personal =
             ref.watch(operationModeProvider) == OperationMode.personal;
         final visibleSettlements = settlements.where((row) {
           return personQuery.isEmpty || matchesSearch(row.name, personQuery);
         }).toList();
-        if (settlements.isEmpty)
+        if (settlements.isEmpty && ownerId == null)
           return const Card(
             child: EmptyState(
               icon: Icons.account_balance_wallet_outlined,
@@ -537,132 +733,19 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
               ),
             ),
             const SizedBox(height: 12),
-            for (final row in visibleSettlements)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Row(
-                      children: [
-                        CircleAvatar(
-                          child: Text(row.name.characters.first.toUpperCase()),
-                        ),
-                        const SizedBox(width: 14),
-                        Expanded(
-                          flex: 5,
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                row.name,
-                                style: Theme.of(context).textTheme.titleMedium
-                                    ?.copyWith(fontWeight: FontWeight.w700),
-                                maxLines: 2,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                              Text(
-                                'Cargos ${formatBob(row.chargesMinor)} · '
-                                'pagos/créditos ${formatBob(row.paymentsMinor)}',
-                                // Sin recorte: son cifras contables, no un
-                                // subtítulo decorativo.
-                                maxLines: 5,
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: 8),
-                        // Reparto de ancho explícito entre nombre e importe: sin
-                        // esto la columna del importe se quedaba con lo que
-                        // pedía y el nombre se partía por carácter al 130 %
-                        // (UIBUG-020, UIBUG-017).
-                        Expanded(
-                          flex: 4,
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.end,
-                            children: [
-                              Text(
-                                '${row.balanceMinor < 0 ? 'A favor' : 'Pendiente'} · '
-                                '${selectedCampaignId == null ? 'todas las campañas' : _campaignName(campaigns) ?? 'campaña'}',
-                                style: Theme.of(context).textTheme.bodySmall,
-                                textAlign: TextAlign.end,
-                              ),
-                              // El importe NUNCA se trunca: es el dato más
-                              // importante de la tarjeta. Si no cabe se reduce
-                              // el cuerpo de letra, que conserva la cifra
-                              // entera; recortarla con "…" perdería
-                              // información crítica.
-                              FittedBox(
-                                fit: BoxFit.scaleDown,
-                                alignment: Alignment.centerRight,
-                                child: Text(
-                                  formatBob(row.balanceMinor),
-                                  maxLines: 1,
-                                  style: Theme.of(context).textTheme.titleLarge
-                                      ?.copyWith(
-                                        fontWeight: FontWeight.w800,
-                                        color: row.balanceMinor > 0
-                                            ? Colors.orange.shade800
-                                            : Colors.green.shade700,
-                                      ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        PopupMenuButton<String>(
-                          onSelected: (value) {
-                            switch (value) {
-                              case 'detail':
-                                _statement(row);
-                              case 'export':
-                                _exportStatement(row);
-                              default:
-                                _record(
-                                  row,
-                                  advance: value == 'advance',
-                                  campaignName: _campaignName(campaigns),
-                                );
-                            }
-                          },
-                          itemBuilder: (_) => [
-                            const PopupMenuItem(
-                              value: 'detail',
-                              child: Text('Ver detalle cronológico'),
-                            ),
-                            // El estado de cuenta se exporta desde donde se
-                            // consulta, no obligando a rehacer la selección
-                            // de persona en otra pantalla.
-                            const PopupMenuItem(
-                              value: 'export',
-                              child: Text('Exportar estado de cuenta'),
-                            ),
-                            // En inventario propio sólo el titular registra
-                            // pagos y adelantos (#26): a otra persona se le
-                            // crearía un saldo que el paso a propio impide.
-                            if (!personal || row.personId == ownerPersonId) ...[
-                              const PopupMenuItem(
-                                value: 'pay',
-                                child: Text('Registrar pago'),
-                              ),
-                              const PopupMenuItem(
-                                value: 'advance',
-                                child: Text('Registrar adelanto'),
-                              ),
-                            ] else
-                              const PopupMenuItem(
-                                enabled: false,
-                                child: Text(
-                                  'Inventario propio: pagos sólo del titular',
-                                ),
-                              ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
+            if (ownerId != null) _ownCard(context, ledger, ownerId, campaigns),
+            if (settlements.isEmpty)
+              Card(
+                child: EmptyState(
+                  icon: Icons.account_balance_wallet_outlined,
+                  message: personal
+                      ? 'En inventario propio no hay cuentas por cobrar.'
+                      : 'Registra familiares o terceros para ver su '
+                            'liquidación.',
                 ),
               ),
+            for (final row in visibleSettlements)
+              _accountCard(context, row, campaigns, personal),
             const SizedBox(height: 20),
             Align(
               alignment: Alignment.centerLeft,
@@ -742,18 +825,25 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
 ///  * **UIBUG-065** — un importe no interpretable valía 0 y el usuario recibía
 ///    el engañoso *"El importe debe ser mayor a cero"*.
 ///  * **UIBUG-003** — el importe se interpretaba con convenio inglés.
+///
+/// D-04 (§2.4): la campaña es sólo la de registro y el saldo de referencia es
+/// el neto de todas las campañas, no el de la campaña filtrada.
 class _RecordPaymentDialog extends StatefulWidget {
   const _RecordPaymentDialog({
     required this.personName,
-    required this.campaignName,
-    required this.balanceMinor,
+    required this.registration,
+    required this.netMinor,
     required this.advance,
+    this.ownRecord = false,
   });
 
   final String personName;
-  final String? campaignName;
-  final int balanceMinor;
+  final String registration;
+  final int netMinor;
   final bool advance;
+
+  /// E-15: pago propio del titular. No hay saldo que cobrar (criterio Q-2).
+  final bool ownRecord;
 
   @override
   State<_RecordPaymentDialog> createState() => _RecordPaymentDialogState();
@@ -791,7 +881,6 @@ class _RecordPaymentDialogState extends State<_RecordPaymentDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final owed = widget.balanceMinor;
     return AlertDialog(
       title: Text(widget.advance ? 'Registrar adelanto' : 'Registrar pago'),
       content: Column(
@@ -807,18 +896,20 @@ class _RecordPaymentDialogState extends State<_RecordPaymentDialog> {
           ),
           const SizedBox(height: 2),
           Text(
-            widget.campaignName == null
-                ? 'Todas las campañas'
-                : 'Campaña ${widget.campaignName}',
+            widget.registration,
             style: Theme.of(context).textTheme.bodySmall,
           ),
           const SizedBox(height: 2),
           Text(
-            owed < 0
-                ? 'Saldo a favor ${formatBob(owed)}'
-                : 'Saldo pendiente ${formatBob(owed)}',
+            widget.ownRecord
+                ? ownPaymentDialogText
+                : dialogNetText(widget.netMinor),
             style: Theme.of(context).textTheme.bodySmall,
           ),
+          const SizedBox(height: 2),
+          // El pago propio no se aplica a ninguna deuda: sin la línea FIFO.
+          if (!widget.ownRecord)
+            Text(dialogFifoText, style: Theme.of(context).textTheme.bodySmall),
           const SizedBox(height: 14),
           TextField(
             controller: _amount,

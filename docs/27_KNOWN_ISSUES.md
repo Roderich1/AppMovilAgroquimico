@@ -212,7 +212,9 @@ contiguos hace muy probable que sea un descuido.
 
 ## 🟠 KI-05 · Los asientos sin campaña no cuentan en el saldo inicial
 
-**Estado: VERIFICADO EN CÓDIGO.**
+**Estado: RESUELTO por D-04 (decisión del autor del 2026-10-27).** El estado cronológico de Cuentas y su exportación calculan la apertura por fecha (RN-42), así que los asientos sin campaña cuentan según su día. `personCampaignBalance` conserva el cálculo descrito abajo sólo para su caracterización; ninguna pantalla lo usa.
+
+**Estado anterior: VERIFICADO EN CÓDIGO.**
 
 `personCampaignBalance`:
 
@@ -546,7 +548,7 @@ está sincronizada con él.
 | KI-02 | Divergencia de índices creación vs migración | 🔴 Alta | ✅ **CORREGIDO** (STAB-002, migración v5) |
 | KI-03 | Dos pantallas cargan para siempre ante error | 🟠 Media | ✅ **CORREGIDO** (STAB-004, 4 pantallas) |
 | KI-04 | `productCostReport` oculta productos al filtrar | 🟠 Media | ✅ **CORREGIDO** (STAB-005) |
-| KI-05 | Asientos sin campaña fuera del saldo inicial | 🟠 Media | Verificado en código |
+| KI-05 | Asientos sin campaña fuera del saldo inicial | 🟠 Media | Resuelto por D-04 |
 | KI-06 | Compra y pago no atómicos | 🟠 Media | Verificado en código |
 | KI-07 | `_farmOwner` siempre `null` | 🟡 Baja | ✅ **CORREGIDO** (STAB-012) |
 | KI-08 | Superficies sin formatear | 🟡 Baja | Verificado en código |

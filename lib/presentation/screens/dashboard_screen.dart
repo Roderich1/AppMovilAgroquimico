@@ -24,7 +24,6 @@ typedef _DashboardData = ({
   // `applications` no es fuente de ningun reporte de EVOLUTION-2: sigue en el
   // camino legacy, como el resto de consumidores no migrados.
   List<Map<String, Object?>> applications,
-  List<TopSettlementRead> debts,
   List<CampaignRead> campaigns,
 });
 
@@ -53,7 +52,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       // existiera (UIBUG-007). La tabla sigue mostrando 5 cuando no se busca.
       inventory: await repo.inventorySummaryTyped(),
       applications: await repo.applications(limit: 5),
-      debts: await repo.topSettlementsTyped(limit: 5),
       campaigns: await repo.campaignsTyped(),
     );
   }
@@ -156,31 +154,45 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             final activeCampaign = data.campaigns
                 .where((campaign) => campaign.isActive)
                 .firstOrNull;
-            final cards = [
+            // D-04 (§2.7): «por cobrar» = Σ max(0, saldo neto) por persona; lo
+            // que queda a favor se dice aparte, sin restarlo de otra persona.
+            final summary = data.summary;
+            final cards = <(String, String, IconData, String?)>[
               (
                 'Compras',
-                formatBob(data.summary.purchasesBobMinor),
+                formatBob(summary.purchasesBobMinor),
                 Icons.shopping_bag_outlined,
+                null,
               ),
               (
                 'Pagado proveedores',
-                formatBob(data.summary.providerPaidMinor),
+                formatBob(summary.providerPaidMinor),
                 Icons.storefront_outlined,
+                null,
               ),
               (
                 'Familias por cobrar',
-                formatBob(data.summary.familyReceivableMinor),
+                formatBob(summary.familyReceivableMinor),
                 Icons.family_restroom_outlined,
+                summary.familyCreditMinor > 0
+                    ? 'A favor de familias: '
+                          '${formatBob(summary.familyCreditMinor).trim()}'
+                    : null,
               ),
               (
                 'Terceros por cobrar',
-                formatBob(data.summary.thirdPartyReceivableMinor),
+                formatBob(summary.thirdPartyReceivableMinor),
                 Icons.person_outline,
+                summary.thirdPartyCreditMinor > 0
+                    ? 'A favor de terceros: '
+                          '${formatBob(summary.thirdPartyCreditMinor).trim()}'
+                    : null,
               ),
               (
                 'Pagos recibidos',
-                formatBob(data.summary.receivedMinor),
+                formatBob(summary.receivedMinor),
                 Icons.payments_outlined,
+                null,
               ),
             ];
             return Column(
@@ -289,6 +301,13 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                                                   ),
                                             ),
                                           ),
+                                          if (card.$4 != null)
+                                            Text(
+                                              card.$4!,
+                                              style: Theme.of(context)
+                                                  .textTheme
+                                                  .bodySmall,
+                                            ),
                                         ],
                                       ),
                                     ),
@@ -409,11 +428,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                   child: Column(
                     children: [
                       for (final row
-                          in (data.debts.toList()..sort(
-                                (a, b) =>
-                                    b.balanceMinor.compareTo(a.balanceMinor),
-                              ))
-                              .take(5))
+                          // E-15: del libro de cuentas, sin el titular
+                          // (no es deudor de sí mismo) ni el ADMIN.
+                          in data.summary.topBalances.take(5))
                         ListTile(
                           dense: true,
                           title: Text(row.name),

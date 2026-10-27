@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:sqflite/sqflite.dart' show ConflictAlgorithm, DatabaseExecutor;
 
 import '../domain/operation_mode.dart';
+import 'account_ledger_query.dart';
 import 'agro_repository.dart' show BusinessRuleException;
 import 'app_database.dart';
 
@@ -62,17 +63,19 @@ class OperationModeStore {
       WHERE f.owner_person_id <> ? AND ap.status IN ('DRAFT', 'PLANNED')''',
       [owner],
     );
-    final balances = await db.rawQuery(
-      '''SELECT person_id FROM account_transactions WHERE person_id <> ?
-      GROUP BY person_id HAVING SUM(amount_bob_minor_signed) <> 0''',
-      [owner],
-    );
+    // E-15 (hallazgo 4 de la revisión cruzada): bloquea sólo el saldo neto
+    // **no propio** de las demás personas. Lo propio de un titular anterior
+    // (su intervalo) no es una cuenta por cobrar. Se mantiene la regla N ≠ 0.
+    final ledger = await readAccountLedger(db, withDetails: false);
+    final balances = {
+      for (final person in ledger.persons)
+        if (person.id != owner && ledger.account(person.id).netMinor != 0)
+          person.id,
+    };
     return ThirdPartyActivity(
       personsWithStock: {for (final r in stock) r['owner_person_id']! as int},
       openPlanIds: {for (final r in plans) r['id']! as int},
-      personsWithAccountBalance: {
-        for (final r in balances) r['person_id']! as int,
-      },
+      personsWithAccountBalance: balances,
     );
   }
 

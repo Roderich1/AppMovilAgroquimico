@@ -178,22 +178,23 @@ class ReportExportService {
         if (person == null) {
           throw const ReportFilterException('La persona elegida ya no existe.');
         }
-        final campaignId = request.campaignId;
-        return _composer.accountStatement(
-          generatedAt: generatedAt,
-          personName: person.name,
-          campaignName: campaignName,
-          campaignBalance: campaignId == null
-              ? null
-              : await _repository.personCampaignBalanceTyped(
-                  personId,
-                  campaignId,
-                ),
-          entries: await _repository.detailedStatementTyped(
-            personId,
-            campaignId: campaignId,
-          ),
+        // D-04 (§2.6): cronológico por período y deuda por campaña de
+        // origen, desde una sola lectura del libro.
+        final statement = await _repository.accountStatement(
+          personId,
+          campaignId: request.campaignId,
         );
+        // E-15: el titular vigente no tiene un estado de cuenta de deudor;
+        // se exportan sus movimientos propios.
+        return statement.isCurrentOwner
+            ? _composer.ownStatement(
+                generatedAt: generatedAt,
+                statement: statement,
+              )
+            : _composer.ledgerStatement(
+                generatedAt: generatedAt,
+                statement: statement,
+              );
     }
   }
 

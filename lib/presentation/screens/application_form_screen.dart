@@ -63,6 +63,9 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
   /// En inventario propio aplica el titular: no se elige persona (#26).
   bool personalMode = false;
 
+  /// Titular vigente, para rotular su costo como propio (E-15).
+  int? ownerPersonId;
+
   @override
   void initState() {
     super.initState();
@@ -88,6 +91,7 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
     personalMode =
         operating.mode == OperationMode.personal &&
         operating.ownerPersonId != null;
+    ownerPersonId = operating.ownerPersonId;
     final applicators = {for (final person in people) person['id']};
     final result = (
       people: people,
@@ -847,10 +851,11 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
   String _chargeText(Map<String, Object?>? person, int totalCost) {
     final name = person?['name']?.toString() ?? '';
     final policy = person?['settlement_policy'];
-    // En inventario propio aplica el titular sobre lo suyo. Con cobro por
-    // consumo el repositorio sigue anotando el cargo en su cuenta (E-15,
-    // decisión pendiente): se dice, sin cambiar la escritura.
-    if (personalMode) {
+    // E-15 (decisión del autor del 2026-10-27, §B.2): para el titular es
+    // costo propio en las dos modalidades y con cualquier política. Con
+    // cobro por consumo el repositorio sigue anotando el cargo en su cuenta,
+    // como registro y no como deuda.
+    if (personalMode || (person != null && person['id'] == ownerPersonId)) {
       return policy == 'BY_ACTUAL_USAGE'
           ? 'Costo propio: ${formatBob(totalCost)} (queda anotado en la '
                 'cuenta de $name)'
@@ -858,8 +863,11 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
     }
     return switch (policy) {
       'BY_ACTUAL_USAGE' => 'Se cargará a $name: ${formatBob(totalCost)}',
+      // E-15 / M-7: no se afirma que pagó ni que se le cargó: el producto
+      // pudo llegarle por transferencia (RN-35) o con otra política.
       'BY_PURCHASE_ALLOCATION' =>
-        'No genera cargo: $name ya pagó estos productos al comprarlos',
+        'Esta aplicación no genera cargo a $name: su política cobra al '
+            'asignar compras.',
       _ => 'No genera cargo automático: la cuenta de $name se ajusta a mano',
     };
   }

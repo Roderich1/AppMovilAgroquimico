@@ -6,6 +6,8 @@ import 'package:sqflite/sqflite.dart'
 
 import 'package:flutter/foundation.dart' show visibleForTesting;
 
+import '../domain/account_ledger.dart';
+import '../domain/account_texts.dart' show AccountPaymentResult;
 import '../domain/campaign_calendar.dart';
 import '../domain/installation_access.dart' show OwnerScope;
 import '../domain/sync/operation_id.dart' show newOperationId;
@@ -15,6 +17,7 @@ import '../domain/models.dart';
 import '../domain/money.dart';
 import '../domain/operation_mode.dart';
 import '../domain/person_roles.dart';
+import 'account_ledger_query.dart';
 import 'app_database.dart';
 import 'farmer_operation_gate.dart';
 import 'invoice_storage.dart';
@@ -2048,6 +2051,31 @@ class AgroRepository {
     bool advance = false,
     DateTime? date,
     String? notes,
+  }) async => (await registerAccountPayment(
+    personId: personId,
+    campaignId: campaignId,
+    amountBobMinor: amountBobMinor,
+    advance: advance,
+    date: date,
+    notes: notes,
+  )).paymentId;
+
+  /// Registra un pago o adelanto y lo imputa a las deudas más antiguas de la
+  /// persona (RN-38), de cualquier campaña. [campaignId] es sólo la campaña de
+  /// registro, que puede ser nula: no decide qué deuda se cancela.
+  ///
+  /// D-04 (decisión del autor del 2026-10-27; criterio Q-5 del documento
+  /// D04_E15 §7): sólo se imputa a **cargos** con deuda pendiente
+  /// (importe − revertido − ya imputado) y en orden de día local y luego `id`
+  /// (F04 §2.3). Un cargo revertido no es deuda. Las imputaciones ya guardadas
+  /// no se tocan; el sobrante queda sin imputar.
+  Future<AccountPaymentResult> registerAccountPayment({
+    required int personId,
+    int? campaignId,
+    required int amountBobMinor,
+    bool advance = false,
+    DateTime? date,
+    String? notes,
   }) async {
     if (amountBobMinor <= 0)
       throw BusinessRuleException('El importe debe ser mayor a cero.');
@@ -2065,15 +2093,51 @@ class AgroRepository {
         'notes': notes,
       });
       var remaining = amountBobMinor;
-      final charges = await txn.rawQuery(
-        '''SELECT t.id, t.amount_bob_minor_signed -
-        COALESCE((SELECT SUM(a.amount_bob_minor) FROM payment_allocations a
-          WHERE a.charge_transaction_id=t.id),0) outstanding
-        FROM account_transactions t
-        WHERE t.person_id=? AND t.amount_bob_minor_signed>0
-        ORDER BY t.transaction_date, t.id''',
-        [personId],
+      final charges = [
+        ...await txn.rawQuery(
+          '''SELECT t.id, t.transaction_date, t.campaign_id, c.name campaign_name,
+          t.amount_bob_minor_signed
+          - COALESCE((SELECT -SUM(r.amount_bob_minor_signed) FROM account_transactions r
+              WHERE r.reversal_of_id=t.id AND r.amount_bob_minor_signed<0),0)
+          - COALESCE((SELECT SUM(a.amount_bob_minor) FROM payment_allocations a
+              WHERE a.charge_transaction_id=t.id),0) outstanding
+          FROM account_transactions t LEFT JOIN campaigns c ON c.id=t.campaign_id
+          WHERE t.person_id=? AND t.amount_bob_minor_signed>0
+            AND t.reversal_of_id IS NULL''',
+          [personId],
+        ),
+      ];
+      charges.sort((a, b) {
+        final byDay = storedLocalDay(a['transaction_date']! as String)
+            .compareTo(storedLocalDay(b['transaction_date']! as String));
+        return byDay != 0
+            ? byDay
+            : (a['id']! as int).compareTo(b['id']! as int);
+      });
+      // E-15 (A1): un pago sólo se imputa a cargos de su misma clase. Un
+      // cargo propio no es deuda, igual que un cargo revertido (Q-5); y un
+      // pago propio no es cobro. La clase se decide con los vínculos leídos
+      // en esta misma transacción.
+      final rule = OwnershipRule([
+        for (final row in await txn.query('owner_bindings'))
+          LedgerBinding(
+            id: row['id']! as int,
+            personId: row['person_id']! as int,
+            boundAt: row['bound_at']! as String,
+            endedAt: row['ended_at'] as String?,
+          ),
+      ]);
+      final paymentOwn = rule.isOwn(personId, localDay(date ?? DateTime.now()));
+      charges.removeWhere(
+        (charge) =>
+            rule.isOwn(
+              personId,
+              storedLocalDay(charge['transaction_date']! as String),
+            ) !=
+            paymentOwn,
       );
+      final imputed =
+          <({int? campaignId, String campaignName, int amountMinor})>[];
       for (final charge in charges) {
         if (remaining == 0) break;
         final outstanding = charge['outstanding']! as int;
@@ -2084,9 +2148,22 @@ class AgroRepository {
           'charge_transaction_id': charge['id'],
           'amount_bob_minor': allocated,
         });
+        imputed.add((
+          campaignId: charge['campaign_id'] as int?,
+          campaignName:
+              charge['campaign_name'] as String? ??
+              'Campaña #${charge['campaign_id']}',
+          amountMinor: allocated,
+        ));
         remaining -= allocated;
       }
-      return paymentId;
+      return AccountPaymentResult(
+        paymentId: paymentId,
+        amountMinor: amountBobMinor,
+        advance: advance,
+        imputed: imputed,
+        unappliedMinor: remaining,
+      );
     });
   }
 
@@ -3311,12 +3388,47 @@ class AgroRepository {
       'pending_plans': await value(
         "SELECT COUNT(*) FROM application_plans WHERE campaign_id=? AND status IN ('DRAFT','PLANNED')",
       ),
-      'receivable_bob_minor': await value(
-        'SELECT COALESCE(SUM(amount_bob_minor_signed),0) FROM account_transactions WHERE campaign_id=?',
-      ),
+      // D-04: deuda pendiente por origen de la campaña, sin ADMIN (D-R6). Ya
+      // no es la suma con signo de los asientos con ese `campaign_id`, que
+      // restaba pagos de otras deudas y omitía los registrados sin campaña.
+      'receivable_bob_minor': (await accountLedger(withDetails: false))
+          .pendingForCampaign(campaignId),
     };
   }
 
+  // ---------------------------------------------------------------------
+  // D-04: libro de cuentas (decisión del autor del 2026-10-27; documento
+  // docs/architecture/D04_E15_CUENTAS_IMPUTACION_Y_COSTO_PROPIO.md §2)
+  // ---------------------------------------------------------------------
+
+  /// Libro de cuentas en **una** consulta (`readAccountLedger`). Con
+  /// [personId], sólo esa persona; con [withDetails] en `false`, sin concepto
+  /// ni chaco (sin `GROUP_CONCAT`), que basta para cifras.
+  Future<AccountLedger> accountLedger({
+    int? personId,
+    bool withDetails = true,
+  }) async => readAccountLedger(
+    await _db,
+    personId: personId,
+    withDetails: withDetails,
+  );
+
+  /// Filas de la lista de Cuentas (§2.3): sin ADMIN, con el alcance de
+  /// [campaignId] y el saldo neto de todas las campañas.
+  Future<List<AccountSummary>> accountSummaries({int? campaignId}) async =>
+      (await accountLedger(withDetails: false))
+          .summaries(campaignId: campaignId);
+
+  /// Estado de cuenta (§2.5): desglose por campaña de origen y cronológico
+  /// por período de fechas con apertura.
+  Future<AccountStatement> accountStatement(
+    int personId, {
+    int? campaignId,
+  }) async =>
+      (await accountLedger(personId: personId))
+          .statement(personId, campaignId: campaignId);
+
+  /// Heredada: sólo caracterización (EVO-004); la app usa `accountStatement` (D-04).
   Future<Map<String, Object?>> personCampaignBalance(
     int personId,
     int campaignId,
@@ -3415,6 +3527,7 @@ class AgroRepository {
     return cost;
   }
 
+  /// Heredada: sólo caracterización (EVO-004); la app usa `accountSummaries` (D-04).
   Future<List<Map<String, Object?>>> settlements({int? campaignId}) async =>
       (await _db).rawQuery(
         '''SELECT p.id, p.name, p.role,
@@ -3433,6 +3546,8 @@ class AgroRepository {
         WHERE p.role<>'ADMIN' GROUP BY p.id ORDER BY balance DESC,p.name LIMIT ?''',
         [limit],
       );
+
+  /// Heredada: sólo caracterización (EVO-004); la app usa `accountStatement` (D-04).
   Future<List<Map<String, Object?>>> statement(
     int personId, {
     int? campaignId,
@@ -3442,6 +3557,7 @@ class AgroRepository {
     [personId, if (campaignId != null) campaignId],
   );
 
+  /// Heredada: sólo caracterización (EVO-004); la app usa `accountStatement`; Personas la usa hasta E-15 (D-04).
   Future<List<Map<String, Object?>>> detailedStatement(
     int personId, {
     int? campaignId,
@@ -3498,27 +3614,13 @@ class AgroRepository {
           ),
         ) ??
         0;
-    final family =
-        Sqflite.firstIntValue(
-          await db.rawQuery(
-            "SELECT COALESCE(SUM(t.amount_bob_minor_signed),0) FROM account_transactions t JOIN persons p ON p.id=t.person_id WHERE p.role='FAMILY'",
-          ),
-        ) ??
-        0;
-    final third =
-        Sqflite.firstIntValue(
-          await db.rawQuery(
-            "SELECT COALESCE(SUM(t.amount_bob_minor_signed),0) FROM account_transactions t JOIN persons p ON p.id=t.person_id WHERE p.role='THIRD_PARTY'",
-          ),
-        ) ??
-        0;
-    final received =
-        -(Sqflite.firstIntValue(
-              await db.rawQuery(
-                "SELECT COALESCE(SUM(amount_bob_minor_signed),0) FROM account_transactions WHERE type IN ('PAYMENT','ADVANCE')",
-              ),
-            ) ??
-            0);
+    // D-04 (§2.7): «por cobrar» = Σ max(0, saldo neto) por persona, y lo que
+    // queda a favor se informa aparte. Una sola lectura del libro sustituye a
+    // las tres sumas por rol y por tipo.
+    final ledger = await accountLedger(withDetails: false);
+    final family = ledger.receivableByRole('FAMILY');
+    final third = ledger.receivableByRole('THIRD_PARTY');
+    final received = ledger.receivedMinor();
     final stock =
         Sqflite.firstIntValue(
           await db.rawQuery(
@@ -3529,8 +3631,19 @@ class AgroRepository {
     return DashboardSummary(
       purchasesBobMinor: purchases,
       providerPaidMinor: provider,
-      familyReceivableMinor: family,
-      thirdPartyReceivableMinor: third,
+      familyReceivableMinor: family.receivableMinor,
+      thirdPartyReceivableMinor: third.receivableMinor,
+      familyCreditMinor: family.creditMinor,
+      thirdPartyCreditMinor: third.creditMinor,
+      topBalances: [
+        for (final row in ledger.topBalances())
+          (
+            personId: row.personId,
+            name: row.name,
+            role: row.role,
+            balanceMinor: row.account.netMinor,
+          ),
+      ],
       receivedMinor: received,
       stockBase: stock,
     );

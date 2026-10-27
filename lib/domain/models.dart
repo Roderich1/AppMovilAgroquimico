@@ -156,11 +156,26 @@ class DashboardSummary {
     required this.thirdPartyReceivableMinor,
     required this.receivedMinor,
     required this.stockBase,
+    this.familyCreditMinor = 0,
+    this.thirdPartyCreditMinor = 0,
+    this.topBalances = const [],
   });
   final int purchasesBobMinor;
   final int providerPaidMinor;
+
+  /// Σ max(0, saldo neto) de los familiares (D-04 §2.7).
   final int familyReceivableMinor;
   final int thirdPartyReceivableMinor;
+
+  /// Σ de lo que queda a favor de familiares o terceros con saldo neto
+  /// negativo («A favor de familias: X»).
+  final int familyCreditMinor;
+  final int thirdPartyCreditMinor;
+
+  /// «Principales saldos» (E-15): saldo neto, sin ADMIN ni lo propio del
+  /// titular.
+  final List<({int personId, String name, String role, int balanceMinor})>
+  topBalances;
   final int receivedMinor;
   final int stockBase;
 }

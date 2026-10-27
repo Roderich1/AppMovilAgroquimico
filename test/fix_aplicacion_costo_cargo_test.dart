@@ -174,6 +174,37 @@ void main() {
       expect(find.textContaining('No genera cargo'), findsNothing);
     });
 
+    testWidgets('E-15 · titular vinculado en compartida: «Costo propio» y no '
+        '«Se cargará a…»', (tester) async {
+      final s = (await tester.runAsync(() async {
+        final s = await seed('consumo-titular', (h) => h.titular);
+        // Titular vinculado (criterio de clase de E-15): su costo es propio.
+        await (await s.repo.appDatabase.database).insert('owner_bindings', {
+          'person_id': s.h.titular,
+          'member_id': 'member-e15',
+          'tenant_id': 'tenant-e15',
+          'owner_role': 'FAMILY',
+          'bound_at': DateTime.utc(2026, 1, 1).toIso8601String(),
+        });
+        return s;
+      }))!;
+      await openForm(tester, s.repo);
+      await choose(tester, 'Persona', 'Titular');
+      await choose(tester, 'Chaco', 'Chaco titular');
+      await tapKey(tester, 'application-continue');
+      await mixAndReview(tester);
+
+      expectCosts(tester, s.h.product, s.bellator);
+      expect(
+        find.text(
+          'Costo propio: ${formatBob(4000)} (queda anotado en la cuenta de '
+          'Titular)',
+        ),
+        findsOneWidget,
+      );
+      expect(find.textContaining('Se cargará'), findsNothing);
+    });
+
     testWidgets('cobro por compra: el mismo costo y «No genera cargo»', (
       tester,
     ) async {
@@ -187,9 +218,13 @@ void main() {
       await mixAndReview(tester);
 
       expectCosts(tester, s.h.product, s.bellator);
+      // E-15 (decisión del autor del 2026-10-27, §B.2, ejemplo M-7): el texto
+      // anterior afirmaba que el tercero «ya pagó», falso si debe la compra;
+      // tampoco se afirma que se le cargó (pudo llegarle por transferencia).
       expect(
         find.text(
-          'No genera cargo: Vecino ya pagó estos productos al comprarlos',
+          'Esta aplicación no genera cargo a Vecino: su política cobra al '
+          'asignar compras.',
         ),
         findsOneWidget,
       );
