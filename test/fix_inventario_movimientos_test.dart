@@ -4,12 +4,16 @@
 // proyectado» pasan a «Reservado por planes» y «Quedará libre». Las lecturas
 // se hacen una vez al abrir (B-15).
 //
-// Fixture (Glifosato en L; instantes a mediodía UTC para que el día local
-// sea el mismo en cualquier zona horaria):
+// Fixture (Glifosato en L; instantes a mediodía UTC: el día local coincide
+// con el día UTC en cualquier zona entre UTC−11 y UTC+11, Bolivia incluida):
 //   05/01 Ana compra 10 L a Agro Sur.      10/01 Ana aplica 3 L en Chaco Ana.
-//   15/01 Ana pasa 2 L a Beto.             16/01 se revierte ese pase.
-//   17/01 Ana aplica 1 L; 18/01 se revierte.
-//   19/01 Beto compra 4 L a Agro Norte; 20/01 se revierte.
+//   06/01 Ana compra 3 L a Agro Norte.
+//   15/01 Ana pasa 2 L a Beto; se revierte.
+//   17/01 Ana aplica 1 L; se revierte.
+//   19/01 Beto compra 4 L a Agro Norte; se revierte.
+//   21/01 Ana aplica 8 L: 7 L del lote del 05/01 y 1 L del lote del 06/01
+//   (dos movimientos, una sola fila en el historial).
+//   Las reversiones se fechan al revertir (ahora): van primero.
 import 'package:agroquimicos/app.dart';
 import 'package:agroquimicos/data/agro_repository.dart';
 import 'package:agroquimicos/data/app_database.dart';
@@ -79,10 +83,12 @@ void main() {
     await apply(3000, 10);
   }
 
-  /// Además: pase y su reversión, aplicación revertida, compra revertida.
+  /// Además: segunda compra, pase y su reversión, aplicación revertida,
+  /// compra revertida y una aplicación que consume de dos lotes.
   Future<void> seedAll() async {
     await seedBasic();
     final norte = await repo.addSupplier(name: 'Agro Norte');
+    await buy(ana, norte, 3000, 6);
     final t1 = await repo.transferProductsFifo(
       fromPersonId: ana,
       toPersonId: beto,
@@ -94,6 +100,7 @@ void main() {
     await repo.reverseApplicationUnauditedForTesting(a2, reason: 'Error');
     final c2 = await buy(beto, norte, 4000, 19);
     await repo.reversePurchaseUnauditedForTesting(c2, reason: 'Devuelta');
+    await apply(8000, 21);
   }
 
   group('repositorio', () {
@@ -103,9 +110,18 @@ void main() {
     });
 
     test('productMovements: del más reciente al más antiguo, con chaco, '
-        'contraparte y proveedor según la referencia', () async {
+        'contraparte y proveedor según la referencia; una aplicación sobre '
+        'dos lotes es una fila', () async {
       final rows = await repo.productMovements(glifosato);
-      // Las reversiones se fechan al revertir (ahora): van primero.
+      // 13 movimientos guardados (la aplicación del 21/01 son dos), 12 filas.
+      expect(
+        (await (await database.database).rawQuery(
+          'SELECT COUNT(*) n FROM inventory_movements WHERE product_id=?',
+          [glifosato],
+        )).single['n'],
+        13,
+      );
+      expect(rows, hasLength(12));
       final view = [
         for (final r in rows)
           (
@@ -122,20 +138,25 @@ void main() {
         ('APPLICATION_REVERSAL', 'Ana', 1000, 'Chaco Ana', null, null),
         ('TRANSFER_REVERSAL_OUT', 'Beto', -2000, null, 'Ana', null),
         ('TRANSFER_REVERSAL_IN', 'Ana', 2000, null, 'Beto', null),
-        ('PURCHASE_IN', 'Beto', 4000, null, null, 'Agro Norte'),
+        ('APPLICATION_OUT', 'Ana', -8000, 'Chaco Ana', null, null),
       ]);
       expect(view.skip(5).toList(), [
+        ('PURCHASE_IN', 'Beto', 4000, null, null, 'Agro Norte'),
         ('APPLICATION_OUT', 'Ana', -1000, 'Chaco Ana', null, null),
         ('TRANSFER_IN', 'Beto', 2000, null, 'Ana', null),
         ('TRANSFER_OUT', 'Ana', -2000, null, 'Beto', null),
         ('APPLICATION_OUT', 'Ana', -3000, 'Chaco Ana', null, null),
+        ('PURCHASE_IN', 'Ana', 3000, null, null, 'Agro Norte'),
         ('PURCHASE_IN', 'Ana', 10000, null, null, 'Agro Sur'),
       ]);
-      expect(rows.map((r) => r['movement_date']).skip(5), [
+      expect(rows.map((r) => r['movement_date']).skip(4), [
+        '2026-01-21T12:00:00.000Z',
+        '2026-01-19T12:00:00.000Z',
         '2026-01-17T12:00:00.000Z',
         '2026-01-15T12:00:00.000Z',
         '2026-01-15T12:00:00.000Z',
         '2026-01-10T12:00:00.000Z',
+        '2026-01-06T12:00:00.000Z',
         '2026-01-05T12:00:00.000Z',
       ]);
       expect(await repo.productMovements(glifosato, limit: 3), hasLength(3));
@@ -236,7 +257,7 @@ void main() {
         'veinte', (tester) async {
       await mount(tester, () async {
         await seedAll();
-        // Doce aplicaciones más: 22 movimientos en total.
+        // Doce aplicaciones más: 24 filas en total.
         for (var i = 0; i < 12; i++) {
           await apply(100, 21 + (i % 10));
         }
@@ -254,7 +275,7 @@ void main() {
       );
       await tester.tap(find.byKey(const Key('inventory-movements-more')));
       await settle(tester);
-      expect(titles(), hasLength(22));
+      expect(titles(), hasLength(24));
       expect(find.byKey(const Key('inventory-movements-more')), findsNothing);
       expect(
         titles().toSet(),

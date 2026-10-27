@@ -846,9 +846,17 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
   /// Sólo se describe: cómo se calcula y se escribe el cargo no cambia aquí.
   String _chargeText(Map<String, Object?>? person, int totalCost) {
     final name = person?['name']?.toString() ?? '';
-    // En inventario propio aplica el titular sobre lo suyo.
-    if (personalMode) return 'Costo propio: ${formatBob(totalCost)}';
-    return switch (person?['settlement_policy']) {
+    final policy = person?['settlement_policy'];
+    // En inventario propio aplica el titular sobre lo suyo. Con cobro por
+    // consumo el repositorio sigue anotando el cargo en su cuenta (E-15,
+    // decisión pendiente): se dice, sin cambiar la escritura.
+    if (personalMode) {
+      return policy == 'BY_ACTUAL_USAGE'
+          ? 'Costo propio: ${formatBob(totalCost)} (queda anotado en la '
+                'cuenta de $name)'
+          : 'Costo propio: ${formatBob(totalCost)}';
+    }
+    return switch (policy) {
       'BY_ACTUAL_USAGE' => 'Se cargará a $name: ${formatBob(totalCost)}',
       'BY_PURCHASE_ALLOCATION' =>
         'No genera cargo: $name ya pagó estos productos al comprarlos',

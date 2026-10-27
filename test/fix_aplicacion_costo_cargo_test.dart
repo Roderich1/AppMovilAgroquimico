@@ -197,26 +197,36 @@ void main() {
     });
   });
 
-  testWidgets('propia: el titular ve «Costo propio»', (tester) async {
-    await tester.binding.setSurfaceSize(const Size(800, 2400));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
-    final s = await activatedHousehold(tester, 'propia-costo');
-    final bellator = (await tester.runAsync(() async {
-      final bellator = await stockFor(s.household, s.household.titular);
-      await OperationModeStore(s.database)
-          .apply(OperationMode.personal, confirmed: true);
-      return bellator;
-    }))!;
-    final c = await pumpModeApp(tester, s.database);
-    c.read(routerProvider).push('/aplicaciones/nueva');
-    await waitFor(tester, picker('Chaco'));
-    await settle(tester);
-    await choose(tester, 'Chaco', 'Chaco titular');
-    await tapKey(tester, 'application-continue');
-    await mixAndReview(tester);
+  testWidgets(
+    'propia con cobro por consumo: «Costo propio», y se dice que queda '
+    'anotado en su cuenta',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(800, 2400));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final s = await activatedHousehold(tester, 'propia-costo');
+      final bellator = (await tester.runAsync(() async {
+        final bellator = await stockFor(s.household, s.household.titular);
+        await OperationModeStore(s.database)
+            .apply(OperationMode.personal, confirmed: true);
+        return bellator;
+      }))!;
+      final c = await pumpModeApp(tester, s.database);
+      c.read(routerProvider).push('/aplicaciones/nueva');
+      await waitFor(tester, picker('Chaco'));
+      await settle(tester);
+      await choose(tester, 'Chaco', 'Chaco titular');
+      await tapKey(tester, 'application-continue');
+      await mixAndReview(tester);
 
-    expectCosts(tester, s.household.product, bellator);
-    expect(find.text('Costo propio: ${formatBob(4000)}'), findsOneWidget);
-    expect(find.textContaining('Se cargará'), findsNothing);
-  });
+      expectCosts(tester, s.household.product, bellator);
+      expect(
+        find.text(
+          'Costo propio: ${formatBob(4000)} (queda anotado en la cuenta de '
+          'Titular)',
+        ),
+        findsOneWidget,
+      );
+      expect(find.textContaining('Se cargará'), findsNothing);
+    },
+  );
 }
