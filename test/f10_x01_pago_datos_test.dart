@@ -20,6 +20,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'support/f04_mode_fixtures.dart';
+import 'support/es_material_labels.dart';
 import 'support/f04_mode_ui_harness.dart';
 
 typedef Row = Map<String, Object?>;
@@ -235,6 +236,7 @@ void main() {
 
     /// Elige en el selector de fecha abierto el día [day] y acepta.
     Future<void> pickDayInDialog(WidgetTester tester, int day) async {
+      final es = await esMaterial();
       await tester.tap(
         find.descendant(
           of: find.byType(DatePickerDialog),
@@ -245,7 +247,7 @@ void main() {
       await tester.tap(
         find.descendant(
           of: find.byType(DatePickerDialog),
-          matching: find.text('OK'),
+          matching: find.text(es.okButtonLabel),
         ),
       );
       await settle(tester);
@@ -310,7 +312,9 @@ void main() {
           await tester.tap(
             find.descendant(
               of: find.byType(DatePickerDialog),
-              matching: find.byTooltip('Previous month'),
+              matching: find.byTooltip(
+                (await esMaterial()).previousMonthTooltip,
+              ),
             ),
           );
           await settle(tester);
