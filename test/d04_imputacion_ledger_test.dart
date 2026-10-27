@@ -17,6 +17,7 @@ import 'package:agroquimicos/domain/models.dart';
 import 'package:agroquimicos/domain/reports/report_composer.dart';
 import 'package:agroquimicos/domain/reports/report_table.dart';
 import 'package:agroquimicos/services/reports/csv_report_generator.dart';
+import 'package:agroquimicos/services/reports/pdf_report_generator.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -86,6 +87,20 @@ void main() {
       sumResumen += resumen;
     }
     expect(sumResumen, totalPending);
+    // I-4 con fin: el cierre de un período terminado es la suma con signo
+    // de los asientos con día hasta su fin.
+    for (final person in ledger.persons) {
+      for (final period in ledger.campaigns) {
+        if (period.endDay == null) continue;
+        final statement = ledger.statement(person.id, campaignId: period.id);
+        final upToEnd = ledger
+            .account(person.id)
+            .entries
+            .where((entry) => entry.day.compareTo(period.endDay!) <= 0)
+            .fold(0, (sum, entry) => sum + entry.amountMinor);
+        expect(statement.closingMinor, upToEnd, reason: person.name);
+      }
+    }
     // I-5: Inicio = Σ max(0, P − F) por rol.
     final summary = await w.repo.dashboard();
     var family = 0;
@@ -95,6 +110,15 @@ void main() {
       }
     }
     expect(summary.familyReceivableMinor, family);
+    var third = 0;
+    var thirdCredit = 0;
+    for (final row in await w.repo.accountSummaries()) {
+      if (row.role != 'THIRD_PARTY') continue;
+      if (row.account.netMinor > 0) third += row.account.netMinor;
+      if (row.account.netMinor < 0) thirdCredit += -row.account.netMinor;
+    }
+    expect(summary.thirdPartyReceivableMinor, third);
+    expect(summary.thirdPartyCreditMinor, thirdCredit);
   }
 
   Future<AccountStatement> statement(int person, {int? campaign}) =>
@@ -1046,5 +1070,116 @@ void main() {
       'Saldo neto · todas las campañas: a favor ${bs(1900)}',
     );
     expect(dialogNetText(0), 'Saldo neto · todas las campañas: al día');
+  });
+
+  group('revisión cruzada 2', () {
+    test('campaña ACTIVA con fin pasado: el cronológico corta en el fin, '
+        'rotula «Saldo al cierre del período» y el pago posterior no entra', () async {
+      await w.close();
+      w = await D04World.create(activateInvierno: false);
+      final ledger0 = await w.repo.accountLedger();
+      expect(ledger0.campaign(w.verano)!.status, 'ACTIVE');
+      expect(ledger0.campaign(w.verano)!.endDay, '2026-06-30');
+      await w.charge(w.familiar, w.verano, at(3, 15), 8100);
+      await w.pay(w.familiar, 5000, campaign: w.verano, date: at(10, 20));
+      final v = await statement(w.familiar, campaign: w.verano);
+      expect(v.periodClosed, isTrue);
+      expect(closingLabel(v), 'Saldo al cierre del período (30/06/2026)');
+      expect(
+        statementHeader(v),
+        'Estado de cuenta cronológico · período de Verano 2026 '
+        '(01/01/2026 – 30/06/2026)',
+      );
+      expect([for (final l in v.lines) l.balanceMinor], [8100]);
+      expect(v.closingMinor, 8100);
+      expect(
+        registrationText(ledger0.campaign(w.verano), DateTime(2026, 10, 27, 9)),
+        'Se registra en: Verano 2026 (período terminado el 30/06/2026). En el '
+        'estado cronológico aparecerá por su fecha, 27/10/2026',
+      );
+      // Antes del fin, la misma campaña se rotula «a hoy».
+      final early = (await w.repo.accountLedger()).statement(
+        w.familiar,
+        campaignId: w.verano,
+        now: DateTime(2026, 6, 30, 12),
+      );
+      expect(early.periodClosed, isFalse);
+      expect(closingLabel(early), 'Saldo a hoy');
+      await invariants();
+    });
+
+    test('asiento en un hueco entre campañas: fuera de los dos períodos, en '
+        'la apertura siguiente y en «Todas»', () async {
+      await w.close();
+      w = await D04World.create(veranoEnd: DateTime(2026, 5, 31));
+      await w.charge(w.familiar, w.verano, at(3, 15), 8100);
+      final gap = await w.pay(w.familiar, 3000, date: at(6, 15));
+      final v = await statement(w.familiar, campaign: w.verano);
+      expect([for (final l in v.lines) l.entry.id], isNot(contains(gap)));
+      expect(v.closingMinor, 8100);
+      expect(closingLabel(v), 'Saldo al cierre del período (31/05/2026)');
+      final i = await statement(w.familiar, campaign: w.invierno);
+      expect(i.lines, isEmpty);
+      expect(i.openingMinor, 5100, reason: 'la apertura incluye el hueco');
+      expect(i.closingMinor, 5100);
+      final all = await statement(w.familiar);
+      expect([for (final l in all.lines) l.entry.id], contains(gap));
+      expect((await cards(w.familiar)).v.scope.pendingMinor, 5100);
+      await invariants();
+    });
+
+    test('07h seguido de un pago nuevo: la imputación histórica queda '
+        'intacta y el pago nuevo va a c2', () async {
+      final c1 = await w.charge(w.familiar, w.verano, at(3, 15), 8100);
+      final c2 = await w.charge(w.familiar, w.invierno, at(8, 10), 4000);
+      await w.reverse(c1, at(10, 18));
+      final q1 = await w.rawPayment(
+        w.familiar,
+        5000,
+        campaign: w.invierno,
+        date: at(10, 20),
+      );
+      await w.rawAllocation(q1, c1, 5000);
+      final q2 = await w.pay(
+        w.familiar,
+        3000,
+        campaign: w.invierno,
+        date: at(10, 22),
+      );
+      expect(await w.allocationsOf(q1), {c1: 5000});
+      expect(await w.allocationsOf(q2), {c2: 3000});
+      final c = await cards(w.familiar);
+      expect(c.i.scope.pendingMinor, 1000);
+      expect(c.all.account.creditMinor, 5000);
+      expect(c.all.account.netMinor, -4000);
+      await invariants();
+    });
+
+    test(
+      'PDF de ledgerStatement filtrado por Invierno, con sus cifras',
+      () async {
+        await w.charge(w.familiar, w.verano, at(3, 15), 8100);
+        await w.charge(w.familiar, w.invierno, at(8, 10), 4000);
+        await w.pay(w.familiar, 5000, date: at(10, 20));
+        final table = const ReportComposer().ledgerStatement(
+          statement: await statement(w.familiar, campaign: w.invierno),
+          generatedAt: DateTime(2026, 10, 27, 10),
+        );
+        final pdf = latin1.decode(const PdfReportGenerator().generate(table));
+        expect(pdf, startsWith('%PDF-1.4'));
+        for (final text in [
+          'Saldo a hoy',
+          'Deuda pendiente por origen',
+          'Saldo neto',
+          '(81,00)',
+          '(40,00)',
+          '(50,00)',
+          '(71,00)',
+        ]) {
+          expect(pdf, contains(text), reason: text);
+        }
+        expect(pdf, isNot(contains('Saldo final')));
+      },
+    );
   });
 }

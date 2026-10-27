@@ -188,8 +188,13 @@ String closingLabel(AccountStatement statement) => statement.periodClosed
 /// Campaña de registro en el diálogo de pago (§2.4).
 String registrationText(CampaignPeriod? campaign, DateTime now) {
   if (campaign == null) return 'Se registra sin campaña';
-  if (campaign.status == 'CLOSED') {
-    return 'Se registra en: ${campaign.name} (cerrada). En el estado '
+  // Mismo criterio que el cronológico: el período terminó si su fin es
+  // anterior a hoy, sea cual sea su estado.
+  if (periodEnded(campaign, localDay(now))) {
+    final state = campaign.status == 'CLOSED'
+        ? 'cerrada'
+        : 'período terminado el ${_date(campaign.endDay!)}';
+    return 'Se registra en: ${campaign.name} ($state). En el estado '
         'cronológico aparecerá por su fecha, ${_date(localDay(now))}';
   }
   return 'Se registra en: ${campaign.name}';

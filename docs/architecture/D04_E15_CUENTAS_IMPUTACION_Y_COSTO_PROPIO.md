@@ -86,6 +86,7 @@ Por campaña de origen K: cargos_K − revertidos_K − aplicados_K = deuda pend
 | Etiquetas | «Deuda pendiente por origen (a hoy)», «Deuda pendiente por origen · K», «Pendiente a hoy {p}» | «Estado de cuenta cronológico · período de K (dd/mm/aaaa – dd/mm/aaaa\|hoy)», «Saldo al inicio del período (dd/mm/aaaa)», «Saldo al cierre del período (dd/mm/aaaa)», «Saldo a hoy» |
 
 - Orden siempre por día local efectivo y luego `id` (F04 §2.3), también en la imputación (D-R1).
+- **Fin del período** (revisión cruzada 2): el período de K terminó si `endDay` existe y es anterior a hoy, **sea cual sea el estado**. Entonces el cronológico corta en el fin y se rotula «Saldo al cierre del período (fin)». Una campaña ACTIVA con fin pasado (la sucesora se creó y no se activó, #125) entra en este caso. I-4 se lee así: con el período abierto, «Saldo a hoy» = *N*; con el período terminado, el cierre = Σ de los asientos con día hasta el fin.
 - La campaña de registro y la campaña de una reversión no mueven ninguna fila del cronológico: manda la fecha.
 - Un asiento con fecha en un hueco entre campañas entra en la apertura del período siguiente y en «Todas».
 - **Operaciones tardías (H-27):** una tardía confirmada en una campaña cerrada añade filas con fecha dentro de ese período. Por eso el «Saldo al cierre del período» de esa campaña **puede cambiar después de confirmarla** (M-4), y la deuda por origen también. La leyenda «Incluye operaciones tardías confirmadas» falta hoy y D-04 **no** la añade. Queda declarada como carencia previa (C-13).
@@ -113,7 +114,7 @@ Se listan todas las personas no ADMIN, como hoy. En E-15, sin el titular vigente
 
 - **Líneas:**
   - nombre;
-  - campaña de registro: «Se registra en: K», «Se registra en: K (cerrada). En el estado cronológico aparecerá por su fecha, {dd/mm/aaaa de hoy}», o «Se registra sin campaña»;
+  - campaña de registro: «Se registra en: K»; si el período de K ya terminó (fin anterior a hoy, el mismo criterio de §2.2), «Se registra en: K (cerrada). En el estado cronológico aparecerá por su fecha, {dd/mm/aaaa de hoy}», o «(período terminado el {fin})» en lugar de «(cerrada)» si la campaña sigue ACTIVA; o «Se registra sin campaña»;
   - saldo: «Saldo neto · todas las campañas: debe {N}» (N > 0), «… : a favor {−N}» (N < 0) o «… : al día» (N = 0);
   - «Se aplica primero a la deuda más antigua, de cualquier campaña.».
 - **Al guardar,** el mensaje se arma con las imputaciones **escritas:** «{Pago|Adelanto} de {x} registrado a {persona}.», seguido de « Imputado: {K1} {a1} · {K2} {a2}.» si se imputó algo y de « Sin imputar: {u} (queda a favor).» si sobró.
@@ -387,6 +388,7 @@ Cada prueba comprueba, sobre las mismas filas, las invariantes de §2.8 en la li
 | `CREDIT_ADJUSTMENT` sin cargo de origen | sin `reversal_of_id` | «Crédito sin cargo de origen registrado: {x} (queda a favor, sin campaña)» | *u* |
 
 - No se distingue un anticipo de un pago anterior a v3: no hay dato que lo pruebe.
+- **Imputaciones guardadas por instante.** Hasta D-04, `addAccountPayment` ordenaba los cargos por instante (`transaction_date`) y no por día local y luego `id`. Esas imputaciones se conservan tal cual (I-8). Por eso una base histórica puede tener imputaciones que no siguen el FIFO por día (caso M-3), y la vista las muestra como se guardaron.
 - Nada se reasigna, nada se imputa con retroactividad y no se edita ninguna fila (I-8).
 
 ---
@@ -405,7 +407,8 @@ Cada prueba comprueba, sobre las mismas filas, las invariantes de §2.8 en la li
 | D-R4 | `accountStatement(personId, {campaignId})` sobre D-R2: desglose por origen, cronológico por período con apertura y cierre, y textos de estado (§2.5). Una consulta |
 | D-R5 | `dashboard()`: las cifras de familias, terceros y pagos recibidos salen de **una** lectura de D-R2 (sustituye tres consultas por una), con «A favor de …» |
 | D-R6 | `campaignCloseSummary.receivable_bob_minor` = Σ P_K, sin ADMIN (D-R2 sustituye a una consulta) |
-| D-R7 | Las lecturas heredadas `settlements`, `topSettlements`, `detailedStatement`, `personCampaignBalance` y `statement` y sus versiones tipadas **se conservan sin cambios** para sus consumidores de prueba (caracterización de EVO-004). Las pantallas dejan de usarlas, salvo `topSettlements`, que sigue en Inicio en D-04 |
+| D-R7 | Las lecturas heredadas `settlements`, `topSettlements`, `detailedStatement`, `personCampaignBalance` y `statement` y sus versiones tipadas **se conservan sin cambios** para sus consumidores de prueba (caracterización de EVO-004). Llevan el comentario «Heredada: sólo caracterización». `ReportComposer.accountStatement` también. Las pantallas dejan de usarlas, con dos excepciones en D-04: `topSettlements` sigue en Inicio y `detailedStatementTyped` en Personas (pestaña Cuenta). Las dos pasan al libro en E-15 |
+| D-R8 | `accountLedger(withDetails: false)` no resuelve concepto ni chaco (sin `GROUP_CONCAT`). La usan `accountSummaries`, `dashboard()` y `campaignCloseSummary` |
 
 **Pantallas y servicios:**
 - `settlements_screen.dart`: §2.3–§2.5. El número de consultas de `_load` no cambia (5).

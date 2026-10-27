@@ -389,7 +389,8 @@ Las validaciones exclusivamente de interfaz se listan aparte en
   **día local** cae en el período de K, de cualquier campaña o sin campaña.
   - Empieza por «Saldo al inicio del período», que suma los asientos con día anterior al
     inicio.
-  - Termina en «Saldo al cierre del período» (K cerrada) o «Saldo a hoy».
+  - Termina en «Saldo al cierre del período» si el período ya terminó (fin anterior a hoy,
+    con cualquier estado de la campaña) o en «Saldo a hoy».
 - **Es un cálculo distinto del desglose por campaña de origen**. El desglose dice cuánto
   falta pagar hoy de los cargos de K, a partir de las imputaciones guardadas («Deuda
   pendiente por origen · K»). No comparten etiqueta.

@@ -188,8 +188,8 @@ compra"* — con un `personId` inexistente, no queda ni compra, ni ítems, ni lo
 |---|---|
 | **Propósito** | Ver el detalle movimiento a movimiento con saldo acumulado y, aparte, la deuda por campaña de origen |
 | **Ubicación** | `SettlementsScreen._statement` (diálogo, `AccountStatementView`) y `PersonDetailScreen` pestaña "Cuenta" |
-| **Archivos** | `agro_repository.dart` `accountStatement`; `domain/account_ledger.dart` |
-| **Secciones** | «Deuda pendiente por origen (a hoy)» y «Estado de cuenta cronológico · período de K (inicio – fin o hoy)». Esta última va con «Saldo al inicio del período», cada fila con su campaña de asiento y su estado de imputación, y «Saldo al cierre del período» o «Saldo a hoy» |
+| **Archivos** | Cuentas y su exportación: `agro_repository.dart` `accountStatement` y `domain/account_ledger.dart`. `PersonDetailScreen` sigue con `detailedStatementTyped` (sin campaña, acumulado desde cero) hasta E-15 |
+| **Secciones** | «Deuda pendiente por origen (a hoy)» y «Estado de cuenta cronológico · período de K (inicio – fin o hoy)». El período terminó si su fin es anterior a hoy, sea cual sea el estado de la campaña. Esta última va con «Saldo al inicio del período», cada fila con su campaña de asiento y su estado de imputación, y «Saldo al cierre del período» o «Saldo a hoy» |
 | **Exportación** | Columnas Fecha, Concepto, Chaco, Campaña del asiento, Cargo, Crédito, Imputación y Acumulado; los totales del cronológico y del desglose llevan etiquetas propias (D-04 §2.6) |
 | **Etiquetas** | `transactionTypeLabel` traduce los códigos a español ("Cargo por consumo", "Cargo por compra", "Pago", "Adelanto", "Crédito por reversión") |
 | **Cobertura de test** | *"estado de cuenta abre y cierra 20 veces sin perder la pantalla"*; `d04_imputacion_*_test.dart` |

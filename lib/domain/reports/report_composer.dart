@@ -256,6 +256,8 @@ class ReportComposer {
   ///
   /// Cuando hay campaña seleccionada, [campaignBalance] aporta el saldo inicial
   /// y el acumulado arranca de ahí, igual que el diálogo de Liquidación.
+  /// Heredada: sólo caracterización; la exportación usa [ledgerStatement]
+  /// (D-04 §2.6).
   ReportTable accountStatement({
     required String personName,
     required List<StatementEntryRead> entries,

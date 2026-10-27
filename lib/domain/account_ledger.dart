@@ -451,7 +451,9 @@ final class AccountLedger {
 
   /// Estado de cuenta de [personId]: desglose por origen y cronológico del
   /// período de [campaignId] (o de todas las campañas).
-  AccountStatement statement(int personId, {int? campaignId}) {
+  ///
+  /// [now] fija «hoy» para decidir si el período ya terminó (pruebas).
+  AccountStatement statement(int personId, {int? campaignId, DateTime? now}) {
     final account = this.account(personId);
     final period = campaign(campaignId);
     int? opening;
@@ -482,9 +484,17 @@ final class AccountLedger {
       openingMinor: opening,
       lines: lines,
       closingMinor: balance,
+      today: localDay(now ?? DateTime.now()),
     );
   }
 }
+
+/// El período de [campaign] ya terminó: tiene fin y el fin es anterior a
+/// [today]. No depende del estado: una campaña ACTIVA cuyo fin ya pasó (la
+/// sucesora se creó y todavía no se activó, #125) también corta sus filas
+/// en el fin (D-04, revisión cruzada).
+bool periodEnded(CampaignPeriod campaign, String today) =>
+    campaign.endDay != null && campaign.endDay!.compareTo(today) < 0;
 
 /// Fila de la lista de Cuentas.
 final class AccountSummary {
@@ -515,9 +525,13 @@ final class AccountStatement {
     required this.openingMinor,
     required this.lines,
     required this.closingMinor,
+    required this.today,
   });
 
   final AccountLedger ledger;
+
+  /// Día local de «hoy» con el que se armó el estado.
+  final String today;
   final PersonAccount account;
 
   /// Campaña filtrada, o nula con «Todas las campañas».
@@ -528,10 +542,9 @@ final class AccountStatement {
   final List<LedgerStatementLine> lines;
   final int closingMinor;
 
-  /// El cierre es «Saldo al cierre del período» sólo si la campaña está
-  /// cerrada con fin; si no, «Saldo a hoy».
-  bool get periodClosed =>
-      period != null && period!.status == 'CLOSED' && period!.endDay != null;
+  /// El cierre es «Saldo al cierre del período» si el período ya terminó
+  /// (fin anterior a hoy, con cualquier estado); si no, «Saldo a hoy».
+  bool get periodClosed => period != null && periodEnded(period!, today);
 
   List<CampaignDebt> get debts => account.debtsByCampaign(ledger.campaignOrder);
 }

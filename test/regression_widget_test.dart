@@ -171,23 +171,25 @@ class _SettlementFakeRepository extends AgroRepository {
   // `settlements`/`detailedStatement`. El falso devuelve la misma persona con
   // el mismo adelanto que antes.
   @override
-  Future<AccountLedger> accountLedger({int? personId}) async =>
-      AccountLedger.build(
-        persons: const [LedgerPerson(id: 1, name: 'José', role: 'FAMILY')],
-        campaigns: const [],
-        entries: const [
-          LedgerEntry(
-            id: 1,
-            personId: 1,
-            campaignId: null,
-            transactionDate: '2026-06-01T00:00:00.000Z',
-            type: 'ADVANCE',
-            amountMinor: -10000,
-            concept: 'Adelanto',
-          ),
-        ],
-        allocations: const [],
-      );
+  Future<AccountLedger> accountLedger({
+    int? personId,
+    bool withDetails = true,
+  }) async => AccountLedger.build(
+    persons: const [LedgerPerson(id: 1, name: 'José', role: 'FAMILY')],
+    campaigns: const [],
+    entries: const [
+      LedgerEntry(
+        id: 1,
+        personId: 1,
+        campaignId: null,
+        transactionDate: '2026-06-01T00:00:00.000Z',
+        type: 'ADVANCE',
+        amountMinor: -10000,
+        concept: 'Adelanto',
+      ),
+    ],
+    allocations: const [],
+  );
 
   @override
   Future<List<Map<String, Object?>>> farmCostReport({int? campaignId}) async =>
