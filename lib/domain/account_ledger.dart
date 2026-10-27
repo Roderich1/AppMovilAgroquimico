@@ -126,10 +126,64 @@ final class CreditState {
   /// En orden FIFO del cargo (día y luego `id`).
   final List<CreditAllocation> allocations = [];
 
+  /// E-15 (A1): imputaciones guardadas hacia un cargo de la otra clase
+  /// (propio frente a por cobrar). No cuentan como aplicadas: lo imputado
+  /// queda sin imputar en la cuenta de este crédito.
+  final List<CreditAllocation> crossAllocations = [];
+
   int get allocatedMinor =>
       allocations.fold(0, (sum, allocation) => sum + allocation.amountMinor);
 
+  int get crossAllocatedMinor => crossAllocations.fold(
+    0,
+    (sum, allocation) => sum + allocation.amountMinor,
+  );
+
   int get unappliedMinor => -entry.amountMinor - allocatedMinor;
+}
+
+/// Qué es «propio» (E-15; criterio de clase del coordinador, 2026-10-27,
+/// documento D04_E15 §7): un asiento o una aplicación es propio si su persona
+/// es el **titular vigente** (todos sus asientos, también los anteriores a su
+/// vínculo) o si su persona era titular el día local del asiento
+/// (día(`bound_at`) ≤ día < día(`ended_at`); lo anterior al primer vínculo es
+/// del primer titular). Es un supuesto de presentación y de imputación: no
+/// cambia datos guardados.
+final class OwnershipRule {
+  OwnershipRule(Iterable<LedgerBinding> bindings)
+    : bindings = [...bindings]
+        ..sort((a, b) {
+          final byBound = a.boundAt.compareTo(b.boundAt);
+          return byBound != 0 ? byBound : a.id.compareTo(b.id);
+        });
+
+  /// Por `bound_at` y luego `id`.
+  final List<LedgerBinding> bindings;
+
+  /// Titular vigente (vínculo sin `ended_at`), o nulo.
+  int? get currentOwner {
+    for (final binding in bindings) {
+      if (binding.endedAt == null) return binding.personId;
+    }
+    return null;
+  }
+
+  bool isOwn(int personId, String day) {
+    if (personId == currentOwner) return true;
+    for (var i = 0; i < bindings.length; i++) {
+      final binding = bindings[i];
+      if (binding.personId != personId) continue;
+      final start = i == 0 ? null : storedLocalDay(binding.boundAt);
+      final end = binding.endedAt == null
+          ? null
+          : storedLocalDay(binding.endedAt!);
+      if ((start == null || start.compareTo(day) <= 0) &&
+          (end == null || day.compareTo(end) < 0)) {
+        return true;
+      }
+    }
+    return false;
+  }
 }
 
 /// Desglose de una campaña de origen (o el total, con `campaignId` nulo).
@@ -303,26 +357,9 @@ final class AccountLedger {
         final byStart = a.startDay.compareTo(b.startDay);
         return byStart != 0 ? byStart : a.id.compareTo(b.id);
       });
-    final sortedBindings = [...bindings]
-      ..sort((a, b) {
-        final byBound = a.boundAt.compareTo(b.boundAt);
-        return byBound != 0 ? byBound : a.id.compareTo(b.id);
-      });
-    bool ownOn(int personId, String day) {
-      for (var i = 0; i < sortedBindings.length; i++) {
-        final binding = sortedBindings[i];
-        if (binding.personId != personId) continue;
-        final start = i == 0 ? null : storedLocalDay(binding.boundAt);
-        final end = binding.endedAt == null
-            ? null
-            : storedLocalDay(binding.endedAt!);
-        if ((start == null || start.compareTo(day) <= 0) &&
-            (end == null || day.compareTo(end) < 0)) {
-          return true;
-        }
-      }
-      return false;
-    }
+    final rule = OwnershipRule(bindings);
+    final sortedBindings = rule.bindings;
+    bool ownOn(int personId, String day) => rule.isOwn(personId, day);
 
     final names = {for (final person in persons) person.id: person};
     PersonAccount newAccount(int id) =>
@@ -403,6 +440,14 @@ final class AccountLedger {
       final charge = chargesById[allocation.chargeId];
       final credit = creditsById[allocation.paymentId];
       if (charge == null || credit == null) continue;
+      // A1: entre clases distintas no se aplica (un cargo propio no es deuda
+      // y un pago propio no es cobro).
+      if (own[charge.entry.id] != own[credit.entry.id]) {
+        credit.crossAllocations.add(
+          CreditAllocation(charge, allocation.amountMinor),
+        );
+        continue;
+      }
       charge.allocatedMinor += allocation.amountMinor;
       credit.allocations.add(CreditAllocation(charge, allocation.amountMinor));
     }
@@ -410,11 +455,15 @@ final class AccountLedger {
       credit.allocations.sort(
         (a, b) => compareByDayThenId(a.charge.entry, b.charge.entry),
       );
+      credit.crossAllocations.sort(
+        (a, b) => compareByDayThenId(a.charge.entry, b.charge.entry),
+      );
     }
     for (final account in all) {
+      final ids = {for (final entry in account.entries) entry.id};
       for (final charge in account.charges.values) {
         // Un cargo cuenta sólo en la cuenta donde está su fila.
-        if (!account.entries.contains(charge.entry)) continue;
+        if (!ids.contains(charge.entry.id)) continue;
         account.total.add(charge);
         account._byCampaign
             .putIfAbsent(

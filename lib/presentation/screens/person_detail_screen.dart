@@ -61,8 +61,9 @@ class PersonDetailScreen extends ConsumerWidget {
           subtitle: s.isCurrentOwner
               ? '${personRoleLabel(d.profile['role'])} · titular · consumo '
                     'propio ${bob(ownCost)}'
+              // E-15 (A2): el neto por cobrar del libro, sin lo propio.
               : '${personRoleLabel(d.profile['role'])} · saldo total '
-                    '${formatBob(d.profile['balance'] as int)}',
+                    '${formatBob(s.account.netMinor)}',
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
@@ -94,7 +95,7 @@ class PersonDetailScreen extends ConsumerWidget {
                       trailing: Text(
                         s.isCurrentOwner
                             ? formatBob(ownCost)
-                            : formatBob(d.profile['balance'] as int),
+                            : formatBob(s.account.netMinor),
                       ),
                     ),
                     if (!s.isCurrentOwner && s.hasOwnRecords)

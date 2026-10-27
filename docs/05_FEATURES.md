@@ -243,7 +243,7 @@ compra"* — con un `personId` inexistente, no queda ni compra, ni ítems, ni lo
 |---|---|
 | **Propósito** | Resumen ejecutivo de un vistazo |
 | **Pantalla** | `DashboardScreen` — `/` |
-| **Archivos** | `agro_repository.dart` `dashboard`, `inventorySummary(limit:5)`, `applications(limit:5)`, `topSettlements(limit:5)`, `campaigns` |
+| **Archivos** | `agro_repository.dart` `dashboard` (incluye «Principales saldos» desde el libro de cuentas, E-15), `inventorySummary(limit:5)`, `applications(limit:5)`, `campaigns` |
 | **Tarjetas** | Compras, Pagado proveedores, Familias por cobrar, Terceros por cobrar, Pagos recibidos. «Por cobrar» = Σ max(0, saldo neto) por persona, con «A favor de familias/terceros: X» si X > 0 (D-04). Sin los asientos propios del titular, que tampoco aparece en «Principales saldos» (E-15) |
 | **Secciones** | Banner de campaña activa; tabla de inventario proyectado (con buscador en cliente); aplicaciones recientes; principales saldos |
 | **Interacción** | Cada fila de inventario navega a `/inventario/:id`; los enlaces "Ver todos" van a las pantallas completas |

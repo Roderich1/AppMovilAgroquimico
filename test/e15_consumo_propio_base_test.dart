@@ -14,6 +14,7 @@ import 'package:agroquimicos/data/agro_repository.dart';
 import 'package:agroquimicos/data/app_database.dart';
 import 'package:agroquimicos/data/operation_mode_store.dart';
 import 'package:agroquimicos/domain/models.dart';
+import 'package:agroquimicos/domain/money.dart';
 import 'package:agroquimicos/domain/operation_mode.dart';
 import 'package:agroquimicos/domain/reports/report_composer.dart';
 import 'package:agroquimicos/domain/reports/report_table.dart';
@@ -88,24 +89,28 @@ void main() {
       expect((await e.w.repo.dashboard()).familyReceivableMinor, 4500);
     });
 
-    test('E15-06 · intervalos: Familias por cobrar 20 (D-04: 101)', () async {
-      e = await E15World.create();
-      await e.buy(e.titular, 'Glifosato', 1000, 4500);
-      await e.buy(e.titular, 'Bellator', 200, 18000);
-      await e.buy(e.w.familiar, 'Cipermetrina', 250, 8000);
-      await e.apply(e.w.familiar, e.chacoFamiliar, DateTime(2026, 8, 5), {
-        'Cipermetrina': 250,
-      });
-      await e.apply(e.titular, e.chacoNorte, DateTime(2026, 8, 10), {
-        'Glifosato': 1000,
-        'Bellator': 200,
-      });
-      await e.changeOwner(
-        e.w.familiar,
-        DateTime.now().toUtc().toIso8601String(),
-      );
-      expect((await e.w.repo.dashboard()).familyReceivableMinor, 2000);
-    });
+    test(
+      'E15-06 · cambio de titular: Familias por cobrar 0 (D-04: 101)',
+      () async {
+        e = await E15World.create();
+        await e.buy(e.titular, 'Glifosato', 1000, 4500);
+        await e.buy(e.titular, 'Bellator', 200, 18000);
+        await e.buy(e.w.familiar, 'Cipermetrina', 250, 8000);
+        await e.apply(e.w.familiar, e.chacoFamiliar, DateTime(2026, 8, 5), {
+          'Cipermetrina': 250,
+        });
+        await e.apply(e.titular, e.chacoNorte, DateTime(2026, 8, 10), {
+          'Glifosato': 1000,
+          'Bellator': 200,
+        });
+        await e.changeOwner(
+          e.w.familiar,
+          DateTime.now().toUtc().toIso8601String(),
+        );
+        // Criterio de clase: P2 (titular vigente) tampoco debe lo anterior.
+        expect((await e.w.repo.dashboard()).familyReceivableMinor, 0);
+      },
+    );
 
     test('E15-01 · la exportación del titular son sus movimientos propios '
         '(D-04: «Estado de cuenta» con «Saldo a hoy» 81)', () async {
@@ -137,6 +142,131 @@ void main() {
           'Pagos y ajustes registrados (Bs)': 0,
         },
       );
+    });
+  });
+
+  group('revisión cruzada 2 (API de D-04)', () {
+    late E15World e;
+    tearDown(() => e.close());
+
+    Future<void> titularOut() async {
+      final rows = await e.w.repo.accountSummaries();
+      expect(rows.map((r) => r.personId), isNot(contains(e.titular)));
+      expect((await e.w.repo.dashboard()).familyReceivableMinor, 0);
+    }
+
+    test('E15-02b · titular BY_PURCHASE_ALLOCATION fuera de las cuentas '
+        '(D-04: Titular 90 y Familias 90)', () async {
+      e = await E15World.create(
+        titularPolicy: SettlementPolicy.byPurchaseAllocation,
+      );
+      await e.buy(
+        e.titular,
+        'Glifosato',
+        2000,
+        4500,
+        date: DateTime(2026, 7, 5),
+      );
+      await e.apply(e.titular, e.chacoNorte, DateTime(2026, 10, 20), {
+        'Glifosato': 1000,
+      });
+      await titularOut();
+    });
+
+    test(
+      'E15-03 · aplicación revertida: el titular fuera (D-04: 45)',
+      () async {
+        e = await E15World.create();
+        await e.buy(e.titular, 'Glifosato', 2000, 4500);
+        await e.buy(e.titular, 'Bellator', 200, 18000);
+        final a1 = await e.apply(
+          e.titular,
+          e.chacoNorte,
+          DateTime(2026, 10, 15),
+          {'Glifosato': 1000, 'Bellator': 200},
+        );
+        await e.w.repo.reverseApplicationUnauditedForTesting(a1);
+        await e.apply(e.titular, e.chacoNorte, DateTime(2026, 10, 20), {
+          'Glifosato': 1000,
+        });
+        await titularOut();
+      },
+    );
+
+    test('M-9 · varios lotes: el titular fuera (D-04: 83)', () async {
+      e = await E15World.create();
+      await e.buy(e.titular, 'Glifosato', 1000, 4500);
+      await e.buy(
+        e.titular,
+        'Glifosato',
+        1000,
+        3800,
+        date: DateTime(2026, 7, 5),
+      );
+      await e.apply(e.titular, e.chacoNorte, DateTime(2026, 10, 20), {
+        'Glifosato': 2000,
+      });
+      await titularOut();
+    });
+
+    /// P1 aplica 81 el 10/08 (cargo propio) y cambia el titular a P2.
+    Future<int> changedOwner({int stock = 1000}) async {
+      e = await E15World.create();
+      await e.buy(e.titular, 'Glifosato', stock, 4500);
+      await e.buy(e.titular, 'Bellator', 200, 18000);
+      final application = await e.apply(
+        e.titular,
+        e.chacoNorte,
+        DateTime(2026, 8, 10),
+        {'Glifosato': 1000, 'Bellator': 200},
+      );
+      await e.changeOwner(
+        e.w.familiar,
+        DateTime.now().toUtc().toIso8601String(),
+      );
+      return (await (await e.w.db).query(
+            'account_transactions',
+            where: "reference_type='APPLICATION' AND reference_id=?",
+            whereArgs: [application],
+          )).single['id']!
+          as int;
+    }
+
+    test('A1 · el pago de P1 tras el cambio no se imputa a su cargo propio '
+        '(D-04: lo imputa y el pago desaparece)', () async {
+      await changedOwner();
+      final payment = await e.w.pay(
+        e.titular,
+        8100,
+        date: DateTime.now().toUtc().toIso8601String(),
+      );
+      expect(await e.w.allocationsOf(payment), isEmpty);
+      final dash = await e.w.repo.dashboard();
+      expect(dash.familyReceivableMinor, 0);
+      expect(dash.familyCreditMinor, 8100);
+    });
+
+    test('A1 inverso · un pago propio no cancela un cargo por cobrar '
+        '(D-04: lo cancela)', () async {
+      final own = await changedOwner(stock: 2000);
+      await e.apply(e.titular, e.chacoNorte, DateTime.now(), {
+        'Glifosato': 1000,
+      });
+      final payment = await e.w.pay(
+        e.titular,
+        4500,
+        date: DateTime(2026, 9, 1).toUtc().toIso8601String(),
+      );
+      expect(await e.w.allocationsOf(payment), {own: 4500});
+      expect((await e.w.repo.dashboard()).familyReceivableMinor, 4500);
+    });
+
+    test('hallazgo 4 · un titular anterior con sólo asientos propios no '
+        'bloquea el paso a modo propio (D-04: lo bloquea)', () async {
+      await changedOwner();
+      final store = OperationModeStore(e.w.database);
+      await store.apply(OperationMode.personal, confirmed: true);
+      expect(await store.current(), OperationMode.personal);
     });
   });
 
@@ -197,7 +327,8 @@ void main() {
       expect(inOwn('1 aplicación vigente'), findsOneWidget);
       expect(
         inOwn(
-          'Asientos en su cuenta (no son deuda): cargos anotados ${bs(8100)} '
+          'Asientos en su cuenta · período de Invierno 2026 (01/07/2026 – hoy) '
+          '(no son deuda): cargos anotados ${bs(8100)} '
           '· créditos por reversión ${bs(0)} · pagos y ajustes registrados '
           '${bs(0)}',
         ),
@@ -307,6 +438,137 @@ void main() {
       expect(find.byKey(const Key('own-consumption-card')), findsOneWidget);
       expect(
         find.text('En inventario propio no hay cuentas por cobrar.'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('E15-02a · titular ADMIN: tarjeta con consumo y sin asientos '
+        '(D-04: no aparece en Cuentas)', (tester) async {
+      final e = (await tester.runAsync(() async {
+        final e = await E15World.create(titularRole: PersonRole.admin);
+        await e.buy(e.titular, 'Glifosato', 1000, 4500);
+        await e.buy(e.titular, 'Bellator', 200, 18000);
+        await e.apply(e.titular, e.chacoNorte, DateTime(2026, 10, 20), {
+          'Glifosato': 1000,
+          'Bellator': 200,
+        });
+        return e;
+      }))!;
+      addTearDown(() => tester.runAsync(e.close));
+      await pump(tester, e.w.repo, const SettlementsScreen());
+      final own = find.byKey(const Key('own-consumption-card'));
+      expect(own, findsOneWidget);
+      expect(
+        find.descendant(
+          of: own,
+          matching: find.text(
+            'Consumo aplicado (costo FIFO) · Invierno 2026 ${bs(8100)}',
+          ),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(
+          of: own,
+          matching: find.text(
+            'Sin asientos en su cuenta · período de Invierno 2026 '
+            '(01/07/2026 – hoy).',
+          ),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('E15-05 · modo propio con familiar: el titular conserva pago y '
+        'el familiar tiene el menú deshabilitado (D-04: sin tarjeta)', (
+      tester,
+    ) async {
+      final e = (await tester.runAsync(() async {
+        final e = await E15World.create();
+        await OperationModeStore(e.w.database)
+            .apply(OperationMode.personal, confirmed: true);
+        await e.buy(e.titular, 'Glifosato', 1000, 4500);
+        await e.apply(e.titular, e.chacoNorte, DateTime(2026, 10, 20), {
+          'Glifosato': 1000,
+        });
+        return e;
+      }))!;
+      addTearDown(() => tester.runAsync(e.close));
+      await pump(tester, e.w.repo, const SettlementsScreen());
+      final container = ProviderScope.containerOf(
+        tester.element(find.byType(SettlementsScreen)),
+      );
+      await tester.runAsync(
+        () => container.read(operationModeProvider.notifier).reload(),
+      );
+      await settle(tester);
+      Future<List<PopupMenuItem<String>>> menuOf(Finder card) async {
+        await tester.tap(
+          find.descendant(
+            of: card,
+            matching: find.byType(PopupMenuButton<String>),
+          ),
+        );
+        await settle(tester);
+        final items = tester
+            .widgetList<PopupMenuItem<String>>(
+              find.byType(PopupMenuItem<String>),
+            )
+            .toList();
+        await tester.tapAt(const Offset(5, 5));
+        await settle(tester);
+        return items;
+      }
+
+      final ownItems = await menuOf(
+        find.byKey(const Key('own-consumption-card')),
+      );
+      expect([
+        for (final i in ownItems)
+          if (i.enabled) i.value,
+      ], containsAll(['pay', 'advance']));
+      final familiar = find
+          .ancestor(of: find.text('Familiar Demo'), matching: find.byType(Card))
+          .first;
+      final items = await menuOf(familiar);
+      expect([
+        for (final i in items)
+          if (i.enabled) i.value,
+      ], isNot(contains('pay')));
+      expect(
+        items.where((i) => !i.enabled).length,
+        1,
+        reason: '«Inventario propio: pagos sólo del titular»',
+      );
+    });
+
+    testWidgets('A2 · Personas: un titular anterior muestra su neto por cobrar '
+        'sin lo propio (D-04: 126)', (tester) async {
+      final e = (await tester.runAsync(() async {
+        final e = await E15World.create();
+        await e.buy(e.titular, 'Glifosato', 2000, 4500);
+        await e.buy(e.titular, 'Bellator', 200, 18000);
+        await e.apply(e.titular, e.chacoNorte, DateTime(2026, 8, 10), {
+          'Glifosato': 1000,
+          'Bellator': 200,
+        });
+        await e.changeOwner(
+          e.w.familiar,
+          DateTime.now().toUtc().toIso8601String(),
+        );
+        await e.apply(e.titular, e.chacoNorte, DateTime.now(), {
+          'Glifosato': 1000,
+        });
+        return e;
+      }))!;
+      addTearDown(() => tester.runAsync(e.close));
+      await pump(tester, e.w.repo, const PersonsScreen());
+      final tile = find.ancestor(
+        of: find.text('Titular'),
+        matching: find.byType(ListTile),
+      );
+      expect(
+        find.descendant(of: tile, matching: find.text(formatBob(4500))),
         findsOneWidget,
       );
     });

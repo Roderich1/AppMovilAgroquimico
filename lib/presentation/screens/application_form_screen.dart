@@ -863,9 +863,11 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
     }
     return switch (policy) {
       'BY_ACTUAL_USAGE' => 'Se cargará a $name: ${formatBob(totalCost)}',
-      // E-15 / M-7: el cargo se hizo al comprar; no se afirma que ya se pagó.
+      // E-15 / M-7: no se afirma que pagó ni que se le cargó: el producto
+      // pudo llegarle por transferencia (RN-35) o con otra política.
       'BY_PURCHASE_ALLOCATION' =>
-        'Esta aplicación no genera cargo: a $name se le cargó al comprarlo.',
+        'Esta aplicación no genera cargo a $name: su política cobra al '
+            'asignar compras.',
       _ => 'No genera cargo automático: la cuenta de $name se ajusta a mano',
     };
   }

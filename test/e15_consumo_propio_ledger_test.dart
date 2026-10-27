@@ -68,7 +68,7 @@ void main() {
     expect(ownApplicationsLine(consumption), '1 aplicación vigente');
     expect(
       ownRecordsLine(l.ownAccount(e.titular)),
-      'Asientos en su cuenta (no son deuda): cargos anotados ${bs(8100)} · '
+      'Asientos en su cuenta · todas las campañas (no son deuda): cargos anotados ${bs(8100)} · '
       'créditos por reversión ${bs(0)} · pagos y ajustes registrados ${bs(0)}',
     );
     final familiar = l.summaries().firstWhere(
@@ -134,7 +134,7 @@ void main() {
     );
     expect(
       ownRecordsLine(l.ownAccount(e.titular)),
-      'Sin asientos en su cuenta.',
+      'Sin asientos en su cuenta · todas las campañas.',
     );
     expect((await e.w.repo.dashboard()).familyReceivableMinor, 0);
     await titularOutOfReceivables();
@@ -153,7 +153,7 @@ void main() {
     expect(l.ownConsumption(e.titular).activeCostMinor, 4500);
     expect(
       ownRecordsLine(l.ownAccount(e.titular)),
-      'Asientos en su cuenta (no son deuda): cargos anotados ${bs(9000)} · '
+      'Asientos en su cuenta · todas las campañas (no son deuda): cargos anotados ${bs(9000)} · '
       'créditos por reversión ${bs(0)} · pagos y ajustes registrados ${bs(0)}',
     );
     expect((await e.w.repo.dashboard()).familyReceivableMinor, 0);
@@ -181,7 +181,7 @@ void main() {
     );
     expect(
       ownRecordsLine(l.ownAccount(e.titular)),
-      'Asientos en su cuenta (no son deuda): cargos anotados ${bs(12600)} · '
+      'Asientos en su cuenta · todas las campañas (no son deuda): cargos anotados ${bs(12600)} · '
       'créditos por reversión ${bs(8100)} · pagos y ajustes registrados ${bs(0)}',
     );
     // En «Movimientos propios» el cargo revertido sólo dice «Revertido el …»
@@ -217,7 +217,7 @@ void main() {
     expect(l.ownConsumption(e.titular).activeCostMinor, 8100);
     expect(
       ownRecordsLine(l.ownAccount(e.titular)),
-      'Asientos en su cuenta (no son deuda): cargos anotados ${bs(8100)} · '
+      'Asientos en su cuenta · todas las campañas (no son deuda): cargos anotados ${bs(8100)} · '
       'créditos por reversión ${bs(0)} · pagos y ajustes registrados ${bs(8100)}',
     );
     expect((await e.w.repo.dashboard()).receivedMinor, 0);
@@ -276,17 +276,23 @@ void main() {
     expect(l.ownerPersonId, p2);
     final rows = l.summaries();
     expect(rows.firstWhere((r) => r.personId == e.titular).account.netMinor, 0);
-    expect(rows.firstWhere((r) => r.personId == p2).account.netMinor, 2000);
+    // Criterio de clase (revisión cruzada 2): el titular vigente no figura
+    // como deudor ni con lo anterior a su vínculo.
+    expect(rows.map((r) => r.personId), isNot(contains(p2)));
     expect(l.ownConsumption(e.titular).activeCostMinor, 8100);
     expect(
       formerOwnerLine(l.ownConsumption(e.titular)),
       'Consumo propio mientras fue titular ${bs(8100)}',
     );
+    expect(ownApplicationsLine(l.ownConsumption(p2)), '1 aplicación vigente');
+    expect(l.ownConsumption(p2).activeCostMinor, 2000);
     expect(
-      ownApplicationsLine(l.ownConsumption(p2)),
-      'Sin aplicaciones vigentes',
+      ownRecordsLine(l.ownAccount(p2)),
+      'Asientos en su cuenta · todas las campañas (no son deuda): cargos '
+      'anotados ${bs(2000)} · créditos por reversión ${bs(0)} · pagos y '
+      'ajustes registrados ${bs(0)}',
     );
-    expect((await e.w.repo.dashboard()).familyReceivableMinor, 2000);
+    expect((await e.w.repo.dashboard()).familyReceivableMinor, 0);
     final former = await e.w.repo.accountStatement(e.titular);
     expect(former.isCurrentOwner, isFalse);
     expect(former.hasOwnRecords, isTrue);
@@ -365,5 +371,170 @@ void main() {
       8100,
     );
     expect((await e.w.repo.dashboard()).familyReceivableMinor, 10100);
+  });
+
+  group('revisión cruzada 2 · criterio de clase y A1', () {
+    /// P1 (titular desde la activación) aplica 81 el 10/08 (cargo propio) y
+    /// después `changeOwner` a P2 (el familiar).
+    Future<int> changedOwner({int stock = 1000}) async {
+      e = await E15World.create();
+      await e.buy(e.titular, 'Glifosato', stock, 4500);
+      await e.buy(e.titular, 'Bellator', 200, 18000);
+      final application = await e.apply(
+        e.titular,
+        e.chacoNorte,
+        DateTime(2026, 8, 10),
+        {'Glifosato': 1000, 'Bellator': 200},
+      );
+      await e.changeOwner(
+        e.w.familiar,
+        DateTime.now().toUtc().toIso8601String(),
+      );
+      return (await (await e.w.db).query(
+            'account_transactions',
+            where: "reference_type='APPLICATION' AND reference_id=?",
+            whereArgs: [application],
+          )).single['id']!
+          as int;
+    }
+
+    test('A1 · pago de P1 tras el cambio: no se imputa a su cargo propio; '
+        'queda a favor y cumple I-2', () async {
+      final own = await changedOwner();
+      final payment = await e.w.repo.registerAccountPayment(
+        personId: e.titular,
+        amountBobMinor: 8100,
+      );
+      expect(payment.imputed, isEmpty);
+      expect(payment.unappliedMinor, 8100);
+      expect(await e.w.allocationsOf(payment.paymentId), isEmpty);
+      final l = await ledger();
+      final p1 = l.account(e.titular);
+      expect(p1.netMinor, -8100);
+      expect(p1.netMinor, p1.signedSumMinor, reason: 'I-2');
+      expect(l.ownAccount(e.titular).charges.containsKey(own), isTrue);
+      final dash = await e.w.repo.dashboard();
+      expect(dash.familyReceivableMinor, 0);
+      expect(dash.familyCreditMinor, 8100);
+    });
+
+    test('A1 · pago de P1 con fecha de su intervalo: es propio, se imputa a su '
+        'cargo propio y P1 queda con N = 0', () async {
+      final own = await changedOwner();
+      final payment = await e.w.repo.registerAccountPayment(
+        personId: e.titular,
+        amountBobMinor: 8100,
+        date: DateTime(2026, 9, 1),
+      );
+      expect(await e.w.allocationsOf(payment.paymentId), {own: 8100});
+      final l = await ledger();
+      expect(l.account(e.titular).netMinor, 0);
+      expect(l.account(e.titular).entries, isEmpty);
+      expect((await e.w.repo.dashboard()).familyReceivableMinor, 0);
+    });
+
+    test(
+      'A1 inverso · un pago propio no cancela un cargo por cobrar',
+      () async {
+        final own = await changedOwner(stock: 2000);
+        // P1 aplica hoy, ya no titular: cargo por cobrar de 45.
+        final application = await e.apply(
+          e.titular,
+          e.chacoNorte,
+          DateTime.now(),
+          {'Glifosato': 1000},
+        );
+        final receivable =
+            (await (await e.w.db).query(
+                  'account_transactions',
+                  where: "reference_type='APPLICATION' AND reference_id=?",
+                  whereArgs: [application],
+                )).single['id']!
+                as int;
+        final payment = await e.w.repo.registerAccountPayment(
+          personId: e.titular,
+          amountBobMinor: 4500,
+          date: DateTime(2026, 9, 1),
+        );
+        expect(await e.w.allocationsOf(payment.paymentId), {own: 4500});
+        final l = await ledger();
+        expect(l.account(e.titular).charges.containsKey(receivable), isTrue);
+        expect(l.account(e.titular).netMinor, 4500);
+        expect((await e.w.repo.dashboard()).familyReceivableMinor, 4500);
+      },
+    );
+
+    test('A1 · imputación cruzada histórica: no cuenta como aplicada y se '
+        'rotula', () async {
+      final own = await changedOwner();
+      final q = await e.w.rawPayment(
+        e.titular,
+        8100,
+        date: DateTime.now().toUtc().toIso8601String(),
+      );
+      await e.w.rawAllocation(q, own, 8100);
+      final s = await e.w.repo.accountStatement(e.titular);
+      final entry = s.lines.single.entry;
+      expect(
+        statusText(s.ledger, s.account, entry),
+        'Imputado a un cargo propio de cuando era titular: ${bs(8100)}. '
+        'Queda a favor.',
+      );
+      expect(s.account.netMinor, -8100);
+      expect(s.account.netMinor, s.account.signedSumMinor, reason: 'I-2');
+      expect(s.ledger.ownAccount(e.titular).charges[own]!.appliedMinor, 0);
+    });
+
+    test('borde del día del cambio: lo del día del cambio ya no es del '
+        'titular anterior', () async {
+      e = await E15World.create();
+      final before = await e.w.charge(
+        e.titular,
+        e.w.invierno,
+        at(10, 21),
+        1000,
+      );
+      final sameDay = await e.w.charge(
+        e.titular,
+        e.w.invierno,
+        at(10, 22, 9),
+        2000,
+      );
+      final newOwner = await e.w.charge(
+        e.w.familiar,
+        e.w.invierno,
+        at(10, 22, 9),
+        3000,
+      );
+      await e.changeOwner(e.w.familiar, at(10, 22, 14));
+      final l = await ledger();
+      final ownP1 = {for (final x in l.ownAccount(e.titular).entries) x.id};
+      final receivableP1 = {for (final x in l.account(e.titular).entries) x.id};
+      expect(ownP1, contains(before));
+      expect(receivableP1, contains(sameDay));
+      expect({
+        for (final x in l.ownAccount(e.w.familiar).entries) x.id,
+      }, contains(newOwner));
+      expect(l.account(e.titular).netMinor, 2000);
+    });
+
+    test('primer vínculo posterior a los datos: lo anterior es del primer '
+        'titular aunque ya no sea el vigente', () async {
+      e = await E15World.create(bind: false);
+      final earlier = await e.w.charge(
+        e.titular,
+        e.w.invierno,
+        at(10, 20),
+        1000,
+      );
+      await e.bindOwner(e.titular, at(10, 27));
+      await e.changeOwner(e.w.familiar, at(10, 27, 12));
+      final l = await ledger();
+      expect(l.ownerPersonId, e.w.familiar);
+      expect({
+        for (final x in l.ownAccount(e.titular).entries) x.id,
+      }, contains(earlier));
+      expect(l.account(e.titular).netMinor, 0);
+    });
   });
 }

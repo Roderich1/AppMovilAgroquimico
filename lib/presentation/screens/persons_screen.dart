@@ -22,7 +22,10 @@ class _PersonsScreenState extends ConsumerState<PersonsScreen> {
   /// E-15: el libro dice quién es el titular y su consumo propio.
   static Future<(List<Map<String, Object?>>, AccountLedger)> _load(
     AgroRepository repo,
-  ) async => (await repo.personProfiles(), await repo.accountLedger());
+  ) async => (
+    await repo.personProfiles(),
+    await repo.accountLedger(withDetails: false),
+  );
 
   @override
   void initState() {
@@ -125,7 +128,13 @@ class _PersonsScreenState extends ConsumerState<PersonsScreen> {
                               )
                             : row['role'] == 'ADMIN'
                             ? null
-                            : Text(formatBob(row['balance'] as int)),
+                            // E-15 (A2): el neto por cobrar del libro, sin
+                            // lo propio de quien fue titular.
+                            : Text(
+                                formatBob(
+                                  ledger.account(row['id']! as int).netMinor,
+                                ),
+                              ),
                         onTap: () => context.push('/personas/${row['id']}'),
                       ),
                   ],

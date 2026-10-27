@@ -74,7 +74,7 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
       // guardadas. Sigue siendo una sola consulta.
       // E-15: el mismo libro trae lo propio del titular; no se añade
       // ninguna consulta a esta carga (pruebas con settle fijo).
-      await repo.accountLedger(),
+      await repo.accountLedger(withDetails: false),
       await repo.farmCostReportTyped(campaignId: selectedCampaignId),
       await repo.productCostReportTyped(campaignId: selectedCampaignId),
       campaigns,
@@ -244,7 +244,12 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
                       style: const TextStyle(fontWeight: FontWeight.w700),
                     ),
                     Text(ownApplicationsLine(consumption)),
-                    Text(ownRecordsLine(ledger.ownAccount(ownerId))),
+                    Text(
+                      ownRecordsLine(
+                        ledger.ownAccount(ownerId),
+                        period: _selectedPeriod(campaigns),
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -902,7 +907,9 @@ class _RecordPaymentDialogState extends State<_RecordPaymentDialog> {
             style: Theme.of(context).textTheme.bodySmall,
           ),
           const SizedBox(height: 2),
-          Text(dialogFifoText, style: Theme.of(context).textTheme.bodySmall),
+          // El pago propio no se aplica a ninguna deuda: sin la línea FIFO.
+          if (!widget.ownRecord)
+            Text(dialogFifoText, style: Theme.of(context).textTheme.bodySmall),
           const SizedBox(height: 14),
           TextField(
             controller: _amount,

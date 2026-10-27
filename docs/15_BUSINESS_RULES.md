@@ -253,7 +253,10 @@ Las validaciones exclusivamente de interfaz se listan aparte en
   - Se muestran como registro en «Consumo y costos propios».
   - Su costo propio se calcula desde sus aplicaciones no revertidas, con su costo FIFO
     real, y no desde el `USAGE_CHARGE`; por eso no desaparece con otra política.
-  - Un asiento es propio si su persona era titular en el día del asiento (criterio Q-3).
+  - Un asiento es propio si su persona es el titular vigente o era titular el día del
+    asiento (criterio de clase, §7 de D04_E15).
+  - Un pago nuevo sólo se imputa a cargos de su misma clase. Una imputación guardada entre
+    clases no cuenta como aplicada (A1).
   - Ver [D04_E15](architecture/D04_E15_CUENTAS_IMPUTACION_Y_COSTO_PROPIO.md), parte B.
 
 ### RN-28 · Aplicar desde un plan lo marca como COMPLETED

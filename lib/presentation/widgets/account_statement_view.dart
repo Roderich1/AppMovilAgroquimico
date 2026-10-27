@@ -173,7 +173,11 @@ class OwnMovementsView extends StatelessWidget {
           style: const TextStyle(fontWeight: FontWeight.w700),
         ),
         const Divider(height: 24),
-        Text('Asientos de su cuenta (registro, no deuda)', style: heading),
+        Text(
+          'Asientos de su cuenta (registro, no deuda) · '
+          '${ownScopeLabel(statement.period, statement.today)}',
+          style: heading,
+        ),
         if (statement.ownLines.isEmpty)
           const Text('Sin asientos en su cuenta.'),
         for (final entry in statement.ownLines)

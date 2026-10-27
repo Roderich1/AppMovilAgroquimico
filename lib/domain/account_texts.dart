@@ -145,15 +145,29 @@ String statusText(
                 '(${ledger.campaignName(allocation.charge.entry.campaignId)}, '
                 '${_date(allocation.charge.entry.day)}): '
                 '${bob(allocation.amountMinor)}. Queda a favor.',
+        // E-15 (A1): imputación guardada entre clases distintas.
+        for (final allocation in credit.crossAllocations)
+          ownRecord
+              ? 'Imputado a un cargo por cobrar: '
+                    '${bob(allocation.amountMinor)}. No cuenta como cobro.'
+              : 'Imputado a un cargo propio de cuando era titular: '
+                    '${bob(allocation.amountMinor)}. Queda a favor.',
       ];
-      final unapplied = credit.unappliedMinor;
-      if (unapplied > 0) {
-        if (entry.type == 'CREDIT_ADJUSTMENT' && credit.allocations.isEmpty) {
+      // Lo cruzado ya se dijo arriba; aquí sólo lo que nunca se imputó.
+      final unapplied = credit.unappliedMinor - credit.crossAllocatedMinor;
+      if (unapplied > 0 && ownRecord) {
+        // Registro propio: sin lenguaje de saldo.
+        parts.add('Sin imputar: ${bob(unapplied)}');
+      } else if (unapplied > 0) {
+        if (entry.type == 'CREDIT_ADJUSTMENT' &&
+            credit.allocations.isEmpty &&
+            credit.crossAllocations.isEmpty) {
           parts.add(
             'Crédito sin cargo de origen registrado: ${bob(unapplied)} '
             '(queda a favor, sin campaña)',
           );
-        } else if (credit.allocations.isEmpty) {
+        } else if (credit.allocations.isEmpty &&
+            credit.crossAllocations.isEmpty) {
           parts.add(
             'Sin imputación registrada: ${bob(unapplied)} '
             '(queda a favor, sin campaña)',
@@ -310,10 +324,27 @@ String ownApplicationsLine(OwnConsumption consumption) {
   );
 }
 
-String ownRecordsLine(PersonAccount own) {
-  if (own.entries.isEmpty) return 'Sin asientos en su cuenta.';
-  final totals = ownRecordTotals(own);
-  return 'Asientos en su cuenta (no son deuda): cargos anotados '
+/// Ámbito de los asientos propios: todas las campañas o el período de K.
+String ownScopeLabel(CampaignPeriod? period, String today) {
+  if (period == null) return 'todas las campañas';
+  final end = periodEnded(period, today) ? _date(period.endDay!) : 'hoy';
+  return 'período de ${period.name} (${_date(period.startDay)} – $end)';
+}
+
+/// Asientos propios en el ámbito: con [period], los de su período.
+String ownRecordsLine(
+  PersonAccount own, {
+  CampaignPeriod? period,
+  String? today,
+}) {
+  final scope = ownScopeLabel(period, today ?? localDay(DateTime.now()));
+  final entries = [
+    for (final entry in own.entries)
+      if (period == null || period.contains(entry.day)) entry,
+  ];
+  if (entries.isEmpty) return 'Sin asientos en su cuenta · $scope.';
+  final totals = ownRecordTotals(own, entries);
+  return 'Asientos en su cuenta · $scope (no son deuda): cargos anotados '
       '${bob(totals.chargesMinor)} · créditos por reversión '
       '${bob(totals.reversalsMinor)} · pagos y ajustes registrados '
       '${bob(totals.paymentsMinor)}';
