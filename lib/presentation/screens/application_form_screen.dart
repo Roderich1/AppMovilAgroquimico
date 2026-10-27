@@ -795,10 +795,26 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
     ];
   }
 
+  /// Cargo que corresponde a la persona según su política de cobro
+  /// (`persons.settlement_policy`, la misma que lee `confirmApplication`).
+  /// Sólo se describe: cómo se calcula y se escribe el cargo no cambia aquí.
+  String _chargeText(Map<String, Object?>? person, int totalCost) {
+    final name = person?['name']?.toString() ?? '';
+    // En inventario propio aplica el titular sobre lo suyo.
+    if (personalMode) return 'Costo propio: ${formatBob(totalCost)}';
+    return switch (person?['settlement_policy']) {
+      'BY_ACTUAL_USAGE' => 'Se cargará a $name: ${formatBob(totalCost)}',
+      'BY_PURCHASE_ALLOCATION' =>
+        'No genera cargo: $name ya pagó estos productos al comprarlos',
+      _ => 'No genera cargo automático: la cuenta de $name se ajusta a mano',
+    };
+  }
+
   List<Widget> _reviewStep(BuildContext context, _ApplicationCatalogs data) {
     final theme = Theme.of(context);
     final person = _person(data);
     final farm = _farm(data);
+    final totalCost = lines.fold<int>(0, (sum, line) => sum + line.cost);
     return [
       Card(
         key: const Key('application-review'),
@@ -834,12 +850,44 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
               for (final line in lines)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 6),
-                  child: Text(
-                    '${line.product['product_name']} · '
-                    '${formatQuantity(line.quantityBase, line.unit)}',
-                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          '${line.product['product_name']} · '
+                          '${formatQuantity(line.quantityBase, line.unit)}',
+                          style: const TextStyle(fontWeight: FontWeight.w700),
+                        ),
+                      ),
+                      Text(
+                        formatBob(line.cost),
+                        key: Key(
+                          'application-review-cost-${line.product['product_id']}',
+                        ),
+                      ),
+                    ],
                   ),
                 ),
+              const Divider(height: 20),
+              // Lo que cuesta y lo que se cobra son dos cosas (B-06): el
+              // costo sale de las compras que se irán usando; el cargo, de la
+              // política de la persona. Se muestran por separado.
+              Text(
+                'Costo total estimado: ${formatBob(totalCost)}',
+                key: const Key('application-review-cost'),
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+              Text(
+                'Según el precio de las compras que se irán usando, las más '
+                'antiguas primero.',
+                style: theme.textTheme.bodySmall,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                _chargeText(person, totalCost),
+                key: const Key('application-review-charge'),
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
             ],
           ),
         ),
