@@ -288,8 +288,9 @@ void main() {
     expect(items.single['product_id'], bellator);
   });
 
-  testWidgets('sin existencia suficiente: se avisa en la hoja y al confirmar '
-      'se explica qué falta y cómo seguir, sin guardar nada', (tester) async {
+  testWidgets('sin existencia suficiente: la hoja muestra disponible y pedido '
+      'y no deja agregar; si el stock cambia entre medio, confirmar lo explica '
+      'sin guardar nada', (tester) async {
     final s = await home(
       tester,
       'insuficiente',
@@ -298,28 +299,75 @@ void main() {
     );
     await openProductsStep(tester, s.database);
 
+    // 200 L con 1,5 L en existencia: error en el campo y botón deshabilitado
+    // (E-08). Tocarlo no agrega nada.
     await tapKey(tester, 'application-add-product');
     await choose(tester, 'Producto', 'Bellator');
     await tester.enterText(
       find.byKey(const Key('application-line-quantity')),
-      '5',
+      '200',
     );
     await tester.pump();
     expect(
-      find.byKey(const Key('application-line-insufficient')),
+      find.text(
+        'Pediste 200 L y hay 1,5 L. Baja la cantidad o registra primero la '
+        'compra.',
+      ),
       findsOneWidget,
     );
+    expect(
+      tester
+          .widget<FilledButton>(find.byKey(const Key('application-line-add')))
+          .onPressed,
+      isNull,
+    );
     await tapKey(tester, 'application-line-add');
-    expect(find.textContaining('faltan 3,5 L'), findsOneWidget);
+    expect(find.byKey(const Key('application-line-quantity')), findsOneWidget);
+    expect(cards(), findsNothing);
 
+    // Con una cantidad que sí hay, el botón vuelve y agrega.
+    await tester.enterText(
+      find.byKey(const Key('application-line-quantity')),
+      '0,2',
+    );
+    // El error del campo se desvanece con una animación corta.
+    await settle(tester);
+    expect(find.textContaining('Pediste'), findsNothing);
+    await tapKey(tester, 'application-line-add');
+    expect(find.text('Productos (1)'), findsOneWidget);
+    expect(find.text('0,2 L'), findsOneWidget);
+    expect(find.textContaining('faltan'), findsNothing);
+
+    // Entre medio, otra operación deja 0,1 L de Bellator: la hoja no sustituye
+    // la validación transaccional del repositorio, que sigue rechazando.
+    final bellator =
+        (await rows(
+              tester,
+              s.database,
+              'products',
+            )).firstWhere((p) => p['name'] == 'Bellator')['id']
+            as int;
+    await tester.runAsync(
+      () => s.household.repo.confirmApplication(
+        ApplicationDraft(
+          personId: s.household.titular,
+          farmId: s.household.titularFarm,
+          campaignId: s.household.campaign,
+          appliedAt: DateTime.now(),
+          lines: [
+            ApplicationLineDraft(productId: bellator, quantityBase: 1400),
+          ],
+        ),
+      ),
+    );
     await tapKey(tester, 'application-continue');
     await tapKey(tester, 'application-confirm');
     expect(
-      find.textContaining('No alcanza el Bellator: hay 1,5 L y escribiste 5 L'),
+      find.textContaining('Stock insuficiente para confirmar la aplicación.'),
       findsOneWidget,
     );
-    expect(find.textContaining('Baja la cantidad'), findsOneWidget);
-    expect(await rows(tester, s.database, 'applications'), isEmpty);
+    // Sólo la aplicación de entre medio: la del formulario no se guardó.
+    expect(await rows(tester, s.database, 'applications'), hasLength(1));
     // El borrador sigue: se puede volver, editar y guardar.
     expect(find.byKey(const Key('application-confirm')), findsOneWidget);
   });
