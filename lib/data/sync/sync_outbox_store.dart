@@ -567,6 +567,24 @@ class SyncOutboxStore {
     ),
   );
 
+  /// Tras un 422 CONTRACT_VERSION_MISMATCH (F05 §7, matriz C25: «pausar
+  /// versión; upgrade gobernado; no automático; conservar ID/versión
+  /// original»), el titular reanuda de forma explícita los envíos de su
+  /// vínculo pausados por versión: normalmente después de actualizar la
+  /// aplicación. Nada se reanuda solo al arrancar. Se conservan
+  /// `operation_id`, contenido, versión de contrato y cadena causal: el
+  /// mismo envelope vuelve a salir y, si Central sigue sin admitirlo, el
+  /// siguiente 422 lo pausa otra vez. Lo que ya salió alguna vez se reenvía
+  /// como resultado desconocido (mismo criterio que [releaseRestored]).
+  Future<int> resumeVersionMismatch(int bindingId) => _write(
+    (txn) => txn.rawUpdate(
+      "UPDATE sync_outbox SET status = CASE WHEN attempts = 0 THEN 'PENDING' "
+      "ELSE 'OUTCOME_UNKNOWN' END, updated_at=? "
+      "WHERE owner_binding_id=? AND status='VERSION_MISMATCH'",
+      [_now(), bindingId],
+    ),
+  );
+
   // ---------------------------------------------------------------------
   // Lecturas.
 

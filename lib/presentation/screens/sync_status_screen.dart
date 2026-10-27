@@ -81,6 +81,28 @@ class _SyncStatusScreenState extends ConsumerState<SyncStatusScreen> {
     if (released > 0) showSuccess(context, 'Liberados: $released.');
   }
 
+  /// 422 CONTRACT_VERSION_MISMATCH (F05 matriz C25): la reanudación es una
+  /// decisión del titular, nunca automática. Se reenvía el mismo contenido.
+  Future<void> _resumeVersionMismatch() async {
+    final confirmed = await confirmDestructiveAction(
+      context,
+      title: 'Reintentar con esta versión',
+      detail:
+          'El sindicato no aceptó estos envíos porque la aplicación tenía '
+          'una versión distinta. Si ya actualizó la aplicación, se volverán '
+          'a enviar con su mismo contenido. Si el sindicato los sigue '
+          'rechazando, quedarán pausados otra vez; nada se borra.',
+      confirmLabel: 'Reintentar',
+    );
+    if (!confirmed || !mounted) return;
+    final resumed = await ref
+        .read(syncControllerProvider.notifier)
+        .resumeVersionMismatch();
+    if (!mounted) return;
+    _reload();
+    if (resumed > 0) showSuccess(context, 'Reanudados: $resumed.');
+  }
+
   @override
   Widget build(BuildContext context) {
     // Un ciclo del worker que no se esperó aquí (el que lanza «Liberar», el
@@ -207,6 +229,44 @@ class _SyncStatusScreenState extends ConsumerState<SyncStatusScreen> {
                     onPressed: _releaseRestored,
                     child: const Text('Liberar'),
                   ),
+                ),
+              ),
+            ],
+            // 422 CONTRACT_VERSION_MISMATCH: pausado por versión; sólo el
+            // titular lo reanuda, normalmente tras actualizar la aplicación.
+            // Sin consultas nuevas: el contador ya está en el resumen.
+            if (summary.count(OutboxStatus.versionMismatch) > 0) ...[
+              const SizedBox(height: 8),
+              Card(
+                key: const Key('version-mismatch'),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const ListTile(
+                      leading: Icon(Icons.system_update_alt),
+                      title: Text(
+                        'Envíos pausados por una versión distinta de la '
+                        'aplicación',
+                      ),
+                      subtitle: Text(
+                        'El sindicato no los aceptó con la versión anterior. '
+                        'No se reanudan solos ni se borran: actualice la '
+                        'aplicación y vuelva a intentarlo.',
+                      ),
+                    ),
+                    // La etiqueta es larga: debajo del texto, nunca al lado,
+                    // para que quepa con fuente ampliada en 360 px.
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
+                        child: TextButton(
+                          onPressed: _resumeVersionMismatch,
+                          child: const Text('Reintentar con esta versión'),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ],
