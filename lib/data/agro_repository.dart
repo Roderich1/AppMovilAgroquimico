@@ -28,6 +28,26 @@ class BusinessRuleException implements Exception {
   String toString() => message;
 }
 
+/// Una aplicación con fecha pasada pide más de lo que la persona tenía ese
+/// día y no se usó después (D-03, precisión de RN-25). [availableBase] es la
+/// existencia elegible de ese día, en unidad base; puede ser cero.
+class HistoricalStockException extends BusinessRuleException {
+  HistoricalStockException({
+    required this.productId,
+    required this.day,
+    required this.availableBase,
+    required this.requestedBase,
+    required String message,
+  }) : super(message);
+
+  final int productId;
+
+  /// Día local efectivo, `aaaa-mm-dd`.
+  final String day;
+  final int availableBase;
+  final int requestedBase;
+}
+
 class CampaignConflictException extends BusinessRuleException {
   CampaignConflictException(this.activeCampaignId, this.activeCampaignName)
     : super(
@@ -1263,8 +1283,72 @@ class AgroRepository {
       if (draft.planId != null) {
         await _ensurePlanNotApplied(txn, draft.planId!);
       }
-      return _insertApplication(txn, draft, lotsFor: _lotsAvailableNow);
+      // D-03 (decisión del autor, 2026-10-27): una aplicación no consume
+      // producto que todavía no existía en su fecha efectiva, tampoco en la
+      // campaña activa. Si el día local efectivo es hoy, nada posterior puede
+      // existir (no se admiten fechas futuras, #121) y el saldo de hoy es el
+      // cupo: se conserva la ruta de siempre, con la misma consulta, el mismo
+      // FIFO y el mismo costo. Si es un día pasado, se usa la elegibilidad de
+      // RF-03 (§2.3): lotes adquiridos ese día o antes y un cupo que no deja
+      // negativo ningún saldo posterior. Todo dentro de esta transacción.
+      final day = localDay(draft.appliedAt);
+      if (day == localDay(DateTime.now())) {
+        return _insertApplication(txn, draft, lotsFor: _lotsAvailableNow);
+      }
+      return _insertApplication(
+        txn,
+        draft,
+        lotsFor: (executor, productId, personId) =>
+            _lotsAvailableAt(executor, productId, personId, day),
+        shortfall: (line, available) =>
+            _historicalShortfall(txn, line, draft.personId, available, day),
+      );
     });
+  }
+
+  /// Rechazo de una aplicación con fecha pasada cuyo cupo histórico no
+  /// alcanza (D-03): nombra el producto, el día y la existencia elegible, y
+  /// no dice «no había» si había una cantidad menor. Si tampoco alcanza el
+  /// saldo de hoy, el rechazo es el de siempre (RN-25): D-03 sólo cambia lo
+  /// que antes se aceptaba.
+  Future<BusinessRuleException> _historicalShortfall(
+    DatabaseExecutor txn,
+    ApplicationLineDraft line,
+    int personId,
+    int available,
+    String day,
+  ) async {
+    final now = (await _lotsAvailableNow(
+      txn,
+      line.productId,
+      personId,
+    )).fold<int>(0, (sum, row) => sum + (row['available']! as int));
+    if (now < line.quantityBase) {
+      return BusinessRuleException(
+        'Stock insuficiente para confirmar la aplicación.',
+      );
+    }
+    final product = (await txn.query(
+      'products',
+      columns: ['name', 'unit'],
+      where: 'id=?',
+      whereArgs: [line.productId],
+      limit: 1,
+    )).single;
+    final unit = product['unit']! as String;
+    return HistoricalStockException(
+      productId: line.productId,
+      day: day,
+      availableBase: available,
+      requestedBase: line.quantityBase,
+      message:
+          '${product['name']}: el ${displayDay(day)} había '
+          '${formatQuantity(available, unit)} disponibles para esa persona; '
+          'pidió ${formatQuantity(line.quantityBase, unit)}. Una aplicación '
+          'con fecha pasada sólo puede usar lo que esa persona ya tenía ese '
+          'día y no se usó después: no cuenta el producto comprado o recibido '
+          'más tarde. Revise la fecha o la cantidad. No se registró nada.',
+    );
   }
 
   /// Lotes con saldo hoy, en orden FIFO (registro ordinario).
@@ -1283,7 +1367,9 @@ class AgroRepository {
   );
 
   /// Escribe una aplicación ya validada consumiendo de [lotsFor] (FIFO; cada
-  /// fila trae su cupo en `available`).
+  /// fila trae su cupo en `available`). Si el cupo de una línea no alcanza,
+  /// lanza la excepción de [shortfall] o, sin ella, la de RN-25; la
+  /// transacción se deshace entera.
   Future<int> _insertApplication(
     Transaction txn,
     ApplicationDraft draft, {
@@ -1293,6 +1379,11 @@ class AgroRepository {
       int personId,
     )
     lotsFor,
+    Future<BusinessRuleException> Function(
+      ApplicationLineDraft line,
+      int available,
+    )?
+    shortfall,
   }) async {
     final person = (await txn.query(
       'persons',
@@ -1322,10 +1413,12 @@ class AgroRepository {
         0,
         (sum, row) => sum + (row['available']! as int),
       );
-      if (available < line.quantityBase)
+      if (available < line.quantityBase) {
+        if (shortfall != null) throw await shortfall(line, available);
         throw BusinessRuleException(
           'Stock insuficiente para confirmar la aplicación.',
         );
+      }
       final product = (await txn.query(
         'products',
         columns: ['unit'],

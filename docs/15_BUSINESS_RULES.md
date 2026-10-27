@@ -225,6 +225,18 @@ Las validaciones exclusivamente de interfaz se listan aparte en
   no se puede aplicar producto de otro aunque exista en el almacén global.
 - **Test**: *"detalle de producto expone stock, lotes y bloquea exceso"* — con 20 L
   disponibles, aplicar 21 L lanza `BusinessRuleException`.
+- **Precisión D-03 (decisión del autor, Roderich Rendón, 2026-10-27)**: la consulta de
+  arriba vale para una aplicación con fecha de **hoy** (día local). Con fecha **pasada**,
+  también dentro de la campaña activa, sólo cuentan los lotes con día de `acquired_date`
+  ≤ día efectivo y un cupo que no deja negativo ningún saldo posterior (la misma regla de
+  RF-03, `docs/architecture/F04_RF13_RF03_ACTOR_Y_TARDIAS.md` §2.3 y §2.6). Si no alcanza,
+  `HistoricalStockException`, sin efectos parciales, con un mensaje que nombra el
+  producto, la fecha y la existencia elegible (*"Bellator: el 15/10/2026 había 0 L
+  disponibles para esa persona; pidió 0,8 L. …"*). Si tampoco alcanza el saldo de hoy, el
+  mensaje sigue siendo el de arriba. Vale para el formulario, la voz y los
+  planes, porque vive en `confirmApplication`. No recalcula costos ni consumos ya
+  confirmados ni corrige registros históricos. Test:
+  `test/f10_d03_existencia_historica_test.dart`.
 
 ### RN-26 · Costeo FIFO por lote
 - **Descripción**: el consumo recorre los lotes ordenados por `acquired_date, id` y toma de

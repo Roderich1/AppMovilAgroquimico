@@ -74,6 +74,11 @@ void main() {
         TransferItemDraft(productId: products[0], quantityBase: 10000),
         TransferItemDraft(productId: products[1], quantityBase: 15000),
       ],
+      // D-03 (decisión del autor del 2026-10-27): la aplicación del 10/01
+      // consume lo recibido en este pase, así que el pase tiene que ser
+      // anterior. Sin fecha quedaba con la de hoy y la aplicación usaba
+      // producto que José todavía no tenía.
+      date: DateTime.utc(2026, 1, 6),
       notes: 'Préstamo interno',
     );
     final joseStock = await repo.personStockSummary(jose);
