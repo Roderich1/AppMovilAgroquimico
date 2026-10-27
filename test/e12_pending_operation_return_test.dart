@@ -5,14 +5,21 @@
 import 'package:agroquimicos/app.dart';
 import 'package:agroquimicos/data/agro_repository.dart';
 import 'package:agroquimicos/data/app_database.dart';
+import 'package:agroquimicos/data/owner_binding_store.dart';
 import 'package:agroquimicos/domain/models.dart';
+import 'package:agroquimicos/presentation/screens/applications_screen.dart';
+import 'package:agroquimicos/presentation/screens/backup_recovery_key_screen.dart';
 import 'package:agroquimicos/presentation/screens/late_operations_screen.dart';
 import 'package:agroquimicos/presentation/screens/owner_credential_screen.dart';
 import 'package:agroquimicos/presentation/screens/purchases_screen.dart';
+import 'package:agroquimicos/presentation/screens/transfers_screen.dart';
+import 'package:agroquimicos/services/backup/backup_keyring.dart';
+import 'package:agroquimicos/services/backup/remote_backup_providers.dart';
 import 'package:agroquimicos/services/auth/local_owner_credential.dart';
 import 'package:agroquimicos/services/auth/local_owner_credential_providers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -28,8 +35,38 @@ class _SpyRepository extends AgroRepository {
   _SpyRepository(super.appDatabase, {super.ownerCredential});
 
   int reversePurchaseCalls = 0;
+  int reverseApplicationCalls = 0;
+  int reverseTransferCalls = 0;
   int lateConfirmCalls = 0;
   int lateRejectCalls = 0;
+
+  @override
+  Future<void> reverseApplication(
+    int applicationId, {
+    required String reason,
+    required OwnerAuthorization authorization,
+  }) {
+    reverseApplicationCalls++;
+    return super.reverseApplication(
+      applicationId,
+      reason: reason,
+      authorization: authorization,
+    );
+  }
+
+  @override
+  Future<void> reverseTransfer(
+    int transferId, {
+    required String reason,
+    required OwnerAuthorization authorization,
+  }) {
+    reverseTransferCalls++;
+    return super.reverseTransfer(
+      transferId,
+      reason: reason,
+      authorization: authorization,
+    );
+  }
 
   @override
   Future<void> reversePurchase(
@@ -74,6 +111,9 @@ class _World {
   late _SpyRepository repo;
   late int purchase;
   late String lateRef;
+  late Household household;
+  late int application;
+  late int transfer;
   final storage = E12CredentialStorage();
   bool online = true;
   late final OwnerOnlineVerification verification = OwnerOnlineVerification(
@@ -86,14 +126,18 @@ class _World {
     iterations: 1000,
   );
 
-  Future<void> seed({bool owner = true, bool withLate = false}) async {
+  Future<void> seed({
+    bool owner = true,
+    bool withLate = false,
+    bool withMovements = false,
+  }) async {
     database = AppDatabase(
       factory: databaseFactoryFfi,
       path: inMemoryDatabasePath,
     );
     if (owner) await seedActivatedInstallation(database);
     repo = _SpyRepository(database, ownerCredential: () => credential);
-    final h = await seedHousehold(repo);
+    final h = household = await seedHousehold(repo);
     purchase = await repo.confirmPurchase(
       PurchaseDraft(
         supplierId: h.supplier,
@@ -113,6 +157,25 @@ class _World {
         ],
       ),
     );
+    if (withMovements) {
+      application = await repo.confirmApplication(
+        ApplicationDraft(
+          personId: h.titular,
+          farmId: h.titularFarm,
+          campaignId: h.campaign,
+          appliedAt: DateTime.utc(2026, 1, 20),
+          lines: [
+            ApplicationLineDraft(productId: h.product, quantityBase: 100),
+          ],
+        ),
+      );
+      transfer = await repo.transferProductFifo(
+        fromPersonId: h.titular,
+        toPersonId: h.relative,
+        productId: h.product,
+        quantityBase: 100,
+      );
+    }
     if (withLate) {
       await repo.addHistoricalCampaign(
         name: 'Campaña 2025',
@@ -151,6 +214,16 @@ class _World {
         ),
       ))!.single['reversed_at'];
 
+  Future<Object?> reversedAt(WidgetTester tester, String table, int id) async =>
+      (await tester.runAsync(
+        () async => (await database.database).query(
+          table,
+          columns: ['reversed_at'],
+          where: 'id=?',
+          whereArgs: [id],
+        ),
+      ))!.single['reversed_at'];
+
   Future<Object?> lateStatus(WidgetTester tester) async =>
       (await tester.runAsync(
         () async => (await database.database).query(
@@ -171,13 +244,18 @@ Future<void> _settle(WidgetTester tester, {int rounds = 15}) async {
   }
 }
 
-Future<GoRouter> _mount(WidgetTester tester, _World world) async {
+Future<GoRouter> _mount(
+  WidgetTester tester,
+  _World world, {
+  Widget home = const PurchasesScreen(),
+  List<Override> extra = const [],
+}) async {
   final router = GoRouter(
     initialLocation: '/',
     routes: [
       GoRoute(
         path: '/',
-        builder: (_, __) => const Scaffold(body: PurchasesScreen()),
+        builder: (_, __) => Scaffold(body: home),
       ),
       GoRoute(
         path: '/tardias',
@@ -202,6 +280,7 @@ Future<GoRouter> _mount(WidgetTester tester, _World world) async {
         repositoryProvider.overrideWithValue(world.repo),
         ownerOnlineVerificationProvider.overrideWithValue(world.verification),
         localOwnerCredentialProvider.overrideWithValue(world.credential),
+        ...extra,
       ],
       child: MaterialApp.router(routerConfig: router),
     ),
@@ -247,6 +326,35 @@ Future<void> _back(WidgetTester tester) async {
   await tester.ensureVisible(find.byKey(const Key('pin-back')));
   await tester.tap(find.byKey(const Key('pin-back')));
   await _settle(tester);
+}
+
+/// Motivo y «Continuar» en la revisión de una reversión.
+Future<void> _giveReason(WidgetTester tester) async {
+  await tester.enterText(
+    find.byKey(const Key('approval-reason')),
+    'Registro equivocado',
+  );
+  await tester.tap(find.byKey(const Key('approval-continue')));
+  await _settle(tester);
+}
+
+/// Llavero en memoria para F08.
+class _MemoryVault implements BackupKeyVault {
+  String? value;
+  @override
+  Future<String?> read() async => value;
+  @override
+  Future<void> write(String value) async => this.value = value;
+}
+
+Future<String> _confirmedKeyring(_MemoryVault vault) async {
+  final keyring = BackupKeyring(
+    vault,
+    consumeAuthorization: (_, __, ___) async {},
+  );
+  final pending = await keyring.pendingKey();
+  await keyring.confirmPending(pending.displayText);
+  return (await keyring.activeKey())!.keyId;
 }
 
 void main() {
@@ -454,5 +562,297 @@ void main() {
     expect(find.byKey(const Key('owner-pin-input')), findsNothing);
     expect(world.repo.reversePurchaseCalls, 0);
     expect(await world.purchaseReversedAt(tester), isNull);
+  });
+
+  testWidgets('W1b: reversión de una aplicación: vuelve a la revisión y no se '
+      'ejecuta sola', (tester) async {
+    final world = _World();
+    await tester.runAsync(() => world.seed(withMovements: true));
+    addTearDown(world.database.close);
+    await _mount(tester, world, home: const ApplicationsScreen());
+
+    await tester.tap(find.byTooltip('Revertir').first);
+    await _settle(tester);
+    await _giveReason(tester);
+    await _configurePin(tester);
+    await _back(tester);
+    expect(find.byKey(const Key('approval-return-header')), findsOneWidget);
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const Key('approval-reason')))
+          .controller!
+          .text,
+      'Registro equivocado',
+    );
+    await tester.tap(find.byKey(const Key('approval-continue')));
+    await _settle(tester);
+    expect(find.byKey(const Key('owner-pin-input')), findsOneWidget);
+    expect(world.repo.reverseApplicationCalls, 0);
+    expect(
+      await world.reversedAt(tester, 'applications', world.application),
+      isNull,
+    );
+    await tester.tap(find.text('Cancelar'));
+    await _settle(tester);
+    expect(world.repo.reverseApplicationCalls, 0);
+    expect(
+      await world.reversedAt(tester, 'applications', world.application),
+      isNull,
+    );
+  });
+
+  testWidgets('W1c: reversión de una transferencia: vuelve a la revisión y no '
+      'se ejecuta sola', (tester) async {
+    final world = _World();
+    await tester.runAsync(() => world.seed(withMovements: true));
+    addTearDown(world.database.close);
+    await _mount(tester, world, home: const TransfersScreen());
+
+    await tester.tap(find.byTooltip('Revertir').first);
+    await _settle(tester);
+    await _giveReason(tester);
+    await _configurePin(tester);
+    await _back(tester);
+    expect(find.byKey(const Key('approval-return-header')), findsOneWidget);
+    await tester.tap(find.byKey(const Key('approval-continue')));
+    await _settle(tester);
+    expect(find.byKey(const Key('owner-pin-input')), findsOneWidget);
+    expect(world.repo.reverseTransferCalls, 0);
+    await tester.tap(find.text('Cancelar'));
+    await _settle(tester);
+    expect(world.repo.reverseTransferCalls, 0);
+    expect(await world.reversedAt(tester, 'transfers', world.transfer), isNull);
+  });
+
+  testWidgets('W3b: una tardía resuelta mientras se configuraba el PIN no '
+      'pide nada al volver', (tester) async {
+    final world = _World();
+    await tester.runAsync(() => world.seed(withLate: true));
+    addTearDown(world.database.close);
+    final router = await _mount(tester, world);
+    router.go('/tardias');
+    await _settle(tester);
+
+    await tester.tap(find.byKey(Key('late-confirm-${world.lateRef}')));
+    await _settle(tester);
+    await _configurePin(tester);
+    // Otro camino la resolvió entretanto (fila completa de un rechazo).
+    await tester.runAsync(() async {
+      final binding = await OwnerBindingStore(world.database).activeBinding();
+      await (await world.database.database).update(
+        'late_operation_drafts',
+        {
+          'status': 'REJECTED',
+          'resolved_at': '2026-10-27T18:00:00.000Z',
+          'resolver_person_id': binding!.personId,
+          'resolver_binding_id': binding.id,
+          'resolver_member_id': binding.scope.memberId,
+          'resolver_tenant_id': binding.scope.tenantId,
+          'resolver_method': 'LOCAL_PIN',
+          'resolver_enrolment_ref': 'otro-camino',
+        },
+        where: 'draft_ref=?',
+        whereArgs: [world.lateRef],
+      );
+    });
+    expect(await world.lateStatus(tester), 'REJECTED');
+    await _back(tester);
+    await _settle(tester);
+    expect(
+      find.text(OwnerPinReturnTexts.stale('ya se resolvió')),
+      findsOneWidget,
+    );
+    expect(find.byKey(const Key('owner-pin-input')), findsNothing);
+    expect(world.repo.lateConfirmCalls, 0);
+  });
+
+  testWidgets('W5b: si cambia el titular mientras se configura el PIN, al '
+      'volver se cancela', (tester) async {
+    final world = _World();
+    await tester.runAsync(world.seed);
+    addTearDown(world.database.close);
+    await _mount(tester, world);
+
+    await _askToReverse(tester);
+    await _configurePin(tester);
+    await tester.runAsync(
+      () => OwnerBindingStore(world.database).changeOwner(
+        newPersonId: world.household.relative,
+        sessionScope: memberA,
+      ),
+    );
+    await _back(tester);
+    await _settle(tester);
+    expect(find.text(OwnerPinReturnTexts.ownerChanged), findsOneWidget);
+    expect(find.byKey(const Key('approval-reason')), findsNothing);
+    expect(world.repo.reversePurchaseCalls, 0);
+    expect(await world.purchaseReversedAt(tester), isNull);
+  });
+
+  testWidgets('W3c: si la revalidación lanza, se cancela con su propio aviso', (
+    tester,
+  ) async {
+    final world = _World();
+    await tester.runAsync(world.seed);
+    addTearDown(world.database.close);
+    OwnerAuthorization? result;
+    var finished = false;
+    await _mount(
+      tester,
+      world,
+      home: Consumer(
+        builder: (context, ref, _) => FilledButton(
+          onPressed: () async {
+            result = await requestOwnerAuthorization(
+              context,
+              ref,
+              purpose: AuthorizationPurpose.reversePurchase,
+              subjectRef: 'purchase:${world.purchase}',
+              title: 'Acción de prueba',
+              effects: 'Efectos de prueba',
+              revalidate: () async => throw StateError('lectura fallida'),
+            );
+            finished = true;
+          },
+          child: const Text('Acción'),
+        ),
+      ),
+    );
+    await tester.tap(find.text('Acción'));
+    await _settle(tester);
+    await _configurePin(tester);
+    await _back(tester);
+    await _settle(tester);
+    expect(finished, isTrue);
+    expect(result, isNull);
+    expect(find.text(OwnerPinReturnTexts.checkFailed), findsOneWidget);
+    expect(find.text(OwnerPinReturnTexts.notConfigured), findsNothing);
+    expect(find.byKey(const Key('owner-pin-input')), findsNothing);
+  });
+
+  testWidgets('W2c: PIN bloqueado (requiresOnlineReset) → «Configurar PIN» → '
+      'restablecer con contraseña → vuelve a la revisión sin ejecutar', (
+    tester,
+  ) async {
+    final world = _World();
+    await tester.runAsync(() async {
+      await world.seed();
+      final binding = await OwnerBindingStore(world.database).activeBinding();
+      final context = OwnerBindingContext(
+        bindingId: binding!.id,
+        personId: binding.personId,
+        scope: binding.scope,
+      );
+      await world.credential.enroll(
+        pin: '502813',
+        pinConfirmation: '502813',
+        proof: await world.verification.verify(
+          email: 'e',
+          password: 'p',
+          binding: context,
+        ),
+        binding: context,
+      );
+      world.storage.values['attempts'] = '{"failures":10,"lockedUntil":null}';
+      expect(
+        (await world.credential.status(context)).state,
+        CredentialState.requiresOnlineReset,
+      );
+    });
+    addTearDown(world.database.close);
+    await _mount(tester, world);
+
+    await _askToReverse(tester);
+    expect(
+      find.text(
+        'El PIN quedó bloqueado. Restablézcalo acreditando al titular en línea.',
+      ),
+      findsOneWidget,
+    );
+    await _configurePin(tester);
+    await _back(tester);
+    expect(find.byKey(const Key('approval-return-header')), findsOneWidget);
+    expect(world.repo.reversePurchaseCalls, 0);
+    await tester.tap(find.text('Cancelar'));
+    await _settle(tester);
+    expect(world.repo.reversePurchaseCalls, 0);
+    expect(await world.purchaseReversedAt(tester), isNull);
+  });
+
+  group('F08: ver la clave de recuperación sin PIN', () {
+    Future<(_World, _MemoryVault, String)> prepare(WidgetTester tester) async {
+      final world = _World();
+      final vault = _MemoryVault();
+      late String keyId;
+      await tester.runAsync(() async {
+        await world.seed();
+        keyId = await _confirmedKeyring(vault);
+      });
+      addTearDown(world.database.close);
+      await _mount(
+        tester,
+        world,
+        home: Consumer(
+          builder: (context, ref, _) => FilledButton(
+            onPressed: () => revealActiveRecoveryKey(context, ref),
+            child: const Text('Ver la clave'),
+          ),
+        ),
+        extra: [
+          backupKeyringProvider.overrideWith(
+            (ref) => BackupKeyring(
+              vault,
+              consumeAuthorization: ref.watch(
+                backupKeyAuthorizationConsumerProvider,
+              ),
+            ),
+          ),
+        ],
+      );
+      return (world, vault, keyId);
+    }
+
+    const f08Message =
+        'Hace falta la autorización del titular en este teléfono. No se mostró '
+        'ni se cambió la clave.';
+
+    testWidgets('C-5: con la misma clave vuelve al diálogo del PIN; cancelar '
+        'da un solo aviso, el de F08', (tester) async {
+      await prepare(tester);
+      await tester.tap(find.text('Ver la clave'));
+      await _settle(tester);
+      await _configurePin(tester);
+      await _back(tester);
+      expect(find.byKey(const Key('owner-pin-return-header')), findsOneWidget);
+      expect(find.byType(RecoveryKeyDisplay), findsNothing);
+      await tester.tap(find.text('Cancelar'));
+      await _settle(tester);
+      await _settle(tester);
+      expect(find.text(f08Message), findsOneWidget);
+      expect(find.byType(RecoveryKeyDisplay), findsNothing);
+    });
+
+    testWidgets('C-5: si la clave activa cambió mientras se configuraba, no '
+        'se pide el PIN y sólo queda el aviso de F08', (tester) async {
+      final (_, vault, keyId) = await prepare(tester);
+      await tester.tap(find.text('Ver la clave'));
+      await _settle(tester);
+      await _configurePin(tester);
+      final other = _MemoryVault();
+      final otherKeyId = (await tester.runAsync(
+        () => _confirmedKeyring(other),
+      ))!;
+      expect(otherKeyId, isNot(keyId));
+      vault.value = other.value;
+      await _back(tester);
+      await _settle(tester);
+      expect(find.byKey(const Key('owner-pin-input')), findsNothing);
+      expect(find.text(f08Message), findsOneWidget);
+      expect(
+        find.text(OwnerPinReturnTexts.stale('la clave activa cambió')),
+        findsNothing,
+      );
+      expect(find.byType(RecoveryKeyDisplay), findsNothing);
+    });
   });
 }

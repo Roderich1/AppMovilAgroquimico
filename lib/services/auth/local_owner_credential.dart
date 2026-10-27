@@ -89,14 +89,23 @@ class OnlineOwnerProof {
     this._issuer, {
     _ProofOrigin origin = _ProofOrigin.password,
     DateTime? notAfter,
+    int? bindingId,
+    int? personId,
   }) : _origin = origin,
-       _notAfter = notAfter;
+       _notAfter = notAfter,
+       _bindingId = bindingId,
+       _personId = personId;
 
   final OwnerScope scope;
   final DateTime issuedAt;
   final OwnerOnlineVerification _issuer;
   final _ProofOrigin _origin;
   final DateTime? _notAfter;
+
+  /// Sólo en los de activación: el vínculo exacto con el que se emitió, que
+  /// [LocalOwnerCredential.enroll] vuelve a comparar (comprobación 5).
+  final int? _bindingId;
+  final int? _personId;
   bool _used = false;
 
   @override
@@ -193,6 +202,8 @@ class OwnerOnlineVerification {
         this,
         origin: _ProofOrigin.activation,
         notAfter: evidence.notAfter,
+        bindingId: binding.bindingId,
+        personId: binding.personId,
       );
     } on Object {
       return null;
@@ -552,7 +563,10 @@ class LocalOwnerCredential {
         proof.scope != binding.scope ||
         now.difference(proof.issuedAt) > const Duration(minutes: 5) ||
         now.isBefore(proof.issuedAt) ||
-        (notAfter != null && now.isAfter(notAfter))) {
+        (notAfter != null && now.isAfter(notAfter)) ||
+        (proof._origin == _ProofOrigin.activation &&
+            (proof._bindingId != binding.bindingId ||
+                proof._personId != binding.personId))) {
       throw const CredentialException(
         'Hace falta acreditar en línea al titular antes de configurar el PIN.',
       );

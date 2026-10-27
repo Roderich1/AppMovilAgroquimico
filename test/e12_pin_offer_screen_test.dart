@@ -2,8 +2,13 @@
 // el primer PIN sin volver a escribir la contraseña ni salir a la red. Y los
 // casos en que no se ofrece o ya no vale: «Ahora no», Atrás, vencida, salir
 // de la app, otra sesión y un PIN del titular ya existente.
+import 'dart:async';
+
 import 'package:agroquimicos/app.dart';
 import 'package:agroquimicos/data/app_database.dart';
+import 'package:agroquimicos/data/owner_binding_store.dart';
+import 'package:agroquimicos/domain/operation_mode.dart';
+import 'package:agroquimicos/operation_mode_controller.dart';
 import 'package:agroquimicos/data/installation_identity_initializer.dart';
 import 'package:agroquimicos/presentation/screens/owner_credential_screen.dart';
 import 'package:agroquimicos/services/auth/activation_owner_evidence.dart';
@@ -16,6 +21,7 @@ import 'package:agroquimicos/services/auth/local_owner_credential_providers.dart
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart' show SystemChannels;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/testing.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -66,9 +72,23 @@ Future<void> _lifecycle(AppLifecycleState state) async {
 
 /// La app real con Auth V2 y almacenes simulados; [preparePin] puede dejar
 /// un PIN previo en el almacén de la credencial.
+/// Retiene la recarga de la modalidad tras vincular (entre el vínculo y la
+/// oferta) mientras [gate] esté abierto.
+class _GatedMode extends OperationModeController {
+  Completer<void>? gate;
+
+  @override
+  Future<OperationMode?> reload() async {
+    final pending = gate;
+    if (pending != null) await pending.future;
+    return super.reload();
+  }
+}
+
 Future<_App> _mount(
   WidgetTester tester, {
   Future<void> Function(E12CredentialStorage storage)? preparePin,
+  List<Override> extra = const [],
 }) async {
   final database = AppDatabase(
     factory: databaseFactoryFfi,
@@ -118,6 +138,7 @@ Future<_App> _mount(
       storedSessionIdentityReaderProvider.overrideWithValue(
         () async => app.session,
       ),
+      ...extra,
     ],
   );
   addTearDown(container.dispose);
@@ -290,6 +311,44 @@ void main() {
     await tester.pumpWidget(const SizedBox());
     await _settle(tester, rounds: 2);
     expect(app.activation.hasActivationEvidence, isFalse);
+  });
+
+  testWidgets('W8b: si «Titular de los datos» se desmonta después de vincular '
+      'y antes de la oferta, la acreditación se anula', (tester) async {
+    final mode = _GatedMode();
+    final app = await _mount(
+      tester,
+      extra: [operationModeProvider.overrideWith(() => mode)],
+    );
+    await _activate(tester, app);
+    await tester.tap(find.byKey(const Key('owner-create-new')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(const Key('owner-new-name')), 'Juana');
+    await tester.ensureVisible(find.byKey(const Key('owner-confirm')));
+    mode.gate = Completer<void>();
+    await tester.tap(find.byKey(const Key('owner-confirm')));
+    final database = app.container.read(databaseProvider);
+    OwnerBinding? bound;
+    for (var i = 0; i < 40 && bound == null; i++) {
+      await _settle(tester, rounds: 1);
+      bound = await tester.runAsync<OwnerBinding?>(
+        () => OwnerBindingStore(database).activeBinding(),
+      );
+    }
+    expect(bound, isNotNull, reason: 'ya se vinculó');
+    await _settle(tester, rounds: 3);
+    expect(
+      app.activation.hasActivationEvidence,
+      isTrue,
+      reason: 'atada y viva mientras se espera la oferta',
+    );
+    await tester.pumpWidget(const SizedBox());
+    await _settle(tester, rounds: 2);
+    expect(app.activation.hasActivationEvidence, isFalse);
+    mode.gate!.complete();
+    await _settle(tester, rounds: 2);
+    expect(app.activation.hasActivationEvidence, isFalse);
+    expect(app.storage.values, isEmpty);
   });
 
   testWidgets('T3: vencida (más de 10 minutos) no crea el PIN', (tester) async {

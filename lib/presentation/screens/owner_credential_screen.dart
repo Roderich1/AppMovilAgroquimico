@@ -43,9 +43,12 @@ abstract final class ActivationPinTexts {
 /// Textos del retorno a una operación pendiente (F03 §4 bis.6).
 abstract final class OwnerPinReturnTexts {
   static const header =
-      'PIN del titular creado. Revise la operación y confírmela con su PIN.';
+      'PIN del titular configurado. Revise la operación y autorícela con su '
+      'PIN.';
   static const notConfigured =
       'No se configuró el PIN. La operación no cambió.';
+  static const checkFailed =
+      'No se pudo comprobar la operación. No se hizo ningún cambio.';
   static const ownerChanged =
       'El titular de estos datos cambió. No se hizo ningún cambio.';
   static String stale(String why) =>
@@ -547,7 +550,7 @@ Future<OwnerPinGate?> ensureOwnerPin(
     try {
       stale = await revalidate();
     } on Object {
-      announce(OwnerPinReturnTexts.notConfigured);
+      announce(OwnerPinReturnTexts.checkFailed);
       return null;
     }
     if (!context.mounted) return null;

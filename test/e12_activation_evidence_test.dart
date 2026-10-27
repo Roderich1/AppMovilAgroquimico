@@ -321,6 +321,15 @@ void main() {
         ..clock.advance(const Duration(minutes: 10, seconds: 1));
       expect(await wall.proof(), isNull, reason: 'reloj de pared');
 
+      // Sólo el reloj de pared avanza: el cronómetro sigue en cero.
+      final wallOnly = _Env()
+        ..clock.advance(
+          const Duration(minutes: 10, seconds: 1),
+          monotonic: false,
+        );
+      expect(wallOnly.clock.elapsed, Duration.zero);
+      expect(await wallOnly.proof(), isNull, reason: 'sólo reloj de pared');
+
       final monotonic = _Env();
       monotonic.clock.elapsed += const Duration(minutes: 10, seconds: 1);
       expect(await monotonic.proof(), isNull, reason: 'cronómetro');
@@ -359,6 +368,34 @@ void main() {
         throwsA(isA<CredentialException>()),
       );
       expect(env.storage.writes, written, reason: 'no se reescribe');
+    });
+
+    test('comprobación 5 en la credencial: un comprobante de activación sólo '
+        'enrola el vínculo con el que se emitió', () async {
+      final env = _Env();
+      final proof = await env.proof();
+      expect(proof, isNotNull);
+      for (final other in const [
+        OwnerBindingContext(bindingId: 2, personId: 7, scope: memberA),
+        OwnerBindingContext(bindingId: 1, personId: 8, scope: memberA),
+      ]) {
+        await expectLater(
+          env.credential.enroll(
+            pin: _pin,
+            pinConfirmation: _pin,
+            proof: proof,
+            binding: other,
+          ),
+          throwsA(isA<CredentialException>()),
+        );
+      }
+      expect(env.storage.writes, isEmpty);
+      // Con su vínculo, el mismo comprobante (no gastado) sí enrola.
+      await env.enroll(proof);
+      expect(
+        (await env.credential.status(_Env.context)).state,
+        CredentialState.enrolled,
+      );
     });
 
     test('U10: tras restaurar, un vínculo con el mismo id y ámbito pero otro '

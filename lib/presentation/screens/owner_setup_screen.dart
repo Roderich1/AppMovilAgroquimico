@@ -55,9 +55,10 @@ class _OwnerSetupScreenState extends ConsumerState<OwnerSetupScreen> {
   bool _saving = false;
 
   // F03 §4 bis: el controlador se guarda al entrar para anular la acreditación
-  // de activación si se sale sin vincular, sin usar `ref` en dispose (H9).
+  // de activación en todo retorno sin oferta (también si la pantalla se
+  // desmonta después de vincular), sin usar `ref` en dispose (H9).
   FirstActivationController? _activation;
-  bool _bound = false;
+  bool _offered = false;
 
   FirstActivationController? _activationController() {
     try {
@@ -77,7 +78,7 @@ class _OwnerSetupScreenState extends ConsumerState<OwnerSetupScreen> {
 
   @override
   void dispose() {
-    if (!_bound) _activation?.discardActivationEvidence();
+    if (!_offered) _activation?.discardActivationEvidence();
     _newName.dispose();
     super.dispose();
   }
@@ -172,7 +173,6 @@ class _OwnerSetupScreenState extends ConsumerState<OwnerSetupScreen> {
               _selectedIsAdministrator && _administratorConfirmed,
         );
       }
-      _bound = true;
       final attached = _attachActivation(access, binding);
       String? modeNotice;
       if (_mode == OperationMode.personal) {
@@ -190,6 +190,7 @@ class _OwnerSetupScreenState extends ConsumerState<OwnerSetupScreen> {
       if (!mounted) return;
       if (offer) {
         // F03 §4 bis.2, paso 3: el aviso de modalidad va en la oferta.
+        _offered = true;
         context.go(
           '/titular/pin/activacion',
           extra:
@@ -202,6 +203,7 @@ class _OwnerSetupScreenState extends ConsumerState<OwnerSetupScreen> {
         );
         return;
       }
+      _activation?.discardActivationEvidence();
       showSuccess(
         context,
         modeNotice ??
@@ -214,7 +216,7 @@ class _OwnerSetupScreenState extends ConsumerState<OwnerSetupScreen> {
       context.go('/');
     } on Object catch (error) {
       // Un error en el paso 2 anula la acreditación de activación.
-      _activationController()?.discardActivationEvidence();
+      _activation?.discardActivationEvidence();
       if (mounted) {
         setState(() => _saving = false);
         showError(context, error);

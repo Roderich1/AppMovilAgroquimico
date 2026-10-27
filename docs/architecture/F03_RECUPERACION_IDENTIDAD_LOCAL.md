@@ -203,7 +203,7 @@ Una sesión guardada dura días y se renueva con un refresh, sin contraseña. La
 2. **Vigente** según los dos relojes, y el reloj de pared no es anterior a la emisión. Se comprueba al retirarla y otra vez justo antes de emitir el comprobante.
 3. **La misma sesión:** se relee la sesión guardada. Tiene que estar disponible, y `accountId`, `memberId`, `tenantId`, `sessionId`, `registrationId` e `installationClientId` tienen que ser iguales a los de la acreditación.
 4. **La misma instalación:** `installationReference(installationClientId)` de la acreditación, `installationRefProvider` y `activated_installation` de la base coinciden.
-5. **El mismo vínculo:** el vínculo activo tiene el `id`, el `personId`, el `boundAt` y el ámbito que se ataron, y es el `OwnerBindingContext` con el que se enrola.
+5. **El mismo vínculo:** el vínculo activo tiene el `id`, el `personId`, el `boundAt` y el ámbito que se ataron, y es el `OwnerBindingContext` con el que se enrola. El comprobante de activación guarda además `bindingId` y `personId`, y la credencial los vuelve a comparar en `_requireProof` (ajuste 6 de la revisión de la implementación). Así la comprobación no depende sólo de la pantalla.
 6. El acceso es `activated`.
 7. **Primer PIN del titular (H1, D-3).** Dentro de la cola de la credencial, la misma que serializa `enroll` y `verify`, un comprobante de origen *activación* se rechaza con `CredentialException`, y sin escribir nada, si el verificador leído existe, se puede decodificar y tiene el mismo ámbito del vínculo, esté `enrolled`, `locked` o `requiresOnlineReset`.
    - Con un verificador de **otro** Member (`scopeMismatch`) se permite. Ese verificador desaparece al sobrescribirse, y con él valen ya nada las autorizaciones emitidas con él: el enrolamiento conocido cambia (§8).
@@ -257,7 +257,7 @@ AUTORIZADA     --el llamador llama al repositorio, que revalida y consume en la 
    - una función opcional `revalidate`, que da cada llamador, relee el objeto. Devuelve null si sigue aplicando, o el motivo si ya no aplica. Los efectos que se muestran son los de la revisión original, porque el objeto se comprobó sin cambios; el repositorio calcula los efectos reales.
    - Por llamador: compra, aplicación o transferencia sin revertir; borrador tardío todavía `PENDING`; en F08, el mismo `activeKey().keyId`. Todo es local, y las lecturas se hacen **sólo** en este camino.
 3. **Vuelta a la revisión:**
-   - en las reversiones reaparece el diálogo del motivo con los mismos efectos y **el motivo ya escrito y editable** (D-5), encabezado por «PIN del titular creado. Revise la operación y confírmela con su PIN.»; después, el diálogo del PIN;
+   - en las reversiones reaparece el diálogo del motivo con los mismos efectos y **el motivo ya escrito y editable** (D-5), encabezado por «PIN del titular configurado. Revise la operación y autorícela con su PIN.»; después, el diálogo del PIN. El texto sirve también para restablecer, rechazar y F08;
    - en las operaciones tardías y en F08, el diálogo del PIN con sus efectos y el mismo encabezado.
 4. **Nunca se ejecuta sola:**
    - el enrolamiento no devuelve ninguna autorización;
@@ -272,6 +272,7 @@ AUTORIZADA     --el llamador llama al repositorio, que revalida y consume en la 
    - «No se configuró el PIN. La operación no cambió.»
    - «Esta operación ya no está pendiente: <motivo>. No se hizo ningún cambio.»
    - «El titular de estos datos cambió. No se hizo ningún cambio.»
+   - Si `revalidate` lanza: «No se pudo comprobar la operación. No se hizo ningún cambio.»
    - Sin vínculo: «Esta acción la autoriza sólo el titular con su PIN. Para habilitarla, active la aplicación, elija el titular y configure el PIN.»
 10. El retorno usa siempre la vía (a), con contraseña. En ese momento no hay una acreditación de activación, porque se borra al salir del paso 3 o al no ofrecerse.
 
@@ -325,11 +326,17 @@ AUTORIZADA     --el llamador llama al repositorio, que revalida y consume en la 
 - **U1. Camino feliz.** Emitir, atar, `fromActivation` y `enroll`: el estado pasa a `enrolled`, sin ninguna petición HTTP.
 - **U2. Identidad diferente.** Ámbito del vínculo distinto, sesión de otra cuenta o con otra sesión, y vínculo distinto del atado. En todos: null y el almacén sin escribir.
 - **U3. Instalación diferente.** `installationRef`, `activated_installation` o `installationClientId` distintos: null.
-- **U4. Vencida.** 10 min + 1 s en el reloj de pared; el cronómetro por encima con el reloj de pared quieto; el reloj atrasado. En los tres: null.
+- **U4. Vencida.** En todos los casos, null:
+  - 10 min + 1 s en los dos relojes;
+  - 10 min + 1 s **sólo en el reloj de pared**, con el cronómetro en cero;
+  - el cronómetro por encima, con el reloj de pared quieto;
+  - el reloj atrasado;
+  - un comprobante usado después de `notAfter`.
 - **U5. Reuso.** Segundo `fromActivation`: null. Segundo `enroll` con el mismo comprobante: `CredentialException`.
 - **U6. Cancelación.** Tras `discardActivationEvidence()`, el campo queda vacío.
 - **U8. Recreación del Notifier.** Un contenedor o Notifier nuevo no tiene acreditación.
 - **U9. Red.** Si la activación falla por conexión, no hay acreditación. Después de activar, `fromActivation` no hace peticiones.
+- **Comprobación 5 en la credencial.** Un comprobante de activación no enrola otro `bindingId` ni otro `personId`, sin escribir nada. Con su vínculo, el mismo comprobante, que no se gastó, sí enrola.
 - **U10. Restauración.** Un vínculo con el mismo `id` y el mismo ámbito pero otro `boundAt` da null.
 - **U11. Otros orígenes.** Una activación con `requiredScope`, con sesión al empezar, con un vínculo en SQLite o con `localCommitUnknown` no emite.
 - **U12. Comprobación 7.** Con un verificador del titular en `enrolled`, `locked` o `requiresOnlineReset`: `CredentialException` sin escribir. Con `scopeMismatch` o con un verificador ilegible: se enrola.
@@ -337,9 +344,11 @@ AUTORIZADA     --el llamador llama al repositorio, que revalida y consume en la 
 - **U14. Base histórica.** No se emite.
 - **U15. Mutaciones.** Cada una tiene que hacer fallar su prueba:
   - quitar la comparación de `sessionId` (U2);
-  - quitar el vencimiento (U4);
-  - no retirar la acreditación al consumir (U5);
-  - quitar la comprobación del vínculo (U10);
+  - quitar el vencimiento por los dos relojes (U4);
+  - quitar sólo el vencimiento por reloj de pared (U4, caso «sólo reloj de pared»);
+  - no retirar la acreditación en `takeActivationEvidence` del controlador. La detecta la U1 de la emisión real («segunda retirada vacía»), no la U5: la U5 usa un doble de la retirada;
+  - quitar la comprobación del vínculo vigente en `fromActivation` (U10);
+  - quitar la comparación de `bindingId` y `personId` en `_requireProof` (comprobación 5 en la credencial);
   - quitar la comprobación 7 (U12).
 
 **Pantalla** (`test/e12_pin_offer_screen_test.dart`, `test/e12_pending_operation_return_test.dart`):
@@ -352,6 +361,14 @@ AUTORIZADA     --el llamador llama al repositorio, que revalida y consume en la 
 - **W6.** Reinicio en CONFIGURANDO: no se ejecuta nada.
 - **W7.** Restablecer el PIN invalida una autorización anterior: se rechaza.
 - **W8.** Salir de «Titular de los datos» sin vincular, o de la oferta, la borra.
+- **W8b.** Si «Titular de los datos» se desmonta **después** de vincular y antes de la oferta, la borra (ajuste 3).
+- **Más casos de retorno** (ajuste 2):
+  - reversión de una aplicación (W1b) y de una transferencia (W1c);
+  - tardía resuelta mientras se configuraba el PIN (W3b);
+  - titular cambiado (W5b);
+  - `revalidate` que lanza (W3c);
+  - `requiresOnlineReset` → «Configurar PIN» → restablecer con contraseña → vuelve a la revisión sin ejecutar (W2c);
+  - en F08, la misma `keyId` vuelve al diálogo del PIN, una clave cambiada no lo pide, y en los dos casos queda un solo aviso, el de F08.
 
 Se mantienen en verde, sin cambiar sus aserciones: `f03_local_owner_credential_test`, `f03_owner_online_confirmation_test`, `first_activation_coordinator_test`, `first_activation_screen_test`, `f03_access_recovery_test`, `f03_access_recovery_app_test`, `f04_owner_binding_test`, `f04_rf03_late_screen_test`, `f04_rf13_reversal_audit_test`, `f08_recovery_key_owner_pin_test` y las demás pruebas F08 que tocan el PIN.
 
