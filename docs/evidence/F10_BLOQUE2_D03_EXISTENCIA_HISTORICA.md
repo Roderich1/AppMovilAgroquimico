@@ -265,7 +265,12 @@ Pasan las guardas y los controles.
 
 ## 9. Fallo de la CI en UTC y corrección (`cc74661`, 2026-10-28)
 
-**Fallo:** la CI de los PR #156 (`a7fac66`) y #161 (composición `e5ba07c`) terminó con «2057 tests passed, 2 failed, 4 skipped.».
+**Fallo:** en los dos PR fallaron las mismas dos pruebas.
+
+| PR | HEAD | Run | Resultado |
+|---|---|---|---|
+| #161 (composición) | `e5ba07c` | 40718635052 | «2057 tests passed, 2 failed, 4 skipped.» |
+| #156 | `a7fac66` | 40718556821 | «1919 tests passed, 2 failed, 4 skipped.» |
 
 | Prueba | Esperado | Recibido |
 |---|---|---|
