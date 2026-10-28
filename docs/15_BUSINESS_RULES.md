@@ -225,6 +225,23 @@ Las validaciones exclusivamente de interfaz se listan aparte en
   no se puede aplicar producto de otro aunque exista en el almacén global.
 - **Test**: *"detalle de producto expone stock, lotes y bloquea exceso"* — con 20 L
   disponibles, aplicar 21 L lanza `BusinessRuleException`.
+- **Precisión D-03 (decisión del autor, Roderich Rendón, 2026-10-27)**: la consulta de
+  arriba vale para una aplicación con fecha de **hoy** (día local). Con fecha **pasada**,
+  también dentro de la campaña activa, sólo cuentan los lotes con día de `acquired_date`
+  ≤ día efectivo y un cupo que no deja negativo ningún saldo posterior (la misma regla de
+  RF-03, `docs/architecture/F04_RF13_RF03_ACTOR_Y_TARDIAS.md` §2.3 y §2.6). Si no alcanza,
+  `HistoricalStockException` (también si tampoco alcanza el saldo de hoy), sin efectos
+  parciales, con un mensaje que nombra el producto, la fecha y la existencia de ese día:
+  *"Bellator: el 15/10/2026 esa persona no tenía este producto; pidió 0,8 L. …"* o
+  *"Bellator: el 15/10/2026 esa persona tenía 1 L; de eso quedan 0,3 L sin usar en
+  operaciones posteriores; pidió 0,5 L. …"*. Con fecha de hoy, el mensaje sigue siendo el
+  de arriba. Con los productores actuales vale para el formulario, la voz y los planes,
+  porque vive en `confirmApplication`; las transferencias con fecha pasada quedan fuera. No recalcula costos ni consumos ya
+  confirmados ni corrige registros históricos. Desde el 2026-10-28 (decisión del autor), el
+  cupo se calcula sobre la proyección corregida: no cuentan los pares operación + reversión
+  con vínculo de anulación demostrado (F04 §2.6), sin duplicar existencias, con el saldo de
+  hoy como tope y sin PIN para permitir existencias insuficientes. Tests:
+  `test/f10_d03_existencia_historica_test.dart`, `test/f10_d03_anulaciones_demostradas_test.dart`.
 
 ### RN-26 · Costeo FIFO por lote
 - **Descripción**: el consumo recorre los lotes ordenados por `acquired_date, id` y toma de

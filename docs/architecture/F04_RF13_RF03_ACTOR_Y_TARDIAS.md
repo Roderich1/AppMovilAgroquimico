@@ -3,7 +3,7 @@
 - **Fecha real:** 2026-10-23 (America/La_Paz). Sesión A, sobre Mobile `b0d169b` + `f90d330` (dependencia `cryptography`) y F03 (`cc88fdd`, `7713f9c`).
 - **Fuente:** decisión de Roderich Rendón del 2026-10-23 (bloque de decisiones F01–F08, §3, §4 y §9; el archivo de trabajo no está en el repositorio). Es una decisión del autor para el entorno sintético, no una aprobación institucional.
 - **Revisión:** C revisa la identidad y la auditoría (§1) y su relación con la restauración; B revisa el diseño temporal (§2) y su relación con el sellado (§3).
-- **Trazabilidad:** RF-03, RF-13, RN-15, RN-16, CU-06, CU-09 y DAT.
+- **Trazabilidad:** RF-03, RF-13, RN-15, RN-16, CU-06, CU-09 y DAT; §2.6 (2026-10-27) añade RN-25 y RN-26.
 - **Esquema:** Mobile **v11**, reservada para A en CONTROL.
 
 **Qué enmienda.** El código actual (`463d3ec`) tiene dos limitaciones:
@@ -108,7 +108,8 @@ Una confirmación doble falla, porque el borrador ya no está `PENDING` dentro d
    - Los movimientos del lote se ordenan por **día efectivo** (`movement_date`) y, dentro del día, por `id`. Nunca sólo por `id` ni por orden de inserción: un movimiento tardío se inserta después con una fecha anterior.
    - **La operación tardía se coloca al final de su día efectivo**, después de todo lo de ese día.
    - El cupo es el `min` del saldo acumulado al final del día efectivo y del saldo acumulado al final de cada día posterior con movimientos.
-   - Así, restar la cantidad en la fecha efectiva **no deja negativo ningún saldo histórico ni el actual**. No se consume material que otra operación ya usó después.
+   - Desde el 2026-10-28 (decisión del autor, §2.6), el saldo se calcula sobre la proyección corregida: no cuentan los pares operación + reversión con vínculo de anulación demostrado, y el cupo nunca supera el saldo de hoy del lote.
+   - Así, restar la cantidad en la fecha efectiva **no deja negativo ningún saldo de la proyección corregida ni el actual**. No se consume material que otra operación ya usó después.
 3. **Orden:** FIFO por `acquired_date, id`. El costo es el del lote.
 4. **Si el cupo total no alcanza**, la confirmación **no se aplica**:
    - el borrador sigue `PENDING`, con `last_conflict_code = LATE_STOCK_UNAVAILABLE` y un mensaje que dice la causa;
@@ -159,6 +160,67 @@ Si la fecha no está en ninguna campaña, `addHistoricalCampaign(name, start, en
 - si después llega del Central una campaña que se solapa, nada se reclasifica ni se reasigna solo: los borradores pendientes quedan en conflicto (`LATE_CAMPAIGN_CHANGED` al intentar confirmar) y las tardías confirmadas se quedan en su período local.
 
 Después, la fecha clasifica en ese período cerrado y sigue el recorrido de §2.1. **No se reabren campañas.**
+
+### 2.6 Aplicación ordinaria con fecha pasada en la campaña activa (D-03)
+
+- **Fuente:** decisión del autor, Roderich Rendón, del 2026-10-27 (bloque 2, D-03). Es una decisión del autor; no se atribuye al tutor ni a la Directiva. Precisa RN-25 (`docs/15_BUSINESS_RULES.md`).
+- **Regla:** una aplicación no puede consumir producto que todavía no existía en su fecha efectiva, tampoco dentro de la campaña activa.
+- **Dónde vive:** en `confirmApplication`, dentro de su transacción y después de las guardas de campaña, fecha (#121) y plan. No es una comprobación del formulario. Con los productores actuales la cumplen todos:
+  - el formulario, también «Aplicar este plan» (`planId`);
+  - la voz (`VoiceDraftGateway.confirmApplication`), que en producción confirma siempre con la fecha de hoy.
+  Esto vale sólo para las aplicaciones. `transferProductsFifo` acepta por API cualquier fecha pasada y no la cumple (ver «Fuera de D-03»).
+- **«Hoy» frente a día pasado:** se compara el día local efectivo (`localDay(appliedAt)`) con el día local de hoy (`localDay(DateTime.now())`), la misma convención de `_ensureEffectiveDateInCampaign` y de §2.3.
+  - **Hoy:** la ruta de siempre (`_lotsAvailableNow`): la misma consulta, el mismo FIFO, el mismo costo y el mismo mensaje de RN-25. Como no se admiten fechas futuras (#121), no puede haber lotes ni movimientos posteriores a hoy, y el saldo de hoy ya es el cupo histórico.
+  - **Día pasado:** la elegibilidad de §2.3 (`_lotsAvailableAt`):
+    - lotes no anulados con día de `acquired_date` ≤ día efectivo (el mismo día es elegible);
+    - un cupo por lote que es el mínimo del saldo al final del día efectivo y al final de cada día posterior con movimientos;
+    - la aplicación va al final de su día;
+    - FIFO por `acquired_date, id` y el costo del lote, como siempre.
+  - Un lote recibido por transferencia conserva el `acquired_date` de su origen, pero su `TRANSFER_IN` tiene la fecha de la transferencia: antes de ella su saldo es cero y no aporta cupo. Un pase posterior que sale de un lote reduce el cupo de quien da.
+- **Si el cupo no alcanza:** se lanza `HistoricalStockException` (subclase de `BusinessRuleException`), **también cuando tampoco alcanza el saldo de hoy**, y la transacción se deshace entera. No queda la aplicación, ni sus líneas, consumos, movimientos o cargos, y el plan no pasa a `APPLIED`. El mensaje nombra el producto, la fecha y la existencia de ese día. Nunca dice «no había» ni «había 0» si ese día la persona tenía producto:
+  - **ese día no tenía nada** de ese producto:
+    > «Bellator: el 15/10/2026 esa persona no tenía este producto; pidió 0,8 L. Una aplicación con fecha pasada sólo puede usar lo que esa persona ya tenía ese día y no se usó después: no cuenta el producto comprado o recibido más tarde. Revise la fecha o la cantidad. No se registró nada.»
+  - **lo tenía, y operaciones posteriores usaron parte:**
+    > «Bellator: el 15/10/2026 esa persona tenía 1 L; de eso quedan 0,3 L sin usar en operaciones posteriores; pidió 0,5 L. …»
+  - **lo tenía y nada posterior lo usó**, pero no alcanza. Es la misma frase sin la cláusula intermedia:
+    > «Bellator: el 15/10/2026 esa persona tenía 1 L; pidió 2 L. …»
+  - «Tenía» es la suma, por lote elegible, del saldo al final de ese día sobre la historia corregida por anulaciones demostradas (ver «Reversiones»); un saldo negativo cuenta como cero. «Quedan» es el cupo.
+- **Hoy:** el rechazo sigue siendo el de RN-25 («Stock insuficiente para confirmar la aplicación.»).
+- **Límites:**
+  - No se recalculan costos, consumos ni fechas de operaciones ya confirmadas, y no se corrigen registros históricos inconsistentes. Por ejemplo, una aplicación anterior a esta regla que consumió un lote adquirido después. Un lote cuyo saldo histórico ya es negativo por esos registros no aporta cupo a una aplicación con fecha pasada; la ruta de hoy sigue usando el saldo actual.
+  - **Negativos transitorios dentro de un día posterior:** el cupo se comprueba al final de cada día, como en §2.3. Si un día posterior tiene una salida y después una entrada, el saldo intermedio de ese día puede quedar negativo aunque el saldo al final del día no lo sea. Es la convención vigente; no se cambia aquí.
+  - Desde el 2026-10-28 la tardía usa la misma proyección corregida (§2.6), con su conflicto `LATE_STOCK_UNAVAILABLE`. Extender la neutralización a RF-03 lo **confirmó el autor (Roderich Rendón) el 2026-10-28**: «Apruebo que la proyección histórica corregida de D-03 se aplique también a las operaciones tardías RF-03», con las mismas condiciones (sólo pares demostrados, registros y fechas reales, adquisición del lote respetada, sin disponibilidad duplicada, el saldo actual como tope y el PIN nunca permite superar la disponibilidad). Qué cambia para RF-03: el cupo de una tardía se calcula sobre la proyección corregida, así que lo devuelto por una reversión demostrada cuenta desde la fecha de la operación anulada; sin pares demostrados el cupo es idéntico al anterior. RN-39 y la guarda del cambio a modo propio no cambian.
+  - **Fuera de D-03: transferencias.** `transferProductsFifo` acepta por API cualquier fecha pasada (`date`) y consume con el saldo de hoy, sin elegibilidad histórica. Por eso la regla se cumple «con los productores actuales» de aplicaciones, no en todo el inventario.
+  - El formulario sigue mostrando la existencia de hoy en la vista previa y no añade consultas. Para un día pasado, el rechazo con la existencia de esa fecha llega del repositorio al confirmar.
+- **Reversiones: anulación demostrada (decisión del autor, Roderich Rendón, del 2026-10-28).** Texto de la decisión: «Conservar operación, reversión y fechas reales en la bitácora; neutralizar sus efectos en la proyección histórica únicamente cuando el vínculo de anulación esté demostrado. La corrección debe: conservar la fecha original de adquisición; impedir disponibilidad duplicada; respetar los movimientos posteriores y el saldo actual; no reescribir costos ni registros históricos; no utilizar el PIN para permitir existencias insuficientes. El caso de Ana sólo se acepta si el historial corregido acredita existencia suficiente y los demás controles se cumplen. Conserva RN-39 y la guarda vigente de paso a modo propio. Las dos modificaciones opcionales no entran en este bloque.»
+  - **Qué es la proyección histórica:** el cálculo del saldo de cada lote al final de cada día (`_lotHistoryAt`, que filtra `_lotsAvailableAt`). Es una sola y la comparten la aplicación con fecha pasada de este apartado y la operación tardía de §2.3.
+  - **Vínculo de anulación demostrado.** Se neutraliza un par de movimientos sólo si se cumplen todas estas condiciones (`_demonstratedAnnulments` y `_annulmentRecorded`):
+    1. **El mismo lote** (`lot_id`).
+    2. **La misma operación**, con el mismo `reference_id` y una de estas dos parejas de tipos:
+       - aplicación: la salida `APPLICATION_OUT` con `reference_type = 'APPLICATION'`, y la reversión `APPLICATION_REVERSAL` con `reference_type = 'APPLICATION_REVERSAL'`, ambas con `reference_id` = id de la aplicación;
+       - pase, en el lote de origen: la salida `TRANSFER_OUT` con `reference_type = 'TRANSFER'`, y la reversión `TRANSFER_REVERSAL_IN` con `reference_type = 'TRANSFER_REVERSAL'`, ambas con `reference_id` = id de la transferencia.
+    3. **Sin ambigüedad:** en ese lote hay exactamente una salida y una reversión de esa operación.
+    4. **Cantidades opuestas e iguales:** la salida es negativa y la reversión, el mismo valor positivo.
+    5. **La operación consta como revertida:**
+       - aplicación: `applications.reversed_at` no nulo y `status = 'REVERSED'`, y exactamente un consumo de esa aplicación en ese lote, con `reversed_at` y la misma cantidad;
+       - transferencia: `transfers.reversed_at` no nulo y `status = 'REVERSED'`, y exactamente una fila de `transfer_lot_items` con ese lote de origen, la misma cantidad y el lote de destino anulado (`reversed_at`).
+    6. **Auditoría de RF-13:** si existe `reversal_audit` de esa operación, sus `reversal_audit_effects` nombran el movimiento de reversión (`inventory_movements`). Si no existe, porque la reversión es anterior a v11, la condición no se exige.
+
+    Si falta cualquiera de estas condiciones, o hay ambigüedad (reversiones parciales, varias reversiones, cantidades distintas, otro lote, otra referencia), **no se neutraliza nada de esa operación**. Las reversiones de compra no se neutralizan: el lote queda anulado y no aporta.
+  - **Efecto en el cálculo:** el par se trata como si no hubiera existido; los demás movimientos cuentan con sus fechas reales. En la base no cambia nada: ni movimientos, ni fechas, ni `acquired_date`, ni costos, ni consumos. La bitácora sigue mostrando la operación y la reversión con sus fechas.
+  - **Sin disponibilidad duplicada:**
+    - lo devuelto que ya consumió una operación posterior sigue descontado, porque esa operación cuenta;
+    - el cupo de un lote es el mínimo del saldo corregido al final del día efectivo y al final de cada día posterior;
+    - el cupo **nunca supera el saldo de hoy del lote**. Lo garantiza el mínimo de los saldos posteriores, porque un par neutralizado suma cero. El tope explícito del código es defensivo e inalcanzable con datos válidos.
+    - En una transferencia revertida, el lote de destino está anulado y no aporta; el de origen recupera la cantidad sólo a través del par neutralizado.
+  - **PIN:** no interviene. Ningún permiso del titular permite registrar más de lo que acredita la historia corregida.
+  - **Mensaje:** «tenía» y «quedan» se calculan sobre la historia corregida. Si no hay ningún par neutralizado, todo es idéntico a la versión del 2026-10-27.
+  - **Caso de Ana:**
+    - 10 L el 05/01, 3 L aplicados el 10/01, 3 L comprados el 06/01, un pase de 2 L el 15/01 y una aplicación de 1 L el 17/01, los dos revertidos hoy.
+    - Con la historia corregida tenía 10 L el 21/01, así que se aceptan 8 L: 7 L del lote del 05/01 y 1 L del lote del 06/01.
+    - Si hoy ya se usaron 4 L de lo devuelto, 8 L se rechazan con «tenía 10 L; de eso quedan 6 L…».
+  - **Consecuencia:** el saldo cronológico **sin corregir** de la bitácora puede verse negativo entre la fecha de la operación anulada y la de su reversión. Por ejemplo, después de aceptar los 8 L, el lote del 05/01 de Ana queda en −3 L el 21/01 en la bitácora sin corregir (Ana en total, −1 L), hasta la fecha de las reversiones. Ninguna vista de la app muestra un saldo acumulado de existencias; las vistas por lote siguen mostrando los movimientos reales.
+  - **Sin cambios:** RN-39 y la guarda vigente de paso a modo propio. Las dos modificaciones opcionales mencionadas en la decisión no entran en este bloque.
 
 ## 3. Pruebas mínimas
 
