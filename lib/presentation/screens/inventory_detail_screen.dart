@@ -169,8 +169,9 @@ class _InventoryDetailScreenState extends ConsumerState<InventoryDetailScreen> {
             ),
             const SizedBox(height: 4),
             Text(
-              'Lo que explica el saldo: compras, aplicaciones, pases y '
-              'reversiones, del más reciente al más antiguo.',
+              'Lo que explica el saldo: compras, aplicaciones, pases '
+              '(entregas sin deuda) y reversiones, del más reciente al más '
+              'antiguo.',
               style: theme.textTheme.bodySmall,
             ),
             const SizedBox(height: 8),
@@ -277,6 +278,15 @@ class _MovementTile extends StatelessWidget {
     };
   }
 
+  /// D-07 (RN-35): un pase es una entrega de producto, no una venta ni una
+  /// deuda; la fila lo dice para que «Pase a X» no se lea como venta. Su
+  /// reversión tampoco toca cuentas.
+  String? get _accountNote => switch (row['type']) {
+    'TRANSFER_OUT' || 'TRANSFER_IN' => transferNoDebtLabel.toLowerCase(),
+    'TRANSFER_REVERSAL_IN' || 'TRANSFER_REVERSAL_OUT' => 'sin deuda',
+    _ => null,
+  };
+
   IconData get _icon => switch (row['type']) {
     'PURCHASE_IN' || 'PURCHASE_REVERSAL' => Icons.shopping_cart_outlined,
     'APPLICATION_OUT' || 'APPLICATION_REVERSAL' => Icons.agriculture_outlined,
@@ -287,12 +297,14 @@ class _MovementTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final quantity = row['quantity_signed'] as int;
     final supplier = row['supplier_name'];
+    final note = _accountNote;
     return ListTile(
       leading: Icon(_icon),
       title: Text(_label),
       subtitle: Text(
         '${formatDate(row['movement_date'])} · ${row['owner_name']}'
-        '${supplier == null ? '' : ' · $supplier'}',
+        '${supplier == null ? '' : ' · $supplier'}'
+        '${note == null ? '' : ' · $note'}',
       ),
       trailing: Text(
         '${quantity < 0 ? '-' : '+'}${formatQuantity(quantity.abs(), unit)}',

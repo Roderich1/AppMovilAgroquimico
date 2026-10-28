@@ -50,3 +50,16 @@ String conceptLabel(Object? concept) {
   final translated = transactionTypeLabel(text);
   return translated == text ? text : translated;
 }
+
+/// Aviso previo a confirmar una transferencia (D-07, RN-35; decisión del autor
+/// del 2026-10-27). Transferir sólo mueve producto: no inserta ninguna fila en
+/// `account_transactions`, tampoco cuando el destino es un tercero que paga
+/// por compra (`BY_PURCHASE_ALLOCATION`). La frase es literal y vale igual con
+/// uno o varios productos.
+String transferNoDebtNotice(String recipient) =>
+    'Esta transferencia entrega producto a $recipient, pero no genera una '
+    'deuda.';
+
+/// Rótulo breve del carácter de una transferencia en los historiales: es una
+/// entrega de producto, no una venta ni un cargo.
+const transferNoDebtLabel = 'Entrega sin deuda';
