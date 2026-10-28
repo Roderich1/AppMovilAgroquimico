@@ -223,7 +223,7 @@ f04_bug_01_reverse_transfer_test + f04_bug_02_reverse_purchase_after_transfer_te
 
 - **Contrato F04:**
   - §2.3: «no deja negativo ningún saldo de la proyección corregida ni el actual».
-  - §2.6: desde el 2026-10-28 la tardía usa la misma proyección corregida. Extenderla a RF-03 es un criterio de aplicación del coordinador («la proyección histórica es una sola»), pendiente de que el autor lo confirme de forma expresa.
+  - §2.6: desde el 2026-10-28 la tardía usa la misma proyección corregida. Extenderla a RF-03 lo confirmó el autor el 2026-10-28 (ver §10).
   - §2.6: cifra de Ana precisada y tope descrito como defensivo.
 - **Código:** sólo cambia el comentario del tope del saldo de hoy (defensivo e inalcanzable con datos válidos). La lógica es la de `d3894db`.
 
@@ -284,3 +284,20 @@ Pasan las guardas y los controles.
 **Verificación en el host** (La Paz): `flutter test --timeout 120s test/rec_046_inventory_detail_test.dart test/rec_047_application_rules_test.dart` da `00:01 +7: All tests passed!`.
 
 La comprobación en UTC queda a cargo de la CI: en Windows, Dart no respeta la variable `TZ`.
+
+## 10. Confirmación del alcance a RF-03 y comprobación en EMULADOR (2026-10-28)
+
+**Decisión del autor (Roderich Rendón), 2026-10-28.** Cita literal:
+
+> «Apruebo que la proyección histórica corregida de D-03 se aplique también a las operaciones tardías RF-03. Conserva las condiciones ya revisadas: neutralizar únicamente pares operación/reversión demostrados, mantener los registros y fechas reales, respetar la adquisición del lote, impedir disponibilidad duplicada y conservar el saldo actual como tope. El PIN nunca permite superar la disponibilidad. Mantén RN-39 y la guarda vigente del cambio a modo propio, sin ampliar este bloque.»
+
+El código no cambia: `confirmLateOperation` ya usaba la proyección corregida desde `d3894db`. Esta sección sólo registra la confirmación.
+
+**EMULADOR.** El detalle está en `docs/evidence/F10_BLOQUE2_EMULADOR_2026-10-28.md`, que llega con el PR de E-12.
+
+| APK | Composición | SHA-256 | Resultado |
+|---|---|---|---|
+| Anterior | `e5ba07c` | `f87932cd…` | Rechazo con fecha pasada: «Glifosato Demo: el 15/10/2026 esa persona no tenía este producto; pidió 1 L.…» |
+| Corregida | `fb331c6` | `5a296dbe…` | Aplicación del 20/10 revertida hoy. Después, una aplicación del 19/10 de 5 L se acepta |
+
+**Límite:** el retorno desde una tardía no se ejecutó en el emulador.
