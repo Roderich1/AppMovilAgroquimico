@@ -109,7 +109,7 @@ Una confirmación doble falla, porque el borrador ya no está `PENDING` dentro d
    - **La operación tardía se coloca al final de su día efectivo**, después de todo lo de ese día.
    - El cupo es el `min` del saldo acumulado al final del día efectivo y del saldo acumulado al final de cada día posterior con movimientos.
    - Desde el 2026-10-28 (decisión del autor, §2.6), el saldo se calcula sobre la proyección corregida: no cuentan los pares operación + reversión con vínculo de anulación demostrado, y el cupo nunca supera el saldo de hoy del lote.
-   - Así, restar la cantidad en la fecha efectiva **no deja negativo ningún saldo histórico ni el actual**. No se consume material que otra operación ya usó después.
+   - Así, restar la cantidad en la fecha efectiva **no deja negativo ningún saldo de la proyección corregida ni el actual**. No se consume material que otra operación ya usó después.
 3. **Orden:** FIFO por `acquired_date, id`. El costo es el del lote.
 4. **Si el cupo total no alcanza**, la confirmación **no se aplica**:
    - el borrador sigue `PENDING`, con `last_conflict_code = LATE_STOCK_UNAVAILABLE` y un mensaje que dice la causa;
@@ -189,7 +189,7 @@ Después, la fecha clasifica en ese período cerrado y sigue el recorrido de §2
 - **Límites:**
   - No se recalculan costos, consumos ni fechas de operaciones ya confirmadas, y no se corrigen registros históricos inconsistentes. Por ejemplo, una aplicación anterior a esta regla que consumió un lote adquirido después. Un lote cuyo saldo histórico ya es negativo por esos registros no aporta cupo a una aplicación con fecha pasada; la ruta de hoy sigue usando el saldo actual.
   - **Negativos transitorios dentro de un día posterior:** el cupo se comprueba al final de cada día, como en §2.3. Si un día posterior tiene una salida y después una entrada, el saldo intermedio de ese día puede quedar negativo aunque el saldo al final del día no lo sea. Es la convención vigente; no se cambia aquí.
-  - La operación tardía de §2.3 (`confirmLateOperation`) no cambia: ya usaba esta elegibilidad, con su conflicto `LATE_STOCK_UNAVAILABLE`.
+  - Desde el 2026-10-28 la tardía usa la misma proyección corregida (§2.6), con su conflicto `LATE_STOCK_UNAVAILABLE`. Extender la neutralización a RF-03 es un criterio de aplicación del coordinador («la proyección histórica es una sola»), pendiente de que el autor lo confirme de forma expresa.
   - **Fuera de D-03: transferencias.** `transferProductsFifo` acepta por API cualquier fecha pasada (`date`) y consume con el saldo de hoy, sin elegibilidad histórica. Por eso la regla se cumple «con los productores actuales» de aplicaciones, no en todo el inventario.
   - El formulario sigue mostrando la existencia de hoy en la vista previa y no añade consultas. Para un día pasado, el rechazo con la existencia de esa fecha llega del repositorio al confirmar.
 - **Reversiones: anulación demostrada (decisión del autor, Roderich Rendón, del 2026-10-28).** Texto de la decisión: «Conservar operación, reversión y fechas reales en la bitácora; neutralizar sus efectos en la proyección histórica únicamente cuando el vínculo de anulación esté demostrado. La corrección debe: conservar la fecha original de adquisición; impedir disponibilidad duplicada; respetar los movimientos posteriores y el saldo actual; no reescribir costos ni registros históricos; no utilizar el PIN para permitir existencias insuficientes. El caso de Ana sólo se acepta si el historial corregido acredita existencia suficiente y los demás controles se cumplen. Conserva RN-39 y la guarda vigente de paso a modo propio. Las dos modificaciones opcionales no entran en este bloque.»
@@ -211,7 +211,7 @@ Después, la fecha clasifica en ese período cerrado y sigue el recorrido de §2
   - **Sin disponibilidad duplicada:**
     - lo devuelto que ya consumió una operación posterior sigue descontado, porque esa operación cuenta;
     - el cupo de un lote es el mínimo del saldo corregido al final del día efectivo y al final de cada día posterior;
-    - el cupo **nunca supera el saldo de hoy del lote**. Es un tope explícito, aunque el par sume cero.
+    - el cupo **nunca supera el saldo de hoy del lote**. Lo garantiza el mínimo de los saldos posteriores, porque un par neutralizado suma cero. El tope explícito del código es defensivo e inalcanzable con datos válidos.
     - En una transferencia revertida, el lote de destino está anulado y no aporta; el de origen recupera la cantidad sólo a través del par neutralizado.
   - **PIN:** no interviene. Ningún permiso del titular permite registrar más de lo que acredita la historia corregida.
   - **Mensaje:** «tenía» y «quedan» se calculan sobre la historia corregida. Si no hay ningún par neutralizado, todo es idéntico a la versión del 2026-10-27.
@@ -219,7 +219,7 @@ Después, la fecha clasifica en ese período cerrado y sigue el recorrido de §2
     - 10 L el 05/01, 3 L aplicados el 10/01, 3 L comprados el 06/01, un pase de 2 L el 15/01 y una aplicación de 1 L el 17/01, los dos revertidos hoy.
     - Con la historia corregida tenía 10 L el 21/01, así que se aceptan 8 L: 7 L del lote del 05/01 y 1 L del lote del 06/01.
     - Si hoy ya se usaron 4 L de lo devuelto, 8 L se rechazan con «tenía 10 L; de eso quedan 6 L…».
-  - **Consecuencia:** el saldo cronológico **sin corregir** de la bitácora puede verse negativo entre la fecha de la operación anulada y la de su reversión. Así se ve, por ejemplo, Ana el 21/01 (−3 L hasta hoy). Ninguna vista de la app muestra un saldo acumulado de existencias; las vistas por lote siguen mostrando los movimientos reales.
+  - **Consecuencia:** el saldo cronológico **sin corregir** de la bitácora puede verse negativo entre la fecha de la operación anulada y la de su reversión. Por ejemplo, después de aceptar los 8 L, el lote del 05/01 de Ana queda en −3 L el 21/01 en la bitácora sin corregir (Ana en total, −1 L), hasta la fecha de las reversiones. Ninguna vista de la app muestra un saldo acumulado de existencias; las vistas por lote siguen mostrando los movimientos reales.
   - **Sin cambios:** RN-39 y la guarda vigente de paso a modo propio. Las dos modificaciones opcionales mencionadas en la decisión no entran en este bloque.
 
 ## 3. Pruebas mínimas

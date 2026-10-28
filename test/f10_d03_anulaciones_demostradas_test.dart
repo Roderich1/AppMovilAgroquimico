@@ -186,8 +186,9 @@ void main() {
       expect(await h.balance(lot), 0);
     });
 
-    test('sin disponibilidad duplicada y con el saldo de hoy como tope: lo '
-        'devuelto que ya usó una aplicación de hoy no vuelve a contar', () async {
+    test('sin disponibilidad duplicada: el mínimo de los saldos posteriores '
+        'limita el cupo a lo que queda hoy; lo devuelto que ya usó una '
+        'aplicación de hoy no vuelve a contar', () async {
       final h = await home('d03n-duplicado');
       await reversedApplication(h);
       final lot = await h.lotOf(h.titular);
@@ -251,6 +252,22 @@ void main() {
           whereArgs: [reversed],
         );
       },
+      // Condición 5, aislada de la 4: los movimientos siguen opuestos e
+      // iguales, pero el consumo de la aplicación en ese lote no cuadra.
+      'el consumo tiene otra cantidad (q)': (h, reversed) async =>
+          (await h.db).rawUpdate(
+            '''UPDATE application_consumptions SET quantity_consumed_base=900
+            WHERE application_item_id IN
+              (SELECT id FROM application_items WHERE application_id=?)''',
+            [reversed],
+          ),
+      'el consumo no está revertido (r)': (h, reversed) async =>
+          (await h.db).rawUpdate(
+            '''UPDATE application_consumptions SET reversed_at=NULL
+            WHERE application_item_id IN
+              (SELECT id FROM application_items WHERE application_id=?)''',
+            [reversed],
+          ),
     };
     for (final entry in broken.entries) {
       test('sin vínculo demostrado no se neutraliza nada: ${entry.key}', () async {
@@ -273,6 +290,42 @@ void main() {
         expect(await dumpTables(await h.db), before);
       });
     }
+  });
+
+  test('otro lote elegible en la fecha: la reversión movida a él no se '
+      'empareja con la salida del primer lote ni aporta un par', () async {
+    final h = await home('d03n-otro-lote-elegible');
+    final reversed = await reversedApplication(h);
+    // Un segundo lote del titular, adquirido el 11/10: elegible el 12/10.
+    await h.buy(h.titular, 1000, oct(11));
+    final first = await h.lotOf(h.titular);
+    final other = await h.lotOf(h.titular, index: 1);
+    await (await h.db).update(
+      'inventory_movements',
+      {'lot_id': other},
+      where: "type='APPLICATION_REVERSAL' AND reference_id=?",
+      whereArgs: [reversed],
+    );
+    final before = await dumpTables(await h.db);
+    // El primer lote: 1 L el 12/10 y 0 L después (la salida del 15/10 queda
+    // sin par). El segundo: 1 L el 12/10 y 2 L hoy (la reversión movida no
+    // tiene salida en ese lote). Cupo 0 + 1 L.
+    await expectLater(
+      h.apply(1500, oct(12)),
+      historical(
+        day: '2026-10-12',
+        held: 2000,
+        available: 1000,
+        requested: 1500,
+        message:
+            'Bellator: el 12/10/2026 esa persona tenía 2 L; de eso quedan '
+            '1 L sin usar en operaciones posteriores; pidió 1,5 L. $_tail',
+      ),
+    );
+    expect(await dumpTables(await h.db), before);
+    final id = await h.apply(1000, oct(12));
+    expect(await h.consumed(id), {other: 1000});
+    expect(await h.balance(first), 0);
   });
 
   test('transferencia revertida: el lote de origen recupera la cantidad en la '
@@ -312,6 +365,106 @@ void main() {
     expectOnlyApplicationRows(before, await dumpTables(await h.db), id);
     expect(await h.balance(source), 0);
   });
+
+  test('pase de dos lotes revertido y 0,5 L usados hoy: el 16/10 el cupo es '
+      '0 + 0,5 L, sin duplicar', () async {
+    final h = await home('d03n-pase-dos-lotes');
+    await h.buy(h.titular, 400, oct(10));
+    await h.buy(h.titular, 600, oct(11));
+    final l1 = await h.lotOf(h.titular);
+    final l2 = await h.lotOf(h.titular, index: 1);
+    final transfer = await h.repo.transferProductFifo(
+      fromPersonId: h.titular,
+      toPersonId: h.sister,
+      productId: h.bellator,
+      quantityBase: 1000,
+      date: oct(15),
+    );
+    await h.repo.reverseTransferUnauditedForTesting(
+      transfer,
+      reason: 'Equivocado',
+    );
+    // Hoy: 0,4 L del lote del 10/10 y 0,1 L del lote del 11/10.
+    final today = await h.apply(500, DateTime.now());
+    expect(await h.consumed(today), {l1: 400, l2: 100});
+    final before = await dumpTables(await h.db);
+    await expectLater(
+      h.apply(1000, oct(16)),
+      historical(
+        day: '2026-10-16',
+        held: 1000,
+        available: 500,
+        requested: 1000,
+        message:
+            'Bellator: el 16/10/2026 esa persona tenía 1 L; de eso quedan '
+            '0,5 L sin usar en operaciones posteriores; pidió 1 L. $_tail',
+      ),
+    );
+    expect(await dumpTables(await h.db), before);
+    final id = await h.apply(500, oct(16));
+    expect(await h.consumed(id), {l2: 500});
+    expectOnlyApplicationRows(before, await dumpTables(await h.db), id);
+  });
+
+  // Casos negativos de transferencia, con datos manipulados a mano: ninguno
+  // neutraliza el par. El 18/10 el titular tenía 0,4 L (salió 0,6 L el 15/10)
+  // y hoy 1 L, así que quedan 0,4 L.
+  final Map<String, Future<void> Function(Home h, int transfer)>
+  brokenTransfers = {
+    'el lote de destino no está anulado': (h, transfer) async =>
+        (await h.db).rawUpdate(
+          '''UPDATE inventory_lots SET reversed_at=NULL WHERE id IN
+          (SELECT destination_lot_id FROM transfer_lot_items
+           WHERE transfer_id=?)''',
+          [transfer],
+        ),
+    'la transferencia no está en REVERSED': (h, transfer) async =>
+        (await h.db).update(
+          'transfers',
+          {'status': 'CONFIRMED'},
+          where: 'id=?',
+          whereArgs: [transfer],
+        ),
+    'transfer_lot_items tiene otra cantidad': (h, transfer) async =>
+        (await h.db).update(
+          'transfer_lot_items',
+          {'quantity_base': 500},
+          where: 'transfer_id=?',
+          whereArgs: [transfer],
+        ),
+  };
+  for (final entry in brokenTransfers.entries) {
+    test('pase revertido sin vínculo demostrado: ${entry.key}', () async {
+      final h = await home('d03n-pase-${entry.key.hashCode}');
+      await h.buy(h.titular, 1000, oct(10));
+      final transfer = await h.repo.transferProductFifo(
+        fromPersonId: h.titular,
+        toPersonId: h.sister,
+        productId: h.bellator,
+        quantityBase: 600,
+        date: oct(15),
+      );
+      await h.repo.reverseTransferUnauditedForTesting(
+        transfer,
+        reason: 'Equivocado',
+      );
+      await entry.value(h, transfer);
+      final before = await dumpTables(await h.db);
+      await expectLater(
+        h.apply(1000, oct(18)),
+        historical(
+          day: '2026-10-18',
+          held: 400,
+          available: 400,
+          requested: 1000,
+          message:
+              'Bellator: el 18/10/2026 esa persona tenía 0,4 L; pidió 1 L. '
+              '$_tail',
+        ),
+      );
+      expect(await dumpTables(await h.db), before);
+    });
+  }
 
   group('con auditoría de RF-13 y operación tardía', () {
     late AppDatabase database;

@@ -1800,8 +1800,11 @@ class AgroRepository {
         }
       }
       var cap = laterMin == null || atDay < laterMin ? atDay : laterMin;
-      // Tope del saldo de hoy: la proyección corregida nunca da más de lo
-      // que el lote tiene ahora.
+      // Tope del saldo de hoy, defensivo e inalcanzable con datos válidos: un
+      // par neutralizado suma cero, así que el saldo corregido al final del
+      // último día coincide con el actual y el mínimo de los saldos
+      // posteriores ya lo acota. Se deja por si un dato inconsistente rompe
+      // esa igualdad.
       if (cap > current) cap = current;
       eligible.add({...lot, 'held': atDay, 'available': cap});
     }

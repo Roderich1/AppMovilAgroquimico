@@ -196,6 +196,8 @@ class AnaJanuary {
   late int farm;
   late int first;
   late int second;
+  late int transfer;
+  late int reversed;
 
   Future<Database> get db => database.database;
 
@@ -270,19 +272,67 @@ Future<AnaJanuary> anaJanuary(String name) async {
   a.first = await a.lotOfPurchase(await a.buy(10000, 5));
   await a.apply(3000, 10);
   a.second = await a.lotOfPurchase(await a.buy(3000, 6));
-  final transfer = await repo.transferProductsFifo(
+  a.transfer = await repo.transferProductsFifo(
     fromPersonId: a.ana,
     toPersonId: a.beto,
     items: [TransferItemDraft(productId: a.glifosato, quantityBase: 2000)],
     date: AnaJanuary.jan(15),
   );
-  await repo.reverseTransferUnauditedForTesting(transfer, reason: 'Equivocado');
-  final reversed = await a.apply(1000, 17);
-  await repo.reverseApplicationUnauditedForTesting(reversed, reason: 'Error');
+  await repo.reverseTransferUnauditedForTesting(
+    a.transfer,
+    reason: 'Equivocado',
+  );
+  a.reversed = await a.apply(1000, 17);
+  await repo.reverseApplicationUnauditedForTesting(a.reversed, reason: 'Error');
   return a;
 }
 
 extension on AnaJanuary {
+  /// Saldo del lote al final de cada día con movimientos (`aaaa-mm-dd` →
+  /// saldo), en orden de día efectivo y de id. Con [corrected], sin los
+  /// movimientos del pase y de la aplicación revertidos.
+  Future<Map<String, int>> dayBalances(
+    int lot, {
+    bool corrected = false,
+  }) async {
+    final rows = await (await db).query(
+      'inventory_movements',
+      where: 'lot_id=?',
+      whereArgs: [lot],
+    );
+    bool annulled(Map<String, Object?> m) =>
+        (const [
+              'TRANSFER',
+              'TRANSFER_REVERSAL',
+            ].contains(m['reference_type']) &&
+            m['reference_id'] == transfer) ||
+        (const [
+              'APPLICATION',
+              'APPLICATION_REVERSAL',
+            ].contains(m['reference_type']) &&
+            m['reference_id'] == reversed);
+    final ordered =
+        [
+          for (final m in rows)
+            if (!corrected || !annulled(m))
+              (
+                storedLocalDay(m['movement_date']! as String),
+                m['id']! as int,
+                m['quantity_signed']! as int,
+              ),
+        ]..sort((x, y) {
+          final byDay = x.$1.compareTo(y.$1);
+          return byDay != 0 ? byDay : x.$2.compareTo(y.$2);
+        });
+    final out = <String, int>{};
+    var running = 0;
+    for (final m in ordered) {
+      running += m.$3;
+      out[m.$1] = running;
+    }
+    return out;
+  }
+
   Future<int> lotOfPurchase(int purchase) async =>
       (await (await db).rawQuery(
             '''SELECT l.id FROM inventory_lots l
@@ -510,6 +560,15 @@ void main() {
     // Saldo actual: 10 − 8 = 2 L, todo del lote del 06/01.
     expect(await ana.balance(ana.first), 0);
     expect(await ana.balance(ana.second), 2000);
+    // La bitácora sin corregir conserva las fechas reales: el lote del 05/01
+    // queda en −3 L el 21/01 (Ana en total, −3 + 2 = −1 L) hasta las
+    // reversiones de hoy. La historia corregida no baja de cero.
+    final raw = await ana.dayBalances(ana.first);
+    expect(raw['2026-01-21'], -3000);
+    expect((await ana.dayBalances(ana.second))['2026-01-21'], 2000);
+    final corrected = await ana.dayBalances(ana.first, corrected: true);
+    expect(corrected['2026-01-21'], 0);
+    expect(corrected.values.every((v) => v >= 0), isTrue);
   });
 
   test('3c-bis. si después se consumieron 4 L de lo devuelto, 8 L se '
