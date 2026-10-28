@@ -2,8 +2,8 @@
 
 - **Fecha real:** 2026-10-27 y 2026-10-28 (America/La_Paz).
   - 2026-10-27: primera versión hacia las 13:50 y ajustes de la revisión cruzada hacia las 14:10.
-  - 2026-10-28: anulaciones demostradas, hacia las 11:55 (§8).
-- **Rama:** `feat/d03-existencia-historica-aplicacion` sobre Mobile `main` `ed9c55c`. Estado verificado: `d3894db`.
+  - 2026-10-28: anulaciones demostradas, hacia las 11:55 (§8), y ajustes de su revisión cruzada, hacia las 12:10 (§8.5).
+- **Rama:** `feat/d03-existencia-historica-aplicacion` sobre Mobile `main` `ed9c55c`. Estado verificado: `39e7229`.
 - **Fuente:** decisiones del autor, Roderich Rendón, del 2026-10-27 (bloque 2, D-03) y del 2026-10-28 (anulaciones demostradas, §8). Son decisiones del autor; no se atribuyen al tutor ni a la Directiva. El análisis previo está en la revisión integral del 2026-10-26 (decisiones de negocio, §1).
 - **Trazabilidad:** RN-25 (stock suficiente, precisada), RN-26 (FIFO), RF-03 (elegibilidad temporal de §2.3), RF-13 (reversiones), CU-09 (aplicación).
 - **Procedencia:** sólo pruebas de **host** (`flutter test`, Windows 11, Flutter 3.47.2, reloj real del 2026-10-27 y del 2026-10-28). Sin dispositivo, sin emulador y sin personas.
@@ -18,7 +18,9 @@
 | `4ccaca1` | Ajustes de la revisión cruzada: el rechazo histórico se aplica siempre, también cuando tampoco alcanza el saldo de hoy; mensaje en dos casos; `heldBase` y `_lotHistoryAt`; pruebas 1b, 3b, 3c y 3d; `rec_046` y `rec_047` cambian el texto esperado (§4); contrato §2.6 ampliado |
 | `a7fac66` | Evidencia actualizada a `4ccaca1` |
 | `d3894db` | Decisión del 2026-10-28: la proyección histórica (`_lotHistoryAt`) neutraliza los pares operación + reversión con vínculo de anulación demostrado; cupo limitado al saldo de hoy; prueba nueva `f10_d03_anulaciones_demostradas_test`; 3c cambia y se añade 3c-bis; `fix_inventario_movimientos_test` vuelve a su versión de `ed9c55c`; contrato §2.3 y §2.6; RN-25 (§8) |
-| (este commit) | Evidencia actualizada a `d3894db` |
+| `506ff8c` | Evidencia actualizada a `d3894db` |
+| `39e7229` | Ajustes de la revisión cruzada de `d3894db`: el comentario describe el tope como defensivo; pruebas nuevas (pase de dos lotes, tres casos negativos de pase, consumo q/r, otro lote elegible) y bitácora sin corregir en 3c; F04 §2.3 y §2.6 (§8.5) |
+| (este commit) | Evidencia actualizada a `39e7229` |
 
 ## 2. Diseño
 
@@ -161,7 +163,7 @@ Se neutraliza un par de movimientos (`_demonstratedAnnulments` y `_annulmentReco
 Si falta algo o hay ambigüedad, no se neutraliza nada de esa operación. Las reversiones de compra no se neutralizan, porque el lote queda anulado.
 
 - **Efecto:** el par se excluye del cálculo; nada se escribe.
-- **Sin duplicación:** las operaciones posteriores siguen descontando, y el cupo de cada lote se limita también a su saldo de hoy.
+- **Sin duplicación:** las operaciones posteriores siguen descontando. El mínimo de los saldos corregidos posteriores limita el cupo a lo que queda hoy, porque un par neutralizado suma cero. El tope explícito del saldo de hoy en el código es defensivo e inalcanzable con datos válidos.
 - **PIN:** no interviene.
 - **Mensaje:** se calcula sobre la historia corregida.
 
@@ -178,7 +180,7 @@ Archivos:
 | 3c-bis. Ana, con 4 L de lo devuelto usados hoy → rechazo «tenía 10 L; de eso quedan 6 L…; pidió 8 L» | falla: el mensaje dice «tenía 7 L; de eso quedan 6 L» | pasa |
 | Vínculo demostrado (aplicación revertida): 0,5 L el 12/10 aceptados; sólo filas nuevas | falla: rechazo «tenía 1 L; de eso quedan 0 L…» | pasa |
 | Ruta de hoy con un par revertido: usa el saldo actual (control) | pasa | pasa |
-| Sin duplicación y con el saldo de hoy como tope: con 0,6 L de lo devuelto usados hoy, 0,5 L el 12/10 rechazado con «quedan 0,4 L» (= saldo de hoy); 0,4 L aceptado | falla: dice «quedan 0 L» | pasa |
+| Sin duplicación (el límite lo pone el mínimo de los saldos posteriores): con 0,6 L de lo devuelto usados hoy, 0,5 L el 12/10 rechazado con «quedan 0,4 L»; 0,4 L aceptado | falla: dice «quedan 0 L» | pasa |
 | Sin vínculo: falta `reversed_at` / la referencia no coincide / la cantidad no coincide / otro lote → rechazo «quedan 0 L», sin efectos (4 pruebas, guardas) | pasan | pasan |
 | Transferencia revertida: el origen recupera 1 L el 18/10 y se acepta; el destino anulado no aporta («no tenía este producto») | falla: «Bellator: el 18/10/2026 esa persona tenía 0,4 L; pidió 1 L. …» | pasa |
 | Tardía con una reversión auditada con PIN: se confirma; sólo filas nuevas | falla: `Expected: …confirmed Actual: …conflict` | pasa |
@@ -213,6 +215,50 @@ f04_bug_01_reverse_transfer_test + f04_bug_02_reverse_purchase_after_transfer_te
 
 ### 8.4 Observaciones
 
-- **Saldo cronológico de la bitácora:** sin corregir, puede verse negativo entre la fecha de la operación anulada y la de su reversión. Así se ve, por ejemplo, Ana el 21/01 después de aceptar los 8 L (−3 L hasta hoy). Ninguna vista de la app muestra un saldo acumulado de existencias, y la decisión pide conservar las fechas reales en la bitácora.
+- **Saldo cronológico de la bitácora:** sin corregir, puede verse negativo entre la fecha de la operación anulada y la de su reversión. Por ejemplo, después de aceptar los 8 L, el lote del 05/01 de Ana queda en −3 L el 21/01 en la bitácora sin corregir (Ana en total, −1 L), hasta las reversiones de hoy. Recalculado: lote del 05/01, +10 −3 −2 −1 −7 = −3 L; lote del 06/01, +3 −1 = +2 L. Lo comprueba 3c (§8.5). Ninguna vista de la app muestra un saldo acumulado de existencias, y la decisión pide conservar las fechas reales en la bitácora.
 - **RF-03 §2.3** decía que el cupo «no deja negativo ningún saldo histórico». Ahora se lee sobre la proyección corregida; se añadió esa precisión en §2.3. No contradice el objetivo de §2.3, que es no consumir material que otra operación usó después: lo anulado por un vínculo demostrado no se usó.
 - **Sin cambios:** RN-39 y la guarda de paso a modo propio. Las dos modificaciones opcionales no entran en este bloque.
+
+### 8.5 Ajustes de la revisión cruzada (2026-10-28, hacia las 12:10, `39e7229`)
+
+- **Contrato F04:**
+  - §2.3: «no deja negativo ningún saldo de la proyección corregida ni el actual».
+  - §2.6: desde el 2026-10-28 la tardía usa la misma proyección corregida. Extenderla a RF-03 es un criterio de aplicación del coordinador («la proyección histórica es una sola»), pendiente de que el autor lo confirme de forma expresa.
+  - §2.6: cifra de Ana precisada y tope descrito como defensivo.
+- **Código:** sólo cambia el comentario del tope del saldo de hoy (defensivo e inalcanzable con datos válidos). La lógica es la de `d3894db`.
+
+**Pruebas nuevas.** «Base» es el `lib/` de `a7fac66`; «mutación» es una mutación temporal, revertida sin commit.
+
+| Prueba | Base `a7fac66` | Mutación | `39e7229` |
+|---|---|---|---|
+| (a) L1 de 0,4 L el 10/10 y L2 de 0,6 L el 11/10; pase de 1 L el 15/10 revertido hoy; hoy se aplican 0,5 L (L1 0,4 + L2 0,1). El 16/10, 1 L se rechaza con cupo 0 + 0,5 L («tenía 1 L; de eso quedan 0,5 L»), sin duplicar; 0,5 L se aceptan, sólo de L2 | falla: «… esa persona no tenía este producto; pidió 1 L» | — | pasa |
+| (b) Pase revertido sin vínculo: destino sin anular / `status` distinto de `REVERSED` / otra cantidad en `transfer_lot_items` (3 pruebas). Rechazo «tenía 0,4 L; pidió 1 L» sin efectos | pasan (guardas) | **fallan las 3**: `emitted <1>` (se aceptan) | pasan |
+| (c) Consumo de la aplicación con otra cantidad (q) / sin `reversed_at` (r); movimientos opuestos e iguales (2 pruebas) | pasan (guardas) | **fallan las 2** | pasan |
+| (d) Reversión movida a otro lote **elegible** el 12/10: 1,5 L rechazado con «tenía 2 L; de eso quedan 1 L»; 1 L aceptado sólo del otro lote | pasa (guarda) | pasa | pasa |
+| (e) 3c: el lote del 05/01 queda en −3000 el 21/01 en la bitácora sin corregir; el del 06/01, en +2000; la historia corregida da 0 el 21/01 y nunca es negativa | falla (3c, rechazo) | — | pasa |
+
+**Mutaciones**, en `_annulmentRecorded`, con `flutter test --timeout 120s -r expanded test/f10_d03_anulaciones_demostradas_test.dart`:
+- **Rama de transferencias** (`if (operationType == 'TRANSFER') return true;`): `00:02 +14 -3: Some tests failed.` Fallan exactamente las tres de (b), con `Actual: <Instance of 'Future<int>'> Which: emitted <1>`.
+- **Rama de aplicaciones** (`return true;` al entrar): `00:03 +13 -4: Some tests failed.` Fallan las dos de (c), la de «falta la marca reversed_at» y la de la auditoría que no nombra el movimiento.
+- Las dos se revirtieron con `git checkout HEAD -- lib/data/agro_repository.dart`, sin commit.
+- (d) no depende de `_annulmentRecorded`, porque en ningún lote hay salida y reversión de la misma operación. Ejercita el emparejamiento por lote (condiciones 1 a 3) en un lote elegible: si la reversión movida se emparejara con la salida del primer lote, el cupo sería 2 L y 1,5 L se aceptaría.
+
+**Salidas literales sobre `39e7229`** (`--timeout 120s`, tandas de tres como mucho):
+```
+f10_d03_anulaciones_demostradas_test + f10_d03_existencia_historica_test + f10_d03_existencia_historica_form_test → 00:05 +33: All tests passed!
+fix_inventario_movimientos_test + rec_046_inventory_detail_test + rec_047_application_rules_test            → 00:02 +11: All tests passed!
+f04_rf03_late_operations_test + f04_rf03_late_screen_test + f04_rf13_reversal_audit_test                      → 00:03 +32: All tests passed!
+f04_bug_01_reverse_transfer_test + rec_050_reversal_rules_test                                                → 00:06 +15: All tests passed!
+```
+
+Base `a7fac66` (sólo `lib/`), archivos D-03 de repositorio: `00:04 +25 -7: Some tests failed.` Fallan:
+- vínculo demostrado;
+- sin duplicación;
+- 3c y 3c-bis;
+- transferencia revertida;
+- pase de dos lotes;
+- tardía con reversión auditada.
+
+Pasan las guardas y los controles.
+
+`dart format lib test`: «Formatted 327 files (0 changed)». `flutter analyze`: «No issues found!».
