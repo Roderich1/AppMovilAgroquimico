@@ -170,12 +170,14 @@ compra"* — con un `personId` inexistente, no queda ni compra, ni ítems, ni lo
 |---|---|
 | **Propósito** | Llevar el saldo de cada familiar y tercero, y aplicar sus pagos contra las deudas más antiguas |
 | **Pantalla** | `SettlementsScreen` (`/liquidacion`); estado de cuenta también en `PersonDetailScreen` pestaña "Cuenta" |
-| **Archivos** | `agro_repository.dart`: `addAccountPayment`, `settlements`, `topSettlements`, `statement`, `detailedStatement`, `personCampaignBalance` |
+| **Archivos** | `agro_repository.dart`: `registerAccountPayment`/`addAccountPayment`, `accountLedger`, `accountSummaries` y `accountStatement`; `domain/account_ledger.dart` y `domain/account_texts.dart`. Las lecturas heredadas (`settlements`, `topSettlements`, `statement`, `detailedStatement`, `personCampaignBalance`) se conservan para su caracterización |
 | **Modelo contable** | Libro de asientos inmutables en `account_transactions` con `amount_bob_minor_signed`: **positivo = cargo** (deuda), **negativo = pago/crédito** |
-| **Tipos de asiento** | `PURCHASE_ALLOCATION_CHARGE`, `USAGE_CHARGE`, `PAYMENT`, `ADVANCE`, `CREDIT_ADJUSTMENT` |
-| **Imputación de pagos** | `addAccountPayment` recorre los cargos pendientes de esa persona **ordenados por fecha e id**, y crea filas en `payment_allocations` hasta agotar el importe. El sobrante queda sin imputar (efectivamente, saldo a favor) |
-| **Adelanto vs pago** | Idéntico mecanismo; solo cambia el `type` (`ADVANCE` vs `PAYMENT`). Un adelanto **también** se imputa a cargos existentes |
-| **Continuidad entre campañas** | `personCampaignBalance` calcula `opening_balance` sumando asientos de campañas cuya `start_date` es anterior. La imputación de pagos **no filtra por campaña**: un pago de la campaña 2 puede cancelar deuda de la campaña 1 (confirmado por test) |
+| **Tipos de asiento** | `PURCHASE_ALLOCATION_CHARGE`, `USAGE_CHARGE`, `PAYMENT`, `ADVANCE`, `CREDIT_ADJUSTMENT`. Las cifras salen de la clase del asiento (RN-37) |
+| **Imputación de pagos** | RN-38: a los cargos con deuda pendiente (los revertidos no cuentan), por día local y luego id, de cualquier campaña. El sobrante queda sin imputar: a favor y sin campaña |
+| **Adelanto vs pago** | Idéntico mecanismo; solo cambia el `type`. Un adelanto **también** se imputa a cargos existentes |
+| **D-04 (decisión del autor del 2026-10-27)** | La campaña donde se registra un pago y la campaña de la deuda que cancela son conceptos distintos. Cuentas distingue **deuda pendiente** por cargo, **pagos aplicados** (de `payment_allocations`) y **a favor (no aplicado a deuda)**. Con «Todas las campañas» muestra el saldo neto; con una campaña, la «Deuda pendiente por origen · K». Los NULL y las imputaciones guardadas se conservan y no se fabrica ninguna. Detalle en [D04_E15](architecture/D04_E15_CUENTAS_IMPUTACION_Y_COSTO_PROPIO.md) |
+| **Continuidad entre campañas** | El estado cronológico de una campaña es por **fecha** (RN-42): la apertura suma los asientos anteriores al inicio, de cualquier campaña o sin campaña. La imputación **no filtra por campaña** |
+| **Inicio y resumen** | «Familias/Terceros por cobrar» = Σ max(0, saldo neto) por persona, con «A favor de …» aparte. El resumen de campaña da la deuda pendiente por origen, sin ADMIN |
 | **Reportes en la misma pantalla** | Costo por chaco y por hectárea; costo consumido por producto |
 
 ---
@@ -184,13 +186,13 @@ compra"* — con un `personId` inexistente, no queda ni compra, ni ítems, ni lo
 
 | Campo | Contenido |
 |---|---|
-| **Propósito** | Ver el detalle movimiento a movimiento con saldo acumulado |
-| **Ubicación** | `SettlementsScreen._statement` (diálogo) y `PersonDetailScreen` pestaña "Cuenta" |
-| **Archivos** | `agro_repository.dart` `detailedStatement`, `personCampaignBalance` |
-| **Enriquecimiento** | `detailedStatement` resuelve un `concept` legible por `COALESCE`: nombres de productos de la aplicación → nombre del producto de la asignación de compra → `notes` → `type`; y añade `farm_name` cuando el asiento viene de una aplicación |
-| **Saldo acumulado** | Se calcula **en la UI**, partiendo de `opening_balance` y sumando cada movimiento |
-| **Etiquetas** | `_transactionLabel` traduce los códigos a español ("Cargo por consumo", "Cargo por compra", "Pago", "Adelanto", "Crédito por reversión") |
-| **Cobertura de test** | *"estado de cuenta abre y cierra 20 veces sin perder la pantalla"* — regresión de fuga de diálogos |
+| **Propósito** | Ver el detalle movimiento a movimiento con saldo acumulado y, aparte, la deuda por campaña de origen |
+| **Ubicación** | `SettlementsScreen._statement` (diálogo, `AccountStatementView`) y `PersonDetailScreen` pestaña "Cuenta" |
+| **Archivos** | Cuentas y su exportación: `agro_repository.dart` `accountStatement` y `domain/account_ledger.dart`. `PersonDetailScreen` sigue con `detailedStatementTyped` (sin campaña, acumulado desde cero) hasta E-15 |
+| **Secciones** | «Deuda pendiente por origen (a hoy)» y «Estado de cuenta cronológico · período de K (inicio – fin o hoy)». El período terminó si su fin es anterior a hoy, sea cual sea el estado de la campaña. Esta última va con «Saldo al inicio del período», cada fila con su campaña de asiento y su estado de imputación, y «Saldo al cierre del período» o «Saldo a hoy» |
+| **Exportación** | Columnas Fecha, Concepto, Chaco, Campaña del asiento, Cargo, Crédito, Imputación y Acumulado; los totales del cronológico y del desglose llevan etiquetas propias (D-04 §2.6) |
+| **Etiquetas** | `transactionTypeLabel` traduce los códigos a español ("Cargo por consumo", "Cargo por compra", "Pago", "Adelanto", "Crédito por reversión") |
+| **Cobertura de test** | *"estado de cuenta abre y cierra 20 veces sin perder la pantalla"*; `d04_imputacion_*_test.dart` |
 
 ---
 
@@ -241,7 +243,7 @@ compra"* — con un `personId` inexistente, no queda ni compra, ni ítems, ni lo
 | **Propósito** | Resumen ejecutivo de un vistazo |
 | **Pantalla** | `DashboardScreen` — `/` |
 | **Archivos** | `agro_repository.dart` `dashboard`, `inventorySummary(limit:5)`, `applications(limit:5)`, `topSettlements(limit:5)`, `campaigns` |
-| **Tarjetas** | Compras, Pagado proveedores, Familias por cobrar, Terceros por cobrar, Pagos recibidos |
+| **Tarjetas** | Compras, Pagado proveedores, Familias por cobrar, Terceros por cobrar, Pagos recibidos. «Por cobrar» = Σ max(0, saldo neto) por persona, con «A favor de familias/terceros: X» si X > 0 (D-04) |
 | **Secciones** | Banner de campaña activa; tabla de inventario proyectado (con buscador en cliente); aplicaciones recientes; principales saldos |
 | **Interacción** | Cada fila de inventario navega a `/inventario/:id`; los enlaces "Ver todos" van a las pantallas completas |
 | **Refresco** | Botón manual de recarga; no hay refresco automático |

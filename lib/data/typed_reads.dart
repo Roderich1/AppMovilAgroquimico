@@ -28,6 +28,7 @@ extension AgroRepositoryTypedReads on AgroRepository {
   Future<List<InventoryLineRead>> inventorySummaryTyped({int? limit}) async =>
       InventoryLineRead.fromRows(await inventorySummary(limit: limit));
 
+  /// Heredada: sólo caracterización; la app usa `accountSummaries` (D-04).
   Future<List<SettlementRead>> settlementsTyped({int? campaignId}) async =>
       SettlementRead.fromRows(await settlements(campaignId: campaignId));
 
@@ -45,6 +46,7 @@ extension AgroRepositoryTypedReads on AgroRepository {
   Future<CampaignSummaryRead> campaignCloseSummaryTyped(int campaignId) async =>
       CampaignSummaryRead.fromRow(await campaignCloseSummary(campaignId));
 
+  /// Heredada: sólo caracterización; la app usa `accountStatement` (D-04).
   Future<PersonCampaignBalanceRead> personCampaignBalanceTyped(
     int personId,
     int campaignId,

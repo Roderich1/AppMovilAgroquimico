@@ -347,7 +347,10 @@ void main() {
       );
       // Un solo cargo por consumo: 5 L × Bs 100,00 = Bs 500,00.
       expect(content, contains('Total de cargos (Bs);500,00'));
-      expect(content, contains('Saldo final (Bs);500,00'));
+      // D-04 (decisión del autor del 2026-10-27, §2.6 y ejemplo M-8): el
+      // cierre del cronológico se rotula «Saldo a hoy» y ya no «Saldo final».
+      // La cifra es la misma.
+      expect(content, contains('Saldo a hoy (Bs);500,00'));
     });
   });
 }
