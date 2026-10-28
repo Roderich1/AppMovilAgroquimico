@@ -1710,7 +1710,8 @@ class AgroRepository {
   /// final de cada día posterior con movimientos, ordenando por día efectivo
   /// y después por id. La aplicación va al final de su día. Lo usan la
   /// operación tardía (`confirmLateOperation`) y la aplicación ordinaria con
-  /// fecha pasada (`confirmApplication`, D-03). Sólo lotes con cupo positivo.
+  /// fecha pasada (`confirmApplication`, D-03), sobre la misma proyección
+  /// corregida por anulaciones demostradas. Sólo lotes con cupo positivo.
   Future<List<Map<String, Object?>>> _lotsAvailableAt(
     DatabaseExecutor txn,
     int productId,
@@ -1722,7 +1723,10 @@ class AgroRepository {
   ];
 
   /// Cada lote adquirido el día [day] o antes, con `held` (saldo al final de
-  /// ese día) y `available` (su cupo, que puede ser cero o negativo).
+  /// ese día) y `available` (su cupo, que puede ser cero o negativo), sobre
+  /// la proyección histórica corregida (§2.6): los pares de anulación
+  /// demostrados ([_demonstratedAnnulments]) no cuentan, y el cupo nunca
+  /// supera el saldo actual del lote. La base no cambia.
   Future<List<Map<String, Object?>>> _lotHistoryAt(
     DatabaseExecutor txn,
     int productId,
@@ -1742,12 +1746,29 @@ class AgroRepository {
       }
       final movements = await txn.query(
         'inventory_movements',
-        columns: ['id', 'movement_date', 'quantity_signed'],
+        columns: [
+          'id',
+          'movement_date',
+          'quantity_signed',
+          'type',
+          'reference_type',
+          'reference_id',
+        ],
         where: 'lot_id=?',
         whereArgs: [lot['id']],
       );
+      final current = movements.fold<int>(
+        0,
+        (sum, m) => sum + (m['quantity_signed']! as int),
+      );
+      final neutral = await _demonstratedAnnulments(
+        txn,
+        lot['id']! as int,
+        movements,
+      );
       final ordered =
           movements
+              .where((m) => !neutral.contains(m['id']))
               .map(
                 (m) => (
                   day: storedLocalDay(m['movement_date']! as String),
@@ -1778,10 +1799,175 @@ class AgroRepository {
               : laterMin;
         }
       }
-      final cap = laterMin == null || atDay < laterMin ? atDay : laterMin;
+      var cap = laterMin == null || atDay < laterMin ? atDay : laterMin;
+      // Tope del saldo de hoy: la proyección corregida nunca da más de lo
+      // que el lote tiene ahora.
+      if (cap > current) cap = current;
       eligible.add({...lot, 'held': atDay, 'available': cap});
     }
     return eligible;
+  }
+
+  /// Pares de anulación **demostrados** del lote [lotId] (D-03, decisión del
+  /// autor del 2026-10-28; contrato §2.6): ids de los movimientos que la
+  /// proyección histórica trata como si no hubieran existido. La bitácora
+  /// conserva la operación, la reversión y sus fechas reales; aquí sólo se
+  /// leen.
+  ///
+  /// Un par es una salida original y su reversión, con todo esto a la vez:
+  /// - el mismo lote;
+  /// - la misma operación: `APPLICATION_OUT`/`APPLICATION` y
+  ///   `APPLICATION_REVERSAL`/`APPLICATION_REVERSAL`, o `TRANSFER_OUT`/
+  ///   `TRANSFER` y `TRANSFER_REVERSAL_IN`/`TRANSFER_REVERSAL`, con el mismo
+  ///   `reference_id`;
+  /// - exactamente una salida y una reversión de esa operación en el lote;
+  /// - cantidades opuestas e iguales (salida negativa);
+  /// - la operación con `reversed_at` y estado `REVERSED`, y su detalle en
+  ///   este lote único, revertido y por la misma cantidad (el consumo de la
+  ///   aplicación; la fila de `transfer_lot_items` con su lote de destino
+  ///   anulado);
+  /// - si existe auditoría de RF-13 de esa operación, que nombre el
+  ///   movimiento de reversión entre sus efectos.
+  /// Si falta cualquier condición o hay ambigüedad, no se neutraliza nada de
+  /// esa operación. Las reversiones de compra no se neutralizan: el lote
+  /// queda anulado.
+  Future<Set<int>> _demonstratedAnnulments(
+    DatabaseExecutor txn,
+    int lotId,
+    List<Map<String, Object?>> movements,
+  ) async {
+    const kinds = [
+      (
+        out: 'APPLICATION_OUT',
+        outRef: 'APPLICATION',
+        back: 'APPLICATION_REVERSAL',
+        backRef: 'APPLICATION_REVERSAL',
+        operation: 'APPLICATION',
+      ),
+      (
+        out: 'TRANSFER_OUT',
+        outRef: 'TRANSFER',
+        back: 'TRANSFER_REVERSAL_IN',
+        backRef: 'TRANSFER_REVERSAL',
+        operation: 'TRANSFER',
+      ),
+    ];
+    final neutral = <int>{};
+    for (final kind in kinds) {
+      bool isBack(Map<String, Object?> m) =>
+          m['type'] == kind.back && m['reference_type'] == kind.backRef;
+      final operations = {
+        for (final m in movements)
+          if (isBack(m) && m['reference_id'] is int) m['reference_id']! as int,
+      };
+      for (final operation in operations) {
+        final outs = [
+          for (final m in movements)
+            if (m['type'] == kind.out &&
+                m['reference_type'] == kind.outRef &&
+                m['reference_id'] == operation)
+              m,
+        ];
+        final backs = [
+          for (final m in movements)
+            if (isBack(m) && m['reference_id'] == operation) m,
+        ];
+        if (outs.length != 1 || backs.length != 1) continue;
+        final quantity = backs.single['quantity_signed']! as int;
+        if (quantity <= 0 || outs.single['quantity_signed'] != -quantity) {
+          continue;
+        }
+        final backId = backs.single['id']! as int;
+        if (!await _annulmentRecorded(
+          txn,
+          kind.operation,
+          operation,
+          lotId,
+          quantity,
+          backId,
+        )) {
+          continue;
+        }
+        neutral
+          ..add(outs.single['id']! as int)
+          ..add(backId);
+      }
+    }
+    return neutral;
+  }
+
+  /// La operación consta como revertida en este lote por [quantity], y la
+  /// auditoría de RF-13, si existe, nombra el movimiento [reversalMovementId].
+  Future<bool> _annulmentRecorded(
+    DatabaseExecutor txn,
+    String operationType,
+    int operationId,
+    int lotId,
+    int quantity,
+    int reversalMovementId,
+  ) async {
+    if (operationType == 'APPLICATION') {
+      final application = await txn.query(
+        'applications',
+        columns: ['status', 'reversed_at'],
+        where: 'id=?',
+        whereArgs: [operationId],
+      );
+      if (application.length != 1 ||
+          application.single['reversed_at'] == null ||
+          application.single['status'] != 'REVERSED') {
+        return false;
+      }
+      final consumptions = await txn.rawQuery(
+        '''SELECT c.quantity_consumed_base q, c.reversed_at r
+        FROM application_consumptions c
+        JOIN application_items i ON i.id=c.application_item_id
+        WHERE i.application_id=? AND c.inventory_lot_id=?''',
+        [operationId, lotId],
+      );
+      if (consumptions.length != 1 ||
+          consumptions.single['r'] == null ||
+          consumptions.single['q'] != quantity) {
+        return false;
+      }
+    } else {
+      final transfer = await txn.query(
+        'transfers',
+        columns: ['status', 'reversed_at'],
+        where: 'id=?',
+        whereArgs: [operationId],
+      );
+      if (transfer.length != 1 ||
+          transfer.single['reversed_at'] == null ||
+          transfer.single['status'] != 'REVERSED') {
+        return false;
+      }
+      final items = await txn.rawQuery(
+        '''SELECT i.quantity_base q, d.reversed_at r FROM transfer_lot_items i
+        JOIN inventory_lots d ON d.id=i.destination_lot_id
+        WHERE i.transfer_id=? AND i.source_lot_id=?''',
+        [operationId, lotId],
+      );
+      if (items.length != 1 ||
+          items.single['r'] == null ||
+          items.single['q'] != quantity) {
+        return false;
+      }
+    }
+    final audit = await txn.query(
+      'reversal_audit',
+      columns: ['id'],
+      where: 'operation_type=? AND operation_id=?',
+      whereArgs: [operationType, operationId],
+    );
+    if (audit.isEmpty) return true;
+    final named = await txn.query(
+      'reversal_audit_effects',
+      columns: ['id'],
+      where: "audit_id=? AND table_name='inventory_movements' AND row_id=?",
+      whereArgs: [audit.single['id'], reversalMovementId],
+    );
+    return named.length == 1;
   }
 
   /// Confirma un borrador tardío con la autorización del titular (§2.1 paso

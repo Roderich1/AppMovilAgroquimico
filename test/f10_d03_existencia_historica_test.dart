@@ -21,6 +21,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite/sqflite.dart' show Sqflite;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+import 'support/d03_dump.dart';
 import 'support/f04_mode_fixtures.dart';
 
 /// Texto fijo que sigue a la cifra en todo rechazo histórico.
@@ -178,6 +179,118 @@ Future<Home> home(String name) async {
     areaM2: 10000,
   );
   return h;
+}
+
+/// El caso de Ana (`fix_inventario_movimientos_test`), en días de enero: 10 L
+/// el 05/01, 3 L aplicados el 10/01, 3 L más el 06/01, un pase de 2 L a Beto el
+/// 15/01 y una aplicación de 1 L el 17/01, las dos revertidas hoy.
+class AnaJanuary {
+  AnaJanuary(this.database, this.repo);
+  final AppDatabase database;
+  final AgroRepository repo;
+  late int ana;
+  late int beto;
+  late int supplier;
+  late int campaign;
+  late int glifosato;
+  late int farm;
+  late int first;
+  late int second;
+
+  Future<Database> get db => database.database;
+
+  static DateTime jan(int d) => DateTime.utc(2026, 1, d, 12);
+
+  Future<int> buy(int quantity, int d) => repo.confirmPurchase(
+    PurchaseDraft(
+      supplierId: supplier,
+      campaignId: campaign,
+      purchaseDate: jan(d),
+      items: [
+        PurchaseItemDraft(
+          productId: glifosato,
+          quantityBase: quantity,
+          currency: CurrencyCode.bob,
+          originalUnitPriceMinor: 10000,
+          allocations: [AllocationDraft(personId: ana, quantityBase: quantity)],
+        ),
+      ],
+    ),
+  );
+
+  Future<int> apply(int quantity, int d) => applyAt(quantity, jan(d));
+
+  Future<int> applyAt(int quantity, DateTime at) => repo.confirmApplication(
+    ApplicationDraft(
+      personId: ana,
+      farmId: farm,
+      campaignId: campaign,
+      appliedAt: at,
+      lines: [
+        ApplicationLineDraft(productId: glifosato, quantityBase: quantity),
+      ],
+    ),
+  );
+
+  Future<Map<int, (int, int)>> consumptions(int application) async => {
+    for (final row in await (await db).rawQuery(
+      '''SELECT c.inventory_lot_id lot, c.quantity_consumed_base q,
+        c.cost_bob_minor cost FROM application_consumptions c
+        JOIN application_items i ON i.id=c.application_item_id
+        WHERE i.application_id=? ORDER BY c.id''',
+      [application],
+    ))
+      row['lot']! as int: (row['q']! as int, row['cost']! as int),
+  };
+
+  Future<int> balance(int lot) async =>
+      Sqflite.firstIntValue(
+        await (await db).rawQuery(
+          'SELECT SUM(quantity_signed) FROM inventory_movements WHERE lot_id=?',
+          [lot],
+        ),
+      ) ??
+      0;
+}
+
+Future<AnaJanuary> anaJanuary(String name) async {
+  final database = openDb(await tempDbPath(name));
+  final a = AnaJanuary(database, AgroRepository(database));
+  final repo = a.repo;
+  a
+    ..ana = await repo.addPerson(name: 'Ana', role: PersonRole.family)
+    ..beto = await repo.addPerson(name: 'Beto', role: PersonRole.family)
+    ..supplier = await repo.addSupplier(name: 'Agro Sur')
+    ..campaign = await repo.addCampaign(
+      name: 'Verano',
+      start: DateTime.utc(2026, 1, 1),
+    )
+    ..glifosato = await repo.addProduct(name: 'Glifosato');
+  a.farm = await repo.addFarm(ownerId: a.ana, name: 'Chaco Ana', areaM2: 10000);
+  a.first = await a.lotOfPurchase(await a.buy(10000, 5));
+  await a.apply(3000, 10);
+  a.second = await a.lotOfPurchase(await a.buy(3000, 6));
+  final transfer = await repo.transferProductsFifo(
+    fromPersonId: a.ana,
+    toPersonId: a.beto,
+    items: [TransferItemDraft(productId: a.glifosato, quantityBase: 2000)],
+    date: AnaJanuary.jan(15),
+  );
+  await repo.reverseTransferUnauditedForTesting(transfer, reason: 'Equivocado');
+  final reversed = await a.apply(1000, 17);
+  await repo.reverseApplicationUnauditedForTesting(reversed, reason: 'Error');
+  return a;
+}
+
+extension on AnaJanuary {
+  Future<int> lotOfPurchase(int purchase) async =>
+      (await (await db).rawQuery(
+            '''SELECT l.id FROM inventory_lots l
+            JOIN purchase_items i ON i.id=l.purchase_item_id
+            WHERE i.purchase_id=?''',
+            [purchase],
+          )).single['id']!
+          as int;
 }
 
 /// Medianoche local del día, como guarda el formulario un día pasado (#121).
@@ -380,85 +493,44 @@ void main() {
     expect(await h.negativeHistory(), isEmpty);
   });
 
-  test('3c. límite de las reversiones: lo devuelto se fecha el día en que se '
-      'revierte y no cuenta antes (8 L el 21/01 con 7 L elegibles)', () async {
-    // El caso de `fix_inventario_movimientos_test`, en días de enero.
-    final database = openDb(await tempDbPath('d03-3c'));
-    final repo = AgroRepository(database);
-    final ana = await repo.addPerson(name: 'Ana', role: PersonRole.family);
-    final beto = await repo.addPerson(name: 'Beto', role: PersonRole.family);
-    final supplier = await repo.addSupplier(name: 'Agro Sur');
-    final campaign = await repo.addCampaign(
-      name: 'Verano',
-      start: DateTime.utc(2026, 1, 1),
-    );
-    final glifosato = await repo.addProduct(name: 'Glifosato');
-    final farm = await repo.addFarm(
-      ownerId: ana,
-      name: 'Chaco Ana',
-      areaM2: 10000,
-    );
-    DateTime jan(int d) => DateTime.utc(2026, 1, d, 12);
-    Future<int> buy(int quantity, int d) => repo.confirmPurchase(
-      PurchaseDraft(
-        supplierId: supplier,
-        campaignId: campaign,
-        purchaseDate: jan(d),
-        items: [
-          PurchaseItemDraft(
-            productId: glifosato,
-            quantityBase: quantity,
-            currency: CurrencyCode.bob,
-            originalUnitPriceMinor: 10000,
-            allocations: [
-              AllocationDraft(personId: ana, quantityBase: quantity),
-            ],
-          ),
-        ],
-      ),
-    );
-    Future<int> apply(int quantity, int d) => repo.confirmApplication(
-      ApplicationDraft(
-        personId: ana,
-        farmId: farm,
-        campaignId: campaign,
-        appliedAt: jan(d),
-        lines: [
-          ApplicationLineDraft(productId: glifosato, quantityBase: quantity),
-        ],
-      ),
-    );
-    await buy(10000, 5);
-    await apply(3000, 10);
-    await buy(3000, 6);
-    final transfer = await repo.transferProductsFifo(
-      fromPersonId: ana,
-      toPersonId: beto,
-      items: [TransferItemDraft(productId: glifosato, quantityBase: 2000)],
-      date: jan(15),
-    );
-    await repo.reverseTransferUnauditedForTesting(
-      transfer,
-      reason: 'Equivocado',
-    );
-    final reversed = await apply(1000, 17);
-    await repo.reverseApplicationUnauditedForTesting(reversed, reason: 'Error');
-    // Hoy Ana tiene 10 L, pero el 21/01 sólo 4 L + 3 L: los 3 L revertidos
-    // vuelven con la fecha de hoy.
-    final db = await database.database;
-    final before = await dumpTables(db);
+  // 3c cambió su resultado esperado con la decisión del autor del 2026-10-28:
+  // los pares operación + reversión demostrados no cuentan en la proyección
+  // histórica. Antes (2026-10-27) 8 L se rechazaban con 7 L elegibles.
+  test('3c. caso de Ana: con la historia corregida tenía 10 L el 21/01 y '
+      '8 L se aceptan; la base sólo gana las filas de la aplicación', () async {
+    final ana = await anaJanuary('d03-3c');
+    final before = await dumpTables(await ana.db);
+    final id = await ana.apply(8000, 21);
+    // FIFO sobre lotes elegibles: 7 L del 05/01 y 1 L del 06/01, a su costo.
+    expect(await ana.consumptions(id), {
+      ana.first: (7000, 70000),
+      ana.second: (1000, 10000),
+    });
+    expectOnlyApplicationRows(before, await dumpTables(await ana.db), id);
+    // Saldo actual: 10 − 8 = 2 L, todo del lote del 06/01.
+    expect(await ana.balance(ana.first), 0);
+    expect(await ana.balance(ana.second), 2000);
+  });
+
+  test('3c-bis. si después se consumieron 4 L de lo devuelto, 8 L se '
+      'rechazan con la existencia corregida', () async {
+    final ana = await anaJanuary('d03-3c-bis');
+    // Hoy se usan 4 L: salen del lote del 05/01, que hoy tiene 7 L.
+    await ana.applyAt(4000, DateTime.now());
+    final before = await dumpTables(await ana.db);
     await expectLater(
-      apply(8000, 21),
+      ana.apply(8000, 21),
       historical(
         day: '2026-01-21',
-        held: 7000,
-        available: 7000,
+        held: 10000,
+        available: 6000,
         requested: 8000,
         message:
-            'Glifosato: el 21/01/2026 esa persona tenía 7 L; pidió 8 L. $_tail',
+            'Glifosato: el 21/01/2026 esa persona tenía 10 L; de eso quedan '
+            '6 L sin usar en operaciones posteriores; pidió 8 L. $_tail',
       ),
     );
-    expect(await dumpTables(db), before);
+    expect(await dumpTables(await ana.db), before);
   });
 
   test('3d. un lote con historial negativo previo no aporta cupo', () async {
