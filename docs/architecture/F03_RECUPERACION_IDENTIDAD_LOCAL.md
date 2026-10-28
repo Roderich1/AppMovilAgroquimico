@@ -125,7 +125,7 @@ Lleva `{enrolmentId, personId del titular, bindingId, Member, tenant, método LO
   - Sólo la **regla** es decisión del autor: el paso opcional y recomendado; una acreditación vinculada, con vigencia y consumo; sin guardar la contraseña; configurar más tarde y restablecer como hoy; el retorno a la revisión sin ejecución automática; la separación de secretos y la invalidación al restablecer.
   - No se atribuye aprobación del tutor ni de la Directiva.
   - Los criterios técnicos de esta sección son **diseño del frente**: las vigencias, las comprobaciones y los ajustes H1–H10 y las resoluciones del §4 bis.10, que salen de la revisión cruzada del 2026-10-27, «LISTO CON AJUSTES», sin bloqueantes.
-- **Estado:** implementado en `e3af008` (HOST). Evidencia: `docs/evidence/F10_BLOQUE2_E12_PIN_EN_ACTIVACION.md`. La parte en el emulador (E1–E4) está pendiente y no se declara hecha.
+- **Estado:** implementado en `e3af008` (HOST). Evidencia: `docs/evidence/F10_BLOQUE2_E12_PIN_EN_ACTIVACION.md`. EMULADOR el 2026-10-28 (`docs/evidence/F10_BLOQUE2_EMULADOR_2026-10-28.md`): E1 y E2, y E3 desde una reversión, ejecutados. Pendientes: E3 desde una tardía (no hay campaña cerrada en la siembra) y E4 (no se mide sin personas).
 - **Trazabilidad:** RF-01, RF-13, RF-03, CU-01 y RNF-04.
 
 **La regla.** Después de confirmar al titular se ofrece crear el PIN, aprovechando la acreditación en línea que el mismo titular acaba de hacer al activar. Es un paso opcional y recomendado. No basta con que exista una sesión. Fuera de ese momento, todo sigue como en el §4.
@@ -372,7 +372,7 @@ AUTORIZADA     --el llamador llama al repositorio, que revalida y consume en la 
 
 Se mantienen en verde, sin cambiar sus aserciones: `f03_local_owner_credential_test`, `f03_owner_online_confirmation_test`, `first_activation_coordinator_test`, `first_activation_screen_test`, `f03_access_recovery_test`, `f03_access_recovery_app_test`, `f04_owner_binding_test`, `f04_rf03_late_screen_test`, `f04_rf13_reversal_audit_test`, `f08_recovery_key_owner_pin_test` y las demás pruebas F08 que tocan el PIN.
 
-**Emulador** (pendiente; lo coordina el coordinador del bloque):
+**Emulador** (2026-10-28, `docs/evidence/F10_BLOQUE2_EMULADOR_2026-10-28.md`: E1, E2 y E3 desde una reversión ejecutados; E3 desde una tardía y E4 no ejecutados):
 - **E1.** Activación, titular, PIN sin contraseña y reversión autorizada sin red.
 - **E2.** «Ahora no» y, después, el PIN con contraseña.
 - **E3.** Retorno desde una reversión y desde una operación tardía.
