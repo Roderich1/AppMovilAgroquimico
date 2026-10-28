@@ -262,3 +262,20 @@ Base `a7fac66` (sólo `lib/`), archivos D-03 de repositorio: `00:04 +25 -7: Some
 Pasan las guardas y los controles.
 
 `dart format lib test`: «Formatted 327 files (0 changed)». `flutter analyze`: «No issues found!».
+
+## 9. Fallo de la CI en UTC y corrección (`cc74661`, 2026-10-28)
+
+**Fallo:** la CI de los PR #156 (`a7fac66`) y #161 (composición `e5ba07c`) terminó con «2057 tests passed, 2 failed, 4 skipped.».
+
+| Prueba | Esperado | Recibido |
+|---|---|---|
+| `rec_046_inventory_detail_test` | `… el 27/03/2026 …` | `… el 28/03/2026 …` |
+| `rec_047_application_rules_test` | `… el 28/02/2026 …` | `… el 01/03/2026 …` |
+
+**Causa:** el texto esperado fijaba la fecha en hora de La Paz para un instante UTC de medianoche. La suite principal de la CI corre en UTC, y en UTC el mensaje dice el día UTC. El código es correcto en las dos zonas: el mensaje usa el día local del teléfono.
+
+**Corrección:** sólo en las pruebas. La fecha esperada ahora se calcula con `formatDate(localDay(instante))`, la misma conversión que usa el mensaje. `lib/` no cambia.
+
+**Verificación en el host** (La Paz): `flutter test --timeout 120s test/rec_046_inventory_detail_test.dart test/rec_047_application_rules_test.dart` da `00:01 +7: All tests passed!`.
+
+La comprobación en UTC queda a cargo de la CI: en Windows, Dart no respeta la variable `TZ`.
