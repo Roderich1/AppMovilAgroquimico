@@ -1,9 +1,12 @@
 # Bloque 2 — D-03: existencia histórica en aplicaciones con fecha pasada
 
-- **Fecha real:** 2026-10-27 (America/La_Paz). Primera versión hacia las 13:50; ajustes de la revisión cruzada hacia las 14:10. Rama `feat/d03-existencia-historica-aplicacion` sobre Mobile `main` `ed9c55c`. Estado verificado: `4ccaca1`.
-- **Fuente:** decisión del autor, Roderich Rendón, del 2026-10-27 (bloque 2, D-03). Es una decisión del autor; no se atribuye al tutor ni a la Directiva. El análisis previo está en la revisión integral del 2026-10-26 (decisiones de negocio, §1).
-- **Trazabilidad:** RN-25 (stock suficiente, precisada), RN-26 (FIFO), RF-03 (elegibilidad temporal de §2.3), CU-09 (aplicación).
-- **Procedencia:** sólo pruebas de **host** (`flutter test`, Windows 11, Flutter 3.47.2, reloj real del 2026-10-27). Sin dispositivo, sin emulador y sin personas.
+- **Fecha real:** 2026-10-27 y 2026-10-28 (America/La_Paz).
+  - 2026-10-27: primera versión hacia las 13:50 y ajustes de la revisión cruzada hacia las 14:10.
+  - 2026-10-28: anulaciones demostradas, hacia las 11:55 (§8).
+- **Rama:** `feat/d03-existencia-historica-aplicacion` sobre Mobile `main` `ed9c55c`. Estado verificado: `d3894db`.
+- **Fuente:** decisiones del autor, Roderich Rendón, del 2026-10-27 (bloque 2, D-03) y del 2026-10-28 (anulaciones demostradas, §8). Son decisiones del autor; no se atribuyen al tutor ni a la Directiva. El análisis previo está en la revisión integral del 2026-10-26 (decisiones de negocio, §1).
+- **Trazabilidad:** RN-25 (stock suficiente, precisada), RN-26 (FIFO), RF-03 (elegibilidad temporal de §2.3), RF-13 (reversiones), CU-09 (aplicación).
+- **Procedencia:** sólo pruebas de **host** (`flutter test`, Windows 11, Flutter 3.47.2, reloj real del 2026-10-27 y del 2026-10-28). Sin dispositivo, sin emulador y sin personas.
 - **Esta mejora no forma parte de X01 ni de X02**, y sus evidencias no cambian.
 
 ## 1. Commits
@@ -13,7 +16,9 @@
 | `d2f186a` | `confirmApplication`: con un día local efectivo anterior a hoy, la elegibilidad de RF-03 (`_lotsAvailableAt`); con el día de hoy, la ruta de siempre (`_lotsAvailableNow`). `HistoricalStockException`. Pruebas nuevas; `e2e_v5_test` y `fix_inventario_movimientos_test` ajustadas (§4); contrato §2.6; precisión de RN-25 |
 | `faa628a` | Primera versión de esta evidencia |
 | `4ccaca1` | Ajustes de la revisión cruzada: el rechazo histórico se aplica siempre, también cuando tampoco alcanza el saldo de hoy; mensaje en dos casos; `heldBase` y `_lotHistoryAt`; pruebas 1b, 3b, 3c y 3d; `rec_046` y `rec_047` cambian el texto esperado (§4); contrato §2.6 ampliado |
-| (este commit) | Evidencia actualizada a `4ccaca1` |
+| `a7fac66` | Evidencia actualizada a `4ccaca1` |
+| `d3894db` | Decisión del 2026-10-28: la proyección histórica (`_lotHistoryAt`) neutraliza los pares operación + reversión con vínculo de anulación demostrado; cupo limitado al saldo de hoy; prueba nueva `f10_d03_anulaciones_demostradas_test`; 3c cambia y se añade 3c-bis; `fix_inventario_movimientos_test` vuelve a su versión de `ed9c55c`; contrato §2.3 y §2.6; RN-25 (§8) |
+| (este commit) | Evidencia actualizada a `d3894db` |
 
 ## 2. Diseño
 
@@ -68,7 +73,7 @@ git checkout HEAD -- lib/data/agro_repository.dart
 | 2b. Lote adquirido el mismo día: elegible (control) | pasa | pasa |
 | 3. Cupo comprometido por una aplicación del 18/10 → «tenía 1 L; de eso quedan 0,3 L…; pidió 0,5 L»; 0,3 L aceptado sin saldos negativos | falla: `emitted <2>` | pasa |
 | 3b. Pase posterior del mismo lote, del lado de quien da → mismo mensaje; 0,3 L aceptado | falla: `emitted <1>` | pasa |
-| 3c. Límite de las reversiones: 8 L el 21/01 → `HistoricalStockException` con 7000 elegibles, volcado intacto | falla: `emitted <3>` (se aceptó) | pasa |
+| 3c. (versión del 2026-10-27, sustituida el 2026-10-28, §8) Límite de las reversiones: 8 L el 21/01 → `HistoricalStockException` con 7000 elegibles | falla: `emitted <3>` (se aceptó) | pasaba en `4ccaca1` |
 | 3d. Lote con historial negativo previo (−0,5 L el 15/10, hoy 0,5 L) no aporta cupo: 0,6 L rechazado («tenía 0,4 L»), 0,4 L sólo del lote propio | falla: `emitted <2>` | pasa |
 | 4. Multiproducto: la 2.ª línea no existía → «Expansive: … no tenía este producto; pidió 1 KG»; nada nuevo en `applications`, `inventory_movements`, `account_transactions`, `sync_outbox` ni en el resto del volcado | falla: `emitted <1>` | pasa |
 | 4b. Plan con fecha pasada: misma regla, plan sin cambios | falla: `emitted <1>` | pasa |
@@ -93,11 +98,11 @@ Las pruebas de control (2b, 6, 6b y 7b) comprueban que no cambia lo que debe seg
 ## 4. Pruebas existentes cuyo resultado esperado cambia por D-03
 
 - **`e2e_v5_test` (en `d2f186a`):** la aplicación del 10/01 consumía producto recibido en un pase sin fecha, es decir, de hoy. Con D-03 se rechaza. El pase se fecha ahora el 06/01, antes de la aplicación; el resto del escenario y sus cifras no cambian.
-- **`fix_inventario_movimientos_test` (en `d2f186a`):** la aplicación del 21/01 de 8 L contaba 3 L devueltos por reversiones fechadas hoy. El 21/01 Ana tenía 4 L + 3 L. Ahora aplica 7 L, también de dos lotes (`-7000`), y las doce aplicaciones extra de «Ver más» van con la fecha de hoy. El caso original de 8 L queda fijado como límite en la prueba 3c.
+- **`fix_inventario_movimientos_test` (en `d2f186a`):** la aplicación del 21/01 de 8 L contaba 3 L devueltos por reversiones fechadas hoy. El 21/01 Ana tenía 4 L + 3 L. Ahora aplica 7 L, también de dos lotes (`-7000`), y las doce aplicaciones extra de «Ver más» van con la fecha de hoy. El caso original de 8 L queda fijado como límite en la prueba 3c. **El 2026-10-28** esta prueba volvió a su versión de `ed9c55c` (§8.3).
 - **`rec_046_inventory_detail_test` y `rec_047_application_rules_test` (en `4ccaca1`):** sólo cambia el texto esperado. Sus aplicaciones tienen fecha pasada (28/03 y 01/03 en UTC, que en La Paz son el 27/03 y el 28/02), y la decisión D-03 («el mensaje debe indicar producto, fecha y existencia elegible») sustituye «Stock insuficiente para confirmar la aplicación.» por «Glifosato: el 27/03/2026 esa persona tenía 5 L; pidió 5,001 L. …» y por «Glifosato: el 28/02/2026 esa persona tenía 20 L; pidió 20,001 L. …». El rechazo y la ausencia de efectos no cambian.
 - `f10_x01_aplicacion_productos_test` también espera «Stock insuficiente…», pero con fecha de hoy, así que no cambia.
 
-## 5. Ejecuciones sobre `4ccaca1`
+## 5. Ejecuciones sobre `4ccaca1` (2026-10-27; las del 2026-10-28, en §8.2)
 
 En tandas de hasta tres archivos, sin la suite completa (la corre el coordinador):
 
@@ -132,12 +137,82 @@ Las 16 de la primera tanda son las 14 del repositorio y la voz, la del formulari
 - **Medianoche:** si el día cambia entre la apertura del formulario y la confirmación, la fecha elegida pasa a ser un día pasado y se aplica la regla histórica.
 - Todo es host. No hay comprobación en dispositivo ni en emulador.
 
-## 8. Reversiones: decisión pendiente del autor
+## 8. Reversiones: anulaciones demostradas (decisión del autor del 2026-10-28)
 
-Una reversión, de una aplicación o de un pase, devuelve el producto con la fecha en que se revierte, no con la de la operación anulada. Para una aplicación con fecha anterior a la reversión, ese producto no cuenta, aunque la operación revertida haya sido un error que en la realidad no ocurrió. Ejemplo de la prueba 3c: Ana tiene 10 L hoy, y el 21/01 se rechazan 8 L con 7 L elegibles.
+- **Fecha real:** 2026-10-28 (America/La_Paz), hacia las 11:55. Base de comparación: `a7fac66`. Cambio: `d3894db`. Todo es host.
+- **Decisión** (Roderich Rendón, 2026-10-28), literal: «Conservar operación, reversión y fechas reales en la bitácora; neutralizar sus efectos en la proyección histórica únicamente cuando el vínculo de anulación esté demostrado. La corrección debe: conservar la fecha original de adquisición; impedir disponibilidad duplicada; respetar los movimientos posteriores y el saldo actual; no reescribir costos ni registros históricos; no utilizar el PIN para permitir existencias insuficientes. El caso de Ana sólo se acepta si el historial corregido acredita existencia suficiente y los demás controles se cumplen. Conserva RN-39 y la guarda vigente de paso a modo propio. Las dos modificaciones opcionales no entran en este bloque.»
+- **Dónde:** `_lotHistoryAt`, que filtra `_lotsAvailableAt`. Es la proyección histórica única, compartida por la aplicación con fecha pasada (D-03) y la operación tardía (RF-03 §2.3). La ruta de hoy (`_lotsAvailableNow`) no cambia.
 
-Se mantiene tal como está en el código, porque es la convención de RF-03 §2.3 y nunca deja saldos negativos. Alternativas registradas, sin aplicar:
-- (a) mantener la convención actual (vigente);
-- (b) neutralizar en el cálculo los pares operación + reversión, como si la operación anulada no hubiera existido;
-- (c) guardar una columna de fecha efectiva propia de la reversión;
-- (d) mostrar un mensaje específico, o pedir un permiso expreso, cuando el rechazo se debe a una reversión posterior.
+### 8.1 Vínculo de anulación demostrado
+
+Se neutraliza un par de movimientos (`_demonstratedAnnulments` y `_annulmentRecorded`) sólo si se cumplen todas estas condiciones:
+
+1. **Mismo lote.**
+2. **Misma operación,** con el mismo `reference_id`:
+   - aplicación: `APPLICATION_OUT`/`APPLICATION` con `APPLICATION_REVERSAL`/`APPLICATION_REVERSAL`;
+   - pase, en el lote de origen: `TRANSFER_OUT`/`TRANSFER` con `TRANSFER_REVERSAL_IN`/`TRANSFER_REVERSAL`.
+3. **Exactamente una salida y una reversión** de esa operación en el lote.
+4. **Cantidades opuestas e iguales**, con la salida negativa.
+5. **La operación consta como revertida:**
+   - aplicación: `applications.reversed_at` no nulo y `status = 'REVERSED'`, con un único consumo en ese lote, revertido y por la misma cantidad;
+   - transferencia: `transfers.reversed_at` no nulo y `status = 'REVERSED'`, con una única fila de `transfer_lot_items` para ese lote de origen, por la misma cantidad y con el lote de destino anulado.
+6. **Auditoría:** si existe `reversal_audit` de la operación, sus efectos nombran el movimiento de reversión.
+
+Si falta algo o hay ambigüedad, no se neutraliza nada de esa operación. Las reversiones de compra no se neutralizan, porque el lote queda anulado.
+
+- **Efecto:** el par se excluye del cálculo; nada se escribe.
+- **Sin duplicación:** las operaciones posteriores siguen descontando, y el cupo de cada lote se limita también a su saldo de hoy.
+- **PIN:** no interviene.
+- **Mensaje:** se calcula sobre la historia corregida.
+
+### 8.2 Pruebas
+
+Archivos:
+- nuevo: `test/f10_d03_anulaciones_demostradas_test.dart`, 10 pruebas;
+- ayudante nuevo: `test/support/d03_dump.dart`, que comprueba que sólo aparecen las filas de la aplicación aceptada y que ninguna fila previa cambia;
+- cambiadas: 3c y 3c-bis en `f10_d03_existencia_historica_test.dart`.
+
+| Prueba | Base `a7fac66` | `d3894db` |
+|---|---|---|
+| 3c. Ana: historia corregida 10 L el 21/01 → 8 L aceptados (7 L del 05/01, 1 L del 06/01); sólo filas nuevas | falla: rechazo «Glifosato: el 21/01/2026 esa persona tenía 7 L; pidió 8 L. …» | pasa |
+| 3c-bis. Ana, con 4 L de lo devuelto usados hoy → rechazo «tenía 10 L; de eso quedan 6 L…; pidió 8 L» | falla: el mensaje dice «tenía 7 L; de eso quedan 6 L» | pasa |
+| Vínculo demostrado (aplicación revertida): 0,5 L el 12/10 aceptados; sólo filas nuevas | falla: rechazo «tenía 1 L; de eso quedan 0 L…» | pasa |
+| Ruta de hoy con un par revertido: usa el saldo actual (control) | pasa | pasa |
+| Sin duplicación y con el saldo de hoy como tope: con 0,6 L de lo devuelto usados hoy, 0,5 L el 12/10 rechazado con «quedan 0,4 L» (= saldo de hoy); 0,4 L aceptado | falla: dice «quedan 0 L» | pasa |
+| Sin vínculo: falta `reversed_at` / la referencia no coincide / la cantidad no coincide / otro lote → rechazo «quedan 0 L», sin efectos (4 pruebas, guardas) | pasan | pasan |
+| Transferencia revertida: el origen recupera 1 L el 18/10 y se acepta; el destino anulado no aporta («no tenía este producto») | falla: «Bellator: el 18/10/2026 esa persona tenía 0,4 L; pidió 1 L. …» | pasa |
+| Tardía con una reversión auditada con PIN: se confirma; sólo filas nuevas | falla: `Expected: …confirmed Actual: …conflict` | pasa |
+| Tardía con una auditoría que no nombra el movimiento: conflicto `LATE_STOCK_UNAVAILABLE`, sin efectos (guarda) | pasa | pasa |
+| `fix_inventario_movimientos_test`, restaurada a `ed9c55c` (8 L de dos lotes) | falla (3 pruebas): rechazo «tenía 7 L; pidió 8 L» | pasa |
+
+**Comandos y salidas literales:**
+```
+git checkout a7fac66 -- lib/data/agro_repository.dart
+flutter test --timeout 120s -r expanded test/f10_d03_anulaciones_demostradas_test.dart test/f10_d03_existencia_historica_test.dart test/fix_inventario_movimientos_test.dart
+00:04 +20 -9: Some tests failed.
+git checkout HEAD -- lib/data/agro_repository.dart
+flutter test --timeout 120s -r expanded (los mismos tres archivos)      → 00:07 +29: All tests passed!
+```
+
+Tandas sobre el árbol de `d3894db`, de tres archivos como mucho:
+```
+f10_d03_anulaciones_demostradas_test + f10_d03_existencia_historica_test        → 00:02 +25: All tests passed!
+fix_inventario_movimientos_test + rec_046_inventory_detail_test + rec_047_application_rules_test → 00:02 +11: All tests passed!
+e2e_v5_test + f10_d03_existencia_historica_form_test + f04_rf03_late_operations_test → 00:05 +15: All tests passed!
+f04_rf03_late_screen_test + f04_rf13_reversal_audit_test + rec_050_reversal_rules_test → 00:07 +25: All tests passed!
+f04_bug_01_reverse_transfer_test + f04_bug_02_reverse_purchase_after_transfer_test + f04_rf13_reversal_backup_test → 00:01 +17: All tests passed!
+```
+
+`dart format lib test`: «Formatted 327 files (0 changed)». `flutter analyze`: «No issues found!».
+
+### 8.3 Pruebas existentes cuyo resultado esperado cambia por esta decisión
+
+- **3c** (`f10_d03_existencia_historica_test`): el caso de Ana pasa de rechazado con 7 L elegibles a aceptado con la historia corregida (10 L).
+- **`fix_inventario_movimientos_test`** vuelve exactamente a su versión de `ed9c55c`: 8 L de dos lotes y las doce aplicaciones extra en enero. El ajuste de `d2f186a` (§4) se debía sólo a la convención que esta decisión corrige.
+- **Sin cambios:** las tardías (`f04_rf03_late_operations_test` y `f04_rf03_late_screen_test`) y las de reversión (`f04_rf13_reversal_audit_test`, `rec_050`, `f04_bug_01`, `f04_bug_02` y `f04_rf13_reversal_backup_test`), que no tenían pares neutralizables con aplicaciones posteriores con fecha pasada.
+
+### 8.4 Observaciones
+
+- **Saldo cronológico de la bitácora:** sin corregir, puede verse negativo entre la fecha de la operación anulada y la de su reversión. Así se ve, por ejemplo, Ana el 21/01 después de aceptar los 8 L (−3 L hasta hoy). Ninguna vista de la app muestra un saldo acumulado de existencias, y la decisión pide conservar las fechas reales en la bitácora.
+- **RF-03 §2.3** decía que el cupo «no deja negativo ningún saldo histórico». Ahora se lee sobre la proyección corregida; se añadió esa precisión en §2.3. No contradice el objetivo de §2.3, que es no consumir material que otra operación usó después: lo anulado por un vínculo demostrado no se usó.
+- **Sin cambios:** RN-39 y la guarda de paso a modo propio. Las dos modificaciones opcionales no entran en este bloque.
