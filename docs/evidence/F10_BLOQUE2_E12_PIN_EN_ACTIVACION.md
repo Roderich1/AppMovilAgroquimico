@@ -181,7 +181,7 @@ Las tandas 4 a 6 cubren el resto de las pruebas existentes que tocan lo cambiado
 
 - **EMULADOR, 2026-10-28** (`docs/evidence/F10_BLOQUE2_EMULADOR_2026-10-28.md`, APK de la composición `e5ba07c`, con el mismo código de E-12 que esta rama):
   - **ejecutados:** E1 (oferta, PIN sin contraseña y reversión autorizada sin red), E2 («Ahora no» y, después, PIN con contraseña) y E3 desde una reversión (vuelve a la revisión sin ejecutar);
-  - **no ejecutados:** E3 desde una tardía, porque la siembra no tiene campaña cerrada (cubierto en host, W3/W3b); E4, porque la mediana no se mide sin personas. La vigencia sigue en 10 minutos (D-1).
+  - **no ejecutados:** E3 desde una tardía, porque la siembra no tiene campaña cerrada (cubierto en host, W4/W3b); E4, porque la mediana no se mide sin personas. La vigencia sigue en 10 minutos (D-1).
 - **Límites declarados** (§4 bis.7):
   - otra persona con el teléfono dentro de la ventana (T13);
   - sesión revocada, o cuenta o rol cambiados en el servidor dentro de la ventana, porque el paso no consulta la red (T14, T21);
