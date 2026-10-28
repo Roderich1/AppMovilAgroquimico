@@ -146,11 +146,30 @@ class _TransferFormScreenState extends ConsumerState<TransferFormScreen> {
           context: context,
           builder: (dialogContext) => AlertDialog(
             title: const Text('Confirmar transferencia'),
+            // Con muchas líneas el contenido se desplaza en vez de recortarse.
+            scrollable: true,
             content: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text('De: $from\nA: $to'),
+                const Divider(),
+                // D-07 (RN-35, decisión del autor del 2026-10-27): antes de
+                // confirmar se dice que la entrega no genera deuda, sea el
+                // destino un familiar o un tercero que paga por compra. Va
+                // justo después de De/A para que se lea antes de la lista,
+                // por larga que sea.
+                Text(
+                  transferNoDebtNotice('$to'),
+                  key: const Key('transfer-no-debt-notice'),
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Esta transferencia no registra ningún cargo ni cobro a '
+                  '$to. El costo del producto entregado sólo es de '
+                  'referencia, no un precio de venta.',
+                ),
                 const Divider(),
                 for (final item in items)
                   Text(
@@ -343,7 +362,7 @@ class _TransferFormScreenState extends ConsumerState<TransferFormScreen> {
                             style: const TextStyle(fontWeight: FontWeight.w700),
                           ),
                           subtitle: Text(
-                            '${formatQuantity(row['available_base'] as int, unit)} disponibles · ${row['lot_count']} lote(s) · costo ${formatBob(row['next_fifo_cost_minor'] as int)}/$unit',
+                            '${formatQuantity(row['available_base'] as int, unit)} disponibles · ${row['lot_count']} lote(s) · costo de referencia ${formatBob(row['next_fifo_cost_minor'] as int)}/$unit',
                           ),
                           trailing: SizedBox(
                             width: 105,

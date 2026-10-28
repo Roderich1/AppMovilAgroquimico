@@ -224,6 +224,7 @@ Convención de estados usada abajo:
 | **Datos recibidos** | `productId` (`int.parse` del path param) |
 | **Servicios** | `inventoryProductHeader`, `inventoryProductDistribution`, `inventoryProductLots` |
 | **Datos mostrados** | 6 métricas (Comprado neto, Consumido neto, Físico, Comprometido, Libre proyectado, Valor físico), con la nota «Neto: no cuenta lo revertido»; distribución por persona (asignación neta/consumido neto/disponible), con una línea que explica la asignación neta (lo comprado para la persona, más lo recibido y menos lo entregado por transferencias, sin lo revertido); lista de lotes con proveedor, campaña, costo unitario y origen (compra o "transferencia del lote #N") |
+| **Movimientos y pases (D-07, 2026-10-27)** | Los títulos «Pase a X», «Recibido de X», «Pase revertido: vuelve de X» y «Pase revertido: devuelto a X» no cambian. Por decisión del autor (Roderich Rendón) del 2026-10-27 (RN-35 se mantiene), el subtítulo de un pase termina en «· entrega sin deuda» y el de su reversión en «· sin deuda»; la ayuda dice «Lo que explica el saldo: compras, aplicaciones, pases (entregas sin deuda) y reversiones, del más reciente al más antiguo.» |
 | **Subtítulo** | "Detalle físico y trazabilidad FIFO. El inventario continúa entre campañas." |
 | **error** | `PageFrame` + `EmptyState` con `friendlyError` (cubre "El producto no existe.") |
 | **Defecto de rendimiento** | El `Future` se crea en `build()` vía `_load(ref)`, por lo que **cada reconstrucción relanza las 3 consultas**. Ver [25](25_PERFORMANCE_AUDIT.md) |
@@ -281,9 +282,10 @@ Convención de estados usada abajo:
 
 | | |
 |---|---|
-| **Archivo** | `transfers_screen.dart` (103 líneas) |
+| **Archivo** | `transfers_screen.dart` (164 líneas) |
 | **Servicios** | `transfers()` (límite 50), `reverseTransfer` |
-| **Datos mostrados** | "Origen → Destino"; `products_summary` (generado con `GROUP_CONCAT` en SQL); al expandir: "N producto(s) · M lote(s) · costo Bs X"; botón ↩ o texto "Revertida" |
+| **Datos mostrados** | "Origen → Destino"; `products_summary` (generado con `GROUP_CONCAT` en SQL); al expandir: «N producto(s) · M lote(s) · costo de referencia 300,00 Bs»; botón ↩ o texto "Revertida" |
+| **Carácter sin deuda (D-07, 2026-10-27)** | Decisión del autor (Roderich Rendón) del 2026-10-27; RN-35 se mantiene. Subtítulo: «Entregas de producto de una persona a otra. No generan deuda; el costo es sólo de referencia.» Cada fila añade «Entrega sin deuda» bajo fecha y productos. Al expandir: «N producto(s) · M lote(s) · costo de referencia X Bs» y «Es el costo de compra del producto entregado, no un precio de venta. La entrega no genera deuda.». Al revertir: «Costo X Bs, sólo de referencia: la transferencia no generó deuda.» y «El stock volverá a la persona de origen y ninguna cuenta cambia. Esta acción no se puede deshacer.» |
 | **Acciones** | "Nueva" (`push`); revertir |
 | **loading / empty / error** | Spinner · `EmptyState` "No hay transferencias." · `EmptyState` con `friendlyError` |
 
@@ -293,11 +295,12 @@ Convención de estados usada abajo:
 
 | | |
 |---|---|
-| **Archivo** | `transfer_form_screen.dart` (361 líneas) |
+| **Archivo** | `transfer_form_screen.dart` (415 líneas) |
 | **Tipo** | `ConsumerStatefulWidget`, pantalla completa |
 | **Servicios** | `people()`, `availableProductsForOwner`, `transferProductsFifo` |
 | **Estructura** | 3 secciones numeradas: "1. Origen", "2. Productos disponibles", "3. Destino" |
-| **Datos mostrados** | Por producto: nombre, "X disponibles · N lote(s) · próximo FIFO Bs Y/unidad", campo de cantidad de 105px |
+| **Datos mostrados** | Por producto: nombre, «10 L disponibles · 1 lote(s) · costo de referencia 100,00 Bs/L» (costo FIFO del próximo lote, rotulado como referencia desde el 2026-10-27, D-07), campo de cantidad de 105px |
+| **Confirmación (D-07, 2026-10-27)** | Decisión del autor (Roderich Rendón) del 2026-10-27; RN-35 se mantiene. El diálogo «Confirmar transferencia» muestra De/A y, justo después, «Esta transferencia entrega producto a [destino], pero no genera una deuda.» (en negrita, clave `transfer-no-debt-notice`) y «Esta transferencia no registra ningún cargo ni cobro a [destino]. El costo del producto entregado sólo es de referencia, no un precio de venta.»; luego las líneas de producto. El diálogo es desplazable (`scrollable: true`), así que con muchas líneas la frase no se recorta. Igual para un familiar y para un tercero con cobro por compra, con uno o varios productos |
 | **Gestión de controllers** | Un `TextEditingController` por producto en un `Map<int, TextEditingController>`, recreado al cambiar de origen, con `dispose()` de los anteriores |
 | **Buscador** | Aparece **solo si hay ≥ 8 productos** |
 | **Altura acotada** | La lista se limita a `MediaQuery.sizeOf(context).height * 0.48` |

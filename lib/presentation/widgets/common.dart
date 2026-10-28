@@ -16,7 +16,9 @@ export '../../domain/labels.dart'
         conceptLabel,
         operationStatusLabel,
         personRoleLabel,
-        transactionTypeLabel;
+        transactionTypeLabel,
+        transferNoDebtLabel,
+        transferNoDebtNotice;
 export '../../domain/text_search.dart' show matchesSearch, normalizeForSearch;
 
 /// Espacio que el contenido desplazable debe reservar por debajo.

@@ -253,6 +253,12 @@ flowchart TD
 ```
 
 - **Sin efecto contable**: transferir no genera cargos ni créditos.
+- **Aviso sin deuda (D-07, 2026-10-27)**: por decisión del autor (Roderich Rendón) del
+  2026-10-27, RN-35 se mantiene y el diálogo resumen (J) añade «Esta transferencia entrega
+  producto a [destino], pero no genera una deuda.» y «Esta transferencia no registra ningún
+  cargo ni cobro a [destino]. El costo del producto entregado sólo es de referencia, no un
+  precio de venta.», justo después de De/A y antes de las líneas; el diálogo se desplaza
+  si hay muchas. Vale también para un tercero con cobro por compra.
 - **Costo preservado**: el lote destino hereda `unit_cost_bob_minor_per_major_unit`,
   `currency_code`, `original_unit_price_minor`, `exchange_rate_scaled` y `acquired_date`
   del origen — por eso el orden FIFO se mantiene coherente tras la transferencia.
