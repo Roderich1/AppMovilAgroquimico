@@ -6,7 +6,7 @@
 - **Rama:** `feat/d03-existencia-historica-aplicacion` sobre Mobile `main` `ed9c55c`. Estado verificado: `39e7229`.
 - **Fuente:** decisiones del autor, Roderich Rendón, del 2026-10-27 (bloque 2, D-03) y del 2026-10-28 (anulaciones demostradas, §8). Son decisiones del autor; no se atribuyen al tutor ni a la Directiva. El análisis previo está en la revisión integral del 2026-10-26 (decisiones de negocio, §1).
 - **Trazabilidad:** RN-25 (stock suficiente, precisada), RN-26 (FIFO), RF-03 (elegibilidad temporal de §2.3), RF-13 (reversiones), CU-09 (aplicación).
-- **Procedencia:** sólo pruebas de **host** (`flutter test`, Windows 11, Flutter 3.47.2, reloj real del 2026-10-27 y del 2026-10-28). Sin dispositivo, sin emulador y sin personas.
+- **Procedencia:** sólo pruebas de **host** (`flutter test`, Windows 11, Flutter 3.47.2, reloj real del 2026-10-27 y del 2026-10-28). El recorrido en EMULADOR del 2026-10-28 está en §10 y en `docs/evidence/F10_BLOQUE2_EMULADOR_2026-10-28.md`. Sin teléfono y sin personas.
 - **Esta mejora no forma parte de X01 ni de X02**, y sus evidencias no cambian.
 
 ## 1. Commits
@@ -300,4 +300,6 @@ El código no cambia: `confirmLateOperation` ya usaba la proyección corregida d
 | Anterior | `e5ba07c` | `f87932cd…` | Rechazo con fecha pasada: «Glifosato Demo: el 15/10/2026 esa persona no tenía este producto; pidió 1 L.…» |
 | Corregida | `fb331c6` | `5a296dbe…` | Aplicación del 20/10 revertida hoy. Después, una aplicación del 19/10 de 5 L se acepta |
 
-**Límite:** el retorno desde una tardía no se ejecutó en el emulador.
+**Límites:**
+- La confirmación de una operación tardía (RF-03) con la proyección corregida no se ejecutó en el emulador, porque la siembra no tiene campaña cerrada. Sólo tiene pruebas en host.
+- El rechazo del repositorio con «quedan …» y la ausencia de disponibilidad duplicada en la proyección (3c-bis y el pase de dos lotes) también son sólo de host. En el emulador, la segunda aplicación del 19/10 se detuvo en el formulario por el saldo de hoy.
