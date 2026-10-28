@@ -5,7 +5,9 @@
 // `rec_046_inventory_detail_test.dart`; no se repite aquí.
 import 'package:agroquimicos/data/agro_repository.dart';
 import 'package:agroquimicos/data/app_database.dart';
+import 'package:agroquimicos/domain/campaign_calendar.dart';
 import 'package:agroquimicos/domain/models.dart';
+import 'package:agroquimicos/domain/money.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -85,45 +87,42 @@ void main() {
     isA<BusinessRuleException>().having((e) => e.message, 'message', message),
   );
 
-  test(
-    'si una línea no tiene stock, no queda ningún efecto de las demás',
-    () async {
-      final before = await dumpTables(db);
-      // La Atrazina alcanza (3 de 4 kg) y se procesa primero; el Glifosato
-      // pide 20,001 L de 20 L. D-03 (decisión del autor del 2026-10-27): con
-      // fecha pasada el mensaje indica producto, fecha y existencia
-      // elegible; antes era «Stock insuficiente para confirmar la
-      // aplicación.».
-      await expectLater(
-        repo.confirmApplication(
-          application([
-            ApplicationLineDraft(productId: atrazina, quantityBase: 3000),
-            ApplicationLineDraft(productId: glifosato, quantityBase: 20001),
-          ]),
-        ),
-        rejected(
-          'Glifosato: el 28/02/2026 esa persona tenía 20 L; pidió 20,001 L. '
-          'Una aplicación con fecha pasada sólo puede usar lo que esa persona '
-          'ya tenía ese día y no se usó después: no cuenta el producto '
-          'comprado o recibido más tarde. Revise la fecha o la cantidad. No '
-          'se registró nada.',
-        ),
-      );
-      expect(await dumpTables(db), before);
-      for (final table in [
-        'applications',
-        'application_items',
-        'application_consumptions',
-        'account_transactions',
-      ]) {
-        expect(before[table], isEmpty, reason: table);
-      }
-      expect(await stockByPersonProduct(db), {
-        (ana, glifosato): 20000,
-        (ana, atrazina): 4000,
-      });
-    },
-  );
+  test('si una línea no tiene stock, no queda ningún efecto de las demás', () async {
+    final before = await dumpTables(db);
+    // La Atrazina alcanza (3 de 4 kg) y se procesa primero; el Glifosato
+    // pide 20,001 L de 20 L. D-03 (decisión del autor del 2026-10-27): con
+    // fecha pasada el mensaje indica producto, fecha y existencia
+    // elegible; antes era «Stock insuficiente para confirmar la
+    // aplicación.».
+    await expectLater(
+      repo.confirmApplication(
+        application([
+          ApplicationLineDraft(productId: atrazina, quantityBase: 3000),
+          ApplicationLineDraft(productId: glifosato, quantityBase: 20001),
+        ]),
+      ),
+      rejected(
+        'Glifosato: el ${formatDate(localDay(DateTime.utc(2026, 3, 1)))} esa persona tenía 20 L; pidió 20,001 L. '
+        'Una aplicación con fecha pasada sólo puede usar lo que esa persona '
+        'ya tenía ese día y no se usó después: no cuenta el producto '
+        'comprado o recibido más tarde. Revise la fecha o la cantidad. No '
+        'se registró nada.',
+      ),
+    );
+    expect(await dumpTables(db), before);
+    for (final table in [
+      'applications',
+      'application_items',
+      'application_consumptions',
+      'account_transactions',
+    ]) {
+      expect(before[table], isEmpty, reason: table);
+    }
+    expect(await stockByPersonProduct(db), {
+      (ana, glifosato): 20000,
+      (ana, atrazina): 4000,
+    });
+  });
 
   test(
     'una línea con cantidad cero o negativa se rechaza sin efectos',

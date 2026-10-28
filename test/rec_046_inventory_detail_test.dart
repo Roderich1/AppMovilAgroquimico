@@ -3,7 +3,9 @@
 // rechazar una aplicación por stock (conciliación del 2026-10-19, §3.1).
 import 'package:agroquimicos/data/agro_repository.dart';
 import 'package:agroquimicos/data/app_database.dart';
+import 'package:agroquimicos/domain/campaign_calendar.dart';
 import 'package:agroquimicos/domain/models.dart';
+import 'package:agroquimicos/domain/money.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -300,7 +302,7 @@ void main() {
         isA<BusinessRuleException>().having(
           (e) => e.message,
           'message',
-          'Glifosato: el 27/03/2026 esa persona tenía 5 L; pidió 5,001 L. '
+          'Glifosato: el ${formatDate(localDay(DateTime.utc(2026, 3, 28)))} esa persona tenía 5 L; pidió 5,001 L. '
               'Una aplicación con fecha pasada sólo puede usar lo que esa persona '
               'ya tenía ese día y no se usó después: no cuenta el producto '
               'comprado o recibido más tarde. Revise la fecha o la cantidad. No '
