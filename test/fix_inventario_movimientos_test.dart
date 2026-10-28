@@ -11,17 +11,9 @@
 //   15/01 Ana pasa 2 L a Beto; se revierte.
 //   17/01 Ana aplica 1 L; se revierte.
 //   19/01 Beto compra 4 L a Agro Norte; se revierte.
-//   21/01 Ana aplica 7 L: 4 L del lote del 05/01 y 3 L del lote del 06/01
+//   21/01 Ana aplica 8 L: 7 L del lote del 05/01 y 1 L del lote del 06/01
 //   (dos movimientos, una sola fila en el historial).
 //   Las reversiones se fechan al revertir (ahora): van primero.
-//
-// D-03 (decisión del autor del 2026-10-27): una aplicación con fecha pasada
-// sólo usa lo que había ese día y no se usó después. Las reversiones del
-// pase y de la aplicación del 17/01 devuelven sus 3 L con la fecha de hoy,
-// así que el 21/01 Ana tenía 4 L + 3 L. Antes la prueba aplicaba 8 L (7 + 1)
-// contando esos 3 L; ahora aplica 7 L, también de dos lotes. Las doce
-// aplicaciones extra de la prueba de «Ver más» van con la fecha de hoy, el
-// único día en que queda saldo.
 import 'package:agroquimicos/app.dart';
 import 'package:agroquimicos/data/agro_repository.dart';
 import 'package:agroquimicos/data/app_database.dart';
@@ -64,17 +56,15 @@ void main() {
         ),
       );
 
-  Future<int> applyAt(int qty, DateTime at) => repo.confirmApplication(
+  Future<int> apply(int qty, int d) => repo.confirmApplication(
     ApplicationDraft(
       personId: ana,
       farmId: farmAna,
       campaignId: 1,
-      appliedAt: at,
+      appliedAt: day(d),
       lines: [ApplicationLineDraft(productId: glifosato, quantityBase: qty)],
     ),
   );
-
-  Future<int> apply(int qty, int d) => applyAt(qty, day(d));
 
   /// Sólo la compra y la primera aplicación.
   Future<void> seedBasic() async {
@@ -110,7 +100,7 @@ void main() {
     await repo.reverseApplicationUnauditedForTesting(a2, reason: 'Error');
     final c2 = await buy(beto, norte, 4000, 19);
     await repo.reversePurchaseUnauditedForTesting(c2, reason: 'Devuelta');
-    await apply(7000, 21);
+    await apply(8000, 21);
   }
 
   group('repositorio', () {
@@ -148,7 +138,7 @@ void main() {
         ('APPLICATION_REVERSAL', 'Ana', 1000, 'Chaco Ana', null, null),
         ('TRANSFER_REVERSAL_OUT', 'Beto', -2000, null, 'Ana', null),
         ('TRANSFER_REVERSAL_IN', 'Ana', 2000, null, 'Beto', null),
-        ('APPLICATION_OUT', 'Ana', -7000, 'Chaco Ana', null, null),
+        ('APPLICATION_OUT', 'Ana', -8000, 'Chaco Ana', null, null),
       ]);
       expect(view.skip(5).toList(), [
         ('PURCHASE_IN', 'Beto', 4000, null, null, 'Agro Norte'),
@@ -269,7 +259,7 @@ void main() {
         await seedAll();
         // Doce aplicaciones más: 24 filas en total.
         for (var i = 0; i < 12; i++) {
-          await applyAt(100, DateTime.now());
+          await apply(100, 21 + (i % 10));
         }
       });
       final list = find.byKey(const Key('inventory-movements'));

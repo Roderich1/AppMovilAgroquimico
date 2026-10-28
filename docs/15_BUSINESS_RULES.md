@@ -237,8 +237,11 @@ Las validaciones exclusivamente de interfaz se listan aparte en
   operaciones posteriores; pidió 0,5 L. …"*. Con fecha de hoy, el mensaje sigue siendo el
   de arriba. Con los productores actuales vale para el formulario, la voz y los planes,
   porque vive en `confirmApplication`; las transferencias con fecha pasada quedan fuera. No recalcula costos ni consumos ya
-  confirmados ni corrige registros históricos. Test:
-  `test/f10_d03_existencia_historica_test.dart`.
+  confirmados ni corrige registros históricos. Desde el 2026-10-28 (decisión del autor), el
+  cupo se calcula sobre la proyección corregida: no cuentan los pares operación + reversión
+  con vínculo de anulación demostrado (F04 §2.6), sin duplicar existencias, con el saldo de
+  hoy como tope y sin PIN para permitir existencias insuficientes. Tests:
+  `test/f10_d03_existencia_historica_test.dart`, `test/f10_d03_anulaciones_demostradas_test.dart`.
 
 ### RN-26 · Costeo FIFO por lote
 - **Descripción**: el consumo recorre los lotes ordenados por `acquired_date, id` y toma de
