@@ -179,7 +179,9 @@ Las tandas 4 a 6 cubren el resto de las pruebas existentes que tocan lo cambiado
 
 ## Pendiente y límites
 
-- **Pendiente, no declarado hecho:** E1–E4 en el EMULADOR (Pixel_8). Las coordina el coordinador del bloque. E4, la medición entre `completed` y «Crear PIN», decide si la vigencia baja de 10 a 5 minutos (D-1).
+- **EMULADOR, 2026-10-28** (`docs/evidence/F10_BLOQUE2_EMULADOR_2026-10-28.md`, APK de la composición `e5ba07c`, con el mismo código de E-12 que esta rama):
+  - **ejecutados:** E1 (oferta, PIN sin contraseña y reversión autorizada sin red), E2 («Ahora no» y, después, PIN con contraseña) y E3 desde una reversión (vuelve a la revisión sin ejecutar);
+  - **no ejecutados:** E3 desde una tardía, porque la siembra no tiene campaña cerrada (cubierto en host, W3/W3b); E4, porque la mediana no se mide sin personas. La vigencia sigue en 10 minutos (D-1).
 - **Límites declarados** (§4 bis.7):
   - otra persona con el teléfono dentro de la ventana (T13);
   - sesión revocada, o cuenta o rol cambiados en el servidor dentro de la ventana, porque el paso no consulta la red (T14, T21);
