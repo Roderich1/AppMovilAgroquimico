@@ -18,6 +18,7 @@ import 'package:cryptography/cryptography.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../../domain/installation_access.dart' show OwnerScope;
+import 'activation_owner_evidence.dart';
 
 /// Para qué se autoriza (F03 §4).
 enum AuthorizationPurpose {
@@ -67,16 +68,44 @@ class CredentialStatus {
   bool get canVerify => state == CredentialState.enrolled;
 }
 
+/// De dónde sale un [OnlineOwnerProof] (F03 §4, interfaz).
+enum _ProofOrigin {
+  /// Contraseña de la cuenta en `/titular/pin` (§9): enrola o restablece.
+  password,
+
+  /// Acreditación de activación (§4 bis): sólo el primer PIN del titular.
+  activation,
+}
+
 /// Comprobante de un solo uso de que el titular se acreditó en línea en esta
-/// instalación (reautenticación del mismo Member y tenant). Lo emite sólo
-/// [OwnerOnlineVerification]; vence a los 5 minutos. Recuerda quién lo emitió:
+/// instalación (mismo Member y tenant). Lo emite sólo
+/// [OwnerOnlineVerification]; vence a los 5 minutos y, si viene de la
+/// activación, nunca después de la acreditación. Recuerda quién lo emitió:
 /// una credencial sólo acepta los de su propia acreditación configurada.
 class OnlineOwnerProof {
-  OnlineOwnerProof._(this.scope, this.issuedAt, this._issuer);
+  OnlineOwnerProof._(
+    this.scope,
+    this.issuedAt,
+    this._issuer, {
+    _ProofOrigin origin = _ProofOrigin.password,
+    DateTime? notAfter,
+    int? bindingId,
+    int? personId,
+  }) : _origin = origin,
+       _notAfter = notAfter,
+       _bindingId = bindingId,
+       _personId = personId;
 
   final OwnerScope scope;
   final DateTime issuedAt;
   final OwnerOnlineVerification _issuer;
+  final _ProofOrigin _origin;
+  final DateTime? _notAfter;
+
+  /// Sólo en los de activación: el vínculo exacto con el que se emitió, que
+  /// [LocalOwnerCredential.enroll] vuelve a comparar (comprobación 5).
+  final int? _bindingId;
+  final int? _personId;
   bool _used = false;
 
   @override
@@ -94,13 +123,16 @@ class OwnerOnlineVerification {
     confirmAccount,
     required Future<OwnerScope?> Function() readSessionScope,
     DateTime Function()? clock,
+    ActivationEvidenceSource? activation,
   }) : _confirmAccount = confirmAccount,
        _readSessionScope = readSessionScope,
-       _clock = clock ?? DateTime.now;
+       _clock = clock ?? DateTime.now,
+       _activation = activation;
 
   final Future<bool> Function(String email, String password) _confirmAccount;
   final Future<OwnerScope?> Function() _readSessionScope;
   final DateTime Function() _clock;
+  final ActivationEvidenceSource? _activation;
 
   /// null si la cuenta no se acreditó o no es la del titular de [binding].
   Future<OnlineOwnerProof?> verify({
@@ -113,6 +145,92 @@ class OwnerOnlineVerification {
     if (scope == null || scope != binding.scope) return null;
     return OnlineOwnerProof._(scope, _clock(), this);
   }
+
+  /// F03 §4 bis.4: comprobante del primer PIN del titular a partir de la
+  /// acreditación de activación, sin contraseña ni red. La retira primero, de
+  /// forma síncrona (un solo uso), y después comprueba vigencia, sesión,
+  /// instalación, vínculo y acceso. null ante cualquier diferencia, error o
+  /// dependencia ausente (falla cerrado). La comprobación 7 (que el titular no
+  /// tenga ya un PIN propio) la hace la credencial dentro de su cola.
+  Future<OnlineOwnerProof?> fromActivation({
+    required OwnerBindingContext binding,
+  }) async {
+    final source = _activation;
+    final take = source?.take;
+    if (source == null || take == null) return null;
+    final evidence = take();
+    final readSession = source.readSessionIdentity;
+    final currentRef = source.currentInstallationRef;
+    final activatedRef = source.activatedInstallationRef;
+    final activeBinding = source.activeBinding;
+    final accessActivated = source.accessActivated;
+    if (evidence == null ||
+        readSession == null ||
+        currentRef == null ||
+        activatedRef == null ||
+        activeBinding == null ||
+        accessActivated == null) {
+      return null;
+    }
+    try {
+      if (!evidence.isFresh(_clock())) return null;
+      final attached = evidence.binding;
+      if (attached == null ||
+          attached.bindingId != binding.bindingId ||
+          attached.personId != binding.personId ||
+          attached.scope != binding.scope ||
+          evidence.scope != binding.scope) {
+        return null;
+      }
+      if (!accessActivated()) return null;
+      final session = await readSession();
+      if (session == null || !session.sameAs(evidence.identity)) return null;
+      final installation = currentRef();
+      if (installation == null || installation != evidence.installationRef) {
+        return null;
+      }
+      if (await activatedRef() != installation) return null;
+      final active = await activeBinding();
+      if (active == null || !active.active || !active.sameAs(attached)) {
+        return null;
+      }
+      final now = _clock();
+      if (!accessActivated() || !evidence.isFresh(now)) return null;
+      return OnlineOwnerProof._(
+        binding.scope,
+        now,
+        this,
+        origin: _ProofOrigin.activation,
+        notAfter: evidence.notAfter,
+        bindingId: binding.bindingId,
+        personId: binding.personId,
+      );
+    } on Object {
+      return null;
+    }
+  }
+}
+
+/// De dónde lee [OwnerOnlineVerification.fromActivation] (F03 §4 bis.4). Si
+/// falta cualquiera, no hay comprobante (H8).
+class ActivationEvidenceSource {
+  const ActivationEvidenceSource({
+    this.take,
+    this.readSessionIdentity,
+    this.currentInstallationRef,
+    this.activatedInstallationRef,
+    this.activeBinding,
+    this.accessActivated,
+  });
+
+  /// Retira la acreditación: síncrona, sin ningún await entre leerla y
+  /// anularla.
+  final ActivationOwnerEvidence? Function()? take;
+  final Future<SessionIdentity?> Function()? readSessionIdentity;
+  final String? Function()? currentInstallationRef;
+  final Future<String?> Function()? activatedInstallationRef;
+  final Future<ActivationBindingRef?> Function()? activeBinding;
+  final bool Function()? accessActivated;
 }
 
 /// Autorización del titular: un solo uso, 120 s, propósito y objeto fijos.
@@ -298,6 +416,11 @@ Duration? lockoutAfter(int failures) {
 
 const int onlineResetAfterFailures = 10;
 
+/// F03 §4 bis.2: ya había un PIN del titular y la activación no lo cambia.
+const activationExistingPinMessage =
+    'Ya hay un PIN del titular en este teléfono. Para cambiarlo, confirme su '
+    'cuenta en línea en Operaciones › Más › PIN del titular.';
+
 /// 6 dígitos, sin todos iguales ni secuencias ascendentes o descendentes.
 String? pinProblem(String pin) {
   if (!RegExp(r'^[0-9]{6}$').hasMatch(pin)) {
@@ -433,12 +556,17 @@ class LocalOwnerCredential {
 
   void _requireProof(OnlineOwnerProof? proof, OwnerBindingContext binding) {
     final now = _clock();
+    final notAfter = proof?._notAfter;
     if (proof == null ||
         !identical(proof._issuer, _onlineVerification) ||
         proof._used ||
         proof.scope != binding.scope ||
         now.difference(proof.issuedAt) > const Duration(minutes: 5) ||
-        now.isBefore(proof.issuedAt)) {
+        now.isBefore(proof.issuedAt) ||
+        (notAfter != null && now.isAfter(notAfter)) ||
+        (proof._origin == _ProofOrigin.activation &&
+            (proof._bindingId != binding.bindingId ||
+                proof._personId != binding.personId))) {
       throw const CredentialException(
         'Hace falta acreditar en línea al titular antes de configurar el PIN.',
       );
@@ -475,6 +603,17 @@ class LocalOwnerCredential {
       throw const CredentialException('Los dos PIN no coinciden.');
     }
     _requireProof(proof, binding);
+    // F03 §4 bis.4, comprobación 7 (H1), dentro de la cola: la acreditación de
+    // activación sólo crea el primer PIN del titular. Con un verificador
+    // legible del mismo ámbito (enrolled, locked o requiresOnlineReset) se
+    // rechaza sin escribir; cambiarlo exige la contraseña. Uno de otro Member
+    // (scopeMismatch) o ilegible se sobrescribe, como al enrolar hoy.
+    if (proof!._origin == _ProofOrigin.activation) {
+      final existing = await _verifier();
+      if (existing != null && existing.scope == binding.scope) {
+        throw const CredentialException(activationExistingPinMessage);
+      }
+    }
     final salt = List<int>.generate(16, (_) => _random.nextInt(256));
     final hash = await _kdf(pin, salt, iterations);
     final verifier = _Verifier(

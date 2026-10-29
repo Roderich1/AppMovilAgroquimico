@@ -51,6 +51,7 @@ class _TransfersScreenState extends ConsumerState<TransfersScreen> {
           'referencia: la transferencia no generó deuda.\n\n'
           'El stock volverá a la persona de origen y ninguna cuenta cambia. '
           'Esta acción no se puede deshacer.',
+      revalidate: reversalStillPending(ref, 'transfers', id),
     );
     if (approval == null || !mounted) return;
     try {

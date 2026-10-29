@@ -284,6 +284,16 @@ final routerProvider = Provider<GoRouter>((ref) {
         path: '/titular/pin',
         builder: (_, __) => const OwnerCredentialScreen(),
       ),
+      // F03 §4 bis: el primer PIN dentro de la activación, sin contraseña.
+      GoRoute(
+        path: '/titular/pin/activacion',
+        builder: (_, state) => OwnerCredentialScreen(
+          fromActivation: true,
+          activationNotice: state.extra is String
+              ? state.extra! as String
+              : null,
+        ),
+      ),
       GoRoute(
         path: '/operaciones/tardias',
         builder: (_, __) => const LateOperationsScreen(),

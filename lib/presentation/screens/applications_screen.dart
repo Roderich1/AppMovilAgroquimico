@@ -83,6 +83,7 @@ class _ApplicationsScreenState extends ConsumerState<ApplicationsScreen> {
           'cargo correspondiente. Esta acción no se puede deshacer. La '
           'aplicación original conserva su responsable y su fecha.',
       confirmLabel: 'Revertir aplicación',
+      revalidate: reversalStillPending(ref, 'applications', id),
     );
     if (approval == null || !mounted) return;
     try {
