@@ -180,13 +180,21 @@ class ReportExportService {
         }
         // D-04 (§2.6): cronológico por período y deuda por campaña de
         // origen, desde una sola lectura del libro.
-        return _composer.ledgerStatement(
-          generatedAt: generatedAt,
-          statement: await _repository.accountStatement(
-            personId,
-            campaignId: request.campaignId,
-          ),
+        final statement = await _repository.accountStatement(
+          personId,
+          campaignId: request.campaignId,
         );
+        // E-15: el titular vigente no tiene un estado de cuenta de deudor;
+        // se exportan sus movimientos propios.
+        return statement.isCurrentOwner
+            ? _composer.ownStatement(
+                generatedAt: generatedAt,
+                statement: statement,
+              )
+            : _composer.ledgerStatement(
+                generatedAt: generatedAt,
+                statement: statement,
+              );
     }
   }
 

@@ -46,6 +46,9 @@ class AccountStatementView extends StatelessWidget {
         if (composition != null)
           Text(composition, style: theme.textTheme.bodySmall),
         Text(netLine(account), style: bold),
+        // E-15: un titular anterior conserva su consumo propio, aparte.
+        if (!statement.isCurrentOwner && statement.hasOwnRecords)
+          Text(formerOwnerLine(ledger.ownConsumption(account.person.id))),
         const Divider(height: 24),
         Text(
           statementHeader(statement),
@@ -126,6 +129,85 @@ class AccountStatementView extends StatelessWidget {
             trailing: Text(formatBob(statement.closingMinor), style: bold),
           ),
         ],
+      ],
+    );
+  }
+}
+
+/// «Movimientos propios» del titular (E-15 §B.2): consumo aplicado con su
+/// costo FIFO y asientos de su cuenta como registro, sin saldo ni acumulado.
+class OwnMovementsView extends StatelessWidget {
+  const OwnMovementsView({super.key, required this.statement});
+
+  final AccountStatement statement;
+
+  @override
+  Widget build(BuildContext context) {
+    final ledger = statement.ledger;
+    final own = statement.ownAccount;
+    final personId = own.person.id;
+    final theme = Theme.of(context);
+    final heading = theme.textTheme.titleSmall?.copyWith(
+      fontWeight: FontWeight.w700,
+    );
+    final total = ledger.ownConsumption(personId);
+    return ListView(
+      children: [
+        Text('Consumo aplicado (costo FIFO)', style: heading),
+        for (final row in ledger.ownConsumptionByCampaign(personId))
+          if (row.consumption.activeCount > 0)
+            Text(
+              ownCampaignLine(
+                ledger.campaignName(row.campaignId),
+                row.consumption,
+              ),
+            ),
+        if (total.reversedCount > 0)
+          Text(
+            'Aplicaciones revertidas: ${total.reversedCount} '
+            '(${bob(total.reversedCostMinor)})',
+          ),
+        Text(
+          'Consumo aplicado · todas las campañas '
+          '${bob(total.activeCostMinor)}',
+          style: const TextStyle(fontWeight: FontWeight.w700),
+        ),
+        const Divider(height: 24),
+        Text(
+          'Asientos de su cuenta (registro, no deuda) · '
+          '${ownScopeLabel(statement.period, statement.today)}',
+          style: heading,
+        ),
+        if (statement.ownLines.isEmpty)
+          const Text('Sin asientos en su cuenta.'),
+        for (final entry in statement.ownLines)
+          Builder(
+            builder: (_) {
+              final status = statusText(ledger, own, entry, ownRecord: true);
+              return ListTile(
+                title: Text(
+                  conceptLabel(entry.concept),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                subtitle: Text(
+                  [
+                        formatDate(entry.transactionDate),
+                        transactionTypeLabel(entry.type),
+                        ?entry.farmName,
+                        entryCampaignText(ledger, own, entry),
+                      ].join(' · ') +
+                      (status.isEmpty ? '' : '\n$status'),
+                ),
+                trailing: Text(
+                  entry.amountMinor > 0
+                      ? '+${formatBob(entry.amountMinor)}'
+                      : formatBob(entry.amountMinor),
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+              );
+            },
+          ),
       ],
     );
   }

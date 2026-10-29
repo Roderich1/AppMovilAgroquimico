@@ -24,7 +24,6 @@ typedef _DashboardData = ({
   // `applications` no es fuente de ningun reporte de EVOLUTION-2: sigue en el
   // camino legacy, como el resto de consumidores no migrados.
   List<Map<String, Object?>> applications,
-  List<TopSettlementRead> debts,
   List<CampaignRead> campaigns,
 });
 
@@ -53,7 +52,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       // existiera (UIBUG-007). La tabla sigue mostrando 5 cuando no se busca.
       inventory: await repo.inventorySummaryTyped(),
       applications: await repo.applications(limit: 5),
-      debts: await repo.topSettlementsTyped(limit: 5),
       campaigns: await repo.campaignsTyped(),
     );
   }
@@ -430,11 +428,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                   child: Column(
                     children: [
                       for (final row
-                          in (data.debts.toList()..sort(
-                                (a, b) =>
-                                    b.balanceMinor.compareTo(a.balanceMinor),
-                              ))
-                              .take(5))
+                          // E-15: del libro de cuentas, sin el titular
+                          // (no es deudor de sí mismo) ni el ADMIN.
+                          in data.summary.topBalances.take(5))
                         ListTile(
                           dense: true,
                           title: Text(row.name),

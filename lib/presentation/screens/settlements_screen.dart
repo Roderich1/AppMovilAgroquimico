@@ -29,7 +29,7 @@ class SettlementsScreen extends ConsumerStatefulWidget {
 class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
   late Future<
     (
-      List<AccountSummary>,
+      AccountLedger,
       List<FarmCostRead>,
       List<ProductCostRead>,
       List<CampaignRead>,
@@ -51,7 +51,7 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
 
   Future<
     (
-      List<AccountSummary>,
+      AccountLedger,
       List<FarmCostRead>,
       List<ProductCostRead>,
       List<CampaignRead>,
@@ -72,7 +72,9 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
     final result = (
       // D-04: deuda por campaña de origen y saldo neto, de las imputaciones
       // guardadas. Sigue siendo una sola consulta.
-      await repo.accountSummaries(campaignId: selectedCampaignId),
+      // E-15: el mismo libro trae lo propio del titular; no se añade
+      // ninguna consulta a esta carga (pruebas con settle fijo).
+      await repo.accountLedger(withDetails: false),
       await repo.farmCostReportTyped(campaignId: selectedCampaignId),
       await repo.productCostReportTyped(campaignId: selectedCampaignId),
       campaigns,
@@ -92,6 +94,7 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
     AccountSummary person, {
     required bool advance,
     required List<CampaignRead> campaigns,
+    bool ownRecord = false,
   }) async {
     // El diálogo es dueño de su propio TextEditingController y lo libera en
     // `State.dispose()`. Antes el controlador se creaba aquí y se liberaba al
@@ -105,6 +108,7 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
         personName: person.name,
         registration: registrationText(selected, DateTime.now()),
         netMinor: person.account.netMinor,
+        ownRecord: ownRecord,
         advance: advance,
       ),
     );
@@ -162,6 +166,130 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
             child: const Text('Cerrar'),
           ),
         ],
+      ),
+    );
+  }
+
+  /// «Movimientos propios» del titular (E-15 §B.2).
+  Future<void> _ownMovements(int personId, String name) async {
+    final statement = await ref
+        .read(repositoryProvider)
+        .accountStatement(personId, campaignId: selectedCampaignId);
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('Movimientos propios · $name'),
+        content: SizedBox(
+          width: 620,
+          height: 420,
+          child: OwnMovementsView(statement: statement),
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cerrar'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Tarjeta «Consumo y costos propios» del titular vigente (E-15 §B.2).
+  /// No es una cuenta por cobrar: no lleva pendiente ni saldo.
+  Widget _ownCard(
+    BuildContext context,
+    AccountLedger ledger,
+    int ownerId,
+    List<CampaignRead> campaigns,
+  ) {
+    final person = ledger.account(ownerId).person;
+    final consumption = ledger.ownConsumption(
+      ownerId,
+      campaignId: selectedCampaignId,
+    );
+    final theme = Theme.of(context);
+    final summary = AccountSummary(
+      account: ledger.account(ownerId),
+      campaignId: selectedCampaignId,
+    );
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Card(
+        key: const Key('own-consumption-card'),
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const CircleAvatar(child: Icon(Icons.agriculture_outlined)),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      ownCardTitle,
+                      style: theme.textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    Text(person.name, style: theme.textTheme.bodyMedium),
+                    const SizedBox(height: 4),
+                    Text(
+                      ownConsumptionLine(
+                        consumption,
+                        campaignName: _campaignName(campaigns),
+                      ),
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    Text(ownApplicationsLine(consumption)),
+                    Text(
+                      ownRecordsLine(
+                        ledger.ownAccount(ownerId),
+                        period: _selectedPeriod(campaigns),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              PopupMenuButton<String>(
+                onSelected: (value) {
+                  switch (value) {
+                    case 'detail':
+                      _ownMovements(ownerId, person.name);
+                    case 'export':
+                      _exportStatement(summary);
+                    default:
+                      _record(
+                        summary,
+                        advance: value == 'advance',
+                        campaigns: campaigns,
+                        ownRecord: true,
+                      );
+                  }
+                },
+                itemBuilder: (_) => const [
+                  PopupMenuItem(
+                    value: 'detail',
+                    child: Text('Ver movimientos propios'),
+                  ),
+                  PopupMenuItem(
+                    value: 'export',
+                    child: Text('Exportar movimientos propios'),
+                  ),
+                  // Criterio Q-2: el titular conserva el pago y el adelanto
+                  // (#26); se registran aparte, nunca como cobro.
+                  PopupMenuItem(value: 'pay', child: Text('Registrar pago')),
+                  PopupMenuItem(
+                    value: 'advance',
+                    child: Text('Registrar adelanto'),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -554,14 +682,15 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
           );
         if (!snapshot.hasData)
           return const Center(child: CircularProgressIndicator());
-        final (settlements, farmCosts, productCosts, campaigns) =
-            snapshot.data!;
+        final (ledger, farmCosts, productCosts, campaigns) = snapshot.data!;
+        final settlements = ledger.summaries(campaignId: selectedCampaignId);
+        final ownerId = ledger.ownerPersonId;
         final personal =
             ref.watch(operationModeProvider) == OperationMode.personal;
         final visibleSettlements = settlements.where((row) {
           return personQuery.isEmpty || matchesSearch(row.name, personQuery);
         }).toList();
-        if (settlements.isEmpty)
+        if (settlements.isEmpty && ownerId == null)
           return const Card(
             child: EmptyState(
               icon: Icons.account_balance_wallet_outlined,
@@ -604,6 +733,17 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
               ),
             ),
             const SizedBox(height: 12),
+            if (ownerId != null) _ownCard(context, ledger, ownerId, campaigns),
+            if (settlements.isEmpty)
+              Card(
+                child: EmptyState(
+                  icon: Icons.account_balance_wallet_outlined,
+                  message: personal
+                      ? 'En inventario propio no hay cuentas por cobrar.'
+                      : 'Registra familiares o terceros para ver su '
+                            'liquidación.',
+                ),
+              ),
             for (final row in visibleSettlements)
               _accountCard(context, row, campaigns, personal),
             const SizedBox(height: 20),
@@ -694,12 +834,16 @@ class _RecordPaymentDialog extends StatefulWidget {
     required this.registration,
     required this.netMinor,
     required this.advance,
+    this.ownRecord = false,
   });
 
   final String personName;
   final String registration;
   final int netMinor;
   final bool advance;
+
+  /// E-15: pago propio del titular. No hay saldo que cobrar (criterio Q-2).
+  final bool ownRecord;
 
   @override
   State<_RecordPaymentDialog> createState() => _RecordPaymentDialogState();
@@ -757,11 +901,15 @@ class _RecordPaymentDialogState extends State<_RecordPaymentDialog> {
           ),
           const SizedBox(height: 2),
           Text(
-            dialogNetText(widget.netMinor),
+            widget.ownRecord
+                ? ownPaymentDialogText
+                : dialogNetText(widget.netMinor),
             style: Theme.of(context).textTheme.bodySmall,
           ),
           const SizedBox(height: 2),
-          Text(dialogFifoText, style: Theme.of(context).textTheme.bodySmall),
+          // El pago propio no se aplica a ninguna deuda: sin la línea FIFO.
+          if (!widget.ownRecord)
+            Text(dialogFifoText, style: Theme.of(context).textTheme.bodySmall),
           const SizedBox(height: 14),
           TextField(
             controller: _amount,

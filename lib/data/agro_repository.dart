@@ -17,6 +17,7 @@ import '../domain/models.dart';
 import '../domain/money.dart';
 import '../domain/operation_mode.dart';
 import '../domain/person_roles.dart';
+import 'account_ledger_query.dart';
 import 'app_database.dart';
 import 'farmer_operation_gate.dart';
 import 'invoice_storage.dart';
@@ -2302,6 +2303,28 @@ class AgroRepository {
             ? byDay
             : (a['id']! as int).compareTo(b['id']! as int);
       });
+      // E-15 (A1): un pago sólo se imputa a cargos de su misma clase. Un
+      // cargo propio no es deuda, igual que un cargo revertido (Q-5); y un
+      // pago propio no es cobro. La clase se decide con los vínculos leídos
+      // en esta misma transacción.
+      final rule = OwnershipRule([
+        for (final row in await txn.query('owner_bindings'))
+          LedgerBinding(
+            id: row['id']! as int,
+            personId: row['person_id']! as int,
+            boundAt: row['bound_at']! as String,
+            endedAt: row['ended_at'] as String?,
+          ),
+      ]);
+      final paymentOwn = rule.isOwn(personId, localDay(date ?? DateTime.now()));
+      charges.removeWhere(
+        (charge) =>
+            rule.isOwn(
+              personId,
+              storedLocalDay(charge['transaction_date']! as String),
+            ) !=
+            paymentOwn,
+      );
       final imputed =
           <({int? campaignId, String campaignName, int amountMinor})>[];
       for (final charge in charges) {
@@ -3567,53 +3590,17 @@ class AgroRepository {
   // docs/architecture/D04_E15_CUENTAS_IMPUTACION_Y_COSTO_PROPIO.md §2)
   // ---------------------------------------------------------------------
 
-  static const _conceptSql = '''COALESCE(
-      (SELECT GROUP_CONCAT(p.name, ', ') FROM application_items i JOIN products p ON p.id=i.product_id
-       WHERE i.application_id=t.reference_id AND t.reference_type='APPLICATION'),
-      (SELECT p.name FROM purchase_allocations a JOIN purchase_items i ON i.id=a.purchase_item_id
-       JOIN products p ON p.id=i.product_id WHERE a.id=t.reference_id AND t.reference_type='PURCHASE_ALLOCATION'),
-      t.notes, t.type)''';
-
-  static const _farmSql =
-      '''(SELECT f.name FROM applications a JOIN farms f ON f.id=a.farm_id
-     WHERE a.id=t.reference_id AND t.reference_type='APPLICATION')''';
-
-  /// Libro de cuentas en **una** consulta: campañas (K), personas (P),
-  /// asientos (T) e imputaciones (L). Con [personId], sólo esa persona.
-  /// La clasificación y los cálculos son Dart puro (`AccountLedger`).
-  ///
-  /// Con [withDetails] en `false` no se resuelven concepto ni chaco (sin
-  /// `GROUP_CONCAT`): basta para cifras (lista, Inicio, resumen).
+  /// Libro de cuentas en **una** consulta (`readAccountLedger`). Con
+  /// [personId], sólo esa persona; con [withDetails] en `false`, sin concepto
+  /// ni chaco (sin `GROUP_CONCAT`), que basta para cifras.
   Future<AccountLedger> accountLedger({
     int? personId,
     bool withDetails = true,
-  }) async {
-    final one = personId != null;
-    final concept = withDetails ? _conceptSql : 'NULL';
-    final farm = withDetails ? _farmSql : 'NULL';
-    final rows = await (await _db).rawQuery(
-      '''SELECT 'K' kind, c.id id, NULL person_id, c.name name, c.start_date d1,
-        c.end_date d2, c.status code, NULL amount, NULL ref1, NULL ref2,
-        NULL concept, NULL farm_name, NULL notes FROM campaigns c
-      UNION ALL
-      SELECT 'P', p.id, p.id, p.name, NULL, NULL, p.role, NULL, NULL, NULL,
-        NULL, NULL, NULL FROM persons p ${one ? 'WHERE p.id=?' : ''}
-      UNION ALL
-      SELECT 'T', t.id, t.person_id, NULL, t.transaction_date, NULL, t.type,
-        t.amount_bob_minor_signed, t.campaign_id, t.reversal_of_id,
-        $concept, $farm, t.notes
-        FROM account_transactions t ${one ? 'WHERE t.person_id=?' : ''}
-      UNION ALL
-      SELECT 'L', a.id, NULL, NULL, NULL, NULL, NULL, a.amount_bob_minor,
-        a.payment_transaction_id, a.charge_transaction_id, NULL, NULL, NULL
-        FROM payment_allocations a
-        ${one ? 'WHERE a.payment_transaction_id IN (SELECT id FROM account_transactions WHERE person_id=?)' : ''}''',
-      [
-        if (one) ...[personId, personId, personId],
-      ],
-    );
-    return AccountLedger.fromRows(rows);
-  }
+  }) async => readAccountLedger(
+    await _db,
+    personId: personId,
+    withDetails: withDetails,
+  );
 
   /// Filas de la lista de Cuentas (§2.3): sin ADMIN, con el alcance de
   /// [campaignId] y el saldo neto de todas las campañas.
@@ -3837,6 +3824,15 @@ class AgroRepository {
       thirdPartyReceivableMinor: third.receivableMinor,
       familyCreditMinor: family.creditMinor,
       thirdPartyCreditMinor: third.creditMinor,
+      topBalances: [
+        for (final row in ledger.topBalances())
+          (
+            personId: row.personId,
+            name: row.name,
+            role: row.role,
+            balanceMinor: row.account.netMinor,
+          ),
+      ],
       receivedMinor: received,
       stockBase: stock,
     );
