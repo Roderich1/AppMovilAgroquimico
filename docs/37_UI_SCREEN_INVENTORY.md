@@ -13,6 +13,7 @@ verificado recorriendo la aplicación sobre el emulador Pixel 8.
 | UI-04 | `/planificacion` | `PlanningScreen` | Operaciones → *Planificar aplicación* · FAB → *Planificación* | Planes + campañas | ✅ |
 | UI-05 | `/planificacion/nueva` | `PlanFormScreen` | Planificación → **Nuevo plan** | Campaña activa, chacos, productos, stock | ✅ |
 | UI-06 | `/compras` | `PurchasesScreen` | Operaciones → **Compras** *(añadido al corregir UIBUG-002)* | Compras, personas | ✅ |
+| UI-06b | `/compras/detalle/:id` | `PurchaseDetailScreen` | Compras → tocar la tarjeta (también revertidas; 2026-10-30) | Compra, líneas, asignaciones, pagos y auditoría de reversión (sólo lectura) | ✅ |
 | UI-07 | `/compras/nueva` | `PurchaseFormScreen` | Operaciones → *Registrar compra* · FAB → *Compra* | Proveedores, campañas, productos, personas | ✅ |
 | UI-08 | `/aplicaciones` | `ApplicationsScreen` | Operaciones → *Registrar aplicación* · FAB → *Aplicación* · Inicio → *Ver todos* | Aplicaciones + campaña activa | ✅ |
 | UI-09 | `/aplicaciones/nueva` | `ApplicationFormScreen` | Aplicaciones → **Registrar** · Planificación → **Aplicar** | Campaña activa, personas, chacos, stock | ✅ |
@@ -44,9 +45,9 @@ No son rutas, pero sí superficies con lógica propia:
 | Diálogo *Nuevo producto* / *Nueva persona* / … | `/catalogos` | ✅ |
 | Menú ⋮ de catálogo (Editar / Archivar / Activar / Cerrar) | `/catalogos` | ✅ |
 | Diálogo *Cambiar campaña activa* | `/catalogos` | ✅ |
-| Menú ⋮ de persona (detalle / pago / adelanto) | `/liquidacion` | ✅ |
+| Menú ⋮ de persona (detalle / exportar / pago) | `/liquidacion` | ✅ |
 | Diálogo *Ver detalle cronológico* | `/liquidacion` | ✅ |
-| Diálogo *Registrar pago* / *Registrar adelanto* | `/liquidacion` | ✅ |
+| Diálogo *Registrar pago* (único desde el 2026-10-30; los adelantos históricos se conservan) | `/liquidacion` | ✅ |
 | Menú de copias de seguridad (Exportar / Restaurar) | `/liquidacion` | ✅ |
 | Diálogo *Confirmar transferencia* | `/transferencias/nueva` | ✅ |
 | Diálogo *¿Revertir esta transferencia?* | `/transferencias` | ✅ |

@@ -36,6 +36,7 @@ import 'presentation/screens/person_detail_screen.dart';
 import 'presentation/screens/persons_screen.dart';
 import 'presentation/screens/planning_screen.dart';
 import 'presentation/screens/plan_form_screen.dart';
+import 'presentation/screens/purchase_detail_screen.dart';
 import 'presentation/screens/purchases_screen.dart';
 import 'presentation/screens/purchase_form_screen.dart';
 import 'presentation/screens/reports_screen.dart';
@@ -165,6 +166,14 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: '/compras',
             builder: (_, __) => const PurchasesScreen(),
+          ),
+          // A2: detalle de sólo lectura. `detalle/` evita que el patrón
+          // capture `/compras/nueva`, que es una ruta de fuera del shell.
+          GoRoute(
+            path: '/compras/detalle/:id',
+            builder: (_, state) => PurchaseDetailScreen(
+              purchaseId: int.parse(state.pathParameters['id']!),
+            ),
           ),
           GoRoute(
             path: '/aplicaciones',

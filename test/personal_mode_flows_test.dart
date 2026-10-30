@@ -390,7 +390,10 @@ void main() {
         return items;
       }
 
-      expect(await menuOf('Titular'), containsAll(['pay', 'advance']));
+      expect(
+        await menuOf('Titular'),
+        allOf(contains('pay'), isNot(contains('advance'))),
+      );
       final relative = await menuOf('Hermana');
       expect(relative, containsAll(['detail', 'export']));
       expect(relative, isNot(contains('pay')));
@@ -431,7 +434,10 @@ void main() {
         return items;
       }
 
-      expect(await menuOf('Hermana'), containsAll(['pay', 'advance']));
+      expect(
+        await menuOf('Hermana'),
+        allOf(contains('pay'), isNot(contains('advance'))),
+      );
       await switchModeBehindScreen(
         tester,
         c,
@@ -441,7 +447,10 @@ void main() {
       final relative = await menuOf('Hermana');
       expect(relative, isNot(contains('pay')));
       expect(relative, isNot(contains('advance')));
-      expect(await menuOf('Titular'), containsAll(['pay', 'advance']));
+      expect(
+        await menuOf('Titular'),
+        allOf(contains('pay'), isNot(contains('advance'))),
+      );
     });
 
     testWidgets('un formulario abierto cuando cambia la modalidad avisa y no '

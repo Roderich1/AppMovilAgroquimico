@@ -38,6 +38,14 @@ String formatBob(int minor) => NumberFormat.currency(
   decimalDigits: 2,
 ).format(minor / 100);
 
+/// Importe en dólares con el mismo convenio es-BO que [formatBob]
+/// («6,50 US$»), para mostrar el precio original de una línea en USD.
+String formatUsd(int minor) => NumberFormat.currency(
+  locale: 'es_BO',
+  symbol: r'US$',
+  decimalDigits: 2,
+).format(minor / 100);
+
 String formatQuantity(int base, String unit) {
   final value = base / baseUnitsPerMajor;
   return '${NumberFormat('#,##0.###', 'es_BO').format(value)} $unit';

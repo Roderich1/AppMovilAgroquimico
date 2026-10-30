@@ -133,6 +133,14 @@ typedef WriteContext = ({OperationMode mode, int? ownerPersonId});
 /// estaban (la operación original no se reasigna).
 typedef OriginalOperation = ({int? personId, String? effectiveDate});
 
+/// Filas guardadas de una compra, sin calcular nada (ver `purchaseDetail`).
+typedef PurchaseDetailRead = ({
+  Map<String, Object?> purchase,
+  List<Map<String, Object?>> items,
+  List<Map<String, Object?>> allocations,
+  List<Map<String, Object?>> payments,
+});
+
 /// RF-03: resultado de confirmar o rechazar un borrador tardío.
 enum LateResolutionOutcome { confirmed, rejected, conflict }
 
@@ -3257,6 +3265,45 @@ class AgroRepository {
     JOIN campaigns c ON c.id=p.campaign_id ORDER BY purchase_date DESC LIMIT ?''',
         [limit],
       );
+
+  /// Detalle de una compra tal como está guardada (bloque de experiencia
+  /// 2026-10-30, A2): cabecera, líneas, a quién se asignó cada línea y los
+  /// pagos al proveedor, también los revertidos. Sólo lectura: cuatro SELECT,
+  /// ninguna escritura. `null` si la compra no existe.
+  Future<PurchaseDetailRead?> purchaseDetail(int purchaseId) async {
+    final db = await _db;
+    final header = await db.rawQuery(
+      '''SELECT p.*, s.name supplier_name, c.name campaign_name
+      FROM purchases p JOIN suppliers s ON s.id=p.supplier_id
+      JOIN campaigns c ON c.id=p.campaign_id WHERE p.id=?''',
+      [purchaseId],
+    );
+    if (header.isEmpty) return null;
+    return (
+      purchase: header.single,
+      items: await db.rawQuery(
+        '''SELECT i.*, pr.name product_name, pr.unit
+        FROM purchase_items i JOIN products pr ON pr.id=i.product_id
+        WHERE i.purchase_id=? ORDER BY i.id''',
+        [purchaseId],
+      ),
+      allocations: await db.rawQuery(
+        '''SELECT a.*, pe.name person_name
+        FROM purchase_allocations a
+        JOIN purchase_items i ON i.id=a.purchase_item_id
+        JOIN persons pe ON pe.id=a.person_id
+        WHERE i.purchase_id=? ORDER BY a.purchase_item_id, a.id''',
+        [purchaseId],
+      ),
+      payments: await db.rawQuery(
+        '''SELECT pp.*, pe.name payer_name
+        FROM provider_payments pp JOIN persons pe ON pe.id=pp.payer_person_id
+        WHERE pp.purchase_id=? ORDER BY pp.payment_date, pp.id''',
+        [purchaseId],
+      ),
+    );
+  }
+
   Future<List<Map<String, Object?>>> applications({
     int? campaignId,
     int? personId,

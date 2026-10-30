@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -15,6 +13,7 @@ import '../../domain/money.dart';
 import '../../domain/person_roles.dart';
 import '../widgets/common.dart';
 import '../widgets/provider_payment_fields.dart';
+import 'purchase_detail_screen.dart' show showInvoiceImage;
 
 class PurchasesScreen extends ConsumerStatefulWidget {
   const PurchasesScreen({super.key});
@@ -49,38 +48,6 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> {
         'Compra multiproducto confirmada; lotes e inventario creados.',
       );
     }
-  }
-
-  Future<void> _viewInvoice(String path) async {
-    final file = File(path);
-    if (!await file.exists()) {
-      if (mounted) {
-        showError(
-          context,
-          'La imagen de factura ya no está disponible en este dispositivo.',
-        );
-      }
-      return;
-    }
-    if (!mounted) return;
-    await showDialog<void>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Factura'),
-        content: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 700, maxHeight: 700),
-          child: InteractiveViewer(
-            child: Image.file(file, fit: BoxFit.contain),
-          ),
-        ),
-        actions: [
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Cerrar'),
-          ),
-        ],
-      ),
-    );
   }
 
   Future<void> _pay(Map<String, Object?> purchase) async {
@@ -236,78 +203,87 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> {
               Padding(
                 padding: const EdgeInsets.only(bottom: 12),
                 child: Card(
-                  child: Padding(
-                    padding: const EdgeInsets.all(18),
-                    child: Row(
-                      children: [
-                        CircleAvatar(
-                          child: Icon(
-                            row['status'] == 'REVERSED'
-                                ? Icons.undo
-                                : Icons.receipt_long_outlined,
+                  // A2: toda la tarjeta abre el detalle de sólo lectura,
+                  // también de una compra revertida. El menú conserva las
+                  // acciones.
+                  clipBehavior: Clip.antiAlias,
+                  child: InkWell(
+                    key: Key('purchase-card-${row['id']}'),
+                    onTap: () => context.push('/compras/detalle/${row['id']}'),
+                    child: Padding(
+                      padding: const EdgeInsets.all(18),
+                      child: Row(
+                        children: [
+                          CircleAvatar(
+                            child: Icon(
+                              row['status'] == 'REVERSED'
+                                  ? Icons.undo
+                                  : Icons.receipt_long_outlined,
+                            ),
                           ),
-                        ),
-                        const SizedBox(width: 14),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                '${row['supplier_name']} · ${row['invoice_number'] ?? 'Sin factura'}',
-                                style: Theme.of(context).textTheme.titleMedium
-                                    ?.copyWith(fontWeight: FontWeight.w700),
-                              ),
-                              const SizedBox(height: 5),
-                              Text(
-                                '${row['campaign_name']} · ${row['item_count']} producto${row['item_count'] == 1 ? '' : 's'} · Total ${formatBob(row['total_bob_minor']! as int)} · pagado ${formatBob(row['paid_bob_minor']! as int)} · ${row['status'] == 'CONFIRMED' ? 'Confirmada' : 'Revertida'}',
-                              ),
-                              if (row['status'] == 'REVERSED')
-                                ReversalActorText(
-                                  operationType: 'PURCHASE',
-                                  operationId: row['id']! as int,
+                          const SizedBox(width: 14),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  '${row['supplier_name']} · ${row['invoice_number'] ?? 'Sin factura'}',
+                                  style: Theme.of(context).textTheme.titleMedium
+                                      ?.copyWith(fontWeight: FontWeight.w700),
                                 ),
-                            ],
+                                const SizedBox(height: 5),
+                                Text(
+                                  '${row['campaign_name']} · ${row['item_count']} producto${row['item_count'] == 1 ? '' : 's'} · Total ${formatBob(row['total_bob_minor']! as int)} · pagado ${formatBob(row['paid_bob_minor']! as int)} · ${row['status'] == 'CONFIRMED' ? 'Confirmada' : 'Revertida'}',
+                                ),
+                                if (row['status'] == 'REVERSED')
+                                  ReversalActorText(
+                                    operationType: 'PURCHASE',
+                                    operationId: row['id']! as int,
+                                  ),
+                              ],
+                            ),
                           ),
-                        ),
-                        if (row['status'] != 'REVERSED')
-                          PopupMenuButton<String>(
-                            onSelected: (value) {
-                              if (value == 'pay') {
-                                _pay(row);
-                              } else if (value == 'invoice') {
-                                _viewInvoice(
-                                  row['invoice_image_path']! as String,
-                                );
-                              } else {
-                                _reverse(row);
-                              }
-                            },
-                            itemBuilder: (_) => [
-                              if (row['invoice_image_path'] != null)
+                          if (row['status'] != 'REVERSED')
+                            PopupMenuButton<String>(
+                              onSelected: (value) {
+                                if (value == 'pay') {
+                                  _pay(row);
+                                } else if (value == 'invoice') {
+                                  showInvoiceImage(
+                                    context,
+                                    row['invoice_image_path']! as String,
+                                  );
+                                } else {
+                                  _reverse(row);
+                                }
+                              },
+                              itemBuilder: (_) => [
+                                if (row['invoice_image_path'] != null)
+                                  const PopupMenuItem(
+                                    value: 'invoice',
+                                    child: ListTile(
+                                      leading: Icon(Icons.image_outlined),
+                                      title: Text('Ver factura'),
+                                    ),
+                                  ),
                                 const PopupMenuItem(
-                                  value: 'invoice',
+                                  value: 'pay',
                                   child: ListTile(
-                                    leading: Icon(Icons.image_outlined),
-                                    title: Text('Ver factura'),
+                                    leading: Icon(Icons.payments_outlined),
+                                    title: Text('Registrar pago'),
                                   ),
                                 ),
-                              const PopupMenuItem(
-                                value: 'pay',
-                                child: ListTile(
-                                  leading: Icon(Icons.payments_outlined),
-                                  title: Text('Registrar pago'),
+                                const PopupMenuItem(
+                                  value: 'reverse',
+                                  child: ListTile(
+                                    leading: Icon(Icons.undo),
+                                    title: Text('Revertir compra'),
+                                  ),
                                 ),
-                              ),
-                              const PopupMenuItem(
-                                value: 'reverse',
-                                child: ListTile(
-                                  leading: Icon(Icons.undo),
-                                  title: Text('Revertir compra'),
-                                ),
-                              ),
-                            ],
-                          ),
-                      ],
+                              ],
+                            ),
+                        ],
+                      ),
                     ),
                   ),
                 ),

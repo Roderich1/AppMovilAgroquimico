@@ -120,10 +120,31 @@ class _TransfersScreenState extends ConsumerState<TransfersScreen> {
                 title: Text(
                   '${row['from_person_name']} → ${row['to_person_name']}',
                 ),
-                subtitle: Text(
-                  '${formatDate(row['transfer_date'])} · '
-                  '${formatItemsSummary(row['products_summary'])}\n'
-                  '$transferNoDebtLabel',
+                // Una revertida no lleva texto en el lateral: «Revertida» y
+                // quién la autorizó y por qué van debajo, con todo el ancho de
+                // la fila. En el lateral estrechaban el título y el resumen
+                // hasta desbordar la fila (bloque de experiencia 2026-10-30,
+                // A3). El lateral queda para la flecha de desplegar.
+                subtitle: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (row['status'] != 'CONFIRMED')
+                      Text(
+                        operationStatusLabel(row['status']),
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                    Text(
+                      '${formatDate(row['transfer_date'])} · '
+                      '${formatItemsSummary(row['products_summary'])}\n'
+                      '$transferNoDebtLabel',
+                    ),
+                    if (row['status'] != 'CONFIRMED')
+                      ReversalActorText(
+                        operationType: 'TRANSFER',
+                        operationId: row['id']! as int,
+                      ),
+                  ],
                 ),
                 trailing: row['status'] == 'CONFIRMED'
                     ? IconButton(
@@ -131,17 +152,7 @@ class _TransfersScreenState extends ConsumerState<TransfersScreen> {
                         onPressed: () => reverse(row),
                         icon: const Icon(Icons.undo),
                       )
-                    : Column(
-                        mainAxisSize: MainAxisSize.min,
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          const Text('Revertida'),
-                          ReversalActorText(
-                            operationType: 'TRANSFER',
-                            operationId: row['id']! as int,
-                          ),
-                        ],
-                      ),
+                    : null,
                 children: [
                   Padding(
                     padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),

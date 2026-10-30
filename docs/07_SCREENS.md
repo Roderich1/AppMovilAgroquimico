@@ -117,12 +117,25 @@ Convención de estados usada abajo:
 | **Objetivo** | Listar compras y operar sobre ellas |
 | **Servicios** | `purchases()` (límite 200), `people()`, `addProviderPayment`, `reversePurchase` |
 | **Datos mostrados** | Por compra: proveedor · nº de factura, campaña, nº de productos, Total, pagado, estado (Confirmada/Revertida) |
-| **Acciones** | "Nueva compra" (`push`); filtro por campaña; buscador de proveedor/factura; ⋮ → Ver factura (solo si hay imagen) / Registrar pago / Revertir compra |
+| **Acciones** | "Nueva compra" (`push`); filtro por campaña; buscador de proveedor/factura; **tocar la tarjeta abre el detalle** (`/compras/detalle/:id`, también revertidas, 2026-10-30); ⋮ → Ver factura (solo si hay imagen) / Registrar pago / Revertir compra |
 | **Diálogos** | `_PaymentDialog` (pagador ADMIN + importe con máximo precargado); visor de factura con `InteractiveViewer` |
-| **Validaciones** | `_pay` avisa si no hay ningún `ADMIN`; `_viewInvoice` comprueba que el archivo exista |
+| **Validaciones** | `_pay` avisa si no hay ningún `ADMIN`; `showInvoiceImage` (compartido con el detalle) comprueba que el archivo exista |
 | **loading / empty / error** | Spinner · `EmptyState` "No hay compras confirmadas." · `EmptyState` con `snapshot.error.toString()` |
 | **Defecto de orden** | Comprueba `!snapshot.hasData` **antes** que `snapshot.hasError`, por lo que un error muestra el spinner indefinidamente en vez del mensaje. Ver [27](27_KNOWN_ISSUES.md) |
 | **Permisos** | Lectura del archivo de factura en el sandbox de la app (no requiere permiso explícito) |
+
+---
+
+## P-06b · PurchaseDetailScreen — `/compras/detalle/:id` (2026-10-30)
+
+| | |
+|---|---|
+| **Archivo** | `purchase_detail_screen.dart` |
+| **Objetivo** | Consultar una compra tal como está guardada, confirmada o revertida, sin cambiar nada |
+| **Servicios** | `purchaseDetail(id)`: cuatro `SELECT` (cabecera, líneas, asignaciones, pagos al proveedor), una vez al abrir |
+| **Datos mostrados** | Proveedor, estado, factura («Sin número» si falta), fecha, campaña, total, pagado (sin los pagos revertidos), origen y nota del tipo de cambio si se guardaron, notas; por línea: producto y cantidad, precio guardado (en USD: precio original, tipo de cambio y equivalente en Bs), subtotal y «Para X: cantidad · cómo se cobra» según la política guardada; pagos al proveedor con fecha, medio, pagador e importe, y «(revertido el …)»; si se revirtió: fecha y quién lo autorizó con su motivo; «Ver foto de la factura» si hay foto |
+| **Acciones** | Ninguna que escriba. Pagar y revertir siguen en el menú de la tarjeta de Compras |
+| **loading / empty / error** | Spinner · «Esta compra ya no está en el teléfono.» · `friendlyError` |
 
 ---
 
@@ -194,7 +207,7 @@ Convención de estados usada abajo:
 | **Objetivo** | Saldos por persona, registro de pagos y reportes de costo |
 | **Servicios** | `campaigns()`, `settlements(campaignId)`, `farmCostReport(campaignId)`, `productCostReport(campaignId)`, `detailedStatement`, `personCampaignBalance`, `addAccountPayment`, `exportBackup` |
 | **Datos mostrados** | Por persona (excluye ADMIN): nombre, cargos, pagos/créditos, etiqueta "Saldo pendiente"/"Saldo a favor" y el importe en naranja/verde. Debajo: "Costo por chaco y hectárea" y "Costo consumido por producto" |
-| **Acciones** | Filtro por campaña (preselecciona la activa la primera vez, vía `campaignInitialized`); buscador de persona; ⋮ → Ver detalle cronológico / Registrar pago / Registrar adelanto; "Exportar backup" |
+| **Acciones** | Filtro por campaña (preselecciona la activa la primera vez, vía `campaignInitialized`); buscador de persona; ⋮ → Ver detalle cronológico / Exportar estado de cuenta / Registrar pago (único acceso desde el 2026-10-30; el diálogo pide «Importe del pago» en Bs con el campo vacío); "Exportar backup" |
 | **Diálogo de estado de cuenta** | 620×420 px, con saldo inicial de campaña + movimientos con saldo acumulado |
 | **Validaciones** | El importe se parsea con `parseMinor` (vacío → 0, y el repositorio rechaza ≤ 0) |
 | **loading / empty** | Spinner · `EmptyState` "Registra familiares o terceros para ver su liquidación." |
@@ -287,6 +300,7 @@ Convención de estados usada abajo:
 | **Datos mostrados** | "Origen → Destino"; `products_summary` (generado con `GROUP_CONCAT` en SQL); al expandir: «N producto(s) · M lote(s) · costo de referencia 300,00 Bs»; botón ↩ o texto "Revertida" |
 | **Carácter sin deuda (D-07, 2026-10-27)** | Decisión del autor (Roderich Rendón) del 2026-10-27; RN-35 se mantiene. Subtítulo: «Entregas de producto de una persona a otra. No generan deuda; el costo es sólo de referencia.» Cada fila añade «Entrega sin deuda» bajo fecha y productos. Al expandir: «N producto(s) · M lote(s) · costo de referencia X Bs» y «Es el costo de compra del producto entregado, no un precio de venta. La entrega no genera deuda.». Al revertir: «Costo X Bs, sólo de referencia: la transferencia no generó deuda.» y «El stock volverá a la persona de origen y ninguna cuenta cambia. Esta acción no se puede deshacer.» |
 | **Acciones** | "Nueva" (`push`); revertir |
+| **Revertidas (2026-10-30)** | Sin texto en el lateral: «Revertida», fecha y productos, «Entrega sin deuda» y quién autorizó la reversión con su motivo van en el cuerpo de la fila, con todo el ancho. Antes el actor iba en el lateral y desbordaba la fila a 360 dp |
 | **loading / empty / error** | Spinner · `EmptyState` "No hay transferencias." · `EmptyState` con `friendlyError` |
 
 ---

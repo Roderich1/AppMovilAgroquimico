@@ -423,6 +423,14 @@ Las validaciones exclusivamente de interfaz se listan aparte en
   - La deuda por cargo y lo que queda a favor se muestran por separado.
   - El adelanto no se atribuye a ninguna campaña (D-04, criterio Q-1; ejemplo D04-05).
   - Ninguna lectura crea imputaciones.
+- **Un único «Registrar pago» (bloque de experiencia, 2026-10-30)**: como la mecánica es
+  la misma, Cuentas ofrece un solo acceso y lo nuevo se guarda como `PAYMENT`. El diálogo
+  dice «Si no hay deuda, el pago queda a favor (como un adelanto).». No hay diferencia
+  funcional que se pierda: la prueba *«mismas imputaciones, saldos y totales; sólo cambia
+  el tipo»* (`test/ux_c1_correcciones_test.dart`) lo comprueba con un cargo previo.
+  - Los `ADVANCE` ya guardados no se tocan y se siguen leyendo como «Adelanto».
+  - `registerAccountPayment(advance: true)` se conserva en el repositorio (lecturas,
+    pruebas y datos históricos); ninguna pantalla lo llama.
 
 ### RN-40 · El sobrante de un pago no se imputa, pero sí se contabiliza
 - **Descripción**: el bucle de imputación termina cuando `remaining == 0` o se acaban los
