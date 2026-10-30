@@ -208,7 +208,8 @@ Convención de estados usada abajo:
 | **Servicios** | `campaigns()`, `settlements(campaignId)`, `farmCostReport(campaignId)`, `productCostReport(campaignId)`, `detailedStatement`, `personCampaignBalance`, `addAccountPayment`, `exportBackup` |
 | **Datos mostrados** | Por persona (excluye ADMIN): nombre, cargos, pagos/créditos, etiqueta "Saldo pendiente"/"Saldo a favor" y el importe en naranja/verde. Debajo: "Costo por chaco y hectárea" y "Costo consumido por producto" |
 | **Acciones** | Filtro por campaña (preselecciona la activa la primera vez, vía `campaignInitialized`); buscador de persona; ⋮ → Ver detalle cronológico / Exportar estado de cuenta / Registrar pago (único acceso desde el 2026-10-30; el diálogo pide «Importe del pago» en Bs con el campo vacío); "Exportar backup" |
-| **Diálogo de estado de cuenta** | 620×420 px, con saldo inicial de campaña + movimientos con saldo acumulado |
+| **Diálogo de estado de cuenta** | Hasta 620×420 px, con 16 px de margen lateral, saldo inicial de campaña + movimientos con saldo acumulado. En pantalla ancha (≥ 480 px de contenido) el importe y el acumulado van en una columna lateral; en teléfono van debajo del concepto, a lo ancho (`MovementTile`, F-1 del 2026-10-30) |
+| **Tarjeta de persona** | El nombre ocupa su fila entera, sin recorte, con el menú ⋮ al lado; las líneas contables y el importe van lado a lado (≥ 420 px) o apilados en teléfono (`_AccountFigures`, F-2 del 2026-10-30). El importe sigue la escala del sistema: no se reduce ni se recorta |
 | **Validaciones** | El importe se parsea con `parseMinor` (vacío → 0, y el repositorio rechaza ≤ 0) |
 | **loading / empty** | Spinner · `EmptyState` "Registra familiares o terceros para ver su liquidación." |
 | **error** | **No hay rama de error de pantalla**: si el `Future` falla, se queda en el spinner. Ver [27](27_KNOWN_ISSUES.md) |

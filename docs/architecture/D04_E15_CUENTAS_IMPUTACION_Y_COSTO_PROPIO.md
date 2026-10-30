@@ -134,6 +134,7 @@ Título «Estado de cuenta · {persona}».
 2. **Estado cronológico:**
    - cabecera: «Estado de cuenta cronológico · todas las campañas», o «Estado de cuenta cronológico · período de K ({inicio} – {fin|hoy})» seguida de «Saldo al inicio del período ({inicio}) {O}»;
    - cada fila: concepto; «{fecha} · {tipo} · {chaco} · {campaña del asiento}»; línea de estado; importe; «Acumulado {X}»;
+     **Distribución (F-1, 2026-10-30):** en pantalla ancha (contenido ≥ 480 px) el importe y «Acumulado» van en una columna lateral de 140 px; en teléfono van debajo del concepto, a lo ancho de la fila, para que el concepto no se parta por carácter. Los textos no cambian;
    - cierre: «Saldo al cierre del período ({fin}) {X}» si K está cerrada, y «Saldo a hoy {X}» si está abierta o con «Todas»;
    - sin filas ni apertura: «Sin movimientos.».
    - **Campaña del asiento:** el nombre de su campaña. En los créditos, «registrado en K» o «registrado sin campaña».
