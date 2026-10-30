@@ -148,6 +148,13 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
     return null;
   }
 
+  /// Margen de los diálogos de estado de cuenta: 16 px a los lados en vez
+  /// de los 40 por defecto, para que en teléfono el cronológico tenga ancho.
+  static const _statementInsets = EdgeInsets.symmetric(
+    horizontal: 16,
+    vertical: 24,
+  );
+
   Future<void> _statement(AccountSummary person) async {
     final statement = await ref
         .read(repositoryProvider)
@@ -157,6 +164,9 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: Text('Estado de cuenta · ${person.name}'),
+        // Menos margen lateral en teléfono: el cronológico necesita el ancho
+        // (F-1, 2026-10-30).
+        insetPadding: _statementInsets,
         content: SizedBox(
           width: 620,
           height: 420,
@@ -182,6 +192,7 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: Text('Movimientos propios · $name'),
+        insetPadding: _statementInsets,
         content: SizedBox(
           width: 620,
           height: 420,
@@ -325,107 +336,83 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
             ?unattributedCreditLine(account),
           ]
         : [chargesLine(row.scope), pendingAndCreditLine(account)];
+    final caption = filtered
+        ? pendingCaption(campaignName ?? 'campaña')
+        : netCaptionAll;
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Card(
         child: Padding(
           padding: const EdgeInsets.all(16),
-          child: Row(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              CircleAvatar(
-                child: Text(
-                  row.name.isEmpty
-                      ? '?'
-                      : row.name.characters.first.toUpperCase(),
-                ),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                flex: 5,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
+              // El nombre ocupa su propia fila, entero, con el menú al lado:
+              // antes compartía el ancho con la columna del importe y se
+              // recortaba con puntos suspensivos («Don Carlos Gutiérrez
+              // Villarr…», hallazgo F-2 del 2026-10-30; antes UIBUG-020 y
+              // UIBUG-017 lo partían por carácter al 130 %).
+              Row(
+                children: [
+                  CircleAvatar(
+                    child: Text(
+                      row.name.isEmpty
+                          ? '?'
+                          : row.name.characters.first.toUpperCase(),
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Text(
                       row.name,
                       style: Theme.of(context).textTheme.titleMedium
                           ?.copyWith(fontWeight: FontWeight.w700),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
                     ),
-                    // Sin recorte: son cifras contables, no un subtítulo
-                    // decorativo.
-                    for (final line in lines) Text(line, maxLines: 5),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 8),
-              // Reparto de ancho explícito entre nombre e importe: sin esto la
-              // columna del importe se quedaba con lo que pedía y el nombre se
-              // partía por carácter al 130 % (UIBUG-020, UIBUG-017).
-              Expanded(
-                flex: 4,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: [
-                    Text(
-                      filtered
-                          ? pendingCaption(campaignName ?? 'campaña')
-                          : netCaptionAll,
-                      style: Theme.of(context).textTheme.bodySmall,
-                      textAlign: TextAlign.end,
-                    ),
-                    // El importe NUNCA se trunca: es el dato más importante de
-                    // la tarjeta. Si no cabe se reduce el cuerpo de letra.
-                    FittedBox(
-                      fit: BoxFit.scaleDown,
-                      alignment: Alignment.centerRight,
-                      child: Text(
-                        formatBob(amount),
-                        maxLines: 1,
-                        style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                          fontWeight: FontWeight.w800,
-                          color: amount > 0
-                              ? Colors.orange.shade800
-                              : Colors.green.shade700,
-                        ),
+                  ),
+                  PopupMenuButton<String>(
+                    onSelected: (value) {
+                      switch (value) {
+                        case 'detail':
+                          _statement(row);
+                        case 'export':
+                          _exportStatement(row);
+                        default:
+                          _record(row, campaigns: campaigns);
+                      }
+                    },
+                    itemBuilder: (_) => [
+                      const PopupMenuItem(
+                        value: 'detail',
+                        child: Text('Ver detalle cronológico'),
                       ),
-                    ),
-                  ],
-                ),
-              ),
-              PopupMenuButton<String>(
-                onSelected: (value) {
-                  switch (value) {
-                    case 'detail':
-                      _statement(row);
-                    case 'export':
-                      _exportStatement(row);
-                    default:
-                      _record(row, campaigns: campaigns);
-                  }
-                },
-                itemBuilder: (_) => [
-                  const PopupMenuItem(
-                    value: 'detail',
-                    child: Text('Ver detalle cronológico'),
+                      // El estado de cuenta se exporta desde donde se consulta.
+                      const PopupMenuItem(
+                        value: 'export',
+                        child: Text('Exportar estado de cuenta'),
+                      ),
+                      // En inventario propio sólo el titular registra pagos (#26).
+                      if (!personal || row.personId == ownerPersonId)
+                        const PopupMenuItem(
+                          value: 'pay',
+                          child: Text('Registrar pago'),
+                        )
+                      else
+                        const PopupMenuItem(
+                          enabled: false,
+                          child: Text(
+                            'Inventario propio: pagos sólo del titular',
+                          ),
+                        ),
+                    ],
                   ),
-                  // El estado de cuenta se exporta desde donde se consulta.
-                  const PopupMenuItem(
-                    value: 'export',
-                    child: Text('Exportar estado de cuenta'),
-                  ),
-                  // En inventario propio sólo el titular registra pagos (#26).
-                  if (!personal || row.personId == ownerPersonId)
-                    const PopupMenuItem(
-                      value: 'pay',
-                      child: Text('Registrar pago'),
-                    )
-                  else
-                    const PopupMenuItem(
-                      enabled: false,
-                      child: Text('Inventario propio: pagos sólo del titular'),
-                    ),
                 ],
+              ),
+              const SizedBox(height: 8),
+              _AccountFigures(
+                lines: lines,
+                caption: caption,
+                amount: formatBob(amount),
+                positive: amount > 0,
               ),
             ],
           ),
@@ -933,6 +920,74 @@ class _RecordPaymentDialogState extends State<_RecordPaymentDialog> {
         ),
         FilledButton(onPressed: _submit, child: const Text('Registrar')),
       ],
+    );
+  }
+}
+
+/// Cifras de la tarjeta de persona: las líneas contables y el importe con su
+/// rótulo. Con sitio (≥ [wideWidth]) van lado a lado, como antes; en teléfono
+/// el importe pasa debajo de las líneas, a lo ancho, para que ni el nombre ni
+/// el importe compitan por columnas estrechas (F-2, 2026-10-30). El importe
+/// sigue la escala del sistema: no se reduce (antes un `FittedBox` lo
+/// encogía) ni se recorta.
+class _AccountFigures extends StatelessWidget {
+  const _AccountFigures({
+    required this.lines,
+    required this.caption,
+    required this.amount,
+    required this.positive,
+  });
+
+  static const double wideWidth = 420;
+
+  final List<String> lines;
+  final String caption;
+  final String amount;
+  final bool positive;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    // Sin recorte: son cifras contables, no un subtítulo decorativo.
+    final detail = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [for (final line in lines) Text(line)],
+    );
+    final figure = Column(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: [
+        Text(
+          caption,
+          style: theme.textTheme.bodySmall,
+          textAlign: TextAlign.end,
+        ),
+        Text(
+          amount,
+          textAlign: TextAlign.end,
+          style: theme.textTheme.titleLarge?.copyWith(
+            fontWeight: FontWeight.w800,
+            color: positive ? Colors.orange.shade800 : Colors.green.shade700,
+          ),
+        ),
+      ],
+    );
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        if (constraints.maxWidth >= wideWidth) {
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(flex: 5, child: detail),
+              const SizedBox(width: 8),
+              Expanded(flex: 4, child: figure),
+            ],
+          );
+        }
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [detail, const SizedBox(height: 8), figure],
+        );
+      },
     );
   }
 }
