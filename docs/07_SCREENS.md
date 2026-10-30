@@ -119,7 +119,7 @@ Convención de estados usada abajo:
 | **Datos mostrados** | Por compra: proveedor · nº de factura, campaña, nº de productos, Total, pagado, estado (Confirmada/Revertida) |
 | **Acciones** | "Nueva compra" (`push`); filtro por campaña; buscador de proveedor/factura; **tocar la tarjeta abre el detalle** (`/compras/detalle/:id`, también revertidas, 2026-10-30); ⋮ → Ver factura (solo si hay imagen) / Registrar pago / Revertir compra |
 | **Diálogos** | `_PaymentDialog` (pagador ADMIN + importe con máximo precargado); visor de factura con `InteractiveViewer` |
-| **Validaciones** | `_pay` avisa si no hay ningún `ADMIN`; `_viewInvoice` comprueba que el archivo exista |
+| **Validaciones** | `_pay` avisa si no hay ningún `ADMIN`; `showInvoiceImage` (compartido con el detalle) comprueba que el archivo exista |
 | **loading / empty / error** | Spinner · `EmptyState` "No hay compras confirmadas." · `EmptyState` con `snapshot.error.toString()` |
 | **Defecto de orden** | Comprueba `!snapshot.hasData` **antes** que `snapshot.hasError`, por lo que un error muestra el spinner indefinidamente en vez del mensaje. Ver [27](27_KNOWN_ISSUES.md) |
 | **Permisos** | Lectura del archivo de factura en el sandbox de la app (no requiere permiso explícito) |

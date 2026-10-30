@@ -15,7 +15,7 @@
 
 | Id | Defecto | Corrección | Archivos |
 |---|---|---|---|
-| A1 | Cuentas ofrecía «Registrar pago» y «Registrar adelanto», dos accesos con la misma mecánica (RN-39) | Un único «Registrar pago» en las tarjetas de persona y del titular. Lo nuevo se guarda como `PAYMENT`. El diálogo añade «Si no hay deuda, el pago queda a favor (como un adelanto).» Los `ADVANCE` guardados se conservan y se leen como «Adelanto». `registerAccountPayment(advance:)` se mantiene en el repositorio | `settlements_screen.dart`, `account_texts.dart` |
+| A1 | Cuentas ofrecía «Registrar pago» y «Registrar adelanto», dos accesos con la misma mecánica (RN-39) | Un único «Registrar pago» en las tarjetas de persona y del titular. Lo nuevo se guarda como `PAYMENT`. El diálogo añade «Si no hay deuda, el pago queda a favor (como un adelanto).», salvo en el pago propio del titular, que no es un cobro (E-15) Los `ADVANCE` guardados se conservan y se leen como «Adelanto». `registerAccountPayment(advance:)` se mantiene en el repositorio | `settlements_screen.dart`, `account_texts.dart` |
 | A2 | La tarjeta de una compra no se podía tocar y no había detalle | La tarjeta abre `/compras/detalle/:id`, un detalle **de sólo lectura** que funciona también con compras revertidas. Muestra lo guardado y nada más (§3) | `purchase_detail_screen.dart` (nuevo), `purchases_screen.dart`, `agro_repository.dart` (`purchaseDetail`: 4 SELECT), `app.dart`, `labels.dart`, `money.dart` |
 | A3 | Tras revertir una transferencia, el texto del actor iba en el lateral y desbordaba la fila | «Revertida», el resumen y el actor van en el cuerpo de la fila, con todo el ancho. El lateral queda para la flecha. La auditoría se conserva completa: quién, cómo y el motivo | `transfers_screen.dart` |
 | A4 | El campo del importe traía el ejemplo «1.500,25», que parecía un valor | Campo vacío, etiqueta «Importe del pago» y sufijo «Bs». La validación numérica (`parseNumericInput`) es la misma | `settlements_screen.dart` |
@@ -119,7 +119,14 @@ Las tres de restauración y descompresión pasaron solas (`f04_admin_owner_resto
 | **Teclado:** 300 dp de teclado en 360×640, «Registrar» visible por encima del teclado y el error de formato completo | A4 |
 | **Texto largo:** proveedor «Comercializadora Agroquímica del Valle Alto S.R.L.», persona «María Fernanda Quispe Mamani» y el motivo de la reversión largo | todas |
 
-## 6. Limitaciones declaradas
+## 6. Revisión cruzada (2026-10-30)
+
+Revisión de sólo lectura del diff `186f473..fd6f525` por una sesión distinta de la que escribió el código. **Veredicto: LISTO con observaciones**, ninguna bloqueante:
+- confirma que `purchaseDetail` son cuatro `SELECT` sin transacción ni escritura, y que `registerAccountPayment(advance:)` se conserva;
+- confirma que las pruebas no pasan de forma trivial (volcado de tablas, comparación de `payment_allocations`, igualdad exacta de textos leídos de la base);
+- observaciones aplicadas en el commit siguiente: `docs/07_SCREENS.md` citaba `_viewInvoice` (ya `showInvoiceImage`); la frase del diálogo no aparece en el pago propio del titular (matizado arriba); `mainAxisSize.min` en la `Column` del subtítulo de Transferencias; el FAB global se oculta en el detalle de compra, que es de sólo lectura.
+
+## 7. Limitaciones declaradas
 
 - **Sin ejecución en emulador ni teléfono.** Los tiempos y la apariencia real con el teclado del sistema no se midieron.
 - **El manual de usuario** (Backend `docs/manuals/F11_MANUAL_USUARIO.md` §4.1) todavía describe «Registrar adelanto» y el campo «Importe BOB». Se actualiza después de integrar este PR, para no describir un código que no está en `main`.

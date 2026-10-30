@@ -81,8 +81,11 @@ class AppShell extends StatelessWidget {
     '/aplicaciones/voz',
   };
 
-  /// Si esta ruta oculta el FAB global.
-  bool get hidesGlobalFab => _routesWithoutGlobalFab.contains(location);
+  /// Si esta ruta oculta el FAB global. El detalle de compra es de sólo
+  /// lectura (A2, 2026-10-30): un «Nuevo» flotante no tiene sentido ahí.
+  bool get hidesGlobalFab =>
+      _routesWithoutGlobalFab.contains(location) ||
+      location.startsWith('/compras/detalle/');
 
   int get selectedIndex {
     if (operationsSubRoutes.any(

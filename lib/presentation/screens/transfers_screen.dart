@@ -126,6 +126,7 @@ class _TransfersScreenState extends ConsumerState<TransfersScreen> {
                 // hasta desbordar la fila (bloque de experiencia 2026-10-30,
                 // A3). El lateral queda para la flecha de desplegar.
                 subtitle: Column(
+                  mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     if (row['status'] != 'CONFIRMED')
