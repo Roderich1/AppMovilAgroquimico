@@ -90,9 +90,13 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
     });
   }
 
+  /// Un único «Registrar pago» (bloque de experiencia, 2026-10-30): pago y
+  /// adelanto tienen la misma mecánica (RN-39) y sólo cambiaba el `type`
+  /// guardado. Lo nuevo se guarda como PAYMENT; los ADVANCE históricos se
+  /// conservan y se siguen leyendo como «Adelanto». Si no hay deuda, el pago
+  /// queda a favor, que es lo que el agricultor llamaba adelanto.
   Future<void> _record(
     AccountSummary person, {
-    required bool advance,
     required List<CampaignRead> campaigns,
     bool ownRecord = false,
   }) async {
@@ -109,7 +113,6 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
         registration: registrationText(selected, DateTime.now()),
         netMinor: person.account.netMinor,
         ownRecord: ownRecord,
-        advance: advance,
       ),
     );
     if (result == null || !mounted) return;
@@ -122,7 +125,6 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
             personId: person.personId,
             campaignId: selectedCampaignId,
             amountBobMinor: result,
-            advance: advance,
           );
       _refresh();
       if (mounted) showSuccess(context, payment.message(person.name));
@@ -261,12 +263,7 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
                     case 'export':
                       _exportStatement(summary);
                     default:
-                      _record(
-                        summary,
-                        advance: value == 'advance',
-                        campaigns: campaigns,
-                        ownRecord: true,
-                      );
+                      _record(summary, campaigns: campaigns, ownRecord: true);
                   }
                 },
                 itemBuilder: (_) => const [
@@ -278,13 +275,9 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
                     value: 'export',
                     child: Text('Exportar movimientos propios'),
                   ),
-                  // Criterio Q-2: el titular conserva el pago y el adelanto
-                  // (#26); se registran aparte, nunca como cobro.
+                  // Criterio Q-2: el titular conserva su pago (#26); se
+                  // registra aparte, nunca como cobro.
                   PopupMenuItem(value: 'pay', child: Text('Registrar pago')),
-                  PopupMenuItem(
-                    value: 'advance',
-                    child: Text('Registrar adelanto'),
-                  ),
                 ],
               ),
             ],
@@ -408,11 +401,7 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
                     case 'export':
                       _exportStatement(row);
                     default:
-                      _record(
-                        row,
-                        advance: value == 'advance',
-                        campaigns: campaigns,
-                      );
+                      _record(row, campaigns: campaigns);
                   }
                 },
                 itemBuilder: (_) => [
@@ -425,18 +414,13 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
                     value: 'export',
                     child: Text('Exportar estado de cuenta'),
                   ),
-                  // En inventario propio sólo el titular registra pagos y
-                  // adelantos (#26).
-                  if (!personal || row.personId == ownerPersonId) ...[
+                  // En inventario propio sólo el titular registra pagos (#26).
+                  if (!personal || row.personId == ownerPersonId)
                     const PopupMenuItem(
                       value: 'pay',
                       child: Text('Registrar pago'),
-                    ),
-                    const PopupMenuItem(
-                      value: 'advance',
-                      child: Text('Registrar adelanto'),
-                    ),
-                  ] else
+                    )
+                  else
                     const PopupMenuItem(
                       enabled: false,
                       child: Text('Inventario propio: pagos sólo del titular'),
@@ -702,6 +686,9 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
           children: [
             DropdownButtonFormField<int?>(
               initialValue: selectedCampaignId,
+              // Ocupa el ancho del campo y parte el nombre si no cabe: sin
+              // esto se desbordaba 77 px a 360 dp con letra ×1,3 (2026-10-30).
+              isExpanded: true,
               decoration: const InputDecoration(
                 labelText: 'Filtrar por campaña',
               ),
@@ -812,7 +799,8 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
   );
 }
 
-/// Diálogo de registro de pago o adelanto.
+/// Diálogo de registro de pago (un adelanto es un pago sin deuda: queda a
+/// favor).
 ///
 /// Es un [StatefulWidget] con ownership claro de su [TextEditingController],
 /// como los diálogos de `catalogs_screen.dart` y `_PaymentDialog` de
@@ -825,6 +813,8 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
 ///  * **UIBUG-065** — un importe no interpretable valía 0 y el usuario recibía
 ///    el engañoso *"El importe debe ser mayor a cero"*.
 ///  * **UIBUG-003** — el importe se interpretaba con convenio inglés.
+///  * **A4 (2026-10-30)** — el ejemplo «1.500,25» del campo parecía un
+///    importe ya escrito: el campo empieza vacío, con etiqueta y moneda.
 ///
 /// D-04 (§2.4): la campaña es sólo la de registro y el saldo de referencia es
 /// el neto de todas las campañas, no el de la campaña filtrada.
@@ -833,14 +823,12 @@ class _RecordPaymentDialog extends StatefulWidget {
     required this.personName,
     required this.registration,
     required this.netMinor,
-    required this.advance,
     this.ownRecord = false,
   });
 
   final String personName;
   final String registration;
   final int netMinor;
-  final bool advance;
 
   /// E-15: pago propio del titular. No hay saldo que cobrar (criterio Q-2).
   final bool ownRecord;
@@ -882,7 +870,11 @@ class _RecordPaymentDialogState extends State<_RecordPaymentDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: Text(widget.advance ? 'Registrar adelanto' : 'Registrar pago'),
+      // Con el teclado abierto y la letra ampliada el contenido no cabía y se
+      // desbordaba (238 px a ×1,3 en 360×640); ahora se desplaza y los botones
+      // quedan a la vista (2026-10-30).
+      scrollable: true,
+      title: const Text('Registrar pago'),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -908,8 +900,13 @@ class _RecordPaymentDialogState extends State<_RecordPaymentDialog> {
           ),
           const SizedBox(height: 2),
           // El pago propio no se aplica a ninguna deuda: sin la línea FIFO.
-          if (!widget.ownRecord)
+          if (!widget.ownRecord) ...[
             Text(dialogFifoText, style: Theme.of(context).textTheme.bodySmall),
+            Text(
+              dialogCreditText,
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          ],
           const SizedBox(height: 14),
           TextField(
             controller: _amount,
@@ -920,8 +917,8 @@ class _RecordPaymentDialogState extends State<_RecordPaymentDialog> {
             },
             onSubmitted: (_) => _submit(),
             decoration: InputDecoration(
-              labelText: 'Importe BOB',
-              hintText: '1.500,25',
+              labelText: 'Importe del pago',
+              suffixText: 'Bs',
               errorText: _error,
               // Un mensaje de formato ocupa varias líneas.
               errorMaxLines: 4,

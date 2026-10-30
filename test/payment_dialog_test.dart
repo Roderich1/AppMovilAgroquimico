@@ -1,4 +1,5 @@
-// Flujo de registro de pago/adelanto en `/liquidacion`.
+// Flujo de registro de pago en `/liquidacion` (un único «Registrar pago»
+// desde el 2026-10-30; los adelantos históricos se conservan).
 //
 // Cubre de una vez los defectos que comparten el mismo diálogo:
 //   UIBUG-005  el TextEditingController se liberaba mientras el diálogo aún se
@@ -263,19 +264,31 @@ void main() {
     );
   });
 
-  testWidgets('el adelanto sigue funcionando y se distingue del pago', (
-    tester,
-  ) async {
+  testWidgets('un único «Registrar pago»: el menú ya no ofrece adelantos y '
+      'un adelanto histórico se conserva como ADVANCE', (tester) async {
     final (database, repo, person) = (await tester.runAsync(fixture))!;
     addTearDown(database.close);
+    // Adelanto guardado antes del cambio (la API del repositorio lo admite).
+    await tester.runAsync(
+      () => repo.registerAccountPayment(
+        personId: person,
+        amountBobMinor: 20000,
+        advance: true,
+      ),
+    );
     await pumpScreen(tester, repo);
 
     await tester.ensureVisible(personMenu().first);
     await tester.tap(personMenu().first);
     await settle(tester);
-    await tester.tap(find.text('Registrar adelanto'));
+    expect(find.text('Registrar pago'), findsOneWidget);
+    expect(find.text('Registrar adelanto'), findsNothing);
+    await tester.tap(find.text('Registrar pago'));
     await settle(tester);
-    expect(inDialog(find.textContaining('adelanto')), findsWidgets);
+    expect(
+      inDialog(find.textContaining('queda a favor (como un adelanto)')),
+      findsOneWidget,
+    );
 
     await tester.enterText(amountField(), '200');
     await settle(tester);
@@ -283,7 +296,10 @@ void main() {
     await settle(tester);
 
     final rows = (await tester.runAsync(() => repo.statement(person)))!;
-    expect(rows.single['type'], 'ADVANCE');
-    expect(rows.single['amount_bob_minor_signed'], -20000);
+    expect([for (final row in rows) row['type']], ['ADVANCE', 'PAYMENT']);
+    expect(
+      [for (final row in rows) row['amount_bob_minor_signed']],
+      [-20000, -20000],
+    );
   });
 }

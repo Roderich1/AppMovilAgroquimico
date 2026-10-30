@@ -266,18 +266,18 @@ flowchart TD
 
 ---
 
-## UF-08 · Registrar un pago o adelanto de una persona
+## UF-08 · Registrar un pago de una persona
 
-**Entrada**: `/liquidacion` → menú ⋮ de la persona → "Registrar pago" / "Registrar adelanto".
+**Entrada**: `/liquidacion` → menú ⋮ de la persona → "Registrar pago". Desde el 2026-10-30 es el único acceso: un pago sin deuda queda a favor (lo que antes se registraba como adelanto, RN-39). Los `ADVANCE` históricos se conservan.
 
 ```mermaid
 flowchart TD
-    A["SettlementsScreen._record(person, advance)"] --> B["AlertDialog con campo 'Importe BOB'"]
+    A["SettlementsScreen._record(person)"] --> B["AlertDialog con campo 'Importe del pago' (Bs), vacío"]
     B --> C["parseMinor(texto) → centavos"]
-    C --> D["addAccountPayment(personId, campaignId seleccionada, importe, advance)"]
+    C --> D["registerAccountPayment(personId, campaignId seleccionada, importe)"]
     D --> E{"importe > 0?"}
     E -->|no| F["BusinessRuleException 'El importe debe ser mayor a cero.'"]
-    E -->|sí| G["INSERT account_transactions tipo PAYMENT o ADVANCE, monto NEGATIVO"]
+    E -->|sí| G["INSERT account_transactions tipo PAYMENT, monto NEGATIVO"]
     G --> H["SELECT cargos pendientes de la persona ORDER BY fecha, id<br/>(sin filtrar por campaña)"]
     H --> I["INSERT payment_allocations hasta agotar el importe"]
     I --> J["_refresh() → saldos recalculados"]

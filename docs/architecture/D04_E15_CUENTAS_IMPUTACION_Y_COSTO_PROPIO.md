@@ -510,7 +510,7 @@ D-04 y E-15 son **decisiones del autor del proyecto, Roderich Rendón, del 2026-
   - Aplicaciones: «1 aplicación vigente», «{n} aplicaciones vigentes» o, con n = 0, «Sin aplicaciones vigentes». Si hay revertidas, se añade « · 1 revertida ({y}, no cuenta)» o « · {m} revertidas ({y}, no cuentan)».
   - Asientos, con su ámbito: «Asientos en su cuenta · {todas las campañas | período de K (inicio – fin|hoy)} (no son deuda): cargos anotados {c} · créditos por reversión {r} · pagos y ajustes registrados {q}», o «Sin asientos en su cuenta · {ámbito}.». Con K, los asientos con día dentro de su período.
   - El diálogo del pago propio no lleva «Se aplica primero a la deuda más antigua…» ni saldo: dice «Pago propio: se registra aparte y no es un cobro ni una deuda.». En «Movimientos propios», lo no imputado se rotula «Sin imputar: X», sin «queda a favor».
-  - Menú: «Ver movimientos propios», «Exportar movimientos propios», «Registrar pago», «Registrar adelanto» (Q-2).
+  - Menú: «Ver movimientos propios», «Exportar movimientos propios», «Registrar pago», «Registrar adelanto» (Q-2). Desde el 2026-10-30, un único «Registrar pago» (RN-39); los adelantos guardados se conservan.
 - **Lista sin otras personas:** en modo propio, «En inventario propio no hay cuentas por cobrar.»; en compartido, el texto actual. La tarjeta se muestra igual.
 - **«Movimientos propios · {titular}»:**
   - sección «Consumo aplicado (costo FIFO)», con «{K}: {x} ({n} aplicación|aplicaciones)», «Aplicaciones revertidas: {m} ({y})» y «Consumo aplicado · todas las campañas {X}»;

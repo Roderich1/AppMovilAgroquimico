@@ -374,7 +374,8 @@ void main() {
       );
       // «Titular» sólo aparece en su tarjeta, nunca como deudor.
       expect(find.text('Titular'), findsOneWidget);
-      // Criterio Q-2: conserva pago y adelanto (#26).
+      // Criterio Q-2: conserva su pago (#26). Desde el bloque de experiencia
+      // del 2026-10-30 hay un único «Registrar pago» (RN-39).
       await tester.tap(
         find.descendant(
           of: own,
@@ -384,7 +385,7 @@ void main() {
       await settle(tester);
       expect(find.text('Ver movimientos propios'), findsOneWidget);
       expect(find.text('Registrar pago'), findsOneWidget);
-      expect(find.text('Registrar adelanto'), findsOneWidget);
+      expect(find.text('Registrar adelanto'), findsNothing);
       await tester.tap(find.text('Ver movimientos propios'));
       await settle(tester);
       Finder inDialog(String text) => find.descendant(
@@ -564,7 +565,7 @@ void main() {
       expect([
         for (final i in ownItems)
           if (i.enabled) i.value,
-      ], containsAll(['pay', 'advance']));
+      ], allOf(contains('pay'), isNot(contains('advance'))));
       final familiar = find
           .ancestor(of: find.text('Familiar Demo'), matching: find.byType(Card))
           .first;

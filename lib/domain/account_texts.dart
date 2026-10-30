@@ -226,6 +226,11 @@ String dialogNetText(int netMinor) {
 const String dialogFifoText =
     'Se aplica primero a la deuda más antigua, de cualquier campaña.';
 
+/// Un único «Registrar pago» (RN-39): lo que antes se registraba como
+/// adelanto es un pago que, sin deuda, queda a favor.
+const String dialogCreditText =
+    'Si no hay deuda, el pago queda a favor (como un adelanto).';
+
 /// Resultado de registrar un pago o adelanto: lo escrito de verdad.
 final class AccountPaymentResult {
   const AccountPaymentResult({

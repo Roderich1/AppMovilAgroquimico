@@ -29,6 +29,15 @@ String operationStatusLabel(Object? status) => switch (status) {
   _ => '$status',
 };
 
+/// Origen del tipo de cambio de una compra (`ExchangeRateSource.code`).
+String exchangeRateSourceLabel(Object? source) => switch (source) {
+  'AGREED_WITH_SUPPLIER' => 'Acordado con el proveedor',
+  'OFFICIAL_REFERENCE' => 'Referencia oficial',
+  'MANUAL' => 'Escrito por la persona',
+  'OTHER' => 'Otro',
+  _ => '$source',
+};
+
 /// Tipo de asiento de `account_transactions`.
 String transactionTypeLabel(Object? type) => switch (type) {
   'USAGE_CHARGE' => 'Cargo por consumo',
