@@ -126,8 +126,12 @@ Revisión de sólo lectura del diff `186f473..fd6f525` por una sesión distinta 
 - confirma que las pruebas no pasan de forma trivial (volcado de tablas, comparación de `payment_allocations`, igualdad exacta de textos leídos de la base);
 - observaciones aplicadas en el commit siguiente: `docs/07_SCREENS.md` citaba `_viewInvoice` (ya `showInvoiceImage`); la frase del diálogo no aparece en el pago propio del titular (matizado arriba); `mainAxisSize.min` en la `Column` del subtítulo de Transferencias; el FAB global se oculta en el detalle de compra, que es de sólo lectura.
 
-## 7. Limitaciones declaradas
+## 7. Comprobación en el emulador (2026-10-30, después de publicar el PR)
 
-- **Sin ejecución en emulador ni teléfono.** Los tiempos y la apariencia real con el teclado del sistema no se midieron.
+Hecha sobre `1027cd4` con un Central sintético propio y la instalación aislada «AC UX-C1»: `F10_UX_C1_EMULADOR_2026-10-30.md`. Todo lo mostrado coincidió con lo guardado; quedaron cuatro hallazgos preexistentes (F-1 a F-4) y dos limitaciones (modalidad propia bloqueada por saldos; teclado del emulador).
+
+## 8. Limitaciones declaradas
+
+- **Sin teléfono físico.** El emulador se usó después (§7); los tiempos y el teclado real del sistema no se midieron.
 - **El manual de usuario** (Backend `docs/manuals/F11_MANUAL_USUARIO.md` §4.1) todavía describe «Registrar adelanto» y el campo «Importe BOB». Se actualiza después de integrar este PR, para no describir un código que no está en `main`.
 - **Instrumentos humanos sin tocar.** Las tarjetas T1–T6 y el guion de usabilidad no nombran el adelanto, el detalle de compra ni el actor de las transferencias.
