@@ -21,17 +21,19 @@ No cambian importes, signos, fechas, tipos históricos, imputaciones ni acciones
 
 `test/ux_f12_estado_cuenta_y_nombres_test.dart` (repositorio real sobre base en memoria; la persona es un tercero con nombre de 31 caracteres, un cargo por compra y un adelanto histórico de 20 Bs; para F-2 un cargo de 1.350.000,00 Bs).
 
-**Reproducción sobre el código anterior** (`7ce98c8`, `flutter test test/ux_f12_estado_cuenta_y_nombres_test.dart`, 2026-10-30, 6 de 7 fallan):
+**Reproducción sobre el código anterior** (copia de `origin/main` `7ce98c8` extraída con `git archive` fuera del worktree, con la prueba tal como queda en este PR; `flutter test test/ux_f12_estado_cuenta_y_nombres_test.dart`, 2026-10-30, **6 de 7 fallan**):
 
-- F-1 a 411 dp y a 360 dp ×1,3: «una línea parte una palabra en «05/01/2026 · Cargo por compra · Verano 2026 …» (posición 8)».
+- F-1 a 411 dp: «… Pendiente a hoy 160,00 Bs» tiene 47,0 px de una fila de 283,0» (la columna del concepto era ~17 % del diálogo). A 360 dp ×1,3: 5,6 px de 241,6.
+- F-1 a 320 dp ×2,0: falla antes de la aserción, con `Bad state: No element` al buscar el `Scrollable` del diálogo (fallo del arnés sobre el código antiguo, no la comprobación prevista).
 - F-2 a 411, 360 ×1,3 y 320 ×2,0: «Expected: not TextOverflow.ellipsis · Actual: TextOverflow.ellipsis».
 - La única que pasaba era la de pantalla ancha (la columna lateral ya existía).
+- Una versión anterior de la prueba (sin la comprobación del 40 %) fallaba a 411 y 360 ×1,3 con «una línea parte una palabra en «05/01/2026 · Cargo por compra · Verano 2026 …» (posición 8)», el síntoma visto en el emulador; esa aserción, por sí sola, no distinguía la columna estrecha de un corte inevitable, y por eso se añadió la del ancho mínimo (observación de la revisión cruzada).
 
 **Con la corrección** (`00daa88`): `00:05 +7: All tests passed!`. Qué comprueba cada caso:
 
 | Caso | Tamaños | Comprobación |
 |---|---|---|
-| F-1 «el concepto, la fecha y el importe se leen enteros» | 411 ×1,0 · 360 ×1,3 · 320 ×2,0 | Abre el diálogo desde el menú de la tarjeta; desplaza el cronológico; la fila del cargo y la del adelanto se leen con `getLineBoundary`: ninguna línea parte una palabra (se tolera sólo una palabra más ancha que el párrafo entero, que es el caso de la fuente de pruebas a ×2,0); importes `+45,00 Bs`, `-20,00 Bs` y los dos «Acumulado» presentes, sin `ellipsis`, con todas sus líneas pintadas; `ADVANCE −2000` leído de `account_transactions` |
+| F-1 «el concepto, la fecha y el importe se leen enteros» | 411 ×1,0 · 360 ×1,3 · 320 ×2,0 | Abre el diálogo desde el menú de la tarjeta; desplaza el cronológico; la fila del cargo y la del adelanto se leen con `getLineBoundary`: (1) el párrafo dispone de al menos el 40 % del ancho del diálogo (la columna antigua de ~55 px en ~280 no lo cumple) y (2) ninguna línea parte una palabra, salvo una palabra más ancha que el párrafo entero (caso de la fuente de pruebas a ×2,0); importes `+180,00 Bs` (cargo HOST: 4 L × 45,00 Bs) y `-20,00 Bs`, «Acumulado 180,00 Bs» y «Acumulado 160,00 Bs» presentes, sin `ellipsis`, con todas sus líneas pintadas; el cargo y el `ADVANCE −2000` leídos de `account_transactions` |
 | F-1 «en pantalla ancha el importe conserva su columna lateral» | 1024 | El `ListTile` conserva `trailing` y el concepto va en una línea |
 | F-2 «el nombre se lee completo y el importe no se reduce» | 411 ×1,0 · 360 ×1,3 · 320 ×2,0 | El `Text` del nombre no tiene `ellipsis`, pinta todas las líneas que necesita y no parte palabras; el importe mostrado es `formatBob` del `netMinor` real del ledger (> 1.000.000,00 Bs), sin `FittedBox` en la tarjeta y con `textScaler` igual a la escala pedida; el menú ⋮ sigue en la tarjeta |
 

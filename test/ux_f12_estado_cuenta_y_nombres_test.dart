@@ -199,13 +199,26 @@ int _linesNeeded(WidgetTester tester, Finder finder) {
 }
 
 /// Ninguna palabra partida: cada línea termina en un espacio o en el final.
-/// Se tolera sólo el corte inevitable: una palabra que, ella sola, es más
-/// ancha que todo el párrafo (la fuente de las pruebas mide 1 em por glifo,
+/// Dos comprobaciones: (1) el párrafo dispone de al menos el 40 % del ancho
+/// [available] del contenedor (el diálogo o la tarjeta), así una columna
+/// estrecha como la de F-1 (~55 px de ~280) se detecta aunque sus cortes sean
+/// «inevitables»; (2) sólo se tolera el corte de una palabra que, ella sola,
+/// es más ancha que el párrafo (la fuente de las pruebas mide 1 em por glifo,
 /// el doble que Roboto; en el EMULADOR se comprueba con la fuente real).
-void _expectWholeWords(WidgetTester tester, Finder finder) {
+void _expectWholeWords(
+  WidgetTester tester,
+  Finder finder, {
+  required double available,
+}) {
   final paragraph = tester.renderObject<RenderParagraph>(finder.first);
   final text = paragraph.text.toPlainText();
   final style = paragraph.text.style;
+  expect(
+    paragraph.size.width,
+    greaterThanOrEqualTo(available * 0.4),
+    reason:
+        '«$text» tiene ${paragraph.size.width} px de una fila de $available',
+  );
   final painter = TextPainter(
     text: paragraph.text,
     textDirection: TextDirection.ltr,
@@ -277,6 +290,8 @@ void main() {
           _screen(tester, width: width, height: 3200);
           await _pumpCuentas(tester, world, textScale: scale);
           await _openStatement(tester);
+          double dialogWidth() =>
+              tester.getSize(find.byType(AccountStatementView)).width;
 
           final rows = (await tester.runAsync(
             () => world.db.query(
@@ -297,7 +312,7 @@ void main() {
             tester,
             find.textContaining('05/01/2026 · Cargo'),
           );
-          _expectWholeWords(tester, fecha);
+          _expectWholeWords(tester, fecha, available: dialogWidth());
           final cargo = await _row(tester, find.text('+${formatBob(charge)}'));
           expect(
             tester.widget<Text>(cargo).overflow,
@@ -311,13 +326,13 @@ void main() {
 
           // Fila del adelanto histórico: concepto en una sola línea.
           final adelanto = await _row(tester, find.text('Adelanto'));
-          _expectWholeWords(tester, adelanto);
+          _expectWholeWords(tester, adelanto, available: dialogWidth());
           if (scale == 1.0) expect(_lines(tester, adelanto), 1);
           final fechaAdelanto = await _row(
             tester,
             find.textContaining('Adelanto · registrado en Verano 2026'),
           );
-          _expectWholeWords(tester, fechaAdelanto);
+          _expectWholeWords(tester, fechaAdelanto, available: dialogWidth());
           final pago = await _row(tester, find.text(formatBob(-2000)));
           expect(
             tester.widget<Text>(pago).overflow,
@@ -378,7 +393,11 @@ void main() {
           final nameWidget = tester.widget<Text>(name);
           expect(nameWidget.overflow, isNot(TextOverflow.ellipsis));
           expect(_lines(tester, name), _linesNeeded(tester, name));
-          _expectWholeWords(tester, name);
+          _expectWholeWords(
+            tester,
+            name,
+            available: tester.getSize(_card()).width,
+          );
 
           final pending = (await tester.runAsync(() async {
             final ledger = await world.repo.accountLedger(withDetails: false);
