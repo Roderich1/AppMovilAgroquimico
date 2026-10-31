@@ -30,7 +30,8 @@ enum SafetyCopyState {
 
   /// La restauración falló, el rollback terminó y se comprobó que la base
   /// activa y las fotografías volvieron a ser las anteriores
-  /// (`BackupService`, F08-PREV-01).
+  /// (`BackupService`, F08-PREV-01). También la interrumpida que el titular
+  /// resolvió expresamente con [RestoreSafetyCopies.keepCurrentData].
   rolledBack,
 
   /// Encontrada en preparación sin una restauración en curso: el proceso

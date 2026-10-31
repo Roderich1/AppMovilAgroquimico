@@ -102,16 +102,13 @@ void main() {
 
   Future<String> sha(String path) => BackupService.sha256OfFile(File(path));
 
-  Matcher unverified(RecoveryCheckFailure reason) =>
-      isA<RestoreRecoveryUnverifiedException>()
-          .having((e) => e.reason, 'reason', reason)
-          .having((e) => '${e.cause}', 'cause', 'simulado')
-          .having((e) => e.message, 'message', contains('no se pudo confirmar'))
-          .having(
-            (e) => e.message,
-            'message',
-            isNot(contains('se conservan.')),
-          );
+  TypeMatcher<RestoreRecoveryUnverifiedException> unverified(
+    RecoveryCheckFailure reason,
+  ) => isA<RestoreRecoveryUnverifiedException>()
+      .having((e) => e.reason, 'reason', reason)
+      .having((e) => '${e.cause}', 'cause', 'simulado')
+      .having((e) => e.message, 'message', contains('no se pudo confirmar'))
+      .having((e) => e.message, 'message', isNot(contains('se conservan.')));
 
   group('recuperación correcta', () {
     test(
@@ -183,7 +180,102 @@ void main() {
     });
   });
 
+  group('sin base anterior', () {
+    // Base aún no creada: no hay nada que conservar.
+    AppDatabase emptyDatabase() {
+      final db = AppDatabase(factory: databaseFactoryFfi, path: databasePath());
+      addTearDown(db.close);
+      return db;
+    }
+
+    test('el rollback retira la base restaurada: se descarta la entrada y se '
+        'informa el fallo original', () async {
+      final db = emptyDatabase();
+      final registry = copies();
+      await expectLater(
+        service(
+          db,
+          registry,
+        ).restore(await legacyBackup('nueva'), afterReplace: failAfterReplace),
+        throwsA(
+          isA<BackupException>().having(
+            (e) => e.message,
+            'message',
+            'simulado',
+          ),
+        ),
+      );
+      expect(File(databasePath()).existsSync(), isFalse);
+      expect(await registry.entries(), isEmpty);
+      await registry.ensureCanStartRestore();
+    });
+
+    test('queda una base donde no la había: no se resuelve y el mensaje no '
+        'nombra una copia que no existe', () async {
+      final db = emptyDatabase();
+      final registry = copies();
+      await expectLater(
+        service(
+          db,
+          registry,
+          beforeRecoveryCheck: () =>
+              File(databasePath()).writeAsBytes([1, 2, 3]),
+        ).restore(
+          await legacyBackup('sobrante'),
+          afterReplace: failAfterReplace,
+        ),
+        throwsA(
+          unverified(RecoveryCheckFailure.mismatch).having(
+            (e) => e.message,
+            'message',
+            isNot(contains('Se conserva la copia')),
+          ),
+        ),
+      );
+      expect(
+        (await registry.entries()).single.state,
+        SafetyCopyState.interrupted,
+      );
+    });
+  });
+
   group('recuperación incorrecta', () {
+    test('la base recuperada no tiene el SHA-256 de la asegurada', () async {
+      final db = await database();
+      final registry = copies();
+      await expectLater(
+        service(
+          db,
+          registry,
+          beforeRecoveryCheck: () =>
+              File(databasePath()).writeAsBytes([0], mode: FileMode.append),
+        ).restore(await legacyBackup('hash'), afterReplace: failAfterReplace),
+        throwsA(unverified(RecoveryCheckFailure.mismatch)),
+      );
+      expect(
+        (await registry.entries()).single.state,
+        SafetyCopyState.interrupted,
+      );
+    });
+
+    test('queda un -shm junto a la base recuperada', () async {
+      final db = await database();
+      final registry = copies();
+      await expectLater(
+        service(
+          db,
+          registry,
+          beforeRecoveryCheck: () =>
+              File('${databasePath()}-shm').writeAsBytes([1]),
+        ).restore(await legacyBackup('shm'), afterReplace: failAfterReplace),
+        throwsA(unverified(RecoveryCheckFailure.mismatch)),
+      );
+      expect(
+        (await registry.entries()).single.state,
+        SafetyCopyState.interrupted,
+      );
+    });
+
     test('queda un diario -wal junto a la base recuperada', () async {
       final db = await database();
       final registry = copies();
@@ -279,6 +371,43 @@ void main() {
         );
       },
     );
+  });
+
+  group('el registro no se puede escribir al marcarla', () {
+    test('la entrada queda en preparación fuera de la restauración en curso y '
+        'bloquea igualmente', () async {
+      final db = await database();
+      final registry = copies();
+      // Un directorio donde el registro escribe su temporal: guardar falla.
+      final obstacle = Directory(p.join(previo().path, 'registro.json.tmp'));
+      await expectLater(
+        service(
+          db,
+          registry,
+          beforeRecoveryCheck: () async {
+            await obstacle.create(recursive: true);
+            throw const FileSystemException('simulado: lectura');
+          },
+        ).restore(
+          await legacyBackup('sinregistro'),
+          afterReplace: failAfterReplace,
+        ),
+        throwsA(unverified(RecoveryCheckFailure.inconclusive)),
+      );
+      expect(
+        (await registry.entries()).single.state,
+        SafetyCopyState.preparing,
+      );
+      await obstacle.delete();
+      await expectLater(
+        registry.ensureCanStartRestore(),
+        throwsA(same(RestoreBlockedException.unresolved)),
+      );
+      expect(
+        (await registry.entries()).single.state,
+        SafetyCopyState.interrupted,
+      );
+    });
   });
 
   group('protección frente a la limpieza', () {

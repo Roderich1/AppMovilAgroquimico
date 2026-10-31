@@ -12,6 +12,7 @@ import 'package:sqflite/sqflite.dart'
 import '../domain/installation_access.dart';
 import '../domain/restore_ownership.dart';
 import 'app_database.dart';
+import 'app_log.dart';
 import 'backup_container_reader.dart';
 import 'backup_encryption.dart' show BackupEnvelopeHeader;
 import 'database_replacement.dart';
@@ -1013,7 +1014,6 @@ class BackupService {
     // estaba y se descarta lo que se hubiera copiado a medias.
     final String? previousDigest;
     final bool hadInvoices;
-    final Map<String, String>? previousInvoices;
     try {
       await Directory(p.dirname(safetyCopy)).create(recursive: true);
       previousDigest = await _secureCurrentDatabase(target, safetyCopy);
@@ -1022,11 +1022,6 @@ class BackupService {
       hadInvoices =
           invoicesBackup != null &&
           await _copyDirectory(invoicesDirectory!, invoicesBackup);
-      // Su huella, para comprobar después de un rollback que vuelven a ser
-      // las mismas.
-      previousInvoices = invoicesDirectory == null
-          ? null
-          : await _fingerprint(invoicesDirectory);
     } on Object {
       await _deleteQuietly(File('$safetyCopy$partialSuffix'));
       try {
@@ -1115,7 +1110,7 @@ class BackupService {
         restoredAttachments: restoredAttachments,
         warnings: warnings,
       );
-    } on Object catch (error) {
+    } on Object catch (error, stack) {
       // Deshacer el conjunto: base y fotografías vuelven a como estaban. Los
       // diarios son de la base restaurada y no deben aplicarse a la anterior.
       try {
@@ -1151,17 +1146,29 @@ class BackupService {
         target,
         previousDigest: previousDigest,
         invoicesDirectory: invoicesDirectory,
-        previousInvoices: previousInvoices,
+        invoicesBackup: invoicesBackup,
       );
       if (failure != null) {
         keepInvoicesBackup = true;
+        // Sólo el tipo de la causa: su texto puede llevar rutas de
+        // fotografías, que el log no admite.
+        AppLog.error(
+          'Restauración deshecha sin estado recuperado comprobado '
+          '(${failure.name}); causa: ${error.runtimeType}',
+          stackTrace: stack,
+        );
         try {
           await safetyCopies.markInterrupted(slot);
         } on Object {
           // Sigue en preparación y pasará a interrumpida en el siguiente
           // mantenimiento: protegida igualmente.
         }
-        throw RestoreRecoveryUnverifiedException(failure, error);
+        throw RestoreRecoveryUnverifiedException(
+          failure,
+          error,
+          stack,
+          keptPreviousDatabase: hadPrevious,
+        );
       }
       await _resolveSafetyCopy(
         slot,
@@ -1207,17 +1214,19 @@ class BackupService {
   /// Tras un rollback sin error: null si los datos activos son exactamente
   /// los de antes de restaurar. Se apoya en lo comprobado al preparar la
   /// copia previa ([_secureCurrentDatabase]): el SHA-256 de la base cerrada,
-  /// sin nada pendiente en `-wal`. Por eso no puede quedar ningún diario (el
-  /// rollback los retira: serían de la base restaurada) y la base debe tener
-  /// ese mismo SHA-256, o no existir si no la había. Las fotografías deben
-  /// tener la huella que tenían; como [_copyDirectory], sólo cuentan los
-  /// archivos, no las subcarpetas. No se abre la base: abrirla escribiría
-  /// diarios y no añade nada a una copia idéntica byte a byte.
+  /// sin nada pendiente en `-wal`. Por eso no pueden quedar `-wal` ni `-shm`
+  /// (el rollback los retira: serían de la base restaurada) y la base debe
+  /// tener ese mismo SHA-256, o no existir si no la había. Las fotografías
+  /// deben ser las de su copia previa ([invoicesBackup], que sigue en disco):
+  /// mismos nombres y SHA-256; como [_copyDirectory], sólo cuentan los
+  /// archivos, no las subcarpetas. Las huellas se calculan sólo aquí, no en
+  /// las restauraciones que terminan bien. No se abre la base: abrirla
+  /// escribiría diarios y no añade nada a una copia idéntica byte a byte.
   Future<RecoveryCheckFailure?> _checkRecoveredState(
     String target, {
     required String? previousDigest,
     required Directory? invoicesDirectory,
-    required Map<String, String>? previousInvoices,
+    required Directory? invoicesBackup,
   }) async {
     try {
       if (_beforeRecoveryCheck != null) await _beforeRecoveryCheck();
@@ -1234,7 +1243,10 @@ class BackupService {
         return RecoveryCheckFailure.mismatch;
       }
       if (invoicesDirectory != null &&
-          !mapEquals(await _fingerprint(invoicesDirectory), previousInvoices)) {
+          !mapEquals(
+            await _fingerprint(invoicesDirectory),
+            await _fingerprint(invoicesBackup!),
+          )) {
         return RecoveryCheckFailure.mismatch;
       }
       return null;
@@ -1454,18 +1466,29 @@ enum RecoveryCheckFailure {
 /// La restauración falló y se deshizo, pero no se pudo confirmar que los
 /// datos activos sean los de antes: la copia previa queda protegida como
 /// interrumpida y bloquea otra restauración (F08-PREV-01). [cause] es el
-/// fallo que obligó a deshacer.
+/// fallo que obligó a deshacer. Sin base anterior no hay copia que nombrar.
 class RestoreRecoveryUnverifiedException extends BackupException {
-  const RestoreRecoveryUnverifiedException(this.reason, this.cause)
-    : super(
-        'La restauración falló y no se pudo confirmar que sus datos volvieran '
-        'a estar como antes. Se conserva la copia de sus datos de antes de '
-        'restaurar y no se podrá restaurar otro respaldo hasta revisarla en '
-        '«Copias previas a restauraciones».',
-      );
+  const RestoreRecoveryUnverifiedException(
+    this.reason,
+    this.cause,
+    this.causeStack, {
+    required bool keptPreviousDatabase,
+  }) : super(
+         keptPreviousDatabase
+             ? 'La restauración falló y no se pudo confirmar que sus datos '
+                   'volvieran a estar como antes. Se conserva la copia de sus '
+                   'datos de antes de restaurar y no se podrá restaurar otro '
+                   'respaldo hasta revisarla en «Copias previas a '
+                   'restauraciones».'
+             : 'La restauración falló y no se pudo confirmar que sus datos '
+                   'volvieran a estar como antes. No se podrá restaurar otro '
+                   'respaldo hasta revisarlo en «Copias previas a '
+                   'restauraciones».',
+       );
 
   final RecoveryCheckFailure reason;
   final Object cause;
+  final StackTrace causeStack;
 }
 
 /// No se pudo leer de quién es la copia: no se restaura.
