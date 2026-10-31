@@ -12,8 +12,9 @@
 //   - cota: si quedan más de [maxResolved] (2) finalizadas, se retiran las
 //     más antiguas.
 // La cota no garantiza conservar 7 días y el plazo retira aunque haya menos
-// de 2. Nunca se retiran las copias protegidas (en preparación o de una
-// restauración interrumpida) ni la base activa. Retirar borra exactamente los
+// de 2. Nunca se retiran las copias protegidas (en preparación, de una
+// restauración interrumpida o cuya recuperación nadie confirmó) ni la base
+// activa. Retirar borra exactamente los
 // archivos que nombra la entrada; nunca por patrones.
 import 'dart:convert';
 import 'dart:io';
@@ -30,15 +31,21 @@ enum SafetyCopyState {
 
   /// La restauración falló, el rollback terminó y se comprobó que la base
   /// activa y las fotografías volvieron a ser las anteriores
-  /// (`BackupService`, F08-PREV-01). También la interrumpida que el titular
-  /// resolvió expresamente con [RestoreSafetyCopies.keepCurrentData].
+  /// (`BackupService`, F08-PREV-01). También la que el titular confirmó
+  /// expresamente con [RestoreSafetyCopies.confirmRecovery].
   rolledBack,
 
   /// Encontrada en preparación sin una restauración en curso: el proceso
   /// murió a medias o el rollback falló. También la de un rollback cuyo
-  /// estado recuperado no coincide o no se pudo comprobar. Protegida hasta
-  /// una acción expresa.
+  /// estado recuperado no coincide o no se pudo comprobar. Protegida y
+  /// bloquea otra restauración hasta una acción expresa.
   interrupted,
+
+  /// Era interrumpida y el titular decidió seguir con los datos actuales
+  /// sin confirmar la recuperación ([RestoreSafetyCopies.continueWithCurrentData]):
+  /// ya no bloquea otra restauración, pero sigue protegida hasta que la
+  /// confirme (F08-PREV-01).
+  retained,
 }
 
 class SafetyCopyEntry {
@@ -60,7 +67,8 @@ class SafetyCopyEntry {
 
   bool get isProtected =>
       state == SafetyCopyState.preparing ||
-      state == SafetyCopyState.interrupted;
+      state == SafetyCopyState.interrupted ||
+      state == SafetyCopyState.retained;
 
   Map<String, Object?> toJson() => {
     'id': id,
@@ -92,11 +100,14 @@ class RestoreBlockedException implements Exception {
   const RestoreBlockedException(this.message);
   final String message;
 
+  /// No distingue una restauración cortada de un rollback sin recuperación
+  /// comprobada: si no se pudo guardar el estado de éste, el mantenimiento
+  /// los deja iguales. Por eso no dice que los datos estén bien.
   static const unresolved = RestoreBlockedException(
-    'Hay una restauración anterior que no terminó y se conserva la copia de '
-    'sus datos de entonces. Lo más probable es que sus datos actuales estén '
-    'bien; si es así, elija «Mantener los actuales» en «Copias previas a '
-    'restauraciones» y vuelva a intentarlo. No se modificó nada.',
+    'Una restauración anterior no terminó o no pudimos confirmar que sus '
+    'datos anteriores se recuperaron correctamente. Conservamos la copia de '
+    'seguridad. Antes de restaurar otro respaldo, elija qué hacer en «Copias '
+    'previas a restauraciones». No se modificó nada.',
   );
 
   static const unreadableRegistry = RestoreBlockedException(
@@ -315,12 +326,28 @@ class RestoreSafetyCopies {
     }
   });
 
-  /// Acción expresa del titular sobre una copia interrumpida: mantiene los
-  /// datos actuales. La copia pasa a las reglas normales desde ahora.
-  Future<void> keepCurrentData(String id) => _serial(() async {
+  /// Acción expresa del titular sobre una copia interrumpida: sigue con los
+  /// datos actuales **sin** confirmar la recuperación. Deja de bloquear otra
+  /// restauración, pero la copia sigue protegida: no entra en el plazo ni en
+  /// la cota.
+  Future<void> continueWithCurrentData(String id) => _serial(() async {
     final list = await _load();
     final entry = list.where((e) => e.id == id).firstOrNull;
     if (entry == null || entry.state != SafetyCopyState.interrupted) return;
+    entry.state = SafetyCopyState.retained;
+    await _save(list);
+  });
+
+  /// Acción expresa y separada: el titular confirma que sus datos actuales
+  /// están bien. Sólo entonces la copia pasa a las reglas normales.
+  Future<void> confirmRecovery(String id) => _serial(() async {
+    final list = await _load();
+    final entry = list.where((e) => e.id == id).firstOrNull;
+    if (entry == null ||
+        (entry.state != SafetyCopyState.interrupted &&
+            entry.state != SafetyCopyState.retained)) {
+      return;
+    }
     await _resolve(id, SafetyCopyState.rolledBack);
   });
 

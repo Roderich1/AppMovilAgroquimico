@@ -306,24 +306,73 @@ class _RemoteBackupScreenState extends ConsumerState<RemoteBackupScreen> {
     });
   }
 
-  Future<void> _keepCurrent(SafetyCopyEntry entry) async {
+  /// Copia de una restauración sin resolver: seguir con los datos actuales
+  /// y confirmar la recuperación son dos decisiones distintas (F08-PREV-01).
+  Future<void> _decideUnresolved(SafetyCopyEntry entry) async {
+    final choice = await showDialog<_UnresolvedChoice>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        icon: const Icon(Icons.shield_outlined),
+        title: const Text('Restauración sin resolver'),
+        content: Text(
+          'Una restauración del ${_date(entry.createdAt)} no terminó o no '
+          'pudimos confirmar que sus datos anteriores se recuperaron '
+          'correctamente. Conservamos la copia de seguridad de los datos que '
+          'había entonces.\n\n'
+          '· «Seguir con los actuales»: podrá restaurar otro respaldo y la '
+          'copia sigue protegida; no se borra.\n'
+          '· «Mis datos están bien»: revíselos antes. La copia pasa a la '
+          'limpieza normal (dos copias, siete días).',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Cancelar'),
+          ),
+          TextButton(
+            onPressed: () =>
+                Navigator.pop(dialogContext, _UnresolvedChoice.continueAsIs),
+            child: const Text('Seguir con los actuales'),
+          ),
+          TextButton(
+            onPressed: () =>
+                Navigator.pop(dialogContext, _UnresolvedChoice.confirm),
+            child: const Text('Mis datos están bien'),
+          ),
+        ],
+      ),
+    );
+    if (choice == null || !mounted) return;
+    if (choice == _UnresolvedChoice.confirm) {
+      await _confirmRecovery(entry);
+      return;
+    }
+    await _run(() async {
+      await ref
+          .read(backupServiceProvider)
+          .safetyCopies
+          .continueWithCurrentData(entry.id);
+      await _loadPrevio();
+    });
+  }
+
+  Future<void> _confirmRecovery(SafetyCopyEntry entry) async {
     final confirmed = await confirmDestructiveAction(
       context,
-      title: '¿Mantener los datos actuales?',
+      title: '¿Sus datos actuales están bien?',
       detail:
-          'Una restauración del ${_date(entry.createdAt)} no terminó y se '
-          'conserva la copia de los datos que había entonces. Si los datos '
-          'actuales son correctos, márquela como resuelta: la copia se '
-          'conservará siete días más y después se retirará en la limpieza '
-          'normal.',
-      confirmLabel: 'Mantener los actuales',
+          'Hágalo sólo después de revisarlos. La copia de los datos de antes '
+          'de la restauración del ${_date(entry.createdAt)} dejará de estar '
+          'protegida y se retirará en la limpieza normal (dos copias, siete '
+          'días).',
+      confirmLabel: 'Mis datos están bien',
     );
     if (!confirmed) return;
     await _run(() async {
       await ref
           .read(backupServiceProvider)
           .safetyCopies
-          .keepCurrentData(entry.id);
+          .confirmRecovery(entry.id);
       await _loadPrevio();
     });
   }
@@ -480,7 +529,9 @@ class _RemoteBackupScreenState extends ConsumerState<RemoteBackupScreen> {
       SafetyCopyState.finalized => 'restauración terminada',
       SafetyCopyState.rolledBack => 'restauración deshecha',
       SafetyCopyState.interrupted =>
-        'RESTAURACIÓN SIN TERMINAR: copia protegida',
+        'RESTAURACIÓN SIN RESOLVER: copia protegida; bloquea otra '
+            'restauración',
+      SafetyCopyState.retained => 'Recuperación sin confirmar: copia protegida',
     };
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -494,7 +545,7 @@ class _RemoteBackupScreenState extends ConsumerState<RemoteBackupScreen> {
           'Se guardan en este teléfono. Se conservan hasta dos, siete días, '
           'cuando se abre esta sección o se restaura otra copia; no hay '
           'limpieza con la aplicación cerrada. La de una restauración sin '
-          'terminar no se borra.',
+          'resolver, o cuya recuperación no se confirmó, no se borra.',
         ),
         if (!_previoReadable)
           Card(
@@ -522,12 +573,17 @@ class _RemoteBackupScreenState extends ConsumerState<RemoteBackupScreen> {
               ),
               title: Text('Del ${_date(entry.createdAt)}'),
               subtitle: Text(state(entry.state)),
-              trailing: entry.state == SafetyCopyState.interrupted
-                  ? TextButton(
-                      onPressed: _busy ? null : () => _keepCurrent(entry),
-                      child: const Text('Mantener los actuales'),
-                    )
-                  : null,
+              trailing: switch (entry.state) {
+                SafetyCopyState.interrupted => TextButton(
+                  onPressed: _busy ? null : () => _decideUnresolved(entry),
+                  child: const Text('Decidir'),
+                ),
+                SafetyCopyState.retained => TextButton(
+                  onPressed: _busy ? null : () => _confirmRecovery(entry),
+                  child: const Text('Mis datos están bien'),
+                ),
+                _ => null,
+              },
             ),
           ),
         for (final entity in _unregistered)
@@ -630,3 +686,5 @@ class _RemoteBackupScreenState extends ConsumerState<RemoteBackupScreen> {
     );
   }
 }
+
+enum _UnresolvedChoice { continueAsIs, confirm }
