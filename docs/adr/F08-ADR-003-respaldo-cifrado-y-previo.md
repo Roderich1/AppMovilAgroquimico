@@ -337,6 +337,12 @@ Se conservan sin cambios: el owner-scoping, el staging, la validación antes de 
 - **Si la preparación falla antes de sustituir nada**, se borran la copia y su entrada, como hoy.
 - **La protección no se deduce del nombre ni de suponer que el proceso terminó:** sólo de estados escritos en disco antes y después de cada paso.
 
+> **Aclaración del 2026-10-31 (F08-PREV-01, Mobile #172).** Que el rollback termine sin error ya no basta para `rolledBack`. Antes de marcarla, `BackupService` comprueba el estado recuperado con lo que garantizaba la copia previa al prepararla:
+> - la base activa tiene el SHA-256 de la base cerrada que se aseguró (o no existe, si no la había) y no queda `-wal` ni `-shm`;
+> - las fotografías son las de su copia previa: mismos nombres y SHA-256 de cada archivo, sin subcarpetas. Si había fotografías y su copia ya no está, no coincide. Las huellas se calculan sólo al comprobar un rollback, no en las restauraciones que terminan bien.
+>
+> Esto también rige cuando falla la comprobación del estado restaurado de la fila `finalized`: tras deshacer, la entrada queda `rolledBack` sólo si el estado recuperado coincide. Si no coincide, o la comprobación no puede completarse, la entrada pasa a `interrupted` como en un rollback fallido: protegida del plazo y de la cota, bloquea otra restauración y se conserva también la copia de las fotografías. El error (`RestoreRecoveryUnverifiedException`) dice que no se pudo confirmar la recuperación, no que los datos anteriores se conservan. No cambian los estados, las reglas del §7.2, el cifrado, la identidad ni la pausa de la outbox. Evidencia: `docs/evidence/F08_PREV_01_VERIFICACION_ROLLBACK_2026-10-31.md`.
+
 ### 7.2 Reglas (ratificadas el 2026-10-23)
 
 En cada oportunidad de mantenimiento (al abrir la sección de respaldos, antes de cada restauración, después de terminarla y en la limpieza explícita), con un reloj inyectable:
