@@ -102,12 +102,14 @@ class RestoreBlockedException implements Exception {
 
   /// No distingue una restauración cortada de un rollback sin recuperación
   /// comprobada: si no se pudo guardar el estado de éste, el mantenimiento
-  /// los deja iguales. Por eso no dice que los datos estén bien.
+  /// los deja iguales. Por eso no dice que los datos estén bien. Tampoco
+  /// afirma que haya copia: una entrada puede no tenerla (el proceso murió
+  /// antes de escribirla, o no había nada que copiar).
   static const unresolved = RestoreBlockedException(
     'Una restauración anterior no terminó o no pudimos confirmar que sus '
-    'datos anteriores se recuperaron correctamente. Conservamos la copia de '
-    'seguridad. Antes de restaurar otro respaldo, elija qué hacer en «Copias '
-    'previas a restauraciones». No se modificó nada.',
+    'datos anteriores se recuperaron correctamente. Lo que se guardó '
+    'entonces sigue protegido. Antes de restaurar otro respaldo, elija qué '
+    'hacer en «Copias previas a restauraciones». No se modificó nada.',
   );
 
   static const unreadableRegistry = RestoreBlockedException(
