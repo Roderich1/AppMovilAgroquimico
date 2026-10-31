@@ -1465,8 +1465,9 @@ class BackupService {
     if (!await directory.exists()) return null;
     final files = <String, int>{};
     await for (final entity in directory.list()) {
-      if (entity is File)
+      if (entity is File) {
         files[p.basename(entity.path)] = await entity.length();
+      }
     }
     return files;
   }

@@ -570,6 +570,7 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
     // El aviso sobrevive a la navegación: si la base restaurada no habilita
     // operaciones, el router lleva a la pantalla de acceso.
     final messenger = ScaffoldMessenger.of(context);
+    final errorColor = Theme.of(context).colorScheme.error;
     try {
       final result = (await guarded.restore(chosen.path)).result;
       messenger.showSnackBar(
@@ -587,7 +588,9 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
         await _showNotices('Restauración', result.warnings);
       }
     } catch (error) {
-      if (mounted) showError(context, error);
+      // También si la pantalla ya no está: un «No pudimos confirmar…» no
+      // puede perderse (F08-PREV-01).
+      showErrorOn(messenger, errorColor, error);
     }
   }
 

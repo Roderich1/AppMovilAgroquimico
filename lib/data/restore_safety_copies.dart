@@ -351,6 +351,15 @@ class RestoreSafetyCopies {
     await _resolve(id, SafetyCopyState.rolledBack);
   });
 
+  /// ¿Queda en disco la copia de [entry] (base o fotografías)? Una entrada
+  /// puede no tenerla: el proceso murió antes de escribirla, o no había base
+  /// ni fotografías que copiar. Un `.part` no es una copia.
+  Future<bool> hasFiles(SafetyCopyEntry entry) async {
+    final dir = (await directory()).path;
+    return await File(p.join(dir, entry.databaseName)).exists() ||
+        await Directory(p.join(dir, entry.invoicesName)).exists();
+  }
+
   /// Oportunidad de mantenimiento: al abrir los respaldos, antes y después de
   /// restaurar, y en la limpieza expresa. Con el registro ilegible no hace
   /// nada (no se sabe qué es indispensable).

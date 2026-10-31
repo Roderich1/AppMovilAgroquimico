@@ -7,6 +7,7 @@ import 'package:path/path.dart' as p;
 import '../../app.dart' show backupServiceProvider;
 import '../../data/backup_encryption.dart';
 import '../../data/restore_safety_copies.dart';
+import '../../guarded_restore.dart' show GuardedRestoreOutcome;
 import '../../services/backup/backup_keyring.dart';
 import '../../services/backup/remote_backup_api.dart';
 import '../../services/backup/remote_backup_providers.dart';
@@ -249,7 +250,18 @@ class _RemoteBackupScreenState extends ConsumerState<RemoteBackupScreen> {
       return;
     }
     final messenger = ScaffoldMessenger.of(context);
-    final outcome = await service.restorePrepared(prepared);
+    final errorColor = Theme.of(context).colorScheme.error;
+    final GuardedRestoreOutcome outcome;
+    try {
+      outcome = await service.restorePrepared(prepared);
+    } on Object catch (error) {
+      // El aviso se muestra aunque la pantalla se haya desmontado, y la
+      // sección de copias previas se recarga: puede haber una copia sin
+      // resolver sobre la que decidir (F08-PREV-01).
+      showErrorOn(messenger, errorColor, error);
+      await _loadPrevio();
+      return;
+    }
     await ref.read(syncControllerProvider.notifier).refreshSummary();
     await _loadKeyring();
     await _loadPrevio();
@@ -309,6 +321,17 @@ class _RemoteBackupScreenState extends ConsumerState<RemoteBackupScreen> {
   /// Copia de una restauración sin resolver: seguir con los datos actuales
   /// y confirmar la recuperación son dos decisiones distintas (F08-PREV-01).
   Future<void> _decideUnresolved(SafetyCopyEntry entry) async {
+    final bool hasCopy;
+    try {
+      hasCopy = await ref
+          .read(backupServiceProvider)
+          .safetyCopies
+          .hasFiles(entry);
+    } on Object catch (error) {
+      if (mounted) showError(context, error);
+      return;
+    }
+    if (!mounted) return;
     final choice = await showDialog<_UnresolvedChoice>(
       context: context,
       builder: (dialogContext) => AlertDialog(
@@ -317,12 +340,14 @@ class _RemoteBackupScreenState extends ConsumerState<RemoteBackupScreen> {
         content: Text(
           'Una restauración del ${_date(entry.createdAt)} no terminó o no '
           'pudimos confirmar que sus datos anteriores se recuperaron '
-          'correctamente. Conservamos la copia de seguridad de los datos que '
-          'había entonces.\n\n'
-          '· «Seguir con los actuales»: podrá restaurar otro respaldo y la '
-          'copia sigue protegida; no se borra.\n'
-          '· «Mis datos están bien»: revíselos antes. La copia pasa a la '
-          'limpieza normal (dos copias, siete días).',
+          'correctamente. '
+          '${hasCopy ? 'Conservamos la copia de seguridad de los datos que había entonces.' : 'En este teléfono no quedó ninguna copia de los datos de entonces.'}'
+          '\n\n'
+          '· «Seguir con los actuales»: podrá restaurar otro respaldo; la '
+          'entrada sigue protegida y no se borra.\n'
+          '· «Mis datos están bien»: revíselos antes. La entrada deja de '
+          'estar protegida y puede retirarse en la próxima limpieza (se '
+          'conservan como máximo dos, durante siete días).',
         ),
         actions: [
           TextButton(
@@ -363,11 +388,11 @@ class _RemoteBackupScreenState extends ConsumerState<RemoteBackupScreen> {
       detail:
           'Hágalo sólo después de revisarlos. La copia de los datos de antes '
           'de la restauración del ${_date(entry.createdAt)} dejará de estar '
-          'protegida y se retirará en la limpieza normal (dos copias, siete '
-          'días).',
+          'protegida y puede retirarse en la próxima limpieza (se conservan '
+          'como máximo dos, durante siete días).',
       confirmLabel: 'Mis datos están bien',
     );
-    if (!confirmed) return;
+    if (!confirmed || !mounted) return;
     await _run(() async {
       await ref
           .read(backupServiceProvider)

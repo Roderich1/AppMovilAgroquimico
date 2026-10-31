@@ -234,6 +234,31 @@ void main() {
       });
     }
 
+    for (final mode in const ['PERSIST', 'TRUNCATE']) {
+      test('base en modo $mode: su -journal real, que SQLite deja tras '
+          'confirmar, no da un falso positivo', () async {
+        final db = await database();
+        final active = await db.database;
+        await active.rawQuery('PRAGMA journal_mode = $mode');
+        await AgroRepository(db).addProduct(name: 'Producto $mode');
+        final journal = File('${databasePath()}-journal');
+        expect(journal.existsSync(), isTrue, reason: 'lo deja SQLite');
+        final registry = copies();
+        await expectLater(
+          service(
+            db,
+            registry,
+          ).restore(await legacyBackup('modo'), afterReplace: failAfterReplace),
+          throwsA(original()),
+        );
+        expect(await stateOf(registry), SafetyCopyState.rolledBack);
+        expect(
+          (await AgroRepository(db).products()).map((r) => r['name']),
+          unorderedEquals(['Producto actual', 'Producto $mode']),
+        );
+      });
+    }
+
     test('lecturas y escrituras de fuera durante la comprobación: la lectura '
         'espera sin reabrir la base, la escritura se rechaza y lo comparado '
         'no cambia', () async {
@@ -446,6 +471,9 @@ void main() {
       );
     });
 
+    // Sólo con la carpeta inyectada: en la app `resolveInvoicesDirectory` la
+    // crea siempre, y una instalación sin fotografías llega como carpeta
+    // vacía (caso «instalación sin fotografías», arriba).
     test('no había carpeta de fotografías y el rollback deja una: ausente no '
         'es vacía', () async {
       final db = await database();
@@ -697,6 +725,21 @@ void main() {
         await reopened.ensureCanStartRestore();
       },
     );
+  });
+
+  group('hasFiles', () {
+    test('distingue una entrada con copia de una sin ella', () async {
+      final registry = copies();
+      final slot = await registry.begin();
+      expect(await registry.hasFiles(slot.entry), isFalse);
+      await File('${slot.databasePath}.part').writeAsString('a medias');
+      expect(await registry.hasFiles(slot.entry), isFalse, reason: '.part');
+      await File(slot.databasePath).writeAsString('copia');
+      expect(await registry.hasFiles(slot.entry), isTrue);
+      await File(slot.databasePath).delete();
+      await Directory(slot.invoicesPath).create(recursive: true);
+      expect(await registry.hasFiles(slot.entry), isTrue, reason: 'fotos');
+    });
   });
 
   group('protección frente a la limpieza', () {
