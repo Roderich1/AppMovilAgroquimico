@@ -4,117 +4,195 @@
 |---|---|
 | Issue | Mobile #172 (F08-PREV-01). Trazabilidad del issue: RU-11, CU-15, RF-27, RNF-10, DAT-14; diseño 3.12.4.6, diferencia registrada en 3.14.5 |
 | Rama | `fix/f08-prev-01-verificar-rollback` desde Mobile `main` `6aaeeea` (merge de #163) |
-| Código | `808293d` (corrección) · `da1d0f5` (pruebas) · `b70404e` (ajustes de la revisión cruzada) · `e43d76997fce866b17278aba44088515d0af7d48` (ajuste de su segunda pasada; HEAD de código probado) · este archivo y la aclaración de F08-ADR-003 en el commit que los añade |
+| HEAD de código probado y revisado | **`32a18976f833681e9a543e5996a7d4fd01e1eade`** |
+| HEAD documental | El commit que añade esta versión del archivo y la redacción de F08-ADR-003. Sólo cambia `docs/` (§7) |
 | Fecha real | 2026-10-31 |
-| Dónde se observó | **HOST** = Windows 11, Flutter 3.47.2 / Dart 3.13.2, `sqflite_common_ffi`. **EMULADOR** y **DEVICE**: no ejecutados (§5) |
-| Datos | Sintéticos: bases creadas por las pruebas en carpetas temporales («Producto actual», «Producto otro»…) y bytes de fotografía generados. Ningún dato real |
+| Dónde se observó | **HOST**: Windows 11, Flutter 3.47.2 / Dart 3.13.2, `sqflite_common_ffi`. **EMULADOR** y **DEVICE**: no ejecutados (§6) |
+| Datos | Sintéticos: bases creadas por las pruebas en carpetas temporales y bytes de fotografía generados. Ningún dato real |
 
 ## 1. Defecto
 
-Tras una restauración fallida, `BackupService._restoreExclusively` deshacía la sustitución (copia previa → base activa; copia de fotografías → carpeta de facturas) y marcaba la copia previa `rolledBack` en cuanto el rollback terminaba sin excepción. No comprobaba el estado recuperado. `rolledBack` no está protegida: entra en el plazo de 7 días y la cota de 2 (F08-ADR-003 §7.2). Además, el error que se mostraba era el original, que en el caso de la comprobación final dice «sus datos anteriores se conservan».
+Tras una restauración fallida, `BackupService._restoreExclusively` deshacía la sustitución:
+- la copia previa volvía a ser la base activa;
+- la copia de las fotografías volvía a la carpeta de facturas;
+- la copia previa quedaba `rolledBack` en cuanto el rollback terminaba sin excepción, sin comprobar el estado recuperado.
+
+`rolledBack` no está protegida: entra en el plazo de 7 días y en la cota de 2 (F08-ADR-003 §7.2). El error mostrado era el original, que en el caso de la comprobación final dice «sus datos anteriores se conservan».
 
 ## 2. Corrección
 
-Antes de marcar `rolledBack`, `_checkRecoveredState` comprueba el estado recuperado con lo que la copia previa ya garantizaba al prepararse (`_secureCurrentDatabase`: base cerrada, `-wal` vacío, copia cotejada por SHA-256):
+### 2.1 Comprobación del estado recuperado (`_checkRecoveredState`)
 
-1. no quedan `-wal` ni `-shm` junto a la base (el rollback los retira; serían de la base restaurada);
-2. la base activa tiene el SHA-256 de la base cerrada que se aseguró, o no existe si no la había;
-3. con contenedor, si había fotografías su copia previa sigue en disco y la carpeta recuperada tiene sus mismos archivos (nombre y SHA-256, sin subcarpetas, como copia `_copyDirectory`).
-
-Las huellas sólo se calculan al comprobar un rollback. Las restauraciones que terminan bien no hacen ninguna lectura más que antes; el SHA-256 de la base ya se calculaba y ahora se reutiliza.
-
-**Si no coincide (`mismatch`) o la comprobación no puede completarse (`inconclusive`):**
-- la entrada pasa a `interrupted` (`markInterrupted`, el mismo camino que un rollback fallido): protegida del plazo y de la cota y bloquea otra restauración hasta «Mantener los actuales»;
-- se conserva también la copia de las fotografías;
-- se lanza `RestoreRecoveryUnverifiedException` («La restauración falló y no se pudo confirmar que sus datos volvieran a estar como antes…»), con el motivo, la causa y su traza;
-- el log local anota sólo el motivo y el tipo de la causa, sin su texto, que puede llevar rutas de fotografías.
-
-**No cambia:**
-- los estados y las reglas de `.previo`;
-- el cifrado y la propiedad/identidad;
-- la pausa de la outbox (`prepareRestored` y el recálculo del acceso en `GuardedRestore`; en `guarded_restore.dart` sólo cambia un comentario);
-- el camino de la restauración correcta.
-
-## 3. HOST · reproducción sobre la base anterior
-
-La prueba del defecto (`test/f08_restore_safety_copies_test.dart`, «la copia previa cambió después de asegurarla…») usa sólo la API que existía en `6aaeeea`. Simula el caso: tras asegurar la copia previa, ésta cambia por otra base válida; la restauración falla después de sustituir.
-
-**Base `6aaeeea`** (worktree desacoplado, con el archivo de prueba tal como queda en esta rama, sin cambios desde `da1d0f5`): `flutter test test/f08_restore_safety_copies_test.dart` → `+18 -1: Some tests failed.` Falla exactamente la prueba nueva:
-```
-Expected: throws <Instance of 'BackupException'> with `message`: contains 'no se pudo confirmar'
-  Which: threw BackupException:<simulado>
-```
-Un diagnóstico temporal del mismo caso, que no se commitea, dio esto:
-
-| | `6aaeeea` | Esta rama |
+| Qué | Regla | Resultado si falla |
 |---|---|---|
-| Error informado | `simulado` (el original) | «La restauración falló y no se pudo confirmar…» |
+| `-wal` | No debe quedar ninguno con contenido (marcos pendientes) | No coincide |
+| `-wal` vacío o `-shm` | El rollback los retira; si siguen, no se pudieron retirar o algo reabrió la base | No concluyente |
+| `-journal` | El que SQLite aplicaría al abrir (§3.2) debe ser el mismo que antes de restaurar, normalmente ninguno | No coincide |
+| Base | SHA-256 de la base cerrada que se aseguró al preparar la copia previa, o no existir si no la había | No coincide |
+| Carpeta de fotografías (contenedor) | Si no había carpeta, no debe haberla. Si la había, debe tener los archivos y tamaños anotados al preparar y el SHA-256 de su copia previa | No coincide |
+| Copia previa de las fotografías | Si había carpeta, la copia debe seguir con los archivos y tamaños anotados | No concluyente |
+| Cualquier excepción durante la comprobación | — | No concluyente |
+
+Nada se borra para pasar la comprobación. Las huellas SHA-256 de las fotografías sólo se calculan al comprobar un rollback. Al preparar sólo se listan nombres y tamaños; el SHA-256 de la base ya se calculaba y ahora se reutiliza.
+
+### 2.2 Si no coincide o no es concluyente
+
+- La entrada pasa a `interrupted`: protegida del plazo y de la cota, y bloquea otra restauración. También se conserva la copia de las fotografías.
+- El error dice: «No pudimos confirmar que sus datos anteriores se recuperaron correctamente. Conservamos la copia de seguridad. Antes de restaurar otro respaldo, elija qué hacer en «Copias previas a restauraciones».»
+  - Sin base ni fotografías que copiar se omite «Conservamos la copia de seguridad».
+- El aviso se muestra aunque la pantalla se desmonte al recalcular el acceso.
+- El log local anota sólo el motivo y el tipo de la causa, nunca su texto, que puede llevar rutas de fotografías.
+- El bloqueo posterior dice: «Una restauración anterior no terminó o no pudimos confirmar que sus datos anteriores se recuperaron correctamente. Conservamos la copia de seguridad. Antes de restaurar otro respaldo, elija qué hacer en «Copias previas a restauraciones». No se modificó nada.» Ya no dice que «lo más probable es que sus datos actuales estén bien».
+
+### 2.3 Dos decisiones separadas (antes, «Mantener los actuales»)
+
+| Acción en «Copias previas a restauraciones» | Desde | Resultado |
+|---|---|---|
+| «Decidir» → «Seguir con los actuales» (`continueWithCurrentData`) | `interrupted` | `retained`: deja de bloquear, sigue **protegida**, sin `resolvedAt`; ni el plazo ni la cota la retiran |
+| «Mis datos están bien» (`confirmRecovery`) | `interrupted` o `retained` | `rolledBack` con fecha: reglas normales |
+
+- No se añade ninguna forma de borrar una copia protegida.
+- El diálogo sólo dice que se conserva la copia si sigue en disco (`hasFiles`).
+- Las acciones valen para toda `interrupted`, también la de un proceso muerto. Motivo: si no se pudo guardar el estado de un rollback sin comprobar, el mantenimiento lo deja igual que una restauración cortada, y no se distinguen con seguridad.
+- Tras una restauración remota fallida, la sección se recarga para poder decidir.
+
+**No cambian:**
+- las reglas del §7.2 (2 copias, 7 días);
+- el cifrado y la propiedad/identidad;
+- la pausa de la outbox (`GuardedRestore` sólo cambia un comentario).
+
+## 3. Estado estable y diarios de SQLite
+
+### 3.1 Cuándo se cierran las conexiones y se toman las huellas
+
+1. **Exclusión.** Toda la restauración corre en `DatabaseReplacementGuard.replace`.
+   - Las escrituras nuevas se rechazan (`DatabaseReplacementInProgressException`).
+   - Las que estaban en curso terminan antes.
+   - Las lecturas de fuera esperan en `whenReadable` sin abrir el archivo.
+   - La app tiene una sola `AppDatabase` (`app.dart`) y ningún isolate que abra la base.
+2. **Preparación.** `_secureCurrentDatabase` consolida (checkpoint `TRUNCATE` si está en WAL) y cierra la única conexión. Comprueba además que `-wal` está vacío. Con la base ya cerrada:
+   - calcula el SHA-256 de la base, el mismo con el que coteja la copia;
+   - anota el `-journal` aplicable;
+   - lista las fotografías.
+3. **Rollback.** Cierra la conexión de la base restaurada, retira `-wal`/`-shm` y copia la copia previa sobre la base.
+4. **Comprobación.** Corre justo después, todavía dentro de la exclusión y antes de que nada reabra la base. Lo único que la reabre después es el recálculo del acceso en `GuardedRestore`.
+
+Lo prueba «lecturas y escrituras de fuera durante la comprobación». Desde fuera de la zona de la sustitución:
+- una lectura queda en espera y no termina durante la comprobación;
+- una escritura se rechaza;
+- la copia queda `rolledBack` y la lectura devuelve después los datos de antes, sin la escritura intrusa.
+
+### 3.2 Tratamiento de los diarios
+
+- **`-wal` y `-shm`** son de la base restaurada. El rollback los retira (comportamiento anterior, no añadido aquí): aplicados a la base anterior la corromperían. La comprobación no borra nada: sólo clasifica lo que encuentra.
+- **`-journal`.** El rollback no lo toca: uno anterior pertenece a la base anterior. SQLite sólo revierte un diario «caliente», que exige no estar vacío y tener la cabecera válida, entre otras condiciones (https://www.sqlite.org/atomiccommit.html, «Hot Rollback Journals»).
+  - Se trata como aplicable todo `-journal` con cabecera válida (`d9 d5 05 f9 20 a1 63 d7`), sin mirar bloqueos ni diario maestro, que sólo podrían descartarlo.
+  - Uno vacío (lo que deja `TRUNCATE`) o con la cabecera a ceros (lo que deja `PERSIST`) no se aplica y se admite.
+- **Pruebas:**
+  - `-journal` aplicable sintético: no coincide y no se borra.
+  - `-journal` vacío o a ceros: `rolledBack`, el diario sigue y la base abre íntegra (`integrity_check` = `ok`) con los datos de antes.
+  - Bases reales en modo `PERSIST` y `TRUNCATE`: la anterior y la restaurada escriben en ese modo y el diario existe al comprobar; sin falso positivo.
+  - `-wal` con contenido: no coincide. `-wal` vacío o `-shm`: no concluyente.
+  - En WAL real lo cubre la prueba existente `f10_restore_wal_rollback_test.dart`, que espera el error original.
+
+### 3.3 Carpeta de fotografías ausente frente a vacía
+
+- **Al preparar** se anota la lista de archivos (nombre y tamaño), o `null` si no había carpeta. Con eso se distingue:
+  - **instalación sin fotografías**: carpeta vacía, como la crea siempre `resolveInvoicesDirectory`, con su copia vacía. Se resuelve bien (prueba «instalación sin fotografías»);
+  - **copia faltante o incompleta**: había archivos y la copia no los tiene. No concluyente;
+  - **carpeta desaparecida tras el rollback**: no coincide;
+  - **no había carpeta y el rollback deja una**: no coincide. Fallo seguro, que sólo se alcanza con la carpeta inyectada (§7).
+- Una carpeta ausente nunca se toma por vacía.
+
+## 4. HOST · reproducción sobre la base anterior
+
+`test/f08_prev_01_reproduccion_test.dart` usa sólo la API que existía en `6aaeeea`. Simula que la copia previa cambia por otra base válida después de asegurarla y que la restauración falla tras sustituir.
+
+**Sobre `6aaeeea`**, en un worktree desacoplado con el archivo tal como está en `32a1897` (sin cambios desde `a3ce67e`):
+```
+flutter test test/f08_prev_01_reproduccion_test.dart
+Expected: throws <Instance of 'BackupException'> with `message`: contains 'No pudimos confirmar'
+  Which: threw BackupException:<simulado>
+Some tests failed.
+```
+Un diagnóstico temporal del mismo caso, que no se commitea y se ejecutó sobre `6aaeeea` y `da1d0f5`, dio esto:
+
+| | `6aaeeea` | Corrección |
+|---|---|---|
+| Error informado | `simulado` (el original) | No se confirmó la recuperación |
 | Estado de la copia | `rolledBack` | `interrupted` |
-| Productos en la base activa | `[Producto otro]` (no es la base anterior) | `[Producto otro]` |
+| Productos en la base activa | `[Producto otro]`, que no es la base anterior | `[Producto otro]` |
 | ¿Bloquea otra restauración? | No | Sí |
 | ¿Sigue la copia tras el mantenimiento a +8 días? | **No: se borró** | Sí |
 
-La corrección no repara una copia previa alterada; impide darla por resuelta, borrarla y afirmar que la recuperación terminó bien.
+La corrección no repara una copia previa alterada. Lo que hace es impedir que se dé por resuelta, que se borre y que se afirme que la recuperación terminó bien.
 
-## 4. HOST · pruebas
+## 5. HOST · pruebas
 
-`test/f08_prev_01_rollback_verification_test.dart` (13 casos) y el caso de reproducción del §3. En la tabla, «interrumpida» significa estado `interrupted` y `RestoreRecoveryUnverifiedException`.
+`test/f08_prev_01_rollback_verification_test.dart` tiene 30 casos, más el de reproducción:
 
-| Grupo | Caso | Comprueba |
-|---|---|---|
-| Correcta | base idéntica byte a byte | `rolledBack`; SHA-256 de la base = el de la copia previa; sin `-wal`; «Producto actual»; no bloquea; el error es el original |
-| Correcta | con fotografías | `rolledBack`; la foto propia, con sus mismos bytes; la copia de fotografías se retira |
-| Sin base anterior | el rollback retira la base | entrada descartada; error original; no bloquea |
-| Sin base anterior | queda una base donde no la había | interrumpida, `mismatch`; el mensaje no nombra una copia inexistente |
-| Incorrecta | SHA-256 distinto | interrumpida, `mismatch` |
-| Incorrecta | `-shm` residual | interrumpida, `mismatch` |
-| Incorrecta | `-wal` residual | interrumpida, `mismatch` |
-| Incorrecta | foto alterada | interrumpida; la copia de fotografías se conserva con los bytes originales |
-| Incorrecta | copia de fotografías desaparecida | interrumpida, `mismatch` |
-| Incorrecta | foto sobrante | interrumpida, `mismatch` |
-| No concluyente | la comprobación no puede completarse | interrumpida, `inconclusive`; bloquea |
-| Registro | `markInterrupted` no puede guardar | queda `preparing` fuera de la restauración en curso; al poder escribir, el mantenimiento la pasa a `interrupted` y bloquea |
-| Limpieza | plazo, cota y acción expresa | sobrevive a la cota (3 finalizadas posteriores) y al plazo (61 días); bloquea; tras «Mantener los actuales» pasa a `rolledBack` y se retira a los 8 días con la regla existente |
-
-La regresión frente a falsos positivos con fotografías que la restauración **pisa y añade** es la prueba existente `f10_restore_wal_rollback_test.dart` («copia previa de una base en WAL: fallo después de empezar la sustitución…»). Si la comprobación rechazara ese rollback correcto, lanzaría otra excepción y fallaría; pasa.
-
-**Ejecuciones** (`flutter test --reporter json`, registro local en `_evidencias_locales/F08_PREV_01_host_full*.jsonl`, fuera del repositorio):
-
-| HEAD | Resultado |
+| Grupo | Casos |
 |---|---|
-| `6aaeeea` | `f08_restore_safety_copies_test.dart` antes de cambiar nada: `+18: All tests passed!` |
-| `da1d0f5` | suite completa: 2112 correctas (3 omitidas por la propia suite), 0 fallos |
-| `b70404e` | suite completa: 2117 correctas (3 omitidas), 0 fallos |
-| `e43d769` | **suite completa: 2118 correctas (3 omitidas), 0 fallos, 183 archivos, 106 s** |
+| Recuperación correcta (8) | Base idéntica byte a byte; con fotografías; instalación sin fotografías; `-journal` vacío; `-journal` a ceros; bases reales `PERSIST` y `TRUNCATE`; lecturas y escrituras de fuera durante la comprobación |
+| Sin base anterior (2) | El rollback retira la base y la entrada se descarta; queda una base donde no la había: no coincide y el mensaje no nombra una copia inexistente |
+| No coincide (7) | SHA-256 distinto; `-wal` con contenido; `-journal` aplicable (no se borra); foto alterada (su copia se conserva); foto sobrante; carpeta desaparecida; carpeta creada donde no la había |
+| No concluyente (5) | La comprobación no puede completarse (bloquea); `-wal` vacío; `-shm`; copia de fotografías desaparecida; copia incompleta |
+| Registro (1) | `markInterrupted` no puede guardar: queda `preparing` fuera de la restauración en curso; al poder escribir, el mantenimiento la pasa a `interrupted` y bloquea |
+| Decisiones (5) | Seguir con los actuales no desprotege y sobrevive a la cota (3 finalizadas posteriores) y al plazo (4 meses); sólo confirmar la lleva a las reglas normales y se retira a los 8 días; confirmar desde interrumpida; ninguna acción cambia una resuelta; una retenida se relee igual tras reabrir |
+| `hasFiles` (1) | Sin archivos, sólo `.part`, con base y con fotografías |
+| Limpieza (1) | Sin decisión, la copia sobrevive a la cota y al plazo y bloquea |
 
-`flutter analyze` sobre `e43d769`: `No issues found!`. `dart format` sin cambios pendientes.
+**Ejecuciones de la suite completa** (`flutter test --reporter json`; registros locales en `_evidencias_locales/F08_PREV_01_host_full*.jsonl`, fuera del repositorio):
 
-## 5. EMULADOR y DEVICE
-
-**No ejecutados (NOT_MEASURED).** El rollback sólo ocurre si la restauración falla después de sustituir la base, y la app no tiene una forma de provocarlo sin un gancho de prueba. Ensayarlo en Android exigiría:
-- una prueba de integración con `sqflite` de Android y fallo inyectado, o
-- una versión de diagnóstico con un gancho activable.
-
-Ninguna de las dos existe en este bloque. Lo comprobado en HOST usa `sqflite_common_ffi` sobre Windows. El borrado de `-wal`/`-shm` y la copia de archivos en Android (`ext4`/`f2fs`, almacenamiento privado) no se han observado con este cambio. Queda pendiente, como admite el criterio de aceptación del issue.
-
-## 6. Revisión cruzada
-
-Hecha por otro agente de la misma sesión, sólo con lectura del diff y sin ejecutar pruebas. **No es una revisión independiente.**
-
-| Pasada | HEAD revisado | Resultado | Qué se hizo |
+| HEAD | Correctas | Omitidas por la propia suite | Fallos |
 |---|---|---|---|
-| 1 | `da1d0f5` (`6aaeeea..da1d0f5`) | Sin bloqueantes; 3 a corregir y varios menores | Incorporados en `b70404e`: huellas sólo en el rollback, causa con traza, mensaje sin base anterior, comentarios y 5 pruebas |
-| 2 | `b70404e` (`da1d0f5..b70404e`) | Sin bloqueantes; 1 a corregir (copia de fotografías desaparecida) y el ADR desfasado | Incorporados en `e43d769` y en el commit de este archivo |
+| `da1d0f5` | 2112 | 3 | 0 |
+| `b70404e` | 2117 | 3 | 0 |
+| `e43d769` | 2118 | 3 | 0 |
+| `a3ce67e` | 2132 | 3 | 0 |
+| `ea02a93` | 2135 | 3 | 0 |
+| **`32a1897`** | **2135** (184 archivos, 104 s) | 3 | **0** |
 
-**Hallazgos no aplicados, pendientes de decisión de Roderich:**
-- **Texto del bloqueo.** `RestoreBlockedException.unresolved` dice «Lo más probable es que sus datos actuales estén bien». Tras un `mismatch` se sabe que no son los de antes, y «Mantener los actuales» lleva la copia al plazo de 7 días. Cambiar ese texto toca la redacción aprobada de F08-ADR-003 §7.1.
-- **Rollback sin carpeta de fotografías previa.** Con contenedor y sin carpeta de fotografías previa, el rollback no retira las que se restauraron, así que la comprobación da `mismatch` y bloquea (lado seguro). En producción no se alcanza: `resolveInvoicesDirectory` crea siempre la carpeta. Corregirlo cambiaría el comportamiento del rollback.
+`flutter analyze` sobre `32a1897`: `No issues found!`.
 
-## 7. Límites declarados
+## 6. EMULADOR y DEVICE
 
-- La copia de fotografías no se coteja por SHA-256 al hacerla, igual que antes. Se compara la carpeta recuperada con esa copia, no con una huella del original.
-- No se comprueba `-journal`: una base anterior en modo `persist` puede tenerlo legítimamente, y exigir que no exista daría falsos positivos.
-- Las subcarpetas de la carpeta de fotografías no se copian ni se comprueban, igual que antes.
-- Sin base anterior, una comprobación fallida deja una entrada `interrupted` sin archivo de base, que sólo se resuelve con «Mantener los actuales».
-- Recuperar el contenido de una copia `interrupted` desde la interfaz sigue fuera de alcance (F08-ADR-003 §7.2).
-- No cambian GATE-F08 (#41) ni la política de retención de `.previo` (Backend #151, punto 10).
+**No ejecutados (NOT_MEASURED).** El rollback sólo ocurre si la restauración falla después de sustituir la base, y la app no puede provocarlo sin un gancho de prueba. Ensayarlo en Android exigiría una de dos cosas, y ninguna existe en este bloque:
+- una prueba de integración con `sqflite` de Android y fallo inyectado;
+- una versión de diagnóstico.
+
+Por tanto no se han observado en Android:
+- el modo de diario por defecto de la plataforma;
+- el borrado de `-wal`/`-shm`;
+- la copia de archivos en el almacenamiento privado;
+- los diálogos nuevos.
+
+## 7. Revisión cruzada
+
+Cada pasada la hizo otro agente de la misma sesión, sólo con lectura del diff y sin ejecutar pruebas. **No es una revisión independiente.**
+
+| Pasada | Revisor | Rango revisado | Resultado | Qué se hizo |
+|---|---|---|---|---|
+| 1 | A | `6aaeeea..da1d0f5` | Sin bloqueantes; 3 a corregir | `b70404e` |
+| 2 | A | `da1d0f5..b70404e` | 1 a corregir | `e43d769` |
+| 3 | B (nuevo, sin el contexto de A) | **Diff completo** `6aaeeea..a3ce67e -- lib test` | Sin bloqueantes; 3 a corregir y 9 menores | `ea02a93`; el resto, en §8 |
+| 4 | B | `a3ce67e..ea02a93` | 3 menores | `32a1897` |
+| 5 | B | `ea02a93..32a1897` | Sin hallazgos | — |
+
+- Todo el código de la rama, hasta `32a1897`, está cubierto por alguna pasada.
+- **No revisados:** el commit documental (esta evidencia y la redacción de F08-ADR-003). La pasada 3 leyó la versión anterior del ADR, la de `ebe9a26`, y señaló que contradecía el código; la redacción actual corrige esos puntos, pero nadie la ha revisado.
+- **HEAD de código y HEAD documental.** El documental sólo añade cambios en `docs/`. `git diff 32a1897 <HEAD documental> -- lib test` está vacío, así que lo probado y revisado es el código del HEAD documental.
+
+## 8. Límites declarados
+
+- **La copia de las fotografías no se verifica contra el original.** Al prepararla sólo se anotan nombres y tamaños. La carpeta recuperada se compara por SHA-256 con la copia, no con el contenido original. Una copia del mismo tamaño pero contenido corrupto pasaría. Esta corrección **no elimina ese riesgo**, que es anterior a ella. La base sí se coteja con el SHA-256 del original.
+- **Tras un rollback sin confirmar, `GuardedRestore` reabre la base para recalcular el acceso.** Si se detectó un `-journal` aplicable o un `-wal` con contenido, SQLite los aplicará entonces, antes de que la persona decida. La copia previa sigue protegida.
+- **Las copias `retained` se acumulan sin cota.** Cada una es una base completa más sus fotografías, hasta que se confirma la recuperación. Es consecuencia de no añadir borrados.
+- **Versiones anteriores de la app.** Una que lea un `registro.json` con `retained` no conoce ese estado y trata el registro como ilegible: bloquea las restauraciones y ofrece «Apartar», sin borrar copias.
+- **Restauración cortada por un proceso muerto.** Su flujo cambia: «Seguir con los actuales» ya no pasa la copia a la limpieza. El mensaje ya no dice que lo más probable es que los datos estén bien.
+- **Contenedor sin carpeta de fotografías previa.** Siempre da «no coincide», porque el rollback no retira la carpeta creada. Sólo se alcanza con la carpeta inyectada.
+- **`-journal`.** No se evalúan el bloqueo ni el diario maestro: se toma como aplicable todo diario con cabecera válida.
+- **Subcarpetas de la carpeta de fotografías.** No se copian ni se comprueban, igual que antes.
+- **Diálogos de «Copias previas a restauraciones».** No tienen pruebas de widget: se comprobaron con `flutter analyze` y la revisión, y la lógica de los estados tiene pruebas en la capa de datos.
+- **Manual de usuario (Backend `docs/manuals/F11_MANUAL_USUARIO.md`).** Sigue citando «Mantener los actuales». Es otro repositorio y no se tocó.
+- **Lo que no cambia en este bloque:** la diferencia de 3.14.5 sigue en el documento entregado, que no se modificó; tampoco GATE-F08 (#41) ni la política de retención de `.previo` (Backend #151, punto 10). Recuperar el contenido de una copia protegida desde la interfaz sigue fuera de alcance (F08-ADR-003 §7.2).
