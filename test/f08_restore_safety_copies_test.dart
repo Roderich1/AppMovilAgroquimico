@@ -368,6 +368,52 @@ void main() {
       await registry.ensureCanStartRestore();
     });
 
+    // F08-PREV-01 (MOB #172): reproduce el defecto sólo con la API anterior.
+    // Falla sobre `6aaeeea`, que marcaba rolledBack en cuanto el rollback
+    // terminaba sin error. El resto de casos, en
+    // `f08_prev_01_rollback_verification_test.dart`.
+    test('la copia previa cambió después de asegurarla: el rollback deja otro '
+        'estado y no se da por recuperado', () async {
+      final db = await database();
+      final registry = copies();
+      final other = await legacyBackup(db, 'otro');
+      late String copyName;
+      await expectLater(
+        BackupService(db, safetyCopies: registry).restore(
+          await legacyBackup(db, 'falla'),
+          afterReplace: () async {
+            copyName = (await registry.entries()).single.databaseName;
+            // El rollback copiará esto sin error, pero ya no es la base que
+            // se aseguró antes de sustituir.
+            await File(other).copy(p.join(previo().path, copyName));
+            throw const BackupException('simulado');
+          },
+        ),
+        throwsA(
+          isA<BackupException>().having(
+            (e) => e.message,
+            'message',
+            contains('no se pudo confirmar'),
+          ),
+        ),
+      );
+      expect(
+        (await registry.entries()).single.state,
+        SafetyCopyState.interrupted,
+      );
+      await expectLater(
+        registry.ensureCanStartRestore(),
+        throwsA(same(RestoreBlockedException.unresolved)),
+      );
+      now = now.add(const Duration(days: 30));
+      await registry.maintain();
+      expect(
+        (await registry.entries()).single.state,
+        SafetyCopyState.interrupted,
+      );
+      expect(File(p.join(previo().path, copyName)).existsSync(), isTrue);
+    });
+
     test('rollback que no termina: la copia queda interrumpida y la siguiente restauración se bloquea sin tocar nada', () async {
       final db = await database();
       final registry = copies();
