@@ -28,12 +28,15 @@ enum SafetyCopyState {
   /// La restauración terminó y se mantiene.
   finalized,
 
-  /// La restauración falló y el rollback terminó: la base activa volvió a
-  /// ser la anterior.
+  /// La restauración falló, el rollback terminó y se comprobó que la base
+  /// activa y las fotografías volvieron a ser las anteriores
+  /// (`BackupService`, F08-PREV-01).
   rolledBack,
 
   /// Encontrada en preparación sin una restauración en curso: el proceso
-  /// murió a medias o el rollback falló. Protegida hasta una acción expresa.
+  /// murió a medias o el rollback falló. También la de un rollback cuyo
+  /// estado recuperado no coincide o no se pudo comprobar. Protegida hasta
+  /// una acción expresa.
   interrupted,
 }
 
@@ -293,7 +296,8 @@ class RestoreSafetyCopies {
   Future<void> markRolledBack(SafetyCopySlot slot) =>
       _serial(() => _resolve(slot.entry.id, SafetyCopyState.rolledBack));
 
-  /// El rollback falló: la copia es indispensable.
+  /// El rollback falló, o su estado recuperado no se pudo confirmar: la
+  /// copia es indispensable.
   /// Aunque no se pueda guardar el estado, deja de contar como restauración
   /// en curso: así bloquea igualmente la siguiente ([ensureCanStartRestore]).
   Future<void> markInterrupted(SafetyCopySlot slot) => _serial(() async {
