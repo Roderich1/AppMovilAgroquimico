@@ -259,7 +259,7 @@ class _RemoteBackupScreenState extends ConsumerState<RemoteBackupScreen> {
       // sección de copias previas se recarga: puede haber una copia sin
       // resolver sobre la que decidir (F08-PREV-01).
       showErrorOn(messenger, errorColor, error);
-      await _loadPrevio();
+      if (mounted) await _loadPrevio();
       return;
     }
     await ref.read(syncControllerProvider.notifier).refreshSummary();
@@ -369,7 +369,7 @@ class _RemoteBackupScreenState extends ConsumerState<RemoteBackupScreen> {
     );
     if (choice == null || !mounted) return;
     if (choice == _UnresolvedChoice.confirm) {
-      await _confirmRecovery(entry);
+      await _confirmRecovery(entry, hasCopy: hasCopy);
       return;
     }
     await _run(() async {
@@ -381,15 +381,26 @@ class _RemoteBackupScreenState extends ConsumerState<RemoteBackupScreen> {
     });
   }
 
-  Future<void> _confirmRecovery(SafetyCopyEntry entry) async {
+  Future<void> _confirmRecovery(SafetyCopyEntry entry, {bool? hasCopy}) async {
+    final bool copy;
+    try {
+      copy =
+          hasCopy ??
+          await ref.read(backupServiceProvider).safetyCopies.hasFiles(entry);
+    } on Object catch (error) {
+      if (mounted) showError(context, error);
+      return;
+    }
+    if (!mounted) return;
+    final restoreDate = _date(entry.createdAt);
     final confirmed = await confirmDestructiveAction(
       context,
       title: '¿Sus datos actuales están bien?',
       detail:
-          'Hágalo sólo después de revisarlos. La copia de los datos de antes '
-          'de la restauración del ${_date(entry.createdAt)} dejará de estar '
-          'protegida y puede retirarse en la próxima limpieza (se conservan '
-          'como máximo dos, durante siete días).',
+          'Hágalo sólo después de revisarlos. '
+          '${copy ? 'La copia de los datos de antes de la restauración del $restoreDate' : 'La entrada de la restauración del $restoreDate, sin copia en este teléfono,'}'
+          ' dejará de estar protegida y puede retirarse en la próxima limpieza '
+          '(se conservan como máximo dos, durante siete días).',
       confirmLabel: 'Mis datos están bien',
     );
     if (!confirmed || !mounted) return;

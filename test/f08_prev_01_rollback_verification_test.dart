@@ -235,28 +235,44 @@ void main() {
     }
 
     for (final mode in const ['PERSIST', 'TRUNCATE']) {
-      test('base en modo $mode: su -journal real, que SQLite deja tras '
-          'confirmar, no da un falso positivo', () async {
-        final db = await database();
-        final active = await db.database;
-        await active.rawQuery('PRAGMA journal_mode = $mode');
-        await AgroRepository(db).addProduct(name: 'Producto $mode');
-        final journal = File('${databasePath()}-journal');
-        expect(journal.existsSync(), isTrue, reason: 'lo deja SQLite');
-        final registry = copies();
-        await expectLater(
-          service(
-            db,
-            registry,
-          ).restore(await legacyBackup('modo'), afterReplace: failAfterReplace),
-          throwsA(original()),
-        );
-        expect(await stateOf(registry), SafetyCopyState.rolledBack);
-        expect(
-          (await AgroRepository(db).products()).map((r) => r['name']),
-          unorderedEquals(['Producto actual', 'Producto $mode']),
-        );
-      });
+      test(
+        'modo $mode: los -journal reales que SQLite deja tras confirmar, '
+        'de la base anterior y de la restaurada, no dan un falso positivo',
+        () async {
+          final db = await database();
+          final active = await db.database;
+          await active.rawQuery('PRAGMA journal_mode = $mode');
+          await AgroRepository(db).addProduct(name: 'Producto $mode');
+          final journal = File('${databasePath()}-journal');
+          expect(journal.existsSync(), isTrue, reason: 'lo deja SQLite');
+          final registry = copies();
+          var journalAtCheck = false;
+          await expectLater(
+            service(
+              db,
+              registry,
+              beforeRecoveryCheck: () async =>
+                  journalAtCheck = journal.existsSync(),
+            ).restore(
+              await legacyBackup('modo'),
+              // La base restaurada también escribe en ese modo antes del fallo.
+              prepareRestored: (restored) async {
+                await restored.rawQuery('PRAGMA journal_mode = $mode');
+                await restored.execute('CREATE TABLE prueba_diario (x)');
+                await restored.insert('prueba_diario', {'x': 1});
+              },
+              afterReplace: failAfterReplace,
+            ),
+            throwsA(original()),
+          );
+          expect(journalAtCheck, isTrue, reason: 'comprobado con el diario');
+          expect(await stateOf(registry), SafetyCopyState.rolledBack);
+          expect(
+            (await AgroRepository(db).products()).map((r) => r['name']),
+            unorderedEquals(['Producto actual', 'Producto $mode']),
+          );
+        },
+      );
     }
 
     test('lecturas y escrituras de fuera durante la comprobación: la lectura '
