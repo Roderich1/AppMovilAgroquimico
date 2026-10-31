@@ -321,6 +321,30 @@ void main() {
       },
     );
 
+    test('la copia previa de las fotografías desapareció: el rollback no '
+        'pudo devolverlas', () async {
+      final db = await database();
+      final registry = copies();
+      final own = File(p.join(invoices.path, 'propia.jpg'));
+      await own.writeAsBytes([1, 2, 3, 4]);
+      await expectLater(
+        service(db, registry).restore(
+          await containerBackup('sinfotos'),
+          afterReplace: () async {
+            final entry = (await registry.entries()).single;
+            await Directory(p.join(previo().path, entry.invoicesName))
+                .delete(recursive: true);
+            throw const BackupException('simulado');
+          },
+        ),
+        throwsA(unverified(RecoveryCheckFailure.mismatch)),
+      );
+      expect(
+        (await registry.entries()).single.state,
+        SafetyCopyState.interrupted,
+      );
+    });
+
     test('sobra una fotografía que no estaba antes', () async {
       final db = await database();
       final registry = copies();

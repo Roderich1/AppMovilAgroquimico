@@ -1147,6 +1147,7 @@ class BackupService {
         previousDigest: previousDigest,
         invoicesDirectory: invoicesDirectory,
         invoicesBackup: invoicesBackup,
+        hadInvoices: hadInvoices,
       );
       if (failure != null) {
         keepInvoicesBackup = true;
@@ -1219,7 +1220,8 @@ class BackupService {
   /// tener ese mismo SHA-256, o no existir si no la había. Las fotografías
   /// deben ser las de su copia previa ([invoicesBackup], que sigue en disco):
   /// mismos nombres y SHA-256; como [_copyDirectory], sólo cuentan los
-  /// archivos, no las subcarpetas. Las huellas se calculan sólo aquí, no en
+  /// archivos, no las subcarpetas. Si había fotografías y su copia ya no
+  /// está, el rollback no pudo devolverlas. Las huellas se calculan sólo aquí, no en
   /// las restauraciones que terminan bien. No se abre la base: abrirla
   /// escribiría diarios y no añade nada a una copia idéntica byte a byte.
   Future<RecoveryCheckFailure?> _checkRecoveredState(
@@ -1227,6 +1229,7 @@ class BackupService {
     required String? previousDigest,
     required Directory? invoicesDirectory,
     required Directory? invoicesBackup,
+    required bool hadInvoices,
   }) async {
     try {
       if (_beforeRecoveryCheck != null) await _beforeRecoveryCheck();
@@ -1240,6 +1243,9 @@ class BackupService {
         if (await active.exists()) return RecoveryCheckFailure.mismatch;
       } else if (!await active.exists() ||
           await sha256OfFile(active) != previousDigest) {
+        return RecoveryCheckFailure.mismatch;
+      }
+      if (hadInvoices && !await invoicesBackup!.exists()) {
         return RecoveryCheckFailure.mismatch;
       }
       if (invoicesDirectory != null &&
