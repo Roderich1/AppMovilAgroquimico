@@ -26,6 +26,10 @@ String encodeLatePurchase(PurchaseDraft draft) => jsonEncode({
           for (final a in item.allocations)
             {'personId': a.personId, 'quantityBase': a.quantityBase},
         ],
+        // F04-AV (MOB #168): sólo si se conocen, para que el borrador de
+        // una compra sin estos datos siga siendo el mismo JSON.
+        if (item.expiryDay != null) 'expiryDay': item.expiryDay,
+        if (item.lotNumber != null) 'lotNumber': item.lotNumber,
       },
   ],
 });
@@ -60,6 +64,8 @@ PurchaseDraft decodeLatePurchase(String raw, {String? invoiceImagePath}) {
                 quantityBase: a['quantityBase'] as int,
               ),
           ],
+          expiryDay: item['expiryDay'] as String?,
+          lotNumber: item['lotNumber'] as String?,
         ),
     ],
   );

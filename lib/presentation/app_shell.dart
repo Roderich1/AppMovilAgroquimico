@@ -72,6 +72,10 @@ class AppShell extends StatelessWidget {
   /// —Registrar compra, Registrar aplicación, Ver cuánto queda y Enviar al
   /// sindicato— son la acción primaria; un «Nuevo» flotante competiría con
   /// ellos. En el resto de secciones el FAB sigue.
+  ///
+  /// «Avisos de inventario» (F04-AV, 2026-11-01) es una consulta que no
+  /// inicia operaciones (#170). En el emulador el FAB tapaba el aviso que
+  /// pasaba por debajo al desplazarse; sin él, ningún aviso queda tapado.
   static const _routesWithoutGlobalFab = <String>{
     '/',
     '/catalogos',
@@ -79,6 +83,7 @@ class AppShell extends StatelessWidget {
     '/compras/voz',
     '/planificacion/voz',
     '/aplicaciones/voz',
+    '/inventario/avisos',
   };
 
   /// Si esta ruta oculta el FAB global. El detalle de compra es de sólo

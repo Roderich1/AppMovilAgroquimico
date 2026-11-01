@@ -81,7 +81,9 @@ void main() {
       (await db.rawQuery('PRAGMA integrity_check')).single.values.single,
       'ok',
     );
-    final restored = await dumpTables(db);
+    // v12 añade a lotes y productos columnas que nacen NULL: sin ellas, las
+    // filas son las de la copia.
+    final restored = withoutV12(await dumpTables(db));
     // Las tablas de la v7 conservan exactamente sus filas; app_settings sólo
     // gana la marca de base histórica.
     for (final table in v7Tables.difference({'app_settings'})) {

@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart'
-    show Database, DatabaseExecutor, Sqflite, Transaction;
+    show Database, DatabaseException, DatabaseExecutor, Sqflite, Transaction;
 
 import 'package:flutter/foundation.dart' show visibleForTesting;
 
@@ -10,6 +10,7 @@ import '../domain/account_ledger.dart';
 import '../domain/account_texts.dart' show AccountPaymentResult;
 import '../domain/campaign_calendar.dart';
 import '../domain/installation_access.dart' show OwnerScope;
+import '../domain/inventory_alerts.dart';
 import '../domain/sync/operation_id.dart' show newOperationId;
 import 'late_operation_codec.dart';
 import '../services/auth/local_owner_credential.dart';
@@ -19,16 +20,48 @@ import '../domain/operation_mode.dart';
 import '../domain/person_roles.dart';
 import 'account_ledger_query.dart';
 import 'app_database.dart';
+import 'app_log.dart';
 import 'farmer_operation_gate.dart';
 import 'invoice_storage.dart';
 import 'operation_mode_store.dart';
 import 'sync/central_binding_store.dart' show CentralBindingStore;
+
+/// Resultado de corregir vencimiento o número de lote (F04-AV): cuántos
+/// lotes cambiaron y cuántos de la línea quedaron sin tocar por no tener la
+/// procedencia demostrada.
+class LotDataCorrectionResult {
+  const LotDataCorrectionResult({
+    required this.correctionId,
+    required this.correctedLots,
+    required this.unprovenLots,
+  });
+  final int correctionId;
+  final int correctedLots;
+  final int unprovenLots;
+}
 
 class BusinessRuleException implements Exception {
   BusinessRuleException(this.message);
   final String message;
   @override
   String toString() => message;
+}
+
+/// Una acción confirmada con el PIN del titular falló **después** de
+/// consumir la autorización, ya dentro de la transacción que escribe: no se
+/// guardó nada (la transacción se deshizo) y la autorización no vale otra
+/// vez. Un rechazo de validación anterior al consumo no usa esta excepción y
+/// deja la autorización sin gastar.
+class AuthorizedChangeNotSaved implements Exception {
+  AuthorizedChangeNotSaved(this.cause);
+
+  /// El error original, para el registro técnico.
+  final Object cause;
+
+  @override
+  String toString() =>
+      'No se guardó el cambio. La confirmación con el PIN ya se usó: '
+      'vuelva a intentarlo y confirme otra vez con el PIN.';
 }
 
 /// Una aplicación con fecha pasada pide más de lo que la persona tenía ese
@@ -1074,6 +1107,17 @@ class AgroRepository {
           'La cantidad asignada debe coincidir con la cantidad comprada.',
         );
       }
+      // Vencimiento y número de lote son opcionales (RF-42): sólo se
+      // comprueba su forma, nunca se exigen ni se suponen.
+      _checkExpiryDay(item.expiryDay);
+      // normalizeLotNumber rechaza el exceso de largo con su mensaje.
+      if (item.lotNumber != null &&
+          normalizeLotNumber(item.lotNumber) != item.lotNumber) {
+        throw BusinessRuleException(
+          'El número de lote no puede quedar vacío ni empezar o terminar con '
+          'espacios.',
+        );
+      }
       purchaseTotal += subtotalMinor(
         quantityBase: item.quantityBase,
         unitPriceMinor: item.originalUnitPriceMinor,
@@ -1160,6 +1204,10 @@ class AgroRepository {
           'currency_code': item.currency.code,
           'original_unit_price_minor': item.originalUnitPriceMinor,
           'exchange_rate_scaled': item.exchangeRateScaled,
+          // F04-AV: cada lote de la línea lleva su vencimiento y su número
+          // de lote, si se conocen (RF-42). No influyen en el FIFO.
+          'expiry_date': item.expiryDay,
+          'lot_number': item.lotNumber,
         });
         await txn.insert('inventory_movements', {
           'lot_id': lotId,
@@ -2813,6 +2861,10 @@ class AgroRepository {
             'exchange_rate_scaled': source['exchange_rate_scaled'],
             'parent_lot_id': source['id'],
             'notes': notes,
+            // El lote de destino conserva el vencimiento y el número de lote
+            // de su origen (RN-31 de la tesis, MOB #168).
+            'expiry_date': source['expiry_date'],
+            'lot_number': source['lot_number'],
           });
           for (final movement in <Map<String, Object?>>[
             {
@@ -3281,8 +3333,23 @@ class AgroRepository {
     if (header.isEmpty) return null;
     return (
       purchase: header.single,
+      // Vencimiento y número de lote de la línea: los de su primer lote de
+      // compra con procedencia demostrada, como en `correctLotData`, y
+      // cuántas veces se corrigieron (F04-AV).
       items: await db.rawQuery(
-        '''SELECT i.*, pr.name product_name, pr.unit
+        '''SELECT i.*, pr.name product_name, pr.unit,
+        (SELECT l.expiry_date FROM inventory_lots l WHERE l.purchase_item_id=i.id
+          AND l.parent_lot_id IS NULL AND EXISTS (SELECT 1 FROM inventory_movements m
+          JOIN purchase_allocations a ON a.id=m.reference_id WHERE m.lot_id=l.id
+          AND m.type='PURCHASE_IN' AND m.reference_type='PURCHASE_ALLOCATION'
+          AND a.purchase_item_id=i.id) ORDER BY l.id LIMIT 1) expiry_date,
+        (SELECT l.lot_number FROM inventory_lots l WHERE l.purchase_item_id=i.id
+          AND l.parent_lot_id IS NULL AND EXISTS (SELECT 1 FROM inventory_movements m
+          JOIN purchase_allocations a ON a.id=m.reference_id WHERE m.lot_id=l.id
+          AND m.type='PURCHASE_IN' AND m.reference_type='PURCHASE_ALLOCATION'
+          AND a.purchase_item_id=i.id) ORDER BY l.id LIMIT 1) lot_number,
+        (SELECT COUNT(*) FROM lot_data_corrections c
+          WHERE c.purchase_item_id=i.id) lot_data_corrections
         FROM purchase_items i JOIN products pr ON pr.id=i.product_id
         WHERE i.purchase_id=? ORDER BY i.id''',
         [purchaseId],
@@ -3463,6 +3530,465 @@ class AgroRepository {
     [productId],
   );
 
+  // ---------------------------------------------------------------------
+  // F04-AV: avisos de existencias y vencimiento (MOB #168–#171).
+  // Numeración de la tesis (RF-42 a RF-44, RN-31, RN-32, DAT-22, CU-22),
+  // no la de docs/15_BUSINESS_RULES.md.
+  // ---------------------------------------------------------------------
+
+  /// Largo máximo del número de lote (decisión del autor del 2026-11-01),
+  /// en caracteres Unicode, como los cuenta `length()` de SQLite.
+  static const int maxLotNumberLength = 100;
+
+  /// Plazo de aviso admitido, en días. Es el rango funcional elegido por el
+  /// autor el 2026-11-01 para la configuración, no una regla agronómica.
+  static const int maxAlertLeadDays = 365;
+
+  /// Si se puede corregir la línea: existe y su compra no está revertida.
+  Future<bool> canCorrectLotData(int purchaseItemId) async {
+    final rows = await (await _db).rawQuery(
+      '''SELECT p.status, p.reversed_at FROM purchase_items i
+      JOIN purchases p ON p.id=i.purchase_id WHERE i.id=?''',
+      [purchaseItemId],
+    );
+    return rows.isNotEmpty &&
+        rows.single['status'] != 'REVERSED' &&
+        rows.single['reversed_at'] == null;
+  }
+
+  /// Número de lote sin espacios a los lados; vacío es «sin dato» (null).
+  /// El contenido se conserva tal cual: no se trunca ni se completa. Lanza
+  /// si excede [maxLotNumberLength].
+  static String? normalizeLotNumber(String? value) {
+    final trimmed = value?.trim();
+    if (trimmed == null || trimmed.isEmpty) return null;
+    final error = lotNumberLengthError(trimmed);
+    if (error != null) throw BusinessRuleException(error);
+    return trimmed;
+  }
+
+  /// Mensaje si [text] (sin los espacios de los lados) pasa del largo
+  /// máximo; null si cabe. Lo usan también los formularios, que no cortan
+  /// lo escrito.
+  static String? lotNumberLengthError(String text) {
+    final length = text.trim().runes.length;
+    if (length <= maxLotNumberLength) return null;
+    return 'El número de lote admite hasta $maxLotNumberLength caracteres; '
+        'tiene $length. Revise lo escrito: no se recorta.';
+  }
+
+  void _checkExpiryDay(String? day) {
+    if (day != null && !isCivilDay(day)) {
+      throw BusinessRuleException(
+        'La fecha de vencimiento no es válida (aaaa-mm-dd).',
+      );
+    }
+  }
+
+  /// Referencia que firma la autorización de una corrección.
+  static String lotDataSubjectRef(int purchaseItemId) =>
+      'purchase_item:$purchaseItemId';
+
+  /// Lotes de una línea de compra cuya procedencia está demostrada: sus lotes
+  /// de compra (sin padre, con su entrada de compra por una asignación de esa
+  /// línea) y, recursivamente, los lotes de destino de una transferencia
+  /// registrada en `transfer_lot_items` desde uno de ellos. Un lote de la
+  /// línea al que no se llega así no se toca.
+  static const String _provenLotsSql = '''WITH RECURSIVE proven(id) AS (
+      SELECT l.id FROM inventory_lots l
+      WHERE l.purchase_item_id=?1 AND l.parent_lot_id IS NULL
+        AND EXISTS (SELECT 1 FROM inventory_movements m
+          JOIN purchase_allocations a ON a.id=m.reference_id
+          WHERE m.lot_id=l.id AND m.type='PURCHASE_IN'
+            AND m.reference_type='PURCHASE_ALLOCATION' AND a.purchase_item_id=?1)
+      UNION
+      SELECT l.id FROM inventory_lots l JOIN proven p ON l.parent_lot_id=p.id
+      WHERE l.purchase_item_id=?1
+        AND EXISTS (SELECT 1 FROM transfer_lot_items t
+          WHERE t.source_lot_id=p.id AND t.destination_lot_id=l.id))
+    SELECT id FROM proven ORDER BY id''';
+
+  /// Corrige el vencimiento y el número de lote de una línea de compra ya
+  /// registrada (RF-42; decisión del autor del 2026-11-01). Exige el PIN del
+  /// titular ([authorization], para [lotDataSubjectRef]) y un motivo. No se
+  /// admite sobre una compra revertida. Cambia esos dos datos sólo en los
+  /// lotes de procedencia demostrada y deja la auditoría: la corrección con
+  /// su actor y una fila por lote cambiado. No toca cantidades, costos,
+  /// movimientos ni el orden de consumo. Un valor nulo deja el dato «sin
+  /// registrar».
+  Future<LotDataCorrectionResult> correctLotData(
+    int purchaseItemId, {
+    required String? expiryDay,
+    required String? lotNumber,
+    required String reason,
+    required OwnerAuthorization authorization,
+  }) async {
+    _checkExpiryDay(expiryDay);
+    final number = normalizeLotNumber(lotNumber);
+    final note = reason.trim();
+    if (note.isEmpty) {
+      throw BusinessRuleException('Indique el motivo de la corrección.');
+    }
+    return _writeAuthorized((txn, consume) async {
+      final purchase = await txn.rawQuery(
+        '''SELECT p.status, p.reversed_at FROM purchase_items i
+        JOIN purchases p ON p.id=i.purchase_id WHERE i.id=?''',
+        [purchaseItemId],
+      );
+      if (purchase.isEmpty) {
+        throw BusinessRuleException('La línea de compra no existe.');
+      }
+      if (purchase.single['status'] == 'REVERSED' ||
+          purchase.single['reversed_at'] != null) {
+        throw BusinessRuleException(
+          'La compra está revertida: se puede consultar, pero no corregir.',
+        );
+      }
+      // Todo lo que puede rechazar la corrección se comprueba antes de gastar
+      // la autorización: un rechazo deja el PIN sin usar.
+      final proven = [
+        for (final row in await txn.rawQuery(_provenLotsSql, [purchaseItemId]))
+          row['id']! as int,
+      ];
+      if (proven.isEmpty) {
+        throw BusinessRuleException(
+          'No se pudo demostrar la procedencia de ningún lote de esta línea: '
+          'no se corrige nada.',
+        );
+      }
+      // Los valores anteriores son los del primer lote de procedencia
+      // demostrada (un lote de compra de la línea).
+      final first = (await txn.query(
+        'inventory_lots',
+        columns: ['expiry_date', 'lot_number'],
+        where: 'id=?',
+        whereArgs: [proven.first],
+      )).single;
+      final previousExpiry = first['expiry_date'] as String?;
+      final previousNumber = first['lot_number'] as String?;
+      if (previousExpiry == expiryDay && previousNumber == number) {
+        throw BusinessRuleException('No hay cambios que guardar.');
+      }
+      await consume(
+        authorization,
+        AuthorizationPurpose.correctLotData,
+        lotDataSubjectRef(purchaseItemId),
+      );
+      final allLots =
+          Sqflite.firstIntValue(
+            await txn.rawQuery(
+              'SELECT COUNT(*) FROM inventory_lots WHERE purchase_item_id=?',
+              [purchaseItemId],
+            ),
+          ) ??
+          0;
+      final correctionId = await txn.insert('lot_data_corrections', {
+        'purchase_item_id': purchaseItemId,
+        'previous_expiry_date': previousExpiry,
+        'previous_lot_number': previousNumber,
+        'new_expiry_date': expiryDay,
+        'new_lot_number': number,
+        'reason': note,
+        'actor_person_id': authorization.personId,
+        'actor_binding_id': authorization.bindingId,
+        'actor_member_id': authorization.scope.memberId,
+        'actor_tenant_id': authorization.scope.tenantId,
+        'actor_method': authorization.method,
+        'credential_enrolment_ref': authorization.enrolmentId,
+        'unproven_lot_count': allLots - proven.length,
+        'recorded_at': _date(DateTime.now()),
+      });
+      for (final lotId in proven) {
+        await txn.update(
+          'inventory_lots',
+          {'expiry_date': expiryDay, 'lot_number': number},
+          where: 'id=?',
+          whereArgs: [lotId],
+        );
+        await txn.insert('lot_data_correction_lots', {
+          'correction_id': correctionId,
+          'lot_id': lotId,
+        });
+      }
+      return LotDataCorrectionResult(
+        correctionId: correctionId,
+        correctedLots: proven.length,
+        unprovenLots: allLots - proven.length,
+      );
+    });
+  }
+
+  /// Sólo pruebas: la corrección sin autorización, para preparar datos.
+  @visibleForTesting
+  Future<void> setLotDataUnauditedForTesting(
+    int lotId, {
+    String? expiryDay,
+    String? lotNumber,
+  }) => _write(
+    (txn, _) => txn.update(
+      'inventory_lots',
+      {'expiry_date': expiryDay, 'lot_number': lotNumber},
+      where: 'id=?',
+      whereArgs: [lotId],
+    ),
+  );
+
+  /// Correcciones de una línea de compra, de la más reciente a la más
+  /// antigua.
+  Future<List<Map<String, Object?>>> lotDataCorrections(
+    int purchaseItemId,
+  ) async => (await _db).rawQuery(
+    '''SELECT c.*, pe.name actor_name,
+    (SELECT COUNT(*) FROM lot_data_correction_lots x WHERE x.correction_id=c.id) lot_count
+    FROM lot_data_corrections c JOIN persons pe ON pe.id=c.actor_person_id
+    WHERE c.purchase_item_id=? ORDER BY c.id DESC''',
+    [purchaseItemId],
+  );
+
+  /// Consume la autorización de una acción del titular dentro de la
+  /// transacción que escribe, contra el vínculo y el PIN vigentes leídos
+  /// justo antes.
+  ///
+  /// Distingue dos fallos. Lo que [body] rechace antes de llamar a `consume`
+  /// (validaciones) sale tal cual y deja la autorización sin gastar. Si la
+  /// escritura falla dentro de la transacción después de consumirla, la
+  /// transacción se deshace, la autorización sigue gastada (no se reutiliza)
+  /// y sale [AuthorizedChangeNotSaved]; la causa técnica queda en el registro
+  /// local. Un rechazo de `consumeOwnerAuthorization` es de antes del
+  /// consumo: sale tal cual.
+  Future<T> _writeAuthorized<T>(
+    Future<T> Function(
+      Transaction txn,
+      Future<void> Function(OwnerAuthorization, AuthorizationPurpose, String)
+      consume,
+    )
+    body,
+  ) async {
+    var consumed = false;
+    try {
+      return await _write(
+        (txn, _) => body(txn, (authorization, purpose, subjectRef) async {
+          final current = await _currentOwnerBinding(txn);
+          consumeOwnerAuthorization(
+            authorization,
+            installation: _ownerCredential(),
+            purpose: purpose,
+            subjectRef: subjectRef,
+            current: current,
+            now: DateTime.now(),
+          );
+          consumed = true;
+        }),
+      );
+    } catch (error, stack) {
+      if (!consumed) rethrow;
+      // Sólo el tipo y el código: el texto de SQLite puede llevar datos.
+      AppLog.error(
+        'Cambio autorizado con PIN no guardado tras consumir la '
+        'autorización; causa: ${error.runtimeType}'
+        '${error is DatabaseException ? ' (código ${error.getResultCode()})' : ''}',
+        stackTrace: stack,
+      );
+      Error.throwWithStackTrace(AuthorizedChangeNotSaved(error), stack);
+    }
+  }
+
+  /// Referencia que firma la autorización de la configuración de avisos.
+  static String productAlertsSubjectRef(int productId) =>
+      'product_alerts:$productId';
+
+  void _checkAlertSettings(int? minStockBase, int? leadDays) {
+    if (minStockBase != null && minStockBase < 0) {
+      throw BusinessRuleException('El nivel mínimo no puede ser negativo.');
+    }
+    if (leadDays != null && (leadDays < 0 || leadDays > maxAlertLeadDays)) {
+      throw BusinessRuleException(
+        'El plazo de aviso debe ser un número entero de días, de 0 a '
+        '$maxAlertLeadDays.',
+      );
+    }
+  }
+
+  /// Nivel mínimo (unidad base) y plazo de aviso (días) de un producto
+  /// (RF-44). Nulo en [minStockBase]: sin nivel. Nulo en [leadDays]: el
+  /// valor inicial. Corresponde al titular: exige su PIN vigente
+  /// ([authorization], para [productAlertsSubjectRef]) una vez para los dos
+  /// datos (decisión del autor del 2026-11-01). Sólo cambia esa
+  /// configuración: ningún aviso modifica existencias ni bloquea
+  /// operaciones. Sin cambios, o con valores fuera de rango, no se gasta la
+  /// autorización.
+  Future<void> setProductAlertSettings(
+    int productId, {
+    required int? minStockBase,
+    required int? leadDays,
+    required OwnerAuthorization authorization,
+  }) async {
+    _checkAlertSettings(minStockBase, leadDays);
+    await _writeAuthorized((txn, consume) async {
+      final rows = await txn.query(
+        'products',
+        columns: ['min_stock_base', 'alert_lead_days'],
+        where: 'id=?',
+        whereArgs: [productId],
+      );
+      if (rows.isEmpty) throw BusinessRuleException('El producto no existe.');
+      if (rows.single['min_stock_base'] == minStockBase &&
+          rows.single['alert_lead_days'] == leadDays) {
+        throw BusinessRuleException('No hay cambios que guardar.');
+      }
+      await consume(
+        authorization,
+        AuthorizationPurpose.configureProductAlerts,
+        productAlertsSubjectRef(productId),
+      );
+      await txn.update(
+        'products',
+        {'min_stock_base': minStockBase, 'alert_lead_days': leadDays},
+        where: 'id=?',
+        whereArgs: [productId],
+      );
+    });
+  }
+
+  /// Sólo pruebas y siembras sintéticas: la configuración sin PIN.
+  @visibleForTesting
+  Future<void> setProductAlertSettingsWithoutPinForTesting(
+    int productId, {
+    required int? minStockBase,
+    required int? leadDays,
+  }) async {
+    _checkAlertSettings(minStockBase, leadDays);
+    await _write((txn, _) async {
+      final changed = await txn.update(
+        'products',
+        {'min_stock_base': minStockBase, 'alert_lead_days': leadDays},
+        where: 'id=?',
+        whereArgs: [productId],
+      );
+      if (changed == 0) {
+        throw BusinessRuleException('El producto no existe.');
+      }
+    });
+  }
+
+  static const _alertSettingsColumns = [
+    'id',
+    'name',
+    'unit',
+    'active',
+    'min_stock_base',
+    'alert_lead_days',
+  ];
+
+  /// Configuración de avisos de un producto.
+  Future<ProductAlertSettings> productAlertSettings(int productId) async {
+    final rows = await (await _db).query(
+      'products',
+      columns: _alertSettingsColumns,
+      where: 'id=?',
+      whereArgs: [productId],
+    );
+    if (rows.isEmpty) throw BusinessRuleException('El producto no existe.');
+    return _alertSettingsOf(rows.single);
+  }
+
+  ProductAlertSettings _alertSettingsOf(Map<String, Object?> row) =>
+      ProductAlertSettings(
+        productId: row['id']! as int,
+        productName: row['name']! as String,
+        unit: row['unit']! as String,
+        active: row['active'] == 1,
+        minStockBase: row['min_stock_base'] as int?,
+        leadDays: row['alert_lead_days'] as int?,
+      );
+
+  /// Avisos de existencias y vencimiento (RF-43, RF-44, CU-22), calculados
+  /// sin red con los datos locales en el momento de consultar. Sólo lee:
+  /// no escribe nada ni cambia el orden de consumo. [now] es inyectable
+  /// para las pruebas; por defecto, el reloj del teléfono.
+  Future<InventoryAlerts> inventoryAlerts({DateTime? now}) async {
+    final db = await _db;
+    final today = localDay(now ?? DateTime.now());
+    final mode = await OperationModeStore(appDatabase).current(db);
+    final products = await db.query('products', columns: _alertSettingsColumns);
+    final lots = await db.rawQuery(
+      '''SELECT l.id lot_id, l.product_id, p.name product_name, p.unit,
+      p.alert_lead_days, l.owner_person_id, pe.name owner_name,
+      l.expiry_date, l.lot_number, COALESCE(SUM(m.quantity_signed),0) remaining_base
+      FROM inventory_lots l JOIN products p ON p.id=l.product_id
+      JOIN persons pe ON pe.id=l.owner_person_id
+      LEFT JOIN inventory_movements m ON m.lot_id=l.id
+      WHERE l.reversed_at IS NULL GROUP BY l.id HAVING remaining_base>0
+      ORDER BY p.name, pe.name, l.acquired_date, l.id''',
+    );
+    // Existencia neta por producto y responsable: la suma de sus
+    // movimientos, como el «Físico» del inventario. Los planes no son
+    // movimientos y no cuentan (CU-22, paso 2).
+    final perPerson = await db.rawQuery(
+      '''SELECT m.product_id, m.owner_person_id, pe.name person_name,
+      SUM(m.quantity_signed) net_base
+      FROM inventory_movements m JOIN persons pe ON pe.id=m.owner_person_id
+      WHERE pe.active=1
+      GROUP BY m.product_id, m.owner_person_id''',
+    );
+    final totals = {
+      for (final row in await db.rawQuery(
+        '''SELECT product_id, SUM(quantity_signed) net_base
+        FROM inventory_movements GROUP BY product_id''',
+      ))
+        row['product_id']! as int: row['net_base']! as int,
+    };
+    final last = await db.rawQuery(
+      'SELECT MAX(movement_date) day FROM inventory_movements',
+    );
+    final lastStored = last.single['day'] as String?;
+
+    final settings = [for (final row in products) _alertSettingsOf(row)];
+    final byId = {for (final p in settings) p.productId: p};
+    const fallback = AppDatabase.defaultAlertLeadDays;
+    return computeInventoryAlerts(
+      today: today,
+      shared: mode != OperationMode.personal,
+      defaultLeadDays: fallback,
+      lastMovementDay: lastStored == null ? null : storedLocalDay(lastStored),
+      products: settings,
+      lots: [
+        for (final row in lots)
+          AlertLot(
+            lotId: row['lot_id']! as int,
+            productId: row['product_id']! as int,
+            productName: row['product_name']! as String,
+            unit: row['unit']! as String,
+            ownerPersonId: row['owner_person_id']! as int,
+            ownerName: row['owner_name']! as String,
+            remainingBase: row['remaining_base']! as int,
+            expiryDay: row['expiry_date'] as String?,
+            lotNumber: row['lot_number'] as String?,
+            leadDays: row['alert_lead_days'] as int? ?? fallback,
+            leadDaysIsDefault: row['alert_lead_days'] == null,
+          ),
+      ],
+      stock: [
+        for (final p in settings)
+          StockLine(
+            productId: p.productId,
+            productName: p.productName,
+            unit: p.unit,
+            netBase: totals[p.productId] ?? 0,
+          ),
+        for (final row in perPerson)
+          StockLine(
+            productId: row['product_id']! as int,
+            productName: byId[row['product_id']]!.productName,
+            unit: byId[row['product_id']]!.unit,
+            netBase: row['net_base']! as int,
+            personId: row['owner_person_id']! as int,
+            personName: row['person_name']! as String,
+          ),
+      ],
+    );
+  }
+
   Future<List<Map<String, Object?>>> inventoryProductLots(
     int productId, {
     int? personId,
@@ -3485,6 +4011,7 @@ class AgroRepository {
     }
     return (await _db).rawQuery(
       '''SELECT l.id lot_id, l.acquired_date, l.initial_quantity_base,
+      l.expiry_date, l.lot_number,
       l.unit_cost_bob_minor_per_major_unit unit_cost, l.currency_code,
       l.original_unit_price_minor, l.exchange_rate_scaled, l.parent_lot_id,
       pe.name owner_name, s.name supplier_name, c.name campaign_name,

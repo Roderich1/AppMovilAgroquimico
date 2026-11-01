@@ -183,9 +183,11 @@ void main() {
           (await db.rawQuery('PRAGMA user_version')).single.values.single,
           AppDatabase.schemaVersion,
         );
-        final after = await dumpTables(
-          db,
-          except: {...syncTablesV9, ...reviewAuditTablesV11},
+        final after = withoutV12(
+          await dumpTables(
+            db,
+            except: {...syncTablesV9, ...reviewAuditTablesV11},
+          ),
         );
         if (version == 8) {
           expect(after, before);
@@ -201,11 +203,16 @@ void main() {
         for (final table in syncTablesV9) {
           expect(await db.query(table), isEmpty, reason: table);
         }
-        // Ninguna tabla existente recibe columnas ni un identificador global:
-        // las claves locales siguen siendo los enteros de SQLite (MOB #29).
+        // Ninguna tabla existente recibe un identificador global: las claves
+        // locales siguen siendo los enteros de SQLite (MOB #29). La única
+        // ampliación es la de v12 (F04-AV): columnas opcionales de
+        // vencimiento, número de lote, nivel mínimo y plazo, al final.
         final columnsAfter = await columnsOf(db);
         for (final entry in columnsBefore.entries) {
-          expect(columnsAfter[entry.key], entry.value, reason: entry.key);
+          expect(columnsAfter[entry.key], [
+            ...entry.value,
+            ...?inventoryAlertsColumnsV12[entry.key],
+          ], reason: entry.key);
         }
       },
     );

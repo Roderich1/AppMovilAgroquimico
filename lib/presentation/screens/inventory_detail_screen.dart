@@ -2,13 +2,23 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app.dart';
+import '../../data/agro_repository.dart' show AgroRepository;
+import '../../data/app_database.dart';
+import '../../domain/campaign_calendar.dart';
+import '../../domain/inventory_alerts.dart';
 import '../../domain/money.dart';
+import '../../domain/operation_mode.dart';
+import '../../operation_mode_controller.dart';
+import '../../services/auth/local_owner_credential.dart'
+    show AuthorizationPurpose;
 import '../widgets/common.dart';
+import 'owner_credential_screen.dart' show requestOwnerAuthorization;
 
 typedef _InventoryDetail = ({
   Map<String, Object?> header,
   List<Map<String, Object?>> distribution,
   List<Map<String, Object?>> lots,
+  ProductAlertSettings alertSettings,
 });
 
 /// Cuántos movimientos se muestran de entrada y cuántos más por «Ver más».
@@ -45,7 +55,56 @@ class _InventoryDetailScreenState extends ConsumerState<InventoryDetailScreen> {
       header: await repo.inventoryProductHeader(widget.productId),
       distribution: await repo.inventoryProductDistribution(widget.productId),
       lots: await repo.inventoryProductLots(widget.productId),
+      alertSettings: await repo.productAlertSettings(widget.productId),
     );
+  }
+
+  /// Configura el nivel mínimo y el plazo de aviso (RF-44). Corresponde al
+  /// titular: primero los dos valores y, al guardar, su PIN una sola vez
+  /// (decisión del autor del 2026-11-01). Cancelar en cualquier paso no
+  /// cambia nada. Sólo cambia esa configuración; no toca existencias ni
+  /// operaciones.
+  Future<void> _configureAlerts(ProductAlertSettings current) async {
+    final result = await showDialog<({int? minStockBase, int? leadDays})>(
+      context: context,
+      builder: (_) => AlertSettingsDialog(current: current),
+    );
+    if (result == null || !mounted) return;
+    final repo = ref.read(repositoryProvider);
+    String min(int? v) =>
+        v == null ? 'sin nivel mínimo' : formatQuantity(v, current.unit);
+    String lead(int? v) => v == null
+        ? '${AppDatabase.defaultAlertLeadDays} días (valor inicial)'
+        : (v == 1 ? '1 día' : '$v días');
+    final authorization = await requestOwnerAuthorization(
+      context,
+      ref,
+      purpose: AuthorizationPurpose.configureProductAlerts,
+      subjectRef: AgroRepository.productAlertsSubjectRef(widget.productId),
+      title: 'Avisos de ${current.productName}',
+      effects:
+          'Nivel mínimo: ${min(current.minStockBase)} → '
+          '${min(result.minStockBase)}. Aviso de vencimiento: '
+          '${lead(current.leadDays)} → ${lead(result.leadDays)}. Sólo cambia '
+          'cuándo se avisa: las existencias no cambian.',
+    );
+    if (authorization == null || !mounted) return;
+    try {
+      await repo.setProductAlertSettings(
+        widget.productId,
+        minStockBase: result.minStockBase,
+        leadDays: result.leadDays,
+        authorization: authorization,
+      );
+      if (!mounted) return;
+      showSuccess(context, 'Se guardaron los avisos de este producto.');
+      final next = _load();
+      setState(() {
+        detail = next;
+      });
+    } catch (error) {
+      if (mounted) showError(context, error);
+    }
   }
 
   /// Se pide una fila más que el límite para saber si queda algo por ver.
@@ -127,6 +186,15 @@ class _InventoryDetailScreenState extends ConsumerState<InventoryDetailScreen> {
               'Neto: no cuenta lo revertido. Comprado neto menos consumido '
               'neto es el físico.',
               style: theme.textTheme.bodySmall,
+            ),
+            const SizedBox(height: 12),
+            _AlertSettingsCard(
+              settings: data.alertSettings,
+              onConfigure: () => _configureAlerts(data.alertSettings),
+              // Sin modalidad conocida se presenta la compartida, la de
+              // defecto (operation_mode_controller.dart).
+              shared:
+                  ref.watch(operationModeProvider) != OperationMode.personal,
             ),
             const SizedBox(height: 20),
             Text(
@@ -231,7 +299,8 @@ class _InventoryDetailScreenState extends ConsumerState<InventoryDetailScreen> {
                         '${lot['owner_name']} · ${formatQuantity(lot['available_base'] as int, unit)}',
                       ),
                       subtitle: Text(
-                        '${lot['supplier_name']} · ${lot['campaign_name']}',
+                        '${lot['supplier_name']} · ${lot['campaign_name']} · '
+                        '${lotExpiryText(lot['expiry_date'] as String?)}',
                       ),
                       children: [
                         Padding(
@@ -239,7 +308,9 @@ class _InventoryDetailScreenState extends ConsumerState<InventoryDetailScreen> {
                           child: Align(
                             alignment: Alignment.centerLeft,
                             child: Text(
-                              'Lote #${lot['lot_id']} · costo ${formatBob(lot['unit_cost'] as int)}/$unit · origen ${lot['parent_lot_id'] == null ? 'compra' : 'transferencia del lote #${lot['parent_lot_id']}'}',
+                              'Lote #${lot['lot_id']} · '
+                              '${lot['lot_number'] == null ? 'sin número de lote' : 'número de lote ${lot['lot_number']}'} · '
+                              'costo ${formatBob(lot['unit_cost'] as int)}/$unit · origen ${lot['parent_lot_id'] == null ? 'compra' : 'transferencia del lote #${lot['parent_lot_id']}'}',
                             ),
                           ),
                         ),
@@ -252,6 +323,240 @@ class _InventoryDetailScreenState extends ConsumerState<InventoryDetailScreen> {
         ),
       );
     },
+  );
+}
+
+/// Vencimiento de un lote en palabras; sin fecha no se supone ninguna.
+String lotExpiryText(String? expiryDay) => expiryDay == null
+    ? 'sin fecha de vencimiento registrada'
+    : 'vence el ${displayDay(expiryDay)}';
+
+String _leadText(int? leadDays) =>
+    '${leadDaysText(leadDays ?? AppDatabase.defaultAlertLeadDays)}'
+    '${leadDays == null ? ' (valor inicial)' : ''}';
+
+/// Configuración de avisos del producto (RF-44), visible para el titular.
+class _AlertSettingsCard extends StatelessWidget {
+  const _AlertSettingsCard({
+    required this.settings,
+    required this.onConfigure,
+    required this.shared,
+  });
+  final ProductAlertSettings settings;
+  final VoidCallback onConfigure;
+
+  /// Modalidad compartida: el nivel se compara con el total y con cada
+  /// responsable.
+  final bool shared;
+
+  @override
+  Widget build(BuildContext context) {
+    final min = settings.minStockBase;
+    return Card(
+      key: const Key('inventory-alert-settings'),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Avisos de este producto',
+              style: Theme.of(context).textTheme.titleMedium
+                  ?.copyWith(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              min == null
+                  ? 'Sin nivel mínimo: no se avisa cuando queda poco.'
+                  : 'Nivel mínimo: ${formatQuantity(min, settings.unit)}. '
+                        '${shared ? 'Se avisa cuando el total de la '
+                                  'instalación, o lo de un responsable, '
+                                  'queda en esa cantidad o menos.' : 'Se avisa cuando queda esa cantidad o menos.'}',
+            ),
+            Text('Aviso de vencimiento: ${_leadText(settings.leadDays)}.'),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                key: const Key('inventory-alert-settings-edit'),
+                onPressed: onConfigure,
+                icon: const Icon(Icons.tune),
+                label: const Text('Configurar avisos'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Diálogo del nivel mínimo y el plazo de aviso. Un campo vacío es «sin
+/// nivel» o «valor inicial», nunca cero.
+class AlertSettingsDialog extends StatefulWidget {
+  const AlertSettingsDialog({super.key, required this.current});
+  final ProductAlertSettings current;
+
+  @override
+  State<AlertSettingsDialog> createState() => _AlertSettingsDialogState();
+}
+
+class _AlertSettingsDialogState extends State<AlertSettingsDialog> {
+  late final TextEditingController minimum;
+  late final TextEditingController days;
+  String? minimumError;
+  String? daysError;
+
+  /// Se escribió algo distinto, pero con el mismo valor («2,5» y «2,50»).
+  bool sameValues = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final min = widget.current.minStockBase;
+    minimum = TextEditingController(
+      text: min == null ? '' : formatForInput(min / baseUnitsPerMajor),
+    );
+    days = TextEditingController(
+      text: widget.current.leadDays?.toString() ?? '',
+    );
+    _initialMinimum = minimum.text;
+    _initialDays = days.text;
+  }
+
+  @override
+  void dispose() {
+    minimum.dispose();
+    days.dispose();
+    super.dispose();
+  }
+
+  /// Algo distinto de lo guardado. Sin cambios no se pide el PIN.
+  bool get _changed =>
+      minimum.text.trim() != _initialMinimum ||
+      days.text.trim() != _initialDays;
+
+  late final String _initialMinimum;
+  late final String _initialDays;
+
+  void _save() {
+    int? minBase;
+    int? leadDays;
+    String? minError;
+    String? dayError;
+    if (minimum.text.trim().isNotEmpty) {
+      final parsed = parseNumericInput(minimum.text);
+      if (!parsed.isValid || parsed.value! < 0) {
+        minError = parsed.message ?? 'Escriba una cantidad de 0 o más.';
+      } else {
+        minBase = (parsed.value! * baseUnitsPerMajor).round();
+      }
+    }
+    if (days.text.trim().isNotEmpty) {
+      // Sólo dígitos: int.tryParse aceptaría «0x10» o «+5».
+      final text = days.text.trim();
+      final parsed = RegExp(r'^\d{1,3}$').hasMatch(text)
+          ? int.parse(text)
+          : null;
+      if (parsed == null ||
+          parsed < 0 ||
+          parsed > AgroRepository.maxAlertLeadDays) {
+        dayError =
+            'Escriba un número entero de días, de 0 a '
+            '${AgroRepository.maxAlertLeadDays}.';
+      } else {
+        leadDays = parsed;
+      }
+    }
+    if (minError != null || dayError != null) {
+      setState(() {
+        minimumError = minError;
+        daysError = dayError;
+      });
+      return;
+    }
+    // «2» y «2,0» son el mismo nivel: sin cambio real no se pide el PIN.
+    if (minBase == widget.current.minStockBase &&
+        leadDays == widget.current.leadDays) {
+      setState(() => sameValues = true);
+      return;
+    }
+    Navigator.pop(context, (minStockBase: minBase, leadDays: leadDays));
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: Text('Avisos de ${widget.current.productName}'),
+    content: SingleChildScrollView(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TextField(
+            key: const Key('alert-settings-minimum'),
+            controller: minimum,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            onChanged: (_) => setState(() {
+              minimumError = null;
+              sameValues = false;
+            }),
+            decoration: InputDecoration(
+              labelText: 'Nivel mínimo (${widget.current.unit})',
+              helperText:
+                  'Vacío: sin aviso de existencia baja. 0: avisa sólo '
+                  'cuando se acaba.',
+              helperMaxLines: 3,
+              errorText: minimumError,
+              errorMaxLines: 4,
+            ),
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            key: const Key('alert-settings-days'),
+            controller: days,
+            keyboardType: TextInputType.number,
+            onChanged: (_) => setState(() {
+              daysError = null;
+              sameValues = false;
+            }),
+            decoration: InputDecoration(
+              labelText: 'Avisar días antes del vencimiento',
+              helperText:
+                  'De 0 a ${AgroRepository.maxAlertLeadDays} días. Vacío: '
+                  '${AppDatabase.defaultAlertLeadDays} días (valor inicial).',
+              helperMaxLines: 3,
+              errorText: daysError,
+              errorMaxLines: 3,
+            ),
+          ),
+          if (sameValues)
+            Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: Text(
+                'No hay cambios que guardar: los valores son los mismos.',
+                key: const Key('alert-settings-same'),
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+            ),
+          const SizedBox(height: 12),
+          Text(
+            'Al guardar se pide el PIN del titular, una vez para los dos '
+            'datos. Los avisos no cambian sus existencias ni impiden '
+            'registrar operaciones.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ],
+      ),
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: const Text('Cancelar'),
+      ),
+      FilledButton(
+        key: const Key('alert-settings-save'),
+        onPressed: _changed ? _save : null,
+        child: const Text('Guardar'),
+      ),
+    ],
   );
 }
 

@@ -466,14 +466,21 @@ void main() {
     await old.close();
     final migrated = openDb(path);
     final db = await migrated.database;
-    expect((await db.rawQuery('PRAGMA user_version')).single.values.single, 11);
-    final after = await dumpTables(
-      db,
-      except: {
-        'reversal_audit',
-        'reversal_audit_effects',
-        'late_operation_drafts',
-      },
+    // Migra hasta la versión vigente; v12 (F04-AV) sólo añade columnas que
+    // nacen NULL y una tabla vacía.
+    expect(
+      (await db.rawQuery('PRAGMA user_version')).single.values.single,
+      AppDatabase.schemaVersion,
+    );
+    final after = withoutV12(
+      await dumpTables(
+        db,
+        except: {
+          'reversal_audit',
+          'reversal_audit_effects',
+          'late_operation_drafts',
+        },
+      ),
     );
     expect(after, before);
     expect(await db.query('reversal_audit'), isEmpty);

@@ -4,9 +4,11 @@ import 'package:go_router/go_router.dart';
 
 import '../../app.dart';
 import '../../data/typed_reads.dart';
+import '../../domain/inventory_alerts.dart';
 import '../../domain/money.dart';
 import '../../domain/read_models.dart';
 import '../widgets/common.dart';
+import 'inventory_alerts_screen.dart';
 
 class InventoryScreen extends ConsumerStatefulWidget {
   const InventoryScreen({super.key});
@@ -16,18 +18,30 @@ class InventoryScreen extends ConsumerStatefulWidget {
 
 class _InventoryScreenState extends ConsumerState<InventoryScreen> {
   late Future<List<InventoryLineRead>> future;
+
+  /// Resumen de avisos (F04-AV, CU-22: «el inventario indica que hay
+  /// avisos»). Se calcula al abrir y al refrescar; sólo lee.
+  late Future<InventoryAlerts> alerts;
   String query = '';
   @override
   void initState() {
     super.initState();
     future = ref.read(repositoryProvider).inventorySummaryTyped();
+    alerts = ref.read(repositoryProvider).inventoryAlerts();
   }
 
   void refresh() {
     final next = ref.read(repositoryProvider).inventorySummaryTyped();
+    final nextAlerts = ref.read(repositoryProvider).inventoryAlerts();
     setState(() {
       future = next;
+      alerts = nextAlerts;
     });
+  }
+
+  Future<void> _openAlerts() async {
+    await context.push('/inventario/avisos');
+    if (mounted) refresh();
   }
 
   @override
@@ -40,6 +54,26 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
     ),
     child: Column(
       children: [
+        FutureBuilder<InventoryAlerts>(
+          future: alerts,
+          builder: (context, snapshot) => Card(
+            key: const Key('inventory-alerts-entry'),
+            child: ListTile(
+              leading: const Icon(Icons.warning_amber_outlined),
+              title: const Text('Avisos de inventario'),
+              subtitle: Text(
+                snapshot.hasError
+                    ? 'No se pudieron calcular. Ábralos para ver el motivo.'
+                    : snapshot.hasData
+                    ? inventoryAlertsSummary(snapshot.data!)
+                    : 'Calculando…',
+              ),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: _openAlerts,
+            ),
+          ),
+        ),
+        const SizedBox(height: 12),
         TextField(
           onChanged: (value) =>
               setState(() => query = value.trim().toLowerCase()),

@@ -167,8 +167,74 @@ const reviewAuditTablesV11 = [
   'late_operation_drafts',
 ];
 
+/// Tablas que añadió v12 (F04-AV, avisos de inventario).
+const inventoryAlertsTablesV12 = [
+  'lot_data_correction_lots',
+  'lot_data_corrections',
+];
+
+/// Columnas que añadió v12, por tabla.
+final inventoryAlertsColumnsV12 = {
+  for (final entry in AppDatabase.inventoryAlertsColumns.entries)
+    entry.key: entry.value.keys.toSet(),
+};
+
+/// Quita todo lo que añadió v12: la tabla de correcciones, sus triggers e
+/// índice y las columnas opcionales de lotes y productos.
+Future<void> dropInventoryAlertsSchemaV12(DatabaseExecutor db) async {
+  for (final trigger in [
+    'trg_lot_data_corrections_no_update',
+    'trg_lot_data_corrections_no_delete',
+    'trg_lot_data_correction_lots_no_update',
+    'trg_lot_data_correction_lots_no_delete',
+  ]) {
+    await db.execute('DROP TRIGGER IF EXISTS $trigger');
+  }
+  for (final table in inventoryAlertsTablesV12) {
+    await db.execute('DROP TABLE IF EXISTS $table');
+  }
+  for (final entry in inventoryAlertsColumnsV12.entries) {
+    final existing = (await db.rawQuery('PRAGMA table_info(${entry.key})'))
+        .map((row) => row['name'])
+        .toSet();
+    for (final column in entry.value) {
+      if (existing.contains(column)) {
+        await db.execute('ALTER TABLE ${entry.key} DROP COLUMN $column');
+      }
+    }
+  }
+}
+
+/// Deja una base creada con la versión actual exactamente como una v11.
+Future<void> downgradeToV11(String path) async {
+  final db = await databaseFactoryFfi.openDatabase(path);
+  await dropInventoryAlertsSchemaV12(db);
+  await db.execute('PRAGMA user_version = 11');
+  await db.close();
+}
+
+/// Un volcado sin lo que añadió v12, para compararlo con el de una base
+/// anterior: las columnas nuevas nacen NULL y la tabla nueva vacía.
+Map<String, List<Map<String, Object?>>> withoutV12(
+  Map<String, List<Map<String, Object?>>> dump,
+) => {
+  for (final entry in dump.entries)
+    if (!inventoryAlertsTablesV12.contains(entry.key))
+      entry.key: [
+        for (final row in entry.value)
+          {
+            for (final cell in row.entries)
+              if (!(inventoryAlertsColumnsV12[entry.key]?.contains(cell.key) ??
+                  false))
+                cell.key: cell.value,
+          },
+      ],
+};
+
 /// Quita todo lo que añadió v11 (RF-13 y RF-03): tablas, índices y triggers.
+/// Antes quita lo de v12, que es posterior.
 Future<void> dropReviewAuditSchemaV11(DatabaseExecutor db) async {
+  await dropInventoryAlertsSchemaV12(db);
   final triggers = await db.rawQuery(
     "SELECT name FROM sqlite_master WHERE type='trigger' AND "
     "(name LIKE 'trg_reversal_audit%' OR name LIKE 'trg_late_drafts%')",

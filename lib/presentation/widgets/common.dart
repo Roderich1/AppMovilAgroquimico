@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../data/app_log.dart';
+import '../../services/auth/local_owner_credential.dart'
+    show OwnerAuthorizationRejected;
 import '../../domain/numeric_input.dart';
 
 export '../../domain/numeric_input.dart'
@@ -310,6 +312,8 @@ int parseMinor(String value) => tryParseMinor(value) ?? 0;
 int parseBase(String value) => tryParseBase(value) ?? 0;
 
 String friendlyError(Object error) {
+  // El motivo ya está escrito para la persona; sin el nombre de la clase.
+  if (error is OwnerAuthorizationRejected) return error.reason;
   final message = error.toString().replaceFirst('BusinessRuleException: ', '');
   if (message.contains('FormatException')) {
     return 'Revise los valores numéricos ingresados.';

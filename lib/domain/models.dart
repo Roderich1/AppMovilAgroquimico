@@ -26,6 +26,8 @@ class PurchaseItemDraft {
     required this.originalUnitPriceMinor,
     this.exchangeRateScaled,
     required this.allocations,
+    this.expiryDay,
+    this.lotNumber,
   });
 
   final int productId;
@@ -34,6 +36,14 @@ class PurchaseItemDraft {
   final int originalUnitPriceMinor;
   final int? exchangeRateScaled;
   final List<AllocationDraft> allocations;
+
+  /// Vencimiento de la línea como día civil `aaaa-mm-dd`, si se conoce
+  /// (RF-42, MOB #168). Pasa a cada lote de la línea. Nulo: «sin fecha
+  /// registrada», nunca una fecha supuesta.
+  final String? expiryDay;
+
+  /// Número de lote del fabricante, si se conoce. Nulo: sin dato.
+  final String? lotNumber;
 }
 
 class PurchaseDraft {
