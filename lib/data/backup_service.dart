@@ -2,7 +2,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:archive/archive_io.dart';
-import 'package:flutter/foundation.dart' show visibleForTesting;
+import 'package:flutter/foundation.dart'
+    show listEquals, mapEquals, visibleForTesting;
 import 'package:crypto/crypto.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -12,6 +13,7 @@ import 'package:sqflite/sqflite.dart'
 import '../domain/installation_access.dart';
 import '../domain/restore_ownership.dart';
 import 'app_database.dart';
+import 'app_log.dart';
 import 'backup_container_reader.dart';
 import 'backup_encryption.dart' show BackupEnvelopeHeader;
 import 'database_replacement.dart';
@@ -135,6 +137,7 @@ class BackupService {
     @visibleForTesting Future<void> Function(File partial)? beforePublish,
     @visibleForTesting Future<void> Function(File partial)? afterSafetyCopy,
     @visibleForTesting Future<void> Function()? afterCheckpoint,
+    @visibleForTesting Future<void> Function()? beforeRecoveryCheck,
     BackupExtractionLimits extractionLimits = BackupExtractionLimits.standard,
     RestoreSafetyCopies? safetyCopies,
   }) : extractionLimits = extractionLimits,
@@ -143,7 +146,8 @@ class BackupService {
        _exportDirectory = exportDirectory ?? _defaultExportDirectory,
        _beforePublish = beforePublish,
        _afterSafetyCopy = afterSafetyCopy,
-       _afterCheckpoint = afterCheckpoint {
+       _afterCheckpoint = afterCheckpoint,
+       _beforeRecoveryCheck = beforeRecoveryCheck {
     this.safetyCopies =
         safetyCopies ?? RestoreSafetyCopies(appDatabase.resolvePath);
   }
@@ -169,6 +173,11 @@ class BackupService {
   /// Sólo pruebas: se ejecuta tras el checkpoint de la copia previa y antes
   /// de cerrar la base.
   final Future<void> Function()? _afterCheckpoint;
+
+  /// Sólo pruebas: se ejecuta con el rollback ya terminado y antes de
+  /// comprobar el estado recuperado. Si falla, la comprobación no es
+  /// concluyente.
+  final Future<void> Function()? _beforeRecoveryCheck;
 
   static Future<Directory> _defaultExportDirectory() async =>
       await getDownloadsDirectory() ?? await getApplicationDocumentsDirectory();
@@ -1004,11 +1013,23 @@ class BackupService {
     // Preparación: copia previa completa de la base y de las fotografías. Si
     // algo falla aquí **no empieza el reemplazo**: la base actual sigue como
     // estaba y se descarta lo que se hubiera copiado a medias.
-    final bool hadPrevious;
+    final String? previousDigest;
+    final String? previousJournal;
+    final Map<String, int>? previousInvoices;
     final bool hadInvoices;
     try {
       await Directory(p.dirname(safetyCopy)).create(recursive: true);
-      hadPrevious = await _secureCurrentDatabase(target, safetyCopy);
+      previousDigest = await _secureCurrentDatabase(target, safetyCopy);
+      // Con la base ya cerrada: el diario que SQLite podría aplicar al
+      // abrirla. En la práctica ninguno, porque abrirla para asegurarla ya lo
+      // habría aplicado; se anota para comprobar que el rollback no lo cambia.
+      previousJournal = await _pendingJournal(target);
+      // Qué fotografías había, sólo nombre y tamaño (sin leerlas): distingue
+      // una carpeta ausente de una vacía y permite comprobar después que su
+      // copia sigue completa.
+      previousInvoices = invoicesDirectory == null
+          ? null
+          : await _listing(invoicesDirectory);
       // Copia de las fotografías actuales, para poder deshacer el conjunto y
       // no sólo la base.
       hadInvoices =
@@ -1025,6 +1046,7 @@ class BackupService {
       await _deleteQuietly(staged.directory);
       rethrow;
     }
+    final hadPrevious = previousDigest != null;
 
     // Si algo falla al deshacer, la copia previa (base y fotografías) es lo
     // único que conserva los datos anteriores: no se borra.
@@ -1101,7 +1123,7 @@ class BackupService {
         restoredAttachments: restoredAttachments,
         warnings: warnings,
       );
-    } on Object {
+    } on Object catch (error, stack) {
       // Deshacer el conjunto: base y fotografías vuelven a como estaban. Los
       // diarios son de la base restaurada y no deben aplicarse a la anterior.
       try {
@@ -1128,6 +1150,40 @@ class BackupService {
           // mantenimiento: protegida igualmente.
         }
         rethrow;
+      }
+      // Que el rollback termine sin error no basta (3.12.4.6): la copia sólo
+      // se da por resuelta si el estado recuperado es el de antes. Si no
+      // coincide, o no se puede comprobar, queda protegida como una
+      // interrumpida y bloquea otra restauración.
+      final failure = await _checkRecoveredState(
+        target,
+        previousDigest: previousDigest,
+        previousJournal: previousJournal,
+        invoicesDirectory: invoicesDirectory,
+        invoicesBackup: invoicesBackup,
+        previousInvoices: previousInvoices,
+      );
+      if (failure != null) {
+        keepInvoicesBackup = true;
+        // Sólo el tipo de la causa: su texto puede llevar rutas de
+        // fotografías, que el log no admite.
+        AppLog.error(
+          'Restauración deshecha sin estado recuperado comprobado '
+          '(${failure.name}); causa: ${error.runtimeType}',
+          stackTrace: stack,
+        );
+        try {
+          await safetyCopies.markInterrupted(slot);
+        } on Object {
+          // Sigue en preparación y pasará a interrumpida en el siguiente
+          // mantenimiento: protegida igualmente.
+        }
+        throw RestoreRecoveryUnverifiedException(
+          failure,
+          error,
+          stack,
+          keptCopy: hadPrevious || hadInvoices,
+        );
       }
       await _resolveSafetyCopy(
         slot,
@@ -1170,6 +1226,99 @@ class BackupService {
     if (!requiredTables.every(tables.contains)) throw problem;
   }
 
+  /// Tras un rollback sin error: null si los datos activos son exactamente
+  /// los de antes de restaurar. Corre todavía en exclusiva ([restore]): la
+  /// única conexión se cerró al deshacer, las lecturas de fuera esperan a que
+  /// termine la sustitución sin reabrir el archivo y las escrituras se
+  /// rechazan, así que nada cambia los archivos mientras se comparan.
+  ///
+  /// 1. Diarios. El rollback retira `-wal` y `-shm`, que serían de la base
+  ///    restaurada: un `-wal` con contenido no coincide; uno vacío o un
+  ///    `-shm` indican que no se pudieron retirar o que algo volvió a abrir
+  ///    la base, y no es concluyente. Nada se borra aquí. El rollback no toca
+  ///    `-journal`: el que SQLite podría aplicar al abrir ([_pendingJournal])
+  ///    debe ser el mismo que antes de restaurar (normalmente ninguno).
+  /// 2. La base tiene el SHA-256 de la base cerrada que se aseguró
+  ///    ([_secureCurrentDatabase]), o no existe si no la había.
+  /// 3. Fotografías, con contenedor. Si no había carpeta, no debe haberla. Si
+  ///    la había, su copia previa debe seguir con los archivos y tamaños que
+  ///    tenía la carpeta (si falta o cambió, no es concluyente) y la carpeta
+  ///    recuperada, tener esos archivos con el SHA-256 de la copia. Como
+  ///    [_copyDirectory], sólo cuentan archivos, no subcarpetas.
+  ///
+  /// Las huellas se calculan sólo aquí, no en las restauraciones que terminan
+  /// bien. No se abre la base: abrirla escribiría diarios.
+  Future<RecoveryCheckFailure?> _checkRecoveredState(
+    String target, {
+    required String? previousDigest,
+    required String? previousJournal,
+    required Directory? invoicesDirectory,
+    required Directory? invoicesBackup,
+    required Map<String, int>? previousInvoices,
+  }) async {
+    try {
+      if (_beforeRecoveryCheck != null) await _beforeRecoveryCheck();
+      final wal = File('$target-wal');
+      if (await wal.exists() && await wal.length() > 0) {
+        return RecoveryCheckFailure.mismatch;
+      }
+      if (await wal.exists() || await File('$target-shm').exists()) {
+        return RecoveryCheckFailure.inconclusive;
+      }
+      if (await _pendingJournal(target) != previousJournal) {
+        return RecoveryCheckFailure.mismatch;
+      }
+      final active = File(target);
+      if (previousDigest == null) {
+        if (await active.exists()) return RecoveryCheckFailure.mismatch;
+      } else if (!await active.exists() ||
+          await sha256OfFile(active) != previousDigest) {
+        return RecoveryCheckFailure.mismatch;
+      }
+      if (invoicesDirectory != null) {
+        final recovered = await _listing(invoicesDirectory);
+        if (previousInvoices == null) {
+          if (recovered != null) return RecoveryCheckFailure.mismatch;
+        } else {
+          final copy = await _listing(invoicesBackup!);
+          if (copy == null || !mapEquals(copy, previousInvoices)) {
+            return RecoveryCheckFailure.inconclusive;
+          }
+          if (recovered == null ||
+              !mapEquals(recovered, previousInvoices) ||
+              !mapEquals(
+                await _fingerprint(invoicesDirectory),
+                await _fingerprint(invoicesBackup),
+              )) {
+            return RecoveryCheckFailure.mismatch;
+          }
+        }
+      }
+      return null;
+    } on Object {
+      return RecoveryCheckFailure.inconclusive;
+    }
+  }
+
+  /// Cabecera de un diario de reversión de SQLite
+  /// (https://www.sqlite.org/fileformat2.html, «The Rollback Journal»).
+  static const _journalMagic = [0xd9, 0xd5, 0x05, 0xf9, 0x20, 0xa1, 0x63, 0xd7];
+
+  /// SHA-256 del `-journal` de [target] si SQLite podría aplicarlo al abrir
+  /// la base, o null si no. Un diario vacío o con la cabecera a ceros (lo que
+  /// dejan `truncate` y `persist` al confirmar) nunca es «caliente»: SQLite
+  /// sólo revierte un diario no vacío con cabecera válida
+  /// (https://www.sqlite.org/atomiccommit.html, «Hot Rollback Journals»). Se
+  /// trata como aplicable todo diario con cabecera válida, sin mirar
+  /// bloqueos ni diario maestro, que sólo podrían descartarlo.
+  Future<String?> _pendingJournal(String target) async {
+    final journal = File('$target-journal');
+    if (!await journal.exists()) return null;
+    final header = await _firstBytes(journal, _journalMagic.length);
+    if (!listEquals(header, _journalMagic)) return null;
+    return sha256OfFile(journal);
+  }
+
   /// Marca la copia previa como resuelta y aplica la cota. Sin base anterior
   /// no hay nada que conservar y la entrada se retira. Un fallo aquí no
   /// cambia el resultado de la restauración: la entrada seguiría protegida,
@@ -1192,7 +1341,8 @@ class BackupService {
   }
 
   /// Deja en [safetyCopy] una copia completa de la base actual y la cierra.
-  /// Devuelve si había una base que conservar.
+  /// Devuelve el SHA-256 de la base cerrada (el de la copia), o null si no
+  /// había una base que conservar.
   ///
   /// En modo WAL las últimas transacciones confirmadas pueden estar sólo en
   /// `-wal`: copiar el archivo principal con la base abierta las perdería, y
@@ -1209,11 +1359,14 @@ class BackupService {
   ///
   /// Si un paso falla, la base no se ha sustituido; en los pasos 3 y 4 queda
   /// cerrada y se reabre con normalidad en el siguiente acceso.
-  Future<bool> _secureCurrentDatabase(String target, String safetyCopy) async {
+  Future<String?> _secureCurrentDatabase(
+    String target,
+    String safetyCopy,
+  ) async {
     final current = File(target);
     if (!await current.exists()) {
       await appDatabase.close();
-      return false;
+      return null;
     }
     await _consolidateForCopy(await appDatabase.database);
     if (_afterCheckpoint != null) await _afterCheckpoint();
@@ -1236,15 +1389,16 @@ class BackupService {
       await handle.close();
     }
     if (_afterSafetyCopy != null) await _afterSafetyCopy(partial);
+    final digest = await sha256OfFile(current);
     if (await partial.length() != await current.length() ||
-        await sha256OfFile(partial) != await sha256OfFile(current)) {
+        await sha256OfFile(partial) != digest) {
       throw const BackupException(
         'No se pudo guardar una copia completa de sus datos actuales. No se '
         'restauró; sus datos actuales se conservan.',
       );
     }
     await partial.rename(safetyCopy);
-    return true;
+    return digest;
   }
 
   /// Reapunta `purchases.invoice_image_path` a este dispositivo.
@@ -1305,6 +1459,32 @@ class BackupService {
     ];
   }
 
+  /// Nombre y tamaño de cada archivo de [directory], sin leerlos ni bajar a
+  /// subcarpetas, o null si la carpeta no existe: ausente no es vacía.
+  Future<Map<String, int>?> _listing(Directory directory) async {
+    if (!await directory.exists()) return null;
+    final files = <String, int>{};
+    await for (final entity in directory.list()) {
+      if (entity is File) {
+        files[p.basename(entity.path)] = await entity.length();
+      }
+    }
+    return files;
+  }
+
+  /// Nombre y SHA-256 de cada archivo de [directory], sin bajar a
+  /// subcarpetas (lo mismo que copia [_copyDirectory]). Vacía si no existe.
+  Future<Map<String, String>> _fingerprint(Directory directory) async {
+    final files = <String, String>{};
+    if (!await directory.exists()) return files;
+    await for (final entity in directory.list()) {
+      if (entity is File) {
+        files[p.basename(entity.path)] = await sha256OfFile(entity);
+      }
+    }
+    return files;
+  }
+
   /// Copia [from] a [to]. Devuelve si el origen existía.
   Future<bool> _copyDirectory(Directory from, Directory to) async {
     if (!await from.exists()) return false;
@@ -1349,6 +1529,42 @@ class BackupException implements Exception {
   final String message;
   @override
   String toString() => message;
+}
+
+/// Por qué no se pudo dar por recuperado el estado tras un rollback.
+enum RecoveryCheckFailure {
+  /// Los datos activos no son los de antes de restaurar.
+  mismatch,
+
+  /// La comprobación no pudo completarse.
+  inconclusive,
+}
+
+/// La restauración falló y se deshizo, pero no se pudo confirmar que los
+/// datos activos sean los de antes: la copia previa queda protegida como
+/// interrumpida y bloquea otra restauración (F08-PREV-01). [cause] es el
+/// fallo que obligó a deshacer. Si no había base ni fotografías que copiar,
+/// no hay copia que nombrar.
+class RestoreRecoveryUnverifiedException extends BackupException {
+  const RestoreRecoveryUnverifiedException(
+    this.reason,
+    this.cause,
+    this.causeStack, {
+    required bool keptCopy,
+  }) : super(
+         keptCopy
+             ? 'No pudimos confirmar que sus datos anteriores se recuperaron '
+                   'correctamente. Conservamos la copia de seguridad. Antes de '
+                   'restaurar otro respaldo, elija qué hacer en «Copias '
+                   'previas a restauraciones».'
+             : 'No pudimos confirmar que sus datos anteriores se recuperaron '
+                   'correctamente. Antes de restaurar otro respaldo, elija qué '
+                   'hacer en «Copias previas a restauraciones».',
+       );
+
+  final RecoveryCheckFailure reason;
+  final Object cause;
+  final StackTrace causeStack;
 }
 
 /// No se pudo leer de quién es la copia: no se restaura.

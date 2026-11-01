@@ -114,8 +114,10 @@ class GuardedRestore {
               await access.recomputeAfterReplacement(),
             );
           } on Object {
-            // Rechazada o deshecha: la base es la anterior, pero la autorización
-            // se recalcula igualmente antes de volver a admitir escrituras.
+            // Rechazada o deshecha: la base es la anterior (salvo que no se
+            // pudiera comprobar, y entonces la copia previa queda protegida),
+            // y la autorización se recalcula igualmente antes de volver a
+            // admitir escrituras.
             await access.recomputeAfterReplacement();
             rethrow;
           }

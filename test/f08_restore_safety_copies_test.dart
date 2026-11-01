@@ -174,7 +174,9 @@ void main() {
         reopened.ensureCanStartRestore(),
         throwsA(same(RestoreBlockedException.unresolved)),
       );
-      await reopened.keepCurrentData(slot.entry.id);
+      // Confirmar la recuperación es la acción que la devuelve a las reglas
+      // normales (seguir con los datos actuales no basta; F08-PREV-01).
+      await reopened.confirmRecovery(slot.entry.id);
       expect(
         (await reopened.entries()).single.state,
         SafetyCopyState.rolledBack,

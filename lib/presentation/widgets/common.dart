@@ -225,15 +225,25 @@ class EmptyState extends StatelessWidget {
   );
 }
 
-void showError(BuildContext context, Object error) {
+void showError(BuildContext context, Object error) => showErrorOn(
+  ScaffoldMessenger.of(context),
+  Theme.of(context).colorScheme.error,
+  error,
+);
+
+/// Como [showError], con el `ScaffoldMessenger` y el color tomados antes de
+/// una espera: el aviso se muestra aunque la pantalla se haya desmontado
+/// entretanto (p. ej. si el router la cambia al recalcular el acceso).
+void showErrorOn(
+  ScaffoldMessengerState messenger,
+  Color background,
+  Object error,
+) {
   // Punto único por el que pasan todos los errores que ve el usuario: es el
   // mejor sitio para dejar rastro sin instrumentar cada pantalla.
   AppLog.error('Error mostrado al usuario', error: error);
-  ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(
-      content: Text(friendlyError(error)),
-      backgroundColor: Theme.of(context).colorScheme.error,
-    ),
+  messenger.showSnackBar(
+    SnackBar(content: Text(friendlyError(error)), backgroundColor: background),
   );
 }
 

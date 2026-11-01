@@ -327,15 +327,37 @@ Se conservan sin cambios: el owner-scoping, el staging, la validación antes de 
 | Estado | Se pone cuando | ¿Protegida? |
 |---|---|---|
 | `preparing` | Antes de escribir la copia | Sí |
-| `finalized` | La restauración terminó, la outbox quedó pausada y **se comprobó el estado restaurado**: la base abre, `integrity_check` es `ok`, `user_version` es el de esta versión (ya migrada) y están las tablas de la aplicación. Si la comprobación falla, se deshace todo y la entrada queda `rolledBack` | No |
-| `rolledBack` | La restauración falló y el rollback terminó sin error: la base activa vuelve a ser la anterior | No |
-| `interrupted` | En el mantenimiento, una entrada `preparing` sin restauración en curso en este proceso, es decir, el proceso murió a medias | **Sí** |
+| `finalized` | La restauración terminó, la outbox quedó pausada y **se comprobó el estado restaurado**: la base abre, `integrity_check` es `ok`, `user_version` es el de esta versión (ya migrada) y están las tablas de la aplicación. Si la comprobación falla, se deshace todo y la entrada queda `rolledBack` si se comprueba el estado recuperado, o `interrupted` si no (redacción del 2026-10-31) | No |
+| `rolledBack` | La restauración falló, el rollback terminó sin error **y se comprobó el estado recuperado** (redacción del 2026-10-31; antes bastaba con que el rollback terminara). También cuando el titular confirma expresamente la recuperación | No |
+| `interrupted` | En el mantenimiento, una entrada `preparing` sin restauración en curso en este proceso, es decir, el proceso murió a medias. Desde el 2026-10-31, también un rollback cuyo estado recuperado no coincide o no se pudo comprobar | **Sí**, y bloquea otra restauración |
+| `retained` (2026-10-31) | Era `interrupted` y el titular decidió seguir con los datos actuales **sin** confirmar la recuperación | **Sí**; no bloquea |
 
-- **Si el rollback falla**, la entrada queda en `preparing` y pasa a `interrupted`, protegida.
+- **Si el rollback falla**, la entrada pasa a `interrupted`, protegida. Si ni eso se puede guardar, queda en `preparing` y pasa a `interrupted` en el siguiente mantenimiento.
 - **La propiedad no forma parte de la comprobación:** la reclasifica `GuardedRestore` y, si no puede, deja el acceso en null (falla cerrado) sobre una base íntegra. Revisión de B, I2, y de A, A3.
-- **Proceso muerto antes de sustituir:** también deja una `interrupted` (conservador; revisión de B, m3). El mensaje del bloqueo dice que lo más probable es que los datos actuales estén bien y que «Mantener los actuales» lo resuelve.
+- **Proceso muerto antes de sustituir:** también deja una `interrupted` (conservador; revisión de B, m3). *Redacción del 2026-10-31:* el mensaje del bloqueo ya no dice que lo más probable es que los datos actuales estén bien (§7.2, «Bloqueo»).
 - **Si la preparación falla antes de sustituir nada**, se borran la copia y su entrada, como hoy.
 - **La protección no se deduce del nombre ni de suponer que el proceso terminó:** sólo de estados escritos en disco antes y después de cada paso.
+
+> **Aclaración del 2026-10-31 (F08-PREV-01, Mobile #172; redacción autorizada por Roderich).** Que el rollback termine sin error ya no basta para `rolledBack`. Mientras sigue la sustitución en exclusiva, con la única conexión cerrada, las lecturas de fuera en espera y las escrituras rechazadas, `BackupService` comprueba el estado recuperado:
+> - **Diarios.**
+>   - Un `-wal` con contenido no coincide.
+>   - Un `-wal` vacío o un `-shm` no permiten concluir: el rollback los retira y siguen ahí.
+>   - El `-journal` que SQLite aplicaría al abrir la base (el que empieza por la cabecera válida) debe ser el mismo que había antes de restaurar, normalmente ninguno. Uno que no empieza por ella (vacío, a ceros o más corto) no se aplica y no cuenta.
+>   - Nada se borra para pasar la comprobación.
+> - **Base.** Tiene el SHA-256 de la base cerrada que se aseguró, o no existe si no la había.
+> - **Fotografías**, sólo con el formato contenedor (el histórico no las toca). Al preparar se anota qué archivos había (nombre y tamaño), o que no había carpeta: ausente no es vacía.
+>   - Si no había carpeta, no debe haberla.
+>   - Si la había, su copia previa debe seguir con esos archivos y tamaños; si falta o cambió, no es concluyente.
+>   - La carpeta recuperada debe tener esos archivos con el SHA-256 de la copia.
+>   - Las huellas sólo se calculan al comprobar un rollback.
+>
+> Esto también rige cuando falla la comprobación del estado restaurado de la fila `finalized`. Si no coincide, o no es concluyente:
+> - la entrada pasa a `interrupted`, protegida del plazo y de la cota, y bloquea otra restauración;
+> - también se conserva la copia de las fotografías;
+> - el error dice: «No pudimos confirmar que sus datos anteriores se recuperaron correctamente. Conservamos la copia de seguridad. Antes de restaurar otro respaldo, elija qué hacer en «Copias previas a restauraciones».» Si no había base ni fotografías que copiar, se omite «Conservamos la copia de seguridad.»;
+> - el aviso se muestra aunque la pantalla se desmonte al recalcular el acceso.
+>
+> No cambian el plazo (7 días) ni la cota (2) del §7.2, el cifrado, la identidad ni la pausa de la outbox. Cambian la regla 3 y el «Bloqueo» del §7.2 (estado `retained` y dos acciones). Evidencia: `docs/evidence/F08_PREV_01_VERIFICACION_ROLLBACK_2026-10-31.md`.
 
 ### 7.2 Reglas (ratificadas el 2026-10-23)
 
@@ -345,7 +367,9 @@ En cada oportunidad de mantenimiento (al abrir la sección de respaldos, antes d
 2. **Cota:** si quedan más de **2** `finalized`/`rolledBack`, se retiran las más antiguas hasta dejar 2.
 - **Reloj:** el plazo usa el reloj del teléfono. Si se adelanta, las copias se retiran antes; si se atrasa, después. Es un límite declarado, igual que no prometer el séptimo día exacto (revisión de B, m3).
 - **Un solo estado por proceso:** la cola de operaciones del registro y el conjunto de restauraciones en curso son únicos por carpeta `previo/` en todo el proceso, aunque haya varias instancias del servicio (revisión de B, C1).
-3. **Protegidas:** nunca se retiran una `preparing` ni una `interrupted`, ni la base activa.
+3. **Protegidas:** nunca se retiran una `preparing`, una `interrupted` ni una `retained` (2026-10-31), ni la base activa.
+   - **Excepción a las reglas 1 y 2 (2026-10-31):** las copias sin resolver (`interrupted`) o conservadas expresamente con «Seguir con los actuales» (`retained`) quedan fuera del plazo y de la cota hasta que el titular confirma la recuperación. Las `retained` pueden acumularse: cada una es una base completa más sus fotografías. No hay purga de `retained`.
+   - **Compatibilidad:** una versión anterior de la app no conoce `retained`. Trata un `registro.json` que la contenga como ilegible: bloquea las restauraciones y ofrece «Apartar», sin borrar copias.
 4. **Retirar** borra exactamente los archivos que nombra la entrada, dentro de `previo/`, y después la entrada. Nada de patrones.
 
 **La cota y el plazo actúan por separado:**
@@ -354,9 +378,24 @@ En cada oportunidad de mantenimiento (al abrir la sección de respaldos, antes d
 - No se promete la limpieza exacta al séptimo día con la app apagada: se hace en la siguiente oportunidad.
 
 **Bloqueo:**
-- Si existe una `interrupted`, **se bloquea otra restauración antes de tocar nada**, con este mensaje: «Hay una restauración anterior que no terminó; se conserva la copia de sus datos de entonces. Resuélvala antes de restaurar otra».
-- Resolver es una acción explícita: «Mantener los datos actuales» la marca `rolledBack` (con fecha) y entra en las reglas normales.
-- Recuperar el contenido de una copia `interrupted` desde la interfaz **queda fuera de este bloque**: es un procedimiento técnico, declarado como limitación.
+- Si existe una `interrupted`, o una `preparing` que no es de una restauración en curso en este proceso, **se bloquea otra restauración antes de tocar nada**.
+  - *Mensaje (redacción del 2026-10-31):* «Una restauración anterior no terminó o no pudimos confirmar que sus datos anteriores se recuperaron correctamente. Si se guardó una copia de sus datos de entonces, sigue protegida. Antes de restaurar otro respaldo, elija qué hacer en «Copias previas a restauraciones». No se cambiaron sus datos.»
+  - No dice que los datos estén bien. Si no se pudo guardar el estado de un rollback sin comprobar, el mantenimiento lo deja igual que una restauración cortada, así que el mensaje vale para los dos casos.
+  - Tampoco afirma que haya copia: una entrada puede no tenerla, porque el proceso murió antes de escribirla o no había nada que copiar.
+  - Dice «No se cambiaron sus datos», no «No se modificó nada»: antes de bloquear se aplica el mantenimiento, que puede retirar copias vencidas.
+- *Desde el 2026-10-31, dos acciones explícitas y separadas* (antes había una sola, «Mantener los datos actuales», que la marcaba `rolledBack` y la pasaba a las reglas normales):
+  - En «Copias previas a restauraciones», una `interrupted` aparece como «RESTAURACIÓN SIN RESOLVER: copia protegida; bloquea otra restauración», con el botón «Decidir».
+    - El botón abre «Restauración sin resolver», con «Cancelar», «Seguir con los actuales» y «Mis datos están bien».
+    - El diálogo sólo dice «Conservamos la copia de seguridad…» si la copia sigue en disco; si no, dice que no quedó ninguna.
+  - **«Seguir con los actuales»** la marca `retained`: deja de bloquear, pero sigue protegida y no entra en el plazo ni en la cota.
+    - Aparece como «Recuperación sin confirmar: copia protegida», con un botón «Mis datos están bien».
+  - **«Mis datos están bien»** confirma la recuperación, desde `interrupted` o desde `retained`, siempre tras el diálogo de confirmación. Desde «Decidir» es un segundo diálogo; desde el botón de una `retained`, el único.
+    - El diálogo se titula «¿Sus datos actuales están bien?» y explica que la copia (o la entrada, si no hay copia) dejará de estar protegida y puede retirarse en la próxima limpieza.
+    - Después la marca `rolledBack` (con fecha) y entra en las reglas normales.
+  - Cancelar o cerrar cualquiera de los diálogos (tocando fuera o con el botón atrás) no cambia nada.
+  - No se añade ninguna forma de borrar una copia protegida.
+  - Valen para toda `interrupted`, también la de un proceso muerto, porque no se pueden distinguir con seguridad.
+- Recuperar el contenido de una copia `interrupted` o `retained` desde la interfaz **queda fuera de este bloque**: es un procedimiento técnico, declarado como limitación.
 
 **Copias heredadas:**
 - Los `<db>.previo-*.db` que ya existen junto a la base, sin entrada, **no se borran automáticamente**: no se sabe si alguna fue indispensable.
