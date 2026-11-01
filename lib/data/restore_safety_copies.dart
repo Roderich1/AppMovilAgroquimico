@@ -107,9 +107,10 @@ class RestoreBlockedException implements Exception {
   /// antes de escribirla, o no había nada que copiar).
   static const unresolved = RestoreBlockedException(
     'Una restauración anterior no terminó o no pudimos confirmar que sus '
-    'datos anteriores se recuperaron correctamente. Lo que se guardó '
-    'entonces sigue protegido. Antes de restaurar otro respaldo, elija qué '
-    'hacer en «Copias previas a restauraciones». No se modificó nada.',
+    'datos anteriores se recuperaron correctamente. Si se guardó una copia '
+    'de sus datos de entonces, sigue protegida. Antes de restaurar otro '
+    'respaldo, elija qué hacer en «Copias previas a restauraciones». No se '
+    'cambiaron sus datos.',
   );
 
   static const unreadableRegistry = RestoreBlockedException(

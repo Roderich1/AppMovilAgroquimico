@@ -60,6 +60,10 @@ class _FakeRemote implements RemoteBackupService {
   final Directory workspace;
   Completer<GuardedRestoreOutcome>? restoring;
 
+  /// Llamadas que la prueba no esperaba: la pantalla las convertiría en un
+  /// aviso en vez de en un fallo, así que se comprueban al terminar.
+  final unexpected = <Symbol>[];
+
   static final entry = RemoteBackupEntry(
     id: '0b6f7c2e-1d3a-4c5b-9e8f-7a6b5c4d3e2f',
     sha256: 'a' * 64,
@@ -103,8 +107,10 @@ class _FakeRemote implements RemoteBackupService {
   Future<void> discard(PreparedRemoteRestore prepared) async {}
 
   @override
-  dynamic noSuchMethod(Invocation invocation) =>
-      throw UnimplementedError('${invocation.memberName}');
+  dynamic noSuchMethod(Invocation invocation) {
+    unexpected.add(invocation.memberName);
+    throw UnimplementedError('${invocation.memberName}');
+  }
 }
 
 void main() {
@@ -193,6 +199,7 @@ void main() {
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.reset);
     final remote = _FakeRemote(workspace);
+    addTearDown(() => expect(remote.unexpected, isEmpty));
     final shown = ValueNotifier(true);
     addTearDown(shown.dispose);
     final database = AppDatabase(
@@ -253,29 +260,33 @@ void main() {
       expect(message, isNot(contains('están bien')));
       expect(message, isNot(contains('Conservamos la copia')));
       expect(message, isNot(contains('Lo más probable')));
+      expect(message, isNot(contains('No se modificó nada')));
     });
 
-    testWidgets('se presenta aunque la pantalla se desmonte al recalcular el '
-        'acceso', (tester) async {
-      final (remote, shown) = await pumpScreen(tester);
-      await startRemoteRestore(tester);
-      expect(remote.restoring, isNotNull);
+    testWidgets(
+      'se presenta aunque la pantalla se desmonte (como al recalcular '
+      'el acceso)',
+      (tester) async {
+        final (remote, shown) = await pumpScreen(tester);
+        await startRemoteRestore(tester);
+        expect(remote.restoring, isNotNull);
 
-      // Como el router al recalcular el acceso: la pantalla desaparece
-      // antes de que llegue el error.
-      shown.value = false;
-      await tester.pump();
-      expect(find.byType(RemoteBackupScreen), findsNothing);
-      remote.restoring!.completeError(unverified);
-      await settle(tester);
+        // Como el router al recalcular el acceso: la pantalla desaparece
+        // antes de que llegue el error.
+        shown.value = false;
+        await tester.pump();
+        expect(find.byType(RemoteBackupScreen), findsNothing);
+        remote.restoring!.completeError(unverified);
+        await settle(tester);
 
-      expect(find.text('Pantalla de acceso'), findsOneWidget);
-      expect(
-        find.textContaining('No pudimos confirmar que sus datos anteriores'),
-        findsOneWidget,
-      );
-      expect(find.textContaining('Conservamos la copia'), findsOneWidget);
-    });
+        expect(find.text('Pantalla de acceso'), findsOneWidget);
+        expect(
+          find.textContaining('No pudimos confirmar que sus datos anteriores'),
+          findsOneWidget,
+        );
+        expect(find.textContaining('Conservamos la copia'), findsOneWidget);
+      },
+    );
 
     testWidgets('con la pantalla abierta se presenta y la sección se recarga '
         'con la copia sobre la que decidir', (tester) async {
@@ -368,6 +379,7 @@ void main() {
       expect(inDialog('¿Sus datos actuales están bien?'), findsOneWidget);
       await tester.tap(inDialog('Cancelar'));
       await settle(tester);
+      expect(find.byType(AlertDialog), findsNothing);
 
       // Y cerrar la confirmación tocando fuera.
       await tester.tap(find.text('Decidir'));
@@ -376,6 +388,7 @@ void main() {
       await settle(tester);
       await tester.tapAt(const Offset(5, 5));
       await settle(tester);
+      expect(find.byType(AlertDialog), findsNothing);
 
       expect(registry.calls, isEmpty);
       expect(
