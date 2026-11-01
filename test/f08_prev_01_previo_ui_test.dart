@@ -39,17 +39,22 @@ class _SpyCopies extends RestoreSafetyCopies {
 
   final calls = <String>[];
 
-  @override
-  Future<void> continueWithCurrentData(String id) {
-    calls.add('seguir');
-    return super.continueWithCurrentData(id);
+  /// Acciones que ya terminaron de escribir el registro en disco. [calls] se
+  /// anota al pedirlas, antes de esa escritura con E/S real.
+  final finished = <String>[];
+
+  Future<void> _record(String call, Future<void> Function() action) {
+    calls.add(call);
+    return action().whenComplete(() => finished.add(call));
   }
 
   @override
-  Future<void> confirmRecovery(String id) {
-    calls.add('confirmar');
-    return super.confirmRecovery(id);
-  }
+  Future<void> continueWithCurrentData(String id) =>
+      _record('seguir', () => super.continueWithCurrentData(id));
+
+  @override
+  Future<void> confirmRecovery(String id) =>
+      _record('confirmar', () => super.confirmRecovery(id));
 }
 
 /// Servicio remoto con una sola copia; la restauración queda pendiente hasta
@@ -192,6 +197,29 @@ void main() {
     }
   }
 
+  /// Como [settle], hasta que las acciones [expected] que la interfaz pidió
+  /// al registro hayan terminado de escribirlo en disco (como mucho 100
+  /// vueltas, igual que [settleUntil]). Si no terminan, falla con lo pedido y
+  /// lo terminado en vez de dejar leer el estado anterior.
+  Future<void> settleRegistry(
+    WidgetTester tester,
+    List<String> expected,
+  ) async {
+    final done = equals(expected);
+    for (var i = 0; i < 100 && !done.matches(registry.finished, {}); i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 5)),
+      );
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+    if (!done.matches(registry.finished, {})) {
+      fail(
+        'El registro no terminó $expected en 100 vueltas: pedidas '
+        '${registry.calls}, terminadas ${registry.finished}.',
+      );
+    }
+  }
+
   Future<(_FakeRemote, ValueNotifier<bool>)> pumpScreen(
     WidgetTester tester,
   ) async {
@@ -325,6 +353,7 @@ void main() {
       );
       await tester.tap(inDialog('Seguir con los actuales'));
       await settle(tester);
+      await settleRegistry(tester, ['seguir']);
 
       expect(registry.calls, ['seguir']);
       final kept = (await tester.runAsync(current))!;
@@ -427,6 +456,7 @@ void main() {
 
       await tester.tap(inDialog('Mis datos están bien'));
       await settle(tester);
+      await settleRegistry(tester, ['confirmar']);
       expect(registry.calls, ['confirmar']);
       final confirmed = (await tester.runAsync(current))!;
       expect(confirmed.state, SafetyCopyState.rolledBack);
@@ -476,6 +506,7 @@ void main() {
       await settle(tester);
       await tester.tap(inDialog('Mis datos están bien'));
       await settle(tester);
+      await settleRegistry(tester, ['confirmar']);
       expect(registry.calls, ['confirmar']);
       expect(
         (await tester.runAsync(current))!.state,
