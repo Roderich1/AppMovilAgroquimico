@@ -81,11 +81,16 @@ class _OperationModeScreenState extends ConsumerState<OperationModeScreen> {
         ) ??
         false;
     if (!confirmed || !mounted) return;
+    // La modalidad global vive en el contenedor raíz, no en esta pantalla: se
+    // toma antes de guardar para recargarla aunque el usuario salga mientras
+    // tanto (como en la restauración). Sólo el aviso y el estado de la
+    // pantalla dependen de que siga montada.
+    final modes = ref.read(operationModeProvider.notifier);
     setState(() => _saving = true);
     try {
       await _store.apply(target, confirmed: true);
       // Navegación, atajos y formularios abiertos leen la modalidad nueva.
-      await ref.read(operationModeProvider.notifier).reload();
+      await modes.reload();
       if (!mounted) return;
       showSuccess(
         context,
