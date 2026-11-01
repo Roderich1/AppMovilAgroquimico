@@ -38,6 +38,13 @@ class _InventoryAlertsScreenState extends ConsumerState<InventoryAlertsScreen> {
       .read(repositoryProvider)
       .inventoryAlerts(now: widget.now?.call() ?? DateTime.now());
 
+  /// Abre el producto sin iniciar ninguna operación y, al volver,
+  /// recalcula: el nivel o el plazo pudieron cambiar allí.
+  Future<void> _openProduct(int productId) async {
+    await context.push('/inventario/$productId');
+    if (mounted) _refresh();
+  }
+
   void _refresh() {
     final next = _load();
     setState(() {
@@ -71,7 +78,7 @@ class _InventoryAlertsScreenState extends ConsumerState<InventoryAlertsScreen> {
         if (!snapshot.hasData) {
           return const Center(child: CircularProgressIndicator());
         }
-        return _AlertsBody(alerts: snapshot.data!);
+        return _AlertsBody(alerts: snapshot.data!, onOpenProduct: _openProduct);
       },
     ),
   );
@@ -102,8 +109,9 @@ String _lotTitle(AlertLot lot) =>
     '${lot.lotNumber == null ? 'sin número de lote' : 'lote ${lot.lotNumber}'}';
 
 class _AlertsBody extends StatelessWidget {
-  const _AlertsBody({required this.alerts});
+  const _AlertsBody({required this.alerts, required this.onOpenProduct});
   final InventoryAlerts alerts;
+  final void Function(int productId) onOpenProduct;
 
   @override
   Widget build(BuildContext context) {
@@ -143,7 +151,12 @@ class _AlertsBody extends StatelessWidget {
           help: 'Lotes con producto cuya fecha de vencimiento ya pasó.',
           children: [
             for (final alert in a.expired)
-              _LotTile(alert: alert, shared: a.shared, urgent: true),
+              _LotTile(
+                alert: alert,
+                shared: a.shared,
+                urgent: true,
+                onOpen: onOpenProduct,
+              ),
           ],
         ),
         _Section(
@@ -155,7 +168,7 @@ class _AlertsBody extends StatelessWidget {
               'cambiarlo en el detalle de cada producto.',
           children: [
             for (final alert in a.near)
-              _LotTile(alert: alert, shared: a.shared),
+              _LotTile(alert: alert, shared: a.shared, onOpen: onOpenProduct),
           ],
         ),
         _Section(
@@ -167,7 +180,11 @@ class _AlertsBody extends StatelessWidget {
               : 'Lo que queda es igual o menor al nivel mínimo.',
           children: [
             for (final alert in a.lowStock)
-              _LowStockTile(alert: alert, shared: a.shared),
+              _LowStockTile(
+                alert: alert,
+                shared: a.shared,
+                onOpen: onOpenProduct,
+              ),
           ],
         ),
         _Section(
@@ -175,10 +192,10 @@ class _AlertsBody extends StatelessWidget {
           title: 'Sin fecha de vencimiento registrada',
           help:
               'No se sabe si están vigentes o vencidos. Puede registrar la '
-              'fecha desde el detalle de la compra.',
+              'fecha en Compras, en el detalle de la compra de ese lote.',
           children: [
             for (final alert in a.unknownDate)
-              _LotTile(alert: alert, shared: a.shared),
+              _LotTile(alert: alert, shared: a.shared, onOpen: onOpenProduct),
           ],
         ),
         if (a.productsWithoutLevel.isNotEmpty)
@@ -243,17 +260,19 @@ class _LotTile extends StatelessWidget {
   const _LotTile({
     required this.alert,
     required this.shared,
+    required this.onOpen,
     this.urgent = false,
   });
   final LotExpiryAlert alert;
   final bool shared;
   final bool urgent;
+  final void Function(int productId) onOpen;
 
   @override
   Widget build(BuildContext context) {
     final lot = alert.lot;
     final lead = alert.status == ExpiryStatus.near
-        ? ' · Plazo de aviso: ${_daysText(lot.leadDays)}'
+        ? ' · Aviso: ${leadDaysText(lot.leadDays)}'
               '${lot.leadDaysIsDefault ? ' (valor inicial)' : ''}'
         : '';
     return ListTile(
@@ -270,15 +289,20 @@ class _LotTile extends StatelessWidget {
         '${shared ? ' · ${lot.ownerName}' : ''}$lead',
       ),
       trailing: const Icon(Icons.chevron_right),
-      onTap: () => context.push('/inventario/${lot.productId}'),
+      onTap: () => onOpen(lot.productId),
     );
   }
 }
 
 class _LowStockTile extends StatelessWidget {
-  const _LowStockTile({required this.alert, required this.shared});
+  const _LowStockTile({
+    required this.alert,
+    required this.shared,
+    required this.onOpen,
+  });
   final LowStockAlert alert;
   final bool shared;
+  final void Function(int productId) onOpen;
 
   @override
   Widget build(BuildContext context) {
@@ -297,7 +321,7 @@ class _LowStockTile extends StatelessWidget {
         '${formatQuantity(alert.minStockBase, line.unit)}',
       ),
       trailing: const Icon(Icons.chevron_right),
-      onTap: () => context.push('/inventario/${line.productId}'),
+      onTap: () => onOpen(line.productId),
     );
   }
 }

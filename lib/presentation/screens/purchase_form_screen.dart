@@ -8,6 +8,7 @@ import 'package:image_picker/image_picker.dart';
 import '../../app.dart';
 import '../../domain/models.dart';
 import '../../domain/campaign_calendar.dart';
+import '../../domain/inventory_alerts.dart' show expiryPickerRange;
 import '../../domain/money.dart';
 import '../../domain/operation_mode.dart';
 import '../../domain/person_roles.dart';
@@ -1247,11 +1248,12 @@ class _LotDataSection extends StatelessWidget {
     final current = line.expiryDay == null
         ? null
         : startOfLocalDay(line.expiryDay!);
+    final range = expiryPickerRange(current, now);
     final picked = await showDatePicker(
       context: context,
-      initialDate: current ?? now,
-      firstDate: DateTime(now.year - 10),
-      lastDate: DateTime(now.year + 15),
+      initialDate: range.initial,
+      firstDate: range.first,
+      lastDate: range.last,
       helpText: 'Fecha de vencimiento',
     );
     if (picked == null) return;

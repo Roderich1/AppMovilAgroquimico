@@ -442,11 +442,18 @@ void main() {
         );
       }
       final alerts = await AgroRepository(target).inventoryAlerts(now: today);
+      // El origen tiene un lote próximo (R-1, 10 días con plazo 15) y la
+      // existencia baja del titular (5 L ≤ 6 L): se exige que no estén vacíos.
+      expect(expectedAlerts.near.single.lot.lotNumber, 'R-1');
+      expect(expectedAlerts.lowStock, isNotEmpty);
       expect(
         alerts.near.map((a) => a.lot.lotId),
         expectedAlerts.near.map((a) => a.lot.lotId),
       );
-      expect(alerts.lowStock.length, expectedAlerts.lowStock.length);
+      expect(
+        alerts.lowStock.map((a) => (a.line.personId, a.line.netBase)),
+        expectedAlerts.lowStock.map((a) => (a.line.personId, a.line.netBase)),
+      );
     });
 
     test(
@@ -557,6 +564,15 @@ void main() {
       final f = await _farm();
       await f.buy(f.h.titular, 1000, expiry: '2026-11-01');
       await f.h.apply(f.h.titular, f.h.titularFarm, 1000);
+      // Transferido entero: el lote de origen queda en 0 y avisa sólo el de
+      // destino, con la fecha heredada.
+      await f.buy(f.h.titular, 700, expiry: '2026-11-02', lot: 'T', day: 3);
+      await f.repo.transferProductsFifo(
+        fromPersonId: f.h.titular,
+        toPersonId: f.h.relative,
+        items: [TransferItemDraft(productId: f.h.product, quantityBase: 700)],
+        date: DateTime.utc(2026, 1, 6),
+      );
       final reversed = await f.buy(
         f.h.titular,
         500,
@@ -568,7 +584,9 @@ void main() {
         reason: 'error',
       );
       final a = await f.alerts();
-      expect(a.expired, isEmpty);
+      expect(a.expired.single.lot.ownerName, 'Hermana');
+      expect(a.expired.single.lot.lotNumber, 'T');
+      expect(a.expired.single.lot.remainingBase, 700);
       expect(a.unknownDate, isEmpty);
     });
 
@@ -793,6 +811,22 @@ void main() {
       expect(daysBetween('2028-02-28', '2028-03-01'), 2);
       expect(isCivilDay('2026-02-29'), isFalse);
       expect(isCivilDay('2028-02-29'), isTrue);
+    });
+
+    test('plazo en palabras y rango del selector con fechas antiguas', () {
+      expect(leadDaysText(0), 'el mismo día del vencimiento');
+      expect(leadDaysText(1), '1 día antes');
+      expect(leadDaysText(30), '30 días antes');
+      final now = DateTime(2026, 11, 10);
+      final normal = expiryPickerRange(null, now);
+      expect(normal.initial, DateTime(2026, 11, 10));
+      expect(normal.first, DateTime(2016));
+      // Una fecha guardada fuera del rango habitual sigue siendo la inicial.
+      final old = expiryPickerRange(DateTime(2001, 5, 3), now);
+      expect(old.first, DateTime(2001, 5, 3));
+      expect(old.initial, DateTime(2001, 5, 3));
+      final far = expiryPickerRange(DateTime(2060, 1, 1), now);
+      expect(far.last, DateTime(2060, 1, 1));
     });
   });
 }

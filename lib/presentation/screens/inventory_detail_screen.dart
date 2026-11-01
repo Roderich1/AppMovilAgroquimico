@@ -300,11 +300,9 @@ String lotExpiryText(String? expiryDay) => expiryDay == null
     ? 'sin fecha de vencimiento registrada'
     : 'vence el ${displayDay(expiryDay)}';
 
-String _leadText(int? leadDays) {
-  final days = leadDays ?? AppDatabase.defaultAlertLeadDays;
-  return '${days == 1 ? '1 día' : '$days días'} antes'
-      '${leadDays == null ? ' (valor inicial)' : ''}';
-}
+String _leadText(int? leadDays) =>
+    '${leadDaysText(leadDays ?? AppDatabase.defaultAlertLeadDays)}'
+    '${leadDays == null ? ' (valor inicial)' : ''}';
 
 /// Configuración de avisos del producto (RF-44), visible para el titular.
 class _AlertSettingsCard extends StatelessWidget {
@@ -372,7 +370,7 @@ class _AlertSettingsDialogState extends State<AlertSettingsDialog> {
     super.initState();
     final min = widget.current.minStockBase;
     minimum = TextEditingController(
-      text: min == null ? '' : formatForInput(min / 1000),
+      text: min == null ? '' : formatForInput(min / baseUnitsPerMajor),
     );
     days = TextEditingController(
       text: widget.current.leadDays?.toString() ?? '',
@@ -396,7 +394,7 @@ class _AlertSettingsDialogState extends State<AlertSettingsDialog> {
       if (!parsed.isValid || parsed.value! < 0) {
         minError = parsed.message ?? 'Escriba una cantidad de 0 o más.';
       } else {
-        minBase = (parsed.value! * 1000).round();
+        minBase = (parsed.value! * baseUnitsPerMajor).round();
       }
     }
     if (days.text.trim().isNotEmpty) {

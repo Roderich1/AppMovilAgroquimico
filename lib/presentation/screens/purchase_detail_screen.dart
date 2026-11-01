@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 import '../../app.dart';
 import '../../data/agro_repository.dart' show PurchaseDetailRead;
 import '../../domain/campaign_calendar.dart';
+import '../../domain/inventory_alerts.dart' show expiryPickerRange;
 import '../../domain/labels.dart';
 import '../../domain/models.dart';
 import '../../domain/money.dart';
@@ -70,8 +71,7 @@ class _PurchaseDetailScreenState extends ConsumerState<PurchaseDetailScreen> {
       if (!mounted) return;
       showSuccess(
         context,
-        'Se corrigió el vencimiento y el número de lote. Las cantidades no '
-        'cambiaron.',
+        'Se guardó la corrección. Las cantidades no cambiaron.',
       );
       setState(() {
         data = ref.read(repositoryProvider).purchaseDetail(widget.purchaseId);
@@ -79,6 +79,55 @@ class _PurchaseDetailScreenState extends ConsumerState<PurchaseDetailScreen> {
     } catch (error) {
       if (mounted) showError(context, error);
     }
+  }
+
+  /// Historial de correcciones de una línea: se lee sólo al pedirlo.
+  Future<void> _showCorrections(Map<String, Object?> item) async {
+    final List<Map<String, Object?>> rows;
+    try {
+      rows = await ref
+          .read(repositoryProvider)
+          .lotDataCorrections(item['id']! as int);
+    } catch (error) {
+      if (mounted) showError(context, error);
+      return;
+    }
+    if (!mounted) return;
+    String value(Object? v, String empty) => v == null ? empty : v.toString();
+    String day(Object? v) => v == null ? 'sin fecha' : displayDay(v as String);
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('Correcciones de ${item['product_name']}'),
+        content: SingleChildScrollView(
+          child: Column(
+            key: const Key('lot-data-corrections'),
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              for (final row in rows)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: Text(
+                    '${formatDate(row['recorded_at'])}: vencimiento '
+                    '${day(row['previous_expiry_date'])} → '
+                    '${day(row['new_expiry_date'])}; lote '
+                    '${value(row['previous_lot_number'], 'sin número')} → '
+                    '${value(row['new_lot_number'], 'sin número')}'
+                    '${row['reason'] == null ? '' : '. Motivo: ${row['reason']}'}',
+                  ),
+                ),
+            ],
+          ),
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cerrar'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -110,7 +159,11 @@ class _PurchaseDetailScreenState extends ConsumerState<PurchaseDetailScreen> {
           children: [
             _HeaderCard(detail: detail),
             const SizedBox(height: 12),
-            _ItemsCard(detail: detail, onCorrectLotData: _correctLotData),
+            _ItemsCard(
+              detail: detail,
+              onCorrectLotData: _correctLotData,
+              onShowCorrections: _showCorrections,
+            ),
             const SizedBox(height: 12),
             _PaymentsCard(payments: detail.payments),
           ],
@@ -288,10 +341,15 @@ class _HeaderCard extends StatelessWidget {
 }
 
 class _ItemsCard extends StatelessWidget {
-  const _ItemsCard({required this.detail, required this.onCorrectLotData});
+  const _ItemsCard({
+    required this.detail,
+    required this.onCorrectLotData,
+    required this.onShowCorrections,
+  });
 
   final PurchaseDetailRead detail;
   final void Function(Map<String, Object?> item) onCorrectLotData;
+  final void Function(Map<String, Object?> item) onShowCorrections;
 
   @override
   Widget build(BuildContext context) {
@@ -331,14 +389,23 @@ class _ItemsCard extends StatelessWidget {
               'Correcciones',
               '${item['lot_data_corrections']} (las cantidades no cambiaron)',
             ),
-          Align(
-            alignment: Alignment.centerLeft,
-            child: TextButton.icon(
-              key: Key('purchase-lot-data-correct-${item['id']}'),
-              onPressed: () => onCorrectLotData(item),
-              icon: const Icon(Icons.edit_calendar_outlined),
-              label: const Text('Corregir vencimiento o lote'),
-            ),
+          Wrap(
+            spacing: 8,
+            children: [
+              TextButton.icon(
+                key: Key('purchase-lot-data-correct-${item['id']}'),
+                onPressed: () => onCorrectLotData(item),
+                icon: const Icon(Icons.edit_calendar_outlined),
+                label: const Text('Corregir vencimiento o lote'),
+              ),
+              if (((item['lot_data_corrections'] as int?) ?? 0) > 0)
+                TextButton.icon(
+                  key: Key('purchase-lot-data-history-${item['id']}'),
+                  onPressed: () => onShowCorrections(item),
+                  icon: const Icon(Icons.history),
+                  label: const Text('Ver correcciones'),
+                ),
+            ],
           ),
         ],
       ],
@@ -379,11 +446,15 @@ class _LotDataDialogState extends State<_LotDataDialog> {
 
   Future<void> _pick() async {
     final now = DateTime.now();
+    final range = expiryPickerRange(
+      expiryDay == null ? null : startOfLocalDay(expiryDay!),
+      now,
+    );
     final picked = await showDatePicker(
       context: context,
-      initialDate: expiryDay == null ? now : startOfLocalDay(expiryDay!),
-      firstDate: DateTime(now.year - 10),
-      lastDate: DateTime(now.year + 15),
+      initialDate: range.initial,
+      firstDate: range.first,
+      lastDate: range.last,
       helpText: 'Fecha de vencimiento',
     );
     if (picked != null && mounted) {

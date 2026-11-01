@@ -190,6 +190,21 @@ void main() {
       findsOneWidget,
     );
 
+    // El historial muestra el valor anterior, el nuevo y el motivo.
+    await tapKey(tester, 'purchase-lot-data-history-$itemId');
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('lot-data-corrections')),
+        matching: find.textContaining(
+          'vencimiento sin fecha → sin fecha; lote sin número → L-9. '
+          'Motivo: Leído en el envase',
+        ),
+      ),
+      findsOneWidget,
+    );
+    await tester.tap(find.text('Cerrar'));
+    await settle(tester);
+
     expect(
       (await rows(tester, s.database, 'inventory_lots')).single['lot_number'],
       'L-9',
@@ -326,7 +341,7 @@ void main() {
     expect(
       find.text(
         'Vence el ${displayDay(in10)}, en 10 días · Quedan 2 L · Titular · '
-        'Plazo de aviso: 30 días (valor inicial)',
+        'Aviso: 30 días antes (valor inicial)',
       ),
       findsOneWidget,
     );

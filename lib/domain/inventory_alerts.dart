@@ -203,9 +203,29 @@ final class InventoryAlerts {
   /// de él.
   bool get clockLooksBehind =>
       lastMovementDay != null && daysBetween(today, lastMovementDay!) > 0;
-
-  int get count => expired.length + near.length + lowStock.length;
 }
+
+/// Rango del selector de fecha de vencimiento: diez años atrás y quince
+/// adelante, ampliado para que una fecha ya guardada fuera de ese rango
+/// siga siendo válida como fecha inicial.
+({DateTime first, DateTime initial, DateTime last}) expiryPickerRange(
+  DateTime? current,
+  DateTime now,
+) {
+  var first = DateTime(now.year - 10);
+  var last = DateTime(now.year + 15, 12, 31);
+  final initial = current ?? DateTime(now.year, now.month, now.day);
+  if (initial.isBefore(first)) first = initial;
+  if (initial.isAfter(last)) last = initial;
+  return (first: first, initial: initial, last: last);
+}
+
+/// Plazo de aviso en palabras: «el mismo día», «1 día», «N días».
+String leadDaysText(int days) => switch (days) {
+  0 => 'el mismo día del vencimiento',
+  1 => '1 día antes',
+  _ => '$days días antes',
+};
 
 /// Calcula los avisos a partir de las filas leídas. [today] es el día local
 /// del teléfono (inyectable para las pruebas).
