@@ -4,7 +4,7 @@
 |---|---|
 | Issue | Mobile #172 (F08-PREV-01). Trazabilidad del issue: RU-11, CU-15, RF-27, RNF-10, DAT-14; diseño 3.12.4.6, diferencia registrada en 3.14.5 |
 | Rama | `fix/f08-prev-01-verificar-rollback` desde Mobile `main` `6aaeeea` (merge de #163) |
-| HEAD de código probado | **`08138d5a5077e47f29752579821f3fe43f931871`** |
+| HEAD de código probado | **`e82cbde21cb0a9d3dccb507ad36d95a3646ef653`** |
 | HEAD final | El commit documental que añade esta versión del archivo y de F08-ADR-003. Sólo cambia `docs/` (§7) |
 | Fecha real | 2026-10-31 |
 | Dónde se observó | **HOST**: Windows 11, Flutter 3.47.2 / Dart 3.13.2, `sqflite_common_ffi`. **CI**: la del PR, con sus resultados registrados allí (§5). **EMULADOR** y **DEVICE**: no ejecutados (§6) |
@@ -44,8 +44,9 @@ Nada se borra para pasar la comprobación. Las huellas SHA-256 de las fotografí
   - `recomputeAfterReplacement` captura sus propios errores (deja el acceso en null), así que no sustituye este error por otro.
 - **Restauración remota fallida:** si la pantalla sigue abierta, la sección «Copias previas a restauraciones» se recarga para poder decidir.
 - **Log local:** anota sólo el motivo y el tipo de la causa, nunca su texto, que puede llevar rutas de fotografías.
-- **Bloqueo posterior** (`RestoreBlockedException.unresolved`): «Una restauración anterior no terminó o no pudimos confirmar que sus datos anteriores se recuperaron correctamente. Lo que se guardó entonces sigue protegido. Antes de restaurar otro respaldo, elija qué hacer en «Copias previas a restauraciones». No se modificó nada.»
+- **Bloqueo posterior** (`RestoreBlockedException.unresolved`): «Una restauración anterior no terminó o no pudimos confirmar que sus datos anteriores se recuperaron correctamente. Si se guardó una copia de sus datos de entonces, sigue protegida. Antes de restaurar otro respaldo, elija qué hacer en «Copias previas a restauraciones». No se cambiaron sus datos.»
   - No dice que los datos estén bien ni afirma que haya copia: una entrada puede no tenerla.
+  - Dice «No se cambiaron sus datos», no «No se modificó nada»: antes de bloquear se aplica el mantenimiento, que puede retirar copias vencidas.
 
 ### 2.3 Dos decisiones separadas (antes, «Mantener los actuales»)
 
@@ -59,8 +60,8 @@ En «Copias previas a restauraciones»:
 | Acción | Desde | Resultado |
 |---|---|---|
 | «Seguir con los actuales» (`continueWithCurrentData`) | `interrupted` | `retained`: deja de bloquear, sigue **protegida** y sin `resolvedAt`; ni el plazo ni la cota la retiran |
-| «Mis datos están bien» (`confirmRecovery`) | `interrupted` o `retained` | Siempre tras un segundo diálogo, «¿Sus datos actuales están bien?», que explica que la copia (o la entrada, si no hay copia) dejará de estar protegida y puede retirarse en la próxima limpieza. Confirmado: `rolledBack` con fecha y reglas normales |
-| «Cancelar» o tocar fuera de cualquiera de los dos diálogos | — | Nada cambia |
+| «Mis datos están bien» (`confirmRecovery`) | `interrupted` o `retained` | Siempre tras el diálogo de confirmación «¿Sus datos actuales están bien?» (desde «Decidir» es un segundo diálogo; desde el botón de una `retained`, el único), que explica que la copia (o la entrada, si no hay copia) dejará de estar protegida y puede retirarse en la próxima limpieza. Confirmado: `rolledBack` con fecha y reglas normales |
+| «Cancelar», tocar fuera o el botón atrás en cualquiera de los dos diálogos | — | Nada cambia. Probados «Cancelar» y tocar fuera; el botón atrás de Android no tiene prueba |
 
 - El texto de ayuda de la sección dice ahora: «La de una restauración sin resolver, o cuya recuperación no se confirmó, no se borra.»
 - No se añade ninguna forma de borrar una copia protegida ni una purga de `retained`.
@@ -120,7 +121,7 @@ Lo prueba «lecturas y escrituras de fuera durante la comprobación». Desde fue
 
 `test/f08_prev_01_reproduccion_test.dart` usa sólo la API que existía en `6aaeeea`. Simula que la copia previa cambia por otra base válida después de asegurarla y que la restauración falla tras sustituir.
 
-**Sobre `6aaeeea`**, en un worktree desacoplado con el archivo tal como está desde `a3ce67e` (sin cambios hasta `08138d5`):
+**Sobre `6aaeeea`**, en un worktree desacoplado con el archivo tal como está desde `a3ce67e` (sin cambios hasta `e82cbde`):
 ```
 flutter test test/f08_prev_01_reproduccion_test.dart
 Expected: throws <Instance of 'BackupException'> with `message`: contains 'No pudimos confirmar'
@@ -162,30 +163,31 @@ La corrección no repara una copia previa alterada. Lo que hace es impedir que s
 
 | Caso | Comprueba |
 |---|---|
-| El mensaje del bloqueo | No dice que los datos estén bien, ni «Conservamos la copia», ni «Lo más probable» |
-| El aviso con la pantalla desmontada | Restauración remota que falla con «no pudimos confirmar» después de que la pantalla se desmonta, como al recalcular el acceso: el aviso se presenta. Con el comportamiento anterior (mostrarlo sólo si la pantalla sigue montada) esta prueba falla; comprobado en un worktree temporal, sin commitear |
+| El mensaje del bloqueo | No dice que los datos estén bien, ni «Conservamos la copia», ni «Lo más probable», ni «No se modificó nada» |
+| El aviso con la pantalla desmontada | Restauración remota que falla con «No pudimos confirmar…» después de que la pantalla se desmonta (simulado con un `ValueNotifier`, como al recalcular el acceso; no intervienen el router ni `GuardedRestore`): el aviso se presenta. Con el comportamiento anterior (mostrarlo sólo si la pantalla sigue montada) esta prueba falla; comprobado en un worktree temporal, sin commitear |
 | El aviso con la pantalla abierta | Aviso, y la sección recargada con la etiqueta de sin resolver y «Decidir» |
 | «Seguir con los actuales» | Acción `continueWithCurrentData` y sólo ésa; la copia queda `retained`, protegida, sin `resolvedAt` y en disco; la etiqueta cambia; ya no bloquea |
-| Cancelar o cerrar | «Cancelar» y tocar fuera, en «Decidir» y en la confirmación: ninguna acción y sigue `interrupted` |
+| Cancelar o cerrar | «Cancelar» y tocar fuera, en «Decidir» y en la confirmación: cada diálogo se cierra, no hay ninguna acción y sigue `interrupted` |
 | «Mis datos están bien» | Sin acción hasta el segundo diálogo, que dice «dejará de estar protegida», «puede retirarse en la próxima limpieza» y «como máximo dos, durante siete días»; al confirmar, `confirmRecovery` y `rolledBack` con fecha |
 | Sin copia en disco | No dice «Conservamos la copia»; dice que no quedó ninguna, y la confirmación habla de la entrada «sin copia en este teléfono» |
 | Desde `retained` | Misma confirmación; cancelar no cambia nada; confirmar la pasa a `rolledBack` |
 
 ### 5.3 Ejecuciones
 
-**HOST, suite completa** (`flutter test --reporter json`; registros locales en `_evidencias_locales/F08_PREV_01_host_full*.jsonl`, fuera del repositorio):
+**HOST, suite completa** (`flutter test --reporter json`; registros locales en `_evidencias_locales/F08_PREV_01_host_full*.jsonl`, fuera del repositorio). «Correctas» son las ejecutadas que pasaron; las 3 omitidas por la propia suite no cuentan como correctas. *Corrección del 2026-10-31:* versiones anteriores de esta tabla sumaban las omitidas a las correctas (2112, 2117, 2118, 2132, 2135, 2135 y 2143).
 
-| HEAD | Correctas | Omitidas por la propia suite | Fallos |
+| HEAD | Correctas | Omitidas | Fallos |
 |---|---|---|---|
-| `da1d0f5` | 2112 | 3 | 0 |
-| `b70404e` | 2117 | 3 | 0 |
-| `e43d769` | 2118 | 3 | 0 |
-| `a3ce67e` | 2132 | 3 | 0 |
-| `ea02a93` | 2135 | 3 | 0 |
-| `32a1897` | 2135 | 3 | 0 |
-| **`08138d5`** | **2143** (185 archivos, 127 s; 39 de F08-PREV-01) | 3 | **0** |
+| `da1d0f5` | 2109 | 3 | 0 |
+| `b70404e` | 2114 | 3 | 0 |
+| `e43d769` | 2115 | 3 | 0 |
+| `a3ce67e` | 2129 | 3 | 0 |
+| `ea02a93` | 2132 | 3 | 0 |
+| `32a1897` | 2132 | 3 | 0 |
+| `08138d5` | 2140 | 3 | 0 |
+| **`e82cbde`** | **2140** (185 archivos, 121 s; 39 de F08-PREV-01) | 3 | **0** |
 
-- La ejecución de `08138d5` se hizo en un worktree desacoplado con ese commit (`_wt/F08-PREV-01-UI`), con `--timeout 120s`.
+- Las ejecuciones de `08138d5` y `e82cbde` se hicieron en un worktree desacoplado con ese commit (`_wt/F08-PREV-01-UI`), con `--timeout 120s`.
 - Allí mismo: `dart format --output=none --set-exit-if-changed lib test` sin cambios y `flutter analyze` con `No issues found!`.
 
 **CI:** el workflow `Flutter CI` del repositorio ejecuta, sobre el HEAD final del PR, formato, análisis, la suite completa (en Ubuntu), las pruebas de fechas en `America/La_Paz` y el build de release. Su resultado se registra literalmente en el PR, porque es posterior a este commit.
@@ -214,11 +216,12 @@ Cada pasada la hizo otro agente de la misma sesión, sólo con lectura y sin eje
 | 4 | B | `a3ce67e..ea02a93` | 3 menores | `32a1897` |
 | 5 | B | `ea02a93..32a1897` | Sin hallazgos | — |
 | 6 | C (nuevo) | **ADR y evidencia en `a078679`**, contrastados con el código | 2 errores, 4 imprecisiones y 7 menores | Corregidos en el ADR y en esta versión de la evidencia. El mensaje del bloqueo, que afirmaba una copia que podía no existir, se corrigió en `f6e6a9d`. El aviso de la evidencia de que el recálculo del acceso podría sustituir el error se descartó: lo captura |
-| 7 | D (nuevo) | `32a1897..08138d5` y el commit documental final | Se registra en el PR | — |
+| 7 | D (nuevo) | `32a1897..987bb5a` (texto del bloqueo, pruebas de widget y documentos) | Sin bloqueantes; 3 a corregir y 5 menores | `e82cbde` y el commit de esta versión: recuentos sin omitidas, confirmación desde `retained`, cierre de diálogos comprobado, llamadas no previstas del simulado, texto del bloqueo y límites del arnés |
+| 8 | D | `987bb5a..` HEAD final | Se registra en el PR | — |
 
-- Todo el código hasta `32a1897` está revisado.
-- `f6e6a9d` (texto del bloqueo) y `08138d5` (pruebas de widget), y la versión final del ADR y de esta evidencia, corresponden a la pasada 7, cuyo resultado se registra en el PR porque es posterior a este commit.
-- **HEAD de código y HEAD final.** El final sólo añade `docs/`. `git diff 08138d5 <HEAD final> -- lib test` está vacío, así que la CI del PR, que corre sobre el HEAD final, prueba el mismo código.
+- Todo el código hasta `08138d5` está revisado (pasadas 1 a 7).
+- `e82cbde` y esta versión del ADR y de la evidencia corresponden a la pasada 8, cuyo resultado se registra en el PR porque es posterior a este commit.
+- **HEAD de código y HEAD final.** El final sólo añade `docs/`. `git diff e82cbde <HEAD final> -- lib test` está vacío, así que la CI del PR, que corre sobre el HEAD final, prueba el mismo código.
 
 ## 8. Límites declarados
 
@@ -231,5 +234,7 @@ Cada pasada la hizo otro agente de la misma sesión, sólo con lectura y sin eje
 - **`-journal`.** No se evalúan el bloqueo ni el diario maestro: se toma como aplicable todo diario que empieza por la cabecera.
 - **Subcarpetas de la carpeta de fotografías.** No se copian ni se comprueban, igual que antes.
 - **Pruebas de widget.** Cubren «Respaldo en la nube». El aviso de la restauración local (`settlements_screen.dart`, mismo `showErrorOn`) no tiene prueba de widget propia.
+  - No pasan por `BackupService.restore` ni por `markInterrupted`: el error remoto se inyecta con un servicio simulado, y la entrada `interrupted` la crea la propia prueba con `begin` y un «proceso nuevo».
+  - Para no bloquear `runAsync`, la prueba prepara y lee el registro con instancias propias. El registro de la pantalla y el de la prueba no comparten cola, así que la serialización entre la interfaz y una restauración en curso no queda probada aquí. La cubren las pruebas de la capa de datos, con un solo estado por proceso.
 - **Manual de usuario (Backend `docs/manuals/F11_MANUAL_USUARIO.md`).** Sigue citando «Mantener los actuales». Queda pendiente de actualizar después de integrar este PR: es otro repositorio.
 - **Lo que no cambia en este bloque:** la diferencia de 3.14.5 sigue en el documento entregado, que no se modificó; tampoco GATE-F08 (#41) ni la política de retención de `.previo` (Backend #151, punto 10). Recuperar el contenido de una copia `interrupted` o `retained` desde la interfaz sigue fuera de alcance (F08-ADR-003 §7.2).

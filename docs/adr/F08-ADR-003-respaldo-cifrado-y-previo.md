@@ -378,20 +378,21 @@ En cada oportunidad de mantenimiento (al abrir la sección de respaldos, antes d
 - No se promete la limpieza exacta al séptimo día con la app apagada: se hace en la siguiente oportunidad.
 
 **Bloqueo:**
-- Si existe una `interrupted`, **se bloquea otra restauración antes de tocar nada**.
-  - *Mensaje (redacción del 2026-10-31):* «Una restauración anterior no terminó o no pudimos confirmar que sus datos anteriores se recuperaron correctamente. Lo que se guardó entonces sigue protegido. Antes de restaurar otro respaldo, elija qué hacer en «Copias previas a restauraciones». No se modificó nada.»
+- Si existe una `interrupted`, o una `preparing` que no es de una restauración en curso en este proceso, **se bloquea otra restauración antes de tocar nada**.
+  - *Mensaje (redacción del 2026-10-31):* «Una restauración anterior no terminó o no pudimos confirmar que sus datos anteriores se recuperaron correctamente. Si se guardó una copia de sus datos de entonces, sigue protegida. Antes de restaurar otro respaldo, elija qué hacer en «Copias previas a restauraciones». No se cambiaron sus datos.»
   - No dice que los datos estén bien. Si no se pudo guardar el estado de un rollback sin comprobar, el mantenimiento lo deja igual que una restauración cortada, así que el mensaje vale para los dos casos.
   - Tampoco afirma que haya copia: una entrada puede no tenerla, porque el proceso murió antes de escribirla o no había nada que copiar.
+  - Dice «No se cambiaron sus datos», no «No se modificó nada»: antes de bloquear se aplica el mantenimiento, que puede retirar copias vencidas.
 - *Desde el 2026-10-31, dos acciones explícitas y separadas* (antes había una sola, «Mantener los datos actuales», que la marcaba `rolledBack` y la pasaba a las reglas normales):
   - En «Copias previas a restauraciones», una `interrupted` aparece como «RESTAURACIÓN SIN RESOLVER: copia protegida; bloquea otra restauración», con el botón «Decidir».
     - El botón abre «Restauración sin resolver», con «Cancelar», «Seguir con los actuales» y «Mis datos están bien».
     - El diálogo sólo dice «Conservamos la copia de seguridad…» si la copia sigue en disco; si no, dice que no quedó ninguna.
   - **«Seguir con los actuales»** la marca `retained`: deja de bloquear, pero sigue protegida y no entra en el plazo ni en la cota.
     - Aparece como «Recuperación sin confirmar: copia protegida», con un botón «Mis datos están bien».
-  - **«Mis datos están bien»** confirma la recuperación, desde `interrupted` o desde `retained`, siempre tras un segundo diálogo.
+  - **«Mis datos están bien»** confirma la recuperación, desde `interrupted` o desde `retained`, siempre tras el diálogo de confirmación. Desde «Decidir» es un segundo diálogo; desde el botón de una `retained`, el único.
     - El diálogo se titula «¿Sus datos actuales están bien?» y explica que la copia (o la entrada, si no hay copia) dejará de estar protegida y puede retirarse en la próxima limpieza.
     - Después la marca `rolledBack` (con fecha) y entra en las reglas normales.
-  - Cancelar o cerrar cualquiera de los diálogos no cambia nada.
+  - Cancelar o cerrar cualquiera de los diálogos (tocando fuera o con el botón atrás) no cambia nada.
   - No se añade ninguna forma de borrar una copia protegida.
   - Valen para toda `interrupted`, también la de un proceso muerto, porque no se pueden distinguir con seguridad.
 - Recuperar el contenido de una copia `interrupted` o `retained` desde la interfaz **queda fuera de este bloque**: es un procedimiento técnico, declarado como limitación.
