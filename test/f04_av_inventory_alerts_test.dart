@@ -441,6 +441,8 @@ void main() {
           ),
           throwsA(isA<BusinessRuleException>()),
         );
+        // Los rechazos no escribieron nada.
+        expect(await dumpTables(db), before);
         // Una autorización sólo vale una vez.
         final once = await f.authorize(item);
         await f.repo.correctLotData(
@@ -461,7 +463,6 @@ void main() {
           throwsA(isA<OwnerAuthorizationRejected>()),
         );
         expect(await f.repo.lotDataCorrections(item), hasLength(1));
-        expect(before['lot_data_corrections'], isEmpty);
         // PIN equivocado: no se emite autorización.
         await expectLater(
           f.pin!.credential.verify(
@@ -470,10 +471,94 @@ void main() {
             subjectRef: AgroRepository.lotDataSubjectRef(item),
             binding: f.pin!.binding,
           ),
-          throwsA(anything),
+          throwsA(
+            isA<CredentialException>().having(
+              (e) => e.message,
+              'mensaje',
+              'PIN incorrecto.',
+            ),
+          ),
         );
       },
     );
+
+    test('un rechazo previo (sin cambios, sin procedencia, revertida) no gasta '
+        'la autorización', () async {
+      final f = await _farm(withPin: true);
+      await f.buy(f.h.titular, 5000, lot: 'A');
+      final item = _purchaseItemOf(await f.lots(), 0);
+      final auth = await f.authorize(item);
+      await expectLater(
+        f.repo.correctLotData(
+          item,
+          expiryDay: null,
+          lotNumber: 'A',
+          reason: 'x',
+          authorization: auth,
+        ),
+        throwsA(isA<BusinessRuleException>()),
+      );
+      // La misma autorización sigue sirviendo para un cambio real.
+      final done = await f.repo.correctLotData(
+        item,
+        expiryDay: null,
+        lotNumber: 'B',
+        reason: 'x',
+        authorization: auth,
+      );
+      expect(done.correctedLots, 1);
+    });
+
+    test('un lote de compra sin su entrada de compra no tiene procedencia: '
+        'no se corrige nada y el PIN no se gasta', () async {
+      final f = await _farm(withPin: true);
+      await f.buy(f.h.titular, 5000, lot: 'A');
+      final db = await f.database.database;
+      final lot = (await f.lots()).single;
+      final item = lot['purchase_item_id']! as int;
+      // Dato antiguo o incompleto: la entrada de compra apunta a otra
+      // referencia, así que el lote no prueba venir de esta línea.
+      await db.update(
+        'inventory_movements',
+        {'reference_type': 'OTRA'},
+        where: 'lot_id=?',
+        whereArgs: [lot['id']],
+      );
+      final before = await dumpTables(db);
+      final auth = await f.authorize(item);
+      await expectLater(
+        f.repo.correctLotData(
+          item,
+          expiryDay: '2027-05-05',
+          lotNumber: 'A',
+          reason: 'x',
+          authorization: auth,
+        ),
+        throwsA(
+          isA<BusinessRuleException>().having(
+            (e) => e.toString(),
+            'mensaje',
+            contains('No se pudo demostrar la procedencia'),
+          ),
+        ),
+      );
+      expect(await dumpTables(db), before);
+      // Restablecida la entrada, la misma autorización vale.
+      await db.update(
+        'inventory_movements',
+        {'reference_type': 'PURCHASE_ALLOCATION'},
+        where: 'lot_id=?',
+        whereArgs: [lot['id']],
+      );
+      final done = await f.repo.correctLotData(
+        item,
+        expiryDay: '2027-05-05',
+        lotNumber: 'A',
+        reason: 'x',
+        authorization: auth,
+      );
+      expect(done.correctedLots, 1);
+    });
 
     test(
       'un lote de la línea sin procedencia demostrada no se cambia y se cuenta',

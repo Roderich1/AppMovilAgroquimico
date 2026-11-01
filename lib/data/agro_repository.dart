@@ -3314,15 +3314,21 @@ class AgroRepository {
     if (header.isEmpty) return null;
     return (
       purchase: header.single,
-      // Vencimiento y número de lote de la línea: los de su lote de compra
-      // (todos los lotes de la línea los comparten) y cuántas veces se
-      // corrigieron (F04-AV).
+      // Vencimiento y número de lote de la línea: los de su primer lote de
+      // compra con procedencia demostrada, como en `correctLotData`, y
+      // cuántas veces se corrigieron (F04-AV).
       items: await db.rawQuery(
         '''SELECT i.*, pr.name product_name, pr.unit,
         (SELECT l.expiry_date FROM inventory_lots l WHERE l.purchase_item_id=i.id
-          AND l.parent_lot_id IS NULL ORDER BY l.id LIMIT 1) expiry_date,
+          AND l.parent_lot_id IS NULL AND EXISTS (SELECT 1 FROM inventory_movements m
+          JOIN purchase_allocations a ON a.id=m.reference_id WHERE m.lot_id=l.id
+          AND m.type='PURCHASE_IN' AND m.reference_type='PURCHASE_ALLOCATION'
+          AND a.purchase_item_id=i.id) ORDER BY l.id LIMIT 1) expiry_date,
         (SELECT l.lot_number FROM inventory_lots l WHERE l.purchase_item_id=i.id
-          AND l.parent_lot_id IS NULL ORDER BY l.id LIMIT 1) lot_number,
+          AND l.parent_lot_id IS NULL AND EXISTS (SELECT 1 FROM inventory_movements m
+          JOIN purchase_allocations a ON a.id=m.reference_id WHERE m.lot_id=l.id
+          AND m.type='PURCHASE_IN' AND m.reference_type='PURCHASE_ALLOCATION'
+          AND a.purchase_item_id=i.id) ORDER BY l.id LIMIT 1) lot_number,
         (SELECT COUNT(*) FROM lot_data_corrections c
           WHERE c.purchase_item_id=i.id) lot_data_corrections
         FROM purchase_items i JOIN products pr ON pr.id=i.product_id
@@ -3606,19 +3612,28 @@ class AgroRepository {
           'La compra está revertida: se puede consultar, pero no corregir.',
         );
       }
-      final lots = await txn.query(
+      // Todo lo que puede rechazar la corrección se comprueba antes de gastar
+      // la autorización: un rechazo deja el PIN sin usar.
+      final proven = [
+        for (final row in await txn.rawQuery(_provenLotsSql, [purchaseItemId]))
+          row['id']! as int,
+      ];
+      if (proven.isEmpty) {
+        throw BusinessRuleException(
+          'No se pudo demostrar la procedencia de ningún lote de esta línea: '
+          'no se corrige nada.',
+        );
+      }
+      // Los valores anteriores son los del primer lote de procedencia
+      // demostrada (un lote de compra de la línea).
+      final first = (await txn.query(
         'inventory_lots',
         columns: ['expiry_date', 'lot_number'],
-        where: 'purchase_item_id=? AND parent_lot_id IS NULL',
-        whereArgs: [purchaseItemId],
-        orderBy: 'id',
-        limit: 1,
-      );
-      if (lots.isEmpty) {
-        throw BusinessRuleException('La línea de compra no tiene lotes.');
-      }
-      final previousExpiry = lots.single['expiry_date'] as String?;
-      final previousNumber = lots.single['lot_number'] as String?;
+        where: 'id=?',
+        whereArgs: [proven.first],
+      )).single;
+      final previousExpiry = first['expiry_date'] as String?;
+      final previousNumber = first['lot_number'] as String?;
       if (previousExpiry == expiryDay && previousNumber == number) {
         throw BusinessRuleException('No hay cambios que guardar.');
       }
@@ -3631,10 +3646,6 @@ class AgroRepository {
         current: await _currentOwnerBinding(txn),
         now: DateTime.now(),
       );
-      final proven = [
-        for (final row in await txn.rawQuery(_provenLotsSql, [purchaseItemId]))
-          row['id']! as int,
-      ];
       final allLots =
           Sqflite.firstIntValue(
             await txn.rawQuery(

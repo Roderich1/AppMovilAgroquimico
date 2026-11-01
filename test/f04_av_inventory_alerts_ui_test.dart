@@ -206,7 +206,15 @@ void main() {
       'purchase_items',
     )).single['id'];
     await tapKey(tester, 'purchase-lot-data-correct-$itemId');
+    // Sin cambios no se puede seguir: no se pide motivo ni PIN para nada.
+    expect(
+      tester
+          .widget<FilledButton>(find.byKey(const Key('lot-data-save')))
+          .onPressed,
+      isNull,
+    );
     await tester.enterText(find.byKey(const Key('lot-data-number')), 'L-9');
+    await tester.pump();
     await tapKey(tester, 'lot-data-save');
     // Aprobación del titular: el cambio, el motivo y el PIN.
     expect(
@@ -344,6 +352,94 @@ void main() {
     expect(product['alert_lead_days'], isNull);
   });
 
+  testWidgets('existencia baja: el total en su sección y el cero de un '
+      'responsable con el total de la instalación al lado', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 3000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final s = await activatedHousehold(tester, 'av-bajo');
+    final h = s.household;
+    await tester.runAsync(() async {
+      final repo = AgroRepository(s.database);
+      final mancozeb = await repo.addProduct(name: 'Mancozeb', unit: 'KG');
+      final atrazina = await repo.addProduct(name: 'Atrazina');
+      Future<void> buyOf(int product, int person, int base) =>
+          repo.confirmPurchase(
+            PurchaseDraft(
+              supplierId: h.supplier,
+              campaignId: h.campaign,
+              purchaseDate: DateTime.utc(2026, 1, 2, 12),
+              items: [
+                PurchaseItemDraft(
+                  productId: product,
+                  quantityBase: base,
+                  currency: CurrencyCode.bob,
+                  originalUnitPriceMinor: 10000,
+                  allocations: [
+                    AllocationDraft(personId: person, quantityBase: base),
+                  ],
+                ),
+              ],
+            ),
+          );
+      await buyOf(mancozeb, h.titular, 3000);
+      await buyOf(mancozeb, h.relative, 1000);
+      await repo.confirmApplication(
+        ApplicationDraft(
+          personId: h.relative,
+          farmId: h.relativeFarm,
+          campaignId: h.campaign,
+          appliedAt: DateTime.utc(2026, 1, 5, 12),
+          lines: [
+            ApplicationLineDraft(productId: mancozeb, quantityBase: 1000),
+          ],
+        ),
+      );
+      await buyOf(atrazina, h.titular, 1000);
+      await repo.setProductAlertSettings(
+        mancozeb,
+        minStockBase: 2000,
+        leadDays: null,
+      );
+      await repo.setProductAlertSettings(
+        atrazina,
+        minStockBase: 2000,
+        leadDays: null,
+      );
+    });
+    final c = await pumpModeApp(tester, s.database);
+    c.read(routerProvider).go('/inventario');
+    await waitFor(tester, find.textContaining('bajo en el total'));
+    expect(
+      find.text(
+        '1 bajo en el total · 2 bajos por responsable · '
+        '2 sin fecha registrada',
+      ),
+      findsOneWidget,
+    );
+    await tapKey(tester, 'inventory-alerts-entry');
+    await waitFor(tester, find.byKey(const Key('alerts-low')));
+    expect(
+      find.text('Existencia baja en toda la instalación (1)'),
+      findsOneWidget,
+    );
+    expect(find.text('Atrazina · Total de la instalación'), findsOneWidget);
+    expect(
+      find.text('Quedan 1 L en toda la instalación; nivel mínimo 2 L'),
+      findsOneWidget,
+    );
+    expect(find.text('Existencia baja por responsable (2)'), findsOneWidget);
+    // Cero de Hermana: no es falta de producto en la instalación.
+    expect(find.text('Mancozeb · Hermana (responsable)'), findsOneWidget);
+    expect(
+      find.text(
+        'Hermana no tiene existencias propias; nivel mínimo 2 KG. En toda '
+        'la instalación: 3 KG',
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('Atrazina · Titular (responsable)'), findsOneWidget);
+  });
+
   testWidgets('inventario → avisos: vencido, próximo, existencia baja por '
       'responsable y total, sin fecha; tocar abre el producto sin operar', (
     tester,
@@ -378,7 +474,7 @@ void main() {
     await waitFor(tester, find.textContaining('1 vencido'));
     expect(
       find.text(
-        '1 vencido · 1 por vencer · 1 con existencia baja · '
+        '1 vencido · 1 por vencer · 1 bajo por responsable · '
         '1 sin fecha registrada',
       ),
       findsOneWidget,

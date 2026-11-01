@@ -73,7 +73,7 @@ class AppDatabase {
   /// lote cambiado. Sólo cambian los lotes de procedencia demostrada.
   /// Corregir no toca cantidades ni movimientos.
   static const List<String> inventoryAlertsSchema = <String>[
-    '''CREATE TABLE lot_data_corrections (
+    '''CREATE TABLE IF NOT EXISTS lot_data_corrections (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         purchase_item_id INTEGER NOT NULL REFERENCES purchase_items(id),
         previous_expiry_date TEXT, previous_lot_number TEXT,
@@ -88,20 +88,20 @@ class AppDatabase {
         unproven_lot_count INTEGER NOT NULL DEFAULT 0 CHECK(unproven_lot_count >= 0),
         recorded_at TEXT NOT NULL,
         CHECK(previous_expiry_date IS NOT new_expiry_date OR previous_lot_number IS NOT new_lot_number))''',
-    'CREATE INDEX idx_lot_data_corrections_item ON lot_data_corrections(purchase_item_id, id)',
+    'CREATE INDEX IF NOT EXISTS idx_lot_data_corrections_item ON lot_data_corrections(purchase_item_id, id)',
     // Los lotes que cambió cada corrección.
-    '''CREATE TABLE lot_data_correction_lots (
+    '''CREATE TABLE IF NOT EXISTS lot_data_correction_lots (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         correction_id INTEGER NOT NULL REFERENCES lot_data_corrections(id),
         lot_id INTEGER NOT NULL REFERENCES inventory_lots(id),
         UNIQUE(correction_id, lot_id))''',
-    '''CREATE TRIGGER trg_lot_data_corrections_no_update BEFORE UPDATE ON lot_data_corrections
+    '''CREATE TRIGGER IF NOT EXISTS trg_lot_data_corrections_no_update BEFORE UPDATE ON lot_data_corrections
       BEGIN SELECT RAISE(ABORT, 'lot_data_corrections es un registro inmutable'); END''',
-    '''CREATE TRIGGER trg_lot_data_corrections_no_delete BEFORE DELETE ON lot_data_corrections
+    '''CREATE TRIGGER IF NOT EXISTS trg_lot_data_corrections_no_delete BEFORE DELETE ON lot_data_corrections
       BEGIN SELECT RAISE(ABORT, 'lot_data_corrections no admite borrado'); END''',
-    '''CREATE TRIGGER trg_lot_data_correction_lots_no_update BEFORE UPDATE ON lot_data_correction_lots
+    '''CREATE TRIGGER IF NOT EXISTS trg_lot_data_correction_lots_no_update BEFORE UPDATE ON lot_data_correction_lots
       BEGIN SELECT RAISE(ABORT, 'lot_data_correction_lots es un registro inmutable'); END''',
-    '''CREATE TRIGGER trg_lot_data_correction_lots_no_delete BEFORE DELETE ON lot_data_correction_lots
+    '''CREATE TRIGGER IF NOT EXISTS trg_lot_data_correction_lots_no_delete BEFORE DELETE ON lot_data_correction_lots
       BEGIN SELECT RAISE(ABORT, 'lot_data_correction_lots no admite borrado'); END''',
   ];
 
@@ -784,7 +784,8 @@ class AppDatabase {
         );
       }
     }
-    if (tables.contains('lot_data_corrections')) return;
+    // Cada tabla, índice y disparador lleva IF NOT EXISTS: se completa lo
+    // que falte sin repetir lo que ya está.
     for (final statement in inventoryAlertsSchema) {
       await db.execute(statement);
     }

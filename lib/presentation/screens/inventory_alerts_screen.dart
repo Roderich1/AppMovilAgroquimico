@@ -364,13 +364,18 @@ class _LowStockTile extends StatelessWidget {
 
 /// Resumen corto para la entrada del inventario.
 String inventoryAlertsSummary(InventoryAlerts alerts) {
+  final lowTotal = alerts.lowStock.where((a) => a.line.isTotal).length;
+  final lowPerson = alerts.lowStock.length - lowTotal;
   final parts = [
     if (alerts.expired.isNotEmpty)
       '${alerts.expired.length} '
           '${alerts.expired.length == 1 ? 'vencido' : 'vencidos'}',
     if (alerts.near.isNotEmpty) '${alerts.near.length} por vencer',
-    if (alerts.lowStock.isNotEmpty)
-      '${alerts.lowStock.length} con existencia baja',
+    // Total y responsables por separado (decisión del 2026-11-01).
+    if (lowTotal > 0)
+      '$lowTotal ${lowTotal == 1 ? 'bajo' : 'bajos'} en el total',
+    if (lowPerson > 0)
+      '$lowPerson ${lowPerson == 1 ? 'bajo' : 'bajos'} por responsable',
     if (alerts.unknownDate.isNotEmpty)
       '${alerts.unknownDate.length} sin fecha registrada',
   ];

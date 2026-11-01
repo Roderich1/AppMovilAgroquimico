@@ -468,6 +468,12 @@ class _LotDataDialogState extends State<_LotDataDialog> {
     text: (widget.item['lot_number'] as String?) ?? '',
   );
 
+  bool get _changed {
+    final number = lotNumber.text.trim();
+    return expiryDay != widget.item['expiry_date'] ||
+        (number.isEmpty ? null : number) != widget.item['lot_number'];
+  }
+
   @override
   void dispose() {
     lotNumber.dispose();
@@ -527,6 +533,7 @@ class _LotDataDialogState extends State<_LotDataDialog> {
           TextField(
             key: const Key('lot-data-number'),
             controller: lotNumber,
+            onChanged: (_) => setState(() {}),
             maxLength: 40,
             decoration: const InputDecoration(
               labelText: 'Número de lote (opcional)',
@@ -550,13 +557,16 @@ class _LotDataDialogState extends State<_LotDataDialog> {
       ),
       FilledButton(
         key: const Key('lot-data-save'),
-        onPressed: () {
-          final number = lotNumber.text.trim();
-          Navigator.pop<_LotDataCorrection>(context, (
-            expiryDay: expiryDay,
-            lotNumber: number.isEmpty ? null : number,
-          ));
-        },
+        // Sin cambios no se sigue: no se pide motivo ni PIN para nada.
+        onPressed: !_changed
+            ? null
+            : () {
+                final number = lotNumber.text.trim();
+                Navigator.pop<_LotDataCorrection>(context, (
+                  expiryDay: expiryDay,
+                  lotNumber: number.isEmpty ? null : number,
+                ));
+              },
         child: const Text('Continuar'),
       ),
     ],
