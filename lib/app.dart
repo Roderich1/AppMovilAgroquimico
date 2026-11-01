@@ -26,6 +26,7 @@ import 'presentation/screens/declared_needs_screen.dart';
 import 'presentation/screens/first_activation_screen.dart';
 import 'presentation/screens/reauthentication_screen.dart';
 import 'presentation/screens/farm_logbook_screen.dart';
+import 'presentation/screens/inventory_alerts_screen.dart';
 import 'presentation/screens/inventory_detail_screen.dart';
 import 'presentation/screens/inventory_screen.dart';
 import 'presentation/screens/more_screen.dart';
@@ -200,6 +201,11 @@ final routerProvider = Provider<GoRouter>((ref) {
                 state.uri.queryParameters['campana'] ?? '',
               ),
             ),
+          ),
+          // Antes de '/inventario/:id', que tomaría «avisos» como un id.
+          GoRoute(
+            path: '/inventario/avisos',
+            builder: (_, __) => const InventoryAlertsScreen(),
           ),
           GoRoute(
             path: '/inventario/:id',

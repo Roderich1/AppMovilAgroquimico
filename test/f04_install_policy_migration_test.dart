@@ -35,6 +35,9 @@ void main() {
     'trg_reversal_audit_effects_no_delete',
     'trg_late_drafts_no_delete',
     'trg_late_drafts_resolved_immutable',
+    // v12 (F04-AV): correcciones de vencimiento y número de lote.
+    'trg_lot_data_corrections_no_update',
+    'trg_lot_data_corrections_no_delete',
   };
 
   test('una base nueva nace en la versión vigente marcada NEW_UNDER_POLICY y sin titular', () async {
@@ -88,15 +91,19 @@ void main() {
         AppDatabase.schemaVersion,
       );
       // Todas las tablas previas quedan idénticas, fila por fila.
+      // v12 sólo añade columnas que nacen NULL y una tabla vacía: sin
+      // ellas, cada fila es la misma.
       expect(
-        await dumpTables(
-          db,
-          except: {
-            'owner_bindings',
-            'app_settings',
-            ...syncTablesV9,
-            ...reviewAuditTablesV11,
-          },
+        withoutV12(
+          await dumpTables(
+            db,
+            except: {
+              'owner_bindings',
+              'app_settings',
+              ...syncTablesV9,
+              ...reviewAuditTablesV11,
+            },
+          ),
         ),
         {...before}..remove('app_settings'),
       );

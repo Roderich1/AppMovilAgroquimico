@@ -10,6 +10,7 @@ import '../domain/account_ledger.dart';
 import '../domain/account_texts.dart' show AccountPaymentResult;
 import '../domain/campaign_calendar.dart';
 import '../domain/installation_access.dart' show OwnerScope;
+import '../domain/inventory_alerts.dart';
 import '../domain/sync/operation_id.dart' show newOperationId;
 import 'late_operation_codec.dart';
 import '../services/auth/local_owner_credential.dart';
@@ -1074,6 +1075,16 @@ class AgroRepository {
           'La cantidad asignada debe coincidir con la cantidad comprada.',
         );
       }
+      // Vencimiento y número de lote son opcionales (RF-42): sólo se
+      // comprueba su forma, nunca se exigen ni se suponen.
+      _checkExpiryDay(item.expiryDay);
+      if (item.lotNumber != null &&
+          normalizeLotNumber(item.lotNumber) != item.lotNumber) {
+        throw BusinessRuleException(
+          'El número de lote debe tener entre 1 y $maxLotNumberLength '
+          'caracteres, sin espacios al inicio ni al final.',
+        );
+      }
       purchaseTotal += subtotalMinor(
         quantityBase: item.quantityBase,
         unitPriceMinor: item.originalUnitPriceMinor,
@@ -1160,6 +1171,10 @@ class AgroRepository {
           'currency_code': item.currency.code,
           'original_unit_price_minor': item.originalUnitPriceMinor,
           'exchange_rate_scaled': item.exchangeRateScaled,
+          // F04-AV: cada lote de la línea lleva su vencimiento y su número
+          // de lote, si se conocen (RF-42). No influyen en el FIFO.
+          'expiry_date': item.expiryDay,
+          'lot_number': item.lotNumber,
         });
         await txn.insert('inventory_movements', {
           'lot_id': lotId,
@@ -2813,6 +2828,10 @@ class AgroRepository {
             'exchange_rate_scaled': source['exchange_rate_scaled'],
             'parent_lot_id': source['id'],
             'notes': notes,
+            // El lote de destino conserva el vencimiento y el número de lote
+            // de su origen (RN-31 de la tesis, MOB #168).
+            'expiry_date': source['expiry_date'],
+            'lot_number': source['lot_number'],
           });
           for (final movement in <Map<String, Object?>>[
             {
@@ -3281,8 +3300,17 @@ class AgroRepository {
     if (header.isEmpty) return null;
     return (
       purchase: header.single,
+      // Vencimiento y número de lote de la línea: los de su lote de compra
+      // (todos los lotes de la línea los comparten) y cuántas veces se
+      // corrigieron (F04-AV).
       items: await db.rawQuery(
-        '''SELECT i.*, pr.name product_name, pr.unit
+        '''SELECT i.*, pr.name product_name, pr.unit,
+        (SELECT l.expiry_date FROM inventory_lots l WHERE l.purchase_item_id=i.id
+          AND l.parent_lot_id IS NULL ORDER BY l.id LIMIT 1) expiry_date,
+        (SELECT l.lot_number FROM inventory_lots l WHERE l.purchase_item_id=i.id
+          AND l.parent_lot_id IS NULL ORDER BY l.id LIMIT 1) lot_number,
+        (SELECT COUNT(*) FROM lot_data_corrections c
+          WHERE c.purchase_item_id=i.id) lot_data_corrections
         FROM purchase_items i JOIN products pr ON pr.id=i.product_id
         WHERE i.purchase_id=? ORDER BY i.id''',
         [purchaseId],
@@ -3463,6 +3491,246 @@ class AgroRepository {
     [productId],
   );
 
+  // ---------------------------------------------------------------------
+  // F04-AV: avisos de existencias y vencimiento (MOB #168–#171).
+  // Numeración de la tesis (RF-42 a RF-44, RN-31, RN-32, DAT-22, CU-22),
+  // no la de docs/15_BUSINESS_RULES.md.
+  // ---------------------------------------------------------------------
+
+  static const int maxLotNumberLength = 40;
+
+  /// Número de lote sin espacios a los lados; vacío es «sin dato» (null).
+  /// Lanza si excede [maxLotNumberLength].
+  static String? normalizeLotNumber(String? value) {
+    final trimmed = value?.trim();
+    if (trimmed == null || trimmed.isEmpty) return null;
+    if (trimmed.length > maxLotNumberLength) {
+      throw BusinessRuleException(
+        'El número de lote debe tener como máximo $maxLotNumberLength '
+        'caracteres.',
+      );
+    }
+    return trimmed;
+  }
+
+  void _checkExpiryDay(String? day) {
+    if (day != null && !isCivilDay(day)) {
+      throw BusinessRuleException(
+        'La fecha de vencimiento no es válida (aaaa-mm-dd).',
+      );
+    }
+  }
+
+  /// Corrige el vencimiento y el número de lote de una línea de compra
+  /// (RF-42): cambia esos dos datos en todos sus lotes, también en los que
+  /// salieron de ella por transferencia, y deja una fila inmutable en
+  /// `lot_data_corrections` con los valores anteriores y los nuevos. No toca
+  /// cantidades, costos, movimientos ni el orden de consumo. Un valor nulo
+  /// deja el dato «sin registrar». Devuelve el id de la corrección.
+  Future<int> correctLotData(
+    int purchaseItemId, {
+    required String? expiryDay,
+    required String? lotNumber,
+    String? reason,
+    DateTime? now,
+  }) async {
+    _checkExpiryDay(expiryDay);
+    final number = normalizeLotNumber(lotNumber);
+    final note = reason?.trim();
+    return _write((txn, _) async {
+      final lots = await txn.query(
+        'inventory_lots',
+        columns: ['expiry_date', 'lot_number'],
+        where: 'purchase_item_id=? AND parent_lot_id IS NULL',
+        whereArgs: [purchaseItemId],
+        orderBy: 'id',
+        limit: 1,
+      );
+      if (lots.isEmpty) {
+        throw BusinessRuleException('La línea de compra no existe.');
+      }
+      final previousExpiry = lots.single['expiry_date'] as String?;
+      final previousNumber = lots.single['lot_number'] as String?;
+      if (previousExpiry == expiryDay && previousNumber == number) {
+        throw BusinessRuleException('No hay cambios que guardar.');
+      }
+      await txn.update(
+        'inventory_lots',
+        {'expiry_date': expiryDay, 'lot_number': number},
+        where: 'purchase_item_id=?',
+        whereArgs: [purchaseItemId],
+      );
+      return txn.insert('lot_data_corrections', {
+        'purchase_item_id': purchaseItemId,
+        'previous_expiry_date': previousExpiry,
+        'previous_lot_number': previousNumber,
+        'new_expiry_date': expiryDay,
+        'new_lot_number': number,
+        'reason': note == null || note.isEmpty ? null : note,
+        'recorded_at': _date(now ?? DateTime.now()),
+      });
+    });
+  }
+
+  /// Correcciones de una línea de compra, de la más reciente a la más
+  /// antigua.
+  Future<List<Map<String, Object?>>> lotDataCorrections(
+    int purchaseItemId,
+  ) async => (await _db).query(
+    'lot_data_corrections',
+    where: 'purchase_item_id=?',
+    whereArgs: [purchaseItemId],
+    orderBy: 'id DESC',
+  );
+
+  /// Nivel mínimo (unidad base) y plazo de aviso (días) de un producto
+  /// (RF-44). Nulo en [minStockBase]: sin nivel. Nulo en [leadDays]: el
+  /// valor inicial. Sólo cambia esa configuración: ningún aviso modifica
+  /// existencias ni bloquea operaciones.
+  Future<void> setProductAlertSettings(
+    int productId, {
+    required int? minStockBase,
+    required int? leadDays,
+  }) async {
+    if (minStockBase != null && minStockBase < 0) {
+      throw BusinessRuleException('El nivel mínimo no puede ser negativo.');
+    }
+    if (leadDays != null && (leadDays < 0 || leadDays > 365)) {
+      throw BusinessRuleException(
+        'El plazo de aviso debe estar entre 0 y 365 días.',
+      );
+    }
+    await _write((txn, _) async {
+      final changed = await txn.update(
+        'products',
+        {'min_stock_base': minStockBase, 'alert_lead_days': leadDays},
+        where: 'id=?',
+        whereArgs: [productId],
+      );
+      if (changed == 0) {
+        throw BusinessRuleException('El producto no existe.');
+      }
+    });
+  }
+
+  static const _alertSettingsColumns = [
+    'id',
+    'name',
+    'unit',
+    'active',
+    'min_stock_base',
+    'alert_lead_days',
+  ];
+
+  /// Configuración de avisos de un producto.
+  Future<ProductAlertSettings> productAlertSettings(int productId) async {
+    final rows = await (await _db).query(
+      'products',
+      columns: _alertSettingsColumns,
+      where: 'id=?',
+      whereArgs: [productId],
+    );
+    if (rows.isEmpty) throw BusinessRuleException('El producto no existe.');
+    return _alertSettingsOf(rows.single);
+  }
+
+  ProductAlertSettings _alertSettingsOf(Map<String, Object?> row) =>
+      ProductAlertSettings(
+        productId: row['id']! as int,
+        productName: row['name']! as String,
+        unit: row['unit']! as String,
+        active: row['active'] == 1,
+        minStockBase: row['min_stock_base'] as int?,
+        leadDays: row['alert_lead_days'] as int?,
+      );
+
+  /// Avisos de existencias y vencimiento (RF-43, RF-44, CU-22), calculados
+  /// sin red con los datos locales en el momento de consultar. Sólo lee:
+  /// no escribe nada ni cambia el orden de consumo. [now] es inyectable
+  /// para las pruebas; por defecto, el reloj del teléfono.
+  Future<InventoryAlerts> inventoryAlerts({DateTime? now}) async {
+    final db = await _db;
+    final today = localDay(now ?? DateTime.now());
+    final mode = await OperationModeStore(appDatabase).current(db);
+    final products = await db.query('products', columns: _alertSettingsColumns);
+    final lots = await db.rawQuery(
+      '''SELECT l.id lot_id, l.product_id, p.name product_name, p.unit,
+      p.alert_lead_days, l.owner_person_id, pe.name owner_name,
+      l.expiry_date, l.lot_number, COALESCE(SUM(m.quantity_signed),0) remaining_base
+      FROM inventory_lots l JOIN products p ON p.id=l.product_id
+      JOIN persons pe ON pe.id=l.owner_person_id
+      LEFT JOIN inventory_movements m ON m.lot_id=l.id
+      WHERE l.reversed_at IS NULL GROUP BY l.id HAVING remaining_base>0
+      ORDER BY p.name, pe.name, l.acquired_date, l.id''',
+    );
+    // Existencia neta por producto y responsable: la suma de sus
+    // movimientos, como el «Físico» del inventario. Los planes no son
+    // movimientos y no cuentan (CU-22, paso 2).
+    final perPerson = await db.rawQuery(
+      '''SELECT m.product_id, m.owner_person_id, pe.name person_name,
+      SUM(m.quantity_signed) net_base
+      FROM inventory_movements m JOIN persons pe ON pe.id=m.owner_person_id
+      WHERE pe.active=1
+      GROUP BY m.product_id, m.owner_person_id''',
+    );
+    final totals = {
+      for (final row in await db.rawQuery(
+        '''SELECT product_id, SUM(quantity_signed) net_base
+        FROM inventory_movements GROUP BY product_id''',
+      ))
+        row['product_id']! as int: row['net_base']! as int,
+    };
+    final last = await db.rawQuery(
+      'SELECT MAX(movement_date) day FROM inventory_movements',
+    );
+    final lastStored = last.single['day'] as String?;
+
+    final settings = [for (final row in products) _alertSettingsOf(row)];
+    final byId = {for (final p in settings) p.productId: p};
+    const fallback = AppDatabase.defaultAlertLeadDays;
+    return computeInventoryAlerts(
+      today: today,
+      shared: mode != OperationMode.personal,
+      defaultLeadDays: fallback,
+      lastMovementDay: lastStored == null ? null : storedLocalDay(lastStored),
+      products: settings,
+      lots: [
+        for (final row in lots)
+          AlertLot(
+            lotId: row['lot_id']! as int,
+            productId: row['product_id']! as int,
+            productName: row['product_name']! as String,
+            unit: row['unit']! as String,
+            ownerPersonId: row['owner_person_id']! as int,
+            ownerName: row['owner_name']! as String,
+            remainingBase: row['remaining_base']! as int,
+            expiryDay: row['expiry_date'] as String?,
+            lotNumber: row['lot_number'] as String?,
+            leadDays: row['alert_lead_days'] as int? ?? fallback,
+            leadDaysIsDefault: row['alert_lead_days'] == null,
+          ),
+      ],
+      stock: [
+        for (final p in settings)
+          StockLine(
+            productId: p.productId,
+            productName: p.productName,
+            unit: p.unit,
+            netBase: totals[p.productId] ?? 0,
+          ),
+        for (final row in perPerson)
+          StockLine(
+            productId: row['product_id']! as int,
+            productName: byId[row['product_id']]!.productName,
+            unit: byId[row['product_id']]!.unit,
+            netBase: row['net_base']! as int,
+            personId: row['owner_person_id']! as int,
+            personName: row['person_name']! as String,
+          ),
+      ],
+    );
+  }
+
   Future<List<Map<String, Object?>>> inventoryProductLots(
     int productId, {
     int? personId,
@@ -3485,6 +3753,7 @@ class AgroRepository {
     }
     return (await _db).rawQuery(
       '''SELECT l.id lot_id, l.acquired_date, l.initial_quantity_base,
+      l.expiry_date, l.lot_number,
       l.unit_cost_bob_minor_per_major_unit unit_cost, l.currency_code,
       l.original_unit_price_minor, l.exchange_rate_scaled, l.parent_lot_id,
       pe.name owner_name, s.name supplier_name, c.name campaign_name,

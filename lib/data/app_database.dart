@@ -18,7 +18,7 @@ class AppDatabase {
   /// Toda base, creada desde cero o migrada desde cualquier versión anterior,
   /// debe terminar con el mismo esquema. `test/schema_equivalence_test.dart`
   /// lo verifica automáticamente.
-  static const int schemaVersion = 11;
+  static const int schemaVersion = 12;
 
   /// Primera versión con `owner_bindings` e `install_origin`: una base
   /// anterior es histórica y no declara titular.
@@ -31,6 +31,59 @@ class AppDatabase {
   /// Primera versión con la auditoría de reversiones (RF-13) y los borradores
   /// de operaciones tardías con revisión (RF-03).
   static const int reviewAuditSinceVersion = 11;
+
+  /// Primera versión con los datos de los avisos de inventario (F04-AV,
+  /// MOB #168): vencimiento y número de lote en los lotes, nivel mínimo y
+  /// plazo de aviso en los productos, y el registro de correcciones.
+  static const int inventoryAlertsSinceVersion = 12;
+
+  /// v12 — columnas opcionales que añade F04-AV (DAT-22 de la tesis). Todas
+  /// admiten NULL: «sin dato» no es cero ni una fecha supuesta. Las mismas
+  /// sentencias crean una base nueva y migran una existente, así que las dos
+  /// terminan con el mismo esquema.
+  ///
+  /// - `inventory_lots.expiry_date`: día civil `aaaa-mm-dd` del vencimiento,
+  ///   si se conoce. Un lote de transferencia hereda el de su origen.
+  /// - `inventory_lots.lot_number`: número de lote del fabricante, si se
+  ///   conoce.
+  /// - `products.min_stock_base`: nivel mínimo en unidad base (mL o g); NULL
+  ///   es «sin nivel definido», distinto de 0.
+  /// - `products.alert_lead_days`: plazo de aviso de vencimiento en días;
+  ///   NULL usa el valor inicial [defaultAlertLeadDays].
+  static const Map<String, Map<String, String>> inventoryAlertsColumns = {
+    'inventory_lots': {
+      'expiry_date': "TEXT CHECK(expiry_date IS NULL OR (length(expiry_date) = 10 AND date(expiry_date) = expiry_date))",
+      'lot_number': 'TEXT CHECK(lot_number IS NULL OR (length(trim(lot_number)) BETWEEN 1 AND 40 AND lot_number = trim(lot_number)))',
+    },
+    'products': {
+      'min_stock_base':
+          'INTEGER CHECK(min_stock_base IS NULL OR min_stock_base >= 0)',
+      'alert_lead_days': 'INTEGER CHECK(alert_lead_days IS NULL OR alert_lead_days BETWEEN 0 AND 365)',
+    },
+  };
+
+  /// Plazo de aviso inicial (3.12.4.2 de la tesis): 30 días, configurable
+  /// por producto y pendiente de validación con los agricultores.
+  static const int defaultAlertLeadDays = 30;
+
+  /// v12 — corrección del vencimiento o del número de lote de una línea de
+  /// compra (RF-42): una fila inmutable por corrección con los valores
+  /// anteriores y los nuevos. Corregir no toca cantidades ni movimientos.
+  static const List<String> inventoryAlertsSchema = <String>[
+    '''CREATE TABLE lot_data_corrections (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        purchase_item_id INTEGER NOT NULL REFERENCES purchase_items(id),
+        previous_expiry_date TEXT, previous_lot_number TEXT,
+        new_expiry_date TEXT, new_lot_number TEXT,
+        reason TEXT,
+        recorded_at TEXT NOT NULL,
+        CHECK(previous_expiry_date IS NOT new_expiry_date OR previous_lot_number IS NOT new_lot_number))''',
+    'CREATE INDEX idx_lot_data_corrections_item ON lot_data_corrections(purchase_item_id, id)',
+    '''CREATE TRIGGER trg_lot_data_corrections_no_update BEFORE UPDATE ON lot_data_corrections
+      BEGIN SELECT RAISE(ABORT, 'lot_data_corrections es un registro inmutable'); END''',
+    '''CREATE TRIGGER trg_lot_data_corrections_no_delete BEFORE DELETE ON lot_data_corrections
+      BEGIN SELECT RAISE(ABORT, 'lot_data_corrections no admite borrado'); END''',
+  ];
 
   /// Clave en `app_settings` con cuántos vínculos de campaña anteriores a la
   /// regla de período (D-F04-C2, v10) quedaron marcados «período sin
@@ -523,6 +576,7 @@ class AppDatabase {
     for (final statement in reviewAuditSchema) {
       await db.execute(statement);
     }
+    await _applyInventoryAlertsSchema(db);
     // Una base creada por esta versión nace bajo la política de activación.
     await db.insert('app_settings', {
       'key': installOriginKey,
@@ -679,6 +733,40 @@ class AppDatabase {
     }
     if (oldVersion < 11) {
       await _upgradeToV11(db);
+    }
+    if (oldVersion < 12) {
+      await _applyInventoryAlertsSchema(db);
+    }
+  }
+
+  /// Versión 12 — **datos de los avisos de inventario** (F04-AV, MOB #168).
+  ///
+  /// Aditiva: añade columnas que admiten NULL y una tabla vacía. No hace
+  /// backfill: los lotes existentes quedan «sin fecha registrada» y sin
+  /// número de lote, y los productos sin nivel mínimo y con el plazo
+  /// inicial. No cambia ninguna cantidad, movimiento ni orden de consumo.
+  /// Es idempotente: una columna o tabla que ya existe no se vuelve a crear.
+  Future<void> _applyInventoryAlertsSchema(DatabaseExecutor db) async {
+    final tables = (await db.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type='table'",
+    )).map((row) => row['name'] as String).toSet();
+    for (final table in inventoryAlertsColumns.entries) {
+      // Como las migraciones anteriores, no crea una tabla que una base
+      // parcial no tiene: sólo amplía las que existen.
+      if (!tables.contains(table.key)) continue;
+      final existing = (await db.rawQuery('PRAGMA table_info(${table.key})'))
+          .map((row) => row['name'] as String)
+          .toSet();
+      for (final column in table.value.entries) {
+        if (existing.contains(column.key)) continue;
+        await db.execute(
+          'ALTER TABLE ${table.key} ADD COLUMN ${column.key} ${column.value}',
+        );
+      }
+    }
+    if (tables.contains('lot_data_corrections')) return;
+    for (final statement in inventoryAlertsSchema) {
+      await db.execute(statement);
     }
   }
 

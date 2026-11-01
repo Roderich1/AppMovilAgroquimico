@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 
 import '../../app.dart';
 import '../../data/agro_repository.dart' show PurchaseDetailRead;
+import '../../domain/campaign_calendar.dart';
 import '../../domain/labels.dart';
 import '../../domain/models.dart';
 import '../../domain/money.dart';
@@ -19,7 +20,9 @@ import '../widgets/owner_reversal_flow.dart';
 /// a quién se asignó cada cantidad, pagos al proveedor (con los revertidos) y,
 /// si se revirtió, quién lo autorizó y por qué. Un campo vacío no se rellena
 /// con un valor supuesto: se omite. Consultar no escribe nada; las acciones
-/// (pagar, revertir) siguen en el menú de la tarjeta.
+/// (pagar, revertir) siguen en el menú de la tarjeta. La única acción aquí
+/// es corregir el vencimiento o el número de lote de una línea (F04-AV,
+/// RF-42), que no toca cantidades ni movimientos.
 class PurchaseDetailScreen extends ConsumerStatefulWidget {
   const PurchaseDetailScreen({super.key, required this.purchaseId});
 
@@ -46,6 +49,35 @@ class _PurchaseDetailScreenState extends ConsumerState<PurchaseDetailScreen> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.purchaseId != widget.purchaseId) {
       data = ref.read(repositoryProvider).purchaseDetail(widget.purchaseId);
+    }
+  }
+
+  Future<void> _correctLotData(Map<String, Object?> item) async {
+    final result = await showDialog<_LotDataCorrection>(
+      context: context,
+      builder: (_) => _LotDataDialog(item: item),
+    );
+    if (result == null || !mounted) return;
+    try {
+      await ref
+          .read(repositoryProvider)
+          .correctLotData(
+            item['id']! as int,
+            expiryDay: result.expiryDay,
+            lotNumber: result.lotNumber,
+            reason: result.reason,
+          );
+      if (!mounted) return;
+      showSuccess(
+        context,
+        'Se corrigió el vencimiento y el número de lote. Las cantidades no '
+        'cambiaron.',
+      );
+      setState(() {
+        data = ref.read(repositoryProvider).purchaseDetail(widget.purchaseId);
+      });
+    } catch (error) {
+      if (mounted) showError(context, error);
     }
   }
 
@@ -78,7 +110,7 @@ class _PurchaseDetailScreenState extends ConsumerState<PurchaseDetailScreen> {
           children: [
             _HeaderCard(detail: detail),
             const SizedBox(height: 12),
-            _ItemsCard(detail: detail),
+            _ItemsCard(detail: detail, onCorrectLotData: _correctLotData),
             const SizedBox(height: 12),
             _PaymentsCard(payments: detail.payments),
           ],
@@ -256,9 +288,10 @@ class _HeaderCard extends StatelessWidget {
 }
 
 class _ItemsCard extends StatelessWidget {
-  const _ItemsCard({required this.detail});
+  const _ItemsCard({required this.detail, required this.onCorrectLotData});
 
   final PurchaseDetailRead detail;
+  final void Function(Map<String, Object?> item) onCorrectLotData;
 
   @override
   Widget build(BuildContext context) {
@@ -282,10 +315,157 @@ class _ItemsCard extends StatelessWidget {
                 'Para ${allocation['person_name']}',
                 allocationText(allocation, item['unit']! as String),
               ),
+          // F04-AV: datos opcionales del lote; sin dato no se supone nada.
+          _Field(
+            'Vencimiento',
+            item['expiry_date'] == null
+                ? 'sin fecha registrada'
+                : displayDay(item['expiry_date']! as String),
+          ),
+          _Field(
+            'Número de lote',
+            (item['lot_number'] as String?) ?? 'sin registrar',
+          ),
+          if (((item['lot_data_corrections'] as int?) ?? 0) > 0)
+            _Field(
+              'Correcciones',
+              '${item['lot_data_corrections']} (las cantidades no cambiaron)',
+            ),
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              key: Key('purchase-lot-data-correct-${item['id']}'),
+              onPressed: () => onCorrectLotData(item),
+              icon: const Icon(Icons.edit_calendar_outlined),
+              label: const Text('Corregir vencimiento o lote'),
+            ),
+          ),
         ],
       ],
     );
   }
+}
+
+typedef _LotDataCorrection = ({
+  String? expiryDay,
+  String? lotNumber,
+  String? reason,
+});
+
+/// Corregir el vencimiento y el número de lote de una línea (RF-42). Cambia
+/// esos datos en todos sus lotes, también los transferidos, y queda
+/// registrado con los valores anteriores.
+class _LotDataDialog extends StatefulWidget {
+  const _LotDataDialog({required this.item});
+  final Map<String, Object?> item;
+
+  @override
+  State<_LotDataDialog> createState() => _LotDataDialogState();
+}
+
+class _LotDataDialogState extends State<_LotDataDialog> {
+  late String? expiryDay = widget.item['expiry_date'] as String?;
+  late final lotNumber = TextEditingController(
+    text: (widget.item['lot_number'] as String?) ?? '',
+  );
+  final reason = TextEditingController();
+
+  @override
+  void dispose() {
+    lotNumber.dispose();
+    reason.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pick() async {
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: expiryDay == null ? now : startOfLocalDay(expiryDay!),
+      firstDate: DateTime(now.year - 10),
+      lastDate: DateTime(now.year + 15),
+      helpText: 'Fecha de vencimiento',
+    );
+    if (picked != null && mounted) {
+      setState(() => expiryDay = localDay(picked));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: Text('Vencimiento y lote de ${widget.item['product_name']}'),
+    content: SingleChildScrollView(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: OutlinedButton.icon(
+                  key: const Key('lot-data-expiry'),
+                  onPressed: _pick,
+                  icon: const Icon(Icons.event_outlined),
+                  label: Text(
+                    expiryDay == null
+                        ? 'Sin fecha registrada'
+                        : 'Vence el ${displayDay(expiryDay!)}',
+                  ),
+                ),
+              ),
+              if (expiryDay != null)
+                IconButton(
+                  key: const Key('lot-data-expiry-clear'),
+                  tooltip: 'Dejar sin fecha',
+                  onPressed: () => setState(() => expiryDay = null),
+                  icon: const Icon(Icons.close),
+                ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          TextField(
+            key: const Key('lot-data-number'),
+            controller: lotNumber,
+            maxLength: 40,
+            decoration: const InputDecoration(
+              labelText: 'Número de lote (opcional)',
+            ),
+          ),
+          TextField(
+            key: const Key('lot-data-reason'),
+            controller: reason,
+            decoration: const InputDecoration(labelText: 'Motivo (opcional)'),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            'Se corrige en todos los lotes de esta línea, también los '
+            'entregados a otras personas. Las cantidades y los movimientos '
+            'no cambian, y la corrección queda registrada.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ],
+      ),
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: const Text('Cancelar'),
+      ),
+      FilledButton(
+        key: const Key('lot-data-save'),
+        onPressed: () {
+          final number = lotNumber.text.trim();
+          final why = reason.text.trim();
+          Navigator.pop<_LotDataCorrection>(context, (
+            expiryDay: expiryDay,
+            lotNumber: number.isEmpty ? null : number,
+            reason: why.isEmpty ? null : why,
+          ));
+        },
+        child: const Text('Guardar corrección'),
+      ),
+    ],
+  );
 }
 
 class _PaymentsCard extends StatelessWidget {

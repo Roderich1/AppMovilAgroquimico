@@ -76,6 +76,17 @@ class _PurchaseLineEditor {
   final price = TextEditingController();
   final fx = TextEditingController();
 
+  /// Vencimiento (día civil) y número de lote, opcionales (F04-AV, RF-42).
+  /// Sin elegir: se guarda «sin fecha registrada», nunca una fecha supuesta.
+  String? expiryDay;
+  final lotNumber = TextEditingController();
+
+  /// Número de lote sin espacios a los lados; vacío es «sin dato».
+  String? get lotNumberValue {
+    final text = lotNumber.text.trim();
+    return text.isEmpty ? null : text;
+  }
+
   /// Mensajes de formato por campo, fijados al validar (B-11).
   String? quantityError;
   String? priceError;
@@ -131,6 +142,7 @@ class _PurchaseLineEditor {
     quantity.dispose();
     price.dispose();
     fx.dispose();
+    lotNumber.dispose();
     for (final allocation in allocations) {
       allocation.dispose();
     }
@@ -534,6 +546,8 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
               originalUnitPriceMinor: line.priceMinor,
               exchangeRateScaled: line.exchangeRateScaled,
               allocations: _allocationsOf(line),
+              expiryDay: line.expiryDay,
+              lotNumber: line.lotNumberValue,
             ),
         ],
       );
@@ -889,6 +903,12 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
                 key: Key('purchase-review-line-$index'),
                 style: const TextStyle(fontWeight: FontWeight.w700),
               ),
+              if (lines[index].expiryDay != null ||
+                  lines[index].lotNumberValue != null)
+                Text(
+                  _lotDataSummary(lines[index]),
+                  key: Key('purchase-review-lot-$index'),
+                ),
               const SizedBox(height: 8),
             ],
             const Divider(height: 20),
@@ -1199,6 +1219,99 @@ class _ResponsivePair extends StatelessWidget {
   );
 }
 
+/// Vencimiento y número de lote de una línea, en palabras.
+String _lotDataSummary(_PurchaseLineEditor line) {
+  final expiry = line.expiryDay == null
+      ? 'Sin fecha de vencimiento'
+      : 'Vence el ${displayDay(line.expiryDay!)}';
+  final lot = line.lotNumberValue == null
+      ? 'sin número de lote'
+      : 'lote ${line.lotNumberValue}';
+  return '$expiry · $lot';
+}
+
+/// Vencimiento y número de lote de la línea (F04-AV, RF-42). Opcionales y
+/// plegados: una compra sin estos datos se registra igual que antes.
+class _LotDataSection extends StatelessWidget {
+  const _LotDataSection({
+    required this.index,
+    required this.line,
+    required this.onChanged,
+  });
+  final int index;
+  final _PurchaseLineEditor line;
+  final VoidCallback onChanged;
+
+  Future<void> _pickExpiry(BuildContext context) async {
+    final now = DateTime.now();
+    final current = line.expiryDay == null
+        ? null
+        : startOfLocalDay(line.expiryDay!);
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: current ?? now,
+      firstDate: DateTime(now.year - 10),
+      lastDate: DateTime(now.year + 15),
+      helpText: 'Fecha de vencimiento',
+    );
+    if (picked == null) return;
+    line.expiryDay = localDay(picked);
+    onChanged();
+  }
+
+  @override
+  Widget build(BuildContext context) => ExpansionTile(
+    key: Key('purchase-lot-data-$index'),
+    tilePadding: EdgeInsets.zero,
+    childrenPadding: const EdgeInsets.only(bottom: 8),
+    title: const Text('Vencimiento y número de lote (opcional)'),
+    subtitle: Text(
+      line.expiryDay == null && line.lotNumberValue == null
+          ? 'Sin datos: el lote quedará «sin fecha registrada».'
+          : _lotDataSummary(line),
+    ),
+    children: [
+      Row(
+        children: [
+          Expanded(
+            child: OutlinedButton.icon(
+              key: Key('purchase-expiry-$index'),
+              onPressed: () => _pickExpiry(context),
+              icon: const Icon(Icons.event_outlined),
+              label: Text(
+                line.expiryDay == null
+                    ? 'Elegir fecha de vencimiento'
+                    : 'Vence el ${displayDay(line.expiryDay!)}',
+              ),
+            ),
+          ),
+          if (line.expiryDay != null)
+            IconButton(
+              key: Key('purchase-expiry-clear-$index'),
+              tooltip: 'Quitar la fecha de vencimiento',
+              onPressed: () {
+                line.expiryDay = null;
+                onChanged();
+              },
+              icon: const Icon(Icons.close),
+            ),
+        ],
+      ),
+      const SizedBox(height: 10),
+      TextField(
+        key: Key('purchase-lot-number-$index'),
+        controller: line.lotNumber,
+        maxLength: 40,
+        onChanged: (_) => onChanged(),
+        decoration: const InputDecoration(
+          labelText: 'Número de lote (opcional)',
+          helperText: 'Como figura en el envase.',
+        ),
+      ),
+    ],
+  );
+}
+
 class _LineCard extends StatelessWidget {
   const _LineCard({
     super.key,
@@ -1432,6 +1545,8 @@ class _LineCard extends StatelessWidget {
               style: const TextStyle(fontWeight: FontWeight.w700),
             ),
           ),
+          const SizedBox(height: 4),
+          _LotDataSection(index: index, line: line, onChanged: onChanged),
           const Divider(height: 24),
           // En propio la línea entera es del titular: no hay reparto (#26).
           if (personalOwnerName != null)
