@@ -5,10 +5,11 @@
 | Fecha real | 2026-11-01 (UTC; noche del 2026-10-31 y madrugada del 2026-11-01 en Bolivia) |
 | Rama | `feat/f04-av-avisos-inventario` |
 | Base | Mobile `main` `774ae88` |
-| Código verificado | `f99fc56`. `lib/` y `test/` de este documento son los de ese commit |
+| Código verificado | `f99fc56` y, para el «Nuevo» flotante, `ce3b788` (§4 y §6). Fuera de esa corrección, `lib/` y `test/` de este documento son los de `f99fc56` |
 | Issues | Refs #168, #169, #170, #171. Ninguno se cierra con este trabajo |
 | Origen | Implementación nueva; datos sintéticos |
 | EMULADOR | `docs/evidence/F04_AV_AVISOS_INVENTARIO_EMULADOR_2026-11-01.md` |
+| DEVICE | `docs/evidence/F04_AV_AVISOS_INVENTARIO_DEVICE_2026-11-01.md` |
 
 ## 1. Fuente de cada numeración
 
@@ -154,6 +155,25 @@ flutter test test/f04_av_inventory_alerts_test.dart \
 
 **Pruebas existentes ajustadas al esquema 12.** Cinco pruebas comparaban filas o columnas exactas o fijaban la versión 11. Ahora comparan sin las columnas nuevas, que nacen NULL, y comprueban que la versión es la vigente.
 
+**`ce3b788`: el «Nuevo» flotante en «Avisos de inventario».** En el emulador el FAB global tapaba el aviso que pasaba por debajo al desplazarse; al final de la lista no lo tapaba, porque la página ya reservaba su alto. La vista es una consulta que no inicia operaciones (#170), así que se retira el FAB en esa ruta, como ya se hacía en el detalle de compra. Inventario conserva su «Nuevo».
+
+Regresión nueva en `test/f04_av_inventory_alerts_ui_test.dart`:
+- Usa el tamaño lógico del POCO (1080×2400 a 440 dpi) con la letra al 100, 130 y 200 %.
+- Entra desde Inventario y comprueba que allí hay «Nuevo» y en la vista no.
+- Lleva cada aviso al borde inferior y comprueba que recibe el toque en el centro y en la flecha.
+- Con la lista agotada, el último aviso queda sobre la barra y abre su producto.
+- Sin el arreglo, falla al 100 %: el «Nuevo» se queda el toque de la flecha de un aviso.
+
+```text
+dart format --output=none --set-exit-if-changed lib test     → 0 cambios
+flutter analyze lib test                                      → No issues found!
+flutter test f04_av_inventory_alerts_ui_test, f04_av_inventory_alerts_test,
+             ui_polish_test, hierarchical_navigation_test,
+             f10_x01_inicio_mas_test                          → 75 correctas
+```
+
+La suite completa de `ce3b788` corre en la CI del PR (no se repitió en este equipo).
+
 ## 5. EMULADOR
 
 **Ejecutado el 2026-11-01** sobre `f99fc56`, con la APK `.av1` aislada en el emulador `Pixel_8` (Android 16 / API 36), sin red y con datos sintéticos.
@@ -161,10 +181,19 @@ flutter test test/f04_av_inventory_alerts_test.dart \
 - **AV-A1 a AV-A18: PASS**, con lo guardado comprobado en la base.
 - **Detalle:** en `F04_AV_AVISOS_INVENTARIO_EMULADOR_2026-11-01.md`.
 - **Incidente:** un PIN sintético quedó expuesto en la salida de la sesión. Se restableció y se añadió una guarda.
+- **Observación:** el «Nuevo» flotante tapaba parte del último aviso visible. Se corrigió después, en `ce3b788` (§4); el EMULADOR no se repitió con ese commit.
 
 ## 6. DEVICE
 
-**NOT_RUN.** El 2026-11-01 no había ningún teléfono conectado.
+**Ejecutado el 2026-11-01 (12:36Z–13:08Z)** sobre `ce3b788`. Se usó la APK `.av1` aislada arm64 (SHA-256 `09eebbfb…`) en el POCO X5 Pro 5G `22101320G`, con Android 12 / API 31, sin red, con datos sintéticos y una cuenta sintética propia (`u2-av`).
+
+- **AV-A1 a AV-A14 y AV-A16 a AV-A18: PASS**, con lo guardado comprobado en la base.
+- **AV-A15 (cambio de día): NOT_RUN** en el teléfono, porque no se cambia el reloj global. Se vio el límite con fechas relativas al día; el paso de un día al siguiente está cubierto en HOST y en el EMULADOR.
+- **Derivadas:**
+  - **AV-A19: PASS.** Sin «Nuevo» en la vista; el último aviso se ve y se toca al final de la lista, con la letra al 100, 130 y 200 %.
+  - **AV-A20: PASS.** Persistencia al cerrar y reabrir sin red.
+- **Observador:** 0 peticiones en el tramo sin red. Los ajustes del teléfono quedaron como al empezar y las 26 instalaciones previas no se tocaron.
+- **Detalle:** en `F04_AV_AVISOS_INVENTARIO_DEVICE_2026-11-01.md`.
 
 ## 7. Revisión del código
 
@@ -197,13 +226,19 @@ Las revisiones son de lectura y las hicieron otros agentes de esta misma sesión
   - el mensaje «N lotes» cuenta también los lotes de destino de transferencias revertidas, que siguen en el árbol de procedencia;
   - la «v11» de las pruebas se obtiene quitando las columnas de una v12.
 
+- **Sobre `ce3b788` (el «Nuevo» flotante):**
+  - Es una entrada en `_routesWithoutGlobalFab` y su comentario; no cambia otras rutas.
+  - Se comprobó que la ruta llega al shell también cuando la vista se abre con `push` desde Inventario: la prueba entra así.
+  - La regresión falla sin el arreglo.
+  - No hay rediseño general ni cambios en el selector de productos archivados.
+
 ## 8. Decisiones pendientes
 
 Todas las del bloque están decididas. No hay decisiones abiertas de este bloque.
 
 ## 9. Límites declarados
 
-- **DEVICE sin ejecutar.** El EMULADOR es x86_64, no un teléfono.
+- **DEVICE en un solo teléfono** (POCO, Android 12). AV-A15, el cambio de día, no se ejecutó en él porque no se cambia el reloj global.
 - **Sin evaluación con agricultores.** El plazo de 30 días sigue pendiente de validación.
 - **El nivel mínimo y el plazo no guardan historial de cambios.** Se exige el PIN al cambiarlos, pero no hay tabla de auditoría como la de las correcciones; la decisión no lo pedía.
 - **Respaldos con esquema 12 en una versión anterior de la app.** Se rechazan con «más reciente… Actualice la aplicación»; es el comportamiento existente para respaldos más nuevos.
