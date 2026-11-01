@@ -689,4 +689,114 @@ void main() {
       before,
     );
   });
+
+  // El FAB «Nuevo» tapaba el aviso que pasaba por debajo al desplazarse
+  // (emulador, 2026-11-01). Tamaño lógico del POCO (1080×2400 a 440 dpi) y
+  // letra ampliada: cada aviso, también el último, se ve y recibe el toque.
+  for (final scale in const [1.0, 1.3, 2.0]) {
+    testWidgets('avisos sin FAB: cada aviso se ve y se toca al final de la '
+        'lista, con letra al ${(scale * 100).round()} %', (tester) async {
+      tester.view.physicalSize = const Size(1080, 2400);
+      tester.view.devicePixelRatio = 1080 / 393;
+      tester.platformDispatcher.textScaleFactorTestValue = scale;
+      addTearDown(tester.view.reset);
+      addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+      final s = await activatedHousehold(tester, 'av-fab-$scale');
+      final h = s.household;
+      final today = localDay(DateTime.now());
+      var in10 = today;
+      for (var i = 0; i < 10; i++) {
+        in10 = nextLocalDay(in10);
+      }
+      await tester.runAsync(() async {
+        final repo = AgroRepository(s.database);
+        await buy(repo, h, h.titular, 3000, expiry: previousLocalDay(today));
+        await buy(repo, h, h.titular, 1000, expiry: today, lot: 'HOY', day: 3);
+        await buy(repo, h, h.titular, 2000, expiry: in10, day: 4);
+        await buy(repo, h, h.relative, 1000, day: 5);
+        await repo.setProductAlertSettingsWithoutPinForTesting(
+          h.product,
+          minStockBase: 2000,
+          leadDays: null,
+        );
+      });
+      final c = await pumpModeApp(tester, s.database);
+      c.read(routerProvider).go('/inventario');
+      await waitFor(tester, find.byKey(const Key('inventory-alerts-entry')));
+      // Fin de la transición: durante ella la ruta no recibe toques.
+      await tester.pump(const Duration(seconds: 1));
+      expect(find.byType(FloatingActionButton), findsOneWidget);
+
+      await tapKey(tester, 'inventory-alerts-entry');
+      await waitFor(tester, find.text('Avisos de inventario'));
+      expect(find.byType(FloatingActionButton), findsNothing);
+
+      // Con la letra al 200 % la cabecera ya ocupa más que la pantalla: la
+      // lista se construye al desplazarse, así que se recorre de arriba abajo.
+      final position = tester
+          .state<ScrollableState>(find.byType(Scrollable).last)
+          .position;
+      final keys = <Key>[];
+      for (var y = 0.0; ; y += position.viewportDimension / 2) {
+        position.jumpTo(y.clamp(0, position.maxScrollExtent));
+        await tester.pump();
+        for (final e
+            in find
+                .byWidgetPredicate(
+                  (w) => w is ListTile && '${w.key}'.contains("'alert-"),
+                )
+                .evaluate()) {
+          final key = (e.widget as ListTile).key!;
+          if (!keys.contains(key)) keys.add(key);
+        }
+        if (y >= position.maxScrollExtent) break;
+      }
+      // Vencido, vence hoy, próximo, bajo por responsable y sin fecha.
+      expect(keys, hasLength(5));
+      final bar = tester.getRect(find.byType(NavigationBar));
+      // Cada aviso, llevado al borde inferior (donde estaba el FAB), recibe
+      // el toque en el centro y en la flecha de la derecha.
+      for (final key in keys) {
+        await tester.runAsync(
+          () => Scrollable.ensureVisible(
+            tester.element(find.byKey(key)),
+            alignment: 1,
+          ),
+        );
+        await tester.pump();
+        final rect = tester.getRect(find.byKey(key));
+        expect(rect.bottom, lessThanOrEqualTo(bar.top), reason: '$key');
+        for (final point in [
+          rect.center,
+          rect.centerRight - const Offset(24, 0),
+        ]) {
+          expect(
+            tester
+                .hitTestOnBinding(point)
+                .path
+                .any((e) => e.target == tester.renderObject(find.byKey(key))),
+            isTrue,
+            reason: '$key debe recibir el toque en $point',
+          );
+        }
+      }
+
+      // El último, con la lista agotada, entero sobre la barra y tocable:
+      // abre su producto.
+      position.jumpTo(position.maxScrollExtent);
+      await tester.pump();
+      final last = tester.getRect(find.byKey(keys.last));
+      expect(last.bottom, lessThanOrEqualTo(bar.top));
+      expect(
+        tester
+            .hitTestOnBinding(last.center)
+            .path
+            .any((e) => e.target == tester.renderObject(find.byKey(keys.last))),
+        isTrue,
+      );
+      await tester.tap(find.byKey(keys.last));
+      await waitFor(tester, find.byKey(const Key('inventory-alert-settings')));
+      expect(find.byKey(const Key('inventory-alert-settings')), findsOneWidget);
+    });
+  }
 }
