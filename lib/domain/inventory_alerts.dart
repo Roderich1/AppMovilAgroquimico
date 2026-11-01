@@ -16,7 +16,12 @@ enum ExpiryStatus {
   /// La fecha es anterior a la de hoy en el teléfono.
   expired,
 
-  /// Vence hoy o dentro del plazo de aviso del producto.
+  /// Vence hoy, en la fecha local del teléfono. Se muestra aparte y
+  /// destacado; pasa a vencido al día siguiente (decisión del autor del
+  /// 2026-11-01). No depende del plazo de aviso: avisa también con plazo 0.
+  today,
+
+  /// Vence después de hoy y dentro del plazo de aviso del producto.
   near,
 
   /// Vence después del plazo: no genera aviso.
@@ -57,6 +62,7 @@ ExpiryStatus classifyExpiry({
   if (expiryDay == null) return ExpiryStatus.unknown;
   final days = daysBetween(today, expiryDay);
   if (days < 0) return ExpiryStatus.expired;
+  if (days == 0) return ExpiryStatus.today;
   if (days <= leadDays) return ExpiryStatus.near;
   return ExpiryStatus.later;
 }
@@ -184,6 +190,7 @@ final class InventoryAlerts {
     required this.today,
     required this.shared,
     required this.expired,
+    required this.dueToday,
     required this.near,
     required this.unknownDate,
     required this.lowStock,
@@ -198,6 +205,9 @@ final class InventoryAlerts {
   /// Modalidad compartida: avisos por responsable y total (CU-22 A3).
   final bool shared;
   final List<LotExpiryAlert> expired;
+
+  /// Vencen hoy: aparte de los próximos.
+  final List<LotExpiryAlert> dueToday;
   final List<LotExpiryAlert> near;
   final List<LotExpiryAlert> unknownDate;
   final List<LowStockAlert> lowStock;
@@ -251,6 +261,7 @@ InventoryAlerts computeInventoryAlerts({
   String? lastMovementDay,
 }) {
   final expired = <LotExpiryAlert>[];
+  final dueToday = <LotExpiryAlert>[];
   final near = <LotExpiryAlert>[];
   final unknown = <LotExpiryAlert>[];
   for (final lot in lots) {
@@ -268,6 +279,8 @@ InventoryAlerts computeInventoryAlerts({
     switch (status) {
       case ExpiryStatus.expired:
         expired.add(alert);
+      case ExpiryStatus.today:
+        dueToday.add(alert);
       case ExpiryStatus.near:
         near.add(alert);
       case ExpiryStatus.unknown:
@@ -279,11 +292,12 @@ InventoryAlerts computeInventoryAlerts({
   // Más urgente primero: el más vencido, el que vence antes.
   expired.sort((a, b) => b.days!.compareTo(a.days!));
   near.sort((a, b) => a.days!.compareTo(b.days!));
-  unknown.sort(
-    (a, b) => a.lot.productName.compareTo(b.lot.productName) != 0
-        ? a.lot.productName.compareTo(b.lot.productName)
-        : a.lot.ownerName.compareTo(b.lot.ownerName),
-  );
+  int byProductAndOwner(LotExpiryAlert a, LotExpiryAlert b) =>
+      a.lot.productName.compareTo(b.lot.productName) != 0
+      ? a.lot.productName.compareTo(b.lot.productName)
+      : a.lot.ownerName.compareTo(b.lot.ownerName);
+  dueToday.sort(byProductAndOwner);
+  unknown.sort(byProductAndOwner);
 
   final byId = {for (final p in products) p.productId: p};
   final installation = {
@@ -319,6 +333,7 @@ InventoryAlerts computeInventoryAlerts({
     today: today,
     shared: shared,
     expired: expired,
+    dueToday: dueToday,
     near: near,
     unknownDate: unknown,
     lowStock: low,

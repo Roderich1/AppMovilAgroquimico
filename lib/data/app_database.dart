@@ -45,15 +45,18 @@ class AppDatabase {
   /// - `inventory_lots.expiry_date`: día civil `aaaa-mm-dd` del vencimiento,
   ///   si se conoce. Un lote de transferencia hereda el de su origen.
   /// - `inventory_lots.lot_number`: número de lote del fabricante, si se
-  ///   conoce.
+  ///   conoce; hasta 100 caracteres (decisión del autor del 2026-11-01).
+  ///   Los lotes anteriores quedan sin número: no se inventa ninguno.
   /// - `products.min_stock_base`: nivel mínimo en unidad base (mL o g); NULL
   ///   es «sin nivel definido», distinto de 0.
-  /// - `products.alert_lead_days`: plazo de aviso de vencimiento en días;
-  ///   NULL usa el valor inicial [defaultAlertLeadDays].
+  /// - `products.alert_lead_days`: plazo de aviso de vencimiento en días,
+  ///   de 0 a 365; NULL usa el valor inicial [defaultAlertLeadDays]. El
+  ///   rango es funcional (decisión del autor del 2026-11-01), no una regla
+  ///   agronómica.
   static const Map<String, Map<String, String>> inventoryAlertsColumns = {
     'inventory_lots': {
       'expiry_date': "TEXT CHECK(expiry_date IS NULL OR (length(expiry_date) = 10 AND date(expiry_date) = expiry_date))",
-      'lot_number': 'TEXT CHECK(lot_number IS NULL OR (length(trim(lot_number)) BETWEEN 1 AND 40 AND lot_number = trim(lot_number)))',
+      'lot_number': 'TEXT CHECK(lot_number IS NULL OR (length(trim(lot_number)) BETWEEN 1 AND 100 AND lot_number = trim(lot_number)))',
     },
     'products': {
       'min_stock_base':

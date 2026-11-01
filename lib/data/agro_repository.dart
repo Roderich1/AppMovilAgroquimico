@@ -46,6 +46,23 @@ class BusinessRuleException implements Exception {
   String toString() => message;
 }
 
+/// Una acción confirmada con el PIN del titular falló **después** de
+/// consumir la autorización, ya dentro de la transacción que escribe: no se
+/// guardó nada (la transacción se deshizo) y la autorización no vale otra
+/// vez. Un rechazo de validación anterior al consumo no usa esta excepción y
+/// deja la autorización sin gastar.
+class AuthorizedChangeNotSaved implements Exception {
+  AuthorizedChangeNotSaved(this.cause);
+
+  /// El error original, para el registro técnico.
+  final Object cause;
+
+  @override
+  String toString() =>
+      'No se guardó el cambio. La confirmación con el PIN ya se usó: '
+      'vuelva a intentarlo y confirme otra vez con el PIN.';
+}
+
 /// Una aplicación con fecha pasada pide más de lo que la persona tenía ese
 /// día y no se usó después (D-03, precisión de RN-25). En unidad base:
 /// [heldBase] es lo que tenía al final de ese día y [availableBase] la
@@ -1092,11 +1109,12 @@ class AgroRepository {
       // Vencimiento y número de lote son opcionales (RF-42): sólo se
       // comprueba su forma, nunca se exigen ni se suponen.
       _checkExpiryDay(item.expiryDay);
+      // normalizeLotNumber rechaza el exceso de largo con su mensaje.
       if (item.lotNumber != null &&
           normalizeLotNumber(item.lotNumber) != item.lotNumber) {
         throw BusinessRuleException(
-          'El número de lote debe tener entre 1 y $maxLotNumberLength '
-          'caracteres, sin espacios al inicio ni al final.',
+          'El número de lote no puede quedar vacío ni empezar o terminar con '
+          'espacios.',
         );
       }
       purchaseTotal += subtotalMinor(
@@ -3517,7 +3535,13 @@ class AgroRepository {
   // no la de docs/15_BUSINESS_RULES.md.
   // ---------------------------------------------------------------------
 
-  static const int maxLotNumberLength = 40;
+  /// Largo máximo del número de lote (decisión del autor del 2026-11-01),
+  /// en caracteres Unicode, como los cuenta `length()` de SQLite.
+  static const int maxLotNumberLength = 100;
+
+  /// Plazo de aviso admitido, en días. Es el rango funcional elegido por el
+  /// autor el 2026-11-01 para la configuración, no una regla agronómica.
+  static const int maxAlertLeadDays = 365;
 
   /// Si se puede corregir la línea: existe y su compra no está revertida.
   Future<bool> canCorrectLotData(int purchaseItemId) async {
@@ -3532,17 +3556,24 @@ class AgroRepository {
   }
 
   /// Número de lote sin espacios a los lados; vacío es «sin dato» (null).
-  /// Lanza si excede [maxLotNumberLength].
+  /// El contenido se conserva tal cual: no se trunca ni se completa. Lanza
+  /// si excede [maxLotNumberLength].
   static String? normalizeLotNumber(String? value) {
     final trimmed = value?.trim();
     if (trimmed == null || trimmed.isEmpty) return null;
-    if (trimmed.length > maxLotNumberLength) {
-      throw BusinessRuleException(
-        'El número de lote debe tener como máximo $maxLotNumberLength '
-        'caracteres.',
-      );
-    }
+    final error = lotNumberLengthError(trimmed);
+    if (error != null) throw BusinessRuleException(error);
     return trimmed;
+  }
+
+  /// Mensaje si [text] (sin los espacios de los lados) pasa del largo
+  /// máximo; null si cabe. Lo usan también los formularios, que no cortan
+  /// lo escrito.
+  static String? lotNumberLengthError(String text) {
+    final length = text.trim().runes.length;
+    if (length <= maxLotNumberLength) return null;
+    return 'El número de lote admite hasta $maxLotNumberLength caracteres; '
+        'tiene $length. Revise lo escrito: no se recorta.';
   }
 
   void _checkExpiryDay(String? day) {
@@ -3597,7 +3628,7 @@ class AgroRepository {
     if (note.isEmpty) {
       throw BusinessRuleException('Indique el motivo de la corrección.');
     }
-    return _write((txn, _) async {
+    return _writeAuthorized((txn, consume) async {
       final purchase = await txn.rawQuery(
         '''SELECT p.status, p.reversed_at FROM purchase_items i
         JOIN purchases p ON p.id=i.purchase_id WHERE i.id=?''',
@@ -3637,14 +3668,10 @@ class AgroRepository {
       if (previousExpiry == expiryDay && previousNumber == number) {
         throw BusinessRuleException('No hay cambios que guardar.');
       }
-      // El vínculo vigente y el PIN vigente, leídos justo antes de consumir.
-      consumeOwnerAuthorization(
+      await consume(
         authorization,
-        installation: _ownerCredential(),
-        purpose: AuthorizationPurpose.correctLotData,
-        subjectRef: lotDataSubjectRef(purchaseItemId),
-        current: await _currentOwnerBinding(txn),
-        now: DateTime.now(),
+        AuthorizationPurpose.correctLotData,
+        lotDataSubjectRef(purchaseItemId),
       );
       final allLots =
           Sqflite.firstIntValue(
@@ -3717,23 +3744,111 @@ class AgroRepository {
     [purchaseItemId],
   );
 
+  /// Consume la autorización de una acción del titular dentro de la
+  /// transacción que escribe, contra el vínculo y el PIN vigentes leídos
+  /// justo antes.
+  ///
+  /// Distingue dos fallos. Lo que [body] rechace antes de llamar a `consume`
+  /// (validaciones) sale tal cual y deja la autorización sin gastar. Si algo
+  /// falla después de consumirla, en la escritura o al confirmar la
+  /// transacción, no queda nada escrito, la autorización sigue gastada (no se
+  /// reutiliza) y sale [AuthorizedChangeNotSaved]. Un rechazo de
+  /// `consumeOwnerAuthorization` es de antes del consumo: sale tal cual.
+  Future<T> _writeAuthorized<T>(
+    Future<T> Function(
+      Transaction txn,
+      Future<void> Function(OwnerAuthorization, AuthorizationPurpose, String)
+      consume,
+    )
+    body,
+  ) async {
+    var consumed = false;
+    try {
+      return await _write(
+        (txn, _) => body(txn, (authorization, purpose, subjectRef) async {
+          final current = await _currentOwnerBinding(txn);
+          consumeOwnerAuthorization(
+            authorization,
+            installation: _ownerCredential(),
+            purpose: purpose,
+            subjectRef: subjectRef,
+            current: current,
+            now: DateTime.now(),
+          );
+          consumed = true;
+        }),
+      );
+    } catch (error, stack) {
+      if (!consumed) rethrow;
+      Error.throwWithStackTrace(AuthorizedChangeNotSaved(error), stack);
+    }
+  }
+
+  /// Referencia que firma la autorización de la configuración de avisos.
+  static String productAlertsSubjectRef(int productId) =>
+      'product_alerts:$productId';
+
+  void _checkAlertSettings(int? minStockBase, int? leadDays) {
+    if (minStockBase != null && minStockBase < 0) {
+      throw BusinessRuleException('El nivel mínimo no puede ser negativo.');
+    }
+    if (leadDays != null && (leadDays < 0 || leadDays > maxAlertLeadDays)) {
+      throw BusinessRuleException(
+        'El plazo de aviso debe ser un número entero de días, de 0 a '
+        '$maxAlertLeadDays.',
+      );
+    }
+  }
+
   /// Nivel mínimo (unidad base) y plazo de aviso (días) de un producto
   /// (RF-44). Nulo en [minStockBase]: sin nivel. Nulo en [leadDays]: el
-  /// valor inicial. Sólo cambia esa configuración: ningún aviso modifica
-  /// existencias ni bloquea operaciones.
+  /// valor inicial. Corresponde al titular: exige su PIN vigente
+  /// ([authorization], para [productAlertsSubjectRef]) una vez para los dos
+  /// datos (decisión del autor del 2026-11-01). Sólo cambia esa
+  /// configuración: ningún aviso modifica existencias ni bloquea
+  /// operaciones. Sin cambios, o con valores fuera de rango, no se gasta la
+  /// autorización.
   Future<void> setProductAlertSettings(
     int productId, {
     required int? minStockBase,
     required int? leadDays,
+    required OwnerAuthorization authorization,
   }) async {
-    if (minStockBase != null && minStockBase < 0) {
-      throw BusinessRuleException('El nivel mínimo no puede ser negativo.');
-    }
-    if (leadDays != null && (leadDays < 0 || leadDays > 365)) {
-      throw BusinessRuleException(
-        'El plazo de aviso debe estar entre 0 y 365 días.',
+    _checkAlertSettings(minStockBase, leadDays);
+    await _writeAuthorized((txn, consume) async {
+      final rows = await txn.query(
+        'products',
+        columns: ['min_stock_base', 'alert_lead_days'],
+        where: 'id=?',
+        whereArgs: [productId],
       );
-    }
+      if (rows.isEmpty) throw BusinessRuleException('El producto no existe.');
+      if (rows.single['min_stock_base'] == minStockBase &&
+          rows.single['alert_lead_days'] == leadDays) {
+        throw BusinessRuleException('No hay cambios que guardar.');
+      }
+      await consume(
+        authorization,
+        AuthorizationPurpose.configureProductAlerts,
+        productAlertsSubjectRef(productId),
+      );
+      await txn.update(
+        'products',
+        {'min_stock_base': minStockBase, 'alert_lead_days': leadDays},
+        where: 'id=?',
+        whereArgs: [productId],
+      );
+    });
+  }
+
+  /// Sólo pruebas y siembras sintéticas: la configuración sin PIN.
+  @visibleForTesting
+  Future<void> setProductAlertSettingsWithoutPinForTesting(
+    int productId, {
+    required int? minStockBase,
+    required int? leadDays,
+  }) async {
+    _checkAlertSettings(minStockBase, leadDays);
     await _write((txn, _) async {
       final changed = await txn.update(
         'products',

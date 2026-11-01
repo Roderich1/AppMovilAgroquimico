@@ -32,7 +32,11 @@ enum AuthorizationPurpose {
 
   /// Corregir vencimiento o número de lote de una línea de compra ya
   /// registrada (F04-AV, RF-42).
-  correctLotData('CORRECT_LOT_DATA');
+  correctLotData('CORRECT_LOT_DATA'),
+
+  /// Cambiar el nivel mínimo y el plazo de aviso de un producto (F04-AV,
+  /// RF-44).
+  configureProductAlerts('CONFIGURE_PRODUCT_ALERTS');
 
   const AuthorizationPurpose(this.code);
   final String code;

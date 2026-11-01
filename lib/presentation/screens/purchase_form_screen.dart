@@ -6,6 +6,7 @@ import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../app.dart';
+import '../../data/agro_repository.dart' show AgroRepository;
 import '../../domain/models.dart';
 import '../../domain/campaign_calendar.dart';
 import '../../domain/inventory_alerts.dart' show expiryPickerRange;
@@ -407,6 +408,10 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
             }
         }
       }
+
+      // Número de lote: el exceso se señala, nunca se recorta.
+      final lotError = AgroRepository.lotNumberLengthError(line.lotNumber.text);
+      if (lotError != null) return '$name: $lotError';
 
       // En propio todo es del titular: no hay destinatario que comprobar.
       if (personalOwnerId != null) continue;
@@ -1233,6 +1238,11 @@ String _lotDataSummary(_PurchaseLineEditor line) {
 
 /// Vencimiento y número de lote de la línea (F04-AV, RF-42). Opcionales y
 /// plegados: una compra sin estos datos se registra igual que antes.
+/// Contador del número de lote en caracteres Unicode, como los cuenta el
+/// repositorio.
+String lotNumberCounter(String text) =>
+    '${text.trim().runes.length}/${AgroRepository.maxLotNumberLength}';
+
 class _LotDataSection extends StatelessWidget {
   const _LotDataSection({
     required this.index,
@@ -1300,14 +1310,18 @@ class _LotDataSection extends StatelessWidget {
         ],
       ),
       const SizedBox(height: 10),
+      // Sin maxLength: lo pegado no se recorta; el exceso se señala y
+      // bloquea la revisión (decisión del autor del 2026-11-01).
       TextField(
         key: Key('purchase-lot-number-$index'),
         controller: line.lotNumber,
-        maxLength: 40,
         onChanged: (_) => onChanged(),
-        decoration: const InputDecoration(
+        decoration: InputDecoration(
           labelText: 'Número de lote (opcional)',
           helperText: 'Como figura en el envase.',
+          counterText: lotNumberCounter(line.lotNumber.text),
+          errorText: AgroRepository.lotNumberLengthError(line.lotNumber.text),
+          errorMaxLines: 3,
         ),
       ),
     ],

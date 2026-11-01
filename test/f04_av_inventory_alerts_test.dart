@@ -65,6 +65,15 @@ class _Farm {
     binding: pin!.binding,
   );
 
+  /// Autorización del titular para configurar los avisos de [productId].
+  Future<OwnerAuthorization> authorizeSettings(int productId) =>
+      pin!.credential.verify(
+        pin: '284917',
+        purpose: AuthorizationPurpose.configureProductAlerts,
+        subjectRef: AgroRepository.productAlertsSubjectRef(productId),
+        binding: pin!.binding,
+      );
+
   /// Corrección autorizada con el PIN del titular.
   Future<LotDataCorrectionResult> correct(
     int purchaseItemId, {
@@ -268,12 +277,73 @@ void main() {
         throwsA(isA<BusinessRuleException>()),
       );
       await expectLater(
-        f.buy(f.h.titular, 1000, lot: 'X' * 41),
-        throwsA(isA<BusinessRuleException>()),
+        f.buy(f.h.titular, 1000, lot: 'X' * 101),
+        throwsA(
+          isA<BusinessRuleException>().having(
+            (e) => e.message,
+            'mensaje',
+            'El número de lote admite hasta 100 caracteres; tiene 101. '
+                'Revise lo escrito: no se recorta.',
+          ),
+        ),
       );
       expect(await f.lots(), isEmpty);
       expect(AgroRepository.normalizeLotNumber('  A1 '), 'A1');
       expect(AgroRepository.normalizeLotNumber('   '), isNull);
+    });
+
+    test('el número de lote admite hasta 100 caracteres, se guarda tal cual y '
+        'no se recorta; los lotes anteriores quedan sin número', () async {
+      final f = await _farm(withPin: true);
+      await f.buy(f.h.titular, 1000);
+      // 100 caracteres con mayúsculas, minúsculas, espacios internos,
+      // símbolos y letras fuera del ASCII (SQLite y Dart cuentan igual).
+      final long = 'Lote ñandú/Á-01 x' * 5 + 'Ñ' * 15;
+      expect(long.runes.length, 100);
+      await f.buy(f.h.titular, 1000, lot: long, day: 3);
+      var lots = await f.lots();
+      expect(lots[0]['lot_number'], isNull, reason: 'dato anterior');
+      expect(lots[1]['lot_number'], long);
+      // Un carácter fuera del plano básico cuenta como uno, como en SQLite.
+      final emoji = '🌱' * 100;
+      expect(AgroRepository.lotNumberLengthError(emoji), isNull);
+      expect(AgroRepository.lotNumberLengthError('$emoji!'), isNotNull);
+      // La base también lo exige, aunque se escriba sin el repositorio.
+      final db = await f.database.database;
+      await expectLater(
+        db.update(
+          'inventory_lots',
+          {'lot_number': 'X' * 101},
+          where: 'id=?',
+          whereArgs: [lots[1]['id']],
+        ),
+        throwsA(isA<DatabaseException>()),
+      );
+      // La corrección rechaza el exceso antes de gastar la autorización.
+      final item = _purchaseItemOf(lots, 1);
+      final auth = await f.authorize(item);
+      final before = await dumpTables(db);
+      await expectLater(
+        f.repo.correctLotData(
+          item,
+          expiryDay: null,
+          lotNumber: '${'Y' * 100}Z',
+          reason: 'x',
+          authorization: auth,
+        ),
+        throwsA(isA<BusinessRuleException>()),
+      );
+      expect(await dumpTables(db), before);
+      await f.repo.correctLotData(
+        item,
+        expiryDay: null,
+        lotNumber: 'Y' * 100,
+        reason: 'x',
+        authorization: auth,
+      );
+      lots = await f.lots();
+      expect(lots[1]['lot_number'], 'Y' * 100);
+      expect(lots[0]['lot_number'], isNull);
     });
 
     test('la transferencia conserva vencimiento y número de lote y no altera el FIFO', () async {
@@ -509,6 +579,67 @@ void main() {
       expect(done.correctedLots, 1);
     });
 
+    test(
+      'un fallo después de consumir la autorización no deja nada escrito y la '
+      'autorización no se reutiliza',
+      () async {
+        final f = await _farm(withPin: true);
+        await f.buy(f.h.titular, 5000, lot: 'A');
+        final item = _purchaseItemOf(await f.lots(), 0);
+        final db = await f.database.database;
+        // Falla la escritura de la auditoría por lote, ya consumida la
+        // autorización y escrita la corrección.
+        await db.execute(
+          'CREATE TRIGGER t_fail BEFORE INSERT ON lot_data_correction_lots '
+          "BEGIN SELECT RAISE(ABORT, 'fallo simulado'); END",
+        );
+        final before = await dumpTables(db);
+        final auth = await f.authorize(item);
+        await expectLater(
+          f.repo.correctLotData(
+            item,
+            expiryDay: '2027-05-05',
+            lotNumber: 'B',
+            reason: 'x',
+            authorization: auth,
+          ),
+          throwsA(
+            isA<AuthorizedChangeNotSaved>()
+                .having((e) => e.cause, 'causa', isA<DatabaseException>())
+                .having(
+                  (e) => e.toString(),
+                  'mensaje',
+                  contains('La confirmación con el PIN ya se usó'),
+                ),
+          ),
+        );
+        // La transacción se deshizo entera: ni corrección ni lote cambiado.
+        expect(await dumpTables(db), before);
+        await db.execute('DROP TRIGGER t_fail');
+        // La misma autorización ya no vale, aunque nada se guardó.
+        await expectLater(
+          f.repo.correctLotData(
+            item,
+            expiryDay: '2027-05-05',
+            lotNumber: 'B',
+            reason: 'x',
+            authorization: auth,
+          ),
+          throwsA(
+            isA<OwnerAuthorizationRejected>().having(
+              (e) => e.reason,
+              'motivo',
+              'La autorización ya se usó.',
+            ),
+          ),
+        );
+        expect(await f.repo.lotDataCorrections(item), isEmpty);
+        // Con una autorización nueva se guarda.
+        await f.correct(item, expiry: '2027-05-05', lot: 'B');
+        expect((await f.lots()).single['lot_number'], 'B');
+      },
+    );
+
     test('un lote de compra sin su entrada de compra no tiene procedencia: '
         'no se corrige nada y el PIN no se gasta', () async {
       final f = await _farm(withPin: true);
@@ -686,7 +817,7 @@ void main() {
         lot: 'R-1',
       );
       await source.buy(source.h.relative, 2000, product: source.herbicide);
-      await source.repo.setProductAlertSettings(
+      await source.repo.setProductAlertSettingsWithoutPinForTesting(
         source.h.product,
         minStockBase: 6000,
         leadDays: 15,
@@ -800,27 +931,28 @@ void main() {
       expect(a.expired.single.lot.lotNumber, 'V');
       expect(a.expired.single.lot.remainingBase, 1000);
       expect(a.expired.single.days, 1);
-      expect(a.near.map((x) => (x.lot.lotNumber, x.days)), [
-        ('H', 0),
-        ('P30', 30),
-      ]);
+      // «Vence hoy» va aparte de los próximos (decisión del 2026-11-01).
+      expect(a.dueToday.single.lot.lotNumber, 'H');
+      expect(a.dueToday.single.status, ExpiryStatus.today);
+      expect(a.dueToday.single.days, 0);
+      expect(a.near.map((x) => (x.lot.lotNumber, x.days)), [('P30', 30)]);
       expect(a.near.every((x) => x.lot.leadDaysIsDefault), isTrue);
       expect(a.near.first.lot.leadDays, AppDatabase.defaultAlertLeadDays);
       // F31 vence fuera del plazo de 30 días: no avisa.
-      final all = [...a.expired, ...a.near, ...a.unknownDate];
+      final all = [...a.expired, ...a.dueToday, ...a.near, ...a.unknownDate];
       expect(all.map((x) => x.lot.lotNumber), isNot(contains('F31')));
     });
 
     test('el plazo definido por el titular reemplaza al inicial', () async {
       final f = await _farm();
       await f.buy(f.h.titular, 1000, expiry: '2026-12-10');
-      await f.repo.setProductAlertSettings(
+      await f.repo.setProductAlertSettingsWithoutPinForTesting(
         f.h.product,
         minStockBase: null,
         leadDays: 10,
       );
       expect((await f.alerts()).near, isEmpty);
-      await f.repo.setProductAlertSettings(
+      await f.repo.setProductAlertSettingsWithoutPinForTesting(
         f.h.product,
         minStockBase: null,
         leadDays: 30,
@@ -828,7 +960,7 @@ void main() {
       final near = (await f.alerts()).near.single;
       expect(near.lot.leadDays, 30);
       expect(near.lot.leadDaysIsDefault, isFalse);
-      await f.repo.setProductAlertSettings(
+      await f.repo.setProductAlertSettingsWithoutPinForTesting(
         f.h.product,
         minStockBase: null,
         leadDays: null,
@@ -886,13 +1018,13 @@ void main() {
         'Glifosato',
       ]);
 
-      await f.repo.setProductAlertSettings(
+      await f.repo.setProductAlertSettingsWithoutPinForTesting(
         f.h.product,
         minStockBase: 4999,
         leadDays: null,
       );
       expect((await f.alerts()).lowStock, isEmpty, reason: '5000 > 4999');
-      await f.repo.setProductAlertSettings(
+      await f.repo.setProductAlertSettingsWithoutPinForTesting(
         f.h.product,
         minStockBase: 5000,
         leadDays: null,
@@ -902,7 +1034,7 @@ void main() {
       expect(a.productsWithoutLevel.map((p) => p.productName), ['Atrazina']);
 
       // Un nivel 0 avisa sólo al agotarse; sin nivel, agotado no avisa.
-      await f.repo.setProductAlertSettings(
+      await f.repo.setProductAlertSettingsWithoutPinForTesting(
         f.h.product,
         minStockBase: 0,
         leadDays: null,
@@ -913,7 +1045,7 @@ void main() {
         (await f.alerts()).lowStock.where((l) => l.line.isTotal),
         hasLength(1),
       );
-      await f.repo.setProductAlertSettings(
+      await f.repo.setProductAlertSettingsWithoutPinForTesting(
         f.h.product,
         minStockBase: null,
         leadDays: null,
@@ -927,7 +1059,7 @@ void main() {
         final f = await _farm();
         await f.buy(f.h.titular, 6000);
         await f.buy(f.h.relative, 2000, day: 3);
-        await f.repo.setProductAlertSettings(
+        await f.repo.setProductAlertSettingsWithoutPinForTesting(
           f.h.product,
           minStockBase: 3000,
           leadDays: null,
@@ -950,7 +1082,7 @@ void main() {
       await f.buy(f.h.titular, 6000);
       await f.buy(f.h.relative, 1000, day: 3);
       await f.h.apply(f.h.relative, f.h.relativeFarm, 1000);
-      await f.repo.setProductAlertSettings(
+      await f.repo.setProductAlertSettingsWithoutPinForTesting(
         f.h.product,
         minStockBase: 2000,
         leadDays: null,
@@ -987,7 +1119,7 @@ void main() {
       await OperationModeStore(f.database)
           .apply(OperationMode.personal, confirmed: true);
       await f.buy(f.h.titular, 1000);
-      await f.repo.setProductAlertSettings(
+      await f.repo.setProductAlertSettingsWithoutPinForTesting(
         f.h.product,
         minStockBase: 2000,
         leadDays: null,
@@ -1023,7 +1155,7 @@ void main() {
           lot: 'BUENO',
           day: 3,
         );
-        await f.repo.setProductAlertSettings(
+        await f.repo.setProductAlertSettingsWithoutPinForTesting(
           f.h.product,
           minStockBase: 5000,
           leadDays: null,
@@ -1055,46 +1187,242 @@ void main() {
       },
     );
 
-    test(
-      'la configuración rechaza valores fuera de rango y no toca existencias',
-      () async {
-        final f = await _farm();
-        await f.buy(f.h.titular, 1000);
-        final db = await f.database.database;
-        final movements = await db.query('inventory_movements');
-        await expectLater(
+    test('configurar exige el PIN del titular una vez para los dos datos; los '
+        'rechazos previos no lo gastan y no tocan existencias', () async {
+      final f = await _farm(withPin: true);
+      await f.buy(f.h.titular, 1000);
+      final db = await f.database.database;
+      final before = await dumpTables(db);
+      final auth = await f.authorizeSettings(f.h.product);
+      Future<void> save(int? min, int? days, OwnerAuthorization a) =>
           f.repo.setProductAlertSettings(
             f.h.product,
-            minStockBase: -1,
-            leadDays: null,
-          ),
-          throwsA(isA<BusinessRuleException>()),
-        );
-        for (final days in [-1, 366]) {
-          await expectLater(
-            f.repo.setProductAlertSettings(
-              f.h.product,
-              minStockBase: null,
-              leadDays: days,
-            ),
-            throwsA(isA<BusinessRuleException>()),
+            minStockBase: min,
+            leadDays: days,
+            authorization: a,
           );
-        }
+      // Fuera de rango (0 a 365 días: rango funcional) o sin cambios: se
+      // rechaza antes de consumir.
+      await expectLater(
+        save(-1, null, auth),
+        throwsA(isA<BusinessRuleException>()),
+      );
+      for (final days in [-1, 366]) {
         await expectLater(
-          f.repo.setProductAlertSettings(999, minStockBase: 1, leadDays: 1),
-          throwsA(isA<BusinessRuleException>()),
+          save(null, days, auth),
+          throwsA(
+            isA<BusinessRuleException>().having(
+              (e) => e.message,
+              'mensaje',
+              'El plazo de aviso debe ser un número entero de días, de 0 '
+                  'a 365.',
+            ),
+          ),
         );
-        await f.repo.setProductAlertSettings(
+      }
+      await expectLater(
+        save(null, null, auth),
+        throwsA(
+          isA<BusinessRuleException>().having(
+            (e) => e.message,
+            'mensaje',
+            'No hay cambios que guardar.',
+          ),
+        ),
+      );
+      // Otra acción u otro producto: la autorización no corresponde.
+      await expectLater(
+        save(0, 0, await f.authorize(1)),
+        throwsA(isA<OwnerAuthorizationRejected>()),
+      );
+      await expectLater(
+        f.repo.setProductAlertSettings(
+          f.herbicide,
+          minStockBase: 1,
+          leadDays: 1,
+          authorization: auth,
+        ),
+        throwsA(isA<OwnerAuthorizationRejected>()),
+      );
+      await expectLater(
+        f.repo.setProductAlertSettings(
+          999,
+          minStockBase: 1,
+          leadDays: 1,
+          authorization: await f.authorizeSettings(999),
+        ),
+        throwsA(isA<BusinessRuleException>()),
+      );
+      expect(await dumpTables(db), before);
+      // La misma autorización guarda los dos datos de una vez...
+      await save(0, 365, auth);
+      final settings = await f.repo.productAlertSettings(f.h.product);
+      expect(settings.minStockBase, 0);
+      expect(settings.leadDays, 365);
+      // ...y no vale otra vez.
+      await expectLater(
+        save(1, 0, auth),
+        throwsA(
+          isA<OwnerAuthorizationRejected>().having(
+            (e) => e.reason,
+            'motivo',
+            'La autorización ya se usó.',
+          ),
+        ),
+      );
+      await save(1, 0, await f.authorizeSettings(f.h.product));
+      expect((await f.repo.productAlertSettings(f.h.product)).leadDays, 0);
+      // Sólo cambió la configuración del producto.
+      final after = await dumpTables(db);
+      for (final table in before.keys.where((t) => t != 'products')) {
+        expect(after[table], before[table], reason: table);
+      }
+    });
+
+    test('sin PIN configurado no se puede cambiar la configuración', () async {
+      final f = await _farm();
+      final foreign = await TestOwnerPin.enrolled(
+        const OwnerBindingContext(bindingId: 77, personId: 77, scope: memberA),
+      );
+      final auth = await foreign.credential.verify(
+        pin: '284917',
+        purpose: AuthorizationPurpose.configureProductAlerts,
+        subjectRef: AgroRepository.productAlertsSubjectRef(f.h.product),
+        binding: foreign.binding,
+      );
+      await expectLater(
+        f.repo.setProductAlertSettings(
           f.h.product,
-          minStockBase: 0,
-          leadDays: 0,
-        );
-        final settings = await f.repo.productAlertSettings(f.h.product);
-        expect(settings.minStockBase, 0);
-        expect(settings.leadDays, 0);
-        expect(await db.query('inventory_movements'), movements);
-      },
-    );
+          minStockBase: 1,
+          leadDays: null,
+          authorization: auth,
+        ),
+        throwsA(isA<OwnerAuthorizationRejected>()),
+      );
+      expect(
+        (await f.repo.productAlertSettings(f.h.product)).minStockBase,
+        isNull,
+      );
+    });
+
+    test('configuración: un fallo después de consumir no guarda nada y la '
+        'autorización no se reutiliza', () async {
+      final f = await _farm(withPin: true);
+      final db = await f.database.database;
+      await db.execute(
+        'CREATE TRIGGER t_fail BEFORE UPDATE OF min_stock_base ON products '
+        "BEGIN SELECT RAISE(ABORT, 'fallo simulado'); END",
+      );
+      final before = await dumpTables(db);
+      final auth = await f.authorizeSettings(f.h.product);
+      await expectLater(
+        f.repo.setProductAlertSettings(
+          f.h.product,
+          minStockBase: 2000,
+          leadDays: 10,
+          authorization: auth,
+        ),
+        throwsA(isA<AuthorizedChangeNotSaved>()),
+      );
+      expect(await dumpTables(db), before);
+      await db.execute('DROP TRIGGER t_fail');
+      await expectLater(
+        f.repo.setProductAlertSettings(
+          f.h.product,
+          minStockBase: 2000,
+          leadDays: 10,
+          authorization: auth,
+        ),
+        throwsA(isA<OwnerAuthorizationRejected>()),
+      );
+      expect(
+        (await f.repo.productAlertSettings(f.h.product)).minStockBase,
+        isNull,
+      );
+    });
+
+    test('un producto archivado no avisa de existencia baja; sus lotes con '
+        'cantidad siguen avisando del vencimiento', () async {
+      final f = await _farm();
+      await f.buy(
+        f.h.titular,
+        1000,
+        product: f.herbicide,
+        expiry: '2026-11-01',
+        lot: 'ARCH',
+      );
+      await f.repo.setProductAlertSettingsWithoutPinForTesting(
+        f.herbicide,
+        minStockBase: 2000,
+        leadDays: null,
+      );
+      var a = await f.alerts();
+      expect(a.lowStock.map((l) => l.line.productName), contains('Atrazina'));
+      await f.repo.archiveCatalog('products', f.herbicide);
+      a = await f.alerts();
+      expect(
+        a.lowStock.map((l) => l.line.productName),
+        isNot(contains('Atrazina')),
+      );
+      expect(
+        a.productsWithoutLevel.map((p) => p.productName),
+        isNot(contains('Atrazina')),
+      );
+      expect(a.expired.single.lot.lotNumber, 'ARCH');
+      expect(a.expired.single.lot.remainingBase, 1000);
+      expect(a.expired.single.lot.productName, 'Atrazina');
+    });
+  });
+
+  group('«Vence hoy» y el cambio de día local', () {
+    test('vence hoy hasta el último instante del día local; al siguiente, '
+        'vencido', () async {
+      final f = await _farm();
+      await f.buy(f.h.titular, 1000, expiry: '2026-11-10', lot: 'HOY');
+      // Plazo 0: el día anterior no avisa; el mismo día, sí.
+      await f.repo.setProductAlertSettingsWithoutPinForTesting(
+        f.h.product,
+        minStockBase: null,
+        leadDays: 0,
+      );
+      var a = await f.alerts(DateTime(2026, 11, 9, 23, 59, 59, 999));
+      expect([...a.expired, ...a.dueToday, ...a.near], isEmpty);
+      a = await f.alerts(DateTime(2026, 11, 10));
+      expect(a.dueToday.single.lot.lotNumber, 'HOY');
+      expect(a.near, isEmpty);
+      a = await f.alerts(DateTime(2026, 11, 10, 23, 59, 59, 999));
+      expect(a.dueToday.single.lot.lotNumber, 'HOY');
+      expect(a.expired, isEmpty);
+      a = await f.alerts(DateTime(2026, 11, 11));
+      expect(a.dueToday, isEmpty);
+      expect(a.expired.single.lot.lotNumber, 'HOY');
+      expect(a.expired.single.days, 1);
+      // Con el plazo inicial, la víspera es «próximo», no «hoy».
+      await f.repo.setProductAlertSettingsWithoutPinForTesting(
+        f.h.product,
+        minStockBase: null,
+        leadDays: null,
+      );
+      a = await f.alerts(DateTime(2026, 11, 9, 23, 59, 59, 999));
+      expect(a.near.single.days, 1);
+      expect(a.dueToday, isEmpty);
+    });
+
+    test('el día es el local del teléfono, no el UTC', () async {
+      final f = await _farm();
+      await f.buy(f.h.titular, 1000, expiry: '2026-11-10', lot: 'HOY');
+      // El mismo instante, leído como día local: lo que decide es el día
+      // que muestra el teléfono.
+      final instant = DateTime.utc(2026, 11, 10, 12).toLocal();
+      final a = await f.alerts(instant);
+      final local = localDay(instant);
+      expect(a.today, local);
+      expect(
+        a.dueToday.isNotEmpty,
+        local == '2026-11-10',
+        reason: 'hoy local: $local',
+      );
+    });
   });
 
   group('cálculo puro', () {
@@ -1111,14 +1439,17 @@ void main() {
         ),
         ExpiryStatus.expired,
       );
-      expect(
-        classifyExpiry(
-          expiryDay: '2026-03-08',
-          today: '2026-03-08',
-          leadDays: 0,
-        ),
-        ExpiryStatus.near,
-      );
+      // Vence hoy: aparte, también con plazo 0.
+      for (final lead in [0, 30]) {
+        expect(
+          classifyExpiry(
+            expiryDay: '2026-03-08',
+            today: '2026-03-08',
+            leadDays: lead,
+          ),
+          ExpiryStatus.today,
+        );
+      }
       expect(
         classifyExpiry(
           expiryDay: '2026-03-09',

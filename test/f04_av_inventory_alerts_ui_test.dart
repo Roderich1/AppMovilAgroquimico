@@ -118,6 +118,30 @@ void main() {
       findsOneWidget,
     );
     await tapKey(tester, 'purchase-lot-data-0');
+    // Más de 100 caracteres: se conserva lo escrito, se señala y no se
+    // puede seguir a la revisión.
+    await tester.enterText(
+      find.byKey(const Key('purchase-lot-number-0')),
+      'L' * 101,
+    );
+    await settle(tester);
+    expect(find.text('101/100'), findsOneWidget);
+    await tapKey(tester, 'purchase-continue');
+    expect(find.byKey(const Key('purchase-review-lot-0')), findsNothing);
+    expect(
+      find.text(
+        'Glifosato: El número de lote admite hasta 100 caracteres; tiene '
+        '101. Revise lo escrito: no se recorta.',
+      ),
+      findsOneWidget,
+    );
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const Key('purchase-lot-number-0')))
+          .controller!
+          .text,
+      'L' * 101,
+    );
     await tester.enterText(
       find.byKey(const Key('purchase-lot-number-0')),
       '  GLI-77 ',
@@ -213,6 +237,30 @@ void main() {
           .onPressed,
       isNull,
     );
+    // Un número de 101 caracteres no se recorta: se señala y no deja seguir.
+    await tester.enterText(find.byKey(const Key('lot-data-number')), 'X' * 101);
+    await tester.pump();
+    expect(
+      find.text(
+        'El número de lote admite hasta 100 caracteres; tiene 101. Revise '
+        'lo escrito: no se recorta.',
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('101/100'), findsOneWidget);
+    expect(
+      tester
+          .widget<TextField>(find.byKey(const Key('lot-data-number')))
+          .controller!
+          .text,
+      'X' * 101,
+    );
+    expect(
+      tester
+          .widget<FilledButton>(find.byKey(const Key('lot-data-save')))
+          .onPressed,
+      isNull,
+    );
     await tester.enterText(find.byKey(const Key('lot-data-number')), 'L-9');
     await tester.pump();
     await tapKey(tester, 'lot-data-save');
@@ -292,7 +340,14 @@ void main() {
     await tester.runAsync(
       () => buy(AgroRepository(s.database), h, h.titular, 5000),
     );
-    final c = await pumpModeApp(tester, s.database);
+    final credential = await titularPin(tester, s);
+    final c = await pumpModeApp(
+      tester,
+      s.database,
+      extraOverrides: [
+        localOwnerCredentialProvider.overrideWithValue(credential),
+      ],
+    );
     c.read(routerProvider).push('/inventario/${h.product}');
     await waitFor(tester, find.byKey(const Key('inventory-alert-settings')));
     expect(
@@ -312,7 +367,28 @@ void main() {
       findsOneWidget,
     );
 
+    Future<Row> product() async => (await rows(
+      tester,
+      s.database,
+      'products',
+    )).firstWhere((p) => p['id'] == h.product);
+    Future<void> enterPin() async {
+      await waitFor(tester, find.byKey(const Key('owner-pin-input')));
+      await tester.enterText(
+        find.byKey(const Key('owner-pin-input')),
+        '284917',
+      );
+      await tapKey(tester, 'owner-pin-submit');
+    }
+
     await tapKey(tester, 'inventory-alert-settings-edit');
+    // Sin cambios no se guarda nada ni se pide el PIN.
+    expect(
+      tester
+          .widget<FilledButton>(find.byKey(const Key('alert-settings-save')))
+          .onPressed,
+      isNull,
+    );
     await tester.enterText(
       find.byKey(const Key('alert-settings-minimum')),
       '2,5',
@@ -325,31 +401,57 @@ void main() {
     );
     await tester.enterText(find.byKey(const Key('alert-settings-days')), '10');
     await tapKey(tester, 'alert-settings-save');
+    // Un solo PIN para los dos datos, con lo que cambia a la vista.
+    await waitFor(tester, find.byKey(const Key('owner-pin-input')));
+    expect(
+      find.textContaining(
+        'Nivel mínimo: sin nivel mínimo → 2,5 L. Aviso de vencimiento: 30 '
+        'días (valor inicial) → 10 días.',
+      ),
+      findsOneWidget,
+    );
+    // Cancelar en el PIN no cambia nada.
+    await tester.tap(find.widgetWithText(TextButton, 'Cancelar'));
+    await settle(tester);
+    expect(find.byKey(const Key('owner-pin-input')), findsNothing);
+    expect((await product())['min_stock_base'], isNull);
+    expect((await product())['alert_lead_days'], isNull);
+    expect(
+      find.text('Sin nivel mínimo: no se avisa cuando queda poco.'),
+      findsOneWidget,
+    );
+    // Cancelar el diálogo de valores tampoco.
+    await tapKey(tester, 'inventory-alert-settings-edit');
+    await tester.enterText(find.byKey(const Key('alert-settings-days')), '7');
+    await tester.tap(find.widgetWithText(TextButton, 'Cancelar'));
+    await settle(tester);
+    expect(find.byKey(const Key('owner-pin-input')), findsNothing);
+    expect((await product())['alert_lead_days'], isNull);
+
+    await tapKey(tester, 'inventory-alert-settings-edit');
+    await tester.enterText(
+      find.byKey(const Key('alert-settings-minimum')),
+      '2,5',
+    );
+    await tester.enterText(find.byKey(const Key('alert-settings-days')), '10');
+    await tapKey(tester, 'alert-settings-save');
+    await enterPin();
     await waitFor(tester, find.textContaining('Nivel mínimo: 2,5 L.'));
     expect(find.text('Aviso de vencimiento: 10 días antes.'), findsOneWidget);
-    var product = (await rows(
-      tester,
-      s.database,
-      'products',
-    )).firstWhere((p) => p['id'] == h.product);
-    expect(product['min_stock_base'], 2500);
-    expect(product['alert_lead_days'], 10);
+    expect((await product())['min_stock_base'], 2500);
+    expect((await product())['alert_lead_days'], 10);
 
     await tapKey(tester, 'inventory-alert-settings-edit');
     await tester.enterText(find.byKey(const Key('alert-settings-minimum')), '');
     await tester.enterText(find.byKey(const Key('alert-settings-days')), '');
     await tapKey(tester, 'alert-settings-save');
+    await enterPin();
     await waitFor(
       tester,
       find.text('Sin nivel mínimo: no se avisa cuando queda poco.'),
     );
-    product = (await rows(
-      tester,
-      s.database,
-      'products',
-    )).firstWhere((p) => p['id'] == h.product);
-    expect(product['min_stock_base'], isNull);
-    expect(product['alert_lead_days'], isNull);
+    expect((await product())['min_stock_base'], isNull);
+    expect((await product())['alert_lead_days'], isNull);
   });
 
   testWidgets('existencia baja: el total en su sección y el cero de un '
@@ -395,12 +497,12 @@ void main() {
         ),
       );
       await buyOf(atrazina, h.titular, 1000);
-      await repo.setProductAlertSettings(
+      await repo.setProductAlertSettingsWithoutPinForTesting(
         mancozeb,
         minStockBase: 2000,
         leadDays: null,
       );
-      await repo.setProductAlertSettings(
+      await repo.setProductAlertSettingsWithoutPinForTesting(
         atrazina,
         minStockBase: 2000,
         leadDays: null,
@@ -459,7 +561,8 @@ void main() {
       await buy(repo, h, h.titular, 3000, expiry: yesterday, lot: 'VIEJO');
       await buy(repo, h, h.titular, 2000, expiry: in10, lot: 'PRONTO', day: 3);
       await buy(repo, h, h.relative, 1000, day: 4);
-      await repo.setProductAlertSettings(
+      await buy(repo, h, h.titular, 1000, expiry: today, lot: 'HOY', day: 5);
+      await repo.setProductAlertSettingsWithoutPinForTesting(
         h.product,
         minStockBase: 2000,
         leadDays: null,
@@ -474,7 +577,7 @@ void main() {
     await waitFor(tester, find.textContaining('1 vencido'));
     expect(
       find.text(
-        '1 vencido · 1 por vencer · 1 bajo por responsable · '
+        '1 vencido · 1 vence hoy · 1 por vencer · 1 bajo por responsable · '
         '1 sin fecha registrada',
       ),
       findsOneWidget,
@@ -490,6 +593,27 @@ void main() {
       ),
       findsOneWidget,
     );
+    // Vence hoy: sección propia, destacada, entre vencidos y próximos.
+    expect(find.text('Vence hoy (1)'), findsOneWidget);
+    expect(
+      find.text('Vence hoy, ${displayDay(today)} · Quedan 1 L · Titular'),
+      findsOneWidget,
+    );
+    final todayCard = tester.widget<Card>(
+      find.descendant(
+        of: find.byKey(const Key('alerts-today')),
+        matching: find.byType(Card),
+      ),
+    );
+    expect(todayCard.color, isNotNull);
+    expect(
+      tester.getTopLeft(find.byKey(const Key('alerts-expired'))).dy,
+      lessThan(tester.getTopLeft(find.byKey(const Key('alerts-today'))).dy),
+    );
+    expect(
+      tester.getTopLeft(find.byKey(const Key('alerts-today'))).dy,
+      lessThan(tester.getTopLeft(find.byKey(const Key('alerts-near'))).dy),
+    );
     expect(find.text('Próximos a vencer (1)'), findsOneWidget);
     expect(
       find.text(
@@ -498,14 +622,14 @@ void main() {
       ),
       findsOneWidget,
     );
-    // Total 6 L > 2 L: sin aviso; Hermana 1 L ≤ 2 L: aviso; Titular 5 L no.
+    // Total 7 L > 2 L: sin aviso; Hermana 1 L ≤ 2 L: aviso; Titular 6 L no.
     // Total y responsables van en secciones distintas.
     expect(find.byKey(const Key('alerts-low')), findsNothing);
     expect(find.text('Existencia baja por responsable (1)'), findsOneWidget);
     expect(find.text('Glifosato · Hermana (responsable)'), findsOneWidget);
     expect(
       find.text(
-        'Hermana tiene 1 L; nivel mínimo 2 L. En toda la instalación: 6 L',
+        'Hermana tiene 1 L; nivel mínimo 2 L. En toda la instalación: 7 L',
       ),
       findsOneWidget,
     );

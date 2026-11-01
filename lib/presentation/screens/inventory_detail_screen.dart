@@ -2,13 +2,17 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app.dart';
+import '../../data/agro_repository.dart' show AgroRepository;
 import '../../data/app_database.dart';
 import '../../domain/campaign_calendar.dart';
 import '../../domain/inventory_alerts.dart';
 import '../../domain/money.dart';
 import '../../domain/operation_mode.dart';
 import '../../operation_mode_controller.dart';
+import '../../services/auth/local_owner_credential.dart'
+    show AuthorizationPurpose;
 import '../widgets/common.dart';
+import 'owner_credential_screen.dart' show requestOwnerAuthorization;
 
 typedef _InventoryDetail = ({
   Map<String, Object?> header,
@@ -55,22 +59,43 @@ class _InventoryDetailScreenState extends ConsumerState<InventoryDetailScreen> {
     );
   }
 
-  /// Configura el nivel mínimo y el plazo de aviso (RF-44). Sólo cambia esa
-  /// configuración; no toca existencias ni operaciones.
+  /// Configura el nivel mínimo y el plazo de aviso (RF-44). Corresponde al
+  /// titular: primero los dos valores y, al guardar, su PIN una sola vez
+  /// (decisión del autor del 2026-11-01). Cancelar en cualquier paso no
+  /// cambia nada. Sólo cambia esa configuración; no toca existencias ni
+  /// operaciones.
   Future<void> _configureAlerts(ProductAlertSettings current) async {
     final result = await showDialog<({int? minStockBase, int? leadDays})>(
       context: context,
       builder: (_) => AlertSettingsDialog(current: current),
     );
     if (result == null || !mounted) return;
+    final repo = ref.read(repositoryProvider);
+    String min(int? v) =>
+        v == null ? 'sin nivel mínimo' : formatQuantity(v, current.unit);
+    String lead(int? v) => v == null
+        ? '${AppDatabase.defaultAlertLeadDays} días (valor inicial)'
+        : (v == 1 ? '1 día' : '$v días');
+    final authorization = await requestOwnerAuthorization(
+      context,
+      ref,
+      purpose: AuthorizationPurpose.configureProductAlerts,
+      subjectRef: AgroRepository.productAlertsSubjectRef(widget.productId),
+      title: 'Avisos de ${current.productName}',
+      effects:
+          'Nivel mínimo: ${min(current.minStockBase)} → '
+          '${min(result.minStockBase)}. Aviso de vencimiento: '
+          '${lead(current.leadDays)} → ${lead(result.leadDays)}. Sólo cambia '
+          'cuándo se avisa: las existencias no cambian.',
+    );
+    if (authorization == null || !mounted) return;
     try {
-      await ref
-          .read(repositoryProvider)
-          .setProductAlertSettings(
-            widget.productId,
-            minStockBase: result.minStockBase,
-            leadDays: result.leadDays,
-          );
+      await repo.setProductAlertSettings(
+        widget.productId,
+        minStockBase: result.minStockBase,
+        leadDays: result.leadDays,
+        authorization: authorization,
+      );
       if (!mounted) return;
       showSuccess(context, 'Se guardaron los avisos de este producto.');
       final next = _load();
@@ -391,6 +416,8 @@ class _AlertSettingsDialogState extends State<AlertSettingsDialog> {
     days = TextEditingController(
       text: widget.current.leadDays?.toString() ?? '',
     );
+    _initialMinimum = minimum.text;
+    _initialDays = days.text;
   }
 
   @override
@@ -399,6 +426,14 @@ class _AlertSettingsDialogState extends State<AlertSettingsDialog> {
     days.dispose();
     super.dispose();
   }
+
+  /// Algo distinto de lo guardado. Sin cambios no se pide el PIN.
+  bool get _changed =>
+      minimum.text.trim() != _initialMinimum ||
+      days.text.trim() != _initialDays;
+
+  late final String _initialMinimum;
+  late final String _initialDays;
 
   void _save() {
     int? minBase;
@@ -415,8 +450,12 @@ class _AlertSettingsDialogState extends State<AlertSettingsDialog> {
     }
     if (days.text.trim().isNotEmpty) {
       final parsed = int.tryParse(days.text.trim());
-      if (parsed == null || parsed < 0 || parsed > 365) {
-        dayError = 'Escriba un número entero de días, de 0 a 365.';
+      if (parsed == null ||
+          parsed < 0 ||
+          parsed > AgroRepository.maxAlertLeadDays) {
+        dayError =
+            'Escriba un número entero de días, de 0 a '
+            '${AgroRepository.maxAlertLeadDays}.';
       } else {
         leadDays = parsed;
       }
@@ -426,6 +465,12 @@ class _AlertSettingsDialogState extends State<AlertSettingsDialog> {
         minimumError = minError;
         daysError = dayError;
       });
+      return;
+    }
+    // «2» y «2,0» son el mismo nivel: sin cambio real no se pide el PIN.
+    if (minBase == widget.current.minStockBase &&
+        leadDays == widget.current.leadDays) {
+      Navigator.pop(context);
       return;
     }
     Navigator.pop(context, (minStockBase: minBase, leadDays: leadDays));
@@ -442,7 +487,9 @@ class _AlertSettingsDialogState extends State<AlertSettingsDialog> {
             key: const Key('alert-settings-minimum'),
             controller: minimum,
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            onChanged: (_) => setState(() => minimumError = null),
+            onChanged: (_) => setState(() {
+              minimumError = null;
+            }),
             decoration: InputDecoration(
               labelText: 'Nivel mínimo (${widget.current.unit})',
               helperText:
@@ -458,12 +505,14 @@ class _AlertSettingsDialogState extends State<AlertSettingsDialog> {
             key: const Key('alert-settings-days'),
             controller: days,
             keyboardType: TextInputType.number,
-            onChanged: (_) => setState(() => daysError = null),
+            onChanged: (_) => setState(() {
+              daysError = null;
+            }),
             decoration: InputDecoration(
               labelText: 'Avisar días antes del vencimiento',
               helperText:
-                  'Vacío: ${AppDatabase.defaultAlertLeadDays} días (valor '
-                  'inicial).',
+                  'De 0 a ${AgroRepository.maxAlertLeadDays} días. Vacío: '
+                  '${AppDatabase.defaultAlertLeadDays} días (valor inicial).',
               helperMaxLines: 3,
               errorText: daysError,
               errorMaxLines: 3,
@@ -471,8 +520,9 @@ class _AlertSettingsDialogState extends State<AlertSettingsDialog> {
           ),
           const SizedBox(height: 12),
           Text(
-            'Los avisos no cambian sus existencias ni impiden registrar '
-            'operaciones.',
+            'Al guardar se pide el PIN del titular, una vez para los dos '
+            'datos. Los avisos no cambian sus existencias ni impiden '
+            'registrar operaciones.',
             style: Theme.of(context).textTheme.bodySmall,
           ),
         ],
@@ -485,7 +535,7 @@ class _AlertSettingsDialogState extends State<AlertSettingsDialog> {
       ),
       FilledButton(
         key: const Key('alert-settings-save'),
-        onPressed: _save,
+        onPressed: _changed ? _save : null,
         child: const Text('Guardar'),
       ),
     ],

@@ -99,7 +99,7 @@ String expiryPhrase(LotExpiryAlert alert) {
   return switch (alert.status) {
     ExpiryStatus.expired =>
       'Venció el ${displayDay(day)}, hace ${_daysText(days)}',
-    _ when days == 0 => 'Vence hoy, ${displayDay(day)}',
+    ExpiryStatus.today => 'Vence hoy, ${displayDay(day)}',
     _ => 'Vence el ${displayDay(day)}, en ${_daysText(days)}',
   };
 }
@@ -119,6 +119,7 @@ class _AlertsBody extends StatelessWidget {
     final a = alerts;
     final nothing =
         a.expired.isEmpty &&
+        a.dueToday.isEmpty &&
         a.near.isEmpty &&
         a.lowStock.isEmpty &&
         a.unknownDate.isEmpty;
@@ -151,6 +152,25 @@ class _AlertsBody extends StatelessWidget {
           help: 'Lotes con producto cuya fecha de vencimiento ya pasó.',
           children: [
             for (final alert in a.expired)
+              _LotTile(
+                alert: alert,
+                shared: a.shared,
+                urgent: true,
+                onOpen: onOpenProduct,
+              ),
+          ],
+        ),
+        // Destacado y aparte de los próximos: hoy todavía no está vencido,
+        // mañana sí (decisión del autor del 2026-11-01).
+        _Section(
+          keyName: 'alerts-today',
+          title: 'Vence hoy',
+          help:
+              'Vencen hoy, ${displayDay(a.today)}, según la fecha del '
+              'teléfono. Mañana pasan a vencidos.',
+          highlight: true,
+          children: [
+            for (final alert in a.dueToday)
               _LotTile(
                 alert: alert,
                 shared: a.shared,
@@ -244,11 +264,15 @@ class _Section extends StatelessWidget {
     required this.title,
     required this.help,
     required this.children,
+    this.highlight = false,
   });
   final String keyName;
   final String title;
   final String help;
   final List<Widget> children;
+
+  /// Tarjeta con el color de advertencia del tema.
+  final bool highlight;
 
   @override
   Widget build(BuildContext context) {
@@ -269,7 +293,10 @@ class _Section extends StatelessWidget {
           const SizedBox(height: 4),
           Text(help, style: theme.textTheme.bodySmall),
           const SizedBox(height: 8),
-          Card(child: Column(children: children)),
+          Card(
+            color: highlight ? theme.colorScheme.tertiaryContainer : null,
+            child: Column(children: children),
+          ),
         ],
       ),
     );
@@ -299,6 +326,7 @@ class _LotTile extends StatelessWidget {
       key: Key('alert-lot-${lot.lotId}'),
       leading: Icon(switch (alert.status) {
         ExpiryStatus.expired => Icons.error_outline,
+        ExpiryStatus.today => Icons.warning_amber_rounded,
         ExpiryStatus.near => Icons.event_outlined,
         _ => Icons.help_outline,
       }, color: urgent ? Theme.of(context).colorScheme.error : null),
@@ -370,6 +398,9 @@ String inventoryAlertsSummary(InventoryAlerts alerts) {
     if (alerts.expired.isNotEmpty)
       '${alerts.expired.length} '
           '${alerts.expired.length == 1 ? 'vencido' : 'vencidos'}',
+    if (alerts.dueToday.isNotEmpty)
+      '${alerts.dueToday.length} '
+          '${alerts.dueToday.length == 1 ? 'vence' : 'vencen'} hoy',
     if (alerts.near.isNotEmpty) '${alerts.near.length} por vencer',
     // Total y responsables por separado (decisión del 2026-11-01).
     if (lowTotal > 0)

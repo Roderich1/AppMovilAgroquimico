@@ -14,6 +14,7 @@ import '../../domain/models.dart';
 import '../../domain/money.dart';
 import '../widgets/common.dart';
 import '../widgets/owner_reversal_flow.dart';
+import 'purchase_form_screen.dart' show lotNumberCounter;
 import '../../services/auth/local_owner_credential.dart'
     show AuthorizationPurpose;
 
@@ -468,6 +469,9 @@ class _LotDataDialogState extends State<_LotDataDialog> {
     text: (widget.item['lot_number'] as String?) ?? '',
   );
 
+  String? get _lengthError =>
+      AgroRepository.lotNumberLengthError(lotNumber.text);
+
   bool get _changed {
     final number = lotNumber.text.trim();
     return expiryDay != widget.item['expiry_date'] ||
@@ -530,13 +534,16 @@ class _LotDataDialogState extends State<_LotDataDialog> {
             ],
           ),
           const SizedBox(height: 10),
+          // Sin maxLength: lo pegado no se recorta; el exceso se señala.
           TextField(
             key: const Key('lot-data-number'),
             controller: lotNumber,
             onChanged: (_) => setState(() {}),
-            maxLength: 40,
-            decoration: const InputDecoration(
+            decoration: InputDecoration(
               labelText: 'Número de lote (opcional)',
+              counterText: lotNumberCounter(lotNumber.text),
+              errorText: _lengthError,
+              errorMaxLines: 3,
             ),
           ),
           const SizedBox(height: 12),
@@ -557,8 +564,9 @@ class _LotDataDialogState extends State<_LotDataDialog> {
       ),
       FilledButton(
         key: const Key('lot-data-save'),
-        // Sin cambios no se sigue: no se pide motivo ni PIN para nada.
-        onPressed: !_changed
+        // Sin cambios, o con un número demasiado largo, no se sigue: no se
+        // pide motivo ni PIN para nada.
+        onPressed: !_changed || _lengthError != null
             ? null
             : () {
                 final number = lotNumber.text.trim();
