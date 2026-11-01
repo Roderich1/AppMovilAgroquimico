@@ -406,6 +406,9 @@ class _AlertSettingsDialogState extends State<AlertSettingsDialog> {
   String? minimumError;
   String? daysError;
 
+  /// Se escribió algo distinto, pero con el mismo valor («2,5» y «2,50»).
+  bool sameValues = false;
+
   @override
   void initState() {
     super.initState();
@@ -449,7 +452,11 @@ class _AlertSettingsDialogState extends State<AlertSettingsDialog> {
       }
     }
     if (days.text.trim().isNotEmpty) {
-      final parsed = int.tryParse(days.text.trim());
+      // Sólo dígitos: int.tryParse aceptaría «0x10» o «+5».
+      final text = days.text.trim();
+      final parsed = RegExp(r'^\d{1,3}$').hasMatch(text)
+          ? int.parse(text)
+          : null;
       if (parsed == null ||
           parsed < 0 ||
           parsed > AgroRepository.maxAlertLeadDays) {
@@ -470,7 +477,7 @@ class _AlertSettingsDialogState extends State<AlertSettingsDialog> {
     // «2» y «2,0» son el mismo nivel: sin cambio real no se pide el PIN.
     if (minBase == widget.current.minStockBase &&
         leadDays == widget.current.leadDays) {
-      Navigator.pop(context);
+      setState(() => sameValues = true);
       return;
     }
     Navigator.pop(context, (minStockBase: minBase, leadDays: leadDays));
@@ -489,6 +496,7 @@ class _AlertSettingsDialogState extends State<AlertSettingsDialog> {
             keyboardType: const TextInputType.numberWithOptions(decimal: true),
             onChanged: (_) => setState(() {
               minimumError = null;
+              sameValues = false;
             }),
             decoration: InputDecoration(
               labelText: 'Nivel mínimo (${widget.current.unit})',
@@ -507,6 +515,7 @@ class _AlertSettingsDialogState extends State<AlertSettingsDialog> {
             keyboardType: TextInputType.number,
             onChanged: (_) => setState(() {
               daysError = null;
+              sameValues = false;
             }),
             decoration: InputDecoration(
               labelText: 'Avisar días antes del vencimiento',
@@ -518,6 +527,15 @@ class _AlertSettingsDialogState extends State<AlertSettingsDialog> {
               errorMaxLines: 3,
             ),
           ),
+          if (sameValues)
+            Padding(
+              padding: const EdgeInsets.only(top: 12),
+              child: Text(
+                'No hay cambios que guardar: los valores son los mismos.',
+                key: const Key('alert-settings-same'),
+                style: TextStyle(color: Theme.of(context).colorScheme.error),
+              ),
+            ),
           const SizedBox(height: 12),
           Text(
             'Al guardar se pide el PIN del titular, una vez para los dos '

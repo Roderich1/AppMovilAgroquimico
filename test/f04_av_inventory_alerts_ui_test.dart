@@ -18,6 +18,8 @@ import 'package:agroquimicos/domain/campaign_calendar.dart';
 import 'package:agroquimicos/domain/models.dart';
 import 'package:agroquimicos/domain/operation_mode.dart';
 import 'package:agroquimicos/presentation/widgets/adaptive_entity_picker.dart';
+import 'package:agroquimicos/presentation/widgets/common.dart'
+    show friendlyError;
 import 'package:agroquimicos/services/auth/local_owner_credential.dart';
 import 'package:agroquimicos/services/auth/local_owner_credential_providers.dart';
 import 'package:flutter/material.dart';
@@ -440,6 +442,36 @@ void main() {
     expect(find.text('Aviso de vencimiento: 10 días antes.'), findsOneWidget);
     expect((await product())['min_stock_base'], 2500);
     expect((await product())['alert_lead_days'], 10);
+
+    // Otro texto con el mismo valor: se avisa y no se pide el PIN.
+    await tapKey(tester, 'inventory-alert-settings-edit');
+    await tester.enterText(
+      find.byKey(const Key('alert-settings-minimum')),
+      '2,50',
+    );
+    await tapKey(tester, 'alert-settings-save');
+    expect(find.byKey(const Key('alert-settings-same')), findsOneWidget);
+    expect(find.byKey(const Key('owner-pin-input')), findsNothing);
+    // «0x10» no es un número de días.
+    await tester.enterText(
+      find.byKey(const Key('alert-settings-days')),
+      '0x10',
+    );
+    await tapKey(tester, 'alert-settings-save');
+    expect(
+      find.text('Escriba un número entero de días, de 0 a 365.'),
+      findsOneWidget,
+    );
+    await tester.tap(find.widgetWithText(TextButton, 'Cancelar'));
+    await settle(tester);
+    expect((await product())['alert_lead_days'], 10);
+    // El rechazo de una autorización se lee sin el nombre de la clase.
+    expect(
+      friendlyError(
+        const OwnerAuthorizationRejected('La autorización ya se usó.'),
+      ),
+      'La autorización ya se usó.',
+    );
 
     await tapKey(tester, 'inventory-alert-settings-edit');
     await tester.enterText(find.byKey(const Key('alert-settings-minimum')), '');

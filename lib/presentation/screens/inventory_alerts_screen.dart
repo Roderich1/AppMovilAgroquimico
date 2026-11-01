@@ -271,7 +271,8 @@ class _Section extends StatelessWidget {
   final String help;
   final List<Widget> children;
 
-  /// Tarjeta con el color de advertencia del tema.
+  /// Tarjeta en ámbar, de advertencia: distinta de los próximos (sin color)
+  /// y de los vencidos (en rojo).
   final bool highlight;
 
   @override
@@ -294,7 +295,11 @@ class _Section extends StatelessWidget {
           Text(help, style: theme.textTheme.bodySmall),
           const SizedBox(height: 8),
           Card(
-            color: highlight ? theme.colorScheme.tertiaryContainer : null,
+            color: highlight
+                ? (theme.brightness == Brightness.dark
+                      ? Colors.amber.shade900
+                      : Colors.amber.shade100)
+                : null,
             child: Column(children: children),
           ),
         ],

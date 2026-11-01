@@ -552,8 +552,7 @@ void main() {
       },
     );
 
-    test('un rechazo previo (sin cambios, sin procedencia, revertida) no gasta '
-        'la autorización', () async {
+    test('un rechazo previo (sin cambios) no gasta la autorización', () async {
       final f = await _farm(withPin: true);
       await f.buy(f.h.titular, 5000, lot: 'A');
       final item = _purchaseItemOf(await f.lots(), 0);
@@ -1279,7 +1278,8 @@ void main() {
       }
     });
 
-    test('sin PIN configurado no se puede cambiar la configuración', () async {
+    test('sin titular vinculado no vale la autorización de otra '
+        'credencial', () async {
       final f = await _farm();
       final foreign = await TestOwnerPin.enrolled(
         const OwnerBindingContext(bindingId: 77, personId: 77, scope: memberA),
@@ -1297,7 +1297,13 @@ void main() {
           leadDays: null,
           authorization: auth,
         ),
-        throwsA(isA<OwnerAuthorizationRejected>()),
+        throwsA(
+          isA<OwnerAuthorizationRejected>().having(
+            (e) => e.reason,
+            'motivo',
+            contains('El titular de estos datos cambió'),
+          ),
+        ),
       );
       expect(
         (await f.repo.productAlertSettings(f.h.product)).minStockBase,
@@ -1411,17 +1417,19 @@ void main() {
     test('el día es el local del teléfono, no el UTC', () async {
       final f = await _farm();
       await f.buy(f.h.titular, 1000, expiry: '2026-11-10', lot: 'HOY');
-      // El mismo instante, leído como día local: lo que decide es el día
-      // que muestra el teléfono.
-      final instant = DateTime.utc(2026, 11, 10, 12).toLocal();
-      final a = await f.alerts(instant);
-      final local = localDay(instant);
-      expect(a.today, local);
-      expect(
-        a.dueToday.isNotEmpty,
-        local == '2026-11-10',
-        reason: 'hoy local: $local',
-      );
+      // A las 00:30 y a las 23:30 del día local: en una zona con desfase,
+      // uno de los dos instantes cae en otro día UTC. Si se usara el día UTC,
+      // fallaría (en UTC las dos lecturas coinciden y la prueba no
+      // distingue).
+      for (final instant in [
+        DateTime(2026, 11, 10, 0, 30),
+        DateTime(2026, 11, 10, 23, 30),
+      ]) {
+        final a = await f.alerts(instant);
+        expect(a.today, '2026-11-10', reason: '$instant');
+        expect(a.dueToday.single.lot.lotNumber, 'HOY', reason: '$instant');
+        expect(a.expired, isEmpty, reason: '$instant');
+      }
     });
   });
 

@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart'
-    show Database, DatabaseExecutor, Sqflite, Transaction;
+    show Database, DatabaseException, DatabaseExecutor, Sqflite, Transaction;
 
 import 'package:flutter/foundation.dart' show visibleForTesting;
 
@@ -20,6 +20,7 @@ import '../domain/operation_mode.dart';
 import '../domain/person_roles.dart';
 import 'account_ledger_query.dart';
 import 'app_database.dart';
+import 'app_log.dart';
 import 'farmer_operation_gate.dart';
 import 'invoice_storage.dart';
 import 'operation_mode_store.dart';
@@ -3749,11 +3750,12 @@ class AgroRepository {
   /// justo antes.
   ///
   /// Distingue dos fallos. Lo que [body] rechace antes de llamar a `consume`
-  /// (validaciones) sale tal cual y deja la autorización sin gastar. Si algo
-  /// falla después de consumirla, en la escritura o al confirmar la
-  /// transacción, no queda nada escrito, la autorización sigue gastada (no se
-  /// reutiliza) y sale [AuthorizedChangeNotSaved]. Un rechazo de
-  /// `consumeOwnerAuthorization` es de antes del consumo: sale tal cual.
+  /// (validaciones) sale tal cual y deja la autorización sin gastar. Si la
+  /// escritura falla dentro de la transacción después de consumirla, la
+  /// transacción se deshace, la autorización sigue gastada (no se reutiliza)
+  /// y sale [AuthorizedChangeNotSaved]; la causa técnica queda en el registro
+  /// local. Un rechazo de `consumeOwnerAuthorization` es de antes del
+  /// consumo: sale tal cual.
   Future<T> _writeAuthorized<T>(
     Future<T> Function(
       Transaction txn,
@@ -3780,6 +3782,13 @@ class AgroRepository {
       );
     } catch (error, stack) {
       if (!consumed) rethrow;
+      // Sólo el tipo y el código: el texto de SQLite puede llevar datos.
+      AppLog.error(
+        'Cambio autorizado con PIN no guardado tras consumir la '
+        'autorización; causa: ${error.runtimeType}'
+        '${error is DatabaseException ? ' (código ${error.getResultCode()})' : ''}',
+        stackTrace: stack,
+      );
       Error.throwWithStackTrace(AuthorizedChangeNotSaved(error), stack);
     }
   }
