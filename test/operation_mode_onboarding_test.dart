@@ -139,6 +139,50 @@ void main() {
     });
     final offline = OfflineTransport();
     final c = await pumpModeApp(tester, s.database, transport: offline);
+
+    // Evaluar, guardar, recargar la modalidad y releerla usan E/S real sin
+    // indicador de carga: `settle` no las espera. Se espera a que la pantalla
+    // termine cada paso, con límite y diagnóstico.
+    final consequence = find.byKey(const Key('mode-consequence'));
+    final changeButton = find.byKey(const Key('mode-change'));
+    final current = find.byKey(const Key('mode-current'));
+    bool changing() =>
+        changeButton.evaluate().isNotEmpty &&
+        tester.widget<FilledButton>(changeButton).onPressed == null;
+    String? currentText() =>
+        current.evaluate().isEmpty ? null : tester.widget<Text>(current).data;
+    String screenState() {
+      final notices = [
+        for (final finder in [
+          find.descendant(
+            of: find.byType(SnackBar),
+            matching: find.byType(Text),
+          ),
+          find.descendant(
+            of: find.byKey(const Key('mode-blocked')),
+            matching: find.byType(Text),
+          ),
+        ])
+          for (final element in finder.evaluate())
+            (element.widget as Text).data,
+      ];
+      return 'cambio en curso: ${changing()}; modalidad mostrada: '
+          '${currentText()}; avisos: $notices';
+    }
+
+    // Los teardown corren en orden inverso: éste, antes de desechar el
+    // contenedor del arnés. Si la prueba falla con el guardado a medias
+    // («Cambiar…» inactivo), espera (con límite) a que `_change` termine para
+    // que no lea un contenedor ya desechado. No espera la relectura final.
+    addTearDown(
+      () => waitUntil(
+        tester,
+        'el cambio de modalidad antes de desechar el contenedor',
+        () => !changing(),
+        state: screenState,
+      ),
+    );
+
     final db = await tester.runAsync(() => s.database.database);
     final business = await tester.runAsync(
       () => dumpTables(db!, except: businessOnly),
@@ -148,14 +192,30 @@ void main() {
     c.read(routerProvider).push('/modo');
     await settle(tester);
     expect(find.text('Modalidad actual: inventario propio'), findsOneWidget);
-    await tester.tap(find.byKey(const Key('mode-change')));
-    await settle(tester);
+
+    await tester.tap(changeButton);
+    await waitUntil(
+      tester,
+      'la evaluación del cambio (diálogo de confirmación)',
+      () => consequence.evaluate().isNotEmpty,
+      state: screenState,
+    );
     expect(
       tester.widget<Text>(find.byKey(const Key('mode-consequence'))).data,
       contains('el historial sigue asociado al titular'),
     );
     await tester.tap(find.byKey(const Key('mode-confirm')));
-    await settle(tester);
+    // Terminado: el botón vuelve a estar activo (fin del cambio, bien o mal)
+    // y la modalidad mostrada ya no es la de antes (relectura hecha).
+    await waitUntil(
+      tester,
+      'el cambio de modalidad (guardar, recargar y releer)',
+      () =>
+          !changing() &&
+          currentText() != null &&
+          currentText() != 'Modalidad actual: inventario propio',
+      state: screenState,
+    );
 
     expect(
       find.textContaining('Ahora usa inventario compartido'),

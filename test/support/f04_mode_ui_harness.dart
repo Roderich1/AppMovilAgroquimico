@@ -49,6 +49,31 @@ Future<void> waitFor(WidgetTester tester, Finder finder) async {
   }
 }
 
+/// Como [waitFor], pero para una operación que no muestra indicador de carga
+/// (y que [settle] por eso no espera): avanza hasta que [done] se cumpla y,
+/// si no se cumple en [rounds] vueltas, falla con [what] y [state], en vez de
+/// dejar que la prueba mire antes de tiempo.
+Future<void> waitUntil(
+  WidgetTester tester,
+  String what,
+  bool Function() done, {
+  String Function()? state,
+  int rounds = 150,
+}) async {
+  for (var i = 0; i < rounds && !done(); i++) {
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 20)),
+    );
+    await tester.pump(const Duration(milliseconds: 20));
+  }
+  if (!done()) {
+    fail(
+      'No terminó $what en $rounds vueltas'
+      '${state == null ? '' : ': ${state()}'}.',
+    );
+  }
+}
+
 /// Avanza con E/S real (sqflite) hasta que no queden indicadores de carga.
 Future<void> settle(WidgetTester tester) async {
   for (var i = 0; i < 40; i++) {
