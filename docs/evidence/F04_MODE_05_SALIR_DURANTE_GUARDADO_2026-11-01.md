@@ -2,10 +2,10 @@
 
 | Campo | Valor |
 |---|---|
-| Fecha real | 2026-11-01 (UTC), entre las 21:40Z y las 22:07Z |
+| Fecha real | 2026-11-01 (UTC), entre las 21:40Z y las 22:47Z |
 | Base | Mobile `main` `b35de08` |
 | Rama | `fix/f04-mode-recarga-al-salir` |
-| Código verificado | `b1b586b` (corrección y regresión). Es el mismo árbol que `6412f76`, que no llegó a publicarse; solo se corrigió el mensaje del commit |
+| Código verificado | `b1b586b` (corrección y regresión) más el caso «el guardado falla tras salir», añadido después (ver §3). `b1b586b` tiene el mismo árbol que `6412f76`, que no llegó a publicarse; solo se corrigió el mensaje del commit |
 | Procedencia | **HOST**: Windows 11 Home 10.0.26200, Flutter 3.47.2 y SQLite por `sqflite_common_ffi`. **Sin DEVICE** (§6) |
 | Issue | Refs #178. No se cierra con este trabajo |
 | Trazabilidad | RF-06, RF-11, CU-05, CU-08 |
@@ -61,11 +61,19 @@ try {
 | Salir, propio → compartido | Confirmar → escritura retenida → volver atrás → soltar | La base queda en compartido. `operationModeProvider` = compartido. «Operaciones» ofrece «Transferencias» y `/transferencias` se abre |
 | Salir, compartido → propio | Igual | La base queda en propio. `operationModeProvider` = propio. Sin «Transferencias», y `/transferencias` vuelve a `/operaciones` |
 | Salir y guardado rechazado | Tras el diálogo aparecen existencias de un tercero → confirmar → retenida → volver → soltar | La base y la modalidad global siguen en compartido. Ningún «Ahora usa…». La navegación sigue en compartido |
+| Salir y guardado fallido (error de la base) | Tras el diálogo, un disparador **temporal** de la conexión, creado solo en la prueba, aborta la inserción en `app_settings` (`RAISE(ABORT)`) → confirmar → retenida → volver → soltar → se borra el disparador | La base y la modalidad global siguen en compartido. Ningún «Ahora usa…». La navegación sigue en compartido. Es un error de SQLite, no un rechazo de la transición, así que sale por `on Object catch` y no por `ModeTransitionException`. El `DROP TRIGGER` que termina bien demuestra que el disparador existía durante la escritura |
 | Quedarse, compartido → propio | Confirmar | Aviso «Ahora usa inventario propio», modalidad mostrada propio, base y modalidad global en propio, navegación de propio |
 | Quedarse y guardado rechazado | Existencias de un tercero antes de confirmar | Se muestra el bloqueo «Existencias de Hermana…». Ningún «Ahora usa…». Mostrada, guardada y global siguen en compartido |
 | Quedarse y guardado fallido | Restauración en curso (`replacement.replace`) | Error «Se está restaurando un respaldo…». Ningún «Ahora usa…». Mostrada y global en compartido, guardada en compartido |
 
-Propio → compartido quedándose ya lo cubre `operation_mode_onboarding_test` («propio → compartido con historial…»). Las guardas sobre datos de terceros las cubren el caso de bloqueo de ese archivo y las pruebas de `personal_mode_flows_test`.
+**Criterios de #178 y su cobertura:**
+
+| Criterio | Pruebas |
+|---|---|
+| 1. Salir durante el guardado, en ambos sentidos: la modalidad global y la navegación reflejan la guardada, sin reiniciar | «salir durante el guardado PERSONAL → SHARED» y «SHARED → PERSONAL». Se comprueban la guardada, `operationModeProvider`, «Transferencias» y `/transferencias` |
+| 2. Quedarse en la pantalla: aviso y modalidad nueva | «quedarse… compartido → propio» y, en el otro sentido, `operation_mode_onboarding_test` «propio → compartido con historial…». Se comprueban el aviso, la modalidad mostrada, la global y la guardada |
+| 3. Guardado rechazado o fallido, con o sin la pantalla montada | Las cuatro combinaciones: rechazo tras salir, **fallo tras salir**, rechazo quedándose y fallo quedándose (restauración en curso). Se comprueba que no hay ningún «Ahora usa…» y que la guardada y la global siguen siendo las anteriores; quedándose, además, la modalidad mostrada |
+| 4. Las guardas sobre terceros siguen bloqueando | En pantalla, el bloqueo por existencias de terceros: `operation_mode_onboarding_test` «consulta posterior…» y los dos rechazos de este archivo. En el almacén, sin cambios en este PR: `f04_operation_mode_test` cubre la falta de titular (L76), las existencias y el saldo de un tercero (L85–L101) y el plan abierto en el chaco de otro (L120) |
 
 ## 4. Resultado antes y después
 
@@ -75,8 +83,8 @@ flutter test test/operation_mode_leave_during_save_test.dart
 
 | Código | Resultado |
 |---|---|
-| `b35de08` + prueba nueva (sin corrección) | **2 fallidas de 6**. Fallan los dos casos de salir: «No terminó la recarga de la modalidad global tras salir en 150 vueltas: operationModeProvider: OperationMode.personal; guardada: OperationMode.shared.», y su inverso. Los otros 4 pasan |
-| `6412f76`/`b1b586b` (con corrección) | **6 de 6**, en 3 ejecuciones seguidas. En el registro solo aparece el error esperado del caso de restauración en curso; ningún acceso a un contenedor o widget desechado |
+| `b35de08` + prueba nueva (sin corrección) | **2 fallidas de 6** (con el caso añadido después, 2 de 7, el mismo resultado). Fallan los dos casos de salir: «No terminó la recarga de la modalidad global tras salir en 150 vueltas: operationModeProvider: OperationMode.personal; guardada: OperationMode.shared.», y su inverso. Los otros 4 pasan |
+| `6412f76`/`b1b586b` (con corrección) | **6 de 6**, en 3 ejecuciones seguidas. Con el caso añadido, **7 de 7**, también en 3 ejecuciones. En el registro solo aparece el error esperado del caso de restauración en curso; ningún acceso a un contenedor o widget desechado |
 
 ## 5. Otras comprobaciones (HOST)
 
@@ -116,9 +124,9 @@ Otro agente de esta misma sesión hizo una lectura de contraste del commit, sin 
 | Hallazgo | Tratamiento |
 |---|---|
 | El mensaje del commit no decía que el `ref.read` lanzaba un `StateError` antes de `if (!mounted) return;` | Corregido en el mensaje (`b1b586b`) y en el §1 |
-| «Rechazo tras salir» pasa también sin la corrección y no comprueba que se tomara el camino de `ModeTransitionException` | Declarado: es una guarda de «no anunciar ni cambiar», no detecta el defecto |
-| Cobertura en pantalla: falta propio → compartido quedándose en este archivo; falta un error genérico después de salir y una restauración encolada durante el guardado; las guardas de planes, saldos y titular solo se prueban en el almacén | Declarado. Propio → compartido quedándose lo cubre `operation_mode_onboarding_test`. Las guardas no cambian y siguen cubiertas en `test/f04_operation_mode_test.dart` |
-| Defecto previo, fuera de alcance: si una restauración se cuela entre guardar y recargar con la pantalla montada, se anuncia «Ahora usa…» aunque la base restaurada traiga otra modalidad (la modalidad global sí queda bien) | Pendiente aparte |
+| «Rechazo tras salir» pasa también sin la corrección y no comprueba que se tomara el camino de `ModeTransitionException` | Declarado: es una guarda de «no anunciar ni cambiar», no detecta el defecto. Lo mismo vale para «fallo tras salir», añadido después: cubre el criterio 3, no el defecto |
+| Cobertura en pantalla: falta propio → compartido quedándose en este archivo; falta un error genérico después de salir y una restauración encolada durante el guardado; las guardas de planes, saldos y titular solo se prueban en el almacén | El **error genérico después de salir** se añadió («el guardado falla tras salir»). El resto queda declarado: propio → compartido quedándose lo cubre `operation_mode_onboarding_test`; las guardas no cambian y siguen cubiertas en `test/f04_operation_mode_test.dart`; la restauración encolada no tiene prueba de pantalla |
+| Posible defecto previo, fuera de alcance: si una restauración se cuela entre guardar y recargar con la pantalla montada, se anunciaría «Ahora usa…» aunque la base restaurada traiga otra modalidad | Pendiente aparte. **Es una hipótesis**, sacada de leer el código; ver §8 |
 | Mismo patrón en `owner_setup_screen.dart:187` (recarga de la modalidad tras la elección del titular) y en `remote_backup_screen.dart:265` (`refreshSummary` fuera del `try` tras restaurar) | Pendiente aparte; no se reproducen ni se cambian aquí |
 
 ## 7. DEVICE: no realizado
@@ -130,8 +138,22 @@ Se intentó preparar un recorrido normal en el POCO (`22101320G`) con un paquete
 
 No hay, por tanto, recorrido en teléfono ni reproducción física de la carrera.
 
-## 8. Límites
+## 8. Hallazgos aparte (no se corrigen ni se declaran resueltos aquí)
+
+**Mismo patrón, pendiente de reproducción.** `ref.read` de la pantalla tras varias esperas:
+- en `owner_setup_screen.dart:187`, la recarga de la modalidad tras elegir el titular;
+- en `remote_backup_screen.dart:265`, `refreshSummary` fuera del `try` tras restaurar.
+
+Solo los ha señalado la revisión leyendo el código. No se ha reproducido ninguno.
+
+**Anuncio incorrecto si se intercala una restauración.**
+- **Demostrado, leyendo el código y sin ejecutar nada:** `replace()` espera a que terminen las escrituras activas, y el `reload()` posterior espera con `whenReadable()` y lee la base restaurada. Por eso la modalidad **global** queda en la de la base restaurada.
+- **Hipótesis no reproducida:** si una restauración se cuela entre el `apply` del cambio y su `reload()` con la pantalla montada, `_change` mostraría «Ahora usa inventario …» con el destino pedido, aunque la base restaurada traiga otra modalidad. No hay ninguna prueba ni ejecución que lo muestre, y no se sabe si la ventana es alcanzable desde la interfaz, que tiene una sola pantalla activa.
+
+**Intermitencia restante de `f08_prev_01_previo_ui_test`.** Es una espera fija tras montar la pantalla: «Decidir» aún no está cuando se toca. Se vio bajo carga en local, en las líneas 390 y 435, con y sin esta corrección. Es distinta de la corregida en #175 y queda pendiente.
+
+## 9. Límites
 
 - Solo HOST.
 - La reproducción retiene una transacción para abrir la ventana de la carrera. En un teléfono, el guardado suele durar milisegundos.
-- **Mismo patrón, fuera del alcance de #178:** `owner_setup_screen.dart:187` y `remote_backup_screen.dart:265` (§6). No se han reproducido; quedan señalados para revisión aparte.
+- **Hallazgos aparte:** ver §8.

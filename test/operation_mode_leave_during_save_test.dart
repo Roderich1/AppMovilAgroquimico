@@ -207,6 +207,44 @@ void main() {
       await expectNavigationFor(tester, c, OperationMode.shared);
       expect(offline.requests, 0);
     });
+
+    testWidgets('el guardado falla tras salir (error de la base): nada '
+        'cambia ni se anuncia', (tester) async {
+      await tester.binding.setSurfaceSize(const Size(800, 1600));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final s = await activatedHousehold(tester, 'salir_fallo');
+      final offline = OfflineTransport();
+      final c = await pumpModeApp(tester, s.database, transport: offline);
+      expect(c.read(operationModeProvider), OperationMode.shared);
+
+      await openAndAskChange(tester, c);
+      // Un fallo de la base que no es un rechazo de la transición: un
+      // disparador temporal (sólo de esta conexión, sólo en la prueba) aborta
+      // la escritura de la modalidad. El cambio sale por `on Object catch`.
+      await tester.runAsync(() async {
+        final db = await s.database.database;
+        await db.execute(
+          'CREATE TEMP TRIGGER prueba_fallo_modo BEFORE INSERT ON '
+          "app_settings BEGIN SELECT RAISE(ABORT, 'fallo de prueba'); END",
+        );
+      });
+      final release = await holdWrites(tester, s.database);
+      await confirmAndStartSaving(tester);
+      await leaveScreen(tester, c);
+
+      release();
+      await waitWrites(tester, s.database, 'el intento de guardado');
+      await settle(tester);
+      await tester.runAsync(() async {
+        final db = await s.database.database;
+        await db.execute('DROP TRIGGER temp.prueba_fallo_modo');
+      });
+      expect(await stored(tester, s.database), OperationMode.shared);
+      expect(c.read(operationModeProvider), OperationMode.shared);
+      expect(find.textContaining('Ahora usa inventario'), findsNothing);
+      await expectNavigationFor(tester, c, OperationMode.shared);
+      expect(offline.requests, 0);
+    });
   });
 
   group('quedarse en la pantalla', () {
