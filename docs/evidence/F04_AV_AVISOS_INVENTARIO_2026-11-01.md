@@ -9,7 +9,7 @@
 | Issues | Refs #168, #169, #170, #171. Ninguno se cierra con este trabajo |
 | Origen | Implementación nueva; datos sintéticos |
 | EMULADOR | `docs/evidence/F04_AV_AVISOS_INVENTARIO_EMULADOR_2026-11-01.md` |
-| DEVICE | `docs/evidence/F04_AV_AVISOS_INVENTARIO_DEVICE_2026-11-01.md` |
+| DEVICE | `docs/evidence/F04_AV_AVISOS_INVENTARIO_DEVICE_2026-11-01.md` y su complemento `docs/evidence/F04_AV_AVISOS_INVENTARIO_DEVICE_COMPLEMENTO_2026-11-01.md` |
 
 ## 1. Fuente de cada numeración
 
@@ -194,6 +194,12 @@ La suite completa de `ce3b788` corre en la CI del PR (no se repitió en este equ
   - **AV-A20: PASS.** Persistencia al cerrar y reabrir sin red.
 - **Observador:** 0 peticiones en el tramo sin red. Los ajustes del teléfono quedaron como al empezar y las 26 instalaciones previas no se tocaron.
 - **Detalle:** en `F04_AV_AVISOS_INVENTARIO_DEVICE_2026-11-01.md`.
+- **Complemento, 2026-11-01 de 17:57Z a 18:14Z.** Se hizo en el mismo POCO, con la misma APK, sin reinstalar ni usar el PIN. AV-A15 sigue NOT_RUN. AV-A21 a AV-A24 son criterios nuevos de esa sesión.
+  - **AV-A21: PASS.** La vista muestra los mismos avisos con y sin conexión, sin cambios en la base entre las dos consultas. «Con conexión» significa la red del teléfono activa con el Central del ensayo detenido; no hubo sincronización real.
+  - **AV-A22: PASS.** Aparece la existencia baja en toda la instalación y por responsable.
+  - **AV-A23: PASS.** Un lote agotado por consumo deja de avisar de su vencimiento.
+  - **AV-A24: PASS.** Consultar o tocar los avisos no cambia la base local.
+  - **Detalle:** en `F04_AV_AVISOS_INVENTARIO_DEVICE_COMPLEMENTO_2026-11-01.md`.
 
 ## 7. Revisión del código
 
