@@ -67,22 +67,42 @@ class AppDatabase {
   static const int defaultAlertLeadDays = 30;
 
   /// v12 — corrección del vencimiento o del número de lote de una línea de
-  /// compra (RF-42): una fila inmutable por corrección con los valores
-  /// anteriores y los nuevos. Corregir no toca cantidades ni movimientos.
+  /// compra después de registrarla (RF-42; decisión del autor del
+  /// 2026-11-01): exige el PIN del titular y deja una fila inmutable con el
+  /// actor, el motivo, los valores anteriores y los nuevos, más una fila por
+  /// lote cambiado. Sólo cambian los lotes de procedencia demostrada.
+  /// Corregir no toca cantidades ni movimientos.
   static const List<String> inventoryAlertsSchema = <String>[
     '''CREATE TABLE lot_data_corrections (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         purchase_item_id INTEGER NOT NULL REFERENCES purchase_items(id),
         previous_expiry_date TEXT, previous_lot_number TEXT,
         new_expiry_date TEXT, new_lot_number TEXT,
-        reason TEXT,
+        reason TEXT NOT NULL CHECK(length(trim(reason)) > 0),
+        actor_person_id INTEGER NOT NULL REFERENCES persons(id),
+        actor_binding_id INTEGER NOT NULL REFERENCES owner_bindings(id),
+        actor_member_id TEXT NOT NULL CHECK(length(actor_member_id) > 0),
+        actor_tenant_id TEXT NOT NULL CHECK(length(actor_tenant_id) > 0),
+        actor_method TEXT NOT NULL CHECK(actor_method IN ('LOCAL_PIN')),
+        credential_enrolment_ref TEXT NOT NULL CHECK(length(credential_enrolment_ref) > 0),
+        unproven_lot_count INTEGER NOT NULL DEFAULT 0 CHECK(unproven_lot_count >= 0),
         recorded_at TEXT NOT NULL,
         CHECK(previous_expiry_date IS NOT new_expiry_date OR previous_lot_number IS NOT new_lot_number))''',
     'CREATE INDEX idx_lot_data_corrections_item ON lot_data_corrections(purchase_item_id, id)',
+    // Los lotes que cambió cada corrección.
+    '''CREATE TABLE lot_data_correction_lots (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        correction_id INTEGER NOT NULL REFERENCES lot_data_corrections(id),
+        lot_id INTEGER NOT NULL REFERENCES inventory_lots(id),
+        UNIQUE(correction_id, lot_id))''',
     '''CREATE TRIGGER trg_lot_data_corrections_no_update BEFORE UPDATE ON lot_data_corrections
       BEGIN SELECT RAISE(ABORT, 'lot_data_corrections es un registro inmutable'); END''',
     '''CREATE TRIGGER trg_lot_data_corrections_no_delete BEFORE DELETE ON lot_data_corrections
       BEGIN SELECT RAISE(ABORT, 'lot_data_corrections no admite borrado'); END''',
+    '''CREATE TRIGGER trg_lot_data_correction_lots_no_update BEFORE UPDATE ON lot_data_correction_lots
+      BEGIN SELECT RAISE(ABORT, 'lot_data_correction_lots es un registro inmutable'); END''',
+    '''CREATE TRIGGER trg_lot_data_correction_lots_no_delete BEFORE DELETE ON lot_data_correction_lots
+      BEGIN SELECT RAISE(ABORT, 'lot_data_correction_lots no admite borrado'); END''',
   ];
 
   /// Clave en `app_settings` con cuántos vínculos de campaña anteriores a la

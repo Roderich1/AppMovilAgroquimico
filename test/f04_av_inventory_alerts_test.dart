@@ -18,6 +18,7 @@ import 'package:agroquimicos/domain/campaign_calendar.dart';
 import 'package:agroquimicos/domain/inventory_alerts.dart';
 import 'package:agroquimicos/domain/models.dart';
 import 'package:agroquimicos/domain/operation_mode.dart';
+import 'package:agroquimicos/services/auth/local_owner_credential.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 // ignore: depend_on_referenced_packages
@@ -25,6 +26,7 @@ import 'package:path_provider_platform_interface/path_provider_platform_interfac
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'support/f04_mode_fixtures.dart';
+import 'support/f04_owner_pin.dart';
 
 class _WorkspacePathProvider extends PathProviderPlatform {
   _WorkspacePathProvider(this.directory);
@@ -44,11 +46,38 @@ final today = DateTime(2026, 11, 10, 12);
 
 /// Hogar con un segundo producto y compras con o sin vencimiento.
 class _Farm {
-  _Farm(this.database, this.repo, this.h, this.herbicide);
+  _Farm(this.database, this.repo, this.h, this.herbicide, this.pin);
   final AppDatabase database;
   final AgroRepository repo;
   final Household h;
   final int herbicide;
+
+  /// PIN del titular (el familiar «Titular» del hogar), si se pidió.
+  final TestOwnerPin? pin;
+
+  Future<OwnerAuthorization> authorize(
+    int purchaseItemId, {
+    AuthorizationPurpose purpose = AuthorizationPurpose.correctLotData,
+  }) => pin!.credential.verify(
+    pin: '284917',
+    purpose: purpose,
+    subjectRef: AgroRepository.lotDataSubjectRef(purchaseItemId),
+    binding: pin!.binding,
+  );
+
+  /// Corrección autorizada con el PIN del titular.
+  Future<LotDataCorrectionResult> correct(
+    int purchaseItemId, {
+    String? expiry,
+    String? lot,
+    String reason = 'Leído en el envase',
+  }) async => repo.correctLotData(
+    purchaseItemId,
+    expiryDay: expiry,
+    lotNumber: lot,
+    reason: reason,
+    authorization: await authorize(purchaseItemId),
+  );
 
   /// Compra de [quantity] (unidad base) para [person] el [day] de enero.
   Future<int> buy(
@@ -86,12 +115,32 @@ class _Farm {
       repo.inventoryAlerts(now: now ?? today);
 }
 
-Future<_Farm> _farm({String path = inMemoryDatabasePath}) async {
+/// Con [withPin], el familiar «Titular» queda vinculado como titular de la
+/// instalación y con PIN, para las correcciones.
+Future<_Farm> _farm({
+  String path = inMemoryDatabasePath,
+  bool withPin = false,
+}) async {
   final database = openDb(path);
-  final repo = AgroRepository(database);
+  TestOwnerPin? pin;
+  final repo = AgroRepository(database, ownerCredential: () => pin?.credential);
   final h = await seedHousehold(repo);
   final herbicide = await repo.addProduct(name: 'Atrazina', unit: 'KG');
-  return _Farm(database, repo, h, herbicide);
+  if (withPin) {
+    final bound = await OwnerBindingStore(database).bindExistingPerson(
+      personId: h.titular,
+      scope: memberA,
+      installationRef: installationHere,
+    );
+    pin = await TestOwnerPin.enrolled(
+      OwnerBindingContext(
+        bindingId: bound.id,
+        personId: bound.personId,
+        scope: memberA,
+      ),
+    );
+  }
+  return _Farm(database, repo, h, herbicide, pin);
 }
 
 int _purchaseItemOf(List<Map<String, Object?>> lots, int lotIndex) =>
@@ -266,31 +315,40 @@ void main() {
       expect(destination[1]['lot_number'], 'NUEVO');
     });
 
-    test('corregir cambia sólo esos datos en todos los lotes de la línea y deja registro', () async {
-      final f = await _farm();
+    test('corregir con PIN cambia sólo esos datos en los lotes de procedencia demostrada y deja auditoría', () async {
+      final f = await _farm(withPin: true);
       await f.buy(f.h.titular, 5000);
+      // Dos niveles de transferencia: titular → hermana → vecino.
       await f.repo.transferProductsFifo(
         fromPersonId: f.h.titular,
         toPersonId: f.h.relative,
         items: [TransferItemDraft(productId: f.h.product, quantityBase: 2000)],
         date: DateTime.utc(2026, 1, 6),
       );
+      await f.repo.transferProductsFifo(
+        fromPersonId: f.h.relative,
+        toPersonId: f.h.thirdParty,
+        items: [TransferItemDraft(productId: f.h.product, quantityBase: 500)],
+        date: DateTime.utc(2026, 1, 7),
+      );
       final db = await f.database.database;
       final before = await dumpTables(db);
       final item = _purchaseItemOf(await f.lots(), 0);
 
-      await f.repo.correctLotData(
+      final done = await f.correct(
         item,
-        expiryDay: '2026-12-20',
-        lotNumber: 'L-77',
+        expiry: '2026-12-20',
+        lot: 'L-77',
         reason: 'Leído en la etiqueta',
-        now: today,
       );
+      expect(done.correctedLots, 3);
+      expect(done.unprovenLots, 0);
 
       final after = await dumpTables(db);
       // Ninguna cantidad, costo ni movimiento cambia.
       for (final table in before.keys) {
-        if (table == 'inventory_lots' || table == 'lot_data_corrections') {
+        if (table == 'inventory_lots' ||
+            inventoryAlertsTablesV12.contains(table)) {
           continue;
         }
         expect(after[table], before[table], reason: table);
@@ -302,41 +360,182 @@ void main() {
         after['inventory_lots']!.map(strip).toList(),
         before['inventory_lots']!.map(strip).toList(),
       );
-      // Los dos lotes (el de compra y el transferido) llevan el dato nuevo.
       for (final lot in after['inventory_lots']!) {
         expect(lot['expiry_date'], '2026-12-20');
         expect(lot['lot_number'], 'L-77');
       }
-      final corrections = after['lot_data_corrections']!;
-      expect(corrections, hasLength(1));
-      expect(corrections.single['previous_expiry_date'], isNull);
-      expect(corrections.single['previous_lot_number'], isNull);
-      expect(corrections.single['new_expiry_date'], '2026-12-20');
-      expect(corrections.single['new_lot_number'], 'L-77');
-      expect(corrections.single['reason'], 'Leído en la etiqueta');
+      final correction = after['lot_data_corrections']!.single;
+      expect(correction['previous_expiry_date'], isNull);
+      expect(correction['new_lot_number'], 'L-77');
+      expect(correction['reason'], 'Leído en la etiqueta');
+      expect(correction['actor_person_id'], f.h.titular);
+      expect(correction['actor_member_id'], memberA.memberId);
+      expect(correction['actor_method'], 'LOCAL_PIN');
+      expect(correction['credential_enrolment_ref'], await f.pin!.enrolment());
+      expect(correction['unproven_lot_count'], 0);
+      expect(
+        after['lot_data_correction_lots']!.map((r) => r['lot_id']),
+        after['inventory_lots']!.map((r) => r['id']),
+      );
+      final history = await f.repo.lotDataCorrections(item);
+      expect(history.single['actor_name'], 'Titular');
+      expect(history.single['lot_count'], 3);
 
-      // Volver a «sin fecha» también es una corrección registrada.
-      await f.repo.correctLotData(item, expiryDay: null, lotNumber: 'L-77');
+      // Volver a «sin fecha» también es una corrección, con otro PIN.
+      await f.correct(item, expiry: null, lot: 'L-77');
       expect((await f.lots()).first['expiry_date'], isNull);
       expect(await f.repo.lotDataCorrections(item), hasLength(2));
 
       // Sin cambios no se registra nada.
       await expectLater(
-        f.repo.correctLotData(item, expiryDay: null, lotNumber: 'L-77'),
+        f.correct(item, expiry: null, lot: 'L-77'),
         throwsA(isA<BusinessRuleException>()),
       );
       expect(await f.repo.lotDataCorrections(item), hasLength(2));
 
-      // El registro no se modifica ni se borra.
-      await expectLater(
-        db.update('lot_data_corrections', {'reason': 'otro'}),
-        throwsA(isA<DatabaseException>()),
-      );
-      await expectLater(
-        db.delete('lot_data_corrections'),
-        throwsA(isA<DatabaseException>()),
-      );
+      // La auditoría no se modifica ni se borra.
+      for (final table in inventoryAlertsTablesV12) {
+        await expectLater(
+          db.update(table, {'id': 999}),
+          throwsA(isA<DatabaseException>()),
+          reason: table,
+        );
+        await expectLater(
+          db.delete(table),
+          throwsA(isA<DatabaseException>()),
+          reason: table,
+        );
+      }
     });
+
+    test(
+      'sin PIN válido, sin motivo o con otra autorización no se corrige nada',
+      () async {
+        final f = await _farm(withPin: true);
+        await f.buy(f.h.titular, 5000);
+        final item = _purchaseItemOf(await f.lots(), 0);
+        final db = await f.database.database;
+        final before = await dumpTables(db);
+        // Autorización de otro propósito.
+        await expectLater(
+          f.repo.correctLotData(
+            item,
+            expiryDay: '2027-01-01',
+            lotNumber: null,
+            reason: 'x',
+            authorization: await f.authorize(
+              item,
+              purpose: AuthorizationPurpose.reversePurchase,
+            ),
+          ),
+          throwsA(isA<OwnerAuthorizationRejected>()),
+        );
+        // Sin motivo.
+        await expectLater(
+          f.repo.correctLotData(
+            item,
+            expiryDay: '2027-01-01',
+            lotNumber: null,
+            reason: '  ',
+            authorization: await f.authorize(item),
+          ),
+          throwsA(isA<BusinessRuleException>()),
+        );
+        // Una autorización sólo vale una vez.
+        final once = await f.authorize(item);
+        await f.repo.correctLotData(
+          item,
+          expiryDay: '2027-01-01',
+          lotNumber: null,
+          reason: 'x',
+          authorization: once,
+        );
+        await expectLater(
+          f.repo.correctLotData(
+            item,
+            expiryDay: '2027-02-01',
+            lotNumber: null,
+            reason: 'x',
+            authorization: once,
+          ),
+          throwsA(isA<OwnerAuthorizationRejected>()),
+        );
+        expect(await f.repo.lotDataCorrections(item), hasLength(1));
+        expect(before['lot_data_corrections'], isEmpty);
+        // PIN equivocado: no se emite autorización.
+        await expectLater(
+          f.pin!.credential.verify(
+            pin: '000000',
+            purpose: AuthorizationPurpose.correctLotData,
+            subjectRef: AgroRepository.lotDataSubjectRef(item),
+            binding: f.pin!.binding,
+          ),
+          throwsA(anything),
+        );
+      },
+    );
+
+    test(
+      'un lote de la línea sin procedencia demostrada no se cambia y se cuenta',
+      () async {
+        final f = await _farm(withPin: true);
+        await f.buy(f.h.titular, 5000);
+        final db = await f.database.database;
+        final purchaseLot = (await f.lots()).single;
+        // Lote con la misma línea y padre, pero sin fila en transfer_lot_items
+        // (como un dato antiguo o incompleto): su procedencia no se demuestra.
+        final orphan = await db.insert('inventory_lots', {
+          ...({...purchaseLot}..remove('id')),
+          'owner_person_id': f.h.relative,
+          'parent_lot_id': purchaseLot['id'],
+          'initial_quantity_base': 100,
+        });
+        final done = await f.correct(
+          purchaseLot['purchase_item_id']! as int,
+          expiry: '2027-03-03',
+        );
+        expect(done.correctedLots, 1);
+        expect(done.unprovenLots, 1);
+        final lots = {for (final l in await f.lots()) l['id']: l};
+        expect(lots[purchaseLot['id']]!['expiry_date'], '2027-03-03');
+        expect(lots[orphan]!['expiry_date'], isNull);
+        expect(
+          (await db.query('lot_data_corrections')).single['unproven_lot_count'],
+          1,
+        );
+      },
+    );
+
+    test(
+      'una compra revertida no admite correcciones; su historial se consulta',
+      () async {
+        final f = await _farm(withPin: true);
+        final purchase = await f.buy(f.h.titular, 5000);
+        final item = _purchaseItemOf(await f.lots(), 0);
+        await f.correct(item, lot: 'ANTES');
+        expect(await f.repo.canCorrectLotData(item), isTrue);
+        await f.repo.reversePurchaseUnauditedForTesting(
+          purchase,
+          reason: 'error',
+        );
+        expect(await f.repo.canCorrectLotData(item), isFalse);
+        await expectLater(
+          f.correct(item, lot: 'DESPUES'),
+          throwsA(
+            isA<BusinessRuleException>().having(
+              (e) => e.toString(),
+              'mensaje',
+              contains('se puede consultar, pero no corregir'),
+            ),
+          ),
+        );
+        expect((await f.lots()).single['lot_number'], 'ANTES');
+        expect(await f.repo.lotDataCorrections(item), hasLength(1));
+        final detail = await f.repo.purchaseDetail(purchase);
+        expect(detail!.items.single['lot_number'], 'ANTES');
+        expect(detail.items.single['lot_data_corrections'], 1);
+      },
+    );
 
     test(
       'el borrador de una compra tardía conserva vencimiento y número de lote',
@@ -391,7 +590,10 @@ void main() {
     });
 
     test('un respaldo .agrobackup devuelve fechas, lotes, niveles y correcciones idénticos', () async {
-      final source = await _farm(path: p.join(workspace.path, 'origen.db'));
+      final source = await _farm(
+        path: p.join(workspace.path, 'origen.db'),
+        withPin: true,
+      );
       await source.buy(
         source.h.titular,
         5000,
@@ -404,10 +606,9 @@ void main() {
         minStockBase: 6000,
         leadDays: 15,
       );
-      await source.repo.correctLotData(
+      await source.correct(
         _purchaseItemOf(await source.lots(), 1),
-        expiryDay: '2027-02-01',
-        lotNumber: null,
+        expiry: '2027-02-01',
       );
       final invoices = Directory(p.join(workspace.path, 'facturas'))
         ..createSync();
@@ -653,8 +854,42 @@ void main() {
         expect(a.lowStock.single.line.personName, 'Hermana');
         expect(a.lowStock.single.line.netBase, 2000);
         expect(a.lowStock.single.minStockBase, 3000);
+        // El aviso del responsable lleva el total de la instalación.
+        expect(a.lowStock.single.installationNetBase, 8000);
       },
     );
+
+    test('aviso de cero para quien tuvo movimientos, con el total aparte; '
+        'quien nunca tuvo el producto no avisa', () async {
+      final f = await _farm();
+      await f.buy(f.h.titular, 6000);
+      await f.buy(f.h.relative, 1000, day: 3);
+      await f.h.apply(f.h.relative, f.h.relativeFarm, 1000);
+      await f.repo.setProductAlertSettings(
+        f.h.product,
+        minStockBase: 2000,
+        leadDays: null,
+      );
+      var a = await f.alerts();
+      final zero = a.lowStock.single;
+      expect(zero.line.personName, 'Hermana');
+      expect(zero.line.netBase, 0);
+      // No hay falta de producto en la instalación: el total es 6 L.
+      expect(zero.installationNetBase, 6000);
+      expect(a.lowStock.where((l) => l.line.isTotal), isEmpty);
+      // El vecino nunca tuvo Glifosato: sin aviso.
+      expect(
+        a.lowStock.where((l) => l.line.personId == f.h.thirdParty),
+        isEmpty,
+      );
+
+      // Cuando se acaba en toda la instalación, avisa el total, con 0.
+      await f.h.apply(f.h.titular, f.h.titularFarm, 6000);
+      a = await f.alerts();
+      final total = a.lowStock.firstWhere((l) => l.line.isTotal);
+      expect(total.line.netBase, 0);
+      expect(total.installationNetBase, 0);
+    });
 
     test('en propio sólo hay un ámbito: el total del titular', () async {
       final path = await tempDbPath('propio');

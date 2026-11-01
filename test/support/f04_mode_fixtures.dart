@@ -168,7 +168,10 @@ const reviewAuditTablesV11 = [
 ];
 
 /// Tablas que añadió v12 (F04-AV, avisos de inventario).
-const inventoryAlertsTablesV12 = ['lot_data_corrections'];
+const inventoryAlertsTablesV12 = [
+  'lot_data_correction_lots',
+  'lot_data_corrections',
+];
 
 /// Columnas que añadió v12, por tabla.
 final inventoryAlertsColumnsV12 = {
@@ -179,8 +182,14 @@ final inventoryAlertsColumnsV12 = {
 /// Quita todo lo que añadió v12: la tabla de correcciones, sus triggers e
 /// índice y las columnas opcionales de lotes y productos.
 Future<void> dropInventoryAlertsSchemaV12(DatabaseExecutor db) async {
-  await db.execute('DROP TRIGGER IF EXISTS trg_lot_data_corrections_no_update');
-  await db.execute('DROP TRIGGER IF EXISTS trg_lot_data_corrections_no_delete');
+  for (final trigger in [
+    'trg_lot_data_corrections_no_update',
+    'trg_lot_data_corrections_no_delete',
+    'trg_lot_data_correction_lots_no_update',
+    'trg_lot_data_correction_lots_no_delete',
+  ]) {
+    await db.execute('DROP TRIGGER IF EXISTS $trigger');
+  }
   for (final table in inventoryAlertsTablesV12) {
     await db.execute('DROP TABLE IF EXISTS $table');
   }

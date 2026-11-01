@@ -12,17 +12,21 @@
 // docs/15_BUSINESS_RULES.md.
 import 'package:agroquimicos/app.dart';
 import 'package:agroquimicos/data/agro_repository.dart';
+import 'package:agroquimicos/data/app_database.dart';
 import 'package:agroquimicos/data/operation_mode_store.dart';
 import 'package:agroquimicos/domain/campaign_calendar.dart';
 import 'package:agroquimicos/domain/models.dart';
 import 'package:agroquimicos/domain/operation_mode.dart';
 import 'package:agroquimicos/presentation/widgets/adaptive_entity_picker.dart';
+import 'package:agroquimicos/services/auth/local_owner_credential.dart';
+import 'package:agroquimicos/services/auth/local_owner_credential_providers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'support/f04_mode_fixtures.dart';
 import 'support/f04_mode_ui_harness.dart';
+import 'support/f04_owner_pin.dart';
 
 typedef Row = Map<String, Object?>;
 
@@ -145,8 +149,26 @@ void main() {
     expect(lots.single['expiry_date'], todayDay);
   });
 
-  testWidgets('detalle de compra: corregir el lote no cambia cantidades y '
-      'queda registrado', (tester) async {
+  /// PIN del titular vinculado del hogar, como credencial de la app.
+  Future<LocalOwnerCredential> titularPin(
+    WidgetTester tester,
+    ({AppDatabase database, Household household}) s,
+  ) async => (await tester.runAsync(() async {
+    final binding = (await (await s.database.database).query(
+      'owner_bindings',
+      where: 'ended_at IS NULL',
+    )).single;
+    return (await TestOwnerPin.enrolled(
+      OwnerBindingContext(
+        bindingId: binding['id']! as int,
+        personId: binding['person_id']! as int,
+        scope: memberA,
+      ),
+    )).credential;
+  }))!;
+
+  testWidgets('detalle de compra: corregir el lote pide motivo y PIN, no '
+      'cambia cantidades y queda auditado', (tester) async {
     await tester.binding.setSurfaceSize(const Size(800, 2400));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     final s = await activatedHousehold(tester, 'av-corregir');
@@ -164,7 +186,14 @@ void main() {
       s.database,
       'inventory_movements',
     );
-    final c = await pumpModeApp(tester, s.database);
+    final credential = await titularPin(tester, s);
+    final c = await pumpModeApp(
+      tester,
+      s.database,
+      extraOverrides: [
+        localOwnerCredentialProvider.overrideWithValue(credential),
+      ],
+    );
     c.read(routerProvider).push('/compras/detalle/$purchaseId');
     Finder rich(String text) => find.textContaining(text, findRichText: true);
     await waitFor(tester, rich('Vencimiento: sin fecha registrada'));
@@ -178,11 +207,20 @@ void main() {
     )).single['id'];
     await tapKey(tester, 'purchase-lot-data-correct-$itemId');
     await tester.enterText(find.byKey(const Key('lot-data-number')), 'L-9');
+    await tapKey(tester, 'lot-data-save');
+    // Aprobación del titular: el cambio, el motivo y el PIN.
+    expect(
+      find.textContaining('Número de lote: sin número → L-9'),
+      findsOneWidget,
+    );
     await tester.enterText(
-      find.byKey(const Key('lot-data-reason')),
+      find.byKey(const Key('approval-reason')),
       'Leído en el envase',
     );
-    await tapKey(tester, 'lot-data-save');
+    await tapKey(tester, 'approval-continue');
+    await waitFor(tester, find.byKey(const Key('owner-pin-input')));
+    await tester.enterText(find.byKey(const Key('owner-pin-input')), '284917');
+    await tapKey(tester, 'owner-pin-submit');
     await waitFor(tester, rich('Número de lote: L-9'));
     expect(rich('Número de lote: L-9'), findsOneWidget);
     expect(
@@ -197,7 +235,8 @@ void main() {
         of: find.byKey(const Key('lot-data-corrections')),
         matching: find.textContaining(
           'vencimiento sin fecha → sin fecha; lote sin número → L-9. '
-          'Motivo: Leído en el envase',
+          'Motivo: Leído en el envase. Autorizó Titular con PIN; 1 lote '
+          'cambiado.',
         ),
       ),
       findsOneWidget,
@@ -212,9 +251,27 @@ void main() {
     final corrections = await rows(tester, s.database, 'lot_data_corrections');
     expect(corrections.single['new_lot_number'], 'L-9');
     expect(corrections.single['reason'], 'Leído en el envase');
+    expect(corrections.single['actor_method'], 'LOCAL_PIN');
     expect(
       await rows(tester, s.database, 'inventory_movements'),
       movementsBefore,
+    );
+
+    // Revertida la compra, se sigue consultando con su historial, pero ya no
+    // ofrece corregir.
+    await tester.runAsync(
+      () =>
+          AgroRepository(s.database)
+              .reversePurchaseUnauditedForTesting(purchaseId, reason: 'error'),
+    );
+    c.read(routerProvider).pop();
+    await settle(tester);
+    c.read(routerProvider).push('/compras/detalle/$purchaseId');
+    await waitFor(tester, rich('Número de lote: L-9'));
+    expect(find.byKey(Key('purchase-lot-data-correct-$itemId')), findsNothing);
+    expect(
+      find.byKey(Key('purchase-lot-data-history-$itemId')),
+      findsOneWidget,
     );
   });
 
@@ -346,9 +403,16 @@ void main() {
       findsOneWidget,
     );
     // Total 6 L > 2 L: sin aviso; Hermana 1 L ≤ 2 L: aviso; Titular 5 L no.
-    expect(find.text('Existencia baja (1)'), findsOneWidget);
-    expect(find.text('Glifosato · Hermana'), findsOneWidget);
-    expect(find.text('Quedan 1 L; nivel mínimo 2 L'), findsOneWidget);
+    // Total y responsables van en secciones distintas.
+    expect(find.byKey(const Key('alerts-low')), findsNothing);
+    expect(find.text('Existencia baja por responsable (1)'), findsOneWidget);
+    expect(find.text('Glifosato · Hermana (responsable)'), findsOneWidget);
+    expect(
+      find.text(
+        'Hermana tiene 1 L; nivel mínimo 2 L. En toda la instalación: 6 L',
+      ),
+      findsOneWidget,
+    );
     expect(
       find.text('Sin fecha de vencimiento registrada (1)'),
       findsOneWidget,
@@ -364,7 +428,7 @@ void main() {
       findsOneWidget,
     );
 
-    await tester.tap(find.text('Glifosato · Hermana'));
+    await tester.tap(find.text('Glifosato · Hermana (responsable)'));
     await waitFor(tester, find.byKey(const Key('inventory-alert-settings')));
     expect(find.byKey(const Key('inventory-alert-settings')), findsOneWidget);
     // Consultar y navegar no escribió nada.

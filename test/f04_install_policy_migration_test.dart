@@ -38,6 +38,8 @@ void main() {
     // v12 (F04-AV): correcciones de vencimiento y número de lote.
     'trg_lot_data_corrections_no_update',
     'trg_lot_data_corrections_no_delete',
+    'trg_lot_data_correction_lots_no_update',
+    'trg_lot_data_correction_lots_no_delete',
   };
 
   test('una base nueva nace en la versión vigente marcada NEW_UNDER_POLICY y sin titular', () async {

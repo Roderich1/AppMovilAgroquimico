@@ -5,7 +5,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
 import '../../app.dart';
-import '../../data/agro_repository.dart' show PurchaseDetailRead;
+import '../../data/agro_repository.dart'
+    show AgroRepository, PurchaseDetailRead;
 import '../../domain/campaign_calendar.dart';
 import '../../domain/inventory_alerts.dart' show expiryPickerRange;
 import '../../domain/labels.dart';
@@ -13,6 +14,8 @@ import '../../domain/models.dart';
 import '../../domain/money.dart';
 import '../widgets/common.dart';
 import '../widgets/owner_reversal_flow.dart';
+import '../../services/auth/local_owner_credential.dart'
+    show AuthorizationPurpose;
 
 /// Detalle de una compra, de sólo lectura (bloque de experiencia 2026-10-30,
 /// A2). Se llega tocando la tarjeta en Compras, también si está revertida.
@@ -53,25 +56,53 @@ class _PurchaseDetailScreenState extends ConsumerState<PurchaseDetailScreen> {
     }
   }
 
+  /// Corregir después del registro (decisión del autor del 2026-11-01):
+  /// primero los datos nuevos, después el motivo y el PIN del titular. El
+  /// repositorio vuelve a comprobar todo en su transacción.
   Future<void> _correctLotData(Map<String, Object?> item) async {
+    final itemId = item['id']! as int;
     final result = await showDialog<_LotDataCorrection>(
       context: context,
       builder: (_) => _LotDataDialog(item: item),
     );
     if (result == null || !mounted) return;
+    final repo = ref.read(repositoryProvider);
+    String day(String? v) => v == null ? 'sin fecha' : displayDay(v);
+    String lot(String? v) => v ?? 'sin número';
+    final approval = await requestOwnerApproval(
+      context,
+      ref,
+      purpose: AuthorizationPurpose.correctLotData,
+      subjectRef: AgroRepository.lotDataSubjectRef(itemId),
+      title: 'Corregir vencimiento o lote',
+      effects:
+          'Vencimiento: ${day(item['expiry_date'] as String?)} → '
+          '${day(result.expiryDay)}. Número de lote: '
+          '${lot(item['lot_number'] as String?)} → ${lot(result.lotNumber)}. '
+          'Cambia en los lotes de esta compra y en los entregados desde '
+          'ellos cuando su procedencia está demostrada. Las cantidades y los '
+          'movimientos no cambian.',
+      revalidate: () async => await repo.canCorrectLotData(itemId)
+          ? null
+          : 'ya no se puede corregir',
+    );
+    if (approval == null || !mounted) return;
     try {
-      await ref
-          .read(repositoryProvider)
-          .correctLotData(
-            item['id']! as int,
-            expiryDay: result.expiryDay,
-            lotNumber: result.lotNumber,
-            reason: result.reason,
-          );
+      final done = await repo.correctLotData(
+        itemId,
+        expiryDay: result.expiryDay,
+        lotNumber: result.lotNumber,
+        reason: approval.reason,
+        authorization: approval.authorization,
+      );
       if (!mounted) return;
       showSuccess(
         context,
-        'Se guardó la corrección. Las cantidades no cambiaron.',
+        'Se guardó la corrección en '
+        '${done.correctedLots == 1 ? '1 lote' : '${done.correctedLots} lotes'}. '
+        'Las cantidades no cambiaron.'
+        '${done.unprovenLots == 0 ? '' : ' ${done.unprovenLots == 1 ? '1 lote' : '${done.unprovenLots} lotes'} de esta línea no se '
+                  'cambiaron porque no se pudo demostrar su procedencia.'}',
       );
       setState(() {
         data = ref.read(repositoryProvider).purchaseDetail(widget.purchaseId);
@@ -113,8 +144,11 @@ class _PurchaseDetailScreenState extends ConsumerState<PurchaseDetailScreen> {
                     '${day(row['previous_expiry_date'])} → '
                     '${day(row['new_expiry_date'])}; lote '
                     '${value(row['previous_lot_number'], 'sin número')} → '
-                    '${value(row['new_lot_number'], 'sin número')}'
-                    '${row['reason'] == null ? '' : '. Motivo: ${row['reason']}'}',
+                    '${value(row['new_lot_number'], 'sin número')}. '
+                    'Motivo: ${row['reason']}. Autorizó ${row['actor_name']} '
+                    'con PIN; ${row['lot_count']} '
+                    '${row['lot_count'] == 1 ? 'lote cambiado' : 'lotes cambiados'}'
+                    '${(row['unproven_lot_count'] as int? ?? 0) == 0 ? '' : ', ${row['unproven_lot_count']} sin procedencia demostrada'}.',
                   ),
                 ),
             ],
@@ -392,12 +426,15 @@ class _ItemsCard extends StatelessWidget {
           Wrap(
             spacing: 8,
             children: [
-              TextButton.icon(
-                key: Key('purchase-lot-data-correct-${item['id']}'),
-                onPressed: () => onCorrectLotData(item),
-                icon: const Icon(Icons.edit_calendar_outlined),
-                label: const Text('Corregir vencimiento o lote'),
-              ),
+              // Una compra revertida se consulta, con su historial, pero no
+              // admite correcciones nuevas.
+              if (detail.purchase['status'] != 'REVERSED')
+                TextButton.icon(
+                  key: Key('purchase-lot-data-correct-${item['id']}'),
+                  onPressed: () => onCorrectLotData(item),
+                  icon: const Icon(Icons.edit_calendar_outlined),
+                  label: const Text('Corregir vencimiento o lote'),
+                ),
               if (((item['lot_data_corrections'] as int?) ?? 0) > 0)
                 TextButton.icon(
                   key: Key('purchase-lot-data-history-${item['id']}'),
@@ -413,15 +450,10 @@ class _ItemsCard extends StatelessWidget {
   }
 }
 
-typedef _LotDataCorrection = ({
-  String? expiryDay,
-  String? lotNumber,
-  String? reason,
-});
+typedef _LotDataCorrection = ({String? expiryDay, String? lotNumber});
 
-/// Corregir el vencimiento y el número de lote de una línea (RF-42). Cambia
-/// esos datos en todos sus lotes, también los transferidos, y queda
-/// registrado con los valores anteriores.
+/// Datos nuevos de vencimiento y número de lote de una línea (RF-42). El
+/// motivo y el PIN se piden después, en la aprobación del titular.
 class _LotDataDialog extends StatefulWidget {
   const _LotDataDialog({required this.item});
   final Map<String, Object?> item;
@@ -435,12 +467,10 @@ class _LotDataDialogState extends State<_LotDataDialog> {
   late final lotNumber = TextEditingController(
     text: (widget.item['lot_number'] as String?) ?? '',
   );
-  final reason = TextEditingController();
 
   @override
   void dispose() {
     lotNumber.dispose();
-    reason.dispose();
     super.dispose();
   }
 
@@ -502,16 +532,12 @@ class _LotDataDialogState extends State<_LotDataDialog> {
               labelText: 'Número de lote (opcional)',
             ),
           ),
-          TextField(
-            key: const Key('lot-data-reason'),
-            controller: reason,
-            decoration: const InputDecoration(labelText: 'Motivo (opcional)'),
-          ),
           const SizedBox(height: 12),
           Text(
-            'Se corrige en todos los lotes de esta línea, también los '
-            'entregados a otras personas. Las cantidades y los movimientos '
-            'no cambian, y la corrección queda registrada.',
+            'Después se pide el motivo y el PIN del titular. Se corrige en '
+            'los lotes de esta compra y en los entregados desde ellos cuando '
+            'su procedencia está demostrada. Las cantidades y los '
+            'movimientos no cambian, y la corrección queda registrada.',
             style: Theme.of(context).textTheme.bodySmall,
           ),
         ],
@@ -526,14 +552,12 @@ class _LotDataDialogState extends State<_LotDataDialog> {
         key: const Key('lot-data-save'),
         onPressed: () {
           final number = lotNumber.text.trim();
-          final why = reason.text.trim();
           Navigator.pop<_LotDataCorrection>(context, (
             expiryDay: expiryDay,
             lotNumber: number.isEmpty ? null : number,
-            reason: why.isEmpty ? null : why,
           ));
         },
-        child: const Text('Guardar corrección'),
+        child: const Text('Continuar'),
       ),
     ],
   );

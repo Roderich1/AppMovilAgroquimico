@@ -28,7 +28,11 @@ enum AuthorizationPurpose {
   confirmLateOperation('CONFIRM_LATE_OPERATION'),
   rejectLateOperation('REJECT_LATE_OPERATION'),
   showBackupRecoveryKey('SHOW_BACKUP_RECOVERY_KEY'),
-  rotateBackupRecoveryKey('ROTATE_BACKUP_RECOVERY_KEY');
+  rotateBackupRecoveryKey('ROTATE_BACKUP_RECOVERY_KEY'),
+
+  /// Corregir vencimiento o número de lote de una línea de compra ya
+  /// registrada (F04-AV, RF-42).
+  correctLotData('CORRECT_LOT_DATA');
 
   const AuthorizationPurpose(this.code);
   final String code;

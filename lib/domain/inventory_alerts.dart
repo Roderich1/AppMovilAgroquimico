@@ -159,10 +159,22 @@ final class ProductAlertSettings {
 
 /// Aviso de existencia baja (RN-32): la existencia neta es menor o igual al
 /// nivel mínimo.
+///
+/// El mismo nivel del producto se compara con el total de la instalación y
+/// con lo de cada responsable (decisión del autor del 2026-11-01). El aviso
+/// de un responsable lleva también el total, para que «Hermana no tiene» no
+/// se lea como «no hay en la instalación».
 final class LowStockAlert {
-  const LowStockAlert({required this.line, required this.minStockBase});
+  const LowStockAlert({
+    required this.line,
+    required this.minStockBase,
+    required this.installationNetBase,
+  });
   final StockLine line;
   final int minStockBase;
+
+  /// Existencia neta de toda la instalación para ese producto.
+  final int installationNetBase;
 }
 
 /// Resultado de una consulta de avisos. Se calcula entero o falla entero:
@@ -274,6 +286,10 @@ InventoryAlerts computeInventoryAlerts({
   );
 
   final byId = {for (final p in products) p.productId: p};
+  final installation = {
+    for (final line in stock)
+      if (line.isTotal) line.productId: line.netBase,
+  };
   final low = <LowStockAlert>[];
   for (final line in stock) {
     final product = byId[line.productId];
@@ -282,7 +298,13 @@ InventoryAlerts computeInventoryAlerts({
     // En propio sólo hay un ámbito: el total, que es el del titular.
     if (!shared && !line.isTotal) continue;
     if (line.netBase <= min) {
-      low.add(LowStockAlert(line: line, minStockBase: min));
+      low.add(
+        LowStockAlert(
+          line: line,
+          minStockBase: min,
+          installationNetBase: installation[line.productId] ?? 0,
+        ),
+      );
     }
   }
   low.sort((a, b) {

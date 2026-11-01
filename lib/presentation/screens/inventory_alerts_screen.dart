@@ -171,22 +171,42 @@ class _AlertsBody extends StatelessWidget {
               _LotTile(alert: alert, shared: a.shared, onOpen: onOpenProduct),
           ],
         ),
+        // Total de la instalación y cada responsable, por separado: el mismo
+        // nivel mínimo del producto se compara con los dos.
         _Section(
           keyName: 'alerts-low',
-          title: 'Existencia baja',
-          help: a.shared
-              ? 'Lo que queda es igual o menor al nivel mínimo, por persona '
-                    'y en el total.'
-              : 'Lo que queda es igual o menor al nivel mínimo.',
+          title: a.shared
+              ? 'Existencia baja en toda la instalación'
+              : 'Existencia baja',
+          help: 'Lo que queda en total es igual o menor al nivel mínimo.',
           children: [
             for (final alert in a.lowStock)
-              _LowStockTile(
-                alert: alert,
-                shared: a.shared,
-                onOpen: onOpenProduct,
-              ),
+              if (alert.line.isTotal)
+                _LowStockTile(
+                  alert: alert,
+                  shared: a.shared,
+                  onOpen: onOpenProduct,
+                ),
           ],
         ),
+        if (a.shared)
+          _Section(
+            keyName: 'alerts-low-person',
+            title: 'Existencia baja por responsable',
+            help:
+                'Lo que tiene cada responsable es igual o menor al nivel '
+                'mínimo. Puede haber producto en otras manos: se indica el '
+                'total de la instalación.',
+            children: [
+              for (final alert in a.lowStock)
+                if (!alert.line.isTotal)
+                  _LowStockTile(
+                    alert: alert,
+                    shared: a.shared,
+                    onOpen: onOpenProduct,
+                  ),
+            ],
+          ),
         _Section(
           keyName: 'alerts-unknown',
           title: 'Sin fecha de vencimiento registrada',
@@ -307,19 +327,35 @@ class _LowStockTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final line = alert.line;
-    final scope = line.isTotal
-        ? (shared ? 'Total de la instalación' : null)
-        : line.personName;
+    final min = formatQuantity(alert.minStockBase, line.unit);
+    final total = formatQuantity(alert.installationNetBase, line.unit);
+    final String title;
+    final String subtitle;
+    if (line.isTotal) {
+      title = shared
+          ? '${line.productName} · Total de la instalación'
+          : line.productName;
+      subtitle = line.netBase <= 0
+          ? (shared
+                ? 'No queda en toda la instalación; nivel mínimo $min'
+                : 'No queda; nivel mínimo $min')
+          : 'Quedan $total${shared ? ' en toda la instalación' : ''}; '
+                'nivel mínimo $min';
+    } else {
+      title = '${line.productName} · ${line.personName} (responsable)';
+      final own = line.netBase <= 0
+          ? '${line.personName} no tiene existencias propias'
+          : '${line.personName} tiene '
+                '${formatQuantity(line.netBase, line.unit)}';
+      subtitle =
+          '$own; nivel mínimo $min. En toda la instalación: '
+          '${alert.installationNetBase <= 0 ? 'no queda' : total}';
+    }
     return ListTile(
       key: Key('alert-low-${line.productId}-${line.personId ?? 'total'}'),
       leading: const Icon(Icons.inventory_2_outlined),
-      title: Text(
-        scope == null ? line.productName : '${line.productName} · $scope',
-      ),
-      subtitle: Text(
-        'Quedan ${formatQuantity(line.netBase, line.unit)}; nivel mínimo '
-        '${formatQuantity(alert.minStockBase, line.unit)}',
-      ),
+      title: Text(title),
+      subtitle: Text(subtitle),
       trailing: const Icon(Icons.chevron_right),
       onTap: () => onOpen(line.productId),
     );

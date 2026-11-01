@@ -25,6 +25,20 @@ import 'invoice_storage.dart';
 import 'operation_mode_store.dart';
 import 'sync/central_binding_store.dart' show CentralBindingStore;
 
+/// Resultado de corregir vencimiento o número de lote (F04-AV): cuántos
+/// lotes cambiaron y cuántos de la línea quedaron sin tocar por no tener la
+/// procedencia demostrada.
+class LotDataCorrectionResult {
+  const LotDataCorrectionResult({
+    required this.correctionId,
+    required this.correctedLots,
+    required this.unprovenLots,
+  });
+  final int correctionId;
+  final int correctedLots;
+  final int unprovenLots;
+}
+
 class BusinessRuleException implements Exception {
   BusinessRuleException(this.message);
   final String message;
@@ -3499,6 +3513,18 @@ class AgroRepository {
 
   static const int maxLotNumberLength = 40;
 
+  /// Si se puede corregir la línea: existe y su compra no está revertida.
+  Future<bool> canCorrectLotData(int purchaseItemId) async {
+    final rows = await (await _db).rawQuery(
+      '''SELECT p.status, p.reversed_at FROM purchase_items i
+      JOIN purchases p ON p.id=i.purchase_id WHERE i.id=?''',
+      [purchaseItemId],
+    );
+    return rows.isNotEmpty &&
+        rows.single['status'] != 'REVERSED' &&
+        rows.single['reversed_at'] == null;
+  }
+
   /// Número de lote sin espacios a los lados; vacío es «sin dato» (null).
   /// Lanza si excede [maxLotNumberLength].
   static String? normalizeLotNumber(String? value) {
@@ -3521,23 +3547,65 @@ class AgroRepository {
     }
   }
 
-  /// Corrige el vencimiento y el número de lote de una línea de compra
-  /// (RF-42): cambia esos dos datos en todos sus lotes, también en los que
-  /// salieron de ella por transferencia, y deja una fila inmutable en
-  /// `lot_data_corrections` con los valores anteriores y los nuevos. No toca
-  /// cantidades, costos, movimientos ni el orden de consumo. Un valor nulo
-  /// deja el dato «sin registrar». Devuelve el id de la corrección.
-  Future<int> correctLotData(
+  /// Referencia que firma la autorización de una corrección.
+  static String lotDataSubjectRef(int purchaseItemId) =>
+      'purchase_item:$purchaseItemId';
+
+  /// Lotes de una línea de compra cuya procedencia está demostrada: sus lotes
+  /// de compra (sin padre, con su entrada de compra por una asignación de esa
+  /// línea) y, recursivamente, los lotes de destino de una transferencia
+  /// registrada en `transfer_lot_items` desde uno de ellos. Un lote de la
+  /// línea al que no se llega así no se toca.
+  static const String _provenLotsSql = '''WITH RECURSIVE proven(id) AS (
+      SELECT l.id FROM inventory_lots l
+      WHERE l.purchase_item_id=?1 AND l.parent_lot_id IS NULL
+        AND EXISTS (SELECT 1 FROM inventory_movements m
+          JOIN purchase_allocations a ON a.id=m.reference_id
+          WHERE m.lot_id=l.id AND m.type='PURCHASE_IN'
+            AND m.reference_type='PURCHASE_ALLOCATION' AND a.purchase_item_id=?1)
+      UNION
+      SELECT l.id FROM inventory_lots l JOIN proven p ON l.parent_lot_id=p.id
+      WHERE l.purchase_item_id=?1
+        AND EXISTS (SELECT 1 FROM transfer_lot_items t
+          WHERE t.source_lot_id=p.id AND t.destination_lot_id=l.id))
+    SELECT id FROM proven ORDER BY id''';
+
+  /// Corrige el vencimiento y el número de lote de una línea de compra ya
+  /// registrada (RF-42; decisión del autor del 2026-11-01). Exige el PIN del
+  /// titular ([authorization], para [lotDataSubjectRef]) y un motivo. No se
+  /// admite sobre una compra revertida. Cambia esos dos datos sólo en los
+  /// lotes de procedencia demostrada y deja la auditoría: la corrección con
+  /// su actor y una fila por lote cambiado. No toca cantidades, costos,
+  /// movimientos ni el orden de consumo. Un valor nulo deja el dato «sin
+  /// registrar».
+  Future<LotDataCorrectionResult> correctLotData(
     int purchaseItemId, {
     required String? expiryDay,
     required String? lotNumber,
-    String? reason,
-    DateTime? now,
+    required String reason,
+    required OwnerAuthorization authorization,
   }) async {
     _checkExpiryDay(expiryDay);
     final number = normalizeLotNumber(lotNumber);
-    final note = reason?.trim();
+    final note = reason.trim();
+    if (note.isEmpty) {
+      throw BusinessRuleException('Indique el motivo de la corrección.');
+    }
     return _write((txn, _) async {
+      final purchase = await txn.rawQuery(
+        '''SELECT p.status, p.reversed_at FROM purchase_items i
+        JOIN purchases p ON p.id=i.purchase_id WHERE i.id=?''',
+        [purchaseItemId],
+      );
+      if (purchase.isEmpty) {
+        throw BusinessRuleException('La línea de compra no existe.');
+      }
+      if (purchase.single['status'] == 'REVERSED' ||
+          purchase.single['reversed_at'] != null) {
+        throw BusinessRuleException(
+          'La compra está revertida: se puede consultar, pero no corregir.',
+        );
+      }
       final lots = await txn.query(
         'inventory_lots',
         columns: ['expiry_date', 'lot_number'],
@@ -3547,40 +3615,95 @@ class AgroRepository {
         limit: 1,
       );
       if (lots.isEmpty) {
-        throw BusinessRuleException('La línea de compra no existe.');
+        throw BusinessRuleException('La línea de compra no tiene lotes.');
       }
       final previousExpiry = lots.single['expiry_date'] as String?;
       final previousNumber = lots.single['lot_number'] as String?;
       if (previousExpiry == expiryDay && previousNumber == number) {
         throw BusinessRuleException('No hay cambios que guardar.');
       }
-      await txn.update(
-        'inventory_lots',
-        {'expiry_date': expiryDay, 'lot_number': number},
-        where: 'purchase_item_id=?',
-        whereArgs: [purchaseItemId],
+      // El vínculo vigente y el PIN vigente, leídos justo antes de consumir.
+      consumeOwnerAuthorization(
+        authorization,
+        installation: _ownerCredential(),
+        purpose: AuthorizationPurpose.correctLotData,
+        subjectRef: lotDataSubjectRef(purchaseItemId),
+        current: await _currentOwnerBinding(txn),
+        now: DateTime.now(),
       );
-      return txn.insert('lot_data_corrections', {
+      final proven = [
+        for (final row in await txn.rawQuery(_provenLotsSql, [purchaseItemId]))
+          row['id']! as int,
+      ];
+      final allLots =
+          Sqflite.firstIntValue(
+            await txn.rawQuery(
+              'SELECT COUNT(*) FROM inventory_lots WHERE purchase_item_id=?',
+              [purchaseItemId],
+            ),
+          ) ??
+          0;
+      final correctionId = await txn.insert('lot_data_corrections', {
         'purchase_item_id': purchaseItemId,
         'previous_expiry_date': previousExpiry,
         'previous_lot_number': previousNumber,
         'new_expiry_date': expiryDay,
         'new_lot_number': number,
-        'reason': note == null || note.isEmpty ? null : note,
-        'recorded_at': _date(now ?? DateTime.now()),
+        'reason': note,
+        'actor_person_id': authorization.personId,
+        'actor_binding_id': authorization.bindingId,
+        'actor_member_id': authorization.scope.memberId,
+        'actor_tenant_id': authorization.scope.tenantId,
+        'actor_method': authorization.method,
+        'credential_enrolment_ref': authorization.enrolmentId,
+        'unproven_lot_count': allLots - proven.length,
+        'recorded_at': _date(DateTime.now()),
       });
+      for (final lotId in proven) {
+        await txn.update(
+          'inventory_lots',
+          {'expiry_date': expiryDay, 'lot_number': number},
+          where: 'id=?',
+          whereArgs: [lotId],
+        );
+        await txn.insert('lot_data_correction_lots', {
+          'correction_id': correctionId,
+          'lot_id': lotId,
+        });
+      }
+      return LotDataCorrectionResult(
+        correctionId: correctionId,
+        correctedLots: proven.length,
+        unprovenLots: allLots - proven.length,
+      );
     });
   }
+
+  /// Sólo pruebas: la corrección sin autorización, para preparar datos.
+  @visibleForTesting
+  Future<void> setLotDataUnauditedForTesting(
+    int lotId, {
+    String? expiryDay,
+    String? lotNumber,
+  }) => _write(
+    (txn, _) => txn.update(
+      'inventory_lots',
+      {'expiry_date': expiryDay, 'lot_number': lotNumber},
+      where: 'id=?',
+      whereArgs: [lotId],
+    ),
+  );
 
   /// Correcciones de una línea de compra, de la más reciente a la más
   /// antigua.
   Future<List<Map<String, Object?>>> lotDataCorrections(
     int purchaseItemId,
-  ) async => (await _db).query(
-    'lot_data_corrections',
-    where: 'purchase_item_id=?',
-    whereArgs: [purchaseItemId],
-    orderBy: 'id DESC',
+  ) async => (await _db).rawQuery(
+    '''SELECT c.*, pe.name actor_name,
+    (SELECT COUNT(*) FROM lot_data_correction_lots x WHERE x.correction_id=c.id) lot_count
+    FROM lot_data_corrections c JOIN persons pe ON pe.id=c.actor_person_id
+    WHERE c.purchase_item_id=? ORDER BY c.id DESC''',
+    [purchaseItemId],
   );
 
   /// Nivel mínimo (unidad base) y plazo de aviso (días) de un producto

@@ -6,6 +6,8 @@ import '../../data/app_database.dart';
 import '../../domain/campaign_calendar.dart';
 import '../../domain/inventory_alerts.dart';
 import '../../domain/money.dart';
+import '../../domain/operation_mode.dart';
+import '../../operation_mode_controller.dart';
 import '../widgets/common.dart';
 
 typedef _InventoryDetail = ({
@@ -164,6 +166,10 @@ class _InventoryDetailScreenState extends ConsumerState<InventoryDetailScreen> {
             _AlertSettingsCard(
               settings: data.alertSettings,
               onConfigure: () => _configureAlerts(data.alertSettings),
+              // Sin modalidad conocida se presenta la compartida, la de
+              // defecto (operation_mode_controller.dart).
+              shared:
+                  ref.watch(operationModeProvider) != OperationMode.personal,
             ),
             const SizedBox(height: 20),
             Text(
@@ -306,9 +312,17 @@ String _leadText(int? leadDays) =>
 
 /// Configuración de avisos del producto (RF-44), visible para el titular.
 class _AlertSettingsCard extends StatelessWidget {
-  const _AlertSettingsCard({required this.settings, required this.onConfigure});
+  const _AlertSettingsCard({
+    required this.settings,
+    required this.onConfigure,
+    required this.shared,
+  });
   final ProductAlertSettings settings;
   final VoidCallback onConfigure;
+
+  /// Modalidad compartida: el nivel se compara con el total y con cada
+  /// responsable.
+  final bool shared;
 
   @override
   Widget build(BuildContext context) {
@@ -330,7 +344,9 @@ class _AlertSettingsCard extends StatelessWidget {
               min == null
                   ? 'Sin nivel mínimo: no se avisa cuando queda poco.'
                   : 'Nivel mínimo: ${formatQuantity(min, settings.unit)}. '
-                        'Se avisa cuando queda esa cantidad o menos.',
+                        '${shared ? 'Se avisa cuando el total de la '
+                                  'instalación, o lo de un responsable, '
+                                  'queda en esa cantidad o menos.' : 'Se avisa cuando queda esa cantidad o menos.'}',
             ),
             Text('Aviso de vencimiento: ${_leadText(settings.leadDays)}.'),
             Align(
