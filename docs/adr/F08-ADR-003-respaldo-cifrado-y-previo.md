@@ -67,6 +67,23 @@ También siguen pendientes, según la conciliación del 2026-10-24:
 - el plazo, la cota y una `interrupted` de `.previo` en DEVICE;
 - una copia cifrada **por el teléfono** que pase por B2 real y se restaure en el teléfono. Las comprobaciones en B2 del 2026-10-24 usaron sobres sintéticos del formato 2.
 
+> **Precisión del 2026-11-03 (cierre de OE3; las dos listas de arriba no cambian).** Dos de los
+> pendientes de la conciliación quedaron cubiertos después, con su propia evidencia: el caso D de
+> `docs/evidence/F01_F08_DEVICE_FINAL_2026-10-24.md` (POCO X5 Pro 5G `22101320G`, Mobile `1d77c14`,
+> Backend `4bcb1ea`; 2026-10-24 por la noche en La Paz, 2026-10-25 UTC):
+> - **copia cifrada por el teléfono → B2 real → restauración en el teléfono** (D2–D5: formato 2,
+>   `AGROENC`, el mismo SHA-256 en el Backend y en B2; 31 de 32 tablas idénticas y las 2 fotos con
+>   el mismo nombre y SHA-256);
+> - **restauración con la clave correcta en una instalación nueva** (D3–D4: uid nuevo, llavero
+>   vacío, «descifrada y verificada»). La clave la **tecleó un proceso** (`key_holder`) que la
+>   guardaba en memoria fuera de la instalación, **no una persona**.
+>
+> Siguen pendientes, como dice esa misma evidencia en sus Límites: la **clave escrita a mano por
+> una persona** (la comprobación con personas de la lista de arriba), la restauración en un
+> **teléfono de otro modelo** (#151 ítem 7, MOB #36), y el resto de ambas listas (rendimiento,
+> rotación completada y archivo alterado o truncado en DEVICE, Auto Backup y D2D reales, cambio de
+> contraseña en DEVICE y `.previo` en DEVICE).
+
 Lo que se ejecute después se anotará con su propia evidencia y su fecha real, no en este ADR.
 
 **Condiciones para producción**, separadas de la entrega académica:
