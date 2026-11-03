@@ -270,6 +270,27 @@ Falta:
 Estado propuesto: Validation · Evidence Partial. No se cierra.
 ```
 
+> **Corrección de procedencia del 2026-11-03 (cierre de OE3; la tabla y el texto de arriba no
+> cambian).**
+> - **Foto alterada o ausente (criterio 4).** La tabla y el texto de resolución citan como DEVICE
+>   `F10_RESTORE_DEVICE.md` caso C. Ese caso C rechazó una **base de datos alterada** («La base de
+>   datos del respaldo no coincide con su manifiesto (SHA-256)…»), una copia ajena y una «bomba»;
+>   **no** incluyó una fotografía alterada ni ausente. El rechazo de una fotografía alterada o
+>   ausente es **sólo HOST**: `backup_container_test.dart` («una fotografía anunciada pero ausente
+>   se rechaza», «una fotografía alterada se detecta por su checksum») y
+>   `backup_restore_sha256_test.dart`. Así lo registró el comentario de #36 del 2026-10-18
+>   (`issuecomment-6258688375`: «rechazo de una foto alterada» entre los casos «sólo en HOST»).
+> - **Rutas reconstruidas en otra carpeta (criterio 5).** El mismo comentario las cuenta como
+>   sólo HOST. `F10_RESTORE_DEVICE.md` caso A es la **ruta de código** modificada de la
+>   restauración (WAL y `.previo`), no otra carpeta de fotos, y en `F08_MOBILE_RESTORE.md` §5
+>   «en el mismo paquete, la carpeta de las fotos coincide». La reconstrucción queda en HOST
+>   (`backup_container_test.dart`, «las rutas se reconstruyen para este dispositivo»).
+> - **Cámara (criterio 1).** Desde el 2026-11-03 hay una prueba HOST con un **doble** de
+>   `ImagePickerPlatform`, no una cámara física: `test/oe3_rec008_camara_doble_test.dart`
+>   (`docs/evidence/OE3_HOST_CIERRE_2026-11-03.md`). En ningún teléfono se usó la cámara.
+> - **`docs/13_LOCAL_STORAGE.md`.** Además de la aclaración del 2026-10-19, desde el 2026-11-03
+>   lleva notas fechadas en el Resumen y junto al diagrama del §3.1.
+
 ---
 
 ### #51 REC-015 — Dashboard, perfiles y bitácora de chaco
@@ -453,6 +474,18 @@ Límites declarados:
 
 Estado propuesto: Done · Evidence Verified · cierre completed.
 ```
+
+> **Corrección de procedencia del 2026-11-03 (cierre de OE3; la tabla y el texto de arriba no
+> cambian).** En el criterio 2 («fotografía alterada, ausente…») la columna DEVICE dice
+> «`F10_RESTORE_DEVICE.md` caso C (alterada, ajena y bomba: todo IGUAL)», y el texto de resolución
+> repite «alterada». En ese caso C lo **alterado era la base de datos**, no una fotografía: la
+> fotografía alterada o ausente sólo tiene evidencia HOST (`backup_container_test.dart`,
+> `backup_restore_sha256_test.dart`), como registra el comentario de #36 del 2026-10-18
+> (`issuecomment-6258688375`). Por la misma razón, en el criterio 4 la reconstrucción de rutas en
+> **otra carpeta** es sólo HOST: el caso A de `F10_RESTORE_DEVICE.md` es la ruta de código
+> modificada de la restauración y en `F08_MOBILE_RESTORE.md` §5 la carpeta coincidía. Lo que sí
+> tiene DEVICE en esos criterios (base alterada, copia ajena y bomba rechazadas; `.previo` e
+> `integrity_check` tras restaurar) no cambia. Véase también la nota de #44.
 
 ---
 
