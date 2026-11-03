@@ -25,7 +25,9 @@ case "${1:-}" in
   *)
     for mode in "$@"; do
       # OE3: «hold-path /api/v1/...» retiene sin reenviar el próximo POST a esa ruta.
-      [[ "$mode" =~ ^($modes)$ || "$mode" =~ ^hold-path\ /api/v1/[a-z0-9/_-]+$ ]] || { echo "modo desconocido: $mode"; exit 2; }
+      # OE3: transporte controlado (ver observer.cjs).
+      extended='^(mutate [a-z0-9:_.-]+|concurrent [0-9]+|burst [0-9]+|inject-ack [A-Z_]+ [A-Z_]+ [A-Z_]+|inject-status [0-9]{3} [A-Z_]+|get-unknown)$'
+      [[ "$mode" =~ ^($modes)$ || "$mode" =~ ^hold-path\ /api/v1/[a-z0-9/_-]+$ || "$mode" =~ $extended ]] || { echo "modo desconocido: $mode"; exit 2; }
     done
     printf '%s\n' "$@" > "$file"
     echo "fallo preparado: $*"
