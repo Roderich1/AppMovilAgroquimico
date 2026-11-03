@@ -5,7 +5,7 @@
 | Fecha real | 2026-11-02 y 2026-11-03 (UTC) |
 | Rama | `feat/f12-est-07-mob-copia` |
 | Base | Mobile `main` `4ca2088`. Servicio: Backend-Web `main` `635cc8f` (#195, con `GET /estimation/download`) |
-| Código verificado | `398db76` |
+| Código verificado | `398db76` (implementación; DEVICE y alteraciones) y `1c97b40` (una prueba más; suite HOST final) |
 | Issue | Refs #164. **No se cierra** |
 | Origen | Implementación nueva. Solo datos sintéticos |
 | Contrato | Backend-Web `docs/architecture/F12_EST_07_COPIA_MOBILE.md` y `F12_EST_01_ESTIMATION_CONTRACT.md` §9 (INT-09 v1). Si discrepan con el prototipo, **gana el contrato** |
@@ -138,6 +138,7 @@ flutter test (toda la suite)       → 2228 pruebas, 2228 success (00:31:26Z–0
   - **Causa:** el guardián de la copia abría una transacción en cada cambio del estado de acceso, también en pruebas de pantalla con tiempo simulado.
   - **Corrección:** el guardián y el descarte primero leen si hay algo que borrar; sin nada, no abren ninguna transacción.
 - **Tercera suite:** 2228/2228.
+- **Suite final sobre `1c97b40`**, con la prueba añadida en §8: **2229/2229**, de 00:48:59Z a 00:51:39Z del 2026-11-03. `flutter analyze`: «No issues found!».
 
 ## 6. DEVICE
 
