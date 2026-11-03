@@ -11,6 +11,19 @@ de persistencia.
 | **Archivos de imagen** | Fotos de facturas | `<documentos app>/invoices/` | Permanente hasta desinstalar; **nunca se limpian** |
 | **Archivo de backup** | Copia del `.db` | Directorio Descargas (o Documentos) | Permanente; fuera del sandbox en Android |
 
+> **Nota del 2026-11-03 (cierre de OE3; el texto de arriba no cambia).** La fila «Archivo de
+> backup» describe la exportación histórica de un `.db` suelto. El respaldo vigente es el
+> contenedor `.agrobackup` (`lib/data/backup_service.dart`: manifiesto, `database.db` e
+> `invoices/`, cada fotografía con su tamaño y `sha256`), que **sí incluye las fotografías de
+> factura** referenciadas por las compras; en el formato 2 va además cifrado
+> (`lib/data/backup_encryption.dart`). Comprobado en el código de `main` `5b5b318` el
+> 2026-11-03. Evidencia: HOST `backup_container_test.dart` (grupo «exportación») y
+> `f08_late_draft_photos_test.dart`; DEVICE `docs/evidence/F08_MOBILE_RESTORE.md` §5 (POCO,
+> MOB `dc1b6eb`, 2026-10-16: 3 fotos iguales en nombre y SHA-256 tras reinstalar) y
+> `docs/evidence/F01_F08_DEVICE_FINAL_2026-10-24.md` caso D (POCO, MOB `1d77c14`, 2026-10-25
+> UTC: copia cifrada con 2 fotos, iguales en nombre y SHA-256 en una instalación nueva). El
+> estado del formato está en [Actualización 2026-09-06 — Respaldo 2.0](#actualización-2026-09-06--respaldo-20-la-base-y-las-fotografías).
+
 **No se usa**: `SharedPreferences`, `DataStore`, `AsyncStorage`, Hive, Realm, CoreData,
 Room, `flutter_secure_storage`, Keychain, Keystore, ni caché en memoria.
 
@@ -233,6 +246,12 @@ flowchart TD
     CAM["Camara / Galeria"] -->|image_picker| R
     DB -.->|"no incluye las fotos"| BK
 ```
+
+> **Nota del 2026-11-03.** La tabla del §3.1 («Incluye fotos: **No**», «Cifrado: Ninguno») y
+> la flecha «no incluye las fotos» de este diagrama describen la exportación histórica del
+> `.db`. El contenedor `.agrobackup` vigente incluye las fotografías y, en el formato 2, va
+> cifrado; véase la nota del Resumen y la [Actualización 2026-09-06](#actualización-2026-09-06--respaldo-20-la-base-y-las-fotografías).
+> El diagrama y la tabla se conservan como registro histórico.
 
 ## Riesgos identificados
 
