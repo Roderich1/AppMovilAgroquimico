@@ -5,11 +5,11 @@
 | Fecha real | 2026-11-02 y 2026-11-03 (UTC) |
 | Rama | `feat/f12-est-07-mob-copia` |
 | Base | Mobile `main` `4ca2088`. Servicio: Backend-Web `main` `635cc8f` (#195, con `GET /estimation/download`) |
-| Código verificado | `398db76` (implementación; DEVICE y alteraciones) y `1c97b40` (una prueba más; suite HOST final) |
+| Código verificado | Primera entrega: `398db76` y `1c97b40` (§5–§8). **Retirada persistente y ensayo contra el Backend real: §10–§12**, código final `5594599` (sin cambios en `lib/` después) |
 | Issue | Refs #164. **No se cierra** |
 | Origen | Implementación nueva. Solo datos sintéticos |
 | Contrato | Backend-Web `docs/architecture/F12_EST_07_COPIA_MOBILE.md` y `F12_EST_01_ESTIMATION_CONTRACT.md` §9 (INT-09 v1). Si discrepan con el prototipo, **gana el contrato** |
-| Procedencia | **HOST** (§5) y **DEVICE** (§6). **EMULADOR: no ejecutado** |
+| Procedencia | **HOST** (§5, §10). **DEVICE con servidor REAL** (§11) y **DEVICE con servidor simulado** (§6). **EMULADOR: no ejecutado** |
 
 ## 1. Trazabilidad
 
@@ -145,12 +145,12 @@ flutter test (toda la suite)       → 2228 pruebas, 2228 success (00:31:26Z–0
 | Campo | Valor |
 |---|---|
 | Teléfono | Xiaomi 22101320G (POCO X5 Pro 5G), Android 12, arm64-v8a, 1080×2400 |
-| App | **Aislada:** paquete `com.comunidad.agro.agroquimicos.est164`, compilación debug de `398db76` con un sufijo temporal en `build.gradle.kts` que se revierte al terminar. Se **desinstaló** al terminar (0 paquetes `.est164` después) |
+| App | **Aislada:** paquete `com.comunidad.agro.agroquimicos.est164`, compilación debug con un sufijo temporal en `build.gradle.kts` que se revierte al terminar. Se **desinstaló** al terminar (0 paquetes `.est164` después) |
 | Otras instalaciones del teléfono | **No se tocaron:** la app normal y las de otros ensayos siguen igual |
 | Ajuste del teléfono | `stay_on_while_plugged_in` se fijó en 3 durante el ensayo y se restauró a su valor previo |
-| Servidor | **SIMULADO:** un transporte HTTP de prueba con respuestas de la forma INT-09 v1. **No se usó un backend real.** La app exige HTTPS y el túnel temporal no está autorizado; no se buscó otra vía |
-| Ejecución | `flutter test integration_test/f12_est_07_estimation_device_test.dart -d cc14247a`, de 00:34:02Z a 00:39:13Z del 2026-11-03 |
-| Resultado | **5/5** («All tests passed!») |
+| Servidor | **SIMULADO** en este ensayo: un transporte HTTP de prueba con respuestas de la forma INT-09 v1. El ensayo contra el Backend **real** está en §11 |
+| Ejecución | `flutter test integration_test/f12_est_07_estimation_device_test.dart -d cc14247a`. Primera vez sobre `398db76` (00:34:02Z–00:39:13Z, 5/5). **Repetida sobre `3c2446e`** (`lib/` = `5594599`, con la retirada persistente) de 01:58:27Z a 02:01:38Z: **5/5**. Las capturas y `version.txt` de `f12_est_07_mob/` son las de esta repetición |
+| Resultado | **5/5** («All tests passed!») en las dos |
 
 **Qué se ejercitó en el teléfono real:** el SQLite de Android, los archivos de la app, el respaldo `.agrobackup` y la restauración, y la pantalla.
 
@@ -211,11 +211,143 @@ Las alteraciones se hicieron una por caso sobre `398db76` y se restauraron despu
 - **«Guardar no comprueba el titular vigente» sobrevivía en la primera pasada.** El cambio de titular de las pruebas pasaba por `changeOwner`, que ya borra el acceso, y además la primera alteración estaba mal construida (`false && a || b…` seguía comprobando). Se añadió la prueba «si el titular vigente ya no es el de la descarga, no se guarda aunque el acceso siga», con el vínculo cambiado por otra vía, y se rehízo la alteración: ahora falla.
 - **«Sin identidad se consulta igual» no compila:** la identidad pasaría a ser anulable. No es una alteración válida y no se cuenta.
 
+**Segunda tanda, sobre la retirada persistente** (`3c2446e`, de 02:04:09Z a 02:09:30Z del 2026-11-03, con las cuatro suites de #164): **fallan 14 de 16**.
+- **Las que fallan:**
+  - lectura sin el contexto vigente, sin comprobar la retirada, y sin renovar el contexto al retirar todo;
+  - una campaña retirada sin subir la generación;
+  - guardar ignorando la retirada o el contexto de la petición;
+  - la marca pendiente sin consultar, o una marca ilegible tratada como admisible;
+  - no dejar la marca si SQLite no retira;
+  - un rechazo o un 404 que solo borran, sin registrar la retirada;
+  - cerrar la sesión sin retirar;
+  - el respaldo con la copia y la restauración que la trae.
+- **Las dos que sobrevivían:**
+  - una generación posterior a la del contexto, en un registro manipulado;
+  - las retiradas, que no se borraban del respaldo.
+
+  Se añadieron sus pruebas (`095684e`) y ahora **fallan las dos**.
+
 ## 9. Límites que permanecen
 
-- **Sin backend real en Android.** Contra el servicio real, la descarga y los perfiles están probados en Backend-Web (PostgreSQL y recorrido de la PWA). En el teléfono, las respuestas fueron simuladas.
 - **El titular, no la persona.** La copia se lee con la sesión del titular vigente en la instalación. Quien use el teléfono con esa sesión puede leerla; no se añadieron PIN ni contraseñas.
 - **Revocaciones sin conexión.** Sin conexión no se conocen revocaciones ni cambios de política o de fuentes. La invalidación llega con la siguiente consulta con conexión, o con el cierre de sesión o el cambio de titular en el teléfono.
-- **Un borrado fallido** deja la copia ilegible solo durante esa ejecución de la app. Si SQLite no puede escribir, tampoco puede registrar la retirada; tras reiniciar, la copia se descarta en la siguiente invalidación. Es el mismo almacenamiento que sostiene todas las operaciones.
+- **Un borrado fallido** ya no reactiva la copia: la retirada persiste aparte (§10). Solo si fallan a la vez SQLite y el almacenamiento seguro, la lectura queda bloqueada únicamente durante esa ejecución.
+- **Fallos de almacenamiento** solo se inyectaron en HOST. En el teléfono, los borrados se completaron.
+- **El Central del ensayo real** era propio, desechable y sintético. No se probó contra un Central de pilotos ni con datos reales.
 - **Cierre de sesión.** Hoy, la única salida de sesión de la app es la de una sesión ajena (F03). La regla `discard_on: SIGN_OUT` se aplica allí y al perder la identidad.
-- **Documentación del servicio.** `F12_EST_07_COPIA_MOBILE.md` del servicio sigue diciendo «no implementado». Se actualizará cuando este PR se integre.
+- **Documentación del servicio.** `F12_EST_07_COPIA_MOBILE.md` del servicio se actualiza tras integrar, en un PR documental aparte.
+
+## 10. Retirada persistente (2026-11-03)
+
+**Qué estaba mal en `267592a`.** `discardAll` y `discardCampaign` borraban la copia y el acceso en la misma transacción. Si el borrado fallaba, los dos quedaban, y tras cerrar y volver a abrir la app la copia se leía otra vez, porque la identidad coincidía. Era el límite declarado en §9.
+
+### 10.1 Reproducción antes de corregir (HOST, fallos inyectados)
+
+`test/f12_est_07_estimation_restart_test.dart` se escribió antes de tocar el código y se ejecutó sobre `267592a` (2026-11-03 01:26:55Z): **fallan 5 de 5**. Están en `f12_est_07_mob/reproduccion-reinicio-267592a.txt`, con la prueba y la salida.
+
+**Cómo se simula el arranque nuevo:** otro `ProviderContainer` y otra instancia de `AppDatabase` sobre el mismo archivo, sin proveedores ni variables en memoria.
+
+**Fallos inyectados:** disparadores de SQLite que abortan la escritura. Ninguno se ejercitó en el teléfono.
+
+En los cinco casos, la copia se lee tras reiniciar sin conexión:
+- **Rechazo 409** con el borrado fallido: las dos copias.
+- **404 de verano** con el borrado fallido: también verano.
+- **Respuesta pedida antes del rechazo** y respondida después.
+- **Reintento de limpieza:** la copia no se borra, porque ya no se sabe que estaba retirada.
+- **SQLite tampoco admite registrar la retirada.**
+
+### 10.2 Corrección (`c127c45`)
+
+| Pieza | Qué hace |
+|---|---|
+| Contexto local persistente | `estimation_copy_access`, con `context_id` aleatorio y generación. Sin él no se lee ninguna copia |
+| Retiradas por campaña | `estimation_copy_retirements`, por contexto y campaña, con la generación |
+| Copia | Guarda el contexto y la generación **de cuando se pidió** |
+| Lectura | Exige el contexto vigente y que la campaña no se retirara después de pedirla (generación de la copia mayor que la de la retirada), además de la identidad y el titular |
+| Retirada (`retireAll`, `retireCampaign`) | Escritura pequeña, **primero y aparte**. Cerrar la sesión, un 401, 403 o 409, o un perfil que no es FARMER renuevan el contexto; un 404 registra la retirada de la campaña y sube la generación |
+| Borrado físico (`purge`) | **Después**. Si falla, queda pendiente: la copia no se lee, tampoco tras reiniciar, y el siguiente intento la borra |
+| Marca persistente | Si SQLite no admite ni la retirada, se deja `retirement_pending` en el almacenamiento seguro del teléfono (el mismo mecanismo que la sesión y el llavero del respaldo; sin identificadores ni credenciales). Mientras exista, no hay contexto admisible: no se muestran cifras ni se guarda nada. El siguiente arranque completa la retirada y la quita |
+| Sin contexto admisible | Si la marca no se puede leer, no se muestra ninguna cifra |
+| Doble fallo | Si no se pueden registrar ni la retirada ni la marca, la lectura queda bloqueada en esa ejecución. Es el único caso sin persistencia, porque fallan los dos almacenes |
+| Respuestas | Una respuesta o escritura anterior a la retirada se rechaza (`accessChanged` o `targetRetired`) o no se lee. Solo una descarga **posterior** autorizada vuelve a valer |
+
+**Lo que no cambia:**
+- no se añaden PIN ni contraseñas;
+- la recuperación de acceso de F03 (`access_recovery.dart`) no se toca;
+- la retirada por cambio de titular sigue dentro de la transacción de `changeOwner`.
+
+**Esquema.** Sigue siendo el 13, aditivo e idempotente, ahora con tres tablas. Se ajustó antes de integrarse: ninguna instalación tenía el 13 anterior, porque las apps de ensayo se desinstalaron.
+
+### 10.3 Pruebas de la corrección (HOST)
+
+- **`f12_est_07_estimation_restart_test.dart`** (7): los 5 casos de §10.1, ahora en verde, más estos dos:
+  - con el almacén seguro ilegible no hay contexto admisible: ni cifras ni descarga;
+  - si no se pueden registrar la retirada ni la marca, la lectura queda bloqueada en esa ejecución.
+
+  En cada caso se comprueba que **la fila sigue** (solo se impidió el acceso) y, cuando el almacenamiento vuelve, que el siguiente arranque la borra y una descarga autorizada se lee.
+- **Pruebas anteriores adaptadas a `retire*` y `purge`:** retirar no borra y la fila sigue hasta purgar. Se conservan las de exclusión del respaldo, restauración sin copia y conservación de las operaciones agrícolas.
+- **Suites:** sobre `c127c45`, 2236/2236. La suite final está en §12.
+
+## 11. Android contra el Backend REAL (DEVICE, 2026-11-03)
+
+| Campo | Valor |
+|---|---|
+| Teléfono | Xiaomi 22101320G (POCO X5 Pro 5G), Android 12 |
+| App | Aislada `com.comunidad.agro.agroquimicos.est164` («AC EST164»), profile arm64. Se **desinstaló** al terminar; los demás paquetes no se tocaron (20 antes y 20 después) |
+| Servidor | **Real:** Backend-Web `main` `635cc8f` (`dist` compilado del worktree `F12-EST-07`, árbol idéntico). Central **propio y desechable** (`tool/f12_est_07/est164_supervisor.sh`): PostgreSQL 16.13 `--rm` sin volumen, base sintética del control de F12-EST-07 y trabajador real. Sin pilotos ni datos reales |
+| HTTPS | Túnel temporal de Cloudflare (`cloudflared` 2026.10.0) hacia el observador → API. Autorizado por Roderich para este ensayo. Se cerró al terminar y el contenedor se eliminó |
+| Secretos | JWT, huella y contraseñas solo en la memoria del supervisor. La contraseña del Agricultor sintético es de un solo uso y solo se teclea si el campo enfocado es de contraseña; no se muestra ni se guarda. **No se creó PIN**: se eligió «Ahora no» |
+| Observador | `f12_est_07_mob/real/requests.log`: hora, método, ruta y estado, sin cuerpos ni cabeceras |
+
+**Recorrido** (capturas `f12_est_07_mob/real/r01`–`r10`):
+
+| Paso | Resultado | APK |
+|---|---|---|
+| Activación con la identidad sintética | `POST /auth/v2/login` 200, `/auth/clients` 201, `/auth/v2/session/client` 201, `/auth/v2/me` 200; titular «Titular sintetico EST164», compartida | `c127c45` |
+| Consulta real de `/results` | **200**, perfil FARMER: «Herbicida de ensayo», «Estimado», «111 L (111.000 mL)», «Vigencia: Vigente» (`r02`) | `c127c45` |
+| Descarga real de `/download` | **200** para invierno y verano | `c127c45` |
+| Lo que llegó al teléfono | El JSON guardado en SQLite (copiado con `run-as`): perfil `FARMER`, `subject.role` `AGRICULTOR`; **sin** `naive_base`, `coverage`, `points`, `series` ni `alpha`; outbox de Sync v1 con 0 filas | `c127c45` |
+| Producto sin datos suficientes | Verano: «Datos insuficientes» con su motivo y «Sin cifra» (`r03`) | `c127c45` |
+| Defecto visual visto aquí | El título «Copia descargada en este teléfono» se solapaba con el selector. Se corrigió en `5594599`, se recompiló con el mismo origen y se reinstaló con `-r` (conserva sesión y datos). Lo siguiente es todo con la APK final | — |
+| Modo avión, cierre y reapertura | Sin red real (`ping`: «Network is unreachable», «Wi-Fi is disabled»). Tras `force-stop` y abrir: verano con «Sin cifra» e invierno con «111 L (111.000 mL)», cada uno con su fecha de descarga, la vigencia al descargar y la actual desconocida (`r04`–`r06`) | `5594599` |
+| **404 real** | La campaña de invierno pasa al sindicato B en el Central. La app la tenía en la lista y al elegirla, `/results` **404**: «Esa campaña no existe o no es de su sindicato. Su copia descargada se borró.» Queda solo verano (`r07`) | `5594599` |
+| **409 real** | El supervisor reinicia la API sin modo provisional y `/results` da **409** `POLICY_PENDING`. Sin cifras: «La copia descargada se borró.» (`r08`) | `5594599` |
+| Persistencia tras reiniciar | `force-stop`, modo avión y reapertura: **«Sin copia descargada»**. En la base: 0 copias, contexto renovado y 0 retiradas pendientes (`r09`) | `5594599` |
+| Nueva descarga autorizada | Con la API de nuevo en modo provisional: `/results` 200 y `/download` 200. Tras `force-stop`, modo avión y reapertura, la copia se lee (`r10`); en la base, 1 copia FARMER sin naive, cobertura ni serie | `5594599` |
+
+**Peticiones vistas por el observador** (01:39Z–01:55Z):
+
+| Petición | Respuestas |
+|---|---|
+| `/auth/v2/login` | 1 × 200 |
+| `/auth/clients` | 1 × 201 |
+| `/auth/v2/session/client` | 1 × 201 |
+| `/auth/v2/me` | 1 × 200 |
+| `/auth/v2/refresh` | 3 × 200 |
+| `/sync/v1/references` | 4 × 200 |
+| `/estimation/results` | 3 × 200, 1 × 404, 1 × 409 |
+| `/estimation/download` | 3 × 200 |
+
+**Real o inyectado:** en este recorrido todo es del servidor real, también los rechazos. **No** se inyectó ningún fallo de SQLite en el teléfono: el borrado tras el 404 y el 409 se completó, y la persistencia ante un borrado fallido se prueba en HOST (§10).
+
+**Además, en el teléfono, con servidor SIMULADO** (`integration_test`, §6), sobre `3c2446e`, cuyo `lib/` es idéntico a `5594599`: **5/5**, de 01:58:27Z a 02:01:38Z.
+- Pasa el respaldo `.agrobackup` en Android, sin filas ni bytes de la copia; tras restaurar no queda copia y las operaciones son idénticas.
+- En el primer intento, MIUI negó la instalación (`INSTALL_FAILED_USER_RESTRICTED`, «Instalar vía USB» sin confirmar). El guion ahora pulsa «Instalar» solo en ese diálogo del sistema.
+
+## 12. Versiones probadas
+
+| Prueba | Commit de código (`lib/`) | Artefacto |
+|---|---|---|
+| Reproducción del defecto (HOST) | `267592a` | — |
+| Corrección y suites (HOST) | `c127c45` | — |
+| Activación, primera consulta y primeras descargas (DEVICE, servidor real) | `c127c45` | APK profile arm64 SHA-256 `281117cb2ffaa6db043e5e10d147ff12ef68a5e38d28c8411c25d49c062928cd` |
+| Lectura en avión, 404, 409, persistencia y nueva descarga (DEVICE, servidor real) | `5594599` | APK profile arm64 SHA-256 `9fab4a7ac81047885bed4814c70e8e40db09f8fc794d221ffde9b46e43a67e5d` |
+| `integration_test` en el teléfono (servidor simulado) | `3c2446e` (`lib/` = `5594599`) | APK debug que compila `flutter test` |
+| Suite HOST final y alteraciones | `095684e`: **2237/2237** (02:11:31Z–02:13:41Z), `analyze` sin incidencias | — |
+| HEAD del PR | El commit de evidencia publicado sobre `095684e` | Solo añade documentación y herramientas sobre `3c2446e`; ningún cambio en `lib/` después de `5594599` |
+
+**Diferencias entre commits:**
+- **De `c127c45` a `5594599`:** solo el espacio entre el título y el selector de la copia, que es un cambio visual. Aun así, todo lo que dependía de la pantalla se **repitió** con la APK de `5594599`: lectura en avión, 404, 409, persistencia y nueva descarga.
+- **Lo hecho con la APK de `c127c45`:** la activación, la consulta y las descargas; no dependen de ese espacio.
+- **`3c2446e`:** solo cambia el guion del teléfono.
+- **La suite HOST final** se ejecutó sobre el código final.
