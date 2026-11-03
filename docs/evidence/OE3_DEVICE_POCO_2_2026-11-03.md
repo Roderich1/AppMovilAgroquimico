@@ -44,7 +44,7 @@
 - **autorización efectiva:** la respuesta real a `me`, `refresh` y `push`;
 - **limpieza:** el `logout` explícito.
 
-Salida completa en `oe3_sessions_check_2026-11-03.log`.
+Salida completa en `oe3_sessions_check_2026-11-03.txt`.
 
 | Caso | Estado almacenado | Autorización efectiva |
 |---|---|---|
@@ -90,7 +90,7 @@ No se revocó nada y no cambia el acceso sin red.
 - **Inyectado:** sólo C28 y el 503 de C29. Esas respuestas no salen de Central.
 - **Otra instalación:** en C12, C13 y C33 la otra rama la produce `tool/oe3/central_push.cjs`, una instalación scriptada del mismo Member con un registro propio y contra la API real.
 
-Antes del teléfono, `tool/oe3/harness_selftest.cjs` comprobó cada modo contra la API real (`oe3_harness_selftest_2026-11-03.log`).
+Antes del teléfono, `tool/oe3/harness_selftest.cjs` comprobó cada modo contra la API real (`oe3_harness_selftest_2026-11-03.txt`).
 
 | Fila | Montaje | Central (real) | Teléfono | Resultado |
 |---|---|---|---|---|

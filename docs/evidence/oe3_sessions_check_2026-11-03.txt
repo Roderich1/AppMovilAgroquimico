@@ -1,0 +1,22 @@
+2026-11-03T18:18:22.648Z 1 S1: login 200, clients 201, bind 201; S1 d7c29d11 ACTIVE vinculada=true expira=2026-11-10T18:18Z creada=2026-11-03T18:18Z
+2026-11-03T18:18:23.023Z 2 S2: login 200, bind 201 (mismo registro); sin logout de S1
+2026-11-03T18:18:23.312Z 2 S1 tras reautenticar: estado ACTIVE vinculada=true expira=2026-11-10T18:18Z creada=2026-11-03T18:18Z; tokens=1 vigentes=1
+2026-11-03T18:18:23.336Z 2 S1 access anterior: GET me 200
+2026-11-03T18:18:23.365Z 2 S1 refresh anterior: POST refresh 200
+2026-11-03T18:18:23.704Z 2 S1 push con el access rotado: POST push 200
+2026-11-03T18:18:24.130Z 3 desactivar: PATCH users/{id}/deactivate 200
+2026-11-03T18:18:24.149Z 3 S2 access: GET me 401
+2026-11-03T18:18:24.427Z 3 S2 push: POST push 403
+2026-11-03T18:18:24.437Z 3 S2 refresh: POST refresh 401
+2026-11-03T18:18:24.685Z 3 S2 tras el 401: estado ACTIVE vinculada=true expira=2026-11-10T18:18Z creada=2026-11-03T18:18Z; tokens=1 vigentes=1
+2026-11-03T18:18:24.764Z 3 login durante la inactividad: 401 (contraseña cualquiera; el login real también se rechaza por inactividad)
+2026-11-03T18:18:25.201Z 4 reactivar: PATCH users/{id} isActive=true 200
+2026-11-03T18:18:25.215Z 4 S2 access de antes: GET me 200
+2026-11-03T18:18:25.383Z 4 S2 refresh de antes: POST refresh 200; estado ACTIVE vinculada=true expira=2026-11-10T18:18Z creada=2026-11-03T18:18Z
+2026-11-03T18:19:25.975Z 5 S3 sin vínculo: clients 201 (mismo clientId: mismo registro=true); estado ACTIVE vinculada=false expira=2026-11-10T18:19Z creada=2026-11-03T18:19Z
+2026-11-03T18:19:25.985Z 5 S3 access: GET me 200
+2026-11-03T18:19:26.261Z 5 S3 push: POST push 403
+2026-11-03T18:19:26.267Z 5 S3 references: GET references 403
+2026-11-03T18:19:26.411Z 5 S3 refresh: POST refresh 200; estado ACTIVE vinculada=false expira=2026-11-10T18:19Z creada=2026-11-03T18:19Z
+2026-11-03T18:19:26.411Z 5 TTL: JWT_REFRESH_EXPIRES_IN=7d y JWT_EXPIRES_IN=15m en oe3_supervisor.sh
+2026-11-03T18:19:26.861Z limpieza: logout 204,204,204; S1 REVOKED vinculada=true expira=2026-11-10T18:18Z creada=2026-11-03T18:18Z; S2 REVOKED vinculada=true expira=2026-11-10T18:18Z creada=2026-11-03T18:18Z; S3 REVOKED vinculada=false expira=2026-11-10T18:19Z creada=2026-11-03T18:19Z
