@@ -27,6 +27,11 @@ foreground() { adb shell dumpsys activity activities 2>/dev/null | grep -m1 -E "
 require_foreground() {
   foreground | grep -q "$PKG/" || { echo "ABORTADO: el primer plano no es $PKG"; exit 3; }
 }
+# OE3_FARMER=B: segundo Agricultor sintético de P-05 (admin.sh create-farmer-b).
+farmer_email() {
+  if [ "${OE3_FARMER:-A}" = B ]; then cat "$RUN/farmerB_email"
+  else node -e "process.stdout.write(require(process.argv[1]).farmerEmail)" "$(cygpath -w "$RUN/ids.json")"; fi
+}
 cmd=${1:?orden}; shift || true
 case "$cmd" in ui|tap|tapxy|key|text|shot|credential) require_foreground ;; esac
 case "$cmd" in
@@ -77,7 +82,7 @@ PY
   credential)
     focused=$(adb exec-out uiautomator dump /dev/tty 2>/dev/null | grep -o '<node[^>]*>' | grep 'class="android.widget.EditText"' | grep 'focused="true"' | head -1)
     echo "$focused" | grep -q 'password="true"' || { echo "ABORTADO: el campo enfocado no es de contraseña"; exit 3; }
-    email=$(node -e "process.stdout.write(require(process.argv[1]).farmerEmail)" "$(cygpath -w "$RUN/ids.json")")
+    email=$(farmer_email)
     password=$(openssl rand -base64 18 | tr -d '\r\n/+=')
     hash=$(PASSWORD="$password" node -e 'process.stdout.write(require(process.argv[1]).hashSync(process.env.PASSWORD, 10))' "$(cygpath -m "$BE/node_modules/bcrypt")")
     db=$(node -e "process.stdout.write(require(process.argv[1]).database)" "$(cygpath -w "$RUN/ids.json")")
@@ -85,7 +90,7 @@ PY
     [ "$updated" = "UPDATE 1" ] || { password=; echo "no se pudo asignar la contraseña"; exit 1; }
     MSYS_NO_PATHCONV=1 adb shell input text "$password"; password=
     echo "contraseña de un solo uso del Agricultor sintético tecleada (no se muestra ni se guarda)" ;;
-  email) node -e "process.stdout.write(require(process.argv[1]).farmerEmail)" "$(cygpath -w "$RUN/ids.json")" ;;
+  email) farmer_email ;;
   requests) cat "$RUN/requests.log" ;;
   *) exec bash "$dev" "$cmd" "$@" ;;
 esac

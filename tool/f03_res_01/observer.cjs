@@ -54,7 +54,6 @@ const INJECT = {
 const GENERIC_500 = JSON.stringify({ statusCode: 500, message: 'Internal server error' });
 
 function takeFault(method, path) {
-  if (method !== 'POST' || (path !== pushPath && path !== refreshPath)) return null;
   let lines;
   try {
     lines = fs.readFileSync(faultFile, 'utf8').split('\n').map((line) => line.trim()).filter(Boolean);
@@ -62,6 +61,16 @@ function takeFault(method, path) {
     return null;
   }
   const [mode, ...rest] = lines;
+  // OE3 (2026-11-03): `hold-path <ruta>` retiene sin reenviar la PRÓXIMA petición POST a
+  // esa ruta (p. ej. el vínculo de la activación), para cortar la red del teléfono
+  // mientras está en curso. Central nunca la recibe.
+  if (mode !== undefined && mode.startsWith('hold-path ')) {
+    if (method !== 'POST' || path !== mode.slice('hold-path '.length).trim()) return null;
+    if (rest.length > 0) fs.writeFileSync(faultFile, `${rest.join('\n')}\n`);
+    else fs.rmSync(faultFile, { force: true });
+    return 'hold-push-request';
+  }
+  if (method !== 'POST' || (path !== pushPath && path !== refreshPath)) return null;
   // Cada modo sólo se consume en su ruta: el de refresh no toca un push ni al revés.
   if ((path === refreshPath) !== (mode === 'drop-refresh-response')) return null;
   if (rest.length > 0) fs.writeFileSync(faultFile, `${rest.join('\n')}\n`);
@@ -71,19 +80,19 @@ function takeFault(method, path) {
 }
 
 // Sin respuesta: se registra cuándo se va el cliente o el cierre a los 30 s.
-function withhold(res, label) {
+function withhold(res, label, path = pushPath) {
   let done = false;
   const timer = setTimeout(() => {
     if (done) return;
     done = true;
-    record(`POST ${pushPath} - ${label}_CERRADA_A_LOS_30S`);
+    record(`POST ${path} - ${label}_CERRADA_A_LOS_30S`);
     res.destroy();
   }, 30000);
   res.on('close', () => {
     clearTimeout(timer);
     if (done) return;
     done = true;
-    record(`POST ${pushPath} - ${label}_CLIENTE_SE_FUE`);
+    record(`POST ${path} - ${label}_CLIENTE_SE_FUE`);
   });
 }
 
@@ -101,7 +110,7 @@ http
     if (fault === 'hold-push-request') {
       req.resume();
       record(`POST ${path} - RETENIDA_SIN_REENVIAR`);
-      withhold(res, 'RETENIDA');
+      withhold(res, 'RETENIDA', path);
       return;
     }
     if (fault === 'status-500-before') {

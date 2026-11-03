@@ -24,7 +24,8 @@ case "${1:-}" in
   "") sed -n '2,13p' "$0"; exit 2 ;;
   *)
     for mode in "$@"; do
-      [[ "$mode" =~ ^($modes)$ ]] || { echo "modo desconocido: $mode"; exit 2; }
+      # OE3: «hold-path /api/v1/...» retiene sin reenviar el próximo POST a esa ruta.
+      [[ "$mode" =~ ^($modes)$ || "$mode" =~ ^hold-path\ /api/v1/[a-z0-9/_-]+$ ]] || { echo "modo desconocido: $mode"; exit 2; }
     done
     printf '%s\n' "$@" > "$file"
     echo "fallo preparado: $*"
