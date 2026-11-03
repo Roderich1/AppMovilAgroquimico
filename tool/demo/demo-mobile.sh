@@ -22,6 +22,8 @@ SUFFIX=.demo; LABEL="AC DEMO"; PKG=com.comunidad.agro.agroquimicos$SUFFIX
 export F03_BE_DIR=$DEMO_BE/Back F03_CLOUDFLARED=$ROOT/_wt/tools/cloudflared-2026.10.0/cloudflared-windows-amd64.exe
 export F03_API_PORT=3330 F03_OBSERVER_PORT=3331 F03_RUN_DIR=$RUN F03_PG_CONTAINER=agro_demo_pg
 export F03_APP_ID_SUFFIX=$SUFFIX F03_APP_LABEL="$LABEL" F03_SHOTS_DIR=$RUN/capturas
+# Rutas del dispositivo sin convertir (Git Bash); las del PC sí se convierten.
+export MSYS2_ARG_CONV_EXCL="/sdcard;/data/local;/dev/tty"
 mkdir -p "$RUN"
 dev="$MOB/tool/f03_res_01/device.sh"
 # Rutas del dispositivo sin conversión de Git Bash (sólo en adb).
