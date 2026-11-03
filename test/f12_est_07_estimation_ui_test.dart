@@ -16,6 +16,7 @@ import 'package:agroquimicos/services/sync/sync_access.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart' show Override;
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -101,6 +102,7 @@ List<Override> _online(MockClient client) => [
 
 void main() {
   sqfliteFfiInit();
+  setUp(() => FlutterSecureStorage.setMockInitialValues({}));
 
   testWidgets(
     'sin conexión y con copia: fechas, período, vigencia al descargar, aviso y ausencias sin cifra',

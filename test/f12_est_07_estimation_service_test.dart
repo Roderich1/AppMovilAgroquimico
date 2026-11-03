@@ -21,6 +21,7 @@ import 'package:agroquimicos/services/auth/remote_session_providers.dart';
 import 'package:agroquimicos/services/estimation/estimation_providers.dart';
 import 'package:agroquimicos/services/sync/sync_access.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -121,6 +122,7 @@ const _download = '/api/v1/estimation/download';
 
 void main() {
   sqfliteFfiInit();
+  setUp(() => FlutterSecureStorage.setMockInitialValues({}));
 
   group('endpoint: la consulta sólo con la campaña objetivo', () {
     final config = ApiEndpointConfig(_origin);

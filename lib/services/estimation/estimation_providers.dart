@@ -22,6 +22,7 @@ import '../sync/sync_access.dart';
 import '../sync/sync_api.dart' show SyncQueryException;
 import '../sync/sync_providers.dart';
 import 'estimation_api.dart';
+import 'estimation_retirement_marker.dart';
 
 final estimationApiProvider = Provider<EstimationApi>((ref) {
   if (ref.watch(apiEndpointConfigProvider) == null) {
@@ -33,6 +34,47 @@ final estimationApiProvider = Provider<EstimationApi>((ref) {
 final estimationCopyStoreProvider = Provider<EstimationCopyStore>(
   (ref) => EstimationCopyStore(ref.watch(databaseProvider)),
 );
+
+final estimationRetirementMarkerProvider = Provider<EstimationRetirementMarker>(
+  (ref) => const SecureStorageEstimationRetirementMarker(),
+);
+
+/// Registra una retirada **antes** del borrado físico. Si SQLite no la
+/// admite, deja la marca persistente del almacenamiento seguro. Devuelve
+/// `false` si tampoco se pudo dejar la marca: entonces sólo queda bloquear
+/// la lectura en memoria.
+Future<bool> _retire(
+  Ref ref,
+  Future<void> Function(EstimationCopyStore) step,
+) async {
+  try {
+    await step(ref.read(estimationCopyStoreProvider));
+    return true;
+  } on Object catch (error) {
+    AppLog.error('No se pudo registrar la retirada (${error.runtimeType})');
+  }
+  try {
+    await ref.read(estimationRetirementMarkerProvider).setPending();
+    return true;
+  } on Object catch (error) {
+    AppLog.error(
+      'No se pudo dejar la marca de retirada (${error.runtimeType})',
+    );
+    return false;
+  }
+}
+
+/// Borrado físico de lo ya retirado o ajeno. Si falla, queda pendiente: la
+/// lectura ya no lo admite y el siguiente intento lo borra.
+Future<bool> _purge(Ref ref, EstimationIdentity? identity) async {
+  try {
+    await ref.read(estimationCopyStoreProvider).purge(identity);
+    return true;
+  } on Object catch (error) {
+    AppLog.error('Borrado de la copia pendiente (${error.runtimeType})');
+    return false;
+  }
+}
 
 /// La identidad que puede leer la copia: instalación activada, sesión segura
 /// legible del mismo Member y sindicato que el titular vigente. Sin ella, null.
@@ -64,6 +106,10 @@ enum EstimationUnavailable {
 
   /// La instalación no está activada para el titular vigente.
   noIdentity,
+
+  /// Hay una retirada pendiente que no se pudo registrar: sin contexto local
+  /// admisible no se guarda ni se muestra ninguna copia.
+  noLocalContext,
 }
 
 class EstimationUnavailableException implements Exception {
@@ -90,8 +136,8 @@ class EstimationRejectedException implements Exception {
   const EstimationRejectedException(this.rejection, {this.discarded = true});
   final EstimationRejection rejection;
 
-  /// false si el borrado falló: la copia sigue sin poder leerse en esta
-  /// ejecución, pero **no** se afirma borrada.
+  /// false si el borrado físico no se completó: la retirada ya impide leer
+  /// la copia (también tras reiniciar), pero **no** se afirma borrada.
   final bool discarded;
 }
 
@@ -100,24 +146,37 @@ class EstimationService {
 
   final Ref _ref;
 
-  /// Tras un fallo al invalidar (SQLite no escribió nada), ninguna copia se
-  /// lee mientras dure esta ejecución de la aplicación.
+  /// Sólo si no se pudo registrar una retirada ni dejar su marca: ninguna
+  /// copia se lee mientras dure esta ejecución de la aplicación.
   bool _blocked = false;
 
   EstimationCopyStore get _store => _ref.read(estimationCopyStoreProvider);
 
   Future<EstimationIdentity?> identity() => currentEstimationIdentity(_ref);
 
-  /// Copias legibles para la identidad vigente. Antes elimina las que no son
-  /// suyas (ya no eran legibles).
+  /// `true` si hay un contexto local admisible: sin retirada pendiente, o con
+  /// la pendiente ya registrada ahora en SQLite. Si la marca no se puede leer
+  /// o la retirada sigue sin registrarse, `false`: no se muestran cifras.
+  Future<bool> _admissibleContext() async {
+    if (_blocked) return false;
+    final marker = _ref.read(estimationRetirementMarkerProvider);
+    try {
+      if (!await marker.isPending()) return true;
+      await _store.retireAll();
+      await marker.clear();
+      return true;
+    } on Object catch (error) {
+      AppLog.error('Contexto de la copia no admisible (${error.runtimeType})');
+      return false;
+    }
+  }
+
+  /// Copias legibles para la identidad vigente, en un contexto admisible.
+  /// Antes intenta borrar lo retirado o ajeno (si falla, queda pendiente).
   Future<List<StoredEstimationCopy>> readableCopies() async {
     final identity = await this.identity();
-    try {
-      await _store.discardForeign(identity);
-    } on Object catch (error) {
-      AppLog.error('No se pudo limpiar copias ajenas (${error.runtimeType})');
-    }
-    if (_blocked) return const [];
+    if (!await _admissibleContext()) return const [];
+    await _purge(_ref, identity);
     return _store.readable(identity);
   }
 
@@ -200,6 +259,11 @@ class EstimationService {
     String campaignRef,
   ) async {
     final (identity, access) = await _access();
+    if (!await _admissibleContext()) {
+      throw const EstimationUnavailableException(
+        EstimationUnavailable.noLocalContext,
+      );
+    }
     final grant = await _store.grant(identity);
     final FarmerDownloadResponse response;
     try {
@@ -220,8 +284,8 @@ class EstimationService {
     );
   }
 
-  /// Un rechazo nunca deja la copia como alternativa: se borra la afectada
-  /// (todas, salvo con un 404) y se renueva el acceso.
+  /// Un rechazo nunca deja la copia como alternativa. Primero se registra la
+  /// retirada (todas, o la campaña con un 404) y después se intenta borrar.
   Future<Object> _rejected(
     EstimationQueryException error,
     String campaignRef,
@@ -243,18 +307,15 @@ class EstimationService {
         rejection == EstimationRejection.permission) {
       _ref.read(syncAccessHolderProvider).clear();
     }
-    try {
-      if (rejection == EstimationRejection.notFound) {
-        await _store.discardCampaign(campaignRef);
-      } else {
-        await _store.discardAll();
-      }
-      return EstimationRejectedException(rejection);
-    } on Object catch (failure) {
-      AppLog.error('No se pudo borrar la copia (${failure.runtimeType})');
-      _blocked = true;
-      return EstimationRejectedException(rejection, discarded: false);
-    }
+    final retired = await _retire(
+      _ref,
+      (store) => rejection == EstimationRejection.notFound
+          ? store.retireCampaign(campaignRef)
+          : store.retireAll(),
+    );
+    if (!retired) _blocked = true;
+    final deleted = retired && await _purge(_ref, await identity());
+    return EstimationRejectedException(rejection, discarded: deleted);
   }
 }
 
@@ -276,16 +337,20 @@ final estimationCopyGuardProvider = Provider<void>((ref) {
 
   ref.listen(runtimeSessionTransitionProvider, (_, next) {
     if (next == ExistingSessionStartupState.noLocalSession) {
-      unawaited(run(() => ref.read(estimationCopyStoreProvider).discardAll()));
+      unawaited(
+        run(() async {
+          if (!await _retire(ref, (store) => store.retireAll())) {
+            ref.read(estimationServiceProvider)._blocked = true;
+          }
+          await _purge(ref, null);
+        }),
+      );
     }
   });
   ref.listen(installationAccessProvider, (_, next) {
     if (next == null) return;
     unawaited(
-      run(() async {
-        final identity = await currentEstimationIdentity(ref);
-        await ref.read(estimationCopyStoreProvider).discardForeign(identity);
-      }),
+      run(() async => _purge(ref, await currentEstimationIdentity(ref))),
     );
   });
 });

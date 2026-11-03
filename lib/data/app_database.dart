@@ -48,12 +48,18 @@ class AppDatabase {
   ///   objetivo, con la respuesta de `GET /estimation/download` (perfil
   ///   FARMER) tal como llegó, el titular que la descargó y la fecha de
   ///   descarga del servidor, que decide el reemplazo. Sin credenciales.
-  /// - `estimation_copy_access`: una sola fila con el identificador de
-  ///   acceso vigente. Se borra al invalidar (cierre de sesión, cambio de
-  ///   titular, rechazo del servidor) y no existe tras restaurar: una
-  ///   descarga pedida antes ya no puede guardarse.
+  /// - `estimation_copy_access`: el **contexto local**, una sola fila con un
+  ///   `context_id` aleatorio y una generación. Cerrar la sesión o un
+  ///   rechazo lo renuevan; sin él no se lee ninguna copia. No existe tras
+  ///   restaurar.
+  /// - `estimation_copy_retirements`: campañas retiradas por un 404 en un
+  ///   contexto, con la generación en que se retiraron.
   ///
-  /// Las dos son datos locales del teléfono: quedan **fuera del respaldo
+  /// Cada copia guarda el contexto y la generación de cuando se pidió: una
+  /// copia anterior a una retirada no se lee aunque su fila siga, y la
+  /// retirada se registra antes y aparte del borrado físico.
+  ///
+  /// Las tres son datos locales del teléfono: quedan **fuera del respaldo
   /// privado** ([discardEstimationCopies] en la copia que se empaqueta y en
   /// la base restaurada) y fuera de Sync v1, que sólo envía las
   /// proyecciones de su lista cerrada.
@@ -64,6 +70,8 @@ class AppDatabase {
         tenant_ref TEXT NOT NULL CHECK(length(tenant_ref) > 0),
         target_campaign_ref TEXT NOT NULL CHECK(length(target_campaign_ref) > 0),
         owner_binding_id INTEGER NOT NULL,
+        context_id TEXT NOT NULL CHECK(length(context_id) > 0),
+        generation INTEGER NOT NULL CHECK(generation >= 0),
         format_version INTEGER NOT NULL CHECK(format_version = 1),
         downloaded_at TEXT NOT NULL CHECK(length(downloaded_at) > 0),
         saved_at TEXT NOT NULL,
@@ -71,17 +79,24 @@ class AppDatabase {
         UNIQUE(member_ref, tenant_ref, target_campaign_ref))''',
     '''CREATE TABLE IF NOT EXISTS estimation_copy_access (
         id INTEGER PRIMARY KEY CHECK(id = 1),
-        access_id TEXT NOT NULL CHECK(length(access_id) > 0))''',
+        context_id TEXT NOT NULL CHECK(length(context_id) > 0),
+        generation INTEGER NOT NULL CHECK(generation >= 0))''',
+    '''CREATE TABLE IF NOT EXISTS estimation_copy_retirements (
+        context_id TEXT NOT NULL CHECK(length(context_id) > 0),
+        target_campaign_ref TEXT NOT NULL CHECK(length(target_campaign_ref) > 0),
+        generation INTEGER NOT NULL CHECK(generation >= 0),
+        PRIMARY KEY(context_id, target_campaign_ref))''',
   ];
 
-  /// Borra la copia de la estimación y su identificador de acceso. Se usa en
+  /// Borra la copia de la estimación, su contexto y sus retiradas. Se usa en
   /// la base que se empaqueta en un respaldo y en la base restaurada: la
   /// copia nunca viaja ni vuelve con un respaldo. Una base anterior a v13 no
   /// tiene las tablas y no se toca.
   static Future<void> discardEstimationCopies(DatabaseExecutor db) async {
     final tables = (await db.rawQuery(
       "SELECT name FROM sqlite_master WHERE type='table' "
-      "AND name IN ('estimation_copies','estimation_copy_access')",
+      "AND name IN ('estimation_copies','estimation_copy_access',"
+      "'estimation_copy_retirements')",
     )).map((row) => row['name'] as String).toSet();
     for (final table in tables) {
       await db.delete(table);
@@ -818,7 +833,7 @@ class AppDatabase {
   }
 
   /// Versión 13 — **copia descargada de la estimación** (F12-EST-07-MOB,
-  /// MOB #164). Aditiva: dos tablas nuevas y vacías, sin tocar ninguna otra.
+  /// MOB #164). Aditiva: tres tablas nuevas y vacías, sin tocar ninguna otra.
   /// Idempotente: cada sentencia lleva IF NOT EXISTS.
   Future<void> _applyEstimationCopiesSchema(DatabaseExecutor db) async {
     for (final statement in estimationCopiesSchema) {

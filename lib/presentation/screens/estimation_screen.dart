@@ -87,6 +87,10 @@ class _EstimationScreenState extends ConsumerState<EstimationScreen> {
             blocked =
                 'La estimación sólo se consulta con la instalación activada y la '
                 'sesión de su titular.';
+          case EstimationUnavailable.noLocalContext:
+            blocked =
+                'No se pudo completar la retirada de una copia anterior: no se '
+                'muestra ni se guarda ninguna estimación en este teléfono.';
         }
       });
     } on EstimationRejectedException catch (error) {
@@ -167,6 +171,9 @@ class _EstimationScreenState extends ConsumerState<EstimationScreen> {
           EstimationSaveOutcome.accessChanged => 'La sesión o el titular cambiaron durante la descarga: la copia no se guardó.',
           EstimationSaveOutcome.otherSubject =>
             'La respuesta no es de su cuenta o de su sindicato: no se guardó.',
+          EstimationSaveOutcome.targetRetired =>
+            'La campaña dejó de estar disponible durante la descarga: la copia '
+                'no se guardó.',
         };
       });
     });

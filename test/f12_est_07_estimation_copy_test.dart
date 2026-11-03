@@ -243,33 +243,37 @@ void main() {
   });
 
   group('invalidación y respuestas tardías', () {
-    test(
-      'un rechazo borra todas las copias; un 404 sólo la de esa campaña',
-      () async {
-        final phone = await _phone();
-        await phone.save(farmerDownloadJson());
-        await phone.save(farmerDownloadJson(campaign: campaignSummer));
-        await phone.store.discardCampaign(campaignSummer);
-        expect(
-          (await phone.store.readable(phone.identity))
-              .map((c) => c.download.target.campaignRef),
-          [campaignWinter],
-        );
-        await phone.store.discardAll();
-        expect(await phone.store.readable(phone.identity), isEmpty);
-        expect(
-          await (await phone.database.database).query('estimation_copies'),
-          isEmpty,
-        );
-      },
-    );
+    test('un rechazo retira todas las copias y un 404 sólo esa campaña; el borrado va aparte', () async {
+      final phone = await _phone();
+      await phone.save(farmerDownloadJson());
+      await phone.save(farmerDownloadJson(campaign: campaignSummer));
+      await phone.store.retireCampaign(campaignSummer);
+      expect(
+        (await phone.store.readable(phone.identity))
+            .map((c) => c.download.target.campaignRef),
+        [campaignWinter],
+      );
+      final db = await phone.database.database;
+      // Retirar no borra: la fila sigue hasta purgar.
+      expect(await db.query('estimation_copies'), hasLength(2));
+      expect(await phone.store.purge(phone.identity), 1);
+      await phone.store.retireAll();
+      expect(await phone.store.readable(phone.identity), isEmpty);
+      expect(await db.query('estimation_copies'), hasLength(1));
+      expect(await phone.store.purge(phone.identity), 1);
+      expect(await db.query('estimation_copies'), isEmpty);
+    });
 
     test('una descarga pedida antes de invalidar no se guarda al responder después (cierre, rechazo o 404)', () async {
       final phone = await _phone();
-      for (final invalidate in <Future<void> Function()>[
-        phone.store.discardAll,
-        () => phone.store.discardCampaign(campaignSummer),
-      ]) {
+      for (final (invalidate, outcome)
+          in <(Future<void> Function(), EstimationSaveOutcome)>[
+            (phone.store.retireAll, EstimationSaveOutcome.accessChanged),
+            (
+              () => phone.store.retireCampaign(campaignWinter),
+              EstimationSaveOutcome.targetRetired,
+            ),
+          ]) {
         final grant = await phone.store.grant(phone.identity);
         await invalidate();
         expect(
@@ -278,7 +282,7 @@ void main() {
             FarmerDownload.fromJson(farmerDownloadJson()),
             farmerDownloadJson(),
           ),
-          EstimationSaveOutcome.accessChanged,
+          outcome,
         );
       }
       expect(
@@ -364,13 +368,13 @@ void main() {
           tenantId: memberA.tenantId,
           bindingId: phone.binding.id + 7,
         );
-        expect(await phone.store.discardForeign(other), 1);
+        expect(await phone.store.purge(other), 1);
         expect(
           await (await phone.database.database).query('estimation_copies'),
           isEmpty,
         );
         await phone.save(farmerDownloadJson());
-        expect(await phone.store.discardForeign(null), 1);
+        expect(await phone.store.purge(null), 1);
       },
     );
 

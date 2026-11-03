@@ -2,19 +2,23 @@
 // MOB #164; RF-40, RN-30, DAT-20, INT-09 v1; contrato
 // `F12_EST_07_COPIA_MOBILE.md` del servicio).
 //
-// **Regla de acceso.** Una copia sólo se lee para la identidad que la
-// descargó: el mismo Member y sindicato **y** el mismo vínculo de titular.
-// Quien llama pasa la identidad vigente de la instalación (activada, con la
-// sesión segura del mismo ámbito que el titular); sin ella no se lee nada.
-// Que exista una fila no autoriza a leerla.
+// **Regla de acceso.** Una copia sólo se lee si:
+// - hay un **contexto local** (`estimation_copy_access`: `context_id`
+//   aleatorio y una generación) y la copia es de ese contexto;
+// - la copia es de la identidad que la pide: el mismo Member y sindicato **y**
+//   el mismo vínculo de titular, y su JSON es de esa identidad y campaña;
+// - su campaña no se retiró (`estimation_copy_retirements`) después de
+//   pedirse la descarga.
+// Sin contexto o sin identidad no se lee nada: que exista una fila no
+// autoriza a leerla, y tampoco que la identidad coincida.
 //
-// **Invalidación.** Cerrar la sesión, cambiar de titular o recibir un 401,
-// 403 o 409 de política borran las copias; un 404 borra la de esa campaña.
-// Cada invalidación borra además el identificador de acceso, en la misma
-// transacción: una descarga pedida antes ya no se guarda aunque responda
-// después, y la siguiente toma uno nuevo. En SQLite es atómico: si la
-// transacción falla, no cambia nada y quien llama trata la copia como no
-// legible mientras dure la sesión de la aplicación.
+// **Retirada y borrado, separados.** Cerrar la sesión o un 401, 403 o 409
+// renuevan el contexto (otra `context_id`); un 404 registra la retirada de esa
+// campaña. Esa escritura es pequeña y va primero, sola. El borrado físico va
+// después ([purge]) y, si falla, queda pendiente: la copia ya no se lee, ni
+// tras cerrar y volver a abrir la app, y el siguiente intento la borra. Una
+// respuesta o escritura de una descarga pedida antes lleva el contexto o la
+// generación anteriores y no se lee nunca.
 //
 // **Fuera del respaldo y de Sync v1.** Ver `AppDatabase.estimationCopiesSchema`.
 import 'dart:convert';
@@ -53,9 +57,10 @@ class EstimationIdentity {
 
 /// Lo vigente al pedir una descarga: sólo con esto se puede guardar.
 class EstimationCopyGrant {
-  const EstimationCopyGrant._(this.identity, this.accessId);
+  const EstimationCopyGrant._(this.identity, this.contextId, this.generation);
   final EstimationIdentity identity;
-  final String accessId;
+  final String contextId;
+  final int generation;
 }
 
 enum EstimationSaveOutcome {
@@ -64,8 +69,11 @@ enum EstimationSaveOutcome {
   /// Ya hay una copia igual o más reciente de esa campaña: se conserva.
   keptNewer,
 
-  /// La sesión, el titular o el acceso cambiaron durante la descarga.
+  /// La sesión, el titular o el contexto cambiaron durante la descarga.
   accessChanged,
+
+  /// La campaña se retiró (404) después de pedir la descarga.
+  targetRetired,
 
   /// La respuesta no es de esta identidad o de este sindicato.
   otherSubject,
@@ -94,50 +102,72 @@ class EstimationCopyStore {
 
   static const formatVersion = 1;
 
+  /// Condición SQL de «legible en el contexto vigente», sobre la copia `c` y
+  /// el contexto `a`.
+  static const _readableInContext =
+      'c.context_id = a.context_id AND c.generation <= a.generation '
+      'AND NOT EXISTS (SELECT 1 FROM estimation_copy_retirements r '
+      'WHERE r.context_id = a.context_id '
+      'AND r.target_campaign_ref = c.target_campaign_ref '
+      'AND r.generation >= c.generation)';
+
   Future<T> _write<T>(Future<T> Function(Transaction txn) body) => _database
       .replacement
       .write(() async => (await _database.database).transaction(body));
 
-  String _newAccessId() => List.generate(
+  String _newContextId() => List.generate(
     16,
     (_) => _random.nextInt(256).toRadixString(16).padLeft(2, '0'),
   ).join();
 
-  static Future<String?> _accessId(DatabaseExecutor db) async {
+  static Future<({String id, int generation})?> _context(
+    DatabaseExecutor db,
+  ) async {
     final rows = await db.query('estimation_copy_access', where: 'id = 1');
-    return rows.isEmpty ? null : rows.single['access_id'] as String;
+    if (rows.isEmpty) return null;
+    return (
+      id: rows.single['context_id'] as String,
+      generation: rows.single['generation'] as int,
+    );
   }
 
-  Future<void> _renewAccess(DatabaseExecutor db) => db.insert(
+  Future<void> _newContext(DatabaseExecutor db) => db.insert(
     'estimation_copy_access',
-    {'id': 1, 'access_id': _newAccessId()},
+    {'id': 1, 'context_id': _newContextId(), 'generation': 0},
     conflictAlgorithm: ConflictAlgorithm.replace,
   );
 
-  /// Lo vigente al pedir la descarga de [identity].
+  /// Lo vigente al pedir la descarga de [identity]. Sin contexto, abre uno.
   Future<EstimationCopyGrant> grant(EstimationIdentity identity) =>
       _write((txn) async {
-        var accessId = await _accessId(txn);
-        if (accessId == null) {
-          await _renewAccess(txn);
-          accessId = (await _accessId(txn))!;
+        var context = await _context(txn);
+        if (context == null) {
+          await _newContext(txn);
+          context = (await _context(txn))!;
         }
-        return EstimationCopyGrant._(identity, accessId);
+        return EstimationCopyGrant._(identity, context.id, context.generation);
       });
 
-  /// Guarda la descarga si, **dentro de la misma transacción**, el acceso es
-  /// el de [grant], el titular vigente sigue siendo el de la identidad y la
-  /// respuesta es de ese Member y sindicato. Sólo reemplaza por una descarga
-  /// posterior de la misma identidad y campaña.
+  /// Guarda la descarga si, **dentro de la misma transacción**, el contexto es
+  /// el de [grant], la campaña no se retiró después de pedirla, el titular
+  /// vigente sigue siendo el de la identidad y la respuesta es de ese Member y
+  /// sindicato. Sólo reemplaza a una copia legible por una descarga posterior.
   Future<EstimationSaveOutcome> save(
     EstimationCopyGrant grant,
     FarmerDownload download,
     Map<String, Object?> payload,
   ) => _write((txn) async {
     final identity = grant.identity;
-    if (await _accessId(txn) != grant.accessId) {
+    final context = await _context(txn);
+    if (context == null || context.id != grant.contextId) {
       return EstimationSaveOutcome.accessChanged;
     }
+    final retired = await txn.query(
+      'estimation_copy_retirements',
+      where: 'context_id=? AND target_campaign_ref=? AND generation>=?',
+      whereArgs: [context.id, download.target.campaignRef, grant.generation],
+    );
+    if (retired.isNotEmpty) return EstimationSaveOutcome.targetRetired;
     final active = await txn.query('owner_bindings', where: 'ended_at IS NULL');
     if (active.length != 1 ||
         active.single['id'] != identity.bindingId ||
@@ -149,18 +179,12 @@ class EstimationCopyStore {
         download.tenantRef != identity.tenantId) {
       return EstimationSaveOutcome.otherSubject;
     }
-    final key = [
-      identity.memberId,
-      identity.tenantId,
-      download.target.campaignRef,
-    ];
-    final existing = await txn.query(
-      'estimation_copies',
-      where: 'member_ref=? AND tenant_ref=? AND target_campaign_ref=?',
-      whereArgs: key,
+    final existing = await _readableRows(
+      txn,
+      identity,
+      campaignRef: download.target.campaignRef,
     );
-    if (existing.isNotEmpty &&
-        existing.single['owner_binding_id'] == identity.bindingId) {
+    if (existing.isNotEmpty) {
       final previous = DateTime.tryParse(
         existing.single['downloaded_at'] as String,
       );
@@ -173,6 +197,8 @@ class EstimationCopyStore {
       'tenant_ref': identity.tenantId,
       'target_campaign_ref': download.target.campaignRef,
       'owner_binding_id': identity.bindingId,
+      'context_id': grant.contextId,
+      'generation': grant.generation,
       'format_version': formatVersion,
       'downloaded_at': download.downloadedAt.toIso8601String(),
       'saved_at': _clock().toUtc().toIso8601String(),
@@ -181,25 +207,34 @@ class EstimationCopyStore {
     return EstimationSaveOutcome.saved;
   });
 
+  static Future<List<Map<String, Object?>>> _readableRows(
+    DatabaseExecutor db,
+    EstimationIdentity identity, {
+    String? campaignRef,
+  }) => db.rawQuery(
+    'SELECT c.* FROM estimation_copies c '
+    'JOIN estimation_copy_access a ON a.id = 1 '
+    'WHERE c.member_ref=? AND c.tenant_ref=? AND c.owner_binding_id=? '
+    'AND c.format_version=? AND $_readableInContext'
+    '${campaignRef == null ? '' : ' AND c.target_campaign_ref=?'} '
+    'ORDER BY c.downloaded_at DESC, c.id DESC',
+    [
+      identity.memberId,
+      identity.tenantId,
+      identity.bindingId,
+      formatVersion,
+      if (campaignRef != null) campaignRef,
+    ],
+  );
+
   /// Las copias legibles de [identity], de la más reciente a la más antigua.
-  /// Sin identidad no se lee nada. Una fila que no supera la validación del
-  /// formato no se muestra.
+  /// Sin identidad o sin contexto no se lee nada. Una fila que no supera la
+  /// validación del formato no se muestra.
   Future<List<StoredEstimationCopy>> readable(
     EstimationIdentity? identity,
   ) async {
     if (identity == null) return const [];
-    final db = await _database.database;
-    final rows = await db.query(
-      'estimation_copies',
-      where: 'member_ref=? AND tenant_ref=? AND owner_binding_id=? AND format_version=?',
-      whereArgs: [
-        identity.memberId,
-        identity.tenantId,
-        identity.bindingId,
-        formatVersion,
-      ],
-      orderBy: 'downloaded_at DESC, id DESC',
-    );
+    final rows = await _readableRows(await _database.database, identity);
     final copies = <StoredEstimationCopy>[];
     for (final row in rows) {
       final copy = _decode(row, identity);
@@ -242,52 +277,71 @@ class EstimationCopyStore {
     }
   }
 
-  /// Cierre de sesión, cambio de identidad o titular, o rechazo de sesión,
-  /// permiso o política: borra todas las copias y el acceso vigente (una
-  /// descarga pedida antes ya no se guarda). Sin copias ni acceso, no abre
-  /// ninguna transacción ni escribe nada.
-  Future<void> discardAll() async {
+  /// **Retirada** por cierre de sesión, cambio de identidad o rechazo de
+  /// sesión, permiso o política: un contexto nuevo. Ninguna copia anterior
+  /// vuelve a leerse y una descarga pedida antes ya no se guarda. No borra:
+  /// eso es [purge]. Sin copias ni contexto, no escribe nada.
+  Future<void> retireAll() async {
     final db = await _database.database;
-    final pending = await db.rawQuery(
+    final present = await db.rawQuery(
       'SELECT 1 FROM estimation_copies UNION ALL '
       'SELECT 1 FROM estimation_copy_access LIMIT 1',
     );
-    if (pending.isEmpty) return;
-    await _write((txn) => AppDatabase.discardEstimationCopies(txn));
+    if (present.isEmpty) return;
+    await _write(_newContext);
   }
 
-  /// 404 de una campaña: borra su copia y el acceso vigente (una descarga en
-  /// curso, de cualquier campaña, ya no se guarda).
-  Future<void> discardCampaign(String campaignRef) => _write((txn) async {
-    await txn.delete(
-      'estimation_copies',
-      where: 'target_campaign_ref=?',
-      whereArgs: [campaignRef],
-    );
-    await txn.delete('estimation_copy_access');
+  /// **Retirada** por un 404 de esa campaña: sus copias pedidas hasta ahora
+  /// dejan de leerse, y una descarga posterior autorizada vuelve a valer
+  /// (la generación sube). No borra: eso es [purge].
+  Future<void> retireCampaign(String campaignRef) => _write((txn) async {
+    final context = await _context(txn);
+    if (context == null) return;
+    await txn.insert('estimation_copy_retirements', {
+      'context_id': context.id,
+      'target_campaign_ref': campaignRef,
+      'generation': context.generation,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+    await txn.update('estimation_copy_access', {
+      'generation': context.generation + 1,
+    }, where: 'id = 1');
   });
 
-  /// Borra las filas que no son de [identity] (todas, si no hay identidad).
-  /// Ya no eran legibles; esto sólo las elimina físicamente. Si no hay
-  /// ninguna, no abre ninguna transacción.
-  Future<int> discardForeign(EstimationIdentity? identity) async {
-    final where = identity == null
-        ? null
-        : 'NOT (member_ref=? AND tenant_ref=? AND owner_binding_id=?)';
-    final args = identity == null
-        ? null
-        : [identity.memberId, identity.tenantId, identity.bindingId];
+  /// **Borrado físico** de lo que ya no es legible para [identity] (todo, si
+  /// no hay identidad) y de las retiradas de contextos anteriores. Si no hay
+  /// nada que borrar, no abre ninguna transacción. Si falla, la retirada ya
+  /// estaba registrada: el borrado queda pendiente y se reintenta.
+  Future<int> purge(EstimationIdentity? identity) async {
     final db = await _database.database;
-    final foreign = await db.query(
-      'estimation_copies',
-      columns: ['id'],
-      where: where,
-      whereArgs: args,
-      limit: 1,
+    final (where, args) = identity == null
+        ? ('1', const <Object?>[])
+        : (
+            'NOT EXISTS (SELECT 1 FROM estimation_copy_access a WHERE a.id = 1 '
+                'AND c.member_ref=? AND c.tenant_ref=? AND c.owner_binding_id=? '
+                'AND c.format_version=? AND $_readableInContext)',
+            <Object?>[
+              identity.memberId,
+              identity.tenantId,
+              identity.bindingId,
+              formatVersion,
+            ],
+          );
+    const staleRetirements =
+        'context_id NOT IN (SELECT context_id FROM estimation_copy_access)';
+    final pending = await db.rawQuery(
+      'SELECT 1 FROM estimation_copies c WHERE $where UNION ALL '
+      'SELECT 1 FROM estimation_copy_retirements WHERE $staleRetirements '
+      'LIMIT 1',
+      args,
     );
-    if (foreign.isEmpty) return 0;
-    return _write(
-      (txn) => txn.delete('estimation_copies', where: where, whereArgs: args),
-    );
+    if (pending.isEmpty) return 0;
+    return _write((txn) async {
+      final deleted = await txn.rawDelete(
+        'DELETE FROM estimation_copies AS c WHERE $where',
+        args,
+      );
+      await txn.delete('estimation_copy_retirements', where: staleRetirements);
+      return deleted;
+    });
   }
 }
