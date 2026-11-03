@@ -231,7 +231,7 @@ Las alteraciones se hicieron una por caso sobre `398db76` y se restauraron despu
 
 - **El titular, no la persona.** La copia se lee con la sesión del titular vigente en la instalación. Quien use el teléfono con esa sesión puede leerla; no se añadieron PIN ni contraseñas.
 - **Revocaciones sin conexión.** Sin conexión no se conocen revocaciones ni cambios de política o de fuentes. La invalidación llega con la siguiente consulta con conexión, o con el cierre de sesión o el cambio de titular en el teléfono.
-- **Un borrado fallido** ya no reactiva la copia: la retirada persiste aparte (§10). Solo si fallan a la vez SQLite y el almacenamiento seguro, la lectura queda bloqueada únicamente durante esa ejecución.
+- **Un borrado fallido** ya no reactiva la copia: la retirada persiste aparte (§10). **No toda retirada persiste ante cualquier fallo:** si SQLite y el almacenamiento seguro rechazan ambos la escritura, la retirada no persiste tras reiniciar. Es una limitación excepcional del alcance académico (§13).
 - **Fallos de almacenamiento** solo se inyectaron en HOST. En el teléfono, los borrados se completaron.
 - **El Central del ensayo real** era propio, desechable y sintético. No se probó contra un Central de pilotos ni con datos reales.
 - **Cierre de sesión.** Hoy, la única salida de sesión de la app es la de una sesión ajena (F03). La regla `discard_on: SIGN_OUT` se aplica allí y al perder la identidad.
@@ -268,7 +268,7 @@ En los cinco casos, la copia se lee tras reiniciar sin conexión:
 | Borrado físico (`purge`) | **Después**. Si falla, queda pendiente: la copia no se lee, tampoco tras reiniciar, y el siguiente intento la borra |
 | Marca persistente | Si SQLite no admite ni la retirada, se deja `retirement_pending` en el almacenamiento seguro del teléfono (el mismo mecanismo que la sesión y el llavero del respaldo; sin identificadores ni credenciales). Mientras exista, no hay contexto admisible: no se muestran cifras ni se guarda nada. El siguiente arranque completa la retirada y la quita |
 | Sin contexto admisible | Si la marca no se puede leer, no se muestra ninguna cifra |
-| Doble fallo | Si no se pueden registrar ni la retirada ni la marca, la lectura queda bloqueada en esa ejecución. Es el único caso sin persistencia, porque fallan los dos almacenes |
+| Doble fallo | Si no se pueden registrar ni la retirada ni la marca, la lectura queda bloqueada en esa ejecución. La retirada **no** persiste tras reiniciar (§13) |
 | Respuestas | Una respuesta o escritura anterior a la retirada se rechaza (`accessChanged` o `targetRetired`) o no se lee. Solo una descarga **posterior** autorizada vuelve a valer |
 
 **Lo que no cambia:**
@@ -351,3 +351,17 @@ En los cinco casos, la copia se lee tras reiniciar sin conexión:
 - **Lo hecho con la APK de `c127c45`:** la activación, la consulta y las descargas; no dependen de ese espacio.
 - **`3c2446e`:** solo cambia el guion del teléfono.
 - **La suite HOST final** se ejecutó sobre el código final.
+
+## 13. Limitación del fallo doble (aceptada por el autor el 2026-11-03)
+
+**Qué es.** El autor la acepta como **limitación excepcional del alcance académico**. Esa aceptación no aprueba condiciones de producción, no cambia ningún gate y no debilita los casos de fallo simple, que siguen corregidos (§10).
+
+**Qué ocurre exactamente** cuando, al recibir un rechazo o cerrar la sesión, **SQLite rechaza la escritura de la retirada y el almacenamiento seguro rechaza la de la marca**:
+1. **No queda nada persistente.** El contexto, las retiradas y la marca siguen como antes del rechazo, y la copia sigue en SQLite.
+2. **En esa ejecución de la app la lectura queda bloqueada.** No se lee ni se muestra ninguna copia y no se guarda ninguna descarga. El aviso del rechazo no la da por borrada.
+3. **Tras cerrar y volver a abrir la app no hay garantía de que la retirada persista.** Sin conexión, la copia anterior puede volver a leerse para la misma identidad y el mismo titular, con su aviso de posible desactualización. Se retira con la siguiente invalidación que sí se pueda escribir: otro rechazo con conexión, el cierre de sesión o el cambio de titular.
+4. **Lo que sí se mantiene:** si el almacenamiento seguro **no se puede leer**, no hay contexto admisible y no se muestra ninguna cifra (prueba «sin contexto local admisible»), también tras reiniciar.
+
+**Lo que no se hace:** no se añade un tercer almacenamiento y no cambia el funcionamiento sin conexión normal.
+
+**Prueba:** «si no se puede registrar la retirada ni dejar la marca, la lectura queda bloqueada en esa ejecución» (`test/f12_est_07_estimation_restart_test.dart`). Comprueba el punto 2 con los dos fallos inyectados. El punto 3 es la limitación aceptada y no se presenta como corregido.

@@ -10,11 +10,17 @@ import 'package:agroquimicos/installation_access.dart';
 import 'package:agroquimicos/operation_mode_controller.dart';
 import 'package:agroquimicos/presentation/screens/operation_mode_screen.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'support/f04_mode_fixtures.dart';
 import 'support/f04_mode_ui_harness.dart';
+
+/// Diagnóstico de una espera agotada: acceso, modalidad del controlador y ruta.
+String _state(ProviderContainer c) =>
+    'acceso=${c.read(installationAccessProvider)?.name}, '
+    'modalidad=${c.read(operationModeProvider)?.name}, ruta=${currentPath(c)}';
 
 void main() {
   sqfliteFfiInit();
@@ -32,8 +38,14 @@ void main() {
     final offline = OfflineTransport();
     final c = await pumpModeApp(tester, database, transport: offline);
     // Espera explícita: bajo carga, la redirección a /titular puede llegar
-    // después de que el arnés deje de ver indicadores de carga.
-    await waitFor(tester, find.byKey(const Key('owner-mode-help')));
+    // después de que el arnés deje de ver indicadores de carga. Si no llega,
+    // falla con el estado en vez de seguir (waitFor no falla al agotarse).
+    await waitUntil(
+      tester,
+      'la elección del titular',
+      () => find.byKey(const Key('owner-mode-help')).evaluate().isNotEmpty,
+      state: () => _state(c),
+    );
     expect(
       c.read(installationAccessProvider),
       InstallationAccessState.activationPendingOwner,
@@ -56,7 +68,20 @@ void main() {
     await settle(tester);
     await tester.ensureVisible(find.byKey(const Key('owner-confirm')));
     await tester.tap(find.byKey(const Key('owner-confirm')));
-    await waitFor(tester, find.textContaining('Usa inventario propio'));
+    // Estado final del alta, no sólo un texto: vínculo y acceso activado,
+    // modalidad propia en el controlador y el aviso en pantalla. Sin esto, la
+    // CI de main (run 41566802912) leyó la base antes de que el alta guardara
+    // la modalidad y el alta pendiente dejó la base bloqueada en el cierre.
+    await waitUntil(
+      tester,
+      'el alta del titular con inventario propio',
+      () =>
+          c.read(installationAccessProvider) ==
+              InstallationAccessState.activated &&
+          c.read(operationModeProvider) == OperationMode.personal &&
+          find.textContaining('Usa inventario propio').evaluate().isNotEmpty,
+      state: () => _state(c),
+    );
 
     expect(
       await tester.runAsync(() => OperationModeStore(database).current()),
