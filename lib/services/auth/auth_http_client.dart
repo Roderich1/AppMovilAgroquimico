@@ -45,9 +45,16 @@ class AuthHttpClient {
     String path, {
     Map<String, Object?>? jsonBody,
     String? accessToken,
+    Map<String, String> query = const {},
   }) async {
     try {
-      return await _send(method, path, jsonBody, accessToken).timeout(timeout);
+      return await _send(
+        method,
+        path,
+        jsonBody,
+        accessToken,
+        query,
+      ).timeout(timeout);
     } on TimeoutException {
       throw const AuthApiException(AuthApiErrorKind.timeout);
     } on AuthApiException {
@@ -63,8 +70,9 @@ class AuthHttpClient {
     String path,
     Map<String, Object?>? jsonBody,
     String? accessToken,
+    Map<String, String> query,
   ) async {
-    final request = http.Request(method, _config.endpoint(path));
+    final request = http.Request(method, _config.endpoint(path, query: query));
     request.followRedirects = false;
     request.headers['Accept'] = 'application/json';
     if (jsonBody != null) {

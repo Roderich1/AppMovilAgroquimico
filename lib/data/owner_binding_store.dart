@@ -346,6 +346,10 @@ class OwnerBindingStore {
         'owner_role': role.code,
         'bound_at': _now(),
       });
+      // F12-EST-07-MOB (#164): la copia descargada de la estimación era del
+      // titular anterior. Se descarta en la misma transacción, y con ella el
+      // acceso: una descarga en curso ya no se guarda.
+      await AppDatabase.discardEstimationCopies(txn);
     });
     return (await activeBinding())!;
   }

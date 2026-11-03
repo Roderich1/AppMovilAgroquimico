@@ -84,6 +84,7 @@ class AppShell extends StatelessWidget {
     '/planificacion/voz',
     '/aplicaciones/voz',
     '/inventario/avisos',
+    '/inventario/estimacion',
   };
 
   /// Si esta ruta oculta el FAB global. El detalle de compra es de sólo

@@ -39,6 +39,12 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
     });
   }
 
+  /// F12-EST-07-MOB (#164): la estimación del consumo, sólo lectura.
+  Future<void> _openEstimation() async {
+    await context.push('/inventario/estimacion');
+    if (mounted) refresh();
+  }
+
   Future<void> _openAlerts() async {
     await context.push('/inventario/avisos');
     if (mounted) refresh();
@@ -71,6 +77,19 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
               trailing: const Icon(Icons.chevron_right),
               onTap: _openAlerts,
             ),
+          ),
+        ),
+        const SizedBox(height: 12),
+        Card(
+          key: const Key('inventory-estimation-entry'),
+          child: ListTile(
+            leading: const Icon(Icons.insights_outlined),
+            title: const Text('Estimación del consumo'),
+            subtitle: const Text(
+              'Referencia para la próxima campaña; no cambia el inventario.',
+            ),
+            trailing: const Icon(Icons.chevron_right),
+            onTap: _openEstimation,
           ),
         ),
         const SizedBox(height: 12),
