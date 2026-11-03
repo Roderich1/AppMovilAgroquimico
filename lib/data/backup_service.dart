@@ -355,6 +355,10 @@ class BackupService {
     try {
       final stagedDatabase = File(p.join(staging.path, _databaseName));
       await File(source).copy(stagedDatabase.path);
+      // F12-EST-07-MOB (#164): la copia descargada de la estimación no entra
+      // en el respaldo privado. Se borra de la copia que se empaqueta, nunca
+      // de la base del teléfono.
+      await _excludeLocalOnlyData(stagedDatabase.path);
 
       // Antes de empaquetar nada: si lo copiado no es una base legible, no
       // tiene sentido seguir.
@@ -722,6 +726,22 @@ class BackupService {
 
   /// Valida una base SQLite suelta: el formato histórico, y también la base que
   /// viaja dentro del contenedor.
+  /// Borra de la base copiada lo que no viaja en un respaldo (la copia de la
+  /// estimación y su acceso) y la compacta con `VACUUM`, para que tampoco
+  /// queden sus bytes en páginas libres del archivo.
+  Future<void> _excludeLocalOnlyData(String path) async {
+    final staged = await appDatabase.resolvedFactory.openDatabase(
+      path,
+      options: OpenDatabaseOptions(singleInstance: false),
+    );
+    try {
+      await AppDatabase.discardEstimationCopies(staged);
+      await staged.execute('VACUUM');
+    } finally {
+      await staged.close();
+    }
+  }
+
   Future<BackupValidation> _validateDatabaseFile(String path) async {
     final factory = appDatabase.resolvedFactory;
     Database? candidate;
@@ -1104,6 +1124,10 @@ class BackupService {
         );
       }
 
+      // F12-EST-07-MOB (#164): una restauración nunca trae una copia de la
+      // estimación (ni de un respaldo anterior a esta regla): tras restaurar,
+      // «sin copia descargada» hasta una nueva descarga con conexión.
+      await AppDatabase.discardEstimationCopies(restored);
       if (prepareRestored != null) await prepareRestored(restored);
       if (afterReplace != null) await afterReplace();
       // Comprobación del estado restaurado (F08-ADR-003 §7.1): sin ella la

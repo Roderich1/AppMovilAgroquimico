@@ -48,6 +48,8 @@ import 'presentation/screens/transfer_form_screen.dart';
 import 'presentation/screens/access_recovery_screen.dart';
 import 'presentation/screens/owner_credential_screen.dart';
 import 'presentation/screens/late_operations_screen.dart';
+import 'presentation/screens/estimation_screen.dart';
+import 'services/estimation/estimation_providers.dart';
 import 'services/reports/report_export_service.dart';
 import 'services/reports/report_storage.dart';
 import 'presentation/voice/voice_application_draft_screen.dart';
@@ -131,6 +133,9 @@ final routerProvider = Provider<GoRouter>((ref) {
   );
   ref.listen(operationModeProvider, (_, next) => modeChanges.value = next);
   ref.onDispose(modeChanges.dispose);
+  // F12-EST-07-MOB (#164): descarta la copia de la estimación al cerrar la
+  // sesión o al cambiar la identidad, mientras viva la aplicación.
+  ref.watch(estimationCopyGuardProvider);
   Future.microtask(ref.read(operationModeProvider.notifier).reload);
   return GoRouter(
     initialLocation: '/',
@@ -206,6 +211,11 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: '/inventario/avisos',
             builder: (_, __) => const InventoryAlertsScreen(),
+          ),
+          // F12-EST-07-MOB (#164), también antes de '/inventario/:id'.
+          GoRoute(
+            path: '/inventario/estimacion',
+            builder: (_, __) => const EstimationScreen(),
           ),
           GoRoute(
             path: '/inventario/:id',

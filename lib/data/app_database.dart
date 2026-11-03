@@ -18,7 +18,7 @@ class AppDatabase {
   /// Toda base, creada desde cero o migrada desde cualquier versión anterior,
   /// debe terminar con el mismo esquema. `test/schema_equivalence_test.dart`
   /// lo verifica automáticamente.
-  static const int schemaVersion = 12;
+  static const int schemaVersion = 13;
 
   /// Primera versión con `owner_bindings` e `install_origin`: una base
   /// anterior es histórica y no declara titular.
@@ -36,6 +36,57 @@ class AppDatabase {
   /// MOB #168): vencimiento y número de lote en los lotes, nivel mínimo y
   /// plazo de aviso en los productos, y el registro de correcciones.
   static const int inventoryAlertsSinceVersion = 12;
+
+  /// Primera versión con la copia descargada de la estimación del consumo
+  /// (F12-EST-07-MOB, MOB #164).
+  static const int estimationCopiesSinceVersion = 13;
+
+  /// v13 — copia descargada de la estimación del consumo (F12-EST-07-MOB,
+  /// MOB #164; RF-40, RN-30, DAT-20, INT-09).
+  ///
+  /// - `estimation_copies`: una fila por Member, sindicato y campaña
+  ///   objetivo, con la respuesta de `GET /estimation/download` (perfil
+  ///   FARMER) tal como llegó, el titular que la descargó y la fecha de
+  ///   descarga del servidor, que decide el reemplazo. Sin credenciales.
+  /// - `estimation_copy_access`: una sola fila con el identificador de
+  ///   acceso vigente. Se borra al invalidar (cierre de sesión, cambio de
+  ///   titular, rechazo del servidor) y no existe tras restaurar: una
+  ///   descarga pedida antes ya no puede guardarse.
+  ///
+  /// Las dos son datos locales del teléfono: quedan **fuera del respaldo
+  /// privado** ([discardEstimationCopies] en la copia que se empaqueta y en
+  /// la base restaurada) y fuera de Sync v1, que sólo envía las
+  /// proyecciones de su lista cerrada.
+  static const List<String> estimationCopiesSchema = <String>[
+    '''CREATE TABLE IF NOT EXISTS estimation_copies (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        member_ref TEXT NOT NULL CHECK(length(member_ref) > 0),
+        tenant_ref TEXT NOT NULL CHECK(length(tenant_ref) > 0),
+        target_campaign_ref TEXT NOT NULL CHECK(length(target_campaign_ref) > 0),
+        owner_binding_id INTEGER NOT NULL,
+        format_version INTEGER NOT NULL CHECK(format_version = 1),
+        downloaded_at TEXT NOT NULL CHECK(length(downloaded_at) > 0),
+        saved_at TEXT NOT NULL,
+        payload TEXT NOT NULL,
+        UNIQUE(member_ref, tenant_ref, target_campaign_ref))''',
+    '''CREATE TABLE IF NOT EXISTS estimation_copy_access (
+        id INTEGER PRIMARY KEY CHECK(id = 1),
+        access_id TEXT NOT NULL CHECK(length(access_id) > 0))''',
+  ];
+
+  /// Borra la copia de la estimación y su identificador de acceso. Se usa en
+  /// la base que se empaqueta en un respaldo y en la base restaurada: la
+  /// copia nunca viaja ni vuelve con un respaldo. Una base anterior a v13 no
+  /// tiene las tablas y no se toca.
+  static Future<void> discardEstimationCopies(DatabaseExecutor db) async {
+    final tables = (await db.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type='table' "
+      "AND name IN ('estimation_copies','estimation_copy_access')",
+    )).map((row) => row['name'] as String).toSet();
+    for (final table in tables) {
+      await db.delete(table);
+    }
+  }
 
   /// v12 — columnas opcionales que añade F04-AV (DAT-22 de la tesis). Todas
   /// admiten NULL: «sin dato» no es cero ni una fecha supuesta. Las mismas
@@ -600,6 +651,7 @@ class AppDatabase {
       await db.execute(statement);
     }
     await _applyInventoryAlertsSchema(db);
+    await _applyEstimationCopiesSchema(db);
     // Una base creada por esta versión nace bajo la política de activación.
     await db.insert('app_settings', {
       'key': installOriginKey,
@@ -759,6 +811,18 @@ class AppDatabase {
     }
     if (oldVersion < 12) {
       await _applyInventoryAlertsSchema(db);
+    }
+    if (oldVersion < 13) {
+      await _applyEstimationCopiesSchema(db);
+    }
+  }
+
+  /// Versión 13 — **copia descargada de la estimación** (F12-EST-07-MOB,
+  /// MOB #164). Aditiva: dos tablas nuevas y vacías, sin tocar ninguna otra.
+  /// Idempotente: cada sentencia lleva IF NOT EXISTS.
+  Future<void> _applyEstimationCopiesSchema(DatabaseExecutor db) async {
+    for (final statement in estimationCopiesSchema) {
+      await db.execute(statement);
     }
   }
 
