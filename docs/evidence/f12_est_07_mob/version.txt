@@ -1,0 +1,6 @@
+mobile_sha=398db76993c94afd17f3f212dccd13aff59f1d12
+dispositivo=Xiaomi 22101320G, Android 12
+paquete=com.comunidad.agro.agroquimicos.est164 (sufijo temporal, desinstalado al terminar)
+inicio=2026-11-03T00:34:02Z
+fin=2026-11-03T00:39:13Z
+exit=0

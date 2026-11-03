@@ -324,6 +324,36 @@ void main() {
       expect(await phone.store.readable(newIdentity), hasLength(1));
     });
 
+    test('si el titular vigente ya no es el de la descarga, no se guarda aunque el acceso siga', () async {
+      final phone = await _phone();
+      final pending = await phone.store.grant(phone.identity);
+      // Otro vínculo por una vía que no borra el acceso (escritura directa).
+      final db = await phone.database.database;
+      await db.update(
+        'owner_bindings',
+        {'ended_at': '2026-11-02T00:00:00.000Z', 'end_reason': 'OWNER_CHANGED'},
+        where: 'id=?',
+        whereArgs: [phone.binding.id],
+      );
+      await db.insert('owner_bindings', {
+        'person_id': phone.h.relative,
+        'member_id': memberA.memberId,
+        'tenant_id': memberA.tenantId,
+        'owner_role': 'FAMILY',
+        'bound_at': '2026-11-02T00:00:00.000Z',
+      });
+      expect(await db.query('estimation_copy_access'), hasLength(1));
+      expect(
+        await phone.store.save(
+          pending,
+          FarmerDownload.fromJson(farmerDownloadJson()),
+          farmerDownloadJson(),
+        ),
+        EstimationSaveOutcome.accessChanged,
+      );
+      expect(await db.query('estimation_copies'), isEmpty);
+    });
+
     test(
       'las filas de otra identidad o titular se eliminan físicamente',
       () async {
