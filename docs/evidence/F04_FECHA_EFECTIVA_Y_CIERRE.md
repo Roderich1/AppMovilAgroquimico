@@ -29,6 +29,7 @@
   - Consecuencia declarada: en FIFO, una compra fechada en un día pasado queda **antes** de cualquier compra de ese mismo día con hora real. No se recalcula ningún histórico.
 - **Repositorio** (`_ensureEffectiveDateInCampaign`, dentro de la transacción, antes de escribir): una fecha **posterior a hoy** se rechaza con `CampaignDateProblem.future` («es posterior a hoy… No se registró nada»), también en llamadas directas. Después, la clasificación de #110 sin cambios: ninguna / ambigua / planificada / cerrada se rechazan sin escribir; nunca se elige otra campaña en silencio.
 - **D-F04-C1 no cambia:** una fecha de un período cerrado se rechaza. No hay circuito de revisión, reapertura ni reasignación; RF-03 sigue parcial en ese punto.
+  > *Nota del 2026-11-03 (el texto anterior se conserva):* D-F04-C1 está **superado**. Las operaciones tardías RF-03 se construyeron (borrador para revisión y confirmación con PIN en la campaña cerrada, sin reabrirla ni publicar): HOST en `F03_F04_RECUPERAR_ACCESO_RF13_RF03_HOST.md` (2026-10-23, `04162ff`) y DEVICE en `F01_F08_DEVICE_FINAL_2026-10-24.md`, casos B1–B3 (POCO, Mobile `1d77c14`). Detalle en el anexo del 2026-11-03 de [F04_GATE_DECISION_PROPUESTA.md](F04_GATE_DECISION_PROPUESTA.md).
 
 ### 2.2 Cierre con fin efectivo (#122)
 
@@ -86,3 +87,4 @@ CI del HEAD del PR: en el PR. La CI repite `f04_campaign_effective_date_test.dar
 - **Selector de Material en inglés:** la app no configura localizaciones; es la observación de #118 y no se abre otro frente.
 - **No cambian** el reloj, el contrato de proyección, los CSV de mediciones ni ningún registro confirmado. No hay migración.
 - GATE-F04 (#28) sigue **Pending**: lo decide Roderich. D-F04-C1 sigue como límite de RF-03.
+  > *Nota del 2026-11-03 (el texto anterior se conserva):* D-F04-C1 está **superado**. Las operaciones tardías RF-03 se construyeron (borrador para revisión y confirmación con PIN en la campaña cerrada, sin reabrirla ni publicar): HOST en `F03_F04_RECUPERAR_ACCESO_RF13_RF03_HOST.md` (2026-10-23, `04162ff`) y DEVICE en `F01_F08_DEVICE_FINAL_2026-10-24.md`, casos B1–B3 (POCO, Mobile `1d77c14`). Detalle en el anexo del 2026-11-03 de [F04_GATE_DECISION_PROPUESTA.md](F04_GATE_DECISION_PROPUESTA.md).

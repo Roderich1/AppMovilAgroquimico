@@ -40,6 +40,7 @@
      - (A) construir un estado «requiere revisión»: la operación se guarda en la campaña cerrada de su fecha, visible, sin reabrir, sin reasignar y sin publicarse a Central. Antes hay que definir quién revisa, qué resultados tiene y qué efecto tiene en el inventario;
      - (B) aceptar el rechazo actual como límite del alcance académico.
      - Las fuentes no definen la revisión, así que no se construyó por intuición.
+     > *Nota del 2026-11-03 (el texto anterior se conserva):* D-F04-C1 está **superado**. Las operaciones tardías RF-03 se construyeron (borrador para revisión y confirmación con PIN en la campaña cerrada, sin reabrirla ni publicar): HOST en `F03_F04_RECUPERAR_ACCESO_RF13_RF03_HOST.md` (2026-10-23, `04162ff`) y DEVICE en `F01_F08_DEVICE_FINAL_2026-10-24.md`, casos B1–B3 (POCO, Mobile `1d77c14`). Detalle en el anexo del 2026-11-03 de [F04_GATE_DECISION_PROPUESTA.md](F04_GATE_DECISION_PROPUESTA.md).
    - **D-F04-C2, período local frente al central.** El vínculo con Central lee las fechas centrales de la campaña, pero no comprueba que el período local quepa en ellas. Afecta a los vínculos futuros y al consumo **ya publicado** con fechas locales fuera del período central. Opciones:
      - comprobarlo al vincular y señalar lo ya publicado (trabajo de F05);
      - o aceptarlo como límite.
