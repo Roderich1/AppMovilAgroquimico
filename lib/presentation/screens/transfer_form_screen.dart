@@ -120,6 +120,20 @@ class _TransferFormScreenState extends ConsumerState<TransferFormScreen> {
   }
 
   Future<void> submit(List<Map<String, Object?>> people) async {
+    // OE3 (2026-11-03): una cantidad con formato rechazado («1.5», «1,500»)
+    // no es «ninguna cantidad»: se dice cuál y por qué, con el mensaje de la
+    // regla única (docs/44_NUMERIC_INPUT_SPEC.md §6). La regla no cambia.
+    for (final row in available) {
+      final parsed = parseNumericInput(quantities[row['product_id']]!.text);
+      if (parsed.status == NumericInputStatus.ambiguous ||
+          parsed.status == NumericInputStatus.malformed) {
+        showError(
+          context,
+          'Revise la cantidad de ${row['product_name']}. ${parsed.message}',
+        );
+        return;
+      }
+    }
     final items = selectedItems;
     if (fromId == null || toId == null || fromId == toId || items.isEmpty) {
       showError(
