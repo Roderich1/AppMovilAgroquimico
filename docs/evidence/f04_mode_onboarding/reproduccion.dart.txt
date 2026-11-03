@@ -1,0 +1,78 @@
+// Prueba TEMPORAL de la reproducción controlada (no forma parte de la suite).
+// Variante 1 (c2ac44a y 4ca2088): tras retener el cerrojo, waitFor(...) y lectura de la modalidad.
+// Variante 2 (la corrección, abajo): waitUntil con el estado final y diagnóstico.
+
+// TEMPORAL (no se commitea): reproducción controlada del fallo de la CI en
+// operation_mode_onboarding_test («recién activado sin titular…», línea 61).
+// Retiene el cerrojo real de SQLite con una transacción abierta desde la zona
+// real mientras el alta del titular espera; luego lo libera y lee la modalidad
+// como la prueba original.
+import 'dart:async';
+
+import 'package:agroquimicos/data/operation_mode_store.dart';
+import 'package:agroquimicos/domain/installation_access.dart';
+import 'package:agroquimicos/installation_access.dart';
+import 'package:agroquimicos/operation_mode_controller.dart';
+import 'package:agroquimicos/domain/operation_mode.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+
+import 'support/f04_mode_fixtures.dart';
+import 'support/f04_mode_ui_harness.dart';
+
+void main() {
+  sqfliteFfiInit();
+
+  testWidgets('el alta del titular retenida más que la espera de la prueba', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1600));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final file = await tester.runAsync(() => tempDbPath('repro'));
+    final database = openDb(file!);
+    final c = await pumpModeApp(tester, database, transport: OfflineTransport());
+    await waitFor(tester, find.byKey(const Key('owner-mode-help')));
+    await tester.tap(find.byKey(const Key('owner-create-new')));
+    await settle(tester);
+    await tester.enterText(find.byKey(const Key('owner-new-name')), 'Rosa');
+    await tester.tap(find.byKey(const Key('owner-mode-personal')));
+    await settle(tester);
+
+    // Retiene el cerrojo de la base, como una operación lenta en la CI.
+    final release = Completer<void>();
+    var held = false;
+    unawaited(
+      database.database.then(
+        (db) => db.transaction((txn) async {
+          held = true;
+          await release.future;
+        }),
+      ),
+    );
+    await waitUntil(tester, 'cerrojo retenido', () => held);
+
+    await tester.ensureVisible(find.byKey(const Key('owner-confirm')));
+    await tester.tap(find.byKey(const Key('owner-confirm')));
+    try {
+      await waitUntil(
+        tester,
+        'el alta del titular con inventario propio',
+        () =>
+            c.read(installationAccessProvider) ==
+                InstallationAccessState.activated &&
+            c.read(operationModeProvider) == OperationMode.personal &&
+            find.textContaining('Usa inventario propio').evaluate().isNotEmpty,
+        state: () =>
+            'acceso=${c.read(installationAccessProvider)?.name}, '
+            'modalidad=${c.read(operationModeProvider)?.name}, ruta=${currentPath(c)}',
+      );
+    } on TestFailure catch (failure) {
+      // ignore: avoid_print
+      print('TRAZA espera explícita agotada: ${failure.message}');
+      release.complete();
+      rethrow;
+    }
+    expect(c, isNotNull);
+  });
+}
