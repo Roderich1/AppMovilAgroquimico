@@ -224,6 +224,15 @@ void main() {
       );
     });
 
+    test('una fila manipulada con una generación posterior a la del contexto no elude una retirada', () async {
+      final phone = await _phone();
+      await phone.save(farmerDownloadJson());
+      await phone.store.retireCampaign(campaignWinter);
+      final db = await phone.database.database;
+      await db.update('estimation_copies', {'generation': 99});
+      expect(await phone.store.readable(phone.identity), isEmpty);
+    });
+
     test(
       'una fila manipulada (otra campaña u otro Member en el JSON) no se lee',
       () async {
@@ -444,9 +453,15 @@ void main() {
       await source.h.apply(source.h.titular, source.h.titularFarm, 1500);
       await source.save(farmerDownloadJson());
       await source.save(farmerDownloadJson(campaign: campaignSummer));
+      // Una retirada por 404 (su referencia de campaña tampoco viaja).
+      await source.store.retireCampaign(campaignSummer);
       final sourceDb = await source.database.database;
       expect(await sourceDb.query('estimation_copies'), hasLength(2));
-      const excluded = {'estimation_copies', 'estimation_copy_access'};
+      const excluded = {
+        'estimation_copies',
+        'estimation_copy_access',
+        'estimation_copy_retirements',
+      };
       final expected = await dumpTables(sourceDb, except: excluded);
 
       final invoices = Directory(p.join(workspace.path, 'facturas'))
@@ -479,6 +494,7 @@ void main() {
       );
       expect(await opened.query('estimation_copies'), isEmpty);
       expect(await opened.query('estimation_copy_access'), isEmpty);
+      expect(await opened.query('estimation_copy_retirements'), isEmpty);
       expect(await dumpTables(opened, except: excluded), expected);
       await opened.close();
 
