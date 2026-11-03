@@ -319,6 +319,8 @@ class _EstimationScreenState extends ConsumerState<EstimationScreen> {
                 'Copia descargada en este teléfono',
                 style: TextStyle(fontWeight: FontWeight.w700),
               ),
+              // Espacio para la etiqueta flotante del selector (no se solapa con el título).
+              if (list.length > 1) const SizedBox(height: 16),
               if (list.length > 1)
                 DropdownButtonFormField<String>(
                   key: const Key('estimation-copy-campaign'),
