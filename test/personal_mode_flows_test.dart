@@ -56,13 +56,15 @@ void main() {
           .where((w) => w.enabled ?? true)
           .length;
 
+  /// Abre el menú del botón flotante «+» (sin etiqueta visible; su nombre
+  /// accesible es «Registrar operación»).
   Future<void> openNewSheet(WidgetTester tester) async {
-    await tester.tap(find.text('Nuevo'));
+    await tester.tap(find.byTooltip('Registrar operación'));
     await settle(tester);
   }
 
   group('navegación', () {
-    testWidgets('propio: Operaciones y «Nuevo» no ofrecen transferencias; '
+    testWidgets('propio: Operaciones y el «+» no ofrecen transferencias; '
         'compartido sí', (tester) async {
       final s = await activatedHousehold(tester, 'nav');
       await tester.runAsync(

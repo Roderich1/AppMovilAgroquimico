@@ -76,6 +76,11 @@ class AppShell extends StatelessWidget {
   /// «Avisos de inventario» (F04-AV, 2026-11-01) es una consulta que no
   /// inicia operaciones (#170). En el emulador el FAB tapaba el aviso que
   /// pasaba por debajo al desplazarse; sin él, ningún aviso queda tapado.
+  ///
+  /// En «Sincronización» (POCO, 2026-11-03) el FAB tapaba «Reintentar con
+  /// esta versión» y el toque abría el menú de creación en vez de reanudar
+  /// los envíos. La pantalla ya tiene su acción, «Sincronizar ahora», y no
+  /// inicia operaciones.
   static const _routesWithoutGlobalFab = <String>{
     '/',
     '/catalogos',
@@ -85,10 +90,11 @@ class AppShell extends StatelessWidget {
     '/aplicaciones/voz',
     '/inventario/avisos',
     '/inventario/estimacion',
+    '/sincronizacion',
   };
 
   /// Si esta ruta oculta el FAB global. El detalle de compra es de sólo
-  /// lectura (A2, 2026-10-30): un «Nuevo» flotante no tiene sentido ahí.
+  /// lectura (A2, 2026-10-30): un botón de creación no tiene sentido ahí.
   bool get hidesGlobalFab =>
       _routesWithoutGlobalFab.contains(location) ||
       location.startsWith('/compras/detalle/');
@@ -131,7 +137,11 @@ class AppShell extends StatelessWidget {
     return '/';
   }
 
-  /// Alto del `FloatingActionButton.extended` más su margen.
+  /// Alto del `FloatingActionButton` más su margen.
+  ///
+  /// El «+» (2026-11-03) mide 56×56, el mismo alto que el botón extendido
+  /// «Nuevo» al que sustituye: la reserva vertical no cambia. Es más
+  /// estrecho, así que tapa menos ancho del contenido.
   ///
   /// Se publica con [ContentInsets] para que el contenido desplazable termine
   /// por encima del FAB en TODAS las pantallas del shell, en vez de que cada una
@@ -312,7 +322,14 @@ class AppShell extends StatelessWidget {
     );
   }
 
-  Widget _newButton(BuildContext context) => FloatingActionButton.extended(
+  /// Botón flotante de creación: sólo el icono «+» (decisión del autor,
+  /// 2026-11-03). Sin etiqueta visible; el nombre accesible lo da el
+  /// `tooltip` y describe la acción real, «Registrar operación». El
+  /// `FloatingActionButton` agrupa su semántica, así que el nombre se
+  /// anuncia una sola vez. Superficie táctil de 56×56, por encima del
+  /// mínimo de 48×48.
+  Widget _newButton(BuildContext context) => FloatingActionButton(
+    tooltip: 'Registrar operación',
     onPressed: () => showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
@@ -321,7 +338,7 @@ class AppShell extends StatelessWidget {
           children: [
             const ListTile(
               title: Text(
-                'Nuevo',
+                'Registrar operación',
                 style: TextStyle(fontWeight: FontWeight.w800),
               ),
             ),
@@ -381,7 +398,6 @@ class AppShell extends StatelessWidget {
         ),
       ),
     ),
-    icon: const Icon(Icons.add),
-    label: const Text('Nuevo'),
+    child: const Icon(Icons.add),
   );
 }
