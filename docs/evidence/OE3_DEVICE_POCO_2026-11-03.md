@@ -323,6 +323,8 @@ Todo ocurrió en la instalación de B.
 ## 3. Observaciones nuevas (no investigadas)
 
 1. **Cantidad con punto decimal en la transferencia.** Con «1.5» en la cantidad, «Revisar y confirmar» no avanzó y la pantalla no mostró ningún mensaje. Con «2», sí avanzó. No se probó «1,5» ni se miró el código. Hay que reproducirlo antes de clasificarlo como defecto.
+
+   > **Precisión del 2026-11-03 (segunda tanda).** Reproducido: el aviso sí aparece («Seleccione origen, destino y al menos una cantidad válida.»); la captura anterior llegó cuando ya había desaparecido. El defecto es el mensaje, que no explica el formato. Ver `OE3_DEVICE_POCO_2_2026-11-03.md` §2 y Mobile PR #185.
 2. **Sesiones remanentes en Central.** Quedan ACTIVE en Central:
    - la sesión sin vincular del corte de P-01;
    - la sesión del 401 de P-04, después de reactivar la cuenta.

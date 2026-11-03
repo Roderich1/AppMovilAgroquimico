@@ -1,0 +1,14 @@
+base (sin modo)                    POST /api/v1/sync/v1/push 200 CONFLICT/CAUSAL_FORK op=3c39d17d
+C07 mutate reorder (replay)        POST /api/v1/sync/v1/push 200 CONFLICT/CAUSAL_FORK op=3c39d17d CONTROLADO_MUTATE:reorder
+C08 mutate quantity-plus-one       POST /api/v1/sync/v1/push 200 REJECTED/IDEMPOTENCY_MISMATCH op=3c39d17d CONTROLADO_MUTATE:quantity-plus-one
+C25 mutate version-2               POST /api/v1/sync/v1/push 422 -/CONTRACT_VERSION_MISMATCH op=- CONTROLADO_MUTATE:version-2
+C26 mutate extra-payload           POST /api/v1/sync/v1/push 400 -/FIELD_NOT_ALLOWED op=- CONTROLADO_MUTATE:extra-payload
+C27 mutate unknown-predecessor     POST /api/v1/sync/v1/push 200 REJECTED/INVALID_PREDECESSOR op=217347e1 CONTROLADO_MUTATE:unknown-predecessor
+C21 mutate quantity-overflow       POST /api/v1/sync/v1/push 200 REJECTED/QUANTITY_INVALID op=c92efcd6 CONTROLADO_MUTATE:quantity-overflow
+C37 mutate quantity-text:01        POST /api/v1/sync/v1/push 400 -/INVALID_REQUEST op=- CONTROLADO_MUTATE:quantity-text:01
+C09 concurrent 3                   POST /api/v1/sync/v1/push CONTROLADO_CONCURRENT 200 REJECTED/INVALID_PREDECESSOR op=33840bd5 | 200 REJECTED/INVALID_PREDECESSOR op=33840bd5 | 200 REJECTED/INVALID_PREDECESSOR op=33840bd5 (se entrega la última)
+C28 inject-ack (INYECTADA)         POST /api/v1/sync/v1/push - INYECTADA_ACK_SIN_REENVIAR 200 RETRYABLE/DEPENDENCY_PENDING op=43eac7f8
+C29 inject-status 503 (INYECTADA)  POST /api/v1/sync/v1/push - INYECTADA_ESTADO_SIN_REENVIAR 503/TEMPORARILY_UNAVAILABLE
+C29 burst 25 (429 real)            POST /api/v1/sync/v1/push 429 -/RATE_LIMITED op=- CONTROLADO_BURST retry-after=60
+C32 get-unknown                    GET /api/v1/sync/v1/operations/{id} 404 -/OPERATION_NOT_FOUND op=- CONTROLADO_GET_UNKNOWN (id aleatorio)
+limpieza: logout 204; fallo pendiente: false
