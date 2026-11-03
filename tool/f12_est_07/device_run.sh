@@ -41,7 +41,20 @@ adb -s "$serial" shell input swipe 540 2000 540 700
 flutter test integration_test/f12_est_07_estimation_device_test.dart -d "$serial" > "$out/flutter-test.log" 2>&1 &
 pid=$!
 taken=""
+# MIUI pide confirmar la instalación por USB («Instalar vía USB») y la niega sola a los
+# 10 s: se pulsa «Instalar» SÓLO en ese diálogo del sistema mientras se instala .est164.
+confirm_install() {
+  local node
+  node=$(adb -s "$serial" exec-out uiautomator dump /dev/tty 2>/dev/null | grep -o '<node[^>]*>'     | grep -E 'package="com\.(miui\.securitycenter|android\.packageinstaller|google\.android\.packageinstaller)"'     | grep -m1 -E 'text="(Instalar|Install)"' || true)
+  [ -n "$node" ] || return 0
+  local b; b=$(echo "$node" | grep -o 'bounds="\[[0-9]*,[0-9]*\]\[[0-9]*,[0-9]*\]"' | grep -o '[0-9]*' | tr '
+' ' ')
+  set -- $b
+  adb -s "$serial" shell input tap $(( ($1 + $3) / 2 )) $(( ($2 + $4) / 2 ))
+  echo "$(date -u +%FT%TZ) diálogo de instalación por USB confirmado" >> "$out/version.txt"
+}
 while kill -0 "$pid" 2>/dev/null; do
+  grep -q "Installing build" "$out/flutter-test.log" 2>/dev/null && ! grep -q "CAPTURA:\|+1:" "$out/flutter-test.log" 2>/dev/null && confirm_install
   for name in $(grep -o 'CAPTURA:[0-9a-z-]*' "$out/flutter-test.log" 2>/dev/null | cut -d: -f2); do
     case " $taken " in *" $name "*) continue ;; esac
     sleep 1
