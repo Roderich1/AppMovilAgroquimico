@@ -297,7 +297,7 @@ En los cinco casos, la copia se lee tras reiniciar sin conexión:
 | Servidor | **Real:** Backend-Web `main` `635cc8f` (`dist` compilado del worktree `F12-EST-07`, árbol idéntico). Central **propio y desechable** (`tool/f12_est_07/est164_supervisor.sh`): PostgreSQL 16.13 `--rm` sin volumen, base sintética del control de F12-EST-07 y trabajador real. Sin pilotos ni datos reales |
 | HTTPS | Túnel temporal de Cloudflare (`cloudflared` 2026.10.0) hacia el observador → API. Autorizado por Roderich para este ensayo. Se cerró al terminar y el contenedor se eliminó |
 | Secretos | JWT, huella y contraseñas solo en la memoria del supervisor. La contraseña del Agricultor sintético es de un solo uso y solo se teclea si el campo enfocado es de contraseña; no se muestra ni se guarda. **No se creó PIN**: se eligió «Ahora no» |
-| Observador | `f12_est_07_mob/real/requests.log`: hora, método, ruta y estado, sin cuerpos ni cabeceras |
+| Observador | `f12_est_07_mob/real/peticiones-observador.txt`: hora, método, ruta y estado, sin cuerpos ni cabeceras |
 
 **Recorrido** (capturas `f12_est_07_mob/real/r01`–`r10`):
 
