@@ -41,6 +41,7 @@ class AppShell extends StatelessWidget {
   /// Subdestinos que viven bajo la sección **Operaciones**.
   static const operationsSubRoutes = <String>{
     '/catalogos',
+    '/campanas',
     '/planificacion',
     '/compras',
     '/aplicaciones',
@@ -77,6 +78,9 @@ class AppShell extends StatelessWidget {
   /// inicia operaciones (#170). En el emulador el FAB tapaba el aviso que
   /// pasaba por debajo al desplazarse; sin él, ningún aviso queda tapado.
   ///
+  /// «Campañas» (2026-11-05) tiene su propia acción primaria, «Agregar
+  /// campaña», igual que Catálogos.
+  ///
   /// En «Sincronización» (POCO, 2026-11-03) el FAB tapaba «Reintentar con
   /// esta versión» y el toque abría el menú de creación en vez de reanudar
   /// los envíos. La pantalla ya tiene su acción, «Sincronizar ahora», y no
@@ -84,6 +88,7 @@ class AppShell extends StatelessWidget {
   static const _routesWithoutGlobalFab = <String>{
     '/',
     '/catalogos',
+    '/campanas',
     '/voz',
     '/compras/voz',
     '/planificacion/voz',
@@ -342,41 +347,47 @@ class AppShell extends StatelessWidget {
                 style: TextStyle(fontWeight: FontWeight.w800),
               ),
             ),
-            // `isForm` distingue las rutas declaradas FUERA del ShellRoute
-            // (formularios a pantalla completa). Esas deben apilarse con
-            // `push`: con `go` se reemplaza toda la pila y el botón atrás del
-            // formulario deja la aplicación sin ninguna página que mostrar.
+            // Cada acción abre directamente su formulario de registro
+            // (2026-11-05); antes Planificación, Aplicación y Transferencia
+            // llevaban a su listado y había que buscar ahí el botón. El pago
+            // sigue en Cuentas, donde se elige la cuenta.
+            //
+            // `done` es el aviso al volver con la operación guardada; nulo
+            // para los destinos que no son formularios. Los formularios están
+            // FUERA del ShellRoute y se apilan con `push`: con `go` se
+            // reemplaza toda la pila y el botón atrás del formulario deja la
+            // aplicación sin ninguna página que mostrar.
             for (final action in [
               (
                 label: 'Planificación',
                 icon: Icons.event_note_outlined,
-                path: '/planificacion',
-                isForm: false,
+                path: '/planificacion/nueva',
+                done: 'Plan guardado.',
               ),
               (
                 label: 'Compra',
                 icon: Icons.shopping_bag_outlined,
                 path: '/compras/nueva',
-                isForm: true,
+                done: 'Compra registrada.',
               ),
               (
                 label: 'Aplicación',
                 icon: Icons.agriculture_outlined,
-                path: '/aplicaciones',
-                isForm: false,
+                path: '/aplicaciones/nueva',
+                done: 'Aplicación registrada.',
               ),
               (
                 label: 'Pago',
                 icon: Icons.payments_outlined,
                 path: '/liquidacion',
-                isForm: false,
+                done: null,
               ),
               if (transfersEnabled)
                 (
                   label: 'Transferencia',
                   icon: Icons.swap_horiz,
-                  path: '/transferencias',
-                  isForm: false,
+                  path: '/transferencias/nueva',
+                  done: 'Transferencia registrada.',
                 ),
             ])
               ListTile(
@@ -384,12 +395,16 @@ class AppShell extends StatelessWidget {
                 title: Text(action.label),
                 onTap: () {
                   Navigator.of(sheetContext).pop();
-                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                  WidgetsBinding.instance.addPostFrameCallback((_) async {
                     if (!context.mounted) return;
-                    if (action.isForm) {
-                      context.push(action.path);
-                    } else {
+                    final done = action.done;
+                    if (done == null) {
                       context.go(action.path);
+                      return;
+                    }
+                    final saved = await context.push<bool>(action.path);
+                    if (saved == true && context.mounted) {
+                      showSuccess(context, done);
                     }
                   });
                 },

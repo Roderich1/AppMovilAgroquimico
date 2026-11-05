@@ -13,6 +13,9 @@ import '../widgets/common.dart';
 ///
 /// Las alertas de sesión, sincronización y recuperación siguen en Inicio; no
 /// se esconden aquí. F09 (voz) sigue en pausa: su entrada queda al final.
+///
+/// Reportes pasó a Operaciones, junto a Campañas (2026-11-05): no se repite
+/// aquí.
 class MoreScreen extends ConsumerWidget {
   const MoreScreen({super.key});
 
@@ -21,12 +24,6 @@ class MoreScreen extends ConsumerWidget {
     final mode = ref.watch(operationModeProvider);
     final actions =
         <({String title, String subtitle, String path, IconData icon})>[
-          (
-            title: 'Reportes',
-            subtitle: 'Exportar inventario, costos y cuentas a CSV o PDF',
-            path: '/reportes',
-            icon: Icons.summarize_outlined,
-          ),
           (
             title: 'Administrar datos',
             subtitle: 'Campañas, chacos, productos, proveedores y personas',

@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show SynchronousFuture;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -11,6 +12,7 @@ import '../../domain/operation_mode.dart';
 import '../../domain/person_roles.dart';
 import '../../operation_mode_controller.dart';
 import '../widgets/adaptive_entity_picker.dart';
+import '../widgets/catalog_dialogs.dart';
 import '../widgets/common.dart';
 import 'late_operations_screen.dart' show offerLateRegistration;
 import '../widgets/mode_notice.dart';
@@ -246,6 +248,39 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
   }
 
   _ApplicationCatalogs? _latestCatalogs;
+
+  /// «Crear chaco» para la persona elegida (en propio, el titular): el alta
+  /// de Catálogos sobre la aplicación, con el dueño ya decidido. Se vuelven
+  /// a leer sólo los chacos; fecha, persona, área y mezcla se conservan. Si se
+  /// cancela o falla, nada cambia. Aquí no se crean productos: la mezcla sale
+  /// de las existencias.
+  Future<Map<String, Object?>?> _createFarm() async {
+    final owner = personId;
+    if (owner == null) return null;
+    final repo = ref.read(repositoryProvider);
+    final id = await createFarmFromDialog(context, repo, ownerId: owner);
+    if (id == null) return null;
+    final current = await catalogs;
+    final applicators = {for (final person in current.people) person['id']};
+    final next = (
+      people: current.people,
+      farms: [
+        for (final farm in await repo.farms())
+          if (applicators.contains(farm['owner_person_id'])) farm,
+      ],
+      campaign: current.campaign,
+    );
+    if (mounted) {
+      setState(() {
+        // `SynchronousFuture`: el `FutureBuilder` toma la lista nueva en la
+        // misma reconstrucción. Con `Future.value` pasaba un fotograma con la
+        // lista vieja, el selector no encontraba lo elegido y autoelegía la
+        // única opción anterior encima de lo recién creado.
+        catalogs = SynchronousFuture(next);
+      });
+    }
+    return next.farms.where((f) => f['id'] == id).firstOrNull;
+  }
 
   /// Productos que todavía no están en la mezcla.
   List<Map<String, Object?>> get _addable => stocks
@@ -757,6 +792,8 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
           secondaryOf: (f) => formatHectares(f['area_m2'] as int),
           onChanged: selectFarm,
           enabled: personId != null,
+          createLabel: 'Crear chaco',
+          onCreate: _createFarm,
         ),
       ],
       const SizedBox(height: 12),

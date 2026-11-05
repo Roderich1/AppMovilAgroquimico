@@ -56,7 +56,7 @@ class _ApplicationsScreenState extends ConsumerState<ApplicationsScreen> {
           ],
         ),
       );
-      if (go == true && mounted) context.go('/catalogos');
+      if (go == true && mounted) context.push('/campanas');
       return;
     }
     final saved = await context.push<bool>('/aplicaciones/nueva');
@@ -103,7 +103,6 @@ class _ApplicationsScreenState extends ConsumerState<ApplicationsScreen> {
   @override
   Widget build(BuildContext context) => PageFrame(
     title: 'Aplicaciones',
-    subtitle: 'Eventos de fumigación con uno o varios productos.',
     action: FilledButton.icon(
       onPressed: add,
       icon: const Icon(Icons.add),

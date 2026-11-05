@@ -432,10 +432,9 @@ void main() {
       await waitFor(tester, find.text('Operaciones').first);
 
       await tester.tap(find.text('Operaciones').first);
-      await waitFor(tester, find.text('Lo del trabajo diario.'));
-      // Reportes vive en «Más» (piloto X01).
-      await tester.tap(find.text('Más'));
-      await waitFor(tester, find.text('Lo que se usa de vez en cuando.'));
+      // Reportes tiene acceso propio en Operaciones (2026-11-05); antes
+      // vivía en «Más» (piloto X01).
+      await waitFor(tester, find.text('Reportes'));
       expect(find.text('Reportes'), findsOneWidget);
 
       await tester.tap(find.text('Reportes'));
@@ -449,12 +448,13 @@ void main() {
       );
 
       await tester.tap(find.byTooltip('Volver'));
-      await waitFor(tester, find.text('Lo que se usa de vez en cuando.'));
-      expect(find.text('Lo que se usa de vez en cuando.'), findsOneWidget);
+      await waitFor(tester, find.text('Campañas'));
+      expect(find.text('Campañas'), findsOneWidget);
       expect(tester.takeException(), isNull);
       // Deja terminar la animación de transición: `waitFor` para en cuanto
       // aparece el texto, y una ruta a medio animar deja un temporizador vivo.
       await tester.pumpAndSettle();
+      expect(find.text('Formato'), findsNothing);
     });
 
     testWidgets('la ruta nombra el reporte y la persona', (tester) async {

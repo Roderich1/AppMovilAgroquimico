@@ -65,7 +65,6 @@ class _PlanningScreenState extends ConsumerState<PlanningScreen> {
   @override
   Widget build(BuildContext context) => PageFrame(
     title: 'Planificación',
-    subtitle: 'Necesidad, cobertura y compra por mezcla de productos.',
     action: FilledButton.icon(
       onPressed: add,
       icon: const Icon(Icons.add),
