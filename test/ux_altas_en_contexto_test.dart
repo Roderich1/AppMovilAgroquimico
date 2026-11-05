@@ -276,7 +276,9 @@ void main() {
     await save(
       tester,
       'el alta del producto',
-      () => pickerAt(tester, 'Agregar producto').value != null,
+      () =>
+          pickerAt(tester, 'Agregar producto').value?['name'] ==
+          'Cipermetrina UX',
     );
 
     expect(

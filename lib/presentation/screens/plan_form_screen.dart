@@ -390,6 +390,11 @@ class _PlanFormScreenState extends ConsumerState<PlanFormScreen> {
                   labelOf: (p) => p['name'] as String,
                   secondaryOf: (p) => p['unit'] as String,
                   onChanged: (p) => setState(() => productToAdd = p),
+                  // El producto a agregar se elige siempre, aunque quede uno:
+                  // con la autoselección el único producto quedaba elegido al
+                  // elegir el chaco y podía pisar uno recién creado (prueba
+                  // (e) de ux_altas_en_contexto bajo carga, 2026-11-05).
+                  autoSelectSingle: false,
                   enabled: farmId != null,
                   createLabel: 'Crear producto',
                   onCreate: _createProduct,
