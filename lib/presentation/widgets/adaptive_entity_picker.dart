@@ -150,6 +150,10 @@ class _AdaptiveEntityPickerState<T> extends State<AdaptiveEntityPicker<T>> {
           .showSnackBar(SnackBar(content: Text(widget.emptyMessage)));
       return;
     }
+    // Sin esto, al cerrar la hoja (o el diálogo de alta) el foco vuelve al
+    // último campo de texto, el teclado se reabre y tapa «Continuar»
+    // (emulador, 2026-11-05).
+    FocusManager.instance.primaryFocus?.unfocus();
     final result = await showModalBottomSheet<_PickerResult<T>>(
       context: context,
       isScrollControlled: true,

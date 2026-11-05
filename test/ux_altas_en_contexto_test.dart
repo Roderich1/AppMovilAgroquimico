@@ -194,6 +194,50 @@ void main() {
     expect(fieldText(tester, 'Precio BOB/L'), '45');
   });
 
+  testWidgets('(i) Compra: al cerrar el selector (elegir o crear) el foco no '
+      'vuelve al precio y el teclado no se reabre', (tester) async {
+    bigSurface(tester);
+    final s = await activatedHousehold(tester, 'ux-i');
+    final c = await pumpModeApp(tester, s.database);
+    await openPurchase(tester, c);
+    await fillDraft(tester);
+
+    bool textFocused() =>
+        FocusManager.instance.primaryFocus?.context
+            ?.findAncestorWidgetOfExactType<EditableText>() !=
+        null;
+
+    // `enterText` deja el foco en el precio, como al teclearlo.
+    await tester.enterText(field('Precio BOB/L'), '45');
+    await settle(tester);
+    expect(textFocused(), isTrue);
+    await tester.tap(picker('Proveedor'));
+    await settle(tester);
+    await tester.tap(
+      find
+          .descendant(
+            of: find.byType(BottomSheet),
+            // El título de la hoja también dice «Proveedor»: la fila es la última.
+            matching: find.text('Proveedor'),
+          )
+          .last,
+    );
+    await settle(tester);
+    expect(textFocused(), isFalse, reason: 'tras elegir en la hoja');
+
+    await tester.enterText(field('Precio BOB/L'), '45');
+    await settle(tester);
+    await openCreate(tester, 'Proveedor', 'Crear proveedor');
+    await tester.enterText(field('Nombre del proveedor'), 'Agro Foco UX');
+    await save(
+      tester,
+      'el alta del proveedor',
+      () => pickerAt(tester, 'Proveedor').value?['name'] == 'Agro Foco UX',
+    );
+    expect(textFocused(), isFalse, reason: 'tras crear desde la hoja');
+    expect(fieldText(tester, 'Precio BOB/L'), '45');
+  });
+
   testWidgets('(c) Compra: cancelar el alta no cambia el borrador ni escribe '
       'nada', (tester) async {
     bigSurface(tester);
