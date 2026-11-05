@@ -7,6 +7,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:agroquimicos/presentation/voice/voice_quantity_facts.dart';
 import 'package:agroquimicos/voice/port/review_selection.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -27,6 +28,7 @@ void main() {
         final choice = chooseReviewedText(
           e['vosk'] as String,
           e['review'] as String?,
+          facts: voiceQuantityFacts,
         );
         texts.add(choice.text);
         verdicts.add(choice.verdict.name);

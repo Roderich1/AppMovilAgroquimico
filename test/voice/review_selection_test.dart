@@ -1,5 +1,9 @@
+import 'package:agroquimicos/presentation/voice/voice_quantity_facts.dart';
 import 'package:agroquimicos/voice/port/review_selection.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+ReviewChoice choose(String first, String? review) =>
+    chooseReviewedText(first, review, facts: voiceQuantityFacts);
 
 /// Qué texto llega a la sesión cuando hay segunda pasada local (#166).
 ///
@@ -9,7 +13,7 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   group('acepta la revisión cuando sólo cambian palabras', () {
     test('corrige el producto y el lugar sin tocar la cantidad', () {
-      final choice = chooseReviewedText(
+      final choice = choose(
         'aplique medio litro de bella thor en el saco de abajo',
         'Aplique medio litro de Bellator en el chaco de abajo.',
       );
@@ -19,21 +23,21 @@ void main() {
 
     test('cifras en dígitos que la app lee igual que las palabras', () {
       expect(
-        chooseReviewedText(
+        choose(
           'compré dos litros de glifosato a ciento veinte bolivianos',
           'Compré dos litros de glifosato a 120 bolivianos.',
         ).verdict,
         ReviewVerdict.accepted,
       );
       expect(
-        chooseReviewedText(
+        choose(
           'dos coma cinco litros de para coat',
           '2,5 litros de Paraquat.',
         ).verdict,
         ReviewVerdict.accepted,
       );
       expect(
-        chooseReviewedText(
+        choose(
           'tres kilogramos y medio de atrás china',
           '3 kg y medio de Atrazina.',
         ).verdict,
@@ -43,7 +47,7 @@ void main() {
 
     test('nombres de personas', () {
       expect(
-        chooseReviewedText(
+        choose(
           'de mamani recibió un litro de con sole',
           'Beto Mamani recibió un litro de Tebuconazole.',
         ).verdict,
@@ -55,7 +59,7 @@ void main() {
   group('se queda con Vosk', () {
     test('si la revisión cambia una cantidad', () {
       // Whisper base sin pista, voz «Laura», frase f01.
-      final choice = chooseReviewedText(
+      final choice = choose(
         'compré dos litros de glifosato a ciento veinte bolivianos',
         'Con 3 litros de glyfosato a 120 bolivianos.',
       );
@@ -66,19 +70,19 @@ void main() {
 
     test('si cambia la unidad o la moneda', () {
       expect(
-        chooseReviewedText('dos litros de bellator', '2 kilos de Bellator.')
+        choose('dos litros de bellator', '2 kilos de Bellator.')
             .verdict,
         ReviewVerdict.quantities,
       );
       expect(
-        chooseReviewedText('pagué cien bolivianos', 'Pagué 100 dólares.').verdict,
+        choose('pagué cien bolivianos', 'Pagué 100 dólares.').verdict,
         ReviewVerdict.quantities,
       );
     });
 
     test('si añade o quita una cantidad', () {
       expect(
-        chooseReviewedText('compré glifosato', 'Compré 2 litros de glifosato.')
+        choose('compré glifosato', 'Compré 2 litros de glifosato.')
             .verdict,
         ReviewVerdict.quantities,
       );
@@ -87,7 +91,7 @@ void main() {
     test('si la cifra queda ambigua para el lector de la app', () {
       // «1,500» es ambiguo según la especificación numérica: no se acepta.
       expect(
-        chooseReviewedText('mil quinientos litros', '1,500 litros.').verdict,
+        choose('mil quinientos litros', '1,500 litros.').verdict,
         ReviewVerdict.quantities,
       );
     });
@@ -100,7 +104,7 @@ void main() {
         '(risas)',
       ]) {
         expect(
-          chooseReviewedText('dos litros', text).verdict,
+          choose('dos litros', text).verdict,
           ReviewVerdict.nonSpeech,
           reason: text,
         );
@@ -109,11 +113,11 @@ void main() {
 
     test('ante repeticiones o longitud desproporcionada', () {
       expect(
-        chooseReviewedText('dos litros', 'litros litros litros litros').verdict,
+        choose('dos litros', 'litros litros litros litros').verdict,
         ReviewVerdict.degenerate,
       );
       expect(
-        chooseReviewedText(
+        choose(
           'compré dos litros de glifosato a ciento veinte bolivianos',
           'Compré.',
         ).verdict,
@@ -122,16 +126,16 @@ void main() {
     });
 
     test('sin revisión o vacía', () {
-      expect(chooseReviewedText(' dos litros ', null).text, 'dos litros');
-      expect(chooseReviewedText('dos litros', null).verdict, ReviewVerdict.notRun);
-      expect(chooseReviewedText('dos litros', '  ').verdict, ReviewVerdict.empty);
+      expect(choose(' dos litros ', null).text, 'dos litros');
+      expect(choose('dos litros', null).verdict, ReviewVerdict.notRun);
+      expect(choose('dos litros', '  ').verdict, ReviewVerdict.empty);
     });
   });
 
   test('una palabra fuera del catálogo no se vuelve producto', () {
     // f16: «glicerina» no está en la pista. La revisión puede escribirla mal,
     // pero no la sustituye por un producto: la regla no conoce el catálogo.
-    final choice = chooseReviewedText(
+    final choice = choose(
       'compré un litro de glicerina para la casa',
       'Compré un litro de glicerina para la casa.',
     );
@@ -139,8 +143,18 @@ void main() {
     expect(choice.text.toLowerCase(), isNot(contains('glifosato')));
   });
 
+  test('sin lector de cantidades, la revisión no se acepta nunca', () {
+    final choice = chooseReviewedText(
+      'aplique medio litro de bella thor',
+      'Aplique medio litro de Bellator.',
+      facts: null,
+    );
+    expect(choice.verdict, ReviewVerdict.unchecked);
+    expect(choice.text, 'aplique medio litro de bella thor');
+  });
+
   test('el diagnóstico no lleva el texto', () {
-    final choice = chooseReviewedText('dos litros de glifosato', null);
+    final choice = choose('dos litros de glifosato', null);
     expect(choice.toString(), isNot(contains('glifosato')));
   });
 }

@@ -5,6 +5,11 @@
 /// nunca una mezcla, y la regla es conservadora: la segunda pasada sólo puede
 /// cambiar palabras, **nunca cantidades, unidades ni monedas**.
 ///
+/// La captura no conoce los borradores (lo vigila la guarda de arquitectura):
+/// qué es una cantidad lo decide una [ReviewFacts] que se inyecta desde la
+/// presentación (`voiceQuantityFacts`, con el lector de la propia app). Sin
+/// ella no se puede comprobar nada y la revisión **no se acepta nunca**.
+///
 /// ## Por qué así
 ///
 /// En la comprobación HOST de 2026-11-05 la segunda pasada con pista acertó
@@ -21,9 +26,10 @@
 /// desproporcionados.
 library;
 
-import '../../voice_draft/text/normalize.dart' show tokenize;
-import '../../voice_draft/text/spanish_numbers.dart' show readNumberAt;
-import '../../voice_draft/text/units.dart' show currencyWord, unitWord;
+/// Cantidades, unidades y monedas de un texto, en orden y en forma comparable.
+///
+/// `n?` marca una cifra que el lector rechaza; nunca es igual a otra.
+typedef ReviewFacts = List<String> Function(String text);
 
 /// Por qué se eligió un texto. Sólo códigos: va al diagnóstico, nunca el texto.
 enum ReviewVerdict {
@@ -45,6 +51,9 @@ enum ReviewVerdict {
 
   /// Cambiaría una cantidad, una unidad o una moneda.
   quantities,
+
+  /// No hay con qué comprobar las cantidades: no se arriesga.
+  unchecked,
 }
 
 final class ReviewChoice {
@@ -60,7 +69,11 @@ final class ReviewChoice {
 }
 
 /// Elige entre [first] (Vosk) y [review] (segunda pasada, o `null`).
-ReviewChoice chooseReviewedText(String first, String? review) {
+ReviewChoice chooseReviewedText(
+  String first,
+  String? review, {
+  required ReviewFacts? facts,
+}) {
   final base = first.trim();
   final candidate = review?.trim() ?? '';
   if (review == null) return ReviewChoice(base, ReviewVerdict.notRun);
@@ -74,18 +87,25 @@ ReviewChoice chooseReviewedText(String first, String? review) {
   if (b.length > a.length * 2 + 4 || b.length * 2 < a.length || _repeats(b)) {
     return ReviewChoice(base, ReviewVerdict.degenerate);
   }
-  if (!_sameFacts(_facts(tokenize(base)), _facts(tokenize(candidate)))) {
+  if (facts == null) return ReviewChoice(base, ReviewVerdict.unchecked);
+  if (!_sameFacts(facts(base), facts(candidate))) {
     return ReviewChoice(base, ReviewVerdict.quantities);
   }
   return ReviewChoice(candidate, ReviewVerdict.accepted);
 }
 
-List<String> _words(String text) =>
-    tokenize(text).where((w) => w != ',').toList(growable: false);
+/// Palabras en minúsculas, sin puntuación. Sólo para contar y comparar.
+List<String> _words(String text) => RegExp(r'[\p{L}\p{N}]+', unicode: true)
+    .allMatches(text.toLowerCase())
+    .map((m) => m.group(0)!)
+    .toList(growable: false);
 
 bool _looksLikeNonSpeech(String text) {
   if (RegExp(r'[\[\]()♪*#]').hasMatch(text)) return true;
-  final folded = tokenize(text).join(' ');
+  final folded = _words(text)
+      .join(' ')
+      .replaceAll('í', 'i')
+      .replaceAll('é', 'e');
   return const [
     'subtitulo',
     'amara',
@@ -102,26 +122,6 @@ bool _repeats(List<String> words) {
     if (run >= 4) return true;
   }
   return false;
-}
-
-/// Cantidades, unidades y monedas en orden, tal como las leería la app.
-List<String> _facts(List<String> words) {
-  final out = <String>[];
-  var i = 0;
-  while (i < words.length) {
-    final number = readNumberAt(words, i);
-    if (number != null && number.end > i) {
-      out.add(number.isValid ? 'n${number.thousandths}' : 'n?');
-      i = number.end;
-      continue;
-    }
-    final unit = unitWord(words[i]);
-    if (unit != null) out.add('u${unit.name}');
-    final currency = currencyWord(words[i]);
-    if (currency != null) out.add('c${currency.name}');
-    i++;
-  }
-  return out;
 }
 
 bool _sameFacts(List<String> a, List<String> b) {

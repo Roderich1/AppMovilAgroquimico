@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'port/android_speech_transcription_adapter.dart';
 import 'port/local_speech_transcription_adapter.dart';
+import 'port/review_selection.dart';
 import 'port/speech_transcription_port.dart';
 
 /// Cómo se construye el puerto de transcripción.
@@ -25,8 +26,12 @@ const voiceEngine = String.fromEnvironment(
   defaultValue: 'local',
 );
 
-final speechPortFactoryProvider = Provider<SpeechPortFactory>(
-  (ref) => voiceEngine == 'android'
-      ? AndroidSpeechTranscriptionAdapter.new
-      : LocalSpeechTranscriptionAdapter.new,
-);
+/// Cómo se comprueban las cantidades de la segunda pasada. Lo inyecta
+/// `main.dart` con el lector de la app; sin él, la revisión no se acepta.
+final reviewFactsProvider = Provider<ReviewFacts?>((ref) => null);
+
+final speechPortFactoryProvider = Provider<SpeechPortFactory>((ref) {
+  if (voiceEngine == 'android') return AndroidSpeechTranscriptionAdapter.new;
+  final facts = ref.watch(reviewFactsProvider);
+  return () => LocalSpeechTranscriptionAdapter(facts: facts);
+});

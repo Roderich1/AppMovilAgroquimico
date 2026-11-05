@@ -26,9 +26,13 @@ import 'speech_transcription_port.dart';
 /// La disciplina de turno es la misma: un turno abierto acaba **siempre** en
 /// exactamente un [TranscriptionTurnEnded].
 final class LocalSpeechTranscriptionAdapter implements SpeechTranscriptionPort {
-  LocalSpeechTranscriptionAdapter({MethodChannel? method, EventChannel? event})
-    : _method = method ?? const MethodChannel(methodChannelName),
-      _event = event ?? const EventChannel(eventChannelName) {
+  LocalSpeechTranscriptionAdapter({
+    MethodChannel? method,
+    EventChannel? event,
+    ReviewFacts? facts,
+  }) : _method = method ?? const MethodChannel(methodChannelName),
+       _event = event ?? const EventChannel(eventChannelName),
+       _facts = facts {
     _subscription = _event.receiveBroadcastStream().listen(
       _onNativeEvent,
       onError: (Object error) => _failTurn(
@@ -49,6 +53,10 @@ final class LocalSpeechTranscriptionAdapter implements SpeechTranscriptionPort {
 
   final MethodChannel _method;
   final EventChannel _event;
+
+  /// Con qué se comprueba que la revisión no cambia cantidades. Sin ella, la
+  /// revisión no se acepta.
+  final ReviewFacts? _facts;
   late final StreamSubscription<dynamic> _subscription;
 
   final StreamController<TranscriptionEvent> _events =
@@ -278,6 +286,7 @@ final class LocalSpeechTranscriptionAdapter implements SpeechTranscriptionPort {
         final choice = chooseReviewedText(
           map['vosk'] as String? ?? '',
           map['review'] as String?,
+          facts: _facts,
         );
         // Diagnóstico con códigos y tiempos, nunca con lo dictado.
         AppLog.info(

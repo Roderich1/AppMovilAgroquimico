@@ -1,3 +1,4 @@
+import 'package:agroquimicos/presentation/voice/voice_quantity_facts.dart';
 import 'package:agroquimicos/voice/port/local_speech_transcription_adapter.dart';
 import 'package:agroquimicos/voice/port/speech_transcription_port.dart';
 import 'package:fake_async/fake_async.dart';
@@ -40,7 +41,7 @@ void main() {
       };
     });
     addTearDown(() => messenger.setMockMethodCallHandler(method, null));
-    return LocalSpeechTranscriptionAdapter();
+    return LocalSpeechTranscriptionAdapter(facts: voiceQuantityFacts);
   }
 
   void native(Map<String, Object?> payload) {
