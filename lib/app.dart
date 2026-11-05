@@ -17,6 +17,7 @@ import 'presentation/app_shell.dart';
 import 'presentation/screens/access_status_screen.dart';
 import 'presentation/screens/applications_screen.dart';
 import 'presentation/screens/application_form_screen.dart';
+import 'presentation/screens/campaigns_screen.dart';
 import 'presentation/screens/catalogs_screen.dart';
 import 'presentation/screens/central_binding_screen.dart';
 import 'presentation/screens/remote_backup_screen.dart';
@@ -164,6 +165,12 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: '/catalogos',
             builder: (_, __) => const CatalogsScreen(),
+          ),
+          // Campañas con pantalla propia, accesible desde Operaciones; las
+          // reglas son las mismas que en Catálogos (campaign_actions.dart).
+          GoRoute(
+            path: '/campanas',
+            builder: (_, __) => const CampaignsScreen(),
           ),
           GoRoute(
             path: '/planificacion',

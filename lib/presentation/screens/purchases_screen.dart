@@ -132,7 +132,6 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> {
   @override
   Widget build(BuildContext context) => PageFrame(
     title: 'Compras',
-    subtitle: 'Precio original, FX histórico, pago al proveedor y lotes.',
     action: FilledButton.icon(
       onPressed: _newPurchase,
       icon: const Icon(Icons.add),

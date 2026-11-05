@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show SynchronousFuture;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -15,6 +16,7 @@ import '../../domain/operation_mode.dart';
 import '../../domain/person_roles.dart';
 import '../../operation_mode_controller.dart';
 import '../widgets/adaptive_entity_picker.dart';
+import '../widgets/catalog_dialogs.dart';
 import '../widgets/common.dart';
 import '../widgets/provider_payment_fields.dart';
 import 'late_operations_screen.dart' show offerLateRegistration;
@@ -294,6 +296,55 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
       products: result[2],
       people: result[3],
     );
+  }
+
+  /// Tras crear un proveedor o un producto desde su selector: se vuelven a
+  /// leer sólo esas dos listas. Todo lo demás del borrador —fecha, líneas,
+  /// cantidades, precios, reparto, campaña, modalidad cargada— se conserva.
+  Future<_PurchaseCatalogs> _reloadSuppliersAndProducts() async {
+    final repo = ref.read(repositoryProvider);
+    final current = await catalogs;
+    final fresh = await Future.wait([repo.suppliers(), repo.products()]);
+    final next = (
+      suppliers: fresh[0],
+      campaigns: current.campaigns,
+      products: fresh[1],
+      people: current.people,
+    );
+    if (mounted) {
+      setState(() {
+        products = next.products;
+        // `SynchronousFuture`: el `FutureBuilder` toma la lista nueva en la
+        // misma reconstrucción. Con `Future.value` pasaba un fotograma con la
+        // lista vieja, el selector no encontraba lo elegido y autoelegía la
+        // única opción anterior encima de lo recién creado.
+        catalogs = SynchronousFuture(next);
+      });
+    }
+    return next;
+  }
+
+  /// «Crear proveedor» del selector: el alta de Catálogos sobre el borrador.
+  /// Si se cancela o falla, el borrador queda igual.
+  Future<Map<String, Object?>?> _createSupplier() async {
+    final id = await createSupplierFromDialog(
+      context,
+      ref.read(repositoryProvider),
+    );
+    if (id == null) return null;
+    final next = await _reloadSuppliersAndProducts();
+    return next.suppliers.where((row) => row['id'] == id).firstOrNull;
+  }
+
+  /// «Crear producto» del selector de una línea. Igual que [_createSupplier].
+  Future<Map<String, Object?>?> _createProduct() async {
+    final id = await createProductFromDialog(
+      context,
+      ref.read(repositoryProvider),
+    );
+    if (id == null) return null;
+    final next = await _reloadSuppliersAndProducts();
+    return next.products.where((row) => row['id'] == id).firstOrNull;
   }
 
   @override
@@ -782,19 +833,25 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
   List<Widget> _itemsStep(BuildContext context, _PurchaseCatalogs data) {
     final ownerName = _ownerName(data);
     return [
-      _dropdown('Proveedor', data.suppliers, supplierId, (value) {
-        // El único proveedor se deja elegido como valor de referencia; eso no
-        // es un cambio de la persona, así que Atrás no debe preguntar
-        // «¿Descartar cambios?» (B-07).
-        final autoSelected =
-            supplierId == null &&
-            data.suppliers.length == 1 &&
-            value == data.suppliers.single['id'];
-        setState(() {
-          supplierId = value;
-          if (!autoSelected) dirty = true;
-        });
-      }),
+      _dropdown(
+        'Proveedor',
+        data.suppliers,
+        supplierId,
+        onCreate: _createSupplier,
+        (value) {
+          // El único proveedor se deja elegido como valor de referencia; eso no
+          // es un cambio de la persona, así que Atrás no debe preguntar
+          // «¿Descartar cambios?» (B-07).
+          final autoSelected =
+              supplierId == null &&
+              data.suppliers.length == 1 &&
+              value == data.suppliers.single['id'];
+          setState(() {
+            supplierId = value;
+            if (!autoSelected) dirty = true;
+          });
+        },
+      ),
       const SizedBox(height: 10),
       ListTile(
         key: const Key('purchase-date'),
@@ -844,6 +901,7 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
                   other.productId!,
             },
             onChanged: _markDirty,
+            onCreateProduct: _createProduct,
             onRemove: lines.length == 1
                 ? null
                 : () {
@@ -1134,8 +1192,9 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
     String label,
     List<Map<String, Object?>> rows,
     int? value,
-    ValueChanged<int?> changed,
-  ) {
+    ValueChanged<int?> changed, {
+    Future<Map<String, Object?>?> Function()? onCreate,
+  }) {
     final selected = rows.where((row) => row['id'] == value).firstOrNull;
     return AdaptiveEntityPicker<Map<String, Object?>>(
       label: label,
@@ -1143,6 +1202,8 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
       value: selected,
       labelOf: (row) => row['name']! as String,
       onChanged: (row) => changed(row?['id'] as int?),
+      createLabel: onCreate == null ? null : 'Crear ${label.toLowerCase()}',
+      onCreate: onCreate,
     );
   }
 }
@@ -1340,6 +1401,7 @@ class _LineCard extends StatelessWidget {
     this.ownerPersonId,
     this.onRemove,
     this.personalOwnerName,
+    this.onCreateProduct,
   });
   final int index;
   final _PurchaseLineEditor line;
@@ -1354,6 +1416,9 @@ class _LineCard extends StatelessWidget {
   final Set<int> usedProductIds;
   final VoidCallback onChanged;
   final VoidCallback? onRemove;
+
+  /// «Crear producto» en el selector; lo creado queda elegido en esta línea.
+  final Future<Map<String, Object?>?> Function()? onCreateProduct;
 
   Map<String, Object?>? get selectedProduct {
     for (final product in products) {
@@ -1463,6 +1528,8 @@ class _LineCard extends StatelessWidget {
               line.productId = product?['id'] as int?;
               onChanged();
             },
+            createLabel: onCreateProduct == null ? null : 'Crear producto',
+            onCreate: onCreateProduct,
           ),
           const SizedBox(height: 10),
           // Apilados en ancho de móvil: media fila recortaba la etiqueta a

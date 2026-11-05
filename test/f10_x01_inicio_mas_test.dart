@@ -158,6 +158,9 @@ void main() {
       'Aplicaciones',
       'Planificación',
       'Transferencias',
+      // Accesos propios desde el 2026-11-05 (presentación móvil).
+      'Campañas',
+      'Reportes',
       'Más',
     ]) {
       expect(find.text(title), findsOneWidget, reason: title);
@@ -169,8 +172,9 @@ void main() {
     await settle(tester);
     // Con `push` el router no cambia la ruta base: se mira la pantalla.
     expect(find.text('Lo que se usa de vez en cuando.'), findsOneWidget);
+    // Reportes pasó a Operaciones (2026-11-05) y no se repite aquí.
+    expect(find.text('Reportes'), findsNothing);
     for (final title in [
-      'Reportes',
       'Administrar datos',
       'Modo de uso',
       'Vínculos con el sindicato',

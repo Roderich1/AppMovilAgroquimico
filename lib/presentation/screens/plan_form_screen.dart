@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart' show SynchronousFuture;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -9,6 +10,7 @@ import '../../domain/money.dart';
 import '../../domain/operation_mode.dart';
 import '../../operation_mode_controller.dart';
 import '../widgets/adaptive_entity_picker.dart';
+import '../widgets/catalog_dialogs.dart';
 import '../widgets/common.dart';
 import '../widgets/mode_notice.dart';
 
@@ -82,6 +84,54 @@ class _PlanFormScreenState extends ConsumerState<PlanFormScreen> {
           r['product_id'] as int: r['available_base'] as int,
       },
     );
+  }
+
+  /// Tras crear un chaco o un producto desde su selector: se vuelven a leer
+  /// sólo chacos y productos. Campaña, chaco elegido, área, líneas y dosis
+  /// se conservan.
+  Future<_PlanCatalogs> _reloadFarmsAndProducts() async {
+    final r = ref.read(repositoryProvider);
+    final current = await future;
+    final farms = await r.farmsAndContext();
+    final next = (
+      campaign: current.campaign,
+      farms: farms.farms,
+      products: await r.products(),
+    );
+    if (mounted) {
+      setState(() {
+        // `SynchronousFuture`: el `FutureBuilder` toma la lista nueva en la
+        // misma reconstrucción. Con `Future.value` pasaba un fotograma con la
+        // lista vieja, el selector no encontraba lo elegido y autoelegía la
+        // única opción anterior encima de lo recién creado.
+        future = SynchronousFuture(next);
+      });
+    }
+    return next;
+  }
+
+  /// «Crear chaco»: el alta de Catálogos sobre el plan. Si se cancela o
+  /// falla, el plan queda igual.
+  Future<Map<String, Object?>?> _createFarm() async {
+    final id = await createFarmFromDialog(
+      context,
+      ref.read(repositoryProvider),
+    );
+    if (id == null) return null;
+    final next = await _reloadFarmsAndProducts();
+    return next.farms.where((f) => f['id'] == id).firstOrNull;
+  }
+
+  /// «Crear producto»: igual que [_createFarm]. Lo creado queda elegido
+  /// para agregarlo al plan.
+  Future<Map<String, Object?>?> _createProduct() async {
+    final id = await createProductFromDialog(
+      context,
+      ref.read(repositoryProvider),
+    );
+    if (id == null) return null;
+    final next = await _reloadFarmsAndProducts();
+    return next.products.where((p) => p['id'] == id).firstOrNull;
   }
 
   void add() {
@@ -300,6 +350,8 @@ class _PlanFormScreenState extends ConsumerState<PlanFormScreen> {
                   secondaryOf: (f) =>
                       '${f['owner_name']} · ${formatHectares(f['area_m2'] as int)}',
                   onChanged: selectFarm,
+                  createLabel: 'Crear chaco',
+                  onCreate: _createFarm,
                 ),
                 const SizedBox(height: 12),
                 TextField(
@@ -322,7 +374,10 @@ class _PlanFormScreenState extends ConsumerState<PlanFormScreen> {
                             ?.copyWith(fontWeight: FontWeight.w800),
                       ),
                     ),
+                    // Nombre accesible: sin él el lector de pantalla sólo
+                    // anunciaba «botón» (2026-11-05).
                     IconButton.filled(
+                      tooltip: 'Agregar al plan',
                       onPressed: productToAdd == null ? null : add,
                       icon: const Icon(Icons.add),
                     ),
@@ -336,13 +391,13 @@ class _PlanFormScreenState extends ConsumerState<PlanFormScreen> {
                   secondaryOf: (p) => p['unit'] as String,
                   onChanged: (p) => setState(() => productToAdd = p),
                   enabled: farmId != null,
+                  createLabel: 'Crear producto',
+                  onCreate: _createProduct,
                 ),
+                // Sin el aviso «Agregue los productos…» con la lista vacía:
+                // repetía lo que ya dicen «Productos (0)» y el selector
+                // «Agregar producto» justo encima (2026-11-05).
                 const SizedBox(height: 8),
-                if (lines.isEmpty)
-                  const EmptyState(
-                    icon: Icons.event_note_outlined,
-                    message: 'Agregue los productos de la planificación.',
-                  ),
                 for (final l in lines)
                   Card(
                     margin: const EdgeInsets.only(bottom: 8),
