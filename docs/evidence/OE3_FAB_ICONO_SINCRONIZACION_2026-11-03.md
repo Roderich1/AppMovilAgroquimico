@@ -3,7 +3,7 @@
 | Campo | Valor |
 |---|---|
 | Fecha real | 2026-11-03, de ~23:00Z a 23:58Z (UTC; en Bolivia, UTC−4, de ~19:00 a 19:58) |
-| Procedencia | **HOST** únicamente: Windows 11, Flutter 3.47.2 stable, Dart 3.13.2, `sqflite_common_ffi`. Nada de esta página es DEVICE ni EMULADOR |
+| Procedencia | **HOST** (§1–§4: Windows 11, Flutter 3.47.2 stable, Dart 3.13.2, `sqflite_common_ffi`) y **EMULADOR** (§5, 2026-11-04). Nada de esta página es DEVICE |
 | Rama | `fix/fab-icono-sincronizacion`, creada desde Mobile `origin/main` `279b46b` |
 | Commit de código | `8bc034436d290cfb88dc3038de5fed9d8624b0a3` (los commits posteriores sólo cambian `docs/`) |
 | Origen del defecto | Sesión en el POCO X5 Pro del 2026-11-03: en Sincronización el FAB «Nuevo» tapaba «Reintentar con esta versión» y el toque abría el menú de creación |
@@ -96,18 +96,35 @@ Las 11 fallas son de 8 archivos. Después se ejecutó cada archivo solo, en seri
 - **Lectura:** ninguno de estos archivos comprueba el FAB ni Sincronización. Los que fallaron alguna vez estando solos pasan al repetirlos sobre el mismo código. Es el mismo patrón de espera bajo carga que recoge `OE3_HOST_CIERRE_2026-11-03.md` para `f03_access_recovery_app_test`, `f10_x01_pago_revision_test` y `f12_est_07_estimation_ui_test`.
 - **No se afirma** nada sobre su resultado en `279b46b`: allí no se ejecutaron hoy.
 
-## 5. Emulador: pendiente
+## 5. Emulador (2026-11-04)
 
-Lo hará otra persona. Nada de lo anterior es EMULADOR ni DEVICE.
+Verificación del 2026-11-04, hacia las 03:15Z, hecha por la sesión de Claude Code:
+- **Emulador:** `Pixel_8` (Android 16, API 36, x86_64, 1080×2400, 420 ppp), con la app de la DEMO (`com.comunidad.agro.agroquimicos.demo`) conectada al Backend real de la DEMO.
+- **Rama:** APK profile x86_64 de `cf833c1` (código `8bc0344`), SHA-256 `f54ac3c846d66f7f6f3713e797e92ed192aee0ee78b250ff6c7bd5037c95a5d0`.
+- **Referencia:** APK de `main` (`8c7013c` de la DEMO, mismo `lib/` que `279b46b`), SHA-256 `67306ea8…`.
+- **Intención pausada por versión:** se produjo con el modo `mutate version-2` del observador. El 422 de Central es real.
+- **Herramienta:** `tool/fab_emulador_check.sh`. Salida en `docs/evidence/oe3_fab_emulador/rama-comprobaciones.txt`. No es DEVICE.
 
-| Comprobación | 100 % | 130 % | 200 % |
+**Reproducción en `main`.** A 130 %, «Nuevo» ([718,1938]–[1038,2085] px) tapa la parte derecha de «Reintentar con esta versión» ([351,2040]–[1017,2127] px): captura `oe3_fab_emulador/main-sincronizacion-130-solape.png`. El centro del botón quedó fuera y el toque abrió la confirmación. A 100 % y 200 %, en la posición de la pantalla, no hubo solape.
+
+| Comprobación (rama) | 100 % | 130 % | 200 % |
 |---|---|---|---|
-| Sincronización con «Reintentar con esta versión» visible: no hay botón flotante y el toque reanuda (confirmación) | Pendiente | Pendiente | Pendiente |
-| Operaciones/Inventario/Personas/Cuentas: «+» sin texto, se toca y abre el menú con sus opciones | Pendiente | Pendiente | Pendiente |
-| TalkBack sobre el «+»: anuncia «Registrar operación» una vez y no «Nuevo» | Pendiente | Pendiente | Pendiente |
-| Última fila de una lista larga: se desplaza por encima del «+» | Pendiente | Pendiente | Pendiente |
+| Sincronización: ningún botón flotante | Pasa | Pasa | Pasa |
+| Toque en «Reintentar con esta versión»: abre su confirmación y no el menú de creación | Pasa | Pasa | Pasa |
+| Operaciones: «+» de 147×147 px (56 dp), sin texto; 0 «Nuevo» visibles | Pasa | Pasa | Pasa |
+| Toque en «+»: menú «Registrar operación» con Planificación, Compra, Aplicación, Pago y Transferencia | Pasa | Pasa | Pasa |
+| Desplazada al final, «Más» termina por encima del «+» (1833 px < 1938 px) | Pasa | Pasa | Pasa |
+| Árbol de accesibilidad de Android (uiautomator): un solo nodo con «Registrar operación» y ninguno con «Nuevo» | Pasa | Pasa | Pasa |
+| Anuncio hablado de TalkBack | No medido | No medido | No medido |
+
+**Capturas:**
+- `rama-sincronizacion-130.png`;
+- `rama-operaciones-200.png`;
+- `rama-menu-100.png`.
+
+**Límite:** el nombre accesible se comprobó en el árbol que expone Android, no con TalkBack encendido.
 
 ## 6. Límites
 
 - La reproducción del solape es de HOST: geometría de Flutter con el tema de la app, no capturas del POCO. A 100 % y 200 % el centro del botón no quedó bajo el FAB en la posición de la prueba; el solape se reprodujo a 130 % en los dos tamaños.
-- La semántica se comprobó en el árbol de Flutter (`tooltip`, `label`, banderas). Lo que anuncia TalkBack queda para el emulador (§5).
+- La semántica se comprobó en el árbol de Flutter (`tooltip`, `label`, banderas) y en el árbol de accesibilidad de Android (§5). El anuncio hablado de TalkBack no se midió.

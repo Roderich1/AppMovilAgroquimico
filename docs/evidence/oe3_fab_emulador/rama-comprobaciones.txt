@@ -1,0 +1,15 @@
+escala 1.0 · Sincronización: «+» presentes=0; «Reintentar con esta versión» en [498,1573][1017,1678]
+escala 1.0 · toque en «Reintentar con esta versión»: confirmación=1; menú de creación=0
+escala 1.0 · Operaciones: «+» en [891,1938][1038,2085]; text=""""; nodos con el nombre=1; «Nuevo» visibles=0
+escala 1.0 · Operaciones desplazada al final: «Más» en [42,1565][1038,1833]; «+» en [891,1938][1038,2085]
+escala 1.0 · menú del «+»: Aplicación,Compra,Pago,Planificación,Registrar operación,Transferencia,
+escala 1.3 · Sincronización: «+» presentes=0; «Reintentar con esta versión» en [351,2040][1017,2127]
+escala 1.3 · toque en «Reintentar con esta versión»: confirmación=1; menú de creación=0
+escala 1.3 · Operaciones: «+» en [891,1938][1038,2085]; text=""""; nodos con el nombre=1; «Nuevo» visibles=0
+escala 1.3 · Operaciones desplazada al final: «Más» en [42,1466][1038,1833]; «+» en [891,1938][1038,2085]
+escala 1.3 · menú del «+»: Aplicación,Compra,Pago,Planificación,Registrar operación,Transferencia,
+escala 2.0 · Sincronización: «+» presentes=0; «Reintentar con esta versión» en [131,1269][1017,1374]
+escala 2.0 · toque en «Reintentar con esta versión»: confirmación=1; menú de creación=0
+escala 2.0 · Operaciones: «+» en [891,1938][1038,2085]; text=""""; nodos con el nombre=1; «Nuevo» visibles=0
+escala 2.0 · Operaciones desplazada al final: «Más» en [42,1250][1038,1833]; «+» en [891,1938][1038,2085]
+escala 2.0 · menú del «+»: Aplicación,Compra,Pago,Planificación,Registrar operación,Transferencia,
