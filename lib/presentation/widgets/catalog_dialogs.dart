@@ -86,6 +86,45 @@ Future<int?> createFarmFromDialog(
   );
 }
 
+/// Alta de persona desde un formulario («Agregar persona»), con la misma
+/// regla que Catálogos: sólo en inventario compartido (#26; en propio
+/// registra sólo el titular). La modalidad se vuelve a leer aquí, no se
+/// confía en la que tenía la pantalla. El diálogo ofrece sólo los tipos que
+/// pueden cumplir [purpose] en ese formulario (`canActAs`): una persona nueva
+/// nunca es el titular, así que en una aplicación no se ofrece
+/// «Administrador», que no podría aplicar. Devuelve el id creado, o nulo si
+/// se canceló, falló (el error ya se mostró) o la modalidad no lo permite.
+Future<int?> createPersonFromDialog(
+  BuildContext context,
+  AgroRepository repo, {
+  required PersonPurpose purpose,
+}) async {
+  final operating = await repo.operatingContext();
+  if (!context.mounted) return null;
+  if (operating.mode == OperationMode.personal) {
+    showError(
+      context,
+      'En inventario propio registra sólo el titular. Para agregar '
+      'responsables, cambie a inventario compartido en Modo de uso.',
+    );
+    return null;
+  }
+  final roles = [
+    for (final role in PersonDialog.allRoles)
+      if (canActAs(purpose, role: role, isOwner: false, mode: operating.mode))
+        role,
+  ];
+  final result = await showDialog<(String, PersonRole)?>(
+    context: context,
+    builder: (_) => PersonDialog(roles: roles),
+  );
+  if (result == null || !context.mounted) return null;
+  return _created(
+    context,
+    () => repo.addPerson(name: result.$1, role: result.$2),
+  );
+}
+
 Future<int?> _created(
   BuildContext context,
   Future<int> Function() write,
@@ -245,7 +284,18 @@ class _CampaignDialogState extends State<CampaignDialog> {
 }
 
 class PersonDialog extends StatefulWidget {
-  const PersonDialog({super.key});
+  const PersonDialog({super.key, this.roles = allRoles});
+
+  /// Tipos que ofrece el diálogo, en este orden. Catálogos ofrece todos;
+  /// un formulario, sólo los que pueden cumplir su papel.
+  final List<PersonRole> roles;
+
+  static const allRoles = [
+    PersonRole.admin,
+    PersonRole.family,
+    PersonRole.thirdParty,
+  ];
+
   @override
   State<PersonDialog> createState() => _PersonDialogState();
 }
@@ -253,7 +303,15 @@ class PersonDialog extends StatefulWidget {
 class _PersonDialogState extends State<PersonDialog> {
   final name = TextEditingController();
   final formKey = GlobalKey<FormState>();
-  PersonRole role = PersonRole.family;
+  late PersonRole role = widget.roles.contains(PersonRole.family)
+      ? PersonRole.family
+      : widget.roles.first;
+
+  static String _roleLabel(PersonRole role) => switch (role) {
+    PersonRole.admin => 'Administrador',
+    PersonRole.family => 'Familiar · cobro por uso',
+    PersonRole.thirdParty => 'Tercero · cobro por asignación',
+  };
   @override
   void dispose() {
     name.dispose();
@@ -277,6 +335,7 @@ class _PersonDialogState extends State<PersonDialog> {
         mainAxisSize: MainAxisSize.min,
         children: [
           TextFormField(
+            key: const Key('person-name'),
             controller: name,
             decoration: const InputDecoration(labelText: 'Nombre'),
             validator: (value) => _requiredText(value, 'el nombre'),
@@ -285,19 +344,12 @@ class _PersonDialogState extends State<PersonDialog> {
           DropdownButtonFormField(
             initialValue: role,
             decoration: const InputDecoration(labelText: 'Tipo'),
-            items: const [
-              DropdownMenuItem(
-                value: PersonRole.admin,
-                child: Text('Administrador'),
-              ),
-              DropdownMenuItem(
-                value: PersonRole.family,
-                child: Text('Familiar · cobro por uso'),
-              ),
-              DropdownMenuItem(
-                value: PersonRole.thirdParty,
-                child: Text('Tercero · cobro por asignación'),
-              ),
+            items: [
+              for (final option in widget.roles)
+                DropdownMenuItem(
+                  value: option,
+                  child: Text(_roleLabel(option)),
+                ),
             ],
             onChanged: (value) => setState(() => role = value!),
           ),
