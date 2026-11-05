@@ -4300,7 +4300,7 @@ class AgroRepository {
   /// (hoy, el saldo actual; un día pasado, el cupo histórico de D-03) y el
   /// mismo reparto ([fifoTakes]). No escribe nada ni cambia el orden de
   /// consumo; el formulario la usa para avisar de un lote vencido antes de
-  /// confirmar (RN-31, RN-32: el aviso no bloquea).
+  /// confirmar (RN-31 de la tesis: el aviso no bloquea).
   Future<List<ApplicationLotPreview>> previewApplicationLots({
     required int personId,
     required int productId,
