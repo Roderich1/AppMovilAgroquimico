@@ -58,6 +58,9 @@ class VoiceSessionController extends ChangeNotifier {
       route: _initialRoute,
     );
     _subscription = _port.events.listen(_onEvent);
+    // El motor local sabe al instante qué trae el APK: se muestra desde que se
+    // abre la pantalla (modelo, revisión, modo avión), sin abrir el micrófono.
+    if (_port.listensAcrossPauses) unawaited(_readAvailability());
   }
 
   /// El motor local de la app no tiene «reconocedor del sistema» al que

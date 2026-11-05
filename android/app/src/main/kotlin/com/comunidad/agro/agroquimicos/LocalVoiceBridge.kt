@@ -68,9 +68,15 @@ class LocalVoiceBridge(
                 val review = call.argument<Boolean>("review") ?: true
                 if (hasMicPermission()) {
                     engine.start(gen, hints, review)
+                    result.success(null)
                 } else {
                     pendingStart = PendingStart(gen, hints, review)
-                    onStage(gen, "awaitingPermission")
+                    // La respuesta dice YA que habrá diálogo: llega a Dart antes
+                    // que la pausa que el propio diálogo provoca. Si Dart se
+                    // enterara sólo por el evento, la pausa podría llegar antes,
+                    // la sesión cancelaría y conceder no arrancaría nada
+                    // (medido en el emulador, 2026-11-05).
+                    result.success("awaitingPermission")
                     if (!permissionInFlight) {
                         permissionInFlight = true
                         activity.requestPermissions(
@@ -79,7 +85,6 @@ class LocalVoiceBridge(
                         )
                     }
                 }
-                result.success(null)
             }
 
             "stop" -> {

@@ -18,12 +18,15 @@ void main() {
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
 
   late List<MethodCall> calls;
+  String? startReply;
+  setUp(() => startReply = null);
 
   LocalSpeechTranscriptionAdapter build({Map<String, Object?>? describe}) {
     calls = <MethodCall>[];
     messenger.setMockMethodCallHandler(method, (call) async {
       calls.add(call);
       return switch (call.method) {
+        'start' => startReply,
         'describe' => describe ??
             {
               'modelPresent': true,
@@ -223,6 +226,26 @@ void main() {
       expect(events.whereType<TranscriptionTurnEnded>().single.reason,
           TranscriptionEndReason.error);
       expect(adapter.isTurnOpen, isFalse);
+    });
+  });
+
+  test('con diálogo de permiso, la sesión lo sabe por la respuesta y no por el evento', () {
+    // Medido en el emulador: el evento podía llegar después de la pausa que
+    // provoca el diálogo, y la sesión cancelaba el turno antes de conceder.
+    fakeAsync((async) {
+      final adapter = build();
+      startReply = 'awaitingPermission';
+      final events = <TranscriptionEvent>[];
+      adapter.events.listen(events.add);
+      adapter.start(request);
+      async.flushMicrotasks();
+      expect(
+        events.whereType<TranscriptionStageChanged>().single.stage,
+        TranscriptionStage.awaitingPermission,
+      );
+      // Esperar el permiso no agota el turno.
+      async.elapse(const Duration(minutes: 10));
+      expect(adapter.isTurnOpen, isTrue);
     });
   });
 

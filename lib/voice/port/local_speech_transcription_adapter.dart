@@ -139,11 +139,19 @@ final class LocalSpeechTranscriptionAdapter implements SpeechTranscriptionPort {
     _clock = Stopwatch()..start();
     _turnBudget = request.maxTurnDuration;
     try {
-      await _method.invokeMethod<void>('start', {
+      final reply = await _method.invokeMethod<String>('start', {
         'gen': _generation,
         'hints': _hintText(request.hints),
         'review': request.review,
       });
+      // Habrá diálogo de permiso: se avisa ahora, antes de la pausa que
+      // provoca, para que la sesión no la tome por «el usuario se fue».
+      if (reply == 'awaitingPermission' && _turnOpen) {
+        _deadline?.cancel();
+        _emit(
+          const TranscriptionStageChanged(TranscriptionStage.awaitingPermission),
+        );
+      }
     } on PlatformException catch (error) {
       _failTurn(TranscriptionErrorCode.engineFailure, 'platform:${error.code}');
     } on MissingPluginException {
