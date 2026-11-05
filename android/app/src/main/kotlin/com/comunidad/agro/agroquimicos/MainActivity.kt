@@ -16,6 +16,9 @@ class MainActivity : FlutterActivity() {
 
     private var voice: VoiceSpeechBridge? = null
 
+    /** Reconocimiento dentro de la app (Vosk y segunda pasada local). */
+    private var localVoice: LocalVoiceBridge? = null
+
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         SecureSessionPointerChannel.register(applicationContext, flutterEngine.dartExecutor.binaryMessenger)
@@ -34,6 +37,7 @@ class MainActivity : FlutterActivity() {
             flutterEngine.dartExecutor.binaryMessenger,
             VoiceSpeechEngine(applicationContext),
         )
+        localVoice = LocalVoiceBridge(this, flutterEngine.dartExecutor.binaryMessenger)
     }
 
     override fun onPause() {
@@ -41,12 +45,15 @@ class MainActivity : FlutterActivity() {
         // se cumple tambien del lado nativo: si el proceso se congela, Dart
         // podria no llegar a pedirlo y el reconocedor quedaria escuchando.
         voice?.onHostPaused()
+        localVoice?.onHostPaused()
         super.onPause()
     }
 
     override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
         voice?.detach()
         voice = null
+        localVoice?.detach()
+        localVoice = null
         super.cleanUpFlutterEngine(flutterEngine)
     }
 
@@ -60,6 +67,11 @@ class MainActivity : FlutterActivity() {
             val granted = grantResults.isNotEmpty() &&
                 grantResults[0] == PackageManager.PERMISSION_GRANTED
             voice?.onPermissionResult(granted)
+        }
+        if (requestCode == LocalVoiceBridge.MIC_REQUEST) {
+            val granted = grantResults.isNotEmpty() &&
+                grantResults[0] == PackageManager.PERMISSION_GRANTED
+            localVoice?.onPermissionResult(granted)
         }
     }
 }

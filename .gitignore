@@ -67,3 +67,9 @@ android/key.properties
 # SHA-256, no por el repositorio: son ~160 MB regenerables con
 # `benchmark/voice_benchmark/tool/` y `flutter build apk --release --flavor ...`.
 artifacts/voice-benchmark/
+
+# Voz local (F09, #165/#166): modelos y librerías nativas NO se versionan.
+# Los regeneran, con SHA-256 verificado, tool/voice_local/fetch_voice_models.sh
+# y tool/voice_local/build_whisper_libs.sh.
+/android/app/voice-models/
+/android/app/src/main/jniLibs/

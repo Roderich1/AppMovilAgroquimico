@@ -49,9 +49,20 @@ class VoiceSessionController extends ChangeNotifier {
     VoiceContinuityPolicy continuity = const VoiceContinuityPolicy(),
   }) : _port = port,
        _locales = localePolicy,
-       _continuity = continuity {
+       _continuity = continuity,
+       _initialRoute = port.listensAcrossPauses
+           ? TranscriptionEngineRoute.embedded
+           : TranscriptionEngineRoute.onDevice {
+    _snapshot = VoiceSessionSnapshot(
+      requestedLocale: VoiceLocalePolicy.requested,
+      route: _initialRoute,
+    );
     _subscription = _port.events.listen(_onEvent);
   }
+
+  /// El motor local de la app no tiene «reconocedor del sistema» al que
+  /// cambiar: su ruta es la suya desde el principio.
+  final TranscriptionEngineRoute _initialRoute;
 
   final SpeechTranscriptionPort _port;
   final VoiceLocalePolicy _locales;
@@ -59,9 +70,7 @@ class VoiceSessionController extends ChangeNotifier {
 
   late final StreamSubscription<TranscriptionEvent> _subscription;
 
-  VoiceSessionSnapshot _snapshot = const VoiceSessionSnapshot(
-    requestedLocale: VoiceLocalePolicy.requested,
-  );
+  late VoiceSessionSnapshot _snapshot;
 
   /// Fotografía actual. La pantalla no lee ningún otro estado.
   VoiceSessionSnapshot get snapshot => _snapshot;
@@ -100,6 +109,29 @@ class VoiceSessionController extends ChangeNotifier {
 
   /// Texto anterior al último añadido automático, para [undoLastAutoAppend].
   String? _undoText;
+
+  /// Frases ya recibidas en este turno, para motores que entregan varias
+  /// numeradas ([SpeechTranscriptionPort.listensAcrossPauses]).
+  final Set<int> _turnSequences = <int>{};
+
+  /// Pista de vocabulario para el motor que la admite. Sólo nombres: la sesión
+  /// no sabe de qué son ni los interpreta.
+  List<String> _hints = const [];
+
+  /// Pista de vocabulario: nombres que pueden dictarse (catálogo, personas).
+  ///
+  /// La da quien abre la pantalla. Vale desde el siguiente turno; no cambia lo
+  /// ya transcrito ni restringe lo que se puede dictar.
+  void setVocabularyHints(List<String> hints) {
+    if (_disposed) return;
+    _hints = List.unmodifiable(hints);
+  }
+
+  /// Activa o desactiva la segunda pasada local para los siguientes turnos.
+  void setReviewEnabled(bool enabled) {
+    if (_disposed || enabled == _snapshot.reviewEnabled) return;
+    _update(_snapshot.copyWith(reviewEnabled: enabled));
+  }
 
   // ------------------------------------------------------------------ acciones
 
@@ -157,6 +189,11 @@ class VoiceSessionController extends ChangeNotifier {
       // Última red: ni siquiera una sesión productiva puede quedarse escuchando
       // indefinidamente.
       AppLog.info('voz: sesión cerrada por duración máxima');
+      if (_port.listensAcrossPauses) {
+        // El motor local guarda la frase en curso: se detiene, no se descarta.
+        unawaited(stopListening());
+        return;
+      }
       _stopContinuity();
       unawaited(_releaseMicrophone());
       _settleToPreview();
@@ -213,6 +250,7 @@ class VoiceSessionController extends ChangeNotifier {
       VoiceSessionSnapshot(
         status: VoiceSessionStatus.cancelled,
         requestedLocale: VoiceLocalePolicy.requested,
+        route: _initialRoute,
         // El idioma y la disponibilidad son hechos del aparato, no contenido de
         // la sesión: conservarlos evita volver a recorrer la lista de idiomas.
         // Salvo que se hubiera cambiado de reconocedor: un idioma confirmado
@@ -221,6 +259,7 @@ class VoiceSessionController extends ChangeNotifier {
         localeInUse: _snapshot.routeFallbackUsed ? null : _snapshot.localeInUse,
         offline: _snapshot.offline,
         availability: _snapshot.availability,
+        reviewEnabled: _snapshot.reviewEnabled,
       ),
     );
   }
@@ -431,6 +470,7 @@ class VoiceSessionController extends ChangeNotifier {
     }
     _turnCount++;
     _turnSegmentConsumed = false;
+    _turnSequences.clear();
     _update(_snapshot.copyWith(status: VoiceSessionStatus.starting));
     await _port.start(
       TranscriptionRequest(
@@ -439,8 +479,14 @@ class VoiceSessionController extends ChangeNotifier {
         // sistema. Es una preferencia, no una garantía, y la pantalla lo dice.
         preferOffline: true,
         partialResults: true,
-        maxTurnDuration: _continuity.turnDuration,
+        // Un motor que escucha a través de las pausas tiene un solo turno por
+        // sesión: su plazo es el de la sesión.
+        maxTurnDuration: _port.listensAcrossPauses
+            ? _continuity.maxSessionDuration
+            : _continuity.turnDuration,
         route: _snapshot.route,
+        hints: _hints,
+        review: _snapshot.reviewEnabled,
       ),
     );
   }
@@ -472,13 +518,13 @@ class VoiceSessionController extends ChangeNotifier {
         // Lo que el motor está usando de verdad, que puede no ser lo pedido.
         _update(_snapshot.copyWith(observedRoute: route));
 
-      case TranscriptionPartial(:final text):
+      case TranscriptionPartial(:final text, :final reviewing):
         if (!_snapshot.status.microphoneMayBeOpen) return;
         _noteOfflineEvidence(text);
-        _update(_snapshot.copyWith(partialText: text));
+        _update(_snapshot.copyWith(partialText: text, reviewing: reviewing));
 
-      case TranscriptionSegment(:final text):
-        _appendSegment(text);
+      case TranscriptionSegment(:final text, :final sequence):
+        _appendSegment(text, sequence);
 
       case TranscriptionFailed(:final code, :final detail):
         _pendingErrorCode = code;
@@ -515,11 +561,16 @@ class VoiceSessionController extends ChangeNotifier {
     );
   }
 
-  void _appendSegment(String text) {
-    // Android puede repetir el resultado de un turno ya cerrado. Un segundo
-    // segmento del mismo turno duplicaría la frase en el texto de sesión.
-    if (_turnSegmentConsumed) return;
-    _turnSegmentConsumed = true;
+  void _appendSegment(String text, int? sequence) {
+    if (sequence != null) {
+      // Motor con varias frases por turno: cada número entra una sola vez.
+      if (!_turnSequences.add(sequence)) return;
+    } else {
+      // Android puede repetir el resultado de un turno ya cerrado. Un segundo
+      // segmento del mismo turno duplicaría la frase en el texto de sesión.
+      if (_turnSegmentConsumed) return;
+      _turnSegmentConsumed = true;
+    }
 
     final trimmed = text.trim();
     if (trimmed.isEmpty) {
@@ -564,7 +615,9 @@ class VoiceSessionController extends ChangeNotifier {
     _pendingErrorCode = null;
     _pendingErrorDetail = null;
 
-    _update(_snapshot.copyWith(partialText: '', lastEndReason: reason));
+    _update(
+      _snapshot.copyWith(partialText: '', reviewing: 0, lastEndReason: reason),
+    );
 
     // Descartar y segundo plano fijan su propio estado; el cierre que provocan
     // no debe reabrir nada ni pisarlo.
@@ -579,6 +632,14 @@ class VoiceSessionController extends ChangeNotifier {
 
     if (code != null) {
       _onTurnFailed(code, detail);
+      return;
+    }
+
+    // El motor local no cierra el turno en las pausas: si lo cerró, fue por el
+    // plazo o por un silencio largo. No se reabre por su cuenta.
+    if (_port.listensAcrossPauses) {
+      _stopContinuity();
+      _settleToPreview();
       return;
     }
 
