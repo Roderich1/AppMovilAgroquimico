@@ -71,7 +71,7 @@ void main() {
     await fillStep1(tester);
     expect(find.byKey(const Key('purchase-paid-pending')), findsOneWidget);
     await tapKey(tester, 'purchase-confirm');
-    expect(find.text('Indica si pagaste toda esta compra.'), findsOneWidget);
+    expect(find.text('Indica si ya pagaste al proveedor.'), findsOneWidget);
     expect(await rows(tester, s.database, 'purchases'), isEmpty);
     expect(await rows(tester, s.database, 'provider_payments'), isEmpty);
     // El borrador sigue en la revisión.
