@@ -1,8 +1,8 @@
 # ADR-005 — Voz local: Vosk en vivo y segunda pasada whisper.cpp
 
-- Estado: **`Proposed`**. Lo decide Roderich Rendón; este documento no lo acepta.
+- Estado: **`Accepted` provisionalmente, sólo para la demostración** (Roderich Rendón, 2026-11-05). Ver «Decisión del autor». No es la aceptación definitiva.
 - Fecha: 2026-11-05.
-- Relación: `ADR-002` (Android `SpeechRecognizer`, `Accepted`) sigue siendo la base productiva hasta que se decida esto. `ADR-004` (`Proposed`, rama `evolution/evolution-3-hybrid-voice-benchmark`) queda como antecedente sin modificarse. NO_GO_C4 (#59) se cita como resultado histórico: no se reinterpreta.
+- Relación: `ADR-002` (Android `SpeechRecognizer`, `Accepted`) no se sustituye. La aceptación provisional cubre la demostración, no la decisión definitiva del motor. `ADR-004` (`Proposed`, rama `evolution/evolution-3-hybrid-voice-benchmark`) queda como antecedente sin modificarse. NO_GO_C4 (#59) se cita como resultado histórico: no se reinterpreta.
 - Issues: #13 (registro de la decisión), #165 (Vosk), #166 (segunda pasada). GATE-F09 (#17) no cambia.
 
 ## Contexto
@@ -44,6 +44,17 @@ Small es más preciso, pero tarda unas tres veces más. En el POCO, `ADR-002` mi
 - **Entrada manual:** sigue siempre disponible; sin modelo, la pantalla lo dice y no descarga nada.
 - **Android `SpeechRecognizer`:** se conserva detrás del mismo puerto (`--dart-define=AGRO_VOICE_ENGINE=android`); la app nunca cambia de motor por su cuenta.
 
-## Decisión pendiente
+## Decisión del autor (2026-11-05)
 
-Aceptar, rechazar o reformular, sobre la evidencia de `docs/evidence/F09_VOZ_LOCAL_2026-11-05.md` y la prueba con voz real del autor.
+Roderich Rendón acepta **provisionalmente** Vosk + whisper.cpp `ggml-base-q5_1` para la demostración de Agrocuentas.
+
+- **Motivo:** la elección prioriza la **fluidez de la demostración**. No afirma que base sea más preciso que small, que en HOST fue más preciso pero unas 3 veces más lento.
+- **Versión de demostración:** la APK probada, `03124a0`, instalada en el paquete aislado «AC VOZ». Si el ensayo con su voz funciona bien, esa versión se conserva para la defensa, sin cambiar de modelo ni añadir funciones en este lote.
+- **Errores que reporte con su voz:** se corrigen primero los que alteren cantidades, unidades o productos, y los que dupliquen texto o pierdan el borrador.
+
+**Sigue pendiente:**
+- la comparación definitiva con `small`;
+- el rendimiento en un teléfono (`NOT_MEASURED`);
+- la evaluación de #12.
+
+**Lo que esta aceptación no cambia:** GATE-F09 (#17) sigue igual, RNF-14 no se declara cumplido y el PR Mobile #190 sigue en borrador, sin fusionar a `main`.

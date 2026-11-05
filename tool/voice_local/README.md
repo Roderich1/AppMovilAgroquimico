@@ -1,31 +1,34 @@
 # Voz local de Agrocuentas: probar y recompilar
 
-## Probar el dictado en el emulador (5 minutos)
+## Demostración en el emulador
 
-La app de prueba ya está instalada y activada en el emulador `Pixel_8`: es el paquete aislado **«AC VOZ»** (`com.comunidad.agro.agroquimicos.voz`), con la cuenta sintética de la DEMO `agricultor6` y siete productos en el catálogo.
+**Versión de demostración** (ADR-005, aceptada provisionalmente): la APK `agrocuentas-voz-03124a0-x86_64-profile.apk`, ya instalada y activada en el emulador `Pixel_8` como **«AC VOZ»** (`com.comunidad.agro.agroquimicos.voz`). Tiene la cuenta sintética `agricultor6` de la DEMO y siete productos en el catálogo. No hace falta reinstalarla.
 
-1. **Arrancar el emulador.**
+1. **Arrancar el emulador**, si no está abierto:
    ```bash
    "$LOCALAPPDATA/Android/Sdk/emulator/emulator" -avd Pixel_8 -no-snapshot-save
    ```
-2. **Dar al emulador tu micrófono.** En la barra lateral del emulador, abre **⋯ (Extended controls)**, entra en **Microphone** y activa **«Virtual microphone uses host audio input»**. Esto lo haces tú: la sesión de preparación no lo activó nunca. Si el emulador lo desactiva al reiniciar, vuelve a activarlo.
-3. **Sin Internet (opcional).** En el emulador, activa el modo avión desde los ajustes rápidos.
-4. **Abrir el dictado.** Abre **AC VOZ** y ve a **Operaciones › Más › Registrar por voz › Compra por voz**. También están Plan y Aplicación por voz.
+2. **Habilitar el micrófono.**
+   1. En la barra del emulador, abre **⋯ (Extended controls)**, entra en **Microphone** y activa **«Virtual microphone uses host audio input»**.
+   2. Si no llega la voz, en Windows revisa **Configuración › Privacidad › Micrófono › «Permitir que las aplicaciones de escritorio accedan al micrófono»**.
+   3. Al cerrar el emulador, el ajuste se pierde: hay que activarlo de nuevo en cada arranque.
+3. **Quitar la red.** Activa el modo avión en los ajustes rápidos del emulador. El dictado no usa la red, y la pantalla lo confirma con «Funciona sin conexión».
+4. **Abrir el dictado.** En **AC VOZ**, ve a **Operaciones › Más › Registrar por voz** y elige **Compra por voz**, **Planificación por voz** o **Aplicación por voz**.
 5. **Dictar.**
    1. Toca **Hablar**. La primera vez, Android pide el permiso de micrófono.
    2. Habla con normalidad, por ejemplo: «compré dos litros de glifosato a ciento veinte bolivianos», una pausa, y «compré cinco kilos de mancozeb».
-   3. Mientras hablas aparece el texto provisional en cursiva. Al hacer una pausa, la frase pasa a «revisando» y después al borrador.
-6. **Detener.** Toca **Detener**. Lo pendiente se procesa y queda para revisar. Nada se registra hasta que pulses «Registrar compra».
+   3. El texto provisional aparece en cursiva. Al hacer una pausa, la frase pasa a «revisando» y luego al borrador.
+6. **Detener.** Toca **Detener** y revisa el borrador. Nada se registra hasta que pulses el botón de registrar.
+7. **Repetir.** Descarta el borrador y vuelve a **Hablar**: no arrastra texto del intento anterior.
 
-**Más cosas que puedes probar:**
-- desactivar «Revisar cada frase» para comparar con sólo Vosk;
-- descartar sin aplicar;
-- salir de la pantalla mientras escucha;
-- corregir un campo a mano y seguir dictando.
+**Para terminar:**
+- desactiva «Virtual microphone uses host audio input»;
+- quita el modo avión.
 
 **Ten en cuenta:**
-- **El emulador no es un teléfono.** Sus tiempos, y la calidad del audio que recibe del PC, no son los del teléfono.
-- **Silencio.** Tras 30 s sin voz, el dictado se cierra solo y suelta el micrófono.
+- **Silencio.** Tras 30 s sin voz, el dictado se cierra solo.
+- **El emulador no es un teléfono.** Sus tiempos, y el audio que recibe del PC, no son los de un teléfono.
+- **Tus observaciones** van en `docs/evidence/F09_VOZ_LOCAL_OBSERVACIONES_AUTOR.md`, aparte de los resultados sintéticos.
 
 ## Recompilar
 

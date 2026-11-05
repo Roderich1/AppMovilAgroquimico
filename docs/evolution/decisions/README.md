@@ -30,6 +30,7 @@ compatibilidad, rollback, evidencia y estado. Un ADR posterior puede reemplazar 
 | ADR | Título | Alcance | Estado |
 |---|---|---|---|
 | [`ADR-002`](ADR-002-voice-transcription-engine.md) | Motor de transcripción tras benchmark | `EVO-009` | **`Accepted`** (2026-09-06) — Android `SpeechRecognizer`; Whisper como reserva no distribuida; gate Pixel 8 `WAIVED_BY_OWNER` |
+| [`ADR-005`](ADR-005-local-voice-vosk-whisper.md) | Voz local: Vosk en vivo y segunda pasada whisper.cpp | `EVO-009` (#13, #165, #166) | **`Accepted` provisionalmente, sólo para la demostración** (2026-11-05). Whisper base y no small, por fluidez; quedan pendientes small, el teléfono y #12 |
 
 Un ADR `Proposed` no autoriza la dependencia que evalúa. Al resolver ADR-002 deben registrarse
 el benchmark, versiones y consecuencias; no se reescribe la evidencia anterior.
