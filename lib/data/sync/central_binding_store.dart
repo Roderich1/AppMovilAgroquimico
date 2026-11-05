@@ -28,7 +28,13 @@ enum BindingInvalidReason {
   referenceMissing('REFERENCE_MISSING', 'Ya no figura en el sindicato.'),
   notAccepting('NOT_ACCEPTING', 'La campaña no admite nuevos aportes.'),
   inactive('INACTIVE', 'El producto está inactivo en el sindicato.'),
-  notLinkable('NOT_LINKABLE', 'La unidad central ya no es L ni KG.'),
+
+  /// `refreshFrom` lo usa también cuando la unidad central sigue siendo L o
+  /// KG pero ya no es la del vínculo: el texto cubre los dos casos.
+  notLinkable(
+    'NOT_LINKABLE',
+    'La unidad del sindicato ya no es L ni KG, o ya no coincide con la local.',
+  ),
 
   /// D-F04-C2: el período local no cabe en el de la campaña central.
   periodIncompatible(

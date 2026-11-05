@@ -73,8 +73,9 @@ void main() {
       await f.apply(f.familyPersonId, {f.sync.litreProductId: 9000});
     });
     expect(find.text('Herbicida local · Campaña local 2026'), findsOneWidget);
-    expect(find.textContaining('2,5 L · Nuevo'), findsOneWidget);
-    expect(find.textContaining('1,5 KG · Nuevo'), findsOneWidget);
+    // UXJ-C: estado en una palabra y, debajo, qué pasaría al publicar.
+    expect(find.textContaining('2,5 L · Pendiente\nNuevo'), findsOneWidget);
+    expect(find.textContaining('1,5 KG · Pendiente\nNuevo'), findsOneWidget);
     expect(find.textContaining('familiares o terceros'), findsOneWidget);
     expect(
       find.textContaining(
