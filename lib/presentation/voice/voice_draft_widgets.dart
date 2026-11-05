@@ -13,6 +13,23 @@ import '../../voice_draft/interpretation/voice_intent.dart';
 /// Lleva la cuenta del texto cerrado ya interpretado de una sesión de voz y
 /// entrega **sólo lo nuevo**. Lo provisional nunca pasa por aquí: sólo el
 /// texto que la sesión ya cerró (`committedText`).
+/// Nombres que pueden dictarse en este borrador, como pista de vocabulario
+/// para el reconocimiento local: productos, personas, proveedores, chacos y
+/// la campaña activa. Sólo nombres; sin cantidades ni importes.
+List<String> voiceVocabularyHints(VoiceCatalog catalog) {
+  final seen = <String>{};
+  return [
+    for (final entry in [
+      ...catalog.products,
+      ...catalog.people,
+      ...catalog.suppliers,
+      ...catalog.farms,
+      if (catalog.activeCampaign != null) catalog.activeCampaign!,
+    ])
+      if (seen.add(entry.name.trim().toLowerCase())) entry.name.trim(),
+  ];
+}
+
 class VoiceSegmentFeed {
   String _consumed = '';
 

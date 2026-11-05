@@ -57,6 +57,9 @@ final class AndroidSpeechTranscriptionAdapter
   String get engineId => 'android-speech';
 
   @override
+  bool get listensAcrossPauses => false;
+
+  @override
   bool get isTurnOpen => _turnOpen;
 
   @override

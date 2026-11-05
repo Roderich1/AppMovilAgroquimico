@@ -1,6 +1,8 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'port/android_speech_transcription_adapter.dart';
+import 'port/local_speech_transcription_adapter.dart';
+import 'port/review_selection.dart';
 import 'port/speech_transcription_port.dart';
 
 /// Cómo se construye el puerto de transcripción.
@@ -15,6 +17,21 @@ import 'port/speech_transcription_port.dart';
 /// no conoce ninguna de las dos implementaciones.
 typedef SpeechPortFactory = SpeechTranscriptionPort Function();
 
-final speechPortFactoryProvider = Provider<SpeechPortFactory>(
-  (ref) => AndroidSpeechTranscriptionAdapter.new,
+/// Motor de voz de la compilación: `local` (por defecto, #165/#166) es el
+/// reconocimiento dentro de la app; `android` vuelve al reconocedor del sistema
+/// de `ADR-002`. Se elige al compilar con `--dart-define=AGRO_VOICE_ENGINE=…`;
+/// la app nunca cambia de uno a otro por su cuenta.
+const voiceEngine = String.fromEnvironment(
+  'AGRO_VOICE_ENGINE',
+  defaultValue: 'local',
 );
+
+/// Cómo se comprueban las cantidades de la segunda pasada. Lo inyecta
+/// `main.dart` con el lector de la app; sin él, la revisión no se acepta.
+final reviewFactsProvider = Provider<ReviewFacts?>((ref) => null);
+
+final speechPortFactoryProvider = Provider<SpeechPortFactory>((ref) {
+  if (voiceEngine == 'android') return AndroidSpeechTranscriptionAdapter.new;
+  final facts = ref.watch(reviewFactsProvider);
+  return () => LocalSpeechTranscriptionAdapter(facts: facts);
+});

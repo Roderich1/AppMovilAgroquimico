@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Sólo para la prueba instrumentada del motor de voz local. androidx.test
+     1.3.0 (la versión que ya resuelve la app) declara estas actividades sin
+     `exported`, que Android 12+ exige. No llega a la app. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <application>
+        <activity android:name="androidx.test.core.app.InstrumentationActivityInvoker$BootstrapActivity"
+            android:exported="true" tools:replace="android:exported" tools:node="merge" />
+        <activity android:name="androidx.test.core.app.InstrumentationActivityInvoker$EmptyActivity"
+            android:exported="true" tools:replace="android:exported" tools:node="merge" />
+        <activity android:name="androidx.test.core.app.InstrumentationActivityInvoker$EmptyFloatingActivity"
+            android:exported="true" tools:replace="android:exported" tools:node="merge" />
+    </application>
+</manifest>
