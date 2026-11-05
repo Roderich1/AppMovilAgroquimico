@@ -73,3 +73,6 @@ artifacts/voice-benchmark/
 # y tool/voice_local/build_whisper_libs.sh.
 /android/app/voice-models/
 /android/app/src/main/jniLibs/
+
+# Audio de referencia copiado sólo durante run_reference_check.sh
+/android/app/src/androidTest/assets/

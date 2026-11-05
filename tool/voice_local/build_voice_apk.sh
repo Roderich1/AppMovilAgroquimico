@@ -40,7 +40,10 @@ assert t.count('android:label="agroquimicos"') == 1
 m.write_text(t.replace('android:label="agroquimicos"', 'android:label="AC VOZ"'), encoding='utf-8', newline='')
 PY
 mkdir -p "$OUT"
-flutter build apk --profile --split-per-abi --target-platform "$PLATFORM" > "$OUT/build-$ABI.log" 2>&1 \
+# Origen HTTPS del Central (opcional): sólo hace falta para activar la
+# instalación; el dictado no lo usa.
+flutter build apk --profile --split-per-abi --target-platform "$PLATFORM" \
+  ${AGRO_API_BASE_URL:+--dart-define=AGRO_API_BASE_URL="$AGRO_API_BASE_URL"} > "$OUT/build-$ABI.log" 2>&1 \
   || { tail -30 "$OUT/build-$ABI.log"; exit 1; }
 restore; trap - EXIT
 APK="$OUT/agrocuentas-voz-$(git rev-parse --short HEAD)-$SPLIT-profile.apk"

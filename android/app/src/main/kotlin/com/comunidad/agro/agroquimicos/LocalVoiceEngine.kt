@@ -44,7 +44,87 @@ import kotlin.math.min
  * El audio vive en memoria y se suelta al terminar cada frase; no se escribe en
  * disco y no aparece en el log. El log sólo lleva códigos y contadores.
  */
-class LocalVoiceEngine(context: Context, private val listener: Listener) {
+class LocalVoiceEngine(
+    context: Context,
+    private val listener: Listener,
+    /** De dónde sale el audio. En la app, siempre el micrófono. */
+    private val openSource: () -> PcmSource = ::MicrophoneSource,
+) {
+
+    /**
+     * Fuente de PCM 16 kHz mono de un turno.
+     *
+     * La app usa sólo [MicrophoneSource]. Existe como interfaz para que la
+     * prueba instrumentada (`androidTest`) pueda pasar audio de referencia por
+     * el MISMO motor, con Vosk y Whisper reales, sin micrófono.
+     */
+    interface PcmSource {
+        /** `null` si quedó abierta; si no, (código, detalle) del fallo. */
+        fun open(): Pair<String, String>?
+
+        /** Bloquea hasta tener audio. [EOF] al terminar; otro negativo es error. */
+        fun read(buffer: ShortArray): Int
+
+        /** Desbloquea [read] y suelta el recurso. Idempotente. */
+        fun close()
+
+        companion object {
+            const val EOF = Int.MIN_VALUE
+        }
+    }
+
+    /** El micrófono, con `AudioRecord`. El permiso lo comprobó el puente. */
+    class MicrophoneSource : PcmSource {
+        private var record: AudioRecord? = null
+
+        @SuppressLint("MissingPermission")
+        override fun open(): Pair<String, String>? {
+            val minBuffer = AudioRecord.getMinBufferSize(
+                SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT,
+            )
+            val audio = try {
+                AudioRecord(
+                    MediaRecorder.AudioSource.VOICE_RECOGNITION, SAMPLE_RATE,
+                    AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT,
+                    maxOf(minBuffer, CHUNK_SAMPLES * 2 * 4),
+                )
+            } catch (t: Throwable) {
+                return "engineFailure" to "audio:${t.javaClass.simpleName}"
+            }
+            if (audio.state != AudioRecord.STATE_INITIALIZED) {
+                audio.release()
+                return "engineFailure" to "audio-init"
+            }
+            try {
+                audio.startRecording()
+            } catch (_: Throwable) {
+                audio.release()
+                return "engineFailure" to "audio-start"
+            }
+            if (audio.recordingState != AudioRecord.RECORDSTATE_RECORDING) {
+                // Otra app tiene el micrófono.
+                audio.release()
+                return "busy" to "microphone-in-use"
+            }
+            record = audio
+            return null
+        }
+
+        override fun read(buffer: ShortArray): Int =
+            record?.read(buffer, 0, buffer.size) ?: PcmSource.EOF
+
+        @Synchronized
+        override fun close() {
+            val audio = record ?: return
+            record = null
+            try {
+                audio.stop()
+            } catch (_: Throwable) {
+                // Ya detenido: lo que importa es soltar el micrófono.
+            }
+            audio.release()
+        }
+    }
 
     interface Listener {
         fun onStage(gen: Int, stage: String)
@@ -199,7 +279,7 @@ class LocalVoiceEngine(context: Context, private val listener: Listener) {
         @Volatile var cancelled = false
         @Volatile private var capturing = true
         @Volatile private var endReason = "stoppedByUser"
-        @Volatile private var record: AudioRecord? = null
+        @Volatile private var source: PcmSource? = null
         private var dropped = 0
 
         // Estado de frases: sólo lo tocan el hilo de Vosk y el de revisión, bajo `lock`.
@@ -211,51 +291,26 @@ class LocalVoiceEngine(context: Context, private val listener: Listener) {
         private var reviewing = 0
         private var partial = ""
         private var lastSent = ""
+        private var lastSentReviewing = -1
 
-        @SuppressLint("MissingPermission") // Lo comprueba el puente antes de llamar.
         fun begin(model: Model) {
+            // Cancelado mientras se cargaba el modelo: ni micrófono ni reconocedor.
+            if (cancelled) return
             val recognizer = try {
                 Recognizer(model, SAMPLE_RATE.toFloat())
             } catch (t: Throwable) {
                 fail("engineFailure", "recognizer:${t.javaClass.simpleName}")
                 return
             }
-            val minBuffer = AudioRecord.getMinBufferSize(
-                SAMPLE_RATE, AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT,
-            )
-            val audio = try {
-                AudioRecord(
-                    MediaRecorder.AudioSource.VOICE_RECOGNITION, SAMPLE_RATE,
-                    AudioFormat.CHANNEL_IN_MONO, AudioFormat.ENCODING_PCM_16BIT,
-                    maxOf(minBuffer, CHUNK_SAMPLES * 2 * 4),
-                )
-            } catch (t: Throwable) {
+            val audio = openSource()
+            val failure = if (cancelled) null else audio.open()
+            if (failure != null || cancelled) {
+                audio.close()
                 recognizer.close()
-                fail("engineFailure", "audio:${t.javaClass.simpleName}")
+                if (failure != null) fail(failure.first, failure.second)
                 return
             }
-            if (audio.state != AudioRecord.STATE_INITIALIZED || cancelled) {
-                audio.release()
-                recognizer.close()
-                if (!cancelled) fail("engineFailure", "audio-init")
-                return
-            }
-            record = audio
-            try {
-                audio.startRecording()
-            } catch (t: Throwable) {
-                audio.release()
-                recognizer.close()
-                fail("engineFailure", "audio-start")
-                return
-            }
-            if (audio.recordingState != AudioRecord.RECORDSTATE_RECORDING) {
-                // Otra app tiene el micrófono.
-                audio.release()
-                recognizer.close()
-                fail("busy", "microphone-in-use")
-                return
-            }
+            source = audio
             listener.onStage(gen, "listening")
             Thread({ capture(audio) }, "agro-voz-captura").start()
             Thread({ decode(recognizer) }, "agro-voz-vosk").start()
@@ -265,29 +320,23 @@ class LocalVoiceEngine(context: Context, private val listener: Listener) {
             endReason = reason
             capturing = false
             listener.onStage(gen, "processing")
-            try {
-                record?.stop()
-            } catch (_: Throwable) {
-                // Ya detenido: lo que importa es soltar el micrófono.
-            }
+            source?.close()
         }
 
         fun cancel() {
             cancelled = true
             capturing = false
-            try {
-                record?.stop()
-            } catch (_: Throwable) {
-            }
+            source?.close()
             synchronized(lock) { if (reviewing > 0) WhisperNative.takeIf { it.available }?.abort() }
             queue.clear()
         }
 
-        private fun capture(audio: AudioRecord) {
+        private fun capture(audio: PcmSource) {
             val buffer = ShortArray(CHUNK_SAMPLES)
             try {
                 while (capturing) {
-                    val read = audio.read(buffer, 0, buffer.size)
+                    val read = audio.read(buffer)
+                    if (read == PcmSource.EOF) break
                     if (read < 0) {
                         if (capturing) endReason = "error"
                         break
@@ -302,12 +351,8 @@ class LocalVoiceEngine(context: Context, private val listener: Listener) {
                     }
                 }
             } finally {
-                try {
-                    audio.stop()
-                } catch (_: Throwable) {
-                }
-                audio.release()
-                record = null
+                audio.close()
+                source = null
                 queue.put(END)
             }
         }
@@ -437,8 +482,11 @@ class LocalVoiceEngine(context: Context, private val listener: Listener) {
             synchronized(lock) {
                 text = (waiting.values + listOf(partial)).filter { it.isNotEmpty() }.joinToString(" ")
                 count = reviewing
-                if (text == lastSent) return
+                // También cuando sólo cambia el contador: el texto de una frase
+                // que pasa a revisión suele ser el mismo del último parcial.
+                if (text == lastSent && count == lastSentReviewing) return
                 lastSent = text
+                lastSentReviewing = count
             }
             listener.onPartial(gen, text, count)
         }
@@ -479,7 +527,7 @@ class LocalVoiceEngine(context: Context, private val listener: Listener) {
         private const val TAG = "AgroVoz"
         const val VOSK_VERSION = "0.3.75"
         const val SAMPLE_RATE = 16_000
-        private const val CHUNK_SAMPLES = SAMPLE_RATE / 10          // 100 ms
+        const val CHUNK_SAMPLES = SAMPLE_RATE / 10                  // 100 ms
         private const val QUEUE_CHUNKS = 30                         // 3 s de retraso máximo
         private const val MAX_SEGMENT_SAMPLES = SAMPLE_RATE * 30    // Whisper ve hasta 30 s
         private const val MAX_PENDING_REVIEWS = 2

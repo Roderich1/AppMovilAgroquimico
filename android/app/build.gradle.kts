@@ -59,6 +59,9 @@ android {
         // flag during build.
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        // Sólo para `src/androidTest`: inferencia real del motor de voz local
+        // con audio de referencia (tool/voice_local/run_reference_check.sh).
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     signingConfigs {
@@ -111,6 +114,9 @@ dependencies {
     // Reconocimiento local de voz. Versión exacta y contenido fijado abajo; sin
     // rangos ni `+`. Trae JNA 5.18.1 como única transitiva.
     implementation("com.alphacephei:vosk-android:0.3.75")
+
+    androidTestImplementation("androidx.test:runner:1.3.0")
+    androidTestImplementation("androidx.test.ext:junit:1.1.2")
 }
 
 // --------------------------------------------------------- cadena de suministro
