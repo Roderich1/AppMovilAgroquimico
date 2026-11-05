@@ -77,7 +77,18 @@ class PageFrame extends StatelessWidget {
     // `maybeOf` y no `of`: varias suites montan una pantalla suelta sin router,
     // y una cabecera no debe hacer estallar la pantalla por eso.
     final router = GoRouter.maybeOf(context);
-    final canPop = router?.canPop() ?? false;
+    if (router == null) return _frame(context, null, false);
+    // Se recalcula con cada cambio de la pila. Sin esto, si la pantalla se
+    // reconstruía con un formulario encima (p. ej. al abrirse el teclado en
+    // él), guardaba `canPop` verdadero y, al volver, quedaba una flecha
+    // «Volver» que no hacía nada (emulador, 2026-11-05).
+    return ListenableBuilder(
+      listenable: router.routerDelegate,
+      builder: (context, _) => _frame(context, router, router.canPop()),
+    );
+  }
+
+  Widget _frame(BuildContext context, GoRouter? router, bool canPop) {
     // El contenido termina por encima del FAB y del teclado, en vez de quedar
     // tapado justo al agotarse el scroll (UIBUG-008, UIBUG-009).
     final bottom =

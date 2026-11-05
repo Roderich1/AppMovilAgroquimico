@@ -10,6 +10,8 @@
 //       Operaciones sin desplazar.
 //   (e) Operaciones: tarjetas con icono y nombre; sólo Campañas añade la
 //       campaña actual.
+//   (f) Al volver de un formulario, la pantalla de debajo no conserva una
+//       flecha «Volver» que no lleva a ningún sitio.
 import 'package:agroquimicos/app.dart';
 import 'package:agroquimicos/presentation/screens/campaigns_screen.dart';
 import 'package:agroquimicos/presentation/screens/operations_screen.dart';
@@ -164,5 +166,36 @@ void main() {
     expect(tiles.where((t) => t.subtitle != null), hasLength(1));
     expect(find.text('Actual: Campaña 1'), findsOneWidget);
     expect(find.text('Facturas y pagos al proveedor'), findsNothing);
+  });
+
+  testWidgets('(f) tras volver de un formulario abierto con el teclado, la '
+      'pantalla de debajo no queda con una flecha «Volver» muerta', (
+    tester,
+  ) async {
+    phone(tester, const Size(393, 873));
+    final s = await activatedHousehold(tester, 'uxj-a-volver');
+    final c = await pumpModeApp(tester, s.database);
+    final router = c.read(routerProvider);
+    // Se llega con `go`: no hay nada a lo que volver. Lo que reconstruye la
+    // pantalla de debajo es el «+», que se oculta con el teclado.
+    router.go('/operaciones');
+    await settle(tester);
+    expect(find.byTooltip('Volver'), findsNothing);
+
+    router.push('/compras/nueva');
+    await settle(tester);
+    // El teclado del formulario reconstruye también la pantalla de debajo.
+    tester.view.viewInsets = const FakeViewPadding(bottom: 600);
+    await tester.pump();
+    await settle(tester);
+    tester.view.resetViewInsets();
+    await tester.pump();
+    await settle(tester);
+    router.pop();
+    await settle(tester);
+
+    expect(find.byType(OperationsScreen), findsOneWidget);
+    expect(find.byTooltip('Volver'), findsNothing);
+    expect(tester.takeException(), isNull);
   });
 }

@@ -333,7 +333,12 @@ class AppShell extends StatelessWidget {
   /// `FloatingActionButton` agrupa su semántica, así que el nombre se
   /// anuncia una sola vez. Superficie táctil de 56×56, por encima del
   /// mínimo de 48×48.
+  ///
+  /// Sin `Hero`: ningún formulario tiene un «+» al que animarlo, y al
+  /// ocultarse y volver con el teclado durante una transición coincidían dos
+  /// con la etiqueta por defecto (aserción de depuración, 2026-11-05).
   Widget _newButton(BuildContext context) => FloatingActionButton(
+    heroTag: null,
     tooltip: 'Registrar operación',
     onPressed: () => showModalBottomSheet<void>(
       context: context,
