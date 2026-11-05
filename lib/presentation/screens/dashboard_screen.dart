@@ -103,7 +103,6 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     ExistingSessionStartupState existingSession,
   ) => PageFrame(
     title: 'Inicio',
-    subtitle: 'Almacén y cuentas de un vistazo.',
     action: IconButton.filledTonal(
       onPressed: _refresh,
       icon: const Icon(Icons.refresh),
