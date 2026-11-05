@@ -110,14 +110,16 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
         operating.ownerPersonId != null;
     ownerPersonId = operating.ownerPersonId;
     final applicators = {for (final person in people) person['id']};
+    // Chacos y productos se leen a la vez: una sola espera más.
+    final read = await Future.wait([repo.farms(), repo.products()]);
     final result = (
       people: people,
       farms: [
-        for (final farm in await repo.farms())
+        for (final farm in read[0])
           if (applicators.contains(farm['owner_person_id'])) farm,
       ],
       campaign: active,
-      products: await repo.products(),
+      products: read[1],
     );
     if (widget.planId != null) {
       final plan = await repo.planForApplication(widget.planId!);
@@ -589,13 +591,19 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
     final repo = ref.read(repositoryProvider);
     final next = <Object?, List<ApplicationLotPreview>>{};
     try {
-      for (final item in wanted) {
-        next[item.id] = await repo.previewApplicationLots(
-          personId: id,
-          productId: item.id,
-          quantityBase: item.quantity,
-          appliedAt: appliedAt,
-        );
+      // Todas las lecturas a la vez: el resumen no espera producto por
+      // producto.
+      final previews = await Future.wait([
+        for (final item in wanted)
+          repo.previewApplicationLots(
+            personId: id,
+            productId: item.id,
+            quantityBase: item.quantity,
+            appliedAt: appliedAt,
+          ),
+      ]);
+      for (var i = 0; i < wanted.length; i++) {
+        next[wanted[i].id] = previews[i];
       }
     } catch (_) {
       // Sin previsión no hay aviso; nada más cambia.
