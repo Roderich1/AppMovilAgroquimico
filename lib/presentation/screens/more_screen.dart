@@ -86,7 +86,6 @@ class MoreScreen extends ConsumerWidget {
         ];
     return PageFrame(
       title: 'Más',
-      subtitle: 'Lo que se usa de vez en cuando.',
       child: LayoutBuilder(
         builder: (context, constraints) {
           final width = constraints.maxWidth >= 700

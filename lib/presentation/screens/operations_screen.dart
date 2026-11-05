@@ -12,9 +12,10 @@ import '../widgets/common.dart';
 /// tardías, voz) viven en «Más» (`/mas`), con todos sus accesos y guardas
 /// (ajuste tras el piloto X01, 2026-10-25).
 ///
-/// Campañas y Reportes tienen acceso propio aquí (2026-11-05). La tarjeta de
-/// Campañas dice cuál es la actual, que es la que reciben las operaciones
-/// nuevas. Registrar se hace con el «+», que abre los formularios.
+/// Campañas y Reportes tienen acceso propio aquí (2026-11-05). Las tarjetas
+/// llevan icono y nombre; sólo la de Campañas añade una línea, la campaña
+/// actual, que es la que reciben las operaciones nuevas. Registrar se hace
+/// con el «+», que abre los formularios.
 class OperationsScreen extends ConsumerStatefulWidget {
   const OperationsScreen({super.key});
 
@@ -46,7 +47,7 @@ class _OperationsScreenState extends ConsumerState<OperationsScreen> {
     final mode = ref.watch(operationModeProvider);
     final personal = mode == OperationMode.personal;
     final actions =
-        <({String title, Widget subtitle, String path, IconData icon})>[
+        <({String title, Widget? subtitle, String path, IconData icon})>[
           // Lleva al LISTADO, no directamente al formulario (UIBUG-002): era la
           // única puerta a `/compras`, y sin ella quedaban inalcanzables el
           // historial, los pagos a proveedor posteriores, el visor de factura y
@@ -54,26 +55,26 @@ class _OperationsScreenState extends ConsumerState<OperationsScreen> {
           // «Registrar compra» en Inicio.
           (
             title: 'Compras',
-            subtitle: const Text('Facturas y pagos al proveedor'),
+            subtitle: null,
             path: '/compras',
             icon: Icons.shopping_bag_outlined,
           ),
           (
             title: 'Aplicaciones',
-            subtitle: const Text('Lo aplicado en cada chaco y su costo'),
+            subtitle: null,
             path: '/aplicaciones',
             icon: Icons.agriculture_outlined,
           ),
           (
             title: 'Planificación',
-            subtitle: const Text('Planes por chaco y necesidad al sindicato'),
+            subtitle: null,
             path: '/planificacion',
             icon: Icons.event_note_outlined,
           ),
           if (!personal)
             (
               title: 'Transferencias',
-              subtitle: const Text('Productos entre personas'),
+              subtitle: null,
               path: '/transferencias',
               icon: Icons.swap_horiz,
             ),
@@ -95,18 +96,11 @@ class _OperationsScreenState extends ConsumerState<OperationsScreen> {
           ),
           (
             title: 'Reportes',
-            subtitle: const Text('Inventario, costos y cuentas en CSV o PDF'),
+            subtitle: null,
             path: '/reportes',
             icon: Icons.summarize_outlined,
           ),
-          (
-            title: 'Más',
-            subtitle: const Text(
-              'Datos, modo de uso, respaldos, operaciones tardías y voz',
-            ),
-            path: '/mas',
-            icon: Icons.more_horiz,
-          ),
+          (title: 'Más', subtitle: null, path: '/mas', icon: Icons.more_horiz),
         ];
     return PageFrame(
       title: 'Operaciones',
@@ -128,7 +122,10 @@ class _OperationsScreenState extends ConsumerState<OperationsScreen> {
                   width: width,
                   child: Card(
                     child: ListTile(
-                      contentPadding: const EdgeInsets.all(16),
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 4,
+                      ),
                       leading: CircleAvatar(child: Icon(action.icon)),
                       title: Text(
                         action.title,

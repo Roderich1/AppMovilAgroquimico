@@ -171,7 +171,7 @@ void main() {
     await tester.tap(find.text('Más'));
     await settle(tester);
     // Con `push` el router no cambia la ruta base: se mira la pantalla.
-    expect(find.text('Lo que se usa de vez en cuando.'), findsOneWidget);
+    expect(find.text('Administrar datos'), findsOneWidget);
     // Reportes pasó a Operaciones (2026-11-05) y no se repite aquí.
     expect(find.text('Reportes'), findsNothing);
     for (final title in [
@@ -189,9 +189,9 @@ void main() {
     await tester.tap(find.text('Administrar datos'));
     await settle(tester);
     expect(find.text('Catálogos'), findsWidgets);
-    expect(find.text('Lo que se usa de vez en cuando.'), findsNothing);
+    expect(find.text('Administrar datos'), findsNothing);
     c.read(routerProvider).pop();
     await settle(tester);
-    expect(find.text('Lo que se usa de vez en cuando.'), findsOneWidget);
+    expect(find.text('Administrar datos'), findsOneWidget);
   });
 }

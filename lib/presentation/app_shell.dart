@@ -338,78 +338,104 @@ class AppShell extends StatelessWidget {
     onPressed: () => showModalBottomSheet<void>(
       context: context,
       showDragHandle: true,
+      // Con la letra al 200 % las filas no caben en la altura por defecto
+      // (9/16 de la pantalla): la hoja crece y, si aun así no cabe, se
+      // desplaza.
+      isScrollControlled: true,
       builder: (sheetContext) => SafeArea(
-        child: Wrap(
-          children: [
-            const ListTile(
-              title: Text(
-                'Registrar operación',
-                style: TextStyle(fontWeight: FontWeight.w800),
-              ),
-            ),
-            // Cada acción abre directamente su formulario de registro
-            // (2026-11-05); antes Planificación, Aplicación y Transferencia
-            // llevaban a su listado y había que buscar ahí el botón. El pago
-            // sigue en Cuentas, donde se elige la cuenta.
-            //
-            // `done` es el aviso al volver con la operación guardada; nulo
-            // para los destinos que no son formularios. Los formularios están
-            // FUERA del ShellRoute y se apilan con `push`: con `go` se
-            // reemplaza toda la pila y el botón atrás del formulario deja la
-            // aplicación sin ninguna página que mostrar.
-            for (final action in [
-              (
-                label: 'Planificación',
-                icon: Icons.event_note_outlined,
-                path: '/planificacion/nueva',
-                done: 'Plan guardado.',
-              ),
-              (
-                label: 'Compra',
-                icon: Icons.shopping_bag_outlined,
-                path: '/compras/nueva',
-                done: 'Compra registrada.',
-              ),
-              (
-                label: 'Aplicación',
-                icon: Icons.agriculture_outlined,
-                path: '/aplicaciones/nueva',
-                done: 'Aplicación registrada.',
-              ),
-              (
-                label: 'Pago',
-                icon: Icons.payments_outlined,
-                path: '/liquidacion',
-                done: null,
-              ),
-              if (transfersEnabled)
-                (
-                  label: 'Transferencia',
-                  icon: Icons.swap_horiz,
-                  path: '/transferencias/nueva',
-                  done: 'Transferencia registrada.',
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
+                child: Text(
+                  'Registrar operación',
+                  style: Theme.of(sheetContext).textTheme.titleMedium
+                      ?.copyWith(fontWeight: FontWeight.w800),
                 ),
-            ])
-              ListTile(
-                leading: Icon(action.icon),
-                title: Text(action.label),
-                onTap: () {
-                  Navigator.of(sheetContext).pop();
-                  WidgetsBinding.instance.addPostFrameCallback((_) async {
-                    if (!context.mounted) return;
-                    final done = action.done;
-                    if (done == null) {
-                      context.go(action.path);
-                      return;
-                    }
-                    final saved = await context.push<bool>(action.path);
-                    if (saved == true && context.mounted) {
-                      showSuccess(context, done);
-                    }
-                  });
-                },
               ),
-          ],
+              // Cada acción abre directamente su formulario de registro
+              // (2026-11-05). Primero las tres de cada día; después, tras un
+              // separador, el pago (sigue en Cuentas, donde se elige la
+              // cuenta) y la transferencia (sólo en inventario compartido).
+              //
+              // `done` es el aviso al volver con la operación guardada; nulo
+              // para los destinos que no son formularios. Los formularios
+              // están FUERA del ShellRoute y se apilan con `push`: con `go`
+              // se reemplaza toda la pila y el botón atrás del formulario deja
+              // la aplicación sin ninguna página que mostrar.
+              for (final action in [
+                (
+                  label: 'Compra',
+                  hint: null,
+                  icon: Icons.shopping_bag_outlined,
+                  path: '/compras/nueva',
+                  done: 'Compra registrada.',
+                ),
+                (
+                  label: 'Aplicación',
+                  hint: null,
+                  icon: Icons.agriculture_outlined,
+                  path: '/aplicaciones/nueva',
+                  done: 'Aplicación registrada.',
+                ),
+                (
+                  label: 'Planificación',
+                  hint: null,
+                  icon: Icons.event_note_outlined,
+                  path: '/planificacion/nueva',
+                  done: 'Plan guardado.',
+                ),
+                null,
+                (
+                  label: 'Pago',
+                  hint: 'En Cuentas',
+                  icon: Icons.payments_outlined,
+                  path: '/liquidacion',
+                  done: null,
+                ),
+                if (transfersEnabled)
+                  (
+                    label: 'Transferencia',
+                    hint: null,
+                    icon: Icons.swap_horiz,
+                    path: '/transferencias/nueva',
+                    done: 'Transferencia registrada.',
+                  ),
+              ])
+                if (action == null)
+                  const Divider(indent: 24, endIndent: 24)
+                else
+                  ListTile(
+                    minTileHeight: 64,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 24),
+                    leading: CircleAvatar(child: Icon(action.icon)),
+                    title: Text(
+                      action.label,
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                    subtitle: action.hint == null ? null : Text(action.hint!),
+                    onTap: () {
+                      Navigator.of(sheetContext).pop();
+                      WidgetsBinding.instance.addPostFrameCallback((_) async {
+                        if (!context.mounted) return;
+                        final done = action.done;
+                        if (done == null) {
+                          context.go(action.path);
+                          return;
+                        }
+                        final saved = await context.push<bool>(action.path);
+                        if (saved == true && context.mounted) {
+                          showSuccess(context, done);
+                        }
+                      });
+                    },
+                  ),
+            ],
+          ),
         ),
       ),
     ),
