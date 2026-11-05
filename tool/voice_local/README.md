@@ -29,6 +29,7 @@
 - **Silencio.** Tras 30 s sin voz, el dictado se cierra solo.
 - **El emulador no es un teléfono.** Sus tiempos, y el audio que recibe del PC, no son los de un teléfono.
 - **Tus observaciones** van en `docs/evidence/F09_VOZ_LOCAL_OBSERVACIONES_AUTOR.md`, aparte de los resultados sintéticos.
+- **En el POCO físico** (ARM64 con el origen del Central, misma versión `03124a0`): resultados con tu voz en `docs/evidence/F09_VOZ_LOCAL_POCO_2026-11-05.md`.
 
 ## Recompilar
 

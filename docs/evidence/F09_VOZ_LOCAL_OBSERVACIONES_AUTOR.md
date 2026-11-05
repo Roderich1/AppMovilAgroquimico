@@ -7,7 +7,9 @@
 - No es la evaluación de #12: no fija umbrales ni usa el holdout.
 - No mide en ningún teléfono.
 
-**Estado:** sin observaciones registradas todavía.
+**Estado:** sin observaciones en el emulador todavía.
+
+**POCO físico con voz humana (2026-11-05):** el primer ensayo en el teléfono se registra aparte, en `F09_VOZ_LOCAL_POCO_2026-11-05.md`. Allí está el hallazgo reproducido de «un litro y medio» (cantidad y producto, §2.1) y el caso de la pausa antes de «Mancozeb», pendiente de repetir (§2.2).
 
 | Dato | Valor |
 |---|---|
@@ -37,4 +39,4 @@ Cada corrección se registra con el commit y la prueba que la cubre, y se vuelve
 
 | Observación | Commit | Prueba | Comprobado |
 |---|---|---|---|
-| | | | |
+| «un litro y medio» → 1 L y producto «y medio de …» (POCO §2.1) | pendiente: no se corrige en este lote | — | — |
