@@ -238,8 +238,8 @@ void main() {
       );
       await settle(tester);
       expectWordsWhole(tester, find.text('Productos (1)'), 'cabecera');
-      expectWordsWhole(tester, find.text('Agregar producto'), 'acción');
-      expectOnScreen(tester, find.text('Agregar producto'), size);
+      expectWordsWhole(tester, find.text('Añadir otro producto'), 'acción');
+      expectOnScreen(tester, find.text('Añadir otro producto'), size);
 
       final productPicker = find.byWidgetPredicate(
         (w) =>

@@ -27,7 +27,7 @@ import '../widgets/mode_notice.dart';
 /// 1. **Proveedor y productos**: proveedor, fecha (hoy por defecto) y las
 ///    líneas con su cantidad, precio y, en compartido, su reparto explícito.
 /// 2. **Revisión y pago**: lo que se va a guardar, la pregunta
-///    «¿Pagaste toda esta compra?» (sin respuesta por defecto) y, plegados,
+///    «¿Ya pagaste al proveedor?» (sin respuesta por defecto) y, plegados,
 ///    factura, notas y campaña.
 ///
 /// El pago al proveedor lo registra el titular vigente, en las dos
@@ -180,7 +180,7 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
   /// Día de la compra (#121): hoy por defecto, editable hacia atrás.
   String effectiveDay = localDay(DateTime.now());
 
-  /// Respuesta a «¿Pagaste toda esta compra?». Nula hasta que la persona
+  /// Respuesta a «¿Ya pagaste al proveedor?». Nula hasta que la persona
   /// elige: no se registra ningún pago por defecto.
   bool? paidInFull;
 
@@ -298,18 +298,24 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
     );
   }
 
-  /// Tras crear un proveedor o un producto desde su selector: se vuelven a
-  /// leer sólo esas dos listas. Todo lo demás del borrador —fecha, líneas,
-  /// cantidades, precios, reparto, campaña, modalidad cargada— se conserva.
-  Future<_PurchaseCatalogs> _reloadSuppliersAndProducts() async {
+  /// Tras crear un proveedor, un producto o una persona desde su selector:
+  /// se vuelven a leer proveedores y productos y, con [people], las personas
+  /// del reparto. Todo lo demás del borrador —fecha, líneas, cantidades,
+  /// precios, reparto, factura, notas, campaña, modalidad cargada— se
+  /// conserva.
+  Future<_PurchaseCatalogs> _reloadCatalogs({bool people = false}) async {
     final repo = ref.read(repositoryProvider);
     final current = await catalogs;
-    final fresh = await Future.wait([repo.suppliers(), repo.products()]);
+    final fresh = await Future.wait([
+      repo.suppliers(),
+      repo.products(),
+      if (people) repo.peopleFor(PersonPurpose.purchaseAllocation),
+    ]);
     final next = (
       suppliers: fresh[0],
       campaigns: current.campaigns,
       products: fresh[1],
-      people: current.people,
+      people: people ? fresh[2] : current.people,
     );
     if (mounted) {
       setState(() {
@@ -332,7 +338,7 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
       ref.read(repositoryProvider),
     );
     if (id == null) return null;
-    final next = await _reloadSuppliersAndProducts();
+    final next = await _reloadCatalogs();
     return next.suppliers.where((row) => row['id'] == id).firstOrNull;
   }
 
@@ -343,9 +349,31 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
       ref.read(repositoryProvider),
     );
     if (id == null) return null;
-    final next = await _reloadSuppliersAndProducts();
+    final next = await _reloadCatalogs();
     return next.products.where((row) => row['id'] == id).firstOrNull;
   }
+
+  /// «Agregar persona» en el selector de persona del reparto («¿Para quién
+  /// es?»): el alta de Catálogos, con su regla (sólo en compartido; la vuelve
+  /// a comprobar `createPersonFromDialog`). Lo creado queda elegido en el
+  /// selector desde el que se pidió; el resto del reparto no cambia.
+  Future<Map<String, Object?>?> _createPerson() async {
+    final id = await createPersonFromDialog(
+      context,
+      ref.read(repositoryProvider),
+      purpose: PersonPurpose.purchaseAllocation,
+    );
+    if (id == null) return null;
+    final next = await _reloadCatalogs(people: true);
+    return next.people.where((row) => row['id'] == id).firstOrNull;
+  }
+
+  /// Si el formulario ofrece «Agregar persona»: sólo en inventario
+  /// compartido, como en Catálogos (#26). En propio no hay reparto.
+  bool get _canCreatePeople =>
+      loadedMode != null &&
+      loadedMode != OperationMode.personal &&
+      !modeChangedSince(loadedMode, ref.read(operationModeProvider));
 
   @override
   void dispose() {
@@ -561,7 +589,7 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
     }
     final paid = paidInFull;
     if (paid == null) {
-      showError(context, 'Indica si pagaste toda esta compra.');
+      showError(context, 'Indica si ya pagaste al proveedor.');
       return;
     }
     if (paid && ownerPersonId == null) {
@@ -868,9 +896,14 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
       const SizedBox(height: 12),
       // Título y acción en un `Wrap`, no en una fila: con la fuente al 130 %
       // en 360 dp el título se partía en «Producto / s (1)» (#129).
+      // «Añadir otro producto» agrega una **línea** a la compra; «Crear
+      // producto», en el selector de cada línea, da de alta un producto del
+      // catálogo. Antes las dos acciones se llamaban casi igual
+      // («Agregar producto»/«Crear producto») (2026-11-05).
       SectionHeading(
         title: 'Productos (${lines.length})',
         action: FilledButton.tonalIcon(
+          key: const Key('purchase-add-line'),
           onPressed: () {
             setState(() {
               lines.add(_PurchaseLineEditor());
@@ -878,7 +911,7 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
             });
           },
           icon: const Icon(Icons.add),
-          label: const Text('Agregar producto'),
+          label: const Text('Añadir otro producto'),
         ),
       ),
       const SizedBox(height: 8),
@@ -902,6 +935,7 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
             },
             onChanged: _markDirty,
             onCreateProduct: _createProduct,
+            onCreatePerson: _canCreatePeople ? _createPerson : null,
             onRemove: lines.length == 1
                 ? null
                 : () {
@@ -997,14 +1031,14 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
         ),
       ),
       const SizedBox(height: 12),
+      // El total se dice una sola vez, arriba («TOTAL COMPRA»); aquí sólo la
+      // decisión de pago (2026-11-05). «Sí, pagué todo» paga ese total.
       _Section(
         key: const Key('purchase-paid-question'),
-        title: '¿Pagaste toda esta compra?',
+        title: '¿Ya pagaste al proveedor?',
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('Importe: ${formatBob(totalBob)}'),
-            const SizedBox(height: 10),
             // Sin respuesta por defecto: la persona elige. `SegmentedButton`
             // admite la selección vacía y muestra la elegida.
             SegmentedButton<bool>(
@@ -1402,6 +1436,7 @@ class _LineCard extends StatelessWidget {
     this.onRemove,
     this.personalOwnerName,
     this.onCreateProduct,
+    this.onCreatePerson,
   });
   final int index;
   final _PurchaseLineEditor line;
@@ -1419,6 +1454,10 @@ class _LineCard extends StatelessWidget {
 
   /// «Crear producto» en el selector; lo creado queda elegido en esta línea.
   final Future<Map<String, Object?>?> Function()? onCreateProduct;
+
+  /// «Agregar persona» en los selectores de persona del reparto; nulo si
+  /// las reglas vigentes no permiten crear personas (inventario propio).
+  final Future<Map<String, Object?>?> Function()? onCreatePerson;
 
   Map<String, Object?>? get selectedProduct {
     for (final product in products) {
@@ -1740,6 +1779,8 @@ class _LineCard extends StatelessWidget {
           line.singlePersonId = person?['id'] as int?;
           onChanged();
         },
+        createLabel: onCreatePerson == null ? null : 'Agregar persona',
+        onCreate: onCreatePerson,
       ),
       if (line.singlePersonId != null) ...[
         const SizedBox(height: 6),
@@ -1807,6 +1848,10 @@ class _LineCard extends StatelessWidget {
                         person?['id'] as int?;
                     onChanged();
                   },
+                  createLabel: onCreatePerson == null
+                      ? null
+                      : 'Agregar persona',
+                  onCreate: onCreatePerson,
                 ),
               ),
               const SizedBox(width: 8),

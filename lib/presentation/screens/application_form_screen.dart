@@ -12,6 +12,7 @@ import '../../domain/operation_mode.dart';
 import '../../domain/person_roles.dart';
 import '../../operation_mode_controller.dart';
 import '../widgets/adaptive_entity_picker.dart';
+import '../widgets/application_expiry_notice.dart';
 import '../widgets/catalog_dialogs.dart';
 import '../widgets/common.dart';
 import 'late_operations_screen.dart' show offerLateRegistration;
@@ -21,6 +22,10 @@ typedef _ApplicationCatalogs = ({
   List<Map<String, Object?>> people,
   List<Map<String, Object?>> farms,
   Map<String, Object?> campaign,
+
+  /// Productos activos del catálogo, para explicar cuáles no tienen
+  /// existencias de la persona (no sólo omitirlos de la lista).
+  List<Map<String, Object?>> products,
 });
 
 enum _ApplicationStep { who, products, review }
@@ -68,6 +73,16 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
   /// Titular vigente, para rotular su costo como propio (E-15).
   int? ownerPersonId;
 
+  /// Lotes que consumiría cada producto de la mezcla (por `product_id`),
+  /// leídos al pasar al resumen con la misma regla FIFO que la escritura
+  /// (`previewApplicationLots`). Sólo sirven para el aviso de vencimiento.
+  Map<Object?, List<ApplicationLotPreview>> lotPreview = {};
+  bool loadingPreview = false;
+  int _previewRequest = 0;
+
+  /// Ayuda breve «¿Cómo se calcula el costo?» del resumen, abierta o no.
+  bool showCostHelp = false;
+
   @override
   void initState() {
     super.initState();
@@ -95,13 +110,16 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
         operating.ownerPersonId != null;
     ownerPersonId = operating.ownerPersonId;
     final applicators = {for (final person in people) person['id']};
+    // Chacos y productos se leen a la vez: una sola espera más.
+    final read = await Future.wait([repo.farms(), repo.products()]);
     final result = (
       people: people,
       farms: [
-        for (final farm in await repo.farms())
+        for (final farm in read[0])
           if (applicators.contains(farm['owner_person_id'])) farm,
       ],
       campaign: active,
+      products: read[1],
     );
     if (widget.planId != null) {
       final plan = await repo.planForApplication(widget.planId!);
@@ -269,17 +287,90 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
           if (applicators.contains(farm['owner_person_id'])) farm,
       ],
       campaign: current.campaign,
+      products: current.products,
     );
-    if (mounted) {
-      setState(() {
-        // `SynchronousFuture`: el `FutureBuilder` toma la lista nueva en la
-        // misma reconstrucción. Con `Future.value` pasaba un fotograma con la
-        // lista vieja, el selector no encontraba lo elegido y autoelegía la
-        // única opción anterior encima de lo recién creado.
-        catalogs = SynchronousFuture(next);
-      });
-    }
+    _replaceCatalogs(next);
     return next.farms.where((f) => f['id'] == id).firstOrNull;
+  }
+
+  void _replaceCatalogs(_ApplicationCatalogs next) {
+    if (!mounted) return;
+    setState(() {
+      // `SynchronousFuture`: el `FutureBuilder` toma la lista nueva en la
+      // misma reconstrucción. Con `Future.value` pasaba un fotograma con la
+      // lista vieja, el selector no encontraba lo elegido y autoelegía la
+      // única opción anterior encima de lo recién creado.
+      catalogs = SynchronousFuture(next);
+    });
+  }
+
+  /// «Agregar persona» en el selector de persona: el alta de Catálogos con
+  /// su regla (sólo en compartido) y sólo con los tipos que pueden aplicar
+  /// (`createPersonFromDialog`). Se vuelven a leer sólo las personas; la
+  /// creada queda elegida por el selector (`selectPerson`), que lee sus
+  /// existencias. Fecha, área y notas se conservan. Si se cancela o falla,
+  /// nada cambia.
+  Future<Map<String, Object?>?> _createPerson() async {
+    final repo = ref.read(repositoryProvider);
+    final id = await createPersonFromDialog(
+      context,
+      repo,
+      purpose: PersonPurpose.applicator,
+    );
+    if (id == null) return null;
+    final current = await catalogs;
+    final people = await repo.peopleFor(PersonPurpose.applicator);
+    _replaceCatalogs((
+      people: people,
+      farms: current.farms,
+      campaign: current.campaign,
+      products: current.products,
+    ));
+    return people.where((p) => p['id'] == id).firstOrNull;
+  }
+
+  /// «Registrar compra» desde la mezcla: abre la compra **encima** de la
+  /// aplicación (`push`), así que al volver el borrador sigue entero —paso,
+  /// fecha, persona, chaco, área, mezcla, dosis y notas— y sólo se vuelven a
+  /// leer las existencias de la persona y el catálogo de productos.
+  Future<void> _registerPurchase() async {
+    await context.push<bool>('/compras/nueva');
+    if (!mounted) return;
+    await _refreshStock();
+  }
+
+  /// Relee las existencias de la persona elegida y actualiza lo disponible
+  /// de cada tarjeta de la mezcla (y su costo estimado), sin quitar ninguna.
+  Future<void> _refreshStock() async {
+    final id = personId;
+    if (id == null) return;
+    final repo = ref.read(repositoryProvider);
+    setState(() => loadingStock = true);
+    final fresh = await repo.availableProductsForOwner(id);
+    final products = await repo.products();
+    if (!mounted || personId != id) return;
+    final current = _latestCatalogs;
+    setState(() {
+      stocks = fresh;
+      loadingStock = false;
+      for (final line in lines) {
+        final productId = line.product['product_id'];
+        line.product =
+            fresh.where((row) => row['product_id'] == productId).firstOrNull ??
+            {...line.product, 'available_base': 0};
+      }
+      if (current != null) {
+        catalogs = SynchronousFuture((
+          people: current.people,
+          farms: current.farms,
+          campaign: current.campaign,
+          products: products,
+        ));
+      }
+    });
+    for (final line in List.of(lines)) {
+      await estimate(line);
+    }
   }
 
   /// Productos que todavía no están en la mezcla.
@@ -472,9 +563,56 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
           return;
         }
         setState(() => step = _ApplicationStep.review);
+        _loadLotPreview();
       case _ApplicationStep.review:
         break;
     }
+  }
+
+  /// Previsión de los lotes que usará cada producto en la fecha efectiva de
+  /// la aplicación, para el aviso de vencimiento del resumen. Se vuelve a
+  /// leer cada vez que se entra al resumen (la fecha, la persona o la mezcla
+  /// pudieron cambiar). Sólo informa: si no se puede leer (por ejemplo, el
+  /// cupo de una fecha pasada no alcanza), no se avisa y la confirmación
+  /// valida como siempre.
+  Future<void> _loadLotPreview() async {
+    final id = personId;
+    if (id == null) return;
+    final request = ++_previewRequest;
+    final appliedAt = effectiveInstantForDay(effectiveDay, DateTime.now());
+    final wanted = [
+      for (final line in lines)
+        (id: line.product['product_id']! as int, quantity: line.quantityBase),
+    ];
+    setState(() {
+      loadingPreview = true;
+      lotPreview = {};
+    });
+    final repo = ref.read(repositoryProvider);
+    final next = <Object?, List<ApplicationLotPreview>>{};
+    try {
+      // Todas las lecturas a la vez: el resumen no espera producto por
+      // producto.
+      final previews = await Future.wait([
+        for (final item in wanted)
+          repo.previewApplicationLots(
+            personId: id,
+            productId: item.id,
+            quantityBase: item.quantity,
+            appliedAt: appliedAt,
+          ),
+      ]);
+      for (var i = 0; i < wanted.length; i++) {
+        next[wanted[i].id] = previews[i];
+      }
+    } catch (_) {
+      // Sin previsión no hay aviso; nada más cambia.
+    }
+    if (!mounted || request != _previewRequest) return;
+    setState(() {
+      lotPreview = next;
+      loadingPreview = false;
+    });
   }
 
   Future<void> submit(_ApplicationCatalogs data) async {
@@ -781,6 +919,10 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
           labelOf: (p) => p['name'] as String,
           secondaryOf: (p) => personRoleLabel(p['role']),
           onChanged: selectPerson,
+          // Sólo en compartido (aquí nunca es propio ni de un plan), con la
+          // regla de Catálogos; la vuelve a comprobar el alta.
+          createLabel: 'Agregar persona',
+          onCreate: _createPerson,
         ),
       if (widget.planId == null) ...[
         const SizedBox(height: 12),
@@ -879,6 +1021,59 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
           onRemove: saving ? null : () => _removeLine(line),
           onDoseChanged: () => setState(() => dirty = true),
         ),
+      if (!loadingStock) ..._withoutStock(context),
+    ];
+  }
+
+  /// Por qué un producto del catálogo no se puede elegir: la persona no
+  /// tiene existencias de él (antes sólo faltaba en la lista, sin decir
+  /// por qué). Con «Registrar compra» se compra sin perder la aplicación.
+  List<Widget> _withoutStock(BuildContext context) {
+    final theme = Theme.of(context);
+    final data = _latestCatalogs;
+    final inStock = {for (final row in stocks) row['product_id']};
+    final missing = [
+      for (final product in data?.products ?? const <Map<String, Object?>>[])
+        if (!inStock.contains(product['id'])) product['name'].toString(),
+    ];
+    final person = data == null ? null : _person(data);
+    final who = personalMode
+        ? 'el titular'
+        : person?['name']?.toString() ?? 'esta persona';
+    return [
+      if (missing.isNotEmpty)
+        Padding(
+          padding: const EdgeInsets.only(top: 4, bottom: 4),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Icon(
+                Icons.info_outline,
+                size: 20,
+                color: theme.colorScheme.outline,
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Sin existencias de $who: ${missing.join(', ')}. '
+                  '${missing.length == 1 ? 'No aparece' : 'No aparecen'} en '
+                  '«Agregar producto» hasta que se registre una compra para '
+                  '$who.',
+                  key: const Key('application-without-stock'),
+                ),
+              ),
+            ],
+          ),
+        ),
+      Align(
+        alignment: Alignment.centerLeft,
+        child: TextButton.icon(
+          key: const Key('application-register-purchase'),
+          onPressed: saving ? null : _registerPurchase,
+          icon: const Icon(Icons.shopping_cart_outlined),
+          label: const Text('Registrar compra'),
+        ),
+      ),
     ];
   }
 
@@ -915,6 +1110,33 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
     final farm = _farm(data);
     final totalCost = lines.fold<int>(0, (sum, line) => sum + line.cost);
     return [
+      // Aviso de lote vencido, antes del resumen: se ve antes de confirmar.
+      if (loadingPreview)
+        const Padding(
+          padding: EdgeInsets.only(bottom: 8),
+          child: Center(
+            child: SizedBox.square(
+              dimension: 20,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+          ),
+        )
+      else
+        ApplicationExpiryNotice(
+          uses: expiringLotUses(
+            applicationDay: effectiveDay,
+            lines: [
+              for (final line in lines)
+                (
+                  productName: line.product['product_name'].toString(),
+                  unit: line.unit,
+                  lots: lotPreview[line.product['product_id']] ?? const [],
+                ),
+            ],
+          ),
+          applicationDay: effectiveDay,
+          isToday: effectiveDay == localDay(DateTime.now()),
+        ),
       Card(
         key: const Key('application-review'),
         child: Padding(
@@ -970,17 +1192,41 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
               const Divider(height: 20),
               // Lo que cuesta y lo que se cobra son dos cosas (B-06): el
               // costo sale de las compras que se irán usando; el cargo, de la
-              // política de la persona. Se muestran por separado.
-              Text(
-                'Costo total estimado: ${formatBob(totalCost)}',
-                key: const Key('application-review-cost'),
-                style: const TextStyle(fontWeight: FontWeight.w700),
+              // política de la persona. Se muestran por separado. Cómo se
+              // calcula el costo va en una ayuda breve que se abre a pedido
+              // (2026-11-05), para que el resumen se lea de un vistazo.
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Costo total estimado: ${formatBob(totalCost)}',
+                      key: const Key('application-review-cost'),
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                  IconButton(
+                    key: const Key('application-cost-help'),
+                    tooltip: '¿Cómo se calcula el costo?',
+                    isSelected: showCostHelp,
+                    icon: const Icon(Icons.help_outline),
+                    selectedIcon: const Icon(Icons.help),
+                    onPressed: () => setState(() {
+                      showCostHelp = !showCostHelp;
+                    }),
+                  ),
+                ],
               ),
-              Text(
-                'Según el precio de las compras que se irán usando, las más '
-                'antiguas primero.',
-                style: theme.textTheme.bodySmall,
-              ),
+              if (showCostHelp)
+                Text(
+                  'Se calcula con el precio de las compras de '
+                  '${personalMode ? 'el titular' : 'esta persona'} que se '
+                  'irán usando, las más antiguas primero. Cada producto '
+                  'cuesta la cantidad usada por el precio de su compra; si '
+                  'una compra no alcanza, se sigue con la siguiente. Es una '
+                  'estimación: el costo final se fija al confirmar.',
+                  key: const Key('application-cost-help-text'),
+                  style: theme.textTheme.bodySmall,
+                ),
               const SizedBox(height: 8),
               Text(
                 _chargeText(person, totalCost),

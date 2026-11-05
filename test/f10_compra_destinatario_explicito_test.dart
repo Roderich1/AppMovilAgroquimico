@@ -109,7 +109,7 @@ void main() {
     await openForm(tester, c);
 
     await choose(tester, 'Producto', 'Glifosato');
-    await tester.tap(find.text('Agregar producto'));
+    await tester.tap(find.text('Añadir otro producto'));
     await settle(tester);
 
     expect(find.text('Productos (2)'), findsOneWidget);

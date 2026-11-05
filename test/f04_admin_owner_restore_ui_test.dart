@@ -385,7 +385,7 @@ void main() {
       );
 
       c.read(routerProvider).push('/compras/nueva');
-      await waitFor(tester, find.text('Agregar producto'));
+      await waitFor(tester, find.text('Añadir otro producto'));
       await settle(tester);
       // Paso 1: proveedor y una línea; en propio no hay reparto que elegir.
       for (final label in ['Proveedor', 'Producto']) {

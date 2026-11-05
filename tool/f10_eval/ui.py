@@ -246,7 +246,7 @@ def purchase_form(supplier, p1, q1, c1, p2, q2, c2):
     tap(button["x"], button["y"], 2.0)
     choose(r"Proveedor Proveedor", rf"^{re.escape(supplier)}$")
     fill_line(1, p1, q1, c1)
-    add, _ = wait_for(r"^Agregar producto$")
+    add, _ = wait_for(r"^Añadir otro producto$")  # «Agregar producto» hasta UXJ-B (2026-11-05)
     tap(add["x"], add["y"], 1.2)
     fill_line(2, p2, q2, c2)
     hide_keyboard()

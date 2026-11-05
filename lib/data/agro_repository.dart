@@ -174,6 +174,38 @@ typedef PurchaseDetailRead = ({
   List<Map<String, Object?>> payments,
 });
 
+/// Una porción de la asignación FIFO de una aplicación: de qué lote y cuánto.
+typedef FifoTake = ({Map<String, Object?> lot, int take});
+
+/// Lote que una aplicación consumiría, según la previsión de sólo lectura
+/// [AgroRepository.previewApplicationLots]. [expiryDay] es el día civil
+/// `aaaa-mm-dd` registrado en la compra, o nulo si no se registró.
+typedef ApplicationLotPreview = ({
+  int lotId,
+  int quantityBase,
+  String? expiryDay,
+  String? lotNumber,
+});
+
+/// Reparto FIFO de [quantityBase] sobre [lots], ya ordenados del más antiguo
+/// al más nuevo y con su cupo en `available`. Es **la** regla de asignación
+/// de una aplicación: la usan la escritura (`confirmApplication`) y la
+/// previsión que muestra el formulario, para que lo previsto y lo consumido
+/// no puedan divergir. Si el cupo no alcanza, reparte lo que hay; quien
+/// escribe ya lo rechazó antes.
+List<FifoTake> fifoTakes(List<Map<String, Object?>> lots, int quantityBase) {
+  final takes = <FifoTake>[];
+  var remaining = quantityBase;
+  for (final lot in lots) {
+    if (remaining <= 0) break;
+    final lotAvailable = lot['available']! as int;
+    final take = remaining < lotAvailable ? remaining : lotAvailable;
+    takes.add((lot: lot, take: take));
+    remaining -= take;
+  }
+  return takes;
+}
+
 /// RF-03: resultado de confirmar o rechazar un borrador tardío.
 enum LateResolutionOutcome { confirmed, rejected, conflict }
 
@@ -1515,12 +1547,9 @@ class AgroRepository {
             ? null
             : line.quantityBase - line.theoreticalQuantityBase!,
       });
-      var remaining = line.quantityBase;
       var lineCost = 0;
-      for (final lot in lots) {
-        if (remaining == 0) break;
-        final lotAvailable = lot['available']! as int;
-        final take = remaining < lotAvailable ? remaining : lotAvailable;
+      // La misma regla que la previsión del formulario (`fifoTakes`).
+      for (final (:lot, :take) in fifoTakes(lots, line.quantityBase)) {
         final cost = costForBaseQuantity(
           take,
           lot['unit_cost_bob_minor_per_major_unit']! as int,
@@ -1542,7 +1571,6 @@ class AgroRepository {
           'reference_id': applicationId,
         });
         lineCost += cost;
-        remaining -= take;
       }
       await txn.update(
         'application_items',
@@ -4264,6 +4292,35 @@ class AgroRepository {
       'next_fifo_cost_minor': lots.isEmpty ? 0 : lots.first['unit_cost'],
       'available_lots': lots.length,
     };
+  }
+
+  /// Previsión de **sólo lectura** de los lotes que consumiría una aplicación
+  /// de [quantityBase] de [productId] por [personId] en la fecha
+  /// [appliedAt]: los mismos lotes elegibles que leería `confirmApplication`
+  /// (hoy, el saldo actual; un día pasado, el cupo histórico de D-03) y el
+  /// mismo reparto ([fifoTakes]). No escribe nada ni cambia el orden de
+  /// consumo; el formulario la usa para avisar de un lote vencido antes de
+  /// confirmar (RN-31, RN-32: el aviso no bloquea).
+  Future<List<ApplicationLotPreview>> previewApplicationLots({
+    required int personId,
+    required int productId,
+    required int quantityBase,
+    required DateTime appliedAt,
+  }) async {
+    final db = await _db;
+    final day = localDay(appliedAt);
+    final lots = day == localDay(DateTime.now())
+        ? await _lotsAvailableNow(db, productId, personId)
+        : await _lotsAvailableAt(db, productId, personId, day);
+    return [
+      for (final (:lot, :take) in fifoTakes(lots, quantityBase))
+        (
+          lotId: lot['id']! as int,
+          quantityBase: take,
+          expiryDay: lot['expiry_date'] as String?,
+          lotNumber: lot['lot_number'] as String?,
+        ),
+    ];
   }
 
   Future<int> estimateFifoCost({

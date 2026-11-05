@@ -113,7 +113,7 @@ void main() {
     await tester.enterText(field('Cantidad comprada'), '2');
     await tester.enterText(field('Precio BOB/L'), '45');
     await settle(tester);
-    await tester.tap(find.text('Agregar producto'));
+    await tester.tap(find.text('Añadir otro producto'));
     await settle(tester);
     expect(find.text('Productos (2)'), findsOneWidget);
   }
@@ -276,7 +276,9 @@ void main() {
     await save(
       tester,
       'el alta del producto',
-      () => pickerAt(tester, 'Agregar producto').value != null,
+      () =>
+          pickerAt(tester, 'Agregar producto').value?['name'] ==
+          'Cipermetrina UX',
     );
 
     expect(
