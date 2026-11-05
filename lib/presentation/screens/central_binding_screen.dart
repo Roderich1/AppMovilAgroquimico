@@ -320,13 +320,7 @@ class _CentralBindingScreenState extends ConsumerState<CentralBindingScreen> {
         (
           central,
           '${central.name} (${central.unit})',
-          !central.linkable
-              ? 'Unidad central sin equivalencia L/KG'
-              : !central.isActive
-              ? 'Inactivo en el sindicato'
-              : central.baseUnit != localBase
-              ? 'Unidad distinta: no se convierte'
-              : null,
+          _productDisabledReason(central, localBase),
         ),
     ]);
     if (chosen == null || !mounted) return;
@@ -364,29 +358,95 @@ class _CentralBindingScreenState extends ConsumerState<CentralBindingScreen> {
     _reloadLocal();
   }
 
+  /// Estado del vínculo en la fila: «vigente» o, si no lo está, el motivo.
   String _status(BindingStatus status, BindingInvalidReason? reason) =>
       status == BindingStatus.valid
       ? 'vigente'
-      : 'inválido: ${reason!.message}';
+      : 'Requiere atención: ${reason!.message}';
 
-  String _describeCampaign(CampaignBinding b, CampaignPeriod local) {
+  /// Fila de una campaña vinculada: el vínculo, su estado y, si el período
+  /// no cabe, el problema con los dos períodos, cuántos aportes lo usan y qué
+  /// hacer (D-F04-C2). Todo en la fila afectada.
+  String _describeCampaign(
+    CampaignBinding b,
+    CampaignPeriod local,
+    CampaignBindingReview? review,
+  ) {
     final central = b.centralPeriod;
-    final problem = (b.invalidReason?.holdsQueue ?? false)
+    final problem = (b.invalidReason?.holdsQueue ?? false) || review != null
         ? CentralBindingStore.periodProblem(b, local)
         : null;
     return '${b.centralName}'
         '${central == null ? '' : ' (${central.describe})'} · '
         '${_status(b.status, b.invalidReason)}'
-        '${problem == null ? '' : '\n$problem'}';
+        '${problem == null ? '' : '\n$problem'}'
+        '${review == null ? '' : '\nAceptados con este vínculo: ${review.acceptedContributions} · en cola, retenidos: ${review.heldIntentions}. Fije el fin previsto o corrija el vínculo; para retirar un total aceptado, use «Consumo para el sindicato» o «Necesidades».'}';
   }
+
+  /// Fila de un producto vinculado. Si la unidad dejó de ser compatible, la
+  /// fila dice las dos unidades.
+  String _describeProduct(ProductBinding b, Map<String, Object?> product) {
+    final unitDetail = b.invalidReason == BindingInvalidReason.notLinkable
+        ? '\nUnidad del sindicato: ${b.centralUnit}; local: ${product['unit']}. '
+              'No se convierte entre volumen y masa.'
+        : '';
+    return '${b.centralName} · ${_status(b.status, b.invalidReason)}'
+        '$unitDetail';
+  }
+
+  /// Sin vínculo y con las referencias ya leídas: si ninguna opción del
+  /// sindicato se puede elegir, por qué, en la fila (sin consultas: sólo las
+  /// referencias en memoria). Null si hay alguna opción o no se leyeron.
+  String? _noCompatibleCampaign(CampaignPeriod local) {
+    final refs = references;
+    if (refs == null) return null;
+    if (refs.campaigns.any((c) => _disabledReason(local, c) == null)) {
+      return null;
+    }
+    return refs.campaigns.isEmpty
+        ? 'El sindicato no tiene campañas para elegir.'
+        : 'Ninguna campaña del sindicato es compatible: o no admite aportes, '
+              'o este período no cabe en el suyo. «Vincular…» muestra el '
+              'motivo de cada una.';
+  }
+
+  String? _noCompatibleProduct(Map<String, Object?> product) {
+    final refs = references;
+    if (refs == null) return null;
+    final reasons = [
+      for (final central in refs.products)
+        _productDisabledReason(
+          central,
+          BaseUnit.fromCode(product['base_unit']),
+        ),
+    ];
+    if (reasons.any((reason) => reason == null)) return null;
+    if (reasons.isEmpty) return 'El sindicato no tiene productos para elegir.';
+    final distinct = [
+      for (final reason in reasons.whereType<String>().toSet())
+        reason[0].toLowerCase() + reason.substring(1),
+    ];
+    return 'Ningún producto del sindicato es compatible: '
+        '${distinct.join('; ')}.';
+  }
+
+  /// Por qué no se puede elegir [central] para un producto local en
+  /// [localBase]; null si se puede.
+  String? _productDisabledReason(CentralProduct central, BaseUnit? localBase) =>
+      !central.linkable
+      ? 'Unidad central sin equivalencia L/KG'
+      : !central.isActive
+      ? 'Inactivo en el sindicato'
+      : central.baseUnit != localBase
+      ? 'Unidad distinta: no se convierte'
+      : null;
 
   @override
   Widget build(BuildContext context) => PageFrame(
     title: 'Vincular con el sindicato',
-    subtitle:
-        'Elija el equivalente del sindicato para cada campaña y producto. '
-        'Nada se vincula por nombre. El período de la campaña local tiene que '
-        'caber en el de la campaña del sindicato.',
+    // Texto inicial corto (pedido del autor del 2026-11-05): lo que ayuda a
+    // resolver un problema está en la fila afectada y en los diálogos.
+    subtitle: 'Elija el equivalente del sindicato.',
     // Etiqueta corta: en una cabecera de móvil un botón ancho deja sin
     // espacio al título y al subtítulo.
     action: FilledButton.tonalIcon(
@@ -423,41 +483,25 @@ class _CentralBindingScreenState extends ConsumerState<CentralBindingScreen> {
                 child: ListTile(
                   leading: Icon(Icons.info_outline),
                   title: Text(
-                    'Actualice las referencias para vincular o revisar los '
-                    'vínculos con el sindicato.',
+                    'Pulse «Actualizar» para ver las opciones del sindicato.',
                   ),
                 ),
               ),
+            // Aviso breve; el detalle (los dos períodos, los aportes y qué
+            // hacer) va en la fila de cada campaña afectada.
             if (data.reviews.isNotEmpty) ...[
               const SizedBox(height: 12),
               Card(
                 key: const Key('period-review'),
                 color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                child: Column(
-                  children: [
-                    const ListTile(
-                      leading: Icon(Icons.event_busy_outlined),
-                      title: Text('Requiere revisión: período de campaña'),
-                      subtitle: Text(
-                        'Estos vínculos no publican totales nuevos. Lo ya '
-                        'aceptado por el sindicato se conserva tal cual y lo '
-                        'que espera en la cola no se envía ni se borra. Fije '
-                        'el fin previsto, corrija el vínculo o retire el total '
-                        'desde «Consumo para el sindicato» o «Necesidades».',
-                      ),
-                    ),
-                    for (final review in data.reviews)
-                      ListTile(
-                        title: Text(review.local.name),
-                        subtitle: Text(
-                          '${CentralBindingStore.periodProblem(review.binding, review.local) ?? ''}\n'
-                          'Aportes aceptados con este vínculo: '
-                          '${review.acceptedContributions} · en cola, '
-                          'retenidos: ${review.heldIntentions}',
-                        ),
-                        isThreeLine: true,
-                      ),
-                  ],
+                child: ListTile(
+                  leading: const Icon(Icons.event_busy_outlined),
+                  title: const Text('Requiere revisión: período de campaña'),
+                  subtitle: Text(
+                    '${data.reviews.map((review) => review.local.name).join(', ')}: '
+                    'no se envían totales nuevos; lo aceptado se conserva y '
+                    'lo que espera en la cola no se borra.',
+                  ),
                 ),
               ),
             ],
@@ -480,8 +524,8 @@ class _CentralBindingScreenState extends ConsumerState<CentralBindingScreen> {
                     _row(
                       label: '${product['name']} (${product['unit']})',
                       binding: data.productBindings[product['id']],
-                      describe: (b) =>
-                          '${b.centralName} · ${_status(b.status, b.invalidReason)}',
+                      describe: (b) => _describeProduct(b, product),
+                      unboundDetail: _noCompatibleProduct(product),
                       onBind: () => _bindProduct(product),
                       onUnbind: () => _unbind(
                         product['name']! as String,
@@ -502,16 +546,23 @@ class _CentralBindingScreenState extends ConsumerState<CentralBindingScreen> {
   Widget _campaignRow(Map<String, Object?> campaign, _LocalCatalog data) {
     final local = CampaignPeriod.fromRow(campaign);
     final binding = data.campaignBindings[local.id];
+    final review = data.reviews
+        .where((r) => r.binding.campaignId == local.id)
+        .firstOrNull;
     final canSetEnd = local.status == 'ACTIVE' || local.status == 'PLANNED';
+    final unboundDetail = binding == null ? _noCompatibleCampaign(local) : null;
     return ListTile(
       key: Key('campaign-binding-${local.id}'),
       title: Text('${local.name} (${local.describe})'),
       subtitle: Text(
         binding == null
             ? 'Requiere vinculación'
-            : _describeCampaign(binding, local),
+                  '${unboundDetail == null ? '' : '\n$unboundDetail'}'
+            : _describeCampaign(binding, local, review),
       ),
-      isThreeLine: binding != null && !binding.isValid,
+      isThreeLine:
+          (binding != null && (!binding.isValid || review != null)) ||
+          unboundDetail != null,
       trailing: PopupMenuButton<String>(
         tooltip: 'Opciones de vínculo',
         onSelected: (value) => switch (value) {
@@ -546,10 +597,14 @@ class _CentralBindingScreenState extends ConsumerState<CentralBindingScreen> {
     required String Function(B binding) describe,
     required VoidCallback onBind,
     required VoidCallback onUnbind,
+    String? unboundDetail,
   }) => ListTile(
     title: Text(label),
     subtitle: Text(
-      binding == null ? 'Requiere vinculación' : describe(binding),
+      binding == null
+          ? 'Requiere vinculación'
+                '${unboundDetail == null ? '' : '\n$unboundDetail'}'
+          : describe(binding),
     ),
     trailing: PopupMenuButton<String>(
       tooltip: 'Opciones de vínculo',

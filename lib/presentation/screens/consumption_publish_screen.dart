@@ -7,13 +7,24 @@ import 'package:go_router/go_router.dart';
 import '../../data/sync/consumption_publisher.dart';
 import '../../domain/money.dart';
 import '../../domain/sync/consumption_projection.dart';
-import '../../domain/sync/sync_types.dart' show OutboxStatus;
+import '../../domain/sync/sync_types.dart'
+    show
+        OutboxStatus,
+        SyncAction,
+        SyncCodeFamily,
+        syncCodeExplanation,
+        syncCodeFamily;
 import '../../services/sync/sync_providers.dart';
 import '../widgets/common.dart';
 import '../widgets/sync_status_banner.dart';
 
 /// Publicación explícita del consumo al sindicato (MOB #33): la vista previa
 /// no escribe nada; sólo «Publicar» encola, y sólo los totales que cambiaron.
+///
+/// Cada fila dice su estado en tres palabras («Pendiente», «Enviado»,
+/// «Requiere atención»), derivado de la outbox. No hay envío automático: la
+/// publicación sigue siendo una acción expresa del agricultor (F04 §2.4; la
+/// propuesta de envío automático está en `docs/adr/F06-ADR-006-*`, Proposed).
 class ConsumptionPublishScreen extends ConsumerStatefulWidget {
   const ConsumptionPublishScreen({super.key});
 
@@ -203,13 +214,19 @@ class _ConsumptionPublishScreenState
                 ),
               for (final row in data.rows)
                 Card(
+                  key: Key(
+                    'consumption-${row.target.campaignRef}-${row.target.productRef}',
+                  ),
                   child: ListTile(
+                    // Decorativo: la palabra del estado está en el texto.
+                    leading: Icon(_stateIcon(row.sendState)),
                     title: Text('${row.productName} · ${row.campaignName}'),
                     subtitle: Text(
-                      '${_total(row)} · ${_changeLabel(row)}'
+                      '${_total(row)} · ${_stateWord(row.sendState)}\n'
+                      '${_changeLabel(row)}'
                       '${row.blockedDetail == null ? '' : '\n${row.blockedDetail}'}',
                     ),
-                    isThreeLine: row.blockedDetail != null,
+                    isThreeLine: true,
                     trailing: row.change == ConsumptionChange.conflict
                         ? TextButton(
                             onPressed: () => _resolve(row),
@@ -238,24 +255,78 @@ class _ConsumptionPublishScreenState
     );
   }
 
+  /// Las tres palabras de estado (pedido del autor del 2026-11-05). La
+  /// publicación sigue siendo expresa: «Pendiente» incluye lo que espera a
+  /// que usted pulse «Publicar».
+  static String _stateWord(ConsumptionSendState state) => switch (state) {
+    ConsumptionSendState.pending => 'Pendiente',
+    ConsumptionSendState.sent => 'Enviado',
+    ConsumptionSendState.attention => 'Requiere atención',
+  };
+
+  static IconData _stateIcon(ConsumptionSendState state) => switch (state) {
+    ConsumptionSendState.pending => Icons.schedule,
+    ConsumptionSendState.sent => Icons.cloud_done_outlined,
+    ConsumptionSendState.attention => Icons.error_outline,
+  };
+
+  /// Frase con punto final (las explicaciones por familia no lo llevan).
+  static String _sentence(String text) => text.endsWith('.') ? text : '$text.';
+
   String _changeLabel(ConsumptionPreviewRow row) {
-    final before = row.prior?.quantityBase;
+    final prior = row.prior;
+    final before = prior?.quantityBase;
     final previous = before == null
         ? ''
         : ' (antes ${formatQuantity(int.parse(before), row.baseUnit.majorUnit)})';
-    return switch (row.change) {
-      ConsumptionChange.publish => 'Nuevo: se publicará',
-      ConsumptionChange.supersede => 'Cambió: se sustituirá$previous',
+    // Estado de la última intención vigente, si dice algo más que «aceptado»
+    // (pausas, acceso sin verificar, en camino).
+    final priorPhrase = prior == null || prior.action == SyncAction.cancel
+        ? null
+        : outboxStatusPhrase(
+            prior.status,
+            attempts: prior.attempts,
+            conflictResolved: prior.resolvedAt != null,
+          );
+    final access =
+        prior != null &&
+            prior.status.isSendable &&
+            syncCodeFamily(prior.lastCode) == SyncCodeFamily.authorization
+        ? ' ${_sentence(syncCodeExplanation(prior.lastCode)!)}'
+        : '';
+    final rejection = row.lastRejection;
+    final rejected = rejection == null
+        ? ''
+        : ' El sindicato rechazó el último envío: '
+              '${_sentence(rejection.interventionMessage ?? syncCodeExplanation(rejection.lastCode) ?? 'sin motivo informado')}';
+    final label = switch (row.change) {
+      ConsumptionChange.publish =>
+        prior != null && prior.action == SyncAction.cancel
+            ? 'Retirado del sindicato: se publicará otra vez si pulsa '
+                  '«Publicar».'
+            : 'Nuevo: se publicará si pulsa «Publicar».',
+      ConsumptionChange.supersede =>
+        'Cambió$previous: sustituirá al anterior si pulsa «Publicar».'
+            '${priorPhrase == null || prior!.status == OutboxStatus.acked ? '' : ' Último envío: ${_sentence(priorPhrase)}'}',
       // C-12: el estado en palabras, sin dos puntos dobles.
-      ConsumptionChange.unchanged =>
-        'Sin cambios · ${outboxStatusPhrase(row.prior!.status, attempts: row.prior!.attempts, conflictResolved: row.prior!.resolvedAt != null)}',
-      ConsumptionChange.conflict => 'Conflicto con el sindicato: decida usted',
+      ConsumptionChange.unchanged => 'Sin cambios · ${priorPhrase!}.',
+      ConsumptionChange.conflict =>
+        'En conflicto con el sindicato: decida usted.',
       ConsumptionChange.blocked =>
-        row.prior != null && row.prior!.status == OutboxStatus.acked
+        prior != null && prior.status == OutboxStatus.acked
             ? 'Vínculo no vigente: el total aceptado requiere revisión; no se '
-                  'publica otro'
-            : 'Vínculo no vigente: no se publica',
+                  'publica otro.'
+            : 'Vínculo no vigente: no se publica.',
+      // F04 §2.4: terminal; el mensaje vigente, sin reintento ni otra campaña.
+      ConsumptionChange.rejected => _sentence(
+        rejection?.interventionMessage ??
+            syncCodeExplanation(rejection?.lastCode) ??
+            'El sindicato rechazó el último envío.',
+      ),
     };
+    return row.change == ConsumptionChange.rejected
+        ? label
+        : '$label$rejected$access';
   }
 
   List<Widget> _exclusions(ConsumptionPreview data) {
