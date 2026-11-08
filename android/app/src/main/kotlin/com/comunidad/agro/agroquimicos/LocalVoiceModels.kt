@@ -32,6 +32,23 @@ class LocalVoiceModels(private val context: Context) {
     val voskName: String? get() = manifest?.optJSONObject("vosk")?.optString("name")
     val whisperName: String? get() = manifest?.optJSONObject("whisper")?.optString("name")
 
+    /**
+     * Variante del modelo de revisión elegida al compilar (`base`, `small`),
+     * o `null` si el manifiesto no la declara (APK anteriores: Dart la deduce
+     * del nombre).
+     */
+    val whisperVariant: String?
+        get() = manifest?.optJSONObject("whisper")?.optString("variant")?.takeIf { it.isNotEmpty() }
+
+    /** Bytes del modelo de revisión según el manifiesto, o `null`. */
+    val whisperBytes: Long?
+        get() {
+            val files = manifest?.optJSONObject("whisper")?.optJSONObject("files") ?: return null
+            var total = 0L
+            for (name in files.keys()) total += files.getJSONObject(name).optLong("size", 0L)
+            return total.takeIf { it > 0 }
+        }
+
     /** Carpeta de Vosk lista para `Model(path)`. Lanza [ModelException]. */
     fun vosk(): File {
         val entry = manifest?.optJSONObject("vosk") ?: throw ModelException("model-missing")

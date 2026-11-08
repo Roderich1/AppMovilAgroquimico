@@ -1,9 +1,11 @@
 import 'dart:async';
+import 'dart:collection';
 
 import 'package:flutter/services.dart';
 
 import '../../data/app_log.dart';
 import 'native_event_hub.dart';
+import 'review_capability.dart';
 import 'review_selection.dart';
 import 'speech_transcription_port.dart';
 
@@ -28,6 +30,24 @@ import 'speech_transcription_port.dart';
 ///   disponibilidad lo dice: `recognizerAvailable` es `false` y la sesión no
 ///   abre el micrófono. La escritura a mano no depende de nada de esto.
 ///
+/// ## Segunda pasada condicional (#166)
+///
+/// * **Sólo si el teléfono la admite.** [checkAvailability] lee los hechos del
+///   aparato (memoria total, poca memoria, fallo de carga) y los decide con
+///   [ReviewCapabilityPolicy]. Si no la admite, el turno se pide **sin**
+///   revisión —el lado nativo ni siquiera carga el modelo— y la disponibilidad
+///   lo dice: `reviewModel` es `null` y `reviewDetail` lleva el motivo.
+/// * **Una sola transcripción por frase.** Cada frase numerada se entrega una
+///   vez, con el texto de Vosk **o** el de la revisión, nunca los dos ni una
+///   mezcla ([chooseReviewedText]). Un segundo resultado de la misma frase se
+///   descarta.
+/// * **Tope por frase.** Si la revisión de una frase no llega en
+///   [reviewTimeout] desde que Vosk la cerró, se entrega el texto de Vosk sin
+///   esperar más, y la revisión que llegue después se descarta. Un fallo de la
+///   revisión (`review: null`) también deja el texto de Vosk.
+/// * **Cancelar descarta** las revisiones pendientes; detener las espera como
+///   mucho hasta su tope, y lo que llegue tras el cierre del turno no entra.
+///
 /// La disciplina de turno es la misma: un turno abierto acaba **siempre** en
 /// exactamente un [TranscriptionTurnEnded].
 final class LocalSpeechTranscriptionAdapter implements SpeechTranscriptionPort {
@@ -35,9 +55,12 @@ final class LocalSpeechTranscriptionAdapter implements SpeechTranscriptionPort {
     MethodChannel? method,
     EventChannel? event,
     ReviewFacts? facts,
+    ReviewCapabilityPolicy capabilityPolicy = const ReviewCapabilityPolicy(),
+    this.reviewTimeout = defaultReviewTimeout,
   }) : _method = method ?? const MethodChannel(methodChannelName),
        _event = event ?? const EventChannel(eventChannelName),
-       _facts = facts {
+       _facts = facts,
+       _capabilityPolicy = capabilityPolicy {
     _lease = NativeEventHub.attach(
       _event,
       onEvent: _onNativeEvent,
@@ -57,13 +80,41 @@ final class LocalSpeechTranscriptionAdapter implements SpeechTranscriptionPort {
   /// Margen para que el motor entregue lo pendiente tras pedir detener.
   static const stopGrace = Duration(seconds: 15);
 
+  /// Tope por defecto de la revisión de una frase, desde que Vosk la cerró.
+  ///
+  /// Es el p95 que #12 exige al final de Whisper small en frases de hasta
+  /// 20 s (≤ 5 000 ms): una revisión más lenta que eso ya no cumple el umbral
+  /// que habilita la segunda pasada, y esperar más sólo retrasaría el borrador.
+  static const defaultReviewTimeout = Duration(milliseconds: 5000);
+
+  /// Tope de la revisión de cada frase. Pasado, queda el texto de Vosk.
+  final Duration reviewTimeout;
+
   final MethodChannel _method;
   final EventChannel _event;
 
   /// Con qué se comprueba que la revisión no cambia cantidades. Sin ella, la
   /// revisión no se acepta.
   final ReviewFacts? _facts;
+  final ReviewCapabilityPolicy _capabilityPolicy;
   late final NativeEventLease _lease;
+
+  /// Si este aparato admite la segunda pasada. Hasta la primera consulta de
+  /// disponibilidad, desconocido (y entonces no se usa).
+  ReviewCapability _capability = ReviewCapability.unknown;
+  bool _capabilityKnown = false;
+
+  /// Frases cerradas por Vosk que esperan su revisión, por número.
+  final SplayTreeMap<int, _PendingPhrase> _pending =
+      SplayTreeMap<int, _PendingPhrase>();
+
+  /// Frases ya entregadas en este turno: cada número entra una sola vez.
+  final Set<int> _delivered = <int>{};
+
+  /// Frases entregadas por tope cuyo resultado nativo aún no llegó. El
+  /// parcial nativo todavía las incluye al principio, y se quitan de él para
+  /// no mostrarlas dos veces.
+  final List<_PendingPhrase> _expiredAwaitingNative = <_PendingPhrase>[];
 
   /// Último número de turno entregado en este proceso. Compartido entre
   /// instancias: dos pantallas vivas a la vez no pueden repetir número.
@@ -125,7 +176,14 @@ final class LocalSpeechTranscriptionAdapter implements SpeechTranscriptionPort {
         }
       }
       final usable = present && _prepareError == null;
-      final reviewModel = (map['reviewAvailable'] as bool? ?? false)
+      final capability = _capabilityPolicy.evaluate(
+        ReviewDeviceFacts.fromDescribe(map),
+      );
+      _capability = capability;
+      _capabilityKnown = true;
+      // Sólo códigos: ningún dato dictado.
+      AppLog.info('voz local: segunda pasada ${capability.reason}');
+      final reviewModel = capability.allowed
           ? map['reviewModel'] as String?
           : null;
       final availability = TranscriptionAvailability(
@@ -142,6 +200,7 @@ final class LocalSpeechTranscriptionAdapter implements SpeechTranscriptionPort {
         engineName: map['engineName'] as String? ?? '',
         engineVersion: map['engineVersion'] as String? ?? '',
         reviewModel: usable ? reviewModel : null,
+        reviewDetail: usable ? capability.reason : null,
         detail: present ? _prepareError : 'model-missing',
       );
       _emit(TranscriptionAvailabilityObserved(availability));
@@ -168,14 +227,21 @@ final class LocalSpeechTranscriptionAdapter implements SpeechTranscriptionPort {
     _turnOpen = true;
     final generation = _generation = ++_lastGeneration;
     _segments = 0;
+    _resetPhrases();
     _deadlineHit = false;
     _clock = Stopwatch()..start();
     _turnBudget = request.maxTurnDuration;
     try {
+      // Sin consulta previa no se sabe si el aparato admite la revisión: se
+      // pregunta ahora, sin emitir nada.
+      if (request.review && !_capabilityKnown) await _refreshCapability();
+      // Cancelado mientras se consultaba: no se abre nada.
+      if (!_turnOpen || _generation != generation) return;
       final reply = await _method.invokeMethod<String>('start', {
         'gen': generation,
         'hints': _hintText(request.hints),
-        'review': request.review,
+        'review': request.review && _capability.allowed,
+        'reviewTimeoutMs': reviewTimeout.inMilliseconds,
       });
       // Habrá diálogo de permiso: se avisa ahora, antes de la pausa que
       // provoca, para que la sesión no la tome por «el usuario se fue».
@@ -256,6 +322,21 @@ final class LocalSpeechTranscriptionAdapter implements SpeechTranscriptionPort {
 
   // ---------------------------------------------------------------- privado
 
+  Future<void> _refreshCapability() async {
+    try {
+      final map =
+          await _method.invokeMapMethod<String, Object?>('describe') ??
+          const <String, Object?>{};
+      _capability = _capabilityPolicy.evaluate(
+        ReviewDeviceFacts.fromDescribe(map),
+      );
+      _capabilityKnown = true;
+    } on Object {
+      // Sin datos, sin revisión: el turno sigue sólo con Vosk.
+      _capability = ReviewCapability.unknown;
+    }
+  }
+
   /// La pista que recibe la segunda pasada: nombres separados por comas, con
   /// tope de longitud (Whisper admite unos 220 símbolos de contexto).
   static String _hintText(List<String> hints) {
@@ -310,15 +391,43 @@ final class LocalSpeechTranscriptionAdapter implements SpeechTranscriptionPort {
         }
 
       case 'partial':
+        final (text, reviewing) = _withoutExpired(
+          map['text'] as String? ?? '',
+          map['reviewing'] as int? ?? 0,
+        );
         _emit(
-          TranscriptionPartial(
-            map['text'] as String? ?? '',
-            elapsed: _elapsed,
-            reviewing: map['reviewing'] as int? ?? 0,
-          ),
+          TranscriptionPartial(text, elapsed: _elapsed, reviewing: reviewing),
         );
 
+      // Vosk cerró una frase; su revisión, si la hay, viene después. Desde
+      // aquí corre el tope de esa frase.
+      case 'phrase':
+        final seq = map['seq'] as int?;
+        if (seq == null ||
+            _delivered.contains(seq) ||
+            _pending.containsKey(seq)) {
+          return;
+        }
+        final phrase = _PendingPhrase(
+          seq,
+          map['vosk'] as String? ?? '',
+          reviewed: map['review'] as bool? ?? false,
+        );
+        _pending[seq] = phrase;
+        phrase.timer = Timer(reviewTimeout, () => _expireUpTo(seq));
+
       case 'segment':
+        final seq = map['seq'] as int?;
+        if (seq != null) {
+          _expiredAwaitingNative.removeWhere((p) => p.seq == seq);
+          if (_delivered.contains(seq)) {
+            // Ya se entregó (por tope, o repetido): una revisión tardía no
+            // sustituye ni se suma a lo entregado.
+            AppLog.info('voz local: frase $seq resultado tardío descartado');
+            return;
+          }
+          _pending.remove(seq)?.timer?.cancel();
+        }
         final choice = chooseReviewedText(
           map['vosk'] as String? ?? '',
           map['review'] as String?,
@@ -326,24 +435,19 @@ final class LocalSpeechTranscriptionAdapter implements SpeechTranscriptionPort {
         );
         // Diagnóstico con códigos y tiempos, nunca con lo dictado.
         AppLog.info(
-          'voz local: frase ${map['seq']} ${choice.verdict.name} '
+          'voz local: frase $seq ${choice.verdict.name} '
           'revision=${map['reviewMs']}ms',
         );
-        if (choice.text.isEmpty) return;
-        _segments++;
-        _emit(
-          TranscriptionSegment(
-            choice.text,
-            elapsed: _elapsed,
-            sequence: map['seq'] as int?,
-            revised: choice.revised,
-          ),
-        );
+        _deliver(seq, choice.text, revised: choice.revised);
 
       case 'error':
         _failTurn(_codeFrom(map['code'] as String?), map['detail'] as String?);
 
       case 'ended':
+        // El motor siempre entrega sus frases antes de cerrar. Si alguna
+        // quedó pendiente, se entrega como la oyó Vosk: lo dicho no se pierde
+        // y su revisión se descarta.
+        _expireUpTo(null);
         final reason = switch (map['reason']) {
           'timeout' => TranscriptionEndReason.timeout,
           'error' => TranscriptionEndReason.error,
@@ -361,6 +465,66 @@ final class LocalSpeechTranscriptionAdapter implements SpeechTranscriptionPort {
         }
         _closeTurn(reason);
     }
+  }
+
+  /// Entrega una frase una sola vez.
+  void _deliver(int? seq, String text, {required bool revised}) {
+    if (seq != null && !_delivered.add(seq)) return;
+    if (text.isEmpty) return;
+    _segments++;
+    _emit(
+      TranscriptionSegment(
+        text,
+        elapsed: _elapsed,
+        sequence: seq,
+        revised: revised,
+      ),
+    );
+  }
+
+  /// Venció el tope de la frase [last] (o, con `null`, el turno se cierra):
+  /// ella y las anteriores pendientes salen con el texto de Vosk, en orden.
+  void _expireUpTo(int? last) {
+    if (!_turnOpen) return;
+    final due = _pending.keys
+        .where((seq) => last == null || seq <= last)
+        .toList(growable: false);
+    for (final seq in due) {
+      final phrase = _pending.remove(seq)!;
+      phrase.timer?.cancel();
+      AppLog.info('voz local: frase $seq ${ReviewVerdict.timedOut.name}');
+      _expiredAwaitingNative.add(phrase);
+      _deliver(seq, phrase.vosk.trim(), revised: false);
+    }
+  }
+
+  /// El parcial nativo empieza por las frases que esperan revisión. Las que ya
+  /// se entregaron por tope se quitan, para no mostrarlas dos veces.
+  (String, int) _withoutExpired(String text, int reviewing) {
+    var rest = text;
+    var count = reviewing;
+    for (final phrase in _expiredAwaitingNative) {
+      final vosk = phrase.vosk.trim();
+      if (vosk.isEmpty) continue;
+      if (rest == vosk) {
+        rest = '';
+      } else if (rest.startsWith('$vosk ')) {
+        rest = rest.substring(vosk.length + 1);
+      } else {
+        break;
+      }
+      if (phrase.reviewed && count > 0) count--;
+    }
+    return (rest, count);
+  }
+
+  void _resetPhrases() {
+    for (final phrase in _pending.values) {
+      phrase.timer?.cancel();
+    }
+    _pending.clear();
+    _delivered.clear();
+    _expiredAwaitingNative.clear();
   }
 
   void _failTurn(TranscriptionErrorCode code, String? detail) {
@@ -405,6 +569,9 @@ final class LocalSpeechTranscriptionAdapter implements SpeechTranscriptionPort {
   }
 
   void _closeTurn(TranscriptionEndReason reason) {
+    // Cancelar, fallar o cerrar descarta las revisiones pendientes: ningún
+    // tope vence ya y ningún resultado de este turno entra después.
+    _resetPhrases();
     _deadline?.cancel();
     _deadline = null;
     _stopGuard?.cancel();
@@ -425,4 +592,17 @@ final class LocalSpeechTranscriptionAdapter implements SpeechTranscriptionPort {
     }
     return TranscriptionErrorCode.engineFailure;
   }
+}
+
+/// Una frase que Vosk cerró y espera su revisión. El texto sólo vive en
+/// memoria, para entregarlo si la revisión no llega a tiempo.
+final class _PendingPhrase {
+  _PendingPhrase(this.seq, this.vosk, {required this.reviewed});
+
+  final int seq;
+  final String vosk;
+
+  /// El lado nativo la mandó a revisar (cuenta en `reviewing`).
+  final bool reviewed;
+  Timer? timer;
 }

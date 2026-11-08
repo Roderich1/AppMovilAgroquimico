@@ -26,6 +26,15 @@ const voiceEngine = String.fromEnvironment(
   defaultValue: 'local',
 );
 
+/// Tope de la revisión de cada frase, en milisegundos (#166). Pasado, la frase
+/// se entrega como la oyó Vosk. Se cambia al compilar con
+/// `--dart-define=AGRO_VOICE_REVIEW_TIMEOUT_MS=…`; por defecto, el p95 que #12
+/// exige a la segunda pasada (5 000 ms).
+const voiceReviewTimeoutMs = int.fromEnvironment(
+  'AGRO_VOICE_REVIEW_TIMEOUT_MS',
+  defaultValue: 5000,
+);
+
 /// Cómo se comprueban las cantidades de la segunda pasada. Lo inyecta
 /// `main.dart` con el lector de la app; sin él, la revisión no se acepta.
 final reviewFactsProvider = Provider<ReviewFacts?>((ref) => null);
@@ -33,5 +42,8 @@ final reviewFactsProvider = Provider<ReviewFacts?>((ref) => null);
 final speechPortFactoryProvider = Provider<SpeechPortFactory>((ref) {
   if (voiceEngine == 'android') return AndroidSpeechTranscriptionAdapter.new;
   final facts = ref.watch(reviewFactsProvider);
-  return () => LocalSpeechTranscriptionAdapter(facts: facts);
+  return () => LocalSpeechTranscriptionAdapter(
+    facts: facts,
+    reviewTimeout: const Duration(milliseconds: voiceReviewTimeoutMs),
+  );
 });

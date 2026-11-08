@@ -336,6 +336,7 @@ final class TranscriptionAvailability {
     this.engineName = '',
     this.engineVersion = '',
     this.reviewModel,
+    this.reviewDetail,
     this.detail,
   });
 
@@ -349,7 +350,8 @@ final class TranscriptionAvailability {
       airplaneMode = AirplaneMode.unknown,
       engineName = '',
       engineVersion = '',
-      reviewModel = null;
+      reviewModel = null,
+      reviewDetail = null;
 
   /// `isRecognitionAvailable()`: hay algún reconocedor instalado.
   final bool recognizerAvailable;
@@ -384,6 +386,13 @@ final class TranscriptionAvailability {
   /// Modelo de la segunda pasada local, si este motor la tiene y puede
   /// ejecutarla aquí; `null` si no.
   final String? reviewModel;
+
+  /// Por qué la segunda pasada se usa o no en este aparato (#166): un código
+  /// como `review-ok`, `review-not-built`, `review-low-ram-device`,
+  /// `review-ram-below:<MiB>` o `review-load-failed:<código>`. `null` si el
+  /// motor no tiene segunda pasada. Sin [reviewModel], el recorrido es sólo el
+  /// de la primera pasada. Nunca contenido dictado.
+  final String? reviewDetail;
 
   /// Diagnóstico técnico. Nunca contenido dictado.
   final String? detail;
