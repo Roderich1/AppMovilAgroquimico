@@ -78,6 +78,20 @@ PurchaseInterpretation interpretPurchase(
   var draft = current;
   var outcome = const VoicePatchOutcome();
 
+  // POCO §2.2: «compré cinco kilos de» [pausa] «Mancozeb».
+  final waiting = draft.lines.lastOrNull;
+  final name = intent == VoiceIntent.none ? bareName(words) : null;
+  if (name != null && waiting != null && isAwaitingProduct(waiting.product)) {
+    final (field, o) = mergeField(
+      waiting.product,
+      entryField(resolveName(name, catalog.products), 'producto'),
+    );
+    return PurchaseInterpretation(
+      draft: draft.updateLine(waiting.key, (l) => l.copyWith(product: field)),
+      outcome: o,
+    );
+  }
+
   final supplier = _nameAfter(words, const {'proveedor', 'proveedora'});
   if (supplier != null) {
     final (field, o) = mergeField(
@@ -109,10 +123,13 @@ PurchaseInterpretation interpretPurchase(
   }
 
   for (final line in _lines(words)) {
-    final product = entryField(
-      resolveName(line.productHeard, catalog.products),
-      'producto',
-    );
+    // Una cantidad que cerró el tramo espera su producto en el siguiente.
+    final product = line.productHeard.isEmpty
+        ? awaitingProduct
+        : entryField(
+            resolveName(line.productHeard, catalog.products),
+            'producto',
+          );
     final existing = product.isResolved
         ? draft.lines.where((l) => l.product.value?.id == product.value!.id)
         : const <VoicePurchaseLine>[];
@@ -267,7 +284,9 @@ List<_HeardLine> _lines(List<String> words) {
       productWords.add(words[j]);
       j++;
     }
-    if (productWords.isEmpty) {
+    // Sin producto y al final del tramo: el producto puede llegar en el
+    // siguiente, tras una pausa (POCO §2.2). En medio del tramo, no.
+    if (productWords.isEmpty && !endsSegment(words, j)) {
       i = j;
       continue;
     }

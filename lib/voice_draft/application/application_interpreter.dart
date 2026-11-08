@@ -66,6 +66,21 @@ ApplicationInterpretation interpretApplication(
   var draft = current;
   var outcome = const VoicePatchOutcome();
 
+  // POCO §2.2: «apliqué doscientos cincuenta mililitros» [pausa] «de
+  // Mancozeb»: el nombre completa la línea que lo espera.
+  final waiting = draft.lines.lastOrNull;
+  final name = intent == VoiceIntent.none ? bareName(words) : null;
+  if (name != null && waiting != null && isAwaitingProduct(waiting.product)) {
+    final (field, o) = mergeField(
+      waiting.product,
+      entryField(resolveName(name, catalog.products), 'producto'),
+    );
+    return ApplicationInterpretation(
+      draft: draft.updateLine(waiting.key, (l) => l.copyWith(product: field)),
+      outcome: o,
+    );
+  }
+
   final area = findArea(words);
   if (area != null) {
     final (field, o) = mergeField(draft.area, area);
@@ -87,10 +102,13 @@ ApplicationInterpretation interpretApplication(
   }
 
   for (final line in _lines(words)) {
-    final product = entryField(
-      resolveName(line.productHeard, catalog.products),
-      'producto',
-    );
+    // Una cantidad que cerró el tramo espera su producto en el siguiente.
+    final product = line.productHeard.isEmpty
+        ? awaitingProduct
+        : entryField(
+            resolveName(line.productHeard, catalog.products),
+            'producto',
+          );
     final existing = product.isResolved
         ? draft.lines.where((l) => l.product.value?.id == product.value!.id)
         : const <VoiceApplicationLine>[];
@@ -359,7 +377,8 @@ List<_HeardLine> _lines(List<String> words) {
       final before = _productBefore(words, m.start, consumed);
       if (before != null) product.add(before);
     }
-    if (product.isNotEmpty) {
+    // Sin producto y al final del tramo: puede llegar tras una pausa.
+    if (product.isNotEmpty || endsSegment(words, j)) {
       consumed = j;
       out.add(
         _HeardLine(

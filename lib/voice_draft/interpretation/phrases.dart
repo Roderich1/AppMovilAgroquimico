@@ -188,6 +188,81 @@ DraftField<T> measureField<T>(
             ));
 }
 
+// ------------------------------------------------ frase partida por una pausa
+
+/// POCO §2.2 (2026-11-05; reproducido por la sesión A con audio sintético):
+/// con una pausa, el reconocedor entrega «compré cinco kilos de» y, aparte,
+/// «Mancozeb». Cada tramo se interpretaba solo y el producto se perdía. Ahora
+/// una cantidad que **cierra** el tramo sin producto deja una línea que
+/// espera su producto ([awaitingProduct]), y el tramo siguiente que sólo dice
+/// un nombre ([bareName]) completa **esa** línea. El nombre se busca en el
+/// catálogo como siempre: si no está queda faltante y si se parece a varios
+/// queda ambiguo; no se inventa nada.
+const awaitingProductMessage = 'Falta el producto: dígalo o elíjalo.';
+
+/// Producto de una línea cuya cantidad cerró el tramo dictado.
+const DraftField<CatalogEntry> awaitingProduct = DraftField.missing(
+  message: awaitingProductMessage,
+);
+
+/// ¿Es [f] el producto de una línea que espera el resto de la frase?
+bool isAwaitingProduct(DraftField<CatalogEntry> f) =>
+    f.status == FieldStatus.missing &&
+    f.heard == null &&
+    f.message == awaitingProductMessage;
+
+/// ¿Desde [j] sólo quedan pausas? La cantidad cerró el tramo.
+bool endsSegment(List<String> words, int j) {
+  for (var k = j; k < words.length; k++) {
+    if (words[k] != ',') return false;
+  }
+  return true;
+}
+
+const _bareLeading = {'de', 'del', 'el', 'la', 'producto', ','};
+const _bareConnectors = {
+  'a',
+  'al',
+  'por',
+  'y',
+  'en',
+  'con',
+  'para',
+  'proveedor',
+  'proveedora',
+  'todo',
+  'tipo',
+  'chaco',
+  'parcela',
+};
+
+/// El tramo es **sólo** un nombre («de Mancozeb», «Bellator»): sin cantidad,
+/// precio, moneda ni otra palabra clave. Si dice algo más, `null`: no es la
+/// continuación de un solo dato.
+String? bareName(List<String> words) {
+  var i = 0;
+  while (i < words.length && _bareLeading.contains(words[i])) {
+    i++;
+  }
+  final out = <String>[];
+  for (; i < words.length; i++) {
+    final w = words[i];
+    if (w == ',') {
+      if (endsSegment(words, i)) break;
+      return null;
+    }
+    if (_bareConnectors.contains(w) ||
+        currencyWord(w) != null ||
+        unitWord(w) != null ||
+        hectareWords.contains(w) ||
+        startsQuantity(words, i)) {
+      return null;
+    }
+    out.add(w);
+  }
+  return out.isEmpty ? null : out.join(' ');
+}
+
 /// ¿Empieza en [i] una cantidad («dos litros», «tres hectáreas», «litro y
 /// medio»)?
 bool startsQuantity(List<String> words, int i) =>
