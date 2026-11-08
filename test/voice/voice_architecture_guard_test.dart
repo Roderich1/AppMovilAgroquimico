@@ -421,7 +421,25 @@ void main() {
     });
 
     test('no se añadió ninguna dependencia para la voz', () {
-      final pubspec = File('pubspec.yaml').readAsStringSync();
+      // Sólo las secciones de dependencias: desde F09 (2026-11-08) la
+      // sección `flutter: assets:` declara los avisos de licencias
+      // (`assets/licenses/whisper.cpp/…`), que no son dependencias.
+      final lines = File('pubspec.yaml').readAsLinesSync();
+      final buffer = StringBuffer();
+      var inDependencies = false;
+      for (final line in lines) {
+        final topLevel = RegExp(r'^([A-Za-z_]+):').firstMatch(line);
+        if (topLevel != null) {
+          inDependencies = const {
+            'dependencies',
+            'dev_dependencies',
+            'dependency_overrides',
+          }.contains(topLevel.group(1));
+        }
+        if (inDependencies) buffer.writeln(line);
+      }
+      final pubspec = buffer.toString();
+      expect(pubspec, contains('flutter_riverpod'), reason: 'sección leída');
       for (final forbidden in const [
         'speech_to_text',
         'permission_handler',
