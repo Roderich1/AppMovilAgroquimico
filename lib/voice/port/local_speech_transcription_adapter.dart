@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/services.dart';
 
 import '../../data/app_log.dart';
+import 'native_event_hub.dart';
 import 'review_selection.dart';
 import 'speech_transcription_port.dart';
 
@@ -19,9 +20,13 @@ import 'speech_transcription_port.dart';
 ///   ([listensAcrossPauses]): cada pausa cierra una frase numerada, y el
 ///   micrófono no se cierra hasta que el usuario detiene, el turno agota su
 ///   plazo o pasan muchos segundos sin voz.
-/// * Cada turno lleva un **número de sesión**. Lo que llegue de un número que
-///   no es el turno abierto —un resultado tardío de un turno cancelado o
-///   anterior— se descarta aquí, sin llegar a la sesión.
+/// * Cada turno lleva un **número de sesión**, único en el proceso. Lo que
+///   llegue de un número que no es el turno abierto —un resultado tardío de un
+///   turno cancelado o anterior, o de la pantalla anterior— se descarta aquí,
+///   sin llegar a la sesión.
+/// * Si el modelo falta o no se pudo preparar (copia o carga fallida), la
+///   disponibilidad lo dice: `recognizerAvailable` es `false` y la sesión no
+///   abre el micrófono. La escritura a mano no depende de nada de esto.
 ///
 /// La disciplina de turno es la misma: un turno abierto acaba **siempre** en
 /// exactamente un [TranscriptionTurnEnded].
@@ -33,8 +38,9 @@ final class LocalSpeechTranscriptionAdapter implements SpeechTranscriptionPort {
   }) : _method = method ?? const MethodChannel(methodChannelName),
        _event = event ?? const EventChannel(eventChannelName),
        _facts = facts {
-    _subscription = _event.receiveBroadcastStream().listen(
-      _onNativeEvent,
+    _lease = NativeEventHub.attach(
+      _event,
+      onEvent: _onNativeEvent,
       onError: (Object error) => _failTurn(
         TranscriptionErrorCode.engineFailure,
         error.runtimeType.toString(),
@@ -42,7 +48,7 @@ final class LocalSpeechTranscriptionAdapter implements SpeechTranscriptionPort {
     );
     // Copia, verifica y carga el modelo mientras el usuario lee la pantalla:
     // el primer «Hablar» no espera. No abre el micrófono.
-    unawaited(_prepare());
+    _preparing = _prepare();
   }
 
   static const methodChannelName = 'agro.voice/local';
@@ -57,7 +63,11 @@ final class LocalSpeechTranscriptionAdapter implements SpeechTranscriptionPort {
   /// Con qué se comprueba que la revisión no cambia cantidades. Sin ella, la
   /// revisión no se acepta.
   final ReviewFacts? _facts;
-  late final StreamSubscription<dynamic> _subscription;
+  late final NativeEventLease _lease;
+
+  /// Último número de turno entregado en este proceso. Compartido entre
+  /// instancias: dos pantallas vivas a la vez no pueden repetir número.
+  static int _lastGeneration = 0;
 
   final StreamController<TranscriptionEvent> _events =
       StreamController<TranscriptionEvent>.broadcast();
@@ -72,6 +82,7 @@ final class LocalSpeechTranscriptionAdapter implements SpeechTranscriptionPort {
   bool _deadlineHit = false;
   Duration _turnBudget = Duration.zero;
   String? _prepareError;
+  late Future<void> _preparing;
 
   @override
   String get engineId => 'vosk-local';
@@ -88,6 +99,8 @@ final class LocalSpeechTranscriptionAdapter implements SpeechTranscriptionPort {
   Future<void> _prepare() async {
     try {
       _prepareError = await _method.invokeMethod<String>('prepare');
+    } on MissingPluginException {
+      _prepareError = 'no-platform';
     } on Object {
       _prepareError = 'prepare-failed';
     }
@@ -100,15 +113,27 @@ final class LocalSpeechTranscriptionAdapter implements SpeechTranscriptionPort {
           await _method.invokeMapMethod<String, Object?>('describe') ??
           const <String, Object?>{};
       final present = map['modelPresent'] as bool? ?? false;
+      // Un modelo que el APK declara pero que no se pudo copiar, verificar o
+      // cargar no sirve para escuchar: se dice ahora, antes de abrir el
+      // micrófono. Se reintenta la preparación en cada consulta, porque una
+      // copia interrumpida (sin espacio, por ejemplo) puede salir bien después.
+      if (present) {
+        await _preparing;
+        if (_prepareError != null) {
+          _preparing = _prepare();
+          await _preparing;
+        }
+      }
+      final usable = present && _prepareError == null;
       final reviewModel = (map['reviewAvailable'] as bool? ?? false)
           ? map['reviewModel'] as String?
           : null;
       final availability = TranscriptionAvailability(
-        recognizerAvailable: present,
+        recognizerAvailable: usable,
         onDeviceApiReports: false,
         localeSupportKnown: true,
-        installedLocales: present ? const ['es'] : const [],
-        supportedLocales: present ? const ['es'] : const [],
+        installedLocales: usable ? const ['es'] : const [],
+        supportedLocales: usable ? const ['es'] : const [],
         airplaneMode: switch (map['airplaneMode']) {
           true => AirplaneMode.on,
           false => AirplaneMode.off,
@@ -116,7 +141,7 @@ final class LocalSpeechTranscriptionAdapter implements SpeechTranscriptionPort {
         },
         engineName: map['engineName'] as String? ?? '',
         engineVersion: map['engineVersion'] as String? ?? '',
-        reviewModel: reviewModel,
+        reviewModel: usable ? reviewModel : null,
         detail: present ? _prepareError : 'model-missing',
       );
       _emit(TranscriptionAvailabilityObserved(availability));
@@ -141,20 +166,22 @@ final class LocalSpeechTranscriptionAdapter implements SpeechTranscriptionPort {
       return;
     }
     _turnOpen = true;
-    _generation++;
+    final generation = _generation = ++_lastGeneration;
     _segments = 0;
     _deadlineHit = false;
     _clock = Stopwatch()..start();
     _turnBudget = request.maxTurnDuration;
     try {
       final reply = await _method.invokeMethod<String>('start', {
-        'gen': _generation,
+        'gen': generation,
         'hints': _hintText(request.hints),
         'review': request.review,
       });
       // Habrá diálogo de permiso: se avisa ahora, antes de la pausa que
       // provoca, para que la sesión no la tome por «el usuario se fue».
-      if (reply == 'awaitingPermission' && _turnOpen) {
+      if (reply == 'awaitingPermission' &&
+          _turnOpen &&
+          _generation == generation) {
         _deadline?.cancel();
         _emit(
           const TranscriptionStageChanged(
@@ -194,7 +221,9 @@ final class LocalSpeechTranscriptionAdapter implements SpeechTranscriptionPort {
       _closeTurn(TranscriptionEndReason.cancelled);
     }
     try {
-      await _method.invokeMethod<void>('cancel');
+      // Con el número: cancelar este turno no puede cortar el de otra
+      // pantalla que ya se abrió (#119).
+      await _method.invokeMethod<void>('cancel', {'gen': _generation});
     } on Object {
       // Cancelar nunca falla hacia afuera: el turno ya está cerrado aquí.
     }
@@ -216,9 +245,9 @@ final class LocalSpeechTranscriptionAdapter implements SpeechTranscriptionPort {
     _deadline?.cancel();
     _stopGuard?.cancel();
     _turnOpen = false;
-    await _subscription.cancel();
+    await _lease.cancel();
     try {
-      await _method.invokeMethod<void>('dispose');
+      await _method.invokeMethod<void>('dispose', {'gen': _generation});
     } on Object {
       // Liberar es best-effort.
     }
@@ -335,12 +364,16 @@ final class LocalSpeechTranscriptionAdapter implements SpeechTranscriptionPort {
   }
 
   void _failTurn(TranscriptionErrorCode code, String? detail) {
-    if (_disposed) return;
+    // Sin turno abierto no hay a quién atribuir el fallo: un error suelto
+    // quedaría pendiente en la sesión y haría fallar el turno siguiente.
+    if (_disposed || !_turnOpen) return;
     _emit(TranscriptionFailed(code, detail: detail));
-    if (_turnOpen) {
-      unawaited(_method.invokeMethod<void>('cancel').catchError((_) {}));
-      _closeTurn(TranscriptionEndReason.error);
-    }
+    unawaited(
+      _method
+          .invokeMethod<void>('cancel', {'gen': _generation})
+          .catchError((_) {}),
+    );
+    _closeTurn(TranscriptionEndReason.error);
   }
 
   /// Plazo del turno desde que el micrófono está abierto. Al vencer se pide
@@ -361,7 +394,11 @@ final class LocalSpeechTranscriptionAdapter implements SpeechTranscriptionPort {
     final generation = _generation;
     _stopGuard = Timer(stopGrace, () {
       if (!_turnOpen || _generation != generation) return;
-      unawaited(_method.invokeMethod<void>('cancel').catchError((_) {}));
+      unawaited(
+        _method
+            .invokeMethod<void>('cancel', {'gen': generation})
+            .catchError((_) {}),
+      );
       _emit(const TranscriptionTimeout());
       _closeTurn(TranscriptionEndReason.timeout);
     });
