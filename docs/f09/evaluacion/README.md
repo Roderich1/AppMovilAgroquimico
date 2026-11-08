@@ -9,6 +9,11 @@
 | [`PLANTILLA_REGISTRO.md`](PLANTILLA_REGISTRO.md) · [`registro_tomas_PLANTILLA.csv`](registro_tomas_PLANTILLA.csv) | Registro por toma y por sesión |
 | [`FRASES_Y_HOLDOUT.md`](FRASES_Y_HOLDOUT.md) | Frases de ajuste (expuestas), frases de aceptación (vacío: las escribe el autor o un tercero) y procedimiento del hash |
 | [`metricas/f09_metricas.py`](metricas/f09_metricas.py) | Cálculo de las métricas por teléfono y condición. Pruebas: `python -I -B -m unittest discover -s docs/f09/evaluacion/metricas -p "test_*.py"`, con datos **sintéticos** |
+| [`PREGUNTAS_CLASIFICADAS.md`](PREGUNTAS_CLASIFICADAS.md) | Revisión del 2026-11-08: A1–A24 clasificadas (técnicas resueltas, decisiones del autor, participantes o teléfonos) y propuestas **pendientes del autor** |
+| [`CONSENTIMIENTO_PROPUESTA.md`](CONSENTIMIENTO_PROPUESTA.md) | Texto de consentimiento v2, ajustado a lo que hace el código. **Propuesta, pendiente del autor** |
+| [`COPIA_PREVIA_Y_EVIDENCIA.md`](COPIA_PREVIA_Y_EVIDENCIA.md) | Qué guarda la copia `.previo`, cuándo se borra y mitigaciones propuestas |
+| [`TRAZABILIDAD_RF41_DAT21.md`](TRAZABILIDAD_RF41_DAT21.md) | RF-41 y DAT-21 verificados en la copia local del documento entregado |
+| [`../poco/GUION_PRUEBA_VOZ_POCO.md`](../poco/GUION_PRUEBA_VOZ_POCO.md) | Guion de prueba manual en el POCO (exploración; **no** es la ejecución de #12) |
 
 ## Evidencia de dictado en el teléfono (#167)
 
@@ -24,10 +29,14 @@ Código en `lib/voice_evidence/`, tablas en la versión 14 del esquema (`AppData
 
 **Limitaciones declaradas:**
 - La copia previa `.previo` que se hace antes de una restauración (F08-ADR-003 §7, hasta 7 días, carpeta privada excluida del auto-backup de Android) es una copia exacta de la base anterior y **sí contiene la evidencia** que hubiera. Borrar la evidencia no la alcanza. No se toca: la recuperación compara su SHA-256.
+  - Precisión del 2026-11-08: el plazo de 7 días sólo se aplica cuando corre el mantenimiento, y las copias protegidas no vencen. Detalle y mitigaciones propuestas en [`COPIA_PREVIA_Y_EVIDENCIA.md`](COPIA_PREVIA_Y_EVIDENCIA.md).
 - Restaurar un respaldo sustituye la base entera: la evidencia que hubiera en el teléfono antes de restaurar también desaparece de la base activa.
 - La entrega al evaluador es la lectura en el propio teléfono (`VoiceEvidenceStore.readAll`). No hay exportación: #167 la deja fuera de alcance.
+  - Precisión del 2026-11-08: ninguna pantalla llama todavía a `readAll`. Hoy la evidencia sólo se lee copiando la base con `adb run-as` (A18 de [`PREGUNTAS_CLASIFICADAS.md`](PREGUNTAS_CLASIFICADAS.md)).
 
 ## Texto de consentimiento: propuesta pendiente del autor
+
+**Sustituida por la propuesta v2 del 2026-11-08** ([`CONSENTIMIENTO_PROPUESTA.md`](CONSENTIMIENTO_PROPUESTA.md)), también pendiente del autor. Se conserva aquí porque es el texto que muestra hoy la pantalla (versión `F09-CONSENT-PROPUESTA-2026-11-08`).
 
 **No usar con participantes sin la aprobación de Roderich.** El código sólo exige que la pantalla guarde un identificador de la versión del texto que la persona aceptó.
 
