@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../domain/operation_mode.dart';
+import '../../licenses/third_party_licenses.dart';
 import '../../operation_mode_controller.dart';
 import '../widgets/common.dart';
 
@@ -91,28 +92,43 @@ class MoreScreen extends ConsumerWidget {
           final width = constraints.maxWidth >= 700
               ? (constraints.maxWidth - 12) / 2
               : constraints.maxWidth;
-          return Wrap(
-            spacing: 12,
-            runSpacing: 12,
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              for (final action in actions)
-                SizedBox(
-                  width: width,
-                  child: Card(
-                    child: ListTile(
-                      contentPadding: const EdgeInsets.all(16),
-                      leading: CircleAvatar(child: Icon(action.icon)),
-                      title: Text(
-                        action.title,
-                        style: const TextStyle(fontWeight: FontWeight.w700),
+              Wrap(
+                spacing: 12,
+                runSpacing: 12,
+                children: [
+                  for (final action in actions)
+                    SizedBox(
+                      width: width,
+                      child: Card(
+                        child: ListTile(
+                          contentPadding: const EdgeInsets.all(16),
+                          leading: CircleAvatar(child: Icon(action.icon)),
+                          title: Text(
+                            action.title,
+                            style: const TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                          subtitle: Text(action.subtitle),
+                          trailing: const Icon(Icons.chevron_right),
+                          // Se APILAN: Atrás vuelve aquí (UIBUG-004A).
+                          onTap: () => context.push(action.path),
+                        ),
                       ),
-                      subtitle: Text(action.subtitle),
-                      trailing: const Icon(Icons.chevron_right),
-                      // Se APILAN: Atrás vuelve aquí (UIBUG-004A).
-                      onTap: () => context.push(action.path),
                     ),
-                  ),
-                ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              // Avisos de licencia (F09): secundario y discreto, sin tarjeta.
+              // Abre la página de licencias de Flutter con los paquetes Dart y
+              // los componentes de la voz local (lib/licenses).
+              TextButton.icon(
+                key: const Key('more-licenses'),
+                onPressed: () => showAgroLicenses(context),
+                icon: const Icon(Icons.description_outlined, size: 18),
+                label: const Text('Licencias'),
+              ),
             ],
           );
         },
