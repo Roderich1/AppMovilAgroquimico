@@ -48,5 +48,10 @@ bash tool/voice_local/build_voice_apk.sh arm64 <carpeta>  # teléfono, sin insta
 - **Comparación HOST:** `synth_reference_audio.ps1` (audio sintético) y `host_compare.py`.
 - **Inferencia real en el emulador:** `run_reference_check.sh <wav> <salida>`, que ejecuta `LocalVoiceEngineReferenceTest`.
 - **La regla de la app sobre esos resultados:** `selection_on_results_test.dart`.
+- **Pausas que parten el dictado (POCO, §2.2):** `synth_pause_parts.ps1` (audio sintético en dos tramos) y `pause_split_check.py`, que inserta silencios de 0 a 4 s entre los tramos y pasa el audio por Vosk como lo hace `LocalVoiceEngine`.
+  - Ejecutado el 2026-11-08 sobre `49108ba` (HOST, `vosk-model-small-es-0.42`, voces Helena, Laura y Pablo, dos pares de tramos, 42 casos). Sin pausa, 1 segmento en los 6 casos. Con una pausa de 0,5 s o más, Vosk cierra la frase en la pausa en los 30 casos: 2 segmentos. Con 0,3 s, en 4 de 6. En los 36 casos con pausa sale el mismo número de palabras que sin ella; en 31 son idénticas, y en 5 (una voz) cambia la última palabra del producto, mal oído en los dos casos. El corte no se come ningún tramo.
+  - Lectura: el tramo del POCO no se perdió en el motor ni en la sesión, que entregan las dos frases (`test/voice/local_voice_model_and_session_test.dart`). Se pierde para el borrador porque éste interpreta cada frase nueva por separado y la segunda («de …») no trae verbo ni cantidad; además, el producto se oyó mal (modelo). Ninguna de las dos cosas se corrige en el motor.
+  - No describe el teléfono ni la voz humana.
+- **Modelo ausente o inválido:** la app lo informa como «no disponible» antes de abrir el micrófono (`recognizerAvailable = false`, con el código de `LocalVoiceModels`: `model-missing`, `model-integrity`, `model-copy`, `model-load:*`, `native-lib`). La copia se verifica por tamaño y SHA-256 al copiarla, y por tamaño en cada arranque; un modelo que pasó la verificación y no carga se vuelve a copiar la vez siguiente. Probado en HOST con el lado nativo simulado; en el teléfono, `NOT_RUN`.
 
 Procedencia, licencias y hashes: `THIRD_PARTY.md`. Resultados: `docs/evidence/F09_VOZ_LOCAL_2026-11-05.md`.
