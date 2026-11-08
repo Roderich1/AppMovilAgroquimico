@@ -205,7 +205,9 @@ VoiceApplicationDraft selectPlan(
       VoiceApplicationLine(
         key: said?.key ?? key++,
         product: DraftField.resolved(item.product, origin: FieldOrigin.preset),
-        quantity: said != null && said.quantity.isResolved
+        // Lo dicho o escrito se conserva, también si está por revisar.
+        quantity:
+            said != null && (said.quantity.isResolved || said.quantity.review)
             ? said.quantity
             : DraftField.resolved(
                 SpokenAmount(item.requiredBase, unit),
@@ -267,7 +269,8 @@ VoiceApplicationDraft selectFarm(
   if (farmArea != null &&
       farmArea > 0 &&
       !area.isManual &&
-      !(area.isResolved && area.origin == FieldOrigin.voice)) {
+      // Un área dictada, resuelta o por revisar, no se pisa con la del chaco.
+      !((area.isResolved || area.review) && area.origin == FieldOrigin.voice)) {
     next = next.copyWith(
       area: DraftField.resolved(farmArea, origin: FieldOrigin.preset),
     );

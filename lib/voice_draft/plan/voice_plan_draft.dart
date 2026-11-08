@@ -141,6 +141,8 @@ final class VoicePlanDraft implements VoiceDraft<VoicePlanDraft> {
           break;
         case FieldStatus.missing:
           out.add(f.message ?? 'Falta $name.');
+        case FieldStatus.ambiguous when f.review:
+          out.add(_reviewBlocker('Revise $name', f));
         case FieldStatus.ambiguous:
           out.add(
             'Elija $name: «${f.heard ?? ''}» tiene varias opciones o no es exacto.',
@@ -165,7 +167,9 @@ final class VoicePlanDraft implements VoiceDraft<VoicePlanDraft> {
               : '$n: ${l.product.message ?? 'falta el producto.'}',
         );
       }
-      if (!l.dose.isResolved) {
+      if (l.dose.review) {
+        out.add(_reviewBlocker('$n: revise la dosis por hectárea', l.dose));
+      } else if (!l.dose.isResolved) {
         out.add('$n: ${l.dose.message ?? 'falta la dosis por hectárea.'}');
       } else if (l.product.isResolved && l.doseBasePerHa == null) {
         out.add('$n: la dosis no corresponde a la unidad del producto.');
@@ -198,3 +202,8 @@ final class VoicePlanDraft implements VoiceDraft<VoicePlanDraft> {
     );
   }
 }
+
+/// Bloqueo de un valor por revisar ([DraftField.review]): se nombra el campo
+/// y el motivo; se resuelve confirmándolo o corrigiéndolo a mano.
+String _reviewBlocker(String lead, DraftField<Object?> f) =>
+    '$lead. ${f.message ?? 'Confirme el valor o corríjalo.'}';

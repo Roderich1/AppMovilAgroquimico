@@ -28,10 +28,19 @@ import 'voice_draft_widgets.dart';
 import 'voice_evidence_hook.dart';
 
 class VoicePlanDraftScreen extends ConsumerStatefulWidget {
-  const VoicePlanDraftScreen({super.key, this.onOpenManualForm});
+  const VoicePlanDraftScreen({
+    super.key,
+    this.onOpenManualForm,
+    this.initialDraftForTest,
+  });
 
   /// Alternativa manual equivalente (formulario de planificación).
   final VoidCallback? onOpenManualForm;
+
+  /// Sólo pruebas: borrador inicial en vez del vacío, para mostrar estados
+  /// que aún no produce ningún intérprete (un valor por revisar).
+  @visibleForTesting
+  final VoicePlanDraft Function(VoiceCatalog catalog)? initialDraftForTest;
 
   @override
   ConsumerState<VoicePlanDraftScreen> createState() =>
@@ -72,7 +81,9 @@ class _VoicePlanDraftScreenState extends ConsumerState<VoicePlanDraftScreen>
       final catalog = await _gateway.planCatalog();
       if (!mounted) return;
       final draft = VoiceDraftController<VoicePlanDraft, int>(
-        initial: VoicePlanDraft.start(catalog),
+        initial:
+            widget.initialDraftForTest?.call(catalog) ??
+            VoicePlanDraft.start(catalog),
         commit: _gateway.confirmPlan,
         describeError: friendlyError,
       )..addListener(_onDraft);
@@ -164,12 +175,21 @@ class _VoicePlanDraftScreenState extends ConsumerState<VoicePlanDraftScreen>
       ? (d.area.heard ?? '')
       : formatForInput(d.area.value! / 10000, maxDecimals: 4);
 
-  static String _doseText(VoicePlanLine line) => line.doseBasePerHa == null
-      ? (line.dose.heard ?? '')
-      : formatForInput(line.doseBasePerHa! / baseUnitsPerMajor);
+  /// La dosis leída, normalizada a L/ha o KG/ha (POCO 2026-11-08: con el
+  /// producto sin resolver se veía «un litro por hectarea» en el campo). Si la
+  /// unidad aún no se puede comprobar, lo dice la fila ([unitCheck]).
+  static String _doseText(VoicePlanLine line) =>
+      spokenAmountText(_spokenDoseBase(line), line.dose.heard);
+
+  static int? _spokenDoseBase(VoicePlanLine line) {
+    final d = line.dose.value;
+    return d == null ? null : spokenBase(d.thousandthsPerHa, d.unit);
+  }
 
   /// Campos resueltos cuyo texto visible no dice lo mismo que el borrador:
-  /// si hay alguno, no se confirma (mismo criterio que la compra).
+  /// si hay alguno, no se confirma (mismo criterio que la compra). La dosis
+  /// visible se compara con la leída; con el producto elegido y de la misma
+  /// unidad es `doseBasePerHa`, y si no, la línea ya bloquea.
   List<String> _visibleMismatches(VoicePlanDraft d) {
     final out = <String>[];
     final area = _fields['area'];
@@ -184,7 +204,7 @@ class _VoicePlanDraftScreenState extends ConsumerState<VoicePlanDraftScreen>
       final c = _fields['d${l.key}'];
       if (c != null &&
           l.dose.isResolved &&
-          tryParseBase(c.text) != l.doseBasePerHa) {
+          tryParseBase(c.text) != _spokenDoseBase(l)) {
         out.add('Producto ${i + 1}: la dosis visible no coincide.');
       }
     }
@@ -287,7 +307,13 @@ class _VoicePlanDraftScreenState extends ConsumerState<VoicePlanDraftScreen>
               intent: _otherIntent!,
               current: 'planificación',
             ),
-          if (_heard.isNotEmpty) VoiceAppliedPanel(segments: _heard),
+          if (_heard.isNotEmpty)
+            VoiceAppliedPanel(
+              segments: _heard,
+              correctionHint: voiceCorrectionHint(
+                hasLines: draft?.draft.lines.isNotEmpty ?? false,
+              ),
+            ),
           const SizedBox(height: 12),
           if (_loadError != null)
             Text(_loadError!, key: const Key('voz-borrador-error-carga'))
@@ -342,6 +368,7 @@ class _VoicePlanDraftScreenState extends ConsumerState<VoicePlanDraftScreen>
         DraftFieldRow(
           label: 'Chaco',
           labelInChild: true,
+          id: 'chaco',
           field: d.farm,
           child: VoiceEntityPicker(
             key: const Key('voz-borrador-chaco'),
@@ -352,17 +379,20 @@ class _VoicePlanDraftScreenState extends ConsumerState<VoicePlanDraftScreen>
             createLabel: modeChanged ? null : 'Crear chaco',
             onCreate: modeChanged ? null : _createFarm,
             onPick: (entry) => controller.editManually(
-              (c) => proposeFarmArea(
-                c.copyWith(
-                  farm: DraftField.resolved(entry, origin: FieldOrigin.manual),
-                ),
-              ),
+              (c) =>
+                  proposeFarmArea(c.copyWith(farm: pickEntry(c.farm, entry))),
             ),
           ),
         ),
         DraftFieldRow(
           label: 'Área (ha)',
+          id: 'area',
           field: d.area,
+          onConfirmReview: editable
+              ? () => controller.editManually(
+                  (c) => c.copyWith(area: c.area.confirmedByUser()),
+                )
+              : null,
           child: _numberField(
             id: 'area',
             key: const Key('voz-area'),
@@ -480,9 +510,15 @@ class _VoicePlanDraftScreenState extends ConsumerState<VoicePlanDraftScreen>
     VoicePlanLine line,
     bool editable,
   ) {
-    final unit = line.product.value?.unit;
-    final unitLabel = unit == CatalogUnit.kilogram ? 'KG' : 'L';
+    final unitLabel = lineUnit(line.product, line.dose.value?.unit).code;
+    // Necesidad = dosis × área, como `addPlanMulti`: sólo con la dosis en la
+    // unidad del producto y el área resuelta.
     final need = line.requiredBase(d.area.isResolved ? d.area.value : null);
+    final check = unitCheck(
+      product: line.product,
+      spoken: line.dose.value?.unit,
+      suffix: '/ha',
+    );
 
     void update(VoicePlanLine Function(VoicePlanLine) change) =>
         controller.editManually((c) => c.updateLine(line.key, change));
@@ -518,6 +554,7 @@ class _VoicePlanDraftScreenState extends ConsumerState<VoicePlanDraftScreen>
             DraftFieldRow(
               label: 'Producto',
               labelInChild: true,
+              id: 'producto-${line.key}',
               field: line.product,
               child: VoiceEntityPicker(
                 key: Key('voz-producto-${line.key}'),
@@ -529,18 +566,21 @@ class _VoicePlanDraftScreenState extends ConsumerState<VoicePlanDraftScreen>
                 createLabel: 'Crear producto',
                 onCreate: _createProduct,
                 onPick: (entry) => update(
-                  (l) => l.copyWith(
-                    product: DraftField.resolved(
-                      entry,
-                      origin: FieldOrigin.manual,
-                    ),
-                  ),
+                  (l) => l.copyWith(product: pickEntry(l.product, entry)),
                 ),
               ),
             ),
             DraftFieldRow(
               label: 'Dosis ($unitLabel/ha)',
+              id: 'dosis-${line.key}',
               field: line.dose,
+              note: check.note,
+              problem: check.problem,
+              onConfirmReview: editable
+                  ? () => update(
+                      (l) => l.copyWith(dose: l.dose.confirmedByUser()),
+                    )
+                  : null,
               child: _numberField(
                 id: 'd${line.key}',
                 key: Key('voz-dosis-${line.key}'),
@@ -558,7 +598,9 @@ class _VoicePlanDraftScreenState extends ConsumerState<VoicePlanDraftScreen>
                           : DraftField.resolved(
                               SpokenDose(
                                 base,
-                                l.product.value?.unit == CatalogUnit.kilogram
+                                // La unidad que se ve junto al campo.
+                                lineUnit(l.product, l.dose.value?.unit) ==
+                                        CatalogUnit.kilogram
                                     ? SpokenUnit.kilogram
                                     : SpokenUnit.liter,
                               ),

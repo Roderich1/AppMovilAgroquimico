@@ -31,10 +31,20 @@ import 'voice_draft_widgets.dart';
 import 'voice_evidence_hook.dart';
 
 class VoiceApplicationDraftScreen extends ConsumerStatefulWidget {
-  const VoiceApplicationDraftScreen({super.key, this.onOpenManualForm});
+  const VoiceApplicationDraftScreen({
+    super.key,
+    this.onOpenManualForm,
+    this.initialDraftForTest,
+  });
 
   /// Alternativa manual equivalente (formulario de aplicación).
   final VoidCallback? onOpenManualForm;
+
+  /// Sólo pruebas: borrador inicial en vez del vacío, para mostrar estados
+  /// que aún no produce ningún intérprete (un valor por revisar).
+  @visibleForTesting
+  final VoiceApplicationDraft Function(VoiceCatalog catalog)?
+  initialDraftForTest;
 
   @override
   ConsumerState<VoiceApplicationDraftScreen> createState() =>
@@ -77,7 +87,9 @@ class _VoiceApplicationDraftScreenState
       final catalog = await _gateway.applicationCatalog();
       if (!mounted) return;
       final draft = VoiceDraftController<VoiceApplicationDraft, int>(
-        initial: VoiceApplicationDraft.start(catalog),
+        initial:
+            widget.initialDraftForTest?.call(catalog) ??
+            VoiceApplicationDraft.start(catalog),
         commit: _gateway.confirmApplication,
         describeError: friendlyError,
       )..addListener(_onDraft);
@@ -88,6 +100,7 @@ class _VoiceApplicationDraftScreenState
         _catalog = catalog;
         _draft = draft;
       });
+      _loadStockIfNeeded(draft.draft);
     } catch (error) {
       if (mounted) setState(() => _loadError = friendlyError(error));
     }
@@ -271,10 +284,15 @@ class _VoiceApplicationDraftScreenState
       ? (d.area.heard ?? '')
       : formatForInput(d.area.value! / 10000, maxDecimals: 4);
 
+  /// La cantidad leída, normalizada a L o KG, también con el producto aún
+  /// por elegir o con el valor por revisar (POCO 2026-11-08).
   static String _quantityText(VoiceApplicationLine line) =>
-      line.quantityBase == null
-      ? (line.quantity.heard ?? '')
-      : formatForInput(line.quantityBase! / baseUnitsPerMajor);
+      spokenAmountText(_spokenQuantityBase(line), line.quantity.heard);
+
+  static int? _spokenQuantityBase(VoiceApplicationLine line) {
+    final q = line.quantity.value;
+    return q == null ? null : spokenBase(q.thousandths, q.unit);
+  }
 
   Future<void> _confirm() async {
     final draft = _draft;
@@ -352,9 +370,11 @@ class _VoiceApplicationDraftScreenState
     for (var i = 0; i < d.lines.length; i++) {
       final l = d.lines[i];
       final c = _fields['q${l.key}'];
+      // Lo visible se compara con lo leído; con el producto elegido y de la
+      // misma unidad es `quantityBase`. Si no, la línea ya bloquea.
       if (c != null &&
           l.quantity.isResolved &&
-          tryParseBase(c.text) != l.quantityBase) {
+          tryParseBase(c.text) != _spokenQuantityBase(l)) {
         out.add('Producto ${i + 1}: la cantidad visible no coincide.');
       }
     }
@@ -397,7 +417,13 @@ class _VoiceApplicationDraftScreenState
               intent: _otherIntent!,
               current: 'aplicación',
             ),
-          if (_heard.isNotEmpty) VoiceAppliedPanel(segments: _heard),
+          if (_heard.isNotEmpty)
+            VoiceAppliedPanel(
+              segments: _heard,
+              correctionHint: voiceCorrectionHint(
+                hasLines: draft?.draft.lines.isNotEmpty ?? false,
+              ),
+            ),
           const SizedBox(height: 12),
           if (_loadError != null)
             Text(_loadError!, key: const Key('voz-borrador-error-carga'))
@@ -452,6 +478,7 @@ class _VoiceApplicationDraftScreenState
         DraftFieldRow(
           label: 'Chaco',
           labelInChild: true,
+          id: 'chaco',
           field: d.farm,
           child: VoiceEntityPicker(
             key: const Key('voz-borrador-chaco'),
@@ -461,16 +488,20 @@ class _VoiceApplicationDraftScreenState
             enabled: editable,
             createLabel: modeChanged ? null : 'Crear chaco',
             onCreate: modeChanged ? null : _createFarm,
-            onPick: (entry) => controller.editManually(
-              (c) => selectFarm(
-                c.copyWith(
-                  farm: DraftField.resolved(entry, origin: FieldOrigin.manual),
-                ),
+            onPick: (entry) => controller.editManually((c) {
+              final farm = pickEntry(c.farm, entry);
+              // Confirmar el chaco ya elegido no cambia quién aplica ni el
+              // stock leído.
+              if (c.farm.isResolved && c.farm.value == entry) {
+                return c.copyWith(farm: farm);
+              }
+              return selectFarm(
+                c.copyWith(farm: farm),
                 // El catálogo vigente, no el de esta construcción: tras
                 // «Crear chaco» lo creado se elige antes de reconstruir.
                 _catalog ?? catalog,
-              ),
-            ),
+              );
+            }),
           ),
         ),
         Padding(
@@ -482,7 +513,13 @@ class _VoiceApplicationDraftScreenState
         ),
         DraftFieldRow(
           label: 'Área tratada (ha)',
+          id: 'area',
           field: d.area,
+          onConfirmReview: editable
+              ? () => controller.editManually(
+                  (c) => c.copyWith(area: c.area.confirmedByUser()),
+                )
+              : null,
           child: TextField(
             key: const Key('voz-area'),
             controller: _controller('area', _areaText(d)),
@@ -586,11 +623,16 @@ class _VoiceApplicationDraftScreenState
     VoiceApplicationLine line,
     bool editable,
   ) {
-    final unit = line.product.value?.unit;
-    final unitLabel = unit == CatalogUnit.kilogram ? 'KG' : 'L';
+    final unitLabel = lineUnit(line.product, line.quantity.value?.unit).code;
     final id = line.product.value?.id;
+    // Sólo el stock del dueño del chaco: nunca el de otra persona.
     final available = id == null || !d.stockLoaded ? null : (d.stock[id] ?? 0);
     final after = d.stockAfter(line);
+    final missing = d.shortfall(line);
+    final check = unitCheck(
+      product: line.product,
+      spoken: line.quantity.value?.unit,
+    );
 
     void update(VoiceApplicationLine Function(VoiceApplicationLine) change) =>
         controller.editManually((c) => c.updateLine(line.key, change));
@@ -628,6 +670,7 @@ class _VoiceApplicationDraftScreenState
             DraftFieldRow(
               label: 'Producto',
               labelInChild: true,
+              id: 'producto-${line.key}',
               field: line.product,
               child: VoiceEntityPicker(
                 key: Key('voz-producto-${line.key}'),
@@ -637,18 +680,21 @@ class _VoiceApplicationDraftScreenState
                 field: line.product,
                 enabled: editable,
                 onPick: (entry) => update(
-                  (l) => l.copyWith(
-                    product: DraftField.resolved(
-                      entry,
-                      origin: FieldOrigin.manual,
-                    ),
-                  ),
+                  (l) => l.copyWith(product: pickEntry(l.product, entry)),
                 ),
               ),
             ),
             DraftFieldRow(
               label: 'Cantidad aplicada ($unitLabel)',
+              id: 'cantidad-${line.key}',
               field: line.quantity,
+              note: check.note,
+              problem: check.problem,
+              onConfirmReview: editable
+                  ? () => update(
+                      (l) => l.copyWith(quantity: l.quantity.confirmedByUser()),
+                    )
+                  : null,
               child: TextField(
                 key: Key('voz-cantidad-${line.key}'),
                 controller: _controller('q${line.key}', _quantityText(line)),
@@ -668,7 +714,9 @@ class _VoiceApplicationDraftScreenState
                           : DraftField.resolved(
                               SpokenAmount(
                                 base,
-                                l.product.value?.unit == CatalogUnit.kilogram
+                                // La unidad que se ve junto al campo.
+                                lineUnit(l.product, l.quantity.value?.unit) ==
+                                        CatalogUnit.kilogram
                                     ? SpokenUnit.kilogram
                                     : SpokenUnit.liter,
                               ),
@@ -679,15 +727,22 @@ class _VoiceApplicationDraftScreenState
                 },
               ),
             ),
+            // POCO 2026-11-08: con 0 L y 10 L pedidos se leía «quedaría 0 L
+            // (insuficiente)». Ahora se dice cuánto falta.
             Text(
               available == null
                   ? 'Stock: se muestra al elegir el chaco y el producto.'
                   : after == null
                   ? 'Stock actual ${formatQuantity(available, unitLabel)}'
+                  : missing != null
+                  ? 'Stock actual ${formatQuantity(available, unitLabel)} · '
+                        'Faltan ${formatQuantity(missing, unitLabel)}'
                   : 'Stock actual ${formatQuantity(available, unitLabel)} · '
-                        'quedaría ${formatQuantity(after < 0 ? 0 : after, unitLabel)}'
-                        '${after < 0 ? ' (insuficiente)' : ''}',
+                        'quedaría ${formatQuantity(after, unitLabel)}',
               key: Key('voz-stock-${line.key}'),
+              style: missing == null
+                  ? null
+                  : TextStyle(color: Theme.of(context).colorScheme.error),
             ),
             if (line.fromPlan)
               Text(
@@ -721,8 +776,13 @@ class _VoiceApplicationDraftScreenState
       entries: [for (final o in options) o.entry],
       field: d.plan ?? const DraftField<CatalogEntry>.missing(),
       enabled: editable && options.isNotEmpty,
-      onPick: (entry) =>
-          controller.editManually((c) => selectPlan(c, entry.id, catalog)),
+      // Tocar el plan ya elegido no rehace sus líneas: se perderían las
+      // cantidades reales dichas o escritas.
+      onPick: (entry) => controller.editManually(
+        (c) => c.planData?.id == entry.id && c.plan?.isResolved == true
+            ? c
+            : selectPlan(c, entry.id, catalog),
+      ),
     );
     return Column(
       key: const Key('voz-plan'),

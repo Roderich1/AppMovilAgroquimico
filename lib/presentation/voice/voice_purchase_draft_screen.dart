@@ -42,11 +42,20 @@ import 'voice_draft_widgets.dart';
 import 'voice_evidence_hook.dart';
 
 class VoicePurchaseDraftScreen extends ConsumerStatefulWidget {
-  const VoicePurchaseDraftScreen({super.key, this.onOpenManualForm});
+  const VoicePurchaseDraftScreen({
+    super.key,
+    this.onOpenManualForm,
+    this.initialDraftForTest,
+  });
 
   /// Alternativa manual equivalente (formulario de compra). La conecta quien
   /// integra la ruta.
   final VoidCallback? onOpenManualForm;
+
+  /// Sólo pruebas: borrador inicial en vez del vacío, para mostrar estados
+  /// que aún no produce ningún intérprete (un valor por revisar).
+  @visibleForTesting
+  final VoicePurchaseDraft Function(VoiceCatalog catalog)? initialDraftForTest;
 
   @override
   ConsumerState<VoicePurchaseDraftScreen> createState() =>
@@ -92,7 +101,9 @@ class _VoicePurchaseDraftScreenState
       final catalog = await _gateway.purchaseCatalog();
       if (!mounted) return;
       final draft = VoiceDraftController<VoicePurchaseDraft, int>(
-        initial: VoicePurchaseDraft.start(catalog),
+        initial:
+            widget.initialDraftForTest?.call(catalog) ??
+            VoicePurchaseDraft.start(catalog),
         commit: _gateway.confirmPurchase,
         describeError: friendlyError,
       )..addListener(_onDraft);
@@ -182,7 +193,14 @@ class _VoicePurchaseDraftScreenState
     }
     for (var i = 0; i < d.lines.length; i++) {
       final l = d.lines[i];
-      if (differs('q${l.key}', l.quantity, l.quantityBase, tryParseBase)) {
+      // La cantidad visible se compara con la leída; con el producto elegido
+      // y de la misma unidad es `quantityBase`. Si no, la línea ya bloquea.
+      if (differs(
+        'q${l.key}',
+        l.quantity,
+        _spokenQuantityBase(l),
+        tryParseBase,
+      )) {
         out.add('Línea ${i + 1}: la cantidad visible no coincide.');
       }
       if (differs('p${l.key}', l.price, l.unitPriceMinor, tryParseMinor)) {
@@ -228,10 +246,15 @@ class _VoicePurchaseDraftScreenState
   TextEditingController _controller(String id, String value) =>
       _fields.putIfAbsent(id, () => TextEditingController(text: value));
 
+  /// La cantidad leída, normalizada a L o KG, también con el producto aún
+  /// por elegir o con el valor por revisar (POCO 2026-11-08).
   static String _quantityText(VoicePurchaseLine line) =>
-      line.quantityBase == null
-      ? (line.quantity.heard ?? '')
-      : formatForInput(line.quantityBase! / baseUnitsPerMajor);
+      spokenAmountText(_spokenQuantityBase(line), line.quantity.heard);
+
+  static int? _spokenQuantityBase(VoicePurchaseLine line) {
+    final q = line.quantity.value;
+    return q == null ? null : spokenBase(q.thousandths, q.unit);
+  }
 
   static String _priceText(VoicePurchaseLine line) => line.price.value == null
       ? ''
@@ -347,7 +370,13 @@ class _VoicePurchaseDraftScreenState
           const SizedBox(height: 12),
           if (_otherIntent != null)
             VoiceOtherIntentBanner(intent: _otherIntent!, current: 'compra'),
-          if (_heard.isNotEmpty) VoiceAppliedPanel(segments: _heard),
+          if (_heard.isNotEmpty)
+            VoiceAppliedPanel(
+              segments: _heard,
+              correctionHint: voiceCorrectionHint(
+                hasLines: draft?.draft.lines.isNotEmpty ?? false,
+              ),
+            ),
           const SizedBox(height: 12),
           if (_loadError != null)
             Text(_loadError!, key: const Key('voz-borrador-error-carga'))
@@ -409,6 +438,7 @@ class _VoicePurchaseDraftScreenState
         DraftFieldRow(
           label: 'Proveedor',
           labelInChild: true,
+          id: 'proveedor',
           field: d.supplier,
           child: VoiceEntityPicker(
             key: const Key('voz-borrador-proveedor'),
@@ -419,12 +449,7 @@ class _VoicePurchaseDraftScreenState
             createLabel: 'Crear proveedor',
             onCreate: _createSupplier,
             onPick: (entry) => controller.editManually(
-              (c) => c.copyWith(
-                supplier: DraftField.resolved(
-                  entry,
-                  origin: FieldOrigin.manual,
-                ),
-              ),
+              (c) => c.copyWith(supplier: pickEntry(c.supplier, entry)),
             ),
           ),
         ),
@@ -441,6 +466,7 @@ class _VoicePurchaseDraftScreenState
           DraftFieldRow(
             label: 'Recibe la compra',
             labelInChild: true,
+            id: 'persona',
             field: d.recipient,
             child: VoiceEntityPicker(
               key: const Key('voz-borrador-persona'),
@@ -453,12 +479,7 @@ class _VoicePurchaseDraftScreenState
               createLabel: modeChanged ? null : 'Agregar persona',
               onCreate: modeChanged ? null : _createPerson,
               onPick: (entry) => controller.editManually(
-                (c) => c.copyWith(
-                  recipient: DraftField.resolved(
-                    entry,
-                    origin: FieldOrigin.manual,
-                  ),
-                ),
+                (c) => c.copyWith(recipient: pickEntry(c.recipient, entry)),
               ),
             ),
           ),
@@ -482,7 +503,15 @@ class _VoicePurchaseDraftScreenState
         if (d.lines.any((l) => l.currency.value == CurrencyCode.usd))
           DraftFieldRow(
             label: 'Tipo de cambio (Bs por USD)',
+            id: 'tipo-cambio',
             field: d.exchangeRate,
+            onConfirmReview: editable
+                ? () => controller.editManually(
+                    (c) => c.copyWith(
+                      exchangeRate: c.exchangeRate.confirmedByUser(),
+                    ),
+                  )
+                : null,
             child: _numberField(
               id: 'fx',
               key: const Key('voz-tipo-cambio'),
@@ -708,8 +737,11 @@ class _VoicePurchaseDraftScreenState
     VoicePurchaseLine line,
     bool editable,
   ) {
-    final unit = line.product.value?.unit;
-    final unitLabel = unit == CatalogUnit.kilogram ? 'KG' : 'L';
+    final unitLabel = lineUnit(line.product, line.quantity.value?.unit).code;
+    final check = unitCheck(
+      product: line.product,
+      spoken: line.quantity.value?.unit,
+    );
     final qText = _quantityText(line);
     final pText = _priceText(line);
 
@@ -734,7 +766,8 @@ class _VoicePurchaseDraftScreenState
                 ),
                 IconButton(
                   key: Key('voz-quitar-${line.key}'),
-                  tooltip: 'Quitar esta línea',
+                  // El mismo texto que la indicación «cómo corregir».
+                  tooltip: 'Quitar este producto',
                   onPressed: editable
                       ? () => controller.editManually(
                           (c) => c.removeLine(line.key),
@@ -747,6 +780,7 @@ class _VoicePurchaseDraftScreenState
             DraftFieldRow(
               label: 'Producto',
               labelInChild: true,
+              id: 'producto-${line.key}',
               field: line.product,
               child: VoiceEntityPicker(
                 key: Key('voz-producto-${line.key}'),
@@ -770,18 +804,21 @@ class _VoicePurchaseDraftScreenState
                 createLabel: 'Crear producto',
                 onCreate: _createProduct,
                 onPick: (entry) => update(
-                  (l) => l.copyWith(
-                    product: DraftField.resolved(
-                      entry,
-                      origin: FieldOrigin.manual,
-                    ),
-                  ),
+                  (l) => l.copyWith(product: pickEntry(l.product, entry)),
                 ),
               ),
             ),
             DraftFieldRow(
               label: 'Cantidad ($unitLabel)',
+              id: 'cantidad-${line.key}',
               field: line.quantity,
+              note: check.note,
+              problem: check.problem,
+              onConfirmReview: editable
+                  ? () => update(
+                      (l) => l.copyWith(quantity: l.quantity.confirmedByUser()),
+                    )
+                  : null,
               child: _numberField(
                 id: 'q${line.key}',
                 key: Key('voz-cantidad-${line.key}'),
@@ -800,7 +837,9 @@ class _VoicePurchaseDraftScreenState
                           : DraftField.resolved(
                               SpokenQuantity(
                                 base,
-                                l.product.value?.unit == CatalogUnit.kilogram
+                                // La unidad que se ve junto al campo.
+                                lineUnit(l.product, l.quantity.value?.unit) ==
+                                        CatalogUnit.kilogram
                                     ? SpokenUnit.kilogram
                                     : SpokenUnit.liter,
                               ),
@@ -813,7 +852,13 @@ class _VoicePurchaseDraftScreenState
             ),
             DraftFieldRow(
               label: 'Precio por $unitLabel',
+              id: 'precio-${line.key}',
               field: line.price,
+              onConfirmReview: editable
+                  ? () => update(
+                      (l) => l.copyWith(price: l.price.confirmedByUser()),
+                    )
+                  : null,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
@@ -840,7 +885,11 @@ class _VoicePurchaseDraftScreenState
                       );
                     },
                   ),
+                  // ¿Por unidad o total? Decir que sí es dar por bueno el
+                  // precio que se ve: queda «Confirmado», como «Confirmar este
+                  // valor» en un precio por revisar (que ya trae su botón).
                   if (line.price.status == FieldStatus.ambiguous &&
+                      !line.price.review &&
                       line.price.value != null)
                     Align(
                       alignment: Alignment.centerLeft,
@@ -851,7 +900,8 @@ class _VoicePurchaseDraftScreenState
                                 (l) => l.copyWith(
                                   price: DraftField.resolved(
                                     SpokenPrice(l.price.value!.minorPerUnit),
-                                    origin: FieldOrigin.manual,
+                                    origin: FieldOrigin.confirmed,
+                                    heard: l.price.heard,
                                   ),
                                 ),
                               )

@@ -131,7 +131,9 @@ Object? encodeEvidenceValue(Object? value) => switch (value) {
 /// - un campo propuesto que cambió de estado o valor: [CorrectionKind.changed];
 /// - uno que la voz no propuso y quedó resuelto: [CorrectionKind.added];
 /// - uno propuesto que ya no está (línea quitada): [CorrectionKind.removed];
-/// - uno con origen manual y el mismo valor: [CorrectionKind.reaffirmed].
+/// - uno con origen manual y el mismo valor: [CorrectionKind.reaffirmed];
+/// - uno **confirmado** con el mismo valor, aunque antes estuviera por
+///   revisar o ambiguo: [CorrectionKind.reaffirmed], nunca «cambiado».
 ///
 /// Un campo que la voz no propuso y quedó como lo puso el sistema (por
 /// ejemplo, la campaña activa) no es una corrección.
@@ -145,6 +147,23 @@ List<EvidenceCorrection> diffEvidenceFields(
   for (final after in finalFields) {
     finalPaths.add(after.path);
     final before = byPath[after.path];
+    // Dar por bueno el valor propuesto, sin cambiarlo, no es un cambio (POCO
+    // 2026-11-08): se anota como «reafirmado», igual que elegir a mano la
+    // misma opción, aunque el campo pasara de «por revisar» o ambiguo a
+    // resuelto.
+    if (before != null &&
+        after.origin == FieldOrigin.confirmed.name &&
+        _sameValue(before, after)) {
+      out.add(
+        EvidenceCorrection(
+          path: after.path,
+          kind: CorrectionKind.reaffirmed,
+          proposed: before,
+          finalField: after,
+        ),
+      );
+      continue;
+    }
     if (before == null) {
       if (after.origin == FieldOrigin.manual.name &&
           after.status != FieldStatus.missing.name) {
@@ -193,6 +212,13 @@ List<EvidenceCorrection> diffEvidenceFields(
   return out;
 }
 
+/// Mismo valor, sin mirar el estado ni el origen.
+bool _sameValue(EvidenceField before, EvidenceField after) => EvidenceField(
+  path: after.path,
+  status: before.status,
+  value: after.value,
+).sameContentAs(before);
+
 /// Lo que la pantalla anota durante un borrador de voz para entregar la
 /// evidencia al terminar. No guarda nada por sí misma ni toca el borrador.
 ///
@@ -224,7 +250,11 @@ final class VoiceEvidenceTrace {
     _kind ??= evidenceKindOf(draftAfterVoice);
     if (transcript != null) _transcripts.add(transcript);
     for (final field in snapshotDraft(draftAfterVoice)) {
-      if (field.origin == FieldOrigin.manual.name) continue;
+      // Lo puesto o confirmado por la persona no es propuesta de la voz.
+      if (field.origin == FieldOrigin.manual.name ||
+          field.origin == FieldOrigin.confirmed.name) {
+        continue;
+      }
       if (!_proposed.containsKey(field.path)) _order.add(field.path);
       _proposed[field.path] = field;
     }
