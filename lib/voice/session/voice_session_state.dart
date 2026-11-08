@@ -215,6 +215,7 @@ final class VoiceSessionSnapshot {
     this.availability,
     this.reviewing = 0,
     this.reviewEnabled = true,
+    this.numericDisagreements = 0,
   });
 
   final VoiceSessionStatus status;
@@ -319,6 +320,19 @@ final class VoiceSessionSnapshot {
   /// El usuario quiere la segunda pasada, si el motor la tiene.
   final bool reviewEnabled;
 
+  /// Cuántos segmentos con desacuerdo numérico entre los dos reconocedores
+  /// ([TranscriptionSegment.numericDisagreement]) se han sumado a
+  /// [committedText] en esta sesión. Es un dato aparte del texto, que sigue
+  /// siendo una sola transcripción por frase.
+  ///
+  /// Sólo crece, y crece **en la misma actualización** que añade el texto de
+  /// ese segmento: quien toma el texto nuevo compara con el último valor que
+  /// vio y, si subió, sabe que ese texto trae cifras por revisar. Deshacer o
+  /// editar el texto no lo baja (lo ya interpretado no se desinterpreta), y
+  /// un segmento repetido, vacío o tardío no lo sube. Descartar empieza una
+  /// sesión nueva y lo devuelve a cero: no pasa a otra sesión de captura.
+  final int numericDisagreements;
+
   /// El locale mostrado difiere del pedido.
   ///
   /// El modelo local de la app no tiene «idioma pedido» que pueda faltar: es
@@ -369,6 +383,7 @@ final class VoiceSessionSnapshot {
     TranscriptionAvailability? availability,
     int? reviewing,
     bool? reviewEnabled,
+    int? numericDisagreements,
   }) => VoiceSessionSnapshot(
     status: status ?? this.status,
     committedText: committedText ?? this.committedText,
@@ -394,6 +409,7 @@ final class VoiceSessionSnapshot {
     availability: availability ?? this.availability,
     reviewing: reviewing ?? this.reviewing,
     reviewEnabled: reviewEnabled ?? this.reviewEnabled,
+    numericDisagreements: numericDisagreements ?? this.numericDisagreements,
   );
 
   /// Representación para diagnóstico. **Sin una sola palabra de lo dictado.**
@@ -401,7 +417,8 @@ final class VoiceSessionSnapshot {
   String toString() =>
       'VoiceSessionSnapshot(${status.name}, chars=${committedText.length}, '
       'partialChars=${partialText.length}, segments=$segmentCount, '
-      'edited=$manuallyEdited, locale=$localeInUse, '
+      'edited=$manuallyEdited, disagreements=$numericDisagreements, '
+      'locale=$localeInUse, '
       'route=${observedRoute?.name ?? route.name}, '
       'error=${errorCode?.name})';
 }

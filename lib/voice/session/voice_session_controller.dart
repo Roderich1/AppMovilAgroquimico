@@ -42,6 +42,13 @@ import 'voice_session_state.dart';
 /// [undoLastAutoAppend] deshace el último añadido automático, y deja de estar
 /// disponible en cuanto el usuario edita: deshacer entonces borraría su propia
 /// corrección.
+///
+/// ## Desacuerdo numérico entre motores
+///
+/// Un segmento con [TranscriptionSegment.numericDisagreement] se suma al texto
+/// como cualquier otro —es una sola transcripción— y, en la misma
+/// actualización, sube [VoiceSessionSnapshot.numericDisagreements]. La sesión
+/// no sabe qué cifras eran ni a qué campo van: eso lo decide quien interpreta.
 class VoiceSessionController extends ChangeNotifier {
   VoiceSessionController({
     required SpeechTranscriptionPort port,
@@ -286,6 +293,8 @@ class VoiceSessionController extends ChangeNotifier {
         offline: _snapshot.offline,
         availability: _snapshot.availability,
         reviewEnabled: _snapshot.reviewEnabled,
+        // `numericDisagreements` vuelve a cero: es contenido de la sesión
+        // descartada, como su texto, y no pasa a la siguiente.
       ),
     );
   }
@@ -556,14 +565,18 @@ class VoiceSessionController extends ChangeNotifier {
         _noteOfflineEvidence(text);
         _update(_snapshot.copyWith(partialText: text, reviewing: reviewing));
 
-      case TranscriptionSegment(:final text, :final sequence):
+      case TranscriptionSegment(
+        :final text,
+        :final sequence,
+        :final numericDisagreement,
+      ):
         // Después del cierre del turno, un resultado es tardío y no entra
         // (#119). Los adaptadores ya los descartan por número de turno; esto
         // cubre a cualquier motor. Se decide por el cierre ya procesado, no
         // por el estado visible: los eventos llegan en orden pero después de
         // que la sesión cambie de estado.
         if (!_turnActive) return;
-        _appendSegment(text, sequence);
+        _appendSegment(text, sequence, numericDisagreement);
 
       case TranscriptionFailed(:final code, :final detail):
         _pendingErrorCode = code;
@@ -603,7 +616,7 @@ class VoiceSessionController extends ChangeNotifier {
     );
   }
 
-  void _appendSegment(String text, int? sequence) {
+  void _appendSegment(String text, int? sequence, bool numericDisagreement) {
     if (sequence != null) {
       // Motor con varias frases por turno: cada número entra una sola vez.
       if (!_turnSequences.add(sequence)) return;
@@ -623,6 +636,12 @@ class VoiceSessionController extends ChangeNotifier {
 
     final base = _snapshot.committedText.trimRight();
     _undoText = _snapshot.committedText;
+    if (numericDisagreement) {
+      // Sólo el código: ni el texto ni qué cifras discreparon.
+      AppLog.info('voz: segmento con desacuerdo numérico entre motores');
+    }
+    // Texto y contador en la MISMA actualización: quien toma el texto nuevo
+    // ve a la vez si trae cifras por revisar.
     _update(
       _snapshot.copyWith(
         committedText: base.isEmpty ? trimmed : '$base $trimmed',
@@ -630,6 +649,9 @@ class VoiceSessionController extends ChangeNotifier {
         segmentCount: _snapshot.segmentCount + 1,
         canUndoAutoAppend: true,
         clearDelivered: true,
+        numericDisagreements: numericDisagreement
+            ? _snapshot.numericDisagreements + 1
+            : null,
       ),
     );
   }
