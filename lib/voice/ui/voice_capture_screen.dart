@@ -383,6 +383,20 @@ class _MicrophoneButton extends StatelessWidget {
                 key: Key('voz-indicador-activo'),
               ),
             ),
+          // #119: mientras el motor no confirma la apertura, el botón grande
+          // está deshabilitado para impedir el doble toque. Sin esta salida,
+          // un motor que no contestaba dejaba la pantalla sin ninguna acción.
+          if (snapshot.status == VoiceSessionStatus.starting ||
+              snapshot.status == VoiceSessionStatus.requestingPermission)
+            Padding(
+              padding: const EdgeInsets.only(top: 4),
+              child: TextButton.icon(
+                key: const Key('voz-cancelar-apertura'),
+                onPressed: () => onStop(),
+                icon: const Icon(Icons.close),
+                label: const Text('Cancelar'),
+              ),
+            ),
         ],
       ),
     );
@@ -597,7 +611,12 @@ class _ErrorPanel extends StatelessWidget {
     VoiceSessionStatus status, {
     bool systemTried = false,
     bool embedded = false,
+    String? detail,
   }) => switch (status) {
+    VoiceSessionStatus.recoverableError
+        when detail == VoiceSessionController.openTimeoutDetail =>
+      'El motor de voz no respondió al abrir el micrófono. Puedes reintentar '
+          'o escribir el texto a mano: no perderás lo que ya está escrito.',
     VoiceSessionStatus.recognizerUnavailable when embedded =>
       'El modelo de voz de la aplicación no está disponible en esta '
           'instalación. La aplicación no lo descarga de Internet. Puedes '
@@ -640,6 +659,7 @@ class _ErrorPanel extends StatelessWidget {
                 systemTried:
                     snapshot.route == TranscriptionEngineRoute.systemDefault,
                 embedded: snapshot.route == TranscriptionEngineRoute.embedded,
+                detail: snapshot.errorDetail,
               ),
               style: TextStyle(color: scheme.onErrorContainer),
             ),

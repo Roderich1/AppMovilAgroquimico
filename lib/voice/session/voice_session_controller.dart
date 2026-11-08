@@ -85,6 +85,9 @@ class VoiceSessionController extends ChangeNotifier {
 
   bool _disposed = false;
   bool _stopRequested = false;
+
+  /// Hay un turno abierto cuyo [TranscriptionTurnEnded] todavía no llegó.
+  bool _turnActive = false;
   bool _turnSegmentConsumed = false;
 
   int _turnCount = 0;
@@ -106,6 +109,10 @@ class VoiceSessionController extends ChangeNotifier {
 
   Timer? _restartTimer;
   Timer? _sessionTimer;
+
+  /// Plazo para que el motor confirme la apertura (#119). Ver
+  /// [VoiceContinuityPolicy.openTimeout].
+  Timer? _openTimer;
 
   TranscriptionErrorCode? _pendingErrorCode;
   String? _pendingErrorDetail;
@@ -160,6 +167,9 @@ class VoiceSessionController extends ChangeNotifier {
         clearDelivered: true,
       ),
     );
+    // Desde el toque: una consulta de disponibilidad que no vuelve también es
+    // una apertura sin respuesta.
+    _armOpenWatch();
 
     final availability = await _readAvailability();
     if (_disposed || !_userListening) return;
@@ -206,9 +216,22 @@ class VoiceSessionController extends ChangeNotifier {
   }
 
   /// Pulsa `Detener`. El texto se conserva y el micrófono se libera.
+  ///
+  /// Antes de que el motor confirme que escucha —abriendo el micrófono o
+  /// esperando el permiso— detener es **cancelar la apertura** (#119): no hay
+  /// nada oído que esperar, y pedir al motor un resultado final dejaba el turno
+  /// vivo hasta que el diálogo de permiso se contestara, que podía abrir el
+  /// micrófono después de que el usuario dijera que parase.
   Future<void> stopListening() async {
     if (_disposed) return;
     _stopContinuity();
+    if (_snapshot.status == VoiceSessionStatus.starting ||
+        _snapshot.status == VoiceSessionStatus.requestingPermission) {
+      AppLog.info('voz: apertura cancelada por el usuario');
+      await _releaseMicrophone();
+      _settleToPreview();
+      return;
+    }
     if (!_port.isTurnOpen) {
       _settleToPreview();
       return;
@@ -417,6 +440,7 @@ class VoiceSessionController extends ChangeNotifier {
     _disposed = true;
     _restartTimer?.cancel();
     _sessionTimer?.cancel();
+    _openTimer?.cancel();
     _userListening = false;
     unawaited(_subscription.cancel());
     // Salir de la pantalla no puede dejar un reconocedor vivo.
@@ -474,7 +498,13 @@ class VoiceSessionController extends ChangeNotifier {
     _turnCount++;
     _turnSegmentConsumed = false;
     _turnSequences.clear();
+    // Un fallo que llegó suelto, sin turno —un error tardío de un turno ya
+    // cerrado—, no puede decidir cómo termina éste (#119).
+    _pendingErrorCode = null;
+    _pendingErrorDetail = null;
     _update(_snapshot.copyWith(status: VoiceSessionStatus.starting));
+    _armOpenWatch();
+    _turnActive = true;
     await _port.start(
       TranscriptionRequest(
         locale: _localeOrder[_localeIndex],
@@ -527,6 +557,12 @@ class VoiceSessionController extends ChangeNotifier {
         _update(_snapshot.copyWith(partialText: text, reviewing: reviewing));
 
       case TranscriptionSegment(:final text, :final sequence):
+        // Después del cierre del turno, un resultado es tardío y no entra
+        // (#119). Los adaptadores ya los descartan por número de turno; esto
+        // cubre a cualquier motor. Se decide por el cierre ya procesado, no
+        // por el estado visible: los eventos llegan en orden pero después de
+        // que la sesión cambie de estado.
+        if (!_turnActive) return;
         _appendSegment(text, sequence);
 
       case TranscriptionFailed(:final code, :final detail):
@@ -552,6 +588,9 @@ class VoiceSessionController extends ChangeNotifier {
     if (!_userListening && !_snapshot.status.microphoneMayBeOpen) return;
     if (_stopRequested && stage != TranscriptionStage.awaitingPermission)
       return;
+    // El motor contestó: escucha, o el sistema está preguntando y el usuario
+    // decide sin plazo (`DEFECTO-005`).
+    _cancelOpenWatch();
     _update(
       _snapshot.copyWith(
         status: switch (stage) {
@@ -613,6 +652,8 @@ class VoiceSessionController extends ChangeNotifier {
   }
 
   void _onTurnEnded(TranscriptionEndReason reason) {
+    _turnActive = false;
+    _cancelOpenWatch();
     final code = _pendingErrorCode;
     final detail = _pendingErrorDetail;
     _pendingErrorCode = null;
@@ -812,7 +853,43 @@ class VoiceSessionController extends ChangeNotifier {
     _restartTimer = null;
     _sessionTimer?.cancel();
     _sessionTimer = null;
+    _cancelOpenWatch();
   }
+
+  void _armOpenWatch() {
+    _openTimer?.cancel();
+    _openTimer = Timer(_continuity.openTimeout, _onOpenTimeout);
+  }
+
+  void _cancelOpenWatch() {
+    _openTimer?.cancel();
+    _openTimer = null;
+  }
+
+  /// El motor no confirmó la apertura a tiempo (#119).
+  ///
+  /// Antes, la pantalla se quedaba en «Abriendo el micrófono» con el indicador
+  /// de escucha encendido y nada escuchando. Ahora se suelta el motor y la
+  /// sesión termina en un error explicado: se puede reintentar o escribir a
+  /// mano, y el texto ya dictado se conserva.
+  void _onOpenTimeout() {
+    _openTimer = null;
+    if (_disposed || _snapshot.status != VoiceSessionStatus.starting) return;
+    AppLog.warning(
+      'voz: el motor no confirmó la apertura en '
+      '${_continuity.openTimeout.inSeconds} s',
+    );
+    _stopContinuity();
+    _fail(
+      VoiceSessionStatus.recoverableError,
+      TranscriptionErrorCode.engineFailure,
+      openTimeoutDetail,
+    );
+    unawaited(_releaseMicrophone());
+  }
+
+  /// Detalle del fallo cuando el motor no confirmó la apertura a tiempo.
+  static const openTimeoutDetail = 'open-timeout';
 
   Future<void> _releaseMicrophone() async {
     _stopRequested = false;
