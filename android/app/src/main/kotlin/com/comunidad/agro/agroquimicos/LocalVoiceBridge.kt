@@ -92,17 +92,20 @@ class LocalVoiceBridge(
                 result.success(null)
             }
 
+            // Con número, sólo ese turno: la pantalla que se va no puede
+            // cortar el turno que ya abrió la siguiente (#119).
             "cancel" -> {
-                pendingStart = null
-                engine.cancel()
+                cancelTurn(call.argument<Int>("gen"))
                 result.success(null)
             }
 
             "openSettings" -> result.success(openAppSettings())
 
+            // La pantalla se va: suelta su turno y, si no queda ninguno, la
+            // memoria de los modelos. El motor sigue sirviendo a la siguiente.
             "dispose" -> {
-                pendingStart = null
-                engine.release()
+                cancelTurn(call.argument<Int>("gen"))
+                engine.releaseIfIdle()
                 result.success(null)
             }
 
@@ -135,6 +138,11 @@ class LocalVoiceBridge(
             if (permanent) "permissionPermanentlyDenied" else "permissionDenied",
             null,
         )
+    }
+
+    private fun cancelTurn(gen: Int?) {
+        if (gen == null || pendingStart?.gen == gen) pendingStart = null
+        engine.cancel(gen)
     }
 
     private fun hasMicPermission(): Boolean =

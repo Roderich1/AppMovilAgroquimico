@@ -54,6 +54,7 @@ class VoiceSpeechBridge(
      * cambiar por cuál de los dos se escucha (`DEFECTO-004`).
      */
     private data class PendingStart(
+        val gen: Int,
         val locale: String,
         val preferOffline: Boolean,
         val partialResults: Boolean,
@@ -68,7 +69,7 @@ class VoiceSpeechBridge(
 
     fun detach() {
         permissionInFlight = false
-        engine.release()
+        engine.shutdown()
         method.setMethodCallHandler(null)
         event.setStreamHandler(null)
         pendingStart = null
@@ -87,6 +88,7 @@ class VoiceSpeechBridge(
             }
 
             "start" -> {
+                val gen = call.argument<Int>("gen") ?: 0
                 val locale = call.argument<String>("locale") ?: DEFAULT_LOCALE
                 val preferOffline = call.argument<Boolean>("preferOffline") ?: true
                 val partials = call.argument<Boolean>("partialResults") ?: true
@@ -95,10 +97,15 @@ class VoiceSpeechBridge(
                 val route = call.argument<String>("route")
                     ?: VoiceSpeechEngine.ROUTE_ON_DEVICE
                 if (hasMicPermission()) {
-                    engine.start(locale, preferOffline, partials, route)
+                    engine.start(gen, locale, preferOffline, partials, route)
+                    result.success(null)
                 } else {
-                    pendingStart = PendingStart(locale, preferOffline, partials, route)
-                    onStage("awaitingPermission")
+                    pendingStart = PendingStart(gen, locale, preferOffline, partials, route)
+                    // #119: la respuesta dice YA que habrá diálogo. Llega a
+                    // Dart antes que la pausa que el propio diálogo provoca;
+                    // como evento podía llegar después, y la sesión tomaba la
+                    // pausa por «el usuario se fue» y cancelaba.
+                    result.success("awaitingPermission")
                     // Si ya hay un diálogo abierto se espera su respuesta: la
                     // peticion pendiente se acaba de actualizar y `onPermissionResult`
                     // la arrancara.
@@ -110,26 +117,23 @@ class VoiceSpeechBridge(
                         )
                     }
                 }
-                result.success(null)
             }
 
             "stop" -> {
-                engine.stop(); result.success(null)
+                engine.stop(call.argument<Int>("gen") ?: 0)
+                result.success(null)
             }
 
-            "cancel" -> {
-                pendingStart = null
-                engine.cancel()
+            // `dispose` es la pantalla que se va: suelta SU turno, no el
+            // motor. Apagarlo dejaba muerta la siguiente pantalla de voz (#119).
+            "cancel", "dispose" -> {
+                val gen = call.argument<Int>("gen")
+                if (gen == null || pendingStart?.gen == gen) pendingStart = null
+                engine.cancel(gen)
                 result.success(null)
             }
 
             "openSettings" -> result.success(openAppSettings())
-
-            "dispose" -> {
-                pendingStart = null
-                engine.release()
-                result.success(null)
-            }
 
             else -> result.notImplemented()
         }
@@ -164,6 +168,7 @@ class VoiceSpeechBridge(
         pendingStart = null
         if (granted) {
             engine.start(
+                pending.gen,
                 pending.locale,
                 pending.preferOffline,
                 pending.partialResults,
@@ -177,6 +182,7 @@ class VoiceSpeechBridge(
             Manifest.permission.RECORD_AUDIO,
         )
         onError(
+            pending.gen,
             if (permanent) "permissionPermanentlyDenied" else "permissionDenied",
             null,
         )
@@ -216,24 +222,27 @@ class VoiceSpeechBridge(
 
     // --------------------------------------------------------- Engine.Listener
 
-    override fun onStage(stage: String) = send(mapOf("type" to "stage", "stage" to stage))
+    override fun onStage(gen: Int, stage: String) =
+        send(mapOf("type" to "stage", "gen" to gen, "stage" to stage))
 
-    override fun onRoute(route: String) =
-        send(mapOf("type" to "route", "route" to route))
+    override fun onRoute(gen: Int, route: String) =
+        send(mapOf("type" to "route", "gen" to gen, "route" to route))
 
-    override fun onLocale(locale: String) =
-        send(mapOf("type" to "locale", "locale" to locale))
+    override fun onLocale(gen: Int, locale: String) =
+        send(mapOf("type" to "locale", "gen" to gen, "locale" to locale))
 
-    override fun onPartial(text: String) = send(mapOf("type" to "partial", "text" to text))
+    override fun onPartial(gen: Int, text: String) =
+        send(mapOf("type" to "partial", "gen" to gen, "text" to text))
 
-    override fun onFinal(text: String) = send(mapOf("type" to "final", "text" to text))
+    override fun onFinal(gen: Int, text: String) =
+        send(mapOf("type" to "final", "gen" to gen, "text" to text))
 
-    override fun onNoMatch() = send(mapOf("type" to "noMatch"))
+    override fun onNoMatch(gen: Int) = send(mapOf("type" to "noMatch", "gen" to gen))
 
-    override fun onTimeout() = send(mapOf("type" to "timeout"))
+    override fun onTimeout(gen: Int) = send(mapOf("type" to "timeout", "gen" to gen))
 
-    override fun onError(code: String, detail: String?) =
-        send(mapOf("type" to "error", "code" to code, "detail" to detail))
+    override fun onError(gen: Int, code: String, detail: String?) =
+        send(mapOf("type" to "error", "gen" to gen, "code" to code, "detail" to detail))
 
     private fun send(payload: Map<String, Any?>) {
         main.post { sink?.success(payload) }
