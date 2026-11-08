@@ -106,6 +106,7 @@ class _VoiceCaptureScreenState extends ConsumerState<VoiceCaptureScreen>
           _LocalePanel(snapshot: snapshot),
           const SizedBox(height: 12),
           _OfflinePanel(snapshot: snapshot),
+          _ReviewSwitch(session: _session),
           if (snapshot.routeFallbackOffered) ...[
             const SizedBox(height: 12),
             _RouteFallbackPanel(
@@ -230,6 +231,7 @@ class VoiceListeningPanel extends StatelessWidget {
         _LocalePanel(snapshot: snapshot),
         const SizedBox(height: 12),
         _OfflinePanel(snapshot: snapshot),
+        _ReviewSwitch(session: session),
         if (snapshot.routeFallbackOffered) ...[
           const SizedBox(height: 12),
           _RouteFallbackPanel(
@@ -291,7 +293,12 @@ class _NoticeCard extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            snapshot.route == TranscriptionEngineRoute.systemDefault
+            snapshot.route == TranscriptionEngineRoute.embedded
+                ? 'El reconocimiento lo hace la propia aplicación, dentro de '
+                      'tu teléfono, con un modelo de voz en español instalado '
+                      'con ella. No usa Internet ni envía tu voz a ningún '
+                      'servidor.'
+                : snapshot.route == TranscriptionEngineRoute.systemDefault
                 // Autorizado por el usuario: la voz de la aplicación sigue sin
                 // enviar nada, pero el servicio del teléfono puede usar
                 // Internet y decirlo es la mitad del trato. La aplicación sí
@@ -443,11 +450,34 @@ class _LocalePanel extends StatelessWidget {
           'reconocimiento local del teléfono',
         TranscriptionEngineRoute.systemDefault =>
           'Servicio del sistema — preferencia sin conexión',
+        TranscriptionEngineRoute.embedded => 'modelo de voz de la aplicación',
       };
 
   @override
   Widget build(BuildContext context) {
     final inUse = snapshot.localeInUse;
+    if (snapshot.route == TranscriptionEngineRoute.embedded) {
+      final availability = snapshot.availability;
+      final model = availability?.engineVersion ?? '';
+      final review = availability?.reviewModel;
+      return Column(
+        key: const Key('voz-locale'),
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Reconocedor: modelo de voz de la aplicación'
+            '${model.isEmpty ? '' : ' ($model)'}',
+            key: const Key('voz-proveedor'),
+          ),
+          const Text('Idioma: español'),
+          if (review != null)
+            Text(
+              'Revisión de cada frase: $review',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+        ],
+      );
+    }
     return Column(
       key: const Key('voz-locale'),
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -498,6 +528,29 @@ class _OfflinePanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final offline = snapshot.offline;
+    if (snapshot.route == TranscriptionEngineRoute.embedded) {
+      // Aquí no hay preferencia que el sistema pueda ignorar: el modelo está
+      // dentro de la app y el camino del audio no toca la red.
+      return Column(
+        key: const Key('voz-offline'),
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            'Funciona sin conexión: el modelo está instalado con la '
+            'aplicación y el audio no sale del teléfono.',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          Text(
+            switch (offline.airplaneMode) {
+              AirplaneMode.on => 'Modo avión: activado.',
+              AirplaneMode.off => 'Modo avión: desactivado.',
+              AirplaneMode.unknown => 'Modo avión: no se pudo comprobar.',
+            },
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ],
+      );
+    }
     final lines = <String>[
       if (offline.offlineRequested)
         'Se pide al teléfono transcribir sin conexión. Es una preferencia: el '
@@ -546,7 +599,12 @@ class _ErrorPanel extends StatelessWidget {
   static String advice(
     VoiceSessionStatus status, {
     bool systemTried = false,
+    bool embedded = false,
   }) => switch (status) {
+    VoiceSessionStatus.recognizerUnavailable when embedded =>
+      'El modelo de voz de la aplicación no está disponible en esta '
+          'instalación. La aplicación no lo descarga de Internet. Puedes '
+          'escribir el texto a mano.',
     VoiceSessionStatus.permissionDenied =>
       'Sin permiso de micrófono no se puede dictar. Puedes concederlo y volver '
           'a intentarlo, o escribir el texto a mano.',
@@ -584,6 +642,7 @@ class _ErrorPanel extends StatelessWidget {
                 snapshot.status,
                 systemTried:
                     snapshot.route == TranscriptionEngineRoute.systemDefault,
+                embedded: snapshot.route == TranscriptionEngineRoute.embedded,
               ),
               style: TextStyle(color: scheme.onErrorContainer),
             ),
@@ -710,6 +769,37 @@ class _RouteFallbackPanel extends StatelessWidget {
   }
 }
 
+/// Segunda pasada local (#166): sólo aparece si el motor la tiene aquí.
+///
+/// Se cambia con el micrófono cerrado; vale para el siguiente dictado.
+class _ReviewSwitch extends StatelessWidget {
+  const _ReviewSwitch({required this.session});
+
+  final VoiceSessionController session;
+
+  @override
+  Widget build(BuildContext context) {
+    final snapshot = session.snapshot;
+    if (snapshot.availability?.reviewModel == null) {
+      return const SizedBox.shrink();
+    }
+    final idle = !snapshot.status.microphoneMayBeOpen &&
+        !snapshot.status.isTransition;
+    return SwitchListTile(
+      key: const Key('voz-revision'),
+      contentPadding: EdgeInsets.zero,
+      value: snapshot.reviewEnabled,
+      onChanged: idle ? session.setReviewEnabled : null,
+      title: const Text('Revisar cada frase'),
+      subtitle: const Text(
+        'Un segundo modelo local vuelve a escuchar cada frase y corrige '
+        'nombres de productos y personas. Nunca cambia cantidades. Tarda unos '
+        'segundos más.',
+      ),
+    );
+  }
+}
+
 /// Texto provisional, siempre separado del texto de sesión.
 class _PartialPanel extends StatelessWidget {
   const _PartialPanel({required this.snapshot});
@@ -718,7 +808,25 @@ class _PartialPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (snapshot.partialText.isEmpty) return const SizedBox.shrink();
+    final listening = snapshot.status == VoiceSessionStatus.listening;
+    if (snapshot.partialText.isEmpty) {
+      if (!listening) return const SizedBox.shrink();
+      // Abierto y todavía sin texto: que se vea que está escuchando.
+      return Container(
+        key: const Key('voz-parcial'),
+        width: double.infinity,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surfaceContainerHighest,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Text(
+          'Escuchando… habla con normalidad; el texto aparece mientras hablas.',
+          style: Theme.of(context).textTheme.labelMedium,
+        ),
+      );
+    }
+    final reviewing = snapshot.reviewing;
     return Container(
       key: const Key('voz-parcial'),
       width: double.infinity,
@@ -731,11 +839,18 @@ class _PartialPanel extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Escuchando (todavía puede cambiar)',
+            reviewing > 0
+                ? 'Provisional · revisando '
+                      '${reviewing == 1 ? '1 frase' : '$reviewing frases'}…'
+                : 'Escuchando (todavía puede cambiar)',
+            key: const Key('voz-parcial-etiqueta'),
             style: Theme.of(context).textTheme.labelMedium,
           ),
           const SizedBox(height: 4),
-          Text(snapshot.partialText),
+          Text(
+            snapshot.partialText,
+            style: const TextStyle(fontStyle: FontStyle.italic),
+          ),
         ],
       ),
     );

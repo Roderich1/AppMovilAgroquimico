@@ -156,6 +156,9 @@ final class FakeSpeechTranscriptionPort implements SpeechTranscriptionPort {
   String get engineId => 'fake';
 
   @override
+  bool get listensAcrossPauses => false;
+
+  @override
   bool get isTurnOpen => _openTurn != null;
 
   @override

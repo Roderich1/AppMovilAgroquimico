@@ -71,6 +71,9 @@ class _VoicePlanDraftScreenState extends ConsumerState<VoicePlanDraftScreen>
         commit: _gateway.confirmPlan,
         describeError: friendlyError,
       )..addListener(_onDraft);
+      // Los nombres del catálogo orientan la segunda pasada local; no
+      // restringen lo que se dicta ni convierten nada en esos nombres.
+      _session.setVocabularyHints(voiceVocabularyHints(catalog));
       setState(() {
         _catalog = catalog;
         _draft = draft;

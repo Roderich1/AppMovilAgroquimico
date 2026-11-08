@@ -142,6 +142,11 @@ enum TranscriptionEngineRoute {
 
   /// Servicio de reconocimiento del teléfono. Puede usar red.
   systemDefault,
+
+  /// Modelo de voz incluido en la propia aplicación (Vosk y, si está, una
+  /// segunda pasada local). No depende de ningún servicio del sistema ni usa
+  /// red: el audio se procesa dentro del proceso de la app (#165, #166).
+  embedded,
 }
 
 /// Qué se sabe del modo avión del dispositivo.
@@ -161,10 +166,18 @@ sealed class TranscriptionEvent {
 /// `EVO-009-REQ-019`: es sólo texto, no alimenta ninguna decisión. Nunca se
 /// acumula por su cuenta en el texto de sesión.
 final class TranscriptionPartial extends TranscriptionEvent {
-  const TranscriptionPartial(this.text, {required this.elapsed});
+  const TranscriptionPartial(
+    this.text, {
+    required this.elapsed,
+    this.reviewing = 0,
+  });
 
   final String text;
   final Duration elapsed;
+
+  /// Frases ya cerradas que esperan la segunda pasada. Siguen siendo
+  /// provisionales: forman parte de [text] y todavía no son segmento.
+  final int reviewing;
 
   /// Nunca incluye el texto: los registros no deben contener lo dictado.
   @override
@@ -178,10 +191,23 @@ final class TranscriptionPartial extends TranscriptionEvent {
 /// Varios segmentos componen la sesión. El puerto no los acumula: eso es
 /// política de sesión y vive en `VoiceSessionController`.
 final class TranscriptionSegment extends TranscriptionEvent {
-  const TranscriptionSegment(this.text, {required this.elapsed});
+  const TranscriptionSegment(
+    this.text, {
+    required this.elapsed,
+    this.sequence,
+    this.revised = false,
+  });
 
   final String text;
   final Duration elapsed;
+
+  /// Número de frase dentro del turno, para motores que entregan varias
+  /// ([SpeechTranscriptionPort.listensAcrossPauses]). Con número, un repetido
+  /// se reconoce por él; sin número, vale la regla de un segmento por turno.
+  final int? sequence;
+
+  /// El texto es el de la segunda pasada, elegido frente al de la primera.
+  final bool revised;
 
   @override
   String toString() =>
@@ -309,6 +335,7 @@ final class TranscriptionAvailability {
     this.airplaneMode = AirplaneMode.unknown,
     this.engineName = '',
     this.engineVersion = '',
+    this.reviewModel,
     this.detail,
   });
 
@@ -321,7 +348,8 @@ final class TranscriptionAvailability {
       supportedLocales = const [],
       airplaneMode = AirplaneMode.unknown,
       engineName = '',
-      engineVersion = '';
+      engineVersion = '',
+      reviewModel = null;
 
   /// `isRecognitionAvailable()`: hay algún reconocedor instalado.
   final bool recognizerAvailable;
@@ -353,6 +381,10 @@ final class TranscriptionAvailability {
   final String engineName;
   final String engineVersion;
 
+  /// Modelo de la segunda pasada local, si este motor la tiene y puede
+  /// ejecutarla aquí; `null` si no.
+  final String? reviewModel;
+
   /// Diagnóstico técnico. Nunca contenido dictado.
   final String? detail;
 
@@ -373,6 +405,8 @@ final class TranscriptionRequest {
     this.partialResults = true,
     this.maxTurnDuration = const Duration(seconds: 60),
     this.route = TranscriptionEngineRoute.onDevice,
+    this.hints = const [],
+    this.review = true,
   });
 
   /// Locale concreto que se intentará. Lo elige `VoiceLocalePolicy`, nunca el
@@ -394,12 +428,22 @@ final class TranscriptionRequest {
   /// [TranscriptionEngineRoute.systemDefault] requiere su autorización.
   final TranscriptionEngineRoute route;
 
+  /// Pista de vocabulario: nombres del catálogo y de personas que pueden
+  /// dictarse. Sólo la usa un motor que la admite (la segunda pasada local);
+  /// no restringe lo que se puede dictar ni convierte nada en esos nombres.
+  final List<String> hints;
+
+  /// Pide la segunda pasada local si el motor la tiene.
+  final bool review;
+
   TranscriptionRequest withLocale(String value) => TranscriptionRequest(
     locale: value,
     preferOffline: preferOffline,
     partialResults: partialResults,
     maxTurnDuration: maxTurnDuration,
     route: route,
+    hints: hints,
+    review: review,
   );
 }
 
@@ -417,6 +461,14 @@ final class TranscriptionRequest {
 abstract interface class SpeechTranscriptionPort {
   /// Identificador estable del motor, para diagnóstico.
   String get engineId;
+
+  /// `true` si un turno sigue escuchando a través de las pausas y entrega
+  /// varios [TranscriptionSegment] numerados hasta que se detiene.
+  ///
+  /// El reconocedor de Android cierra el turno en cada pausa y la sesión abre
+  /// otro; el motor local no, y reabrir el micrófono en cada pausa perdería
+  /// audio entre turnos.
+  bool get listensAcrossPauses;
 
   /// `true` mientras el micrófono puede estar tomado.
   bool get isTurnOpen;

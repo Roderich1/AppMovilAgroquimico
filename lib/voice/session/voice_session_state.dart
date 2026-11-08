@@ -213,6 +213,8 @@ final class VoiceSessionSnapshot {
     this.canUndoAutoAppend = false,
     this.delivered,
     this.availability,
+    this.reviewing = 0,
+    this.reviewEnabled = true,
   });
 
   final VoiceSessionStatus status;
@@ -310,9 +312,21 @@ final class VoiceSessionSnapshot {
   /// Última disponibilidad observada. `null` si aún no se consultó.
   final TranscriptionAvailability? availability;
 
+  /// Frases cerradas que esperan la segunda pasada local. Siguen en el texto
+  /// provisional hasta que se entregan.
+  final int reviewing;
+
+  /// El usuario quiere la segunda pasada, si el motor la tiene.
+  final bool reviewEnabled;
+
   /// El locale mostrado difiere del pedido.
+  ///
+  /// El modelo local de la app no tiene «idioma pedido» que pueda faltar: es
+  /// español por construcción, y comparar con `es-US` sólo confundiría.
   bool get localeIsFallback =>
-      localeInUse != null && localeInUse != requestedLocale;
+      observedRoute != TranscriptionEngineRoute.embedded &&
+      localeInUse != null &&
+      localeInUse != requestedLocale;
 
   /// Hay algo que entregar o editar.
   bool get hasText => committedText.trim().isNotEmpty;
@@ -353,6 +367,8 @@ final class VoiceSessionSnapshot {
     VoiceSessionText? delivered,
     bool clearDelivered = false,
     TranscriptionAvailability? availability,
+    int? reviewing,
+    bool? reviewEnabled,
   }) => VoiceSessionSnapshot(
     status: status ?? this.status,
     committedText: committedText ?? this.committedText,
@@ -376,6 +392,8 @@ final class VoiceSessionSnapshot {
     canUndoAutoAppend: canUndoAutoAppend ?? this.canUndoAutoAppend,
     delivered: clearDelivered ? null : (delivered ?? this.delivered),
     availability: availability ?? this.availability,
+    reviewing: reviewing ?? this.reviewing,
+    reviewEnabled: reviewEnabled ?? this.reviewEnabled,
   );
 
   /// Representación para diagnóstico. **Sin una sola palabra de lo dictado.**
