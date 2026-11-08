@@ -29,7 +29,7 @@ La misma lista, en CSV: [`resultados_PLANTILLA.csv`](resultados_PLANTILLA.csv). 
 ## Bloque A. Compra
 
 - **A1** E1 → Herbicida DEMO 5 L, 120 Bs/L: ☐ Pasa ☐ Falla ☐ No ejecutado — Obs.:
-- **A2** E2 → proveedor Agroinsumos DEMO: ☐ Pasa ☐ Falla ☐ No ejecutado — Obs.:
+- **A2** E2 → proveedor Agroinsumos DEMO (sintético): ☐ Pasa ☐ Falla ☐ No ejecutado — Obs.:
 - **A3** Corrección a mano a 4 L: ☐ Pasa ☐ Falla ☐ No ejecutado — Obs.:
 - **A4** Dictar otra vez E1 conserva los 4 L: ☐ Pasa ☐ Falla ☐ No ejecutado — Obs.:
 - **A5** Cancelar: ninguna compra, inventario igual: ☐ Pasa ☐ Falla ☐ No ejecutado — Obs.:

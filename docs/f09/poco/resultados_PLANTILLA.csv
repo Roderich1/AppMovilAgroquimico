@@ -8,7 +8,7 @@ P6,preparacion,Modo avion con Wi-Fi y datos apagados,sin red; el navegador no ca
 P7,preparacion,Modelo disponible sin red,modelo de la app; Modo avion activado,,
 P8,preparacion,Licencias,componentes de voz listados,,
 A1,compra,Dictar E1,Herbicida DEMO 5 L a 120 Bs/L,,
-A2,compra,Dictar E2,proveedor Agroinsumos DEMO,,
+A2,compra,Dictar E2,proveedor Agroinsumos DEMO (sintético),,
 A3,compra,Corregir a mano a 4 L,marcada como corregida a mano,,
 A4,compra,Dictar otra vez E1,la cantidad sigue en 4 L,,
 A5,compra,Cancelar y descartar,ninguna compra; inventario igual,,
