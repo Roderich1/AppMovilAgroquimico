@@ -35,8 +35,49 @@ const thirdPartyNotices = <ThirdPartyNotice>[
     note:
         'Motor de reconocimiento de voz principal: libvosk.so y sus clases '
         'Java, del paquete com.alphacephei:vosk-android:0.3.75 (Alpha Cephei). '
-        'Licencia Apache 2.0.',
+        'Licencia Apache 2.0. libvosk.so incluye Kaldi, OpenFST, OpenBLAS, '
+        'CLAPACK y libf2c, con sus avisos a continuación.',
     assets: ['assets/licenses/vosk/COPYING'],
+  ),
+  ThirdPartyNotice(
+    package: 'Kaldi (incluido en Vosk)',
+    note:
+        'Reconocedor de voz compilado dentro de libvosk.so, desde la rama '
+        'vosk-android de https://github.com/alphacep/kaldi. Licencia Apache '
+        '2.0.',
+    assets: ['assets/licenses/vosk/kaldi/COPYING'],
+  ),
+  ThirdPartyNotice(
+    package: 'OpenFST (incluido en Vosk)',
+    note:
+        'Biblioteca de transductores de estados finitos compilada dentro de '
+        'libvosk.so (OpenFST 1.8.0, copia de Alpha Cephei en '
+        'https://github.com/alphacep/openfst). Licencia Apache 2.0.',
+    assets: ['assets/licenses/vosk/openfst/COPYING'],
+  ),
+  ThirdPartyNotice(
+    package: 'OpenBLAS 0.3.20 (incluido en Vosk)',
+    note:
+        'Rutinas de álgebra lineal (sólo CBLAS) compiladas dentro de '
+        'libvosk.so, desde la etiqueta v0.3.20 de '
+        'https://github.com/OpenMathLib/OpenBLAS. Se muestran su licencia y el '
+        'aviso de GotoBLAS2, del que deriva.',
+    assets: [
+      'assets/licenses/vosk/openblas/LICENSE',
+      'assets/licenses/vosk/openblas/GotoBLAS_00License.txt',
+    ],
+  ),
+  ThirdPartyNotice(
+    package: 'CLAPACK 3.2.1 y libf2c (incluidos en Vosk)',
+    note:
+        'LAPACK traducido a C y su biblioteca de soporte libf2c, compilados '
+        'dentro de libvosk.so desde la rama v3.2.1 de '
+        'https://github.com/alphacep/clapack. Se muestran el aviso de CLAPACK '
+        'y el de libf2c.',
+    assets: [
+      'assets/licenses/vosk/clapack/COPYING',
+      'assets/licenses/vosk/clapack/libf2c/Notice',
+    ],
   ),
   ThirdPartyNotice(
     package: 'JNA (Java Native Access 5.18.1)',

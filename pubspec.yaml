@@ -78,6 +78,11 @@ flutter:
   # texto en assets/licenses/README.md, que no se empaqueta.
   assets:
     - assets/licenses/vosk/
+    - assets/licenses/vosk/kaldi/
+    - assets/licenses/vosk/openfst/
+    - assets/licenses/vosk/openblas/
+    - assets/licenses/vosk/clapack/
+    - assets/licenses/vosk/clapack/libf2c/
     - assets/licenses/jna/
     - assets/licenses/jna/libffi/
     - assets/licenses/whisper_cpp/

@@ -30,7 +30,18 @@ Revisado el 2026-11-08 sobre `49108ba`, con la APK ARM64 de `03124a0` en caché 
   - La app los registra en `LicenseRegistry` (`lib/licenses/third_party_licenses.dart`) y los muestra en **Más › Licencias**.
   - JNA se ofrece bajo Apache-2.0 o LGPL-2.1-or-later; se usa bajo **Apache-2.0**. Su `libjnidispatch.so` incluye libffi, cuyo aviso también se muestra.
   - El modelo Vosk se muestra con su `README` literal y el texto Apache-2.0 de apache.org. El modelo Whisper, con el `LICENSE` MIT de `openai/whisper`.
-- **Pendiente: lo que `libvosk.so` lleva dentro.** El binario contiene Kaldi, OpenFST y OpenBLAS (sus nombres aparecen como cadenas en el `.so`) y, según `android/lib/build-vosk.sh` de `vosk-api`, CLAPACK. El AAR no trae sus avisos, y desde el binario no se sabe de qué commit sale cada uno. Decide el autor.
+- **Lo que `libvosk.so` lleva dentro (2026-11-08, segunda entrega).** El binario lleva Kaldi, OpenFST, OpenBLAS 0.3.20, CLAPACK 3.2.1 y libf2c. Sus avisos también se muestran en **Más › Licencias**.
+  - **Fuente:** `android/lib/build-vosk.sh` y `src/Makefile` de `vosk-api` en `625e44c`; textos de sus repositorios oficiales.
+  - **Versiones:** sólo OpenBLAS tiene etiqueta (`v0.3.20`). Kaldi (`vosk-android`), OpenFST (`master`) y CLAPACK (rama `v3.2.1`) se clonan por rama: no se sabe el commit exacto. Sus archivos de licencia no cambian desde antes de `625e44c`, así que el texto es el mismo.
+  - **Lo que no se verifica:** que el AAR publicado saliera de ese script.
+  - **Detalle:** nota 5 de `assets/licenses/README.md`.
+- **`LICENSE-junit.txt` en la raíz de la APK *profile* (no es de la voz).** Es el archivo de `junit:junit:4.12` (SHA-256 `9648bb2891b9813970bddb68d4be8a5e6ec8280d0180a53dfb29236b579c55bb`, el mismo dentro del jar y en la APK `b19adf3`). Licencia EPL-1.0.
+  - **Cómo llega.** `./gradlew :app:dependencies --configuration profileRuntimeClasspath` muestra la cadena `project :integration_test` → `androidx.test:runner:1.3.0` → `junit:junit:4.12` → `org.hamcrest:hamcrest-core:1.3`. El mismo plugin trae también `androidx.test:rules`, `espresso-core:3.3.0` (con `hamcrest-library`/`-integration`, `javawriter`, `javax.inject`, `jsr305`) y `guava:28.1-android`.
+  - **Es una dependencia de desarrollo.** `integration_test` está en `dev_dependencies` de `pubspec.yaml`. El plugin de Gradle de Flutter 3.47.2 (`PluginHandler.kt`) añade los plugins de desarrollo a todos los tipos de compilación **menos `release`**: debug y *profile* los llevan.
+  - **Sí se distribuye código de JUnit en la APK *profile*.** En los `classes*.dex` de la APK `b19adf3` hay 617 referencias a `Lorg/junit/`, 49 a `Ljunit/framework/`, 288 a `Lorg/hamcrest/`, 1 841 a `Landroidx/test/` y 21 a `Ldev/flutter/plugins/integration_test/`.
+  - **Lo que no se registra.** Los avisos de estos artefactos no están en `LicenseRegistry`. AGP descarta los `LICENSE.txt` de Hamcrest al empaquetar; sólo sobrevive `LICENSE-junit.txt`.
+  - **Release:** no se compiló en esta sesión. Según esa regla de Flutter, no los lleva.
+  - **Dependencias sin cambiar**, a petición de la coordinadora.
 - **Sin conexión.** Que el modelo viaje en la APK quiere decir que no hace falta red para tenerlo. Que el dictado funcione sin conexión en un teléfono concreto sólo lo prueba una transcripción con el modo avión activado y verificado. Hoy no hay teléfono conectado: no se afirma nada nuevo sobre eso.
 
 ## Notas

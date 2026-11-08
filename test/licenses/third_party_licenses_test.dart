@@ -12,6 +12,10 @@ import 'package:flutter_test/flutter_test.dart';
 
 const _components = [
   'Vosk (vosk-android 0.3.75)',
+  'Kaldi (incluido en Vosk)',
+  'OpenFST (incluido en Vosk)',
+  'OpenBLAS 0.3.20 (incluido en Vosk)',
+  'CLAPACK 3.2.1 y libf2c (incluidos en Vosk)',
   'JNA (Java Native Access 5.18.1)',
   'whisper.cpp',
   'ggml',
@@ -135,11 +139,11 @@ void main() {
 
       // El texto de JNA: la nota, la licencia doble, Apache 2.0 y libffi.
       await tester.scrollUntilVisible(
-        find.text(_components[1]),
+        find.text(_components[5]),
         -100,
         scrollable: find.byType(Scrollable).first,
       );
-      await tester.tap(find.text(_components[1]));
+      await tester.tap(find.text(_components[5]));
       await _pumpLicenses(
         tester,
         find.textContaining('Agrocuentas la usa bajo Apache 2.0'),

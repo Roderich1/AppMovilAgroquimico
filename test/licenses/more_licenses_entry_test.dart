@@ -18,8 +18,8 @@ void main() {
   });
   tearDown(LicenseRegistry.reset);
 
-  testWidgets('Más › Licencias abre la página con Vosk, JNA, whisper.cpp, '
-      'ggml y los modelos', (tester) async {
+  testWidgets('Más › Licencias abre la página con Vosk y lo que incluye, JNA, '
+      'whisper.cpp, ggml y los modelos', (tester) async {
     await tester.binding.setSurfaceSize(const Size(400, 1600));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     final s = await activatedHousehold(tester, 'licencias');
@@ -41,6 +41,10 @@ void main() {
     expect(find.byType(LicensePage), findsOneWidget);
     for (final name in [
       'Vosk (vosk-android 0.3.75)',
+      'Kaldi (incluido en Vosk)',
+      'OpenFST (incluido en Vosk)',
+      'OpenBLAS 0.3.20 (incluido en Vosk)',
+      'CLAPACK 3.2.1 y libf2c (incluidos en Vosk)',
       'JNA (Java Native Access 5.18.1)',
       'whisper.cpp',
       'ggml',

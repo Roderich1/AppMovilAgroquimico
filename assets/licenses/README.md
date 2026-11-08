@@ -11,6 +11,12 @@ Avisos de los componentes que la APK con voz local distribuye y que el aviso de 
 | Archivo | Componente | Fuente oficial | Versión o commit | SHA-256 | Bytes |
 |---|---|---|---|---|---|
 | `assets/licenses/vosk/COPYING` | Vosk Android 0.3.75 (`libvosk.so`) | `https://raw.githubusercontent.com/alphacep/vosk-api/625e44c62607a3b48fec6d72a30118448909e83f/COPYING` | `alphacep/vosk-api` `625e44c62607a3b48fec6d72a30118448909e83f` (ver nota 1) | `bb618af833c817ab01c1564bd3ec75ba4b4f9cf30910a4a2168e30a674ee8cc6` | 10 173 |
+| `assets/licenses/vosk/kaldi/COPYING` | Kaldi, dentro de `libvosk.so` | `https://raw.githubusercontent.com/alphacep/kaldi/8b7fecf92b329b7253d9d1cd97898c8b13f9aef3/COPYING` | rama `vosk-android`, cabeza `8b7fecf92b329b7253d9d1cd97898c8b13f9aef3` (ver nota 5) | `3fd3dd523b1717f1fb2ae40896df943d767fa5e664e46156c2dba7094f0d7172` | 17 264 |
+| `assets/licenses/vosk/openfst/COPYING` | OpenFST 1.8.0, dentro de `libvosk.so` | `https://raw.githubusercontent.com/alphacep/openfst/18e94e63870ebcf79ebb42b7035cd3cb626ec090/COPYING` | rama `master`, cabeza `18e94e63870ebcf79ebb42b7035cd3cb626ec090` (ver nota 5) | `dd0c6c9378a98b6a0e96b559b285c8506434fe2691eeeef151e8a8c1c492778e` | 559 |
+| `assets/licenses/vosk/openblas/LICENSE` | OpenBLAS 0.3.20, dentro de `libvosk.so` | `https://raw.githubusercontent.com/OpenMathLib/OpenBLAS/0b678b19dc03f2a999d6e038814c4c50b9640a4e/LICENSE` | etiqueta `v0.3.20` = `0b678b19dc03f2a999d6e038814c4c50b9640a4e` | `190b5a9c8d9723fe958ad33916bd7346d96fab3c5ea90832bb02d854f620fcff` | 1 548 |
+| `assets/licenses/vosk/openblas/GotoBLAS_00License.txt` | OpenBLAS 0.3.20, aviso de GotoBLAS2 | `https://raw.githubusercontent.com/OpenMathLib/OpenBLAS/0b678b19dc03f2a999d6e038814c4c50b9640a4e/GotoBLAS_00License.txt` | ídem | `38d9eb2e3d49d73fa12b18729a112fa949f7887c3ff12be23a02c0c97d9fb5b8` | 1 608 |
+| `assets/licenses/vosk/clapack/COPYING` | CLAPACK 3.2.1, dentro de `libvosk.so` | `https://raw.githubusercontent.com/alphacep/clapack/f4e1647de96343fb20eea08a9d4f0e0d04c31c51/COPYING` | rama `v3.2.1`, cabeza `f4e1647de96343fb20eea08a9d4f0e0d04c31c51` (ver nota 5) | `23014869214a231525b38c39fdb5f82364fa24154ac80fdcab2a79671460fd09` | 1 607 |
+| `assets/licenses/vosk/clapack/libf2c/Notice` | libf2c (de CLAPACK), dentro de `libvosk.so` | `https://raw.githubusercontent.com/alphacep/clapack/f4e1647de96343fb20eea08a9d4f0e0d04c31c51/F2CLIBS/libf2c/Notice` | ídem | `44561c447e91203ddc747beeca5cc2794d95ee982c17c578670e4f0408bc3904` | 1 212 |
 | `assets/licenses/jna/LICENSE` | JNA 5.18.1 (`libjnidispatch.so`) | `https://raw.githubusercontent.com/java-native-access/jna/3c493c1642b1555d541755e0984c968ba6c0f540/LICENSE` | etiqueta `5.18.1` = `3c493c1642b1555d541755e0984c968ba6c0f540` | `07c938b23950ab7d47a24ef35f9f5da3a05ae164278dc959ad6994135ed59ff1` | 797 |
 | `assets/licenses/jna/AL2.0` | JNA 5.18.1, licencia Apache 2.0 | `https://raw.githubusercontent.com/java-native-access/jna/3c493c1642b1555d541755e0984c968ba6c0f540/AL2.0` | ídem | `0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594` | 10 174 |
 | `assets/licenses/jna/libffi/LICENSE` | libffi, dentro de `libjnidispatch.so` | `https://raw.githubusercontent.com/java-native-access/jna/3c493c1642b1555d541755e0984c968ba6c0f540/native/libffi/LICENSE` | ídem | `2c9c2acb9743e6b007b91350475308aee44691d96aa20eacef8e199988c8c388` | 1 132 |
@@ -38,8 +44,29 @@ Avisos de los componentes que la APK con voz local distribuye y que el aviso de 
    - El `README.md` de ese repositorio, revisión `5359861c739e955e79d9a303bcbc70fb988958b1` (SHA-256 `21fd967098804f33fc84e803fb0e5ab7666d71801f4027cf28a65e7af09c1758`), declara `license: mit` y no trae archivo de licencia. No se copia en la APK.
    - Los pesos originales son de OpenAI, con el `LICENSE` MIT de `openai/whisper` («Copyright (c) 2022 OpenAI»), que es el que se muestra.
 
+5. **Lo que `libvosk.so` lleva dentro.**
+   - **Cómo se compiló.** `android/lib/build-vosk.sh` de `vosk-api` en `625e44c`, el commit que fija la versión 0.3.75. Clona:
+     - OpenBLAS con `-b v0.3.20` (etiqueta) y `ONLY_CBLAS=1`, que implica `NO_LAPACK=1`: no entra el `lapack-netlib` de OpenBLAS;
+     - `alphacep/clapack` con `-b v3.2.1` (es una rama, no una etiqueta), de la que compila `libf2c`, `BLAS` y `SRC`;
+     - `alphacep/openfst` sin rama (la de por defecto, `master`), con `OPENFST_VERSION=1.8.0`;
+     - `alphacep/kaldi` con `-b vosk-android`.
+
+     `src/Makefile` del mismo commit enlaza `libopenblas.a`, `liblapack.a`, `libblas.a`, `libf2c.a`, `libfst.a`, `libfstngram.a` y las bibliotecas de Kaldi.
+   - **Qué se fija con certeza.** Sólo OpenBLAS tiene etiqueta. Para Kaldi, OpenFST y CLAPACK el script usa ramas, y no se sabe en qué commit estaban el día en que se compiló el AAR. Lo verificable es esto:
+     - el último cambio de cada archivo de licencia es anterior a `625e44c` (2025-12-08): Kaldi `COPYING` 2018-05-07, OpenFST `COPYING` 2020-12-21 («Upgrade to Openfst 1.8.0»), CLAPACK `COPYING` y `F2CLIBS/libf2c/Notice` 2021-01-05, GotoBLAS 2011-01-24;
+     - las cabezas actuales de esas ramas también son anteriores: Kaldi y OpenFST 2024-08-23, CLAPACK 2025-05-01.
+
+     Por eso el texto es el mismo en cualquier commit de esas ramas posterior a esas fechas. Se copia el de la cabeza actual.
+   - **Qué no se puede verificar.** Que el AAR publicado en Maven Central se compilara con ese script, porque lo compila Alpha Cephei. En el `.so` sí aparecen las piezas:
+     - `kaldi::`, `OpenBLAS` y `cblas_sgemm`;
+     - de CLAPACK, `sgesvd_` y `slamch_`;
+     - de libf2c, `s_cat`, `pow_ri` y su mensaje «apparent state».
+
+     Cadenas contadas en `lib/x86_64/libvosk.so` de la APK `b19adf3`.
+   - **C++.** El script enlaza con `-static-libstdc++` (libc++ del NDK, Apache-2.0 con excepción LLVM). No se añade aviso: la excepción LLVM no exige atribución en forma binaria. Decide el autor si quiere mostrarlo.
+
 ## Fuera de esta carpeta
 
 - **Paquetes Dart y motor de Flutter.** `flutter build` los añade solo, en `NOTICES.Z`, y la página de licencias los muestra junto a éstos.
 - **Textos que ya trae la APK.** JNA deja `META-INF/AL2.0` y `META-INF/LGPL2.1` en la raíz de la APK. Sus avisos para la persona usuaria se muestran desde aquí.
-- **Sin cubrir: lo que `libvosk.so` enlaza dentro.** El binario contiene Kaldi, OpenFST y OpenBLAS (cadenas `kaldi::`, `fst::` y `OpenBLAS` en el `.so`) y, según `android/lib/build-vosk.sh` de `vosk-api`, CLAPACK. El AAR no trae sus avisos y no se puede saber desde el binario de qué commit sale cada uno. Queda para que decida el autor.
+- **`LICENSE-junit.txt` en la raíz de la APK *profile*.** Ver `tool/voice_local/THIRD_PARTY.md`: lo trae `junit-4.12.jar`, que llega con código a través del plugin `integration_test` (dependencia de desarrollo). No se registra aquí.
