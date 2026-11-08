@@ -39,9 +39,12 @@ Revisado el 2026-11-08 sobre `49108ba`, con la APK ARM64 de `03124a0` en caché 
   - **Cómo llega.** `./gradlew :app:dependencies --configuration profileRuntimeClasspath` muestra la cadena `project :integration_test` → `androidx.test:runner:1.3.0` → `junit:junit:4.12` → `org.hamcrest:hamcrest-core:1.3`. El mismo plugin trae también `androidx.test:rules`, `espresso-core:3.3.0` (con `hamcrest-library`/`-integration`, `javawriter`, `javax.inject`, `jsr305`) y `guava:28.1-android`.
   - **Es una dependencia de desarrollo.** `integration_test` está en `dev_dependencies` de `pubspec.yaml`. El plugin de Gradle de Flutter 3.47.2 (`PluginHandler.kt`) añade los plugins de desarrollo a todos los tipos de compilación **menos `release`**: debug y *profile* los llevan.
   - **Sí se distribuye código de JUnit en la APK *profile*.** En los `classes*.dex` de la APK `b19adf3` hay 617 referencias a `Lorg/junit/`, 49 a `Ljunit/framework/`, 288 a `Lorg/hamcrest/`, 1 841 a `Landroidx/test/` y 21 a `Ldev/flutter/plugins/integration_test/`.
-  - **Lo que no se registra.** Los avisos de estos artefactos no están en `LicenseRegistry`. AGP descarta los `LICENSE.txt` de Hamcrest al empaquetar; sólo sobrevive `LICENSE-junit.txt`.
+  - **Registrados desde la tercera entrega.** «AC F09» se distribuye como *profile*, así que estos avisos se muestran en **Más › Licencias**, con la marca «(vía integration_test, compilación profile)». Son 16 artefactos con clases en el dex y el propio plugin. La lista, las licencias de cada versión y las fuentes están en la nota 6 de `assets/licenses/README.md`. En release la app no registra ese grupo (`kReleaseMode`).
+  - AGP descarta los `LICENSE.txt` de Hamcrest al empaquetar; sólo sobrevive `LICENSE-junit.txt` en la raíz.
   - **Release:** no se compiló en esta sesión. Según esa regla de Flutter, no los lleva.
   - **Dependencias sin cambiar**, a petición de la coordinadora.
+- **libc++ enlazada estática** (en `libvosk.so` y en las bibliotecas de whisper.cpp/ggml). Es Apache-2.0 con la excepción LLVM, que exime de los §4(a), 4(b) y 4(d) a las porciones incrustadas en forma objeto. No se añade aviso; detalle en la nota 7 de `assets/licenses/README.md`.
+- **Sin cubrir:** las dependencias Android de todas las compilaciones (androidx, Kotlin, coroutines, Tink, Gson, jsr305, etc.). Fuera del alcance de esta etapa.
 - **Sin conexión.** Que el modelo viaje en la APK quiere decir que no hace falta red para tenerlo. Que el dictado funcione sin conexión en un teléfono concreto sólo lo prueba una transcripción con el modo avión activado y verificado. Hoy no hay teléfono conectado: no se afirma nada nuevo sobre eso.
 
 ## Notas

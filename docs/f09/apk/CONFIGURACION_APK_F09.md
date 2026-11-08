@@ -75,7 +75,7 @@ La APK lleva los textos de `assets/licenses/` en `assets/flutter_assets/assets/l
 - **`NOTICES.Z`:** sigue sin mencionar Vosk, JNA, whisper ni ggml (0 apariciones). Por eso hacen falta los textos de `assets/licenses/`.
 - **Raíz de la APK:** además, `META-INF/AL2.0` y `META-INF/LGPL2.1` (de JNA) y `LICENSE-junit.txt` (EPL-1.0).
   - Este último sale de `junit:junit:4.12`, que llega por el plugin `integration_test` (dependencia de desarrollo). Flutter 3.47.2 lo incluye en debug y *profile*, no en release.
-  - La APK *profile* sí lleva código de JUnit, Hamcrest, `androidx.test`, Espresso y Guava, sin sus avisos registrados.
+  - La APK *profile* sí lleva código de JUnit, Hamcrest, `androidx.test`, Espresso, Guava y otros. Sus avisos se registran desde la tercera entrega (§5.3).
   - Detalle en `tool/voice_local/THIRD_PARTY.md`. Dependencias sin cambiar.
 
 ### 5.2 Segunda entrega: componentes dentro de `libvosk.so`
@@ -85,3 +85,11 @@ Kaldi, OpenFST, OpenBLAS 0.3.20, CLAPACK 3.2.1 y libf2c tienen ahora sus textos 
 - **Verificación:** mismo comando que en §5.1, sobre `b096487`. APK `agrocuentas-voz-b096487-x86_64-profile.apk`, SHA-256 `6b780afb0a133b19de120ff64859aaf7f820ae7773f6734d414700b37a06df36`. Sólo compilada.
 - **Resultado:** los 15 textos de `assets/licenses/` están en `assets/flutter_assets/assets/licenses/`, idénticos byte a byte (`cmp`).
 - **Tamaño:** el archivo mide 164 400 385 B frente a 150 107 887 B de `b19adf3`, aunque el contenido comprimido apenas cambia (150 037 132 B frente a 149 961 049 B). La diferencia está fuera de las entradas del zip. Es probable que la cause el empaquetado incremental de la segunda compilación, pero no se investigó.
+
+### 5.3 Tercera entrega: lo que trae `integration_test` y libc++
+
+- **Por qué se registra.** «AC F09» se distribuye como *profile*: release queda sin firmar sin la clave del autor. Por eso los artefactos que el plugin `integration_test` añade fuera de release sí se distribuyen.
+- **Qué se registra.** Los 16 artefactos con clases en el dex, más el propio plugin, en 10 entradas «(vía integration_test, compilación profile)»: el plugin, JUnit, Hamcrest, AndroidX Test con Espresso, Guava con failureaccess, J2ObjC Annotations, JavaWriter, javax.inject, Checker Framework compat-qual y Animal Sniffer Annotations. Versiones, licencias y fuentes en la nota 6 de `assets/licenses/README.md`.
+- **En release** no se registran.
+- **libc++:** no se añade aviso por la excepción LLVM (nota 7).
+- **Sin cubrir:** las dependencias Android de todas las compilaciones (androidx, Kotlin, Tink, etc.).

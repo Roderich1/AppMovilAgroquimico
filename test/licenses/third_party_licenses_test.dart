@@ -23,6 +23,20 @@ const _components = [
   'Modelo de voz Whisper (OpenAI), formato ggml',
 ];
 
+/// Lo que el plugin integration_test mete en las compilaciones no release.
+const _viaIntegrationTest = [
+  'integration_test, plugin de Flutter 3.47.2 (vía integration_test, compilación profile)',
+  'JUnit 4.12 (vía integration_test, compilación profile)',
+  'Hamcrest 1.3 (vía integration_test, compilación profile)',
+  'AndroidX Test y Espresso (vía integration_test, compilación profile)',
+  'Guava 28.1-android y failureaccess 1.0.1 (vía integration_test, compilación profile)',
+  'J2ObjC Annotations 1.3 (vía integration_test, compilación profile)',
+  'JavaWriter 2.1.1 (vía integration_test, compilación profile)',
+  'javax.inject 1 (vía integration_test, compilación profile)',
+  'Checker Framework compat-qual 2.5.5 (vía integration_test, compilación profile)',
+  'Animal Sniffer Annotations 1.18 (vía integration_test, compilación profile)',
+];
+
 /// Rutas `assets/licenses/...` y su SHA-256 según la tabla del README: la
 /// primera columna es la ruta y la columna «SHA-256» es la penúltima.
 Map<String, String> _readmeHashes() {
@@ -59,9 +73,21 @@ Future<void> _pumpLicenses(WidgetTester tester, Finder until) async {
 void main() {
   final assets = [for (final n in thirdPartyNotices) ...n.assets];
 
-  test('los componentes son los de la APK con voz, sin repetir', () {
-    expect([for (final n in thirdPartyNotices) n.package], _components);
-    expect(assets.toSet().length, assets.length);
+  test('los componentes son los de la APK, sin repetir', () {
+    expect(
+      [for (final n in thirdPartyNotices) n.package],
+      [..._components, ..._viaIntegrationTest],
+    );
+    for (final n in thirdPartyNotices) {
+      expect(n.assets.toSet().length, n.assets.length, reason: n.package);
+    }
+  });
+
+  test('sólo lo de integration_test se omite en release', () {
+    expect([
+      for (final n in thirdPartyNotices)
+        if (n.onlyOutsideRelease) n.package,
+    ], _viaIntegrationTest);
   });
 
   test('cada texto declarado existe, no está vacío y está en pubspec', () {
@@ -77,7 +103,7 @@ void main() {
   test('cada texto coincide con el SHA-256 del README y no sobra ninguno', () {
     final hashes = _readmeHashes();
     expect(hashes.keys.toSet(), assets.toSet());
-    for (final path in assets) {
+    for (final path in assets.toSet()) {
       final digest = sha256.convert(File(path).readAsBytesSync()).toString();
       expect(digest, hashes[path], reason: path);
     }
@@ -128,7 +154,14 @@ void main() {
       await tester.tap(find.text('abrir'));
       await _pumpLicenses(tester, find.text(_components.last));
       expect(find.byType(LicensePage), findsOneWidget);
-      for (final name in _components) {
+      // La página ordena los paquetes por nombre: cada búsqueda parte de
+      // arriba.
+      for (final name in [..._components, ..._viaIntegrationTest]) {
+        tester
+            .state<ScrollableState>(find.byType(Scrollable).first)
+            .position
+            .jumpTo(0);
+        await tester.pump();
         await tester.scrollUntilVisible(
           find.text(name),
           100,
@@ -138,9 +171,14 @@ void main() {
       }
 
       // El texto de JNA: la nota, la licencia doble, Apache 2.0 y libffi.
+      tester
+          .state<ScrollableState>(find.byType(Scrollable).first)
+          .position
+          .jumpTo(0);
+      await tester.pump();
       await tester.scrollUntilVisible(
         find.text(_components[5]),
-        -100,
+        100,
         scrollable: find.byType(Scrollable).first,
       );
       await tester.tap(find.text(_components[5]));

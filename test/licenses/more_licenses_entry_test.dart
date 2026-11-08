@@ -50,17 +50,21 @@ void main() {
       'ggml',
       'Modelo de voz Vosk vosk-model-small-es-0.42',
       'Modelo de voz Whisper (OpenAI), formato ggml',
+      'JUnit 4.12 (vía integration_test, compilación profile)',
+      'AndroidX Test y Espresso (vía integration_test, compilación profile)',
+      'Animal Sniffer Annotations 1.18 (vía integration_test, compilación profile)',
     ]) {
-      await tester.scrollUntilVisible(
-        find.text(name),
-        100,
-        scrollable: find
-            .descendant(
-              of: find.byType(LicensePage),
-              matching: find.byType(Scrollable),
-            )
-            .first,
-      );
+      final list = find
+          .descendant(
+            of: find.byType(LicensePage),
+            matching: find.byType(Scrollable),
+          )
+          .first;
+      // La página ordena los paquetes por nombre: cada búsqueda parte de
+      // arriba.
+      tester.state<ScrollableState>(list).position.jumpTo(0);
+      await tester.pump();
+      await tester.scrollUntilVisible(find.text(name), 100, scrollable: list);
       expect(find.text(name), findsOneWidget, reason: name);
     }
 
