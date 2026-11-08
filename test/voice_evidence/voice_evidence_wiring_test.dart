@@ -51,7 +51,13 @@ void main() {
       );
     }
     final port = FakeSpeechTranscriptionPort(
-      script: const [FakeTurn(segment: dictation, endsOnStop: true)],
+      script: const [
+        FakeTurn(
+          segment: dictation,
+          partials: ['compra de diez'],
+          endsOnStop: true,
+        ),
+      ],
       repeatLast: false,
     );
     final c = await pumpModeApp(
@@ -144,6 +150,15 @@ void main() {
     expect(entry.transcripts, [dictation]);
     expect(entry.proposed, isNotEmpty);
     expect(entry.confirmed, isNotNull);
+    // Lo que se registra solo, sin que la persona mida nada: motor de la
+    // compilación, modelo declarado por la disponibilidad (el fake se llama
+    // «fake test») y tiempos observados desde la interfaz.
+    expect(entry.engine, 'local');
+    expect(entry.model, 'fake test');
+    expect(entry.firstPartialMs, isNotNull);
+    expect(entry.firstPartialMs, greaterThanOrEqualTo(0));
+    expect(entry.finalMs, isNotNull);
+    expect(entry.appCommit, isNull, reason: 'sin AGRO_APP_COMMIT en pruebas');
   });
 
   testWidgets('evaluación con consentimiento: cancelar deja una entrada '

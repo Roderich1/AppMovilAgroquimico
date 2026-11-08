@@ -196,6 +196,7 @@ class _VoicePurchaseDraftScreenState
   /// no se interpreta nunca.
   void _onSession() {
     if (!mounted) return;
+    observeVoiceSession(_session.snapshot);
     final draft = _draft;
     final catalog = _catalog;
     final fresh = _feed.take(

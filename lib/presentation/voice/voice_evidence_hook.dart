@@ -17,6 +17,7 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart' show Override;
 
+import '../../voice/session/voice_session_state.dart';
 import '../../voice/voice_providers.dart';
 import '../../voice_draft/core/voice_draft_controller.dart';
 import '../../voice_evidence/draft_snapshot.dart';
@@ -43,11 +44,46 @@ mixin VoiceEvidenceRecording<W extends ConsumerStatefulWidget>
     _evidenceSink = ref.read(voiceEvidenceSinkProvider);
   }
 
+  // Tiempos observados DESDE LA INTERFAZ (incluyen la entrega del evento a la
+  // pantalla), del primer dictado del borrador:
+  // - primer parcial: de «escuchando» al primer texto provisional;
+  // - final: de «Detener» al último tramo aplicado al borrador después.
+  final Stopwatch _clock = Stopwatch()..start();
+  Duration? _listeningAt;
+  int? _firstPartialMs;
+  Duration? _stoppingAt;
+  int? _finalMs;
+  String? _model;
+
+  /// En cada cambio de la sesión de voz (antes de interpretar).
+  void observeVoiceSession(VoiceSessionSnapshot s) {
+    if (_evidenceDone) return;
+    final now = _clock.elapsed;
+    if (s.status == VoiceSessionStatus.listening) _listeningAt ??= now;
+    if (_firstPartialMs == null &&
+        _listeningAt != null &&
+        s.partialText.isNotEmpty) {
+      _firstPartialMs = (now - _listeningAt!).inMilliseconds;
+    }
+    if (s.status == VoiceSessionStatus.stopping) _stoppingAt ??= now;
+    final a = s.availability;
+    if (a != null && a.engineName.isNotEmpty) {
+      _model = [
+        '${a.engineName} ${a.engineVersion}'.trim(),
+        if (a.reviewModel != null) a.reviewModel!,
+      ].join(' + ');
+    }
+  }
+
   /// Tras cada `applyVoice` aceptado: el borrador resultante y el texto
   /// cerrado que lo produjo.
   void noteVoiceApplied(Object draftAfterVoice, String transcript) {
     if (_evidenceDone) return;
     _evidence.voiceApplied(draftAfterVoice, transcript: transcript);
+    final stoppedAt = _stoppingAt;
+    if (stoppedAt != null) {
+      _finalMs = (_clock.elapsed - stoppedAt).inMilliseconds;
+    }
   }
 
   /// Llamar en `dispose`, **antes** de liberar el controlador del borrador.
@@ -64,7 +100,10 @@ mixin VoiceEvidenceRecording<W extends ConsumerStatefulWidget>
       finalDraft: draft.draft as Object,
       outcome: outcome,
       engine: voiceEngine,
+      model: _model,
       appCommit: voiceAppCommit.isEmpty ? null : voiceAppCommit,
+      firstPartialMs: _firstPartialMs,
+      finalMs: _finalMs,
     );
     // El almacén nunca lanza; la pantalla ya se está cerrando.
     unawaited(_evidenceSink.record(entry));
