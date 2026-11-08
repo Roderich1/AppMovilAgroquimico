@@ -418,7 +418,7 @@ void main() {
         final db = await migrated.database;
         expect(
           (await db.rawQuery('PRAGMA user_version')).single.values.single,
-          13,
+          AppDatabase.schemaVersion,
         );
         expect(await db.query('estimation_copies'), isEmpty);
         expect(
