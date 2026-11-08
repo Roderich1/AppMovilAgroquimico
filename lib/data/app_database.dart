@@ -18,7 +18,7 @@ class AppDatabase {
   /// Toda base, creada desde cero o migrada desde cualquier versión anterior,
   /// debe terminar con el mismo esquema. `test/schema_equivalence_test.dart`
   /// lo verifica automáticamente.
-  static const int schemaVersion = 13;
+  static const int schemaVersion = 14;
 
   /// Primera versión con `owner_bindings` e `install_origin`: una base
   /// anterior es histórica y no declara titular.
@@ -40,6 +40,76 @@ class AppDatabase {
   /// Primera versión con la copia descargada de la estimación del consumo
   /// (F12-EST-07-MOB, MOB #164).
   static const int estimationCopiesSinceVersion = 13;
+
+  /// Primera versión con la evidencia de dictado con consentimiento
+  /// (F09-VOZ-13, MOB #167).
+  static const int voiceEvidenceSinceVersion = 14;
+
+  /// v14 — evidencia de dictado para la evaluación de la voz (F09-VOZ-13,
+  /// MOB #167; RU-12, CU-16, RNF-14; RF-41 y DAT-21 según #167, pendientes de
+  /// confirmar en el Cap. III).
+  ///
+  /// - `voice_evidence_consent`: una sola fila mientras la persona haya dado
+  ///   su consentimiento **explícito y sólo para la evaluación**, con la
+  ///   versión del texto que aceptó y la fecha. Es independiente de cualquier
+  ///   otro consentimiento o permiso (micrófono, reconocedor del sistema).
+  ///   Retirarlo borra la fila y toda la evidencia.
+  /// - `voice_evidence`: una fila por borrador de voz confirmado, descartado
+  ///   o fallido, con la referencia de la ficha, la transcripción y, en
+  ///   columnas separadas, los campos propuestos por la voz antes de
+  ///   corregir, las correcciones y los campos confirmados. **Sin audio**: no
+  ///   hay ninguna columna binaria.
+  ///
+  /// Las dos son datos locales del teléfono: quedan **fuera del respaldo
+  /// privado** ([discardVoiceEvidence] en la copia que se empaqueta y en la
+  /// base restaurada) y fuera de Sync v1 y de lo colectivo, que sólo envían
+  /// las proyecciones de su lista cerrada.
+  static const List<String> voiceEvidenceSchema = <String>[
+    '''CREATE TABLE IF NOT EXISTS voice_evidence_consent (
+        id INTEGER PRIMARY KEY CHECK(id = 1),
+        purpose TEXT NOT NULL CHECK(purpose = 'F09_VOICE_EVALUATION'),
+        consent_text_version TEXT NOT NULL CHECK(length(consent_text_version) BETWEEN 1 AND 100),
+        granted_at TEXT NOT NULL CHECK(length(granted_at) > 0))''',
+    '''CREATE TABLE IF NOT EXISTS voice_evidence (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        format_version INTEGER NOT NULL CHECK(format_version = 1),
+        consent_granted_at TEXT NOT NULL CHECK(length(consent_granted_at) > 0),
+        recorded_at TEXT NOT NULL CHECK(length(recorded_at) > 0),
+        kind TEXT NOT NULL CHECK(kind IN ('PURCHASE','APPLICATION','PLAN')),
+        outcome TEXT NOT NULL CHECK(outcome IN ('CONFIRMED','DISCARDED','FAILED')),
+        sheet_ref TEXT CHECK(sheet_ref IS NULL OR length(sheet_ref) BETWEEN 1 AND 100),
+        transcripts TEXT NOT NULL,
+        proposed_fields TEXT NOT NULL,
+        corrections TEXT NOT NULL,
+        confirmed_fields TEXT,
+        engine TEXT,
+        model TEXT,
+        app_commit TEXT,
+        first_partial_ms INTEGER CHECK(first_partial_ms IS NULL OR first_partial_ms >= 0),
+        final_ms INTEGER CHECK(final_ms IS NULL OR final_ms >= 0),
+        CHECK((outcome = 'CONFIRMED') = (confirmed_fields IS NOT NULL)))''',
+  ];
+
+  /// Tablas de la evidencia de dictado (v14).
+  static const Set<String> voiceEvidenceTables = {
+    'voice_evidence',
+    'voice_evidence_consent',
+  };
+
+  /// Borra la evidencia de dictado y su consentimiento. Se usa en la base que
+  /// se empaqueta en un respaldo y en la base restaurada: la evidencia nunca
+  /// viaja ni vuelve con un respaldo, y un consentimiento dado en otro
+  /// teléfono o en otro momento no se hereda. Una base anterior a v14 no
+  /// tiene las tablas y no se toca.
+  static Future<void> discardVoiceEvidence(DatabaseExecutor db) async {
+    final tables = (await db.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type='table' "
+      "AND name IN ('voice_evidence','voice_evidence_consent')",
+    )).map((row) => row['name'] as String).toSet();
+    for (final table in tables) {
+      await db.delete(table);
+    }
+  }
 
   /// v13 — copia descargada de la estimación del consumo (F12-EST-07-MOB,
   /// MOB #164; RF-40, RN-30, DAT-20, INT-09).
@@ -667,6 +737,7 @@ class AppDatabase {
     }
     await _applyInventoryAlertsSchema(db);
     await _applyEstimationCopiesSchema(db);
+    await _applyVoiceEvidenceSchema(db);
     // Una base creada por esta versión nace bajo la política de activación.
     await db.insert('app_settings', {
       'key': installOriginKey,
@@ -829,6 +900,18 @@ class AppDatabase {
     }
     if (oldVersion < 13) {
       await _applyEstimationCopiesSchema(db);
+    }
+    if (oldVersion < 14) {
+      await _applyVoiceEvidenceSchema(db);
+    }
+  }
+
+  /// Versión 14 — **evidencia de dictado con consentimiento** (F09-VOZ-13,
+  /// MOB #167). Aditiva: dos tablas nuevas y vacías, sin tocar ninguna otra
+  /// ni dar consentimiento por nadie. Idempotente: IF NOT EXISTS.
+  Future<void> _applyVoiceEvidenceSchema(DatabaseExecutor db) async {
+    for (final statement in voiceEvidenceSchema) {
+      await db.execute(statement);
     }
   }
 
