@@ -81,3 +81,7 @@ La APK lleva los textos de `assets/licenses/` en `assets/flutter_assets/assets/l
 ### 5.2 Segunda entrega: componentes dentro de `libvosk.so`
 
 Kaldi, OpenFST, OpenBLAS 0.3.20, CLAPACK 3.2.1 y libf2c tienen ahora sus textos en `assets/licenses/vosk/` y aparecen en **Más › Licencias** como «incluido en Vosk». Las versiones que se pueden fijar y las que no se explican en la nota 5 de `assets/licenses/README.md`.
+
+- **Verificación:** mismo comando que en §5.1, sobre `b096487`. APK `agrocuentas-voz-b096487-x86_64-profile.apk`, SHA-256 `6b780afb0a133b19de120ff64859aaf7f820ae7773f6734d414700b37a06df36`. Sólo compilada.
+- **Resultado:** los 15 textos de `assets/licenses/` están en `assets/flutter_assets/assets/licenses/`, idénticos byte a byte (`cmp`).
+- **Tamaño:** el archivo mide 164 400 385 B frente a 150 107 887 B de `b19adf3`, aunque el contenido comprimido apenas cambia (150 037 132 B frente a 149 961 049 B). La diferencia está fuera de las entradas del zip. Es probable que la cause el empaquetado incremental de la segunda compilación, pero no se investigó.
