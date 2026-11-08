@@ -107,7 +107,21 @@ class PageFrame extends StatelessWidget {
                   IconButton(
                     tooltip: 'Volver',
                     icon: const Icon(Icons.arrow_back),
-                    onPressed: () => router!.pop(),
+                    // `maybePop` del Navigator de la página respeta su
+                    // `PopScope`, como el Atrás del sistema: un borrador de
+                    // voz empezado pregunta antes de perderse (D1, emulador,
+                    // 2026-11-08). `router.pop()` lo saltaba. Si ese
+                    // Navigator no puede retroceder (la pila que importa es
+                    // la del router), se mantiene `router.pop()` para no
+                    // volver a la flecha muerta del 2026-11-05.
+                    onPressed: () {
+                      final navigator = Navigator.of(context);
+                      if (navigator.canPop()) {
+                        navigator.maybePop();
+                      } else {
+                        router!.pop();
+                      }
+                    },
                   ),
                 Expanded(
                   child: Column(
