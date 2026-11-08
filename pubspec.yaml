@@ -78,11 +78,23 @@ flutter:
   # texto en assets/licenses/README.md, que no se empaqueta.
   assets:
     - assets/licenses/vosk/
+    - assets/licenses/vosk/kaldi/
+    - assets/licenses/vosk/openfst/
+    - assets/licenses/vosk/openblas/
+    - assets/licenses/vosk/clapack/
+    - assets/licenses/vosk/clapack/libf2c/
     - assets/licenses/jna/
     - assets/licenses/jna/libffi/
     - assets/licenses/whisper_cpp/
     - assets/licenses/ggml/
     - assets/licenses/vosk_model_small_es_0_42/
+    - assets/licenses/apache-2.0/
+    - assets/licenses/integration_test/flutter/
+    - assets/licenses/integration_test/junit/
+    - assets/licenses/integration_test/hamcrest/
+    - assets/licenses/integration_test/checker_framework/
+    - assets/licenses/integration_test/javax_inject/
+    - assets/licenses/integration_test/animal_sniffer/
     - assets/licenses/whisper_model/
 
   # To add assets to your application, add an assets section, like this:

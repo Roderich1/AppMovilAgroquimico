@@ -17,10 +17,15 @@
 | ABI | `x86_64` para el emulador (`--target-platform android-x64`); `arm64-v8a` para un teléfono (`android-arm64`). Una ABI por APK (`--split-per-abi`) | ídem; `native-code: 'x86_64'` en la APK `fc6478d` |
 | SDK | `minSdkVersion` 24, `targetSdkVersion` 36 | badging de la APK `fc6478d` |
 
-**El sufijo y la etiqueta no están en ningún script versionado.**
-- `build_voice_apk.sh` aplica `.voz` y «AC VOZ», y los restaura al terminar.
-- La APK `.f09` de `fc6478d` se compiló a mano con el mismo procedimiento, cambiando el sufijo, la etiqueta y los `--dart-define`.
-- Para repetirla hay que hacer lo mismo, o añadir parámetros al script. Ese archivo no es de esta sesión: lo decide la coordinadora.
+**Comando versionado para compilar «AC F09»:** `tool/f09_emu/f09emu.sh compilar <sha>`, de la sesión B, ya integrado en `feat/f09-integracion`. Leído en `7bfab35`; no se ejecutó en esta sesión. Hace lo siguiente:
+- compila el HEAD exacto de `$F09_MOB`;
+- aplica el sufijo `.f09` y la etiqueta «AC F09» sólo durante la compilación;
+- ejecuta `flutter build apk --profile --split-per-abi --target-platform android-x64` con `AGRO_API_BASE_URL` (el origen del túnel vivo, sin imprimirlo), `AGRO_VOICE_EVIDENCE=true` y `AGRO_APP_COMMIT=<sha corto>`;
+- comprueba la etiqueta con `aapt2`.
+
+Notas:
+- Sólo x86_64. Para un teléfono, la compilación arm64 sigue siendo la de `build_voice_apk.sh arm64`, con `.voz`.
+- `tool/voice_local/build_voice_apk.sh` aplica `.voz` y «AC VOZ»: sirve para comprobar el contenido, no para producir «AC F09».
 
 ## 2. `--dart-define`
 
@@ -68,4 +73,25 @@ La APK lleva los textos de `assets/licenses/` en `assets/flutter_assets/assets/l
 - **Resultado:** los nueve textos están en `assets/flutter_assets/assets/licenses/` y son idénticos byte a byte (`cmp`) a los de `assets/licenses/`. `README.md` y `.gitattributes` no entran.
 - **Contenido nativo y modelos:** `lib/x86_64/` lleva `libvosk.so`, `libjnidispatch.so`, `libagro_whisper.so`, `libggml.so`, `libggml-base.so` y `libggml-cpu.so`. `assets/voice/` lleva el modelo Vosk y `ggml-base-q5_1.bin`, como la APK `fc6478d`.
 - **`NOTICES.Z`:** sigue sin mencionar Vosk, JNA, whisper ni ggml (0 apariciones). Por eso hacen falta los textos de `assets/licenses/`.
-- **Raíz de la APK (no es de esta sesión):** además, `META-INF/AL2.0` y `META-INF/LGPL2.1` (de JNA) y `LICENSE-junit.txt` (EPL-1.0). No se investigó qué dependencia aporta este último.
+- **Raíz de la APK:** además, `META-INF/AL2.0` y `META-INF/LGPL2.1` (de JNA) y `LICENSE-junit.txt` (EPL-1.0).
+  - Este último sale de `junit:junit:4.12`, que llega por el plugin `integration_test` (dependencia de desarrollo). Flutter 3.47.2 lo incluye en debug y *profile*, no en release.
+  - La APK *profile* sí lleva código de JUnit, Hamcrest, `androidx.test`, Espresso, Guava y otros. Sus avisos se registran desde la tercera entrega (§5.3).
+  - Detalle en `tool/voice_local/THIRD_PARTY.md`. Dependencias sin cambiar.
+
+### 5.2 Segunda entrega: componentes dentro de `libvosk.so`
+
+Kaldi, OpenFST, OpenBLAS 0.3.20, CLAPACK 3.2.1 y libf2c tienen ahora sus textos en `assets/licenses/vosk/` y aparecen en **Más › Licencias** como «incluido en Vosk». Las versiones que se pueden fijar y las que no se explican en la nota 5 de `assets/licenses/README.md`.
+
+- **Verificación:** mismo comando que en §5.1, sobre `b096487`. APK `agrocuentas-voz-b096487-x86_64-profile.apk`, SHA-256 `6b780afb0a133b19de120ff64859aaf7f820ae7773f6734d414700b37a06df36`. Sólo compilada.
+- **Resultado:** los 15 textos de `assets/licenses/` están en `assets/flutter_assets/assets/licenses/`, idénticos byte a byte (`cmp`).
+- **Tamaño:** el archivo mide 164 400 385 B frente a 150 107 887 B de `b19adf3`, aunque el contenido comprimido apenas cambia (150 037 132 B frente a 149 961 049 B). La diferencia está fuera de las entradas del zip. Es probable que la cause el empaquetado incremental de la segunda compilación, pero no se investigó.
+
+### 5.3 Tercera entrega: lo que trae `integration_test` y libc++
+
+- **Por qué se registra.** «AC F09» se distribuye como *profile*: release queda sin firmar sin la clave del autor. Por eso los artefactos que el plugin `integration_test` añade fuera de release sí se distribuyen.
+- **Qué se registra.** Los 16 artefactos con clases en el dex, más el propio plugin, en 10 entradas «(vía integration_test, compilación profile)»: el plugin, JUnit, Hamcrest, AndroidX Test con Espresso, Guava con failureaccess, J2ObjC Annotations, JavaWriter, javax.inject, Checker Framework compat-qual y Animal Sniffer Annotations. Versiones, licencias y fuentes en la nota 6 de `assets/licenses/README.md`.
+- **En release** no se registran.
+- **libc++:** no se añade aviso por la excepción LLVM (nota 7).
+- **Sin cubrir:** las dependencias Android de todas las compilaciones (androidx, Kotlin, Tink, etc.).
+
+- **Verificación:** `build_voice_apk.sh x64` sobre `b4415f2`. APK `agrocuentas-voz-b4415f2-x86_64-profile.apk`, SHA-256 `07c52ff06828003bd445d23a501bebb6365ac11cdf6cf492b0325a01d7636d7d`, 164 401 271 B. Sólo compilada. Los 22 textos de `assets/licenses/` están en `assets/flutter_assets/assets/licenses/`, idénticos byte a byte (`cmp`).
