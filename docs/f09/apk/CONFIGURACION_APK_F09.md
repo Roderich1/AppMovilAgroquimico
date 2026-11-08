@@ -93,3 +93,5 @@ Kaldi, OpenFST, OpenBLAS 0.3.20, CLAPACK 3.2.1 y libf2c tienen ahora sus textos 
 - **En release** no se registran.
 - **libc++:** no se añade aviso por la excepción LLVM (nota 7).
 - **Sin cubrir:** las dependencias Android de todas las compilaciones (androidx, Kotlin, Tink, etc.).
+
+- **Verificación:** `build_voice_apk.sh x64` sobre `b4415f2`. APK `agrocuentas-voz-b4415f2-x86_64-profile.apk`, SHA-256 `07c52ff06828003bd445d23a501bebb6365ac11cdf6cf492b0325a01d7636d7d`, 164 401 271 B. Sólo compilada. Los 22 textos de `assets/licenses/` están en `assets/flutter_assets/assets/licenses/`, idénticos byte a byte (`cmp`).
