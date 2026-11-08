@@ -18,7 +18,10 @@ void main() {
         'Aplique medio litro de Bellator en el chaco de abajo.',
       );
       expect(choice.verdict, ReviewVerdict.accepted);
-      expect(choice.text, 'Aplique medio litro de Bellator en el chaco de abajo.');
+      expect(
+        choice.text,
+        'Aplique medio litro de Bellator en el chaco de abajo.',
+      );
     });
 
     test('cifras en dígitos que la app lee igual que las palabras', () {
@@ -64,14 +67,16 @@ void main() {
         'Con 3 litros de glyfosato a 120 bolivianos.',
       );
       expect(choice.verdict, ReviewVerdict.quantities);
-      expect(choice.text, 'compré dos litros de glifosato a ciento veinte bolivianos');
+      expect(
+        choice.text,
+        'compré dos litros de glifosato a ciento veinte bolivianos',
+      );
       expect(choice.revised, isFalse);
     });
 
     test('si cambia la unidad o la moneda', () {
       expect(
-        choose('dos litros de bellator', '2 kilos de Bellator.')
-            .verdict,
+        choose('dos litros de bellator', '2 kilos de Bellator.').verdict,
         ReviewVerdict.quantities,
       );
       expect(
@@ -82,8 +87,7 @@ void main() {
 
     test('si añade o quita una cantidad', () {
       expect(
-        choose('compré glifosato', 'Compré 2 litros de glifosato.')
-            .verdict,
+        choose('compré glifosato', 'Compré 2 litros de glifosato.').verdict,
         ReviewVerdict.quantities,
       );
     });

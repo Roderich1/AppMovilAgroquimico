@@ -81,17 +81,20 @@ void main() {
     async.flushMicrotasks();
   }
 
-  test('arranca con el motor local, en español y sin aviso de «otro idioma»', () {
-    fakeAsync((async) {
-      begin(async);
-      final s = session.snapshot;
-      expect(s.route, TranscriptionEngineRoute.embedded);
-      expect(s.status, VoiceSessionStatus.listening);
-      expect(s.localeInUse, 'es');
-      expect(s.localeIsFallback, isFalse);
-      session.dispose();
-    });
-  });
+  test(
+    'arranca con el motor local, en español y sin aviso de «otro idioma»',
+    () {
+      fakeAsync((async) {
+        begin(async);
+        final s = session.snapshot;
+        expect(s.route, TranscriptionEngineRoute.embedded);
+        expect(s.status, VoiceSessionStatus.listening);
+        expect(s.localeInUse, 'es');
+        expect(s.localeIsFallback, isFalse);
+        session.dispose();
+      });
+    },
+  );
 
   test('un turno por sesión, con el plazo de la sesión, pistas y revisión', () {
     fakeAsync((async) {
@@ -108,63 +111,78 @@ void main() {
     });
   });
 
-  test('varias frases en un turno: en orden, una vez cada una, parcial aparte', () {
-    fakeAsync((async) {
-      begin(async);
-      port.emit(const TranscriptionPartial(
-        'compré dos litros',
-        elapsed: Duration.zero,
-        reviewing: 1,
-      ));
-      async.flushMicrotasks();
-      expect(session.snapshot.partialText, 'compré dos litros');
-      expect(session.snapshot.reviewing, 1);
-      expect(session.snapshot.committedText, isEmpty);
+  test(
+    'varias frases en un turno: en orden, una vez cada una, parcial aparte',
+    () {
+      fakeAsync((async) {
+        begin(async);
+        port.emit(
+          const TranscriptionPartial(
+            'compré dos litros',
+            elapsed: Duration.zero,
+            reviewing: 1,
+          ),
+        );
+        async.flushMicrotasks();
+        expect(session.snapshot.partialText, 'compré dos litros');
+        expect(session.snapshot.reviewing, 1);
+        expect(session.snapshot.committedText, isEmpty);
 
-      port.emit(seg('Compré dos litros de glifosato.', 0));
-      port.emit(seg('Compré dos litros de glifosato.', 0)); // repetida
-      port.emit(seg('pagué cien bolivianos', 1));
-      async.flushMicrotasks();
-      expect(session.snapshot.committedText,
-          'Compré dos litros de glifosato. pagué cien bolivianos');
-      expect(session.snapshot.segmentCount, 2);
-      // Sigue escuchando: una pausa no cierra el dictado.
-      expect(session.snapshot.status, VoiceSessionStatus.listening);
-      expect(port.requests, hasLength(1));
-      session.dispose();
-    });
-  });
+        port.emit(seg('Compré dos litros de glifosato.', 0));
+        port.emit(seg('Compré dos litros de glifosato.', 0)); // repetida
+        port.emit(seg('pagué cien bolivianos', 1));
+        async.flushMicrotasks();
+        expect(
+          session.snapshot.committedText,
+          'Compré dos litros de glifosato. pagué cien bolivianos',
+        );
+        expect(session.snapshot.segmentCount, 2);
+        // Sigue escuchando: una pausa no cierra el dictado.
+        expect(session.snapshot.status, VoiceSessionStatus.listening);
+        expect(port.requests, hasLength(1));
+        session.dispose();
+      });
+    },
+  );
 
-  test('una frase que llega después de editar se añade al final, sin reescribir', () {
-    fakeAsync((async) {
-      begin(async);
-      port.emit(seg('sinco litros', 0));
-      async.flushMicrotasks();
-      session.editText('cinco litros de bellator');
-      port.emit(seg('a cien bolivianos', 1));
-      async.flushMicrotasks();
-      expect(session.snapshot.committedText,
-          'cinco litros de bellator a cien bolivianos');
-      expect(session.snapshot.manuallyEdited, isTrue);
-      session.dispose();
-    });
-  });
+  test(
+    'una frase que llega después de editar se añade al final, sin reescribir',
+    () {
+      fakeAsync((async) {
+        begin(async);
+        port.emit(seg('sinco litros', 0));
+        async.flushMicrotasks();
+        session.editText('cinco litros de bellator');
+        port.emit(seg('a cien bolivianos', 1));
+        async.flushMicrotasks();
+        expect(
+          session.snapshot.committedText,
+          'cinco litros de bellator a cien bolivianos',
+        );
+        expect(session.snapshot.manuallyEdited, isTrue);
+        session.dispose();
+      });
+    },
+  );
 
-  test('detener entrega lo pendiente y deja el texto editable, sin reabrir', () {
-    fakeAsync((async) {
-      begin(async);
-      session.stopListening();
-      async.flushMicrotasks();
-      port.emit(seg('dos litros', 0));
-      port.end(TranscriptionEndReason.stoppedByUser);
-      async.flushMicrotasks();
-      async.elapse(const Duration(seconds: 5));
-      expect(session.snapshot.status, VoiceSessionStatus.preview);
-      expect(session.snapshot.committedText, 'dos litros');
-      expect(port.requests, hasLength(1));
-      session.dispose();
-    });
-  });
+  test(
+    'detener entrega lo pendiente y deja el texto editable, sin reabrir',
+    () {
+      fakeAsync((async) {
+        begin(async);
+        session.stopListening();
+        async.flushMicrotasks();
+        port.emit(seg('dos litros', 0));
+        port.end(TranscriptionEndReason.stoppedByUser);
+        async.flushMicrotasks();
+        async.elapse(const Duration(seconds: 5));
+        expect(session.snapshot.status, VoiceSessionStatus.preview);
+        expect(session.snapshot.committedText, 'dos litros');
+        expect(port.requests, hasLength(1));
+        session.dispose();
+      });
+    },
+  );
 
   test('silencio largo o plazo: termina sin texto inventado y no reabre', () {
     fakeAsync((async) {
@@ -208,15 +226,18 @@ void main() {
     });
   });
 
-  test('la duración máxima de sesión detiene (guarda lo dicho), no descarta', () {
-    fakeAsync((async) {
-      begin(async);
-      port.emit(seg('dos litros', 0));
-      async.flushMicrotasks();
-      async.elapse(const Duration(minutes: 5));
-      expect(session.snapshot.status, VoiceSessionStatus.stopping);
-      expect(session.snapshot.committedText, 'dos litros');
-      session.dispose();
-    });
-  });
+  test(
+    'la duración máxima de sesión detiene (guarda lo dicho), no descarta',
+    () {
+      fakeAsync((async) {
+        begin(async);
+        port.emit(seg('dos litros', 0));
+        async.flushMicrotasks();
+        async.elapse(const Duration(minutes: 5));
+        expect(session.snapshot.status, VoiceSessionStatus.stopping);
+        expect(session.snapshot.committedText, 'dos litros');
+        session.dispose();
+      });
+    },
+  );
 }

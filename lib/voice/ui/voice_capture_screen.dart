@@ -540,14 +540,11 @@ class _OfflinePanel extends StatelessWidget {
             'aplicación y el audio no sale del teléfono.',
             style: Theme.of(context).textTheme.bodySmall,
           ),
-          Text(
-            switch (offline.airplaneMode) {
-              AirplaneMode.on => 'Modo avión: activado.',
-              AirplaneMode.off => 'Modo avión: desactivado.',
-              AirplaneMode.unknown => 'Modo avión: no se pudo comprobar.',
-            },
-            style: Theme.of(context).textTheme.bodySmall,
-          ),
+          Text(switch (offline.airplaneMode) {
+            AirplaneMode.on => 'Modo avión: activado.',
+            AirplaneMode.off => 'Modo avión: desactivado.',
+            AirplaneMode.unknown => 'Modo avión: no se pudo comprobar.',
+          }, style: Theme.of(context).textTheme.bodySmall),
         ],
       );
     }
@@ -783,8 +780,8 @@ class _ReviewSwitch extends StatelessWidget {
     if (snapshot.availability?.reviewModel == null) {
       return const SizedBox.shrink();
     }
-    final idle = !snapshot.status.microphoneMayBeOpen &&
-        !snapshot.status.isTransition;
+    final idle =
+        !snapshot.status.microphoneMayBeOpen && !snapshot.status.isTransition;
     return SwitchListTile(
       key: const Key('voz-revision'),
       contentPadding: EdgeInsets.zero,

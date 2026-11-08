@@ -14,7 +14,9 @@ import 'package:flutter_test/flutter_test.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  const method = MethodChannel(LocalSpeechTranscriptionAdapter.methodChannelName);
+  const method = MethodChannel(
+    LocalSpeechTranscriptionAdapter.methodChannelName,
+  );
   final messenger =
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
 
@@ -28,15 +30,16 @@ void main() {
       calls.add(call);
       return switch (call.method) {
         'start' => startReply,
-        'describe' => describe ??
-            {
-              'modelPresent': true,
-              'engineName': 'Vosk (vosk-android 0.3.75)',
-              'engineVersion': 'vosk-model-small-es-0.42',
-              'reviewModel': 'whisper-base-q5_1',
-              'reviewAvailable': true,
-              'airplaneMode': true,
-            },
+        'describe' =>
+          describe ??
+              {
+                'modelPresent': true,
+                'engineName': 'Vosk (vosk-android 0.3.75)',
+                'engineVersion': 'vosk-model-small-es-0.42',
+                'reviewModel': 'whisper-base-q5_1',
+                'reviewAvailable': true,
+                'airplaneMode': true,
+              },
         _ => null,
       };
     });
@@ -58,20 +61,26 @@ void main() {
     hints: ['Glifosato', 'Bellator', 'Ana Quispe'],
   );
 
-  test('escucha a través de las pausas y no usa el reconocedor del sistema', () {
-    final adapter = build();
-    expect(adapter.listensAcrossPauses, isTrue);
-    expect(adapter.engineId, 'vosk-local');
-  });
+  test(
+    'escucha a través de las pausas y no usa el reconocedor del sistema',
+    () {
+      final adapter = build();
+      expect(adapter.listensAcrossPauses, isTrue);
+      expect(adapter.engineId, 'vosk-local');
+    },
+  );
 
-  test('la disponibilidad dice lo que trae el APK, sin prometer otro idioma', () async {
-    final adapter = build();
-    final a = await adapter.checkAvailability('es-US');
-    expect(a.recognizerAvailable, isTrue);
-    expect(a.installedLocales, ['es']);
-    expect(a.reviewModel, 'whisper-base-q5_1');
-    expect(a.airplaneMode, AirplaneMode.on);
-  });
+  test(
+    'la disponibilidad dice lo que trae el APK, sin prometer otro idioma',
+    () async {
+      final adapter = build();
+      final a = await adapter.checkAvailability('es-US');
+      expect(a.recognizerAvailable, isTrue);
+      expect(a.installedLocales, ['es']);
+      expect(a.reviewModel, 'whisper-base-q5_1');
+      expect(a.airplaneMode, AirplaneMode.on);
+    },
+  );
 
   test('sin modelo en el APK: no disponible, con su motivo', () async {
     final adapter = build(describe: {'modelPresent': false});
@@ -103,7 +112,12 @@ void main() {
       async.flushMicrotasks();
 
       native({'type': 'stage', 'gen': 1, 'stage': 'listening'});
-      native({'type': 'partial', 'gen': 1, 'text': 'compré dos', 'reviewing': 0});
+      native({
+        'type': 'partial',
+        'gen': 1,
+        'text': 'compré dos',
+        'reviewing': 0,
+      });
       native({
         'type': 'partial',
         'gen': 1,
@@ -129,8 +143,10 @@ void main() {
       native({'type': 'ended', 'gen': 1, 'reason': 'stoppedByUser'});
       async.flushMicrotasks();
 
-      expect(events.whereType<TranscriptionRouteInUse>().single.route,
-          TranscriptionEngineRoute.embedded);
+      expect(
+        events.whereType<TranscriptionRouteInUse>().single.route,
+        TranscriptionEngineRoute.embedded,
+      );
       final partials = events.whereType<TranscriptionPartial>().toList();
       expect(partials.map((p) => p.text), [
         'compré dos',
@@ -146,8 +162,10 @@ void main() {
       ]);
       expect(segments.map((s) => s.sequence), [0, 1]);
       expect(segments.map((s) => s.revised), [true, false]);
-      expect(events.whereType<TranscriptionTurnEnded>().single.reason,
-          TranscriptionEndReason.stoppedByUser);
+      expect(
+        events.whereType<TranscriptionTurnEnded>().single.reason,
+        TranscriptionEndReason.stoppedByUser,
+      );
       expect(adapter.isTurnOpen, isFalse);
     });
   });
@@ -187,8 +205,9 @@ void main() {
       });
       async.flushMicrotasks();
 
-      expect(events.whereType<TranscriptionSegment>().map((s) => s.text),
-          ['texto nuevo']);
+      expect(events.whereType<TranscriptionSegment>().map((s) => s.text), [
+        'texto nuevo',
+      ]);
       expect(adapter.isTurnOpen, isTrue);
     });
   });
@@ -207,8 +226,10 @@ void main() {
       async.flushMicrotasks();
       expect(events.whereType<TranscriptionSegment>(), isEmpty);
       expect(events.whereType<TranscriptionNoMatch>(), hasLength(1));
-      expect(events.whereType<TranscriptionTurnEnded>().single.reason,
-          TranscriptionEndReason.noMatch);
+      expect(
+        events.whereType<TranscriptionTurnEnded>().single.reason,
+        TranscriptionEndReason.noMatch,
+      );
     });
   });
 
@@ -220,12 +241,21 @@ void main() {
       adapter.start(request);
       async.flushMicrotasks();
       native({'type': 'stage', 'gen': 1, 'stage': 'awaitingPermission'});
-      native({'type': 'error', 'gen': 1, 'code': 'permissionDenied', 'detail': null});
+      native({
+        'type': 'error',
+        'gen': 1,
+        'code': 'permissionDenied',
+        'detail': null,
+      });
       async.flushMicrotasks();
-      expect(events.whereType<TranscriptionFailed>().single.code,
-          TranscriptionErrorCode.permissionDenied);
-      expect(events.whereType<TranscriptionTurnEnded>().single.reason,
-          TranscriptionEndReason.error);
+      expect(
+        events.whereType<TranscriptionFailed>().single.code,
+        TranscriptionErrorCode.permissionDenied,
+      );
+      expect(
+        events.whereType<TranscriptionTurnEnded>().single.reason,
+        TranscriptionEndReason.error,
+      );
       expect(adapter.isTurnOpen, isFalse);
     });
   });
@@ -260,52 +290,64 @@ void main() {
       native({'type': 'stage', 'gen': 1, 'stage': 'listening'});
       native({'type': 'cancelled'});
       async.flushMicrotasks();
-      expect(events.whereType<TranscriptionTurnEnded>().single.reason,
-          TranscriptionEndReason.cancelled);
+      expect(
+        events.whereType<TranscriptionTurnEnded>().single.reason,
+        TranscriptionEndReason.cancelled,
+      );
     });
   });
 
-  test('si el motor no cierra tras detener, se cancela y suelta el micrófono', () {
-    fakeAsync((async) {
-      final adapter = build();
-      final events = <TranscriptionEvent>[];
-      adapter.events.listen(events.add);
-      adapter.start(request);
-      async.flushMicrotasks();
-      native({'type': 'stage', 'gen': 1, 'stage': 'listening'});
-      adapter.stop();
-      async.flushMicrotasks();
-      async.elapse(LocalSpeechTranscriptionAdapter.stopGrace);
-      expect(calls.map((c) => c.method), contains('cancel'));
-      expect(events.whereType<TranscriptionTurnEnded>().single.reason,
-          TranscriptionEndReason.timeout);
-    });
-  });
-
-  test('el plazo del turno detiene (conserva lo dicho) y cuenta como timeout', () {
-    fakeAsync((async) {
-      final adapter = build();
-      final events = <TranscriptionEvent>[];
-      adapter.events.listen(events.add);
-      adapter.start(request);
-      async.flushMicrotasks();
-      native({'type': 'stage', 'gen': 1, 'stage': 'listening'});
-      async.elapse(const Duration(minutes: 5));
-      expect(calls.map((c) => c.method), contains('stop'));
-      expect(calls.map((c) => c.method), isNot(contains('cancel')));
-      native({
-        'type': 'segment',
-        'gen': 1,
-        'seq': 0,
-        'vosk': 'dos litros',
-        'review': null,
-        'reviewMs': 0,
+  test(
+    'si el motor no cierra tras detener, se cancela y suelta el micrófono',
+    () {
+      fakeAsync((async) {
+        final adapter = build();
+        final events = <TranscriptionEvent>[];
+        adapter.events.listen(events.add);
+        adapter.start(request);
+        async.flushMicrotasks();
+        native({'type': 'stage', 'gen': 1, 'stage': 'listening'});
+        adapter.stop();
+        async.flushMicrotasks();
+        async.elapse(LocalSpeechTranscriptionAdapter.stopGrace);
+        expect(calls.map((c) => c.method), contains('cancel'));
+        expect(
+          events.whereType<TranscriptionTurnEnded>().single.reason,
+          TranscriptionEndReason.timeout,
+        );
       });
-      native({'type': 'ended', 'gen': 1, 'reason': 'stoppedByUser'});
-      async.flushMicrotasks();
-      expect(events.whereType<TranscriptionSegment>(), hasLength(1));
-      expect(events.whereType<TranscriptionTurnEnded>().single.reason,
-          TranscriptionEndReason.timeout);
-    });
-  });
+    },
+  );
+
+  test(
+    'el plazo del turno detiene (conserva lo dicho) y cuenta como timeout',
+    () {
+      fakeAsync((async) {
+        final adapter = build();
+        final events = <TranscriptionEvent>[];
+        adapter.events.listen(events.add);
+        adapter.start(request);
+        async.flushMicrotasks();
+        native({'type': 'stage', 'gen': 1, 'stage': 'listening'});
+        async.elapse(const Duration(minutes: 5));
+        expect(calls.map((c) => c.method), contains('stop'));
+        expect(calls.map((c) => c.method), isNot(contains('cancel')));
+        native({
+          'type': 'segment',
+          'gen': 1,
+          'seq': 0,
+          'vosk': 'dos litros',
+          'review': null,
+          'reviewMs': 0,
+        });
+        native({'type': 'ended', 'gen': 1, 'reason': 'stoppedByUser'});
+        async.flushMicrotasks();
+        expect(events.whereType<TranscriptionSegment>(), hasLength(1));
+        expect(
+          events.whereType<TranscriptionTurnEnded>().single.reason,
+          TranscriptionEndReason.timeout,
+        );
+      });
+    },
+  );
 }

@@ -157,7 +157,9 @@ final class LocalSpeechTranscriptionAdapter implements SpeechTranscriptionPort {
       if (reply == 'awaitingPermission' && _turnOpen) {
         _deadline?.cancel();
         _emit(
-          const TranscriptionStageChanged(TranscriptionStage.awaitingPermission),
+          const TranscriptionStageChanged(
+            TranscriptionStage.awaitingPermission,
+          ),
         );
       }
     } on PlatformException catch (error) {
@@ -174,7 +176,10 @@ final class LocalSpeechTranscriptionAdapter implements SpeechTranscriptionPort {
     try {
       await _method.invokeMethod<void>('stop', {'gen': _generation});
     } on Object catch (error) {
-      _failTurn(TranscriptionErrorCode.engineFailure, error.runtimeType.toString());
+      _failTurn(
+        TranscriptionErrorCode.engineFailure,
+        error.runtimeType.toString(),
+      );
     }
   }
 
@@ -266,7 +271,9 @@ final class LocalSpeechTranscriptionAdapter implements SpeechTranscriptionPort {
               const TranscriptionRouteInUse(TranscriptionEngineRoute.embedded),
             );
             _emit(const TranscriptionLocaleInUse('es'));
-            _emit(const TranscriptionStageChanged(TranscriptionStage.listening));
+            _emit(
+              const TranscriptionStageChanged(TranscriptionStage.listening),
+            );
           case 'processing':
             _emit(
               const TranscriptionStageChanged(TranscriptionStage.processing),
