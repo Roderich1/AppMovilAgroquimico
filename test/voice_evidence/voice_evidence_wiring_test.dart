@@ -110,6 +110,23 @@ void main() {
     }
   }
 
+  /// Espera, con tope (60 vueltas), a que la pantalla de compra se cierre.
+  /// Bajo carga (conjunto combinado del 2026-11-08, `+635 -1`) 20 vueltas
+  /// fijas no bastaron; aislado pasaba siempre.
+  Future<void> untilClosed(WidgetTester tester) async {
+    await drain(tester);
+    for (
+      var i = 0;
+      i < 60 && find.byType(VoicePurchaseDraftScreen).evaluate().isNotEmpty;
+      i++
+    ) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 25)),
+      );
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+  }
+
   Future<List<StoredVoiceEvidence>> evidence(
     WidgetTester tester,
     AppDatabase database,
@@ -138,7 +155,7 @@ void main() {
     expect(await evidence(tester, db), isEmpty);
     await tapKey(tester, 'voz-pago-no');
     await tapKey(tester, 'voz-registrar');
-    await drain(tester);
+    await untilClosed(tester);
     expect(find.byType(VoicePurchaseDraftScreen), findsNothing);
     expect(await purchases(tester, db), 1);
 
@@ -171,7 +188,7 @@ void main() {
     );
     await dictate(tester);
     await tapKey(tester, 'voz-cancelar');
-    await drain(tester);
+    await untilClosed(tester);
     expect(find.byType(VoicePurchaseDraftScreen), findsNothing);
     expect(await purchases(tester, db), 0);
     final all = await evidence(tester, db);
@@ -192,7 +209,7 @@ void main() {
     await dictate(tester);
     await tapKey(tester, 'voz-pago-no');
     await tapKey(tester, 'voz-registrar');
-    await drain(tester);
+    await untilClosed(tester);
     expect(find.byType(VoicePurchaseDraftScreen), findsNothing);
     expect(await purchases(tester, db), 1);
     expect(await evidence(tester, db), isEmpty);
@@ -209,7 +226,7 @@ void main() {
     await dictate(tester);
     await tapKey(tester, 'voz-pago-no');
     await tapKey(tester, 'voz-registrar');
-    await drain(tester);
+    await untilClosed(tester);
     expect(find.byType(VoicePurchaseDraftScreen), findsNothing);
     expect(await purchases(tester, db), 1);
     expect(await evidence(tester, db), isEmpty);
