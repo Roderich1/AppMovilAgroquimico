@@ -5,6 +5,8 @@
 /// monetarias del dominio; nunca se toma del dictado.
 library;
 
+import '../../domain/campaign_calendar.dart'
+    show effectiveInstantForDay, localDay;
 import '../../domain/models.dart';
 import '../../domain/money.dart';
 import '../catalog/voice_catalog.dart';
@@ -141,7 +143,13 @@ final class VoicePurchaseLine {
 List<String> _fieldBlocker(String line, String name, DraftField<Object?> f) =>
     switch (f.status) {
       FieldStatus.resolved => const [],
-      FieldStatus.missing => ['$line: falta $name.'],
+      // Lo oído que no está en el catálogo se nombra: «falta producto» a
+      // secas no decía qué se oyó.
+      FieldStatus.missing => [
+        f.heard == null
+            ? '$line: falta $name.'
+            : '$line: $name «${f.heard}» no está en el catálogo.',
+      ],
       FieldStatus.ambiguous => [
         '$line: $name ambiguo («${f.heard ?? ''}»), elija una opción.',
       ],
@@ -158,11 +166,16 @@ final class VoicePurchaseDraft implements VoiceDraft<VoicePurchaseDraft> {
     this.exchangeRate = const DraftField.missing(),
     this.lines = const [],
     this.nextLineKey = 1,
+    this.paidInFull,
+    this.paymentMethod = PaymentMethod.unspecified,
+    this.paymentDay,
+    this.holderId,
   });
 
   /// Borrador inicial: campaña activa y, si sólo hay una persona elegible
   /// (titular en PERSONAL), esa persona como destinataria. Los dos quedan
-  /// visibles como propuestos.
+  /// visibles como propuestos. «¿Ya pagaste al proveedor?» empieza sin
+  /// respuesta, como en el formulario.
   factory VoicePurchaseDraft.start(VoiceCatalog catalog) => VoicePurchaseDraft(
     campaign: catalog.activeCampaign == null
         ? const DraftField.missing(message: 'No hay una campaña activa.')
@@ -173,7 +186,26 @@ final class VoicePurchaseDraft implements VoiceDraft<VoicePurchaseDraft> {
     recipient: catalog.people.length == 1
         ? DraftField.resolved(catalog.people.single, origin: FieldOrigin.preset)
         : const DraftField.missing(message: 'Indique para quién es la compra.'),
+    holderId: catalog.holderId,
   );
+
+  /// Respuesta a «¿Ya pagaste al proveedor?» (X01, como el formulario). Nula
+  /// hasta que la persona elige y entonces bloquea: no se registra ningún
+  /// pago ni ninguna deuda por defecto. **Sólo se responde a mano**; la voz
+  /// no la cambia (los pagos por voz no se atienden).
+  final bool? paidInFull;
+
+  /// Medio del pago con «Sí, pagué todo». Empieza en «Sin indicar», que se
+  /// guarda tal cual; no se supone efectivo ni transferencia.
+  final PaymentMethod paymentMethod;
+
+  /// Día del pago (`aaaa-mm-dd`) elegido a mano; nulo = el día de la compra,
+  /// que en la voz es hoy.
+  final String? paymentDay;
+
+  /// Titular vigente: paga al proveedor en las dos modalidades. Sin titular
+  /// la compra no puede quedar pagada.
+  final int? holderId;
 
   final DraftField<CatalogEntry> supplier;
   final DraftField<CatalogEntry> campaign;
@@ -208,7 +240,52 @@ final class VoicePurchaseDraft implements VoiceDraft<VoicePurchaseDraft> {
     exchangeRate: exchangeRate ?? this.exchangeRate,
     lines: lines ?? this.lines,
     nextLineKey: nextLineKey ?? this.nextLineKey,
+    paidInFull: paidInFull,
+    paymentMethod: paymentMethod,
+    paymentDay: paymentDay,
+    holderId: holderId,
   );
+
+  /// Respuesta a «¿Ya pagaste al proveedor?»; `null` la deja sin responder.
+  VoicePurchaseDraft withPaidInFull(bool? paid) => _withPayment(paid: paid);
+
+  VoicePurchaseDraft withPaymentMethod(PaymentMethod method) =>
+      _withPayment(method: method);
+
+  /// Día del pago, `aaaa-mm-dd`.
+  VoicePurchaseDraft withPaymentDay(String day) => _withPayment(day: day);
+
+  VoicePurchaseDraft _withPayment({
+    Object? paid = _keep,
+    PaymentMethod? method,
+    String? day,
+  }) => VoicePurchaseDraft(
+    supplier: supplier,
+    campaign: campaign,
+    recipient: recipient,
+    exchangeRate: exchangeRate,
+    lines: lines,
+    nextLineKey: nextLineKey,
+    paidInFull: identical(paid, _keep) ? paidInFull : paid as bool?,
+    paymentMethod: method ?? paymentMethod,
+    paymentDay: day ?? paymentDay,
+    holderId: holderId,
+  );
+
+  /// El pago que acompaña a la compra, como lo arma el formulario
+  /// (`confirmPurchase(paidInFull:)`): con «Sí, pagué todo», el medio
+  /// mostrado y el día mostrado (hoy: el instante real [at]); con «No,
+  /// todavía no», ninguno. Sólo con un borrador sin bloqueos.
+  ProviderPaymentDetails? providerPayment({required DateTime at}) {
+    if (blockers.isNotEmpty) {
+      throw StateError('El borrador tiene bloqueos y no se puede convertir.');
+    }
+    if (paidInFull != true) return null;
+    return ProviderPaymentDetails(
+      method: paymentMethod,
+      date: effectiveInstantForDay(paymentDay ?? localDay(at), at),
+    );
+  }
 
   /// Añade una línea vacía para completarla a mano.
   VoicePurchaseDraft addEmptyLine() => copyWith(
@@ -250,6 +327,12 @@ final class VoicePurchaseDraft implements VoiceDraft<VoicePurchaseDraft> {
     }
     if (_usesUsd && !exchangeRate.isResolved) {
       out.add('Falta el tipo de cambio para las líneas en dólares.');
+    }
+    // Mismos mensajes que el formulario al confirmar.
+    if (paidInFull == null) {
+      out.add('Indica si ya pagaste al proveedor.');
+    } else if (paidInFull! && holderId == null) {
+      out.add('No hay un titular vinculado: la compra no puede quedar pagada.');
     }
     return out;
   }
@@ -321,3 +404,6 @@ List<String> _headBlocker(String name, DraftField<Object?> f) =>
       ],
       FieldStatus.invalid => ['Revise $name. ${f.message ?? ''}'.trim()],
     };
+
+/// Marca de «no cambiar» para un campo que admite nulo.
+const Object _keep = Object();

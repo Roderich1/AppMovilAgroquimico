@@ -140,6 +140,8 @@ void main() {
     await tapVisible(tester, find.byKey(const Key('voz-boton-microfono')));
     await tapVisible(tester, find.byKey(const Key('voz-boton-microfono')));
     expect(find.textContaining('Se ignoró «hermana»'), findsOneWidget);
+    // «¿Ya pagaste al proveedor?» se responde siempre, también en propio.
+    await tapVisible(tester, find.byKey(const Key('voz-pago-no')));
     ButtonStyleButton register() => tester.widget<ButtonStyleButton>(
       find.byKey(const Key('voz-registrar')),
     );

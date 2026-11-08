@@ -7,6 +7,7 @@ library;
 import 'package:flutter/material.dart';
 
 import '../../voice_draft/catalog/voice_catalog.dart';
+import '../widgets/adaptive_entity_picker.dart';
 import '../../voice_draft/core/draft_field.dart';
 import '../../voice_draft/interpretation/voice_intent.dart';
 
@@ -54,6 +55,7 @@ class VoiceDraftNotice extends StatelessWidget {
     super.key,
     required this.confirmLabel,
     required this.catalogs,
+    this.createInPicker = false,
   });
 
   /// Texto del botón que registra («Registrar compra»).
@@ -62,6 +64,9 @@ class VoiceDraftNotice extends StatelessWidget {
   /// Qué se busca en los catálogos («Los productos, proveedores y personas»).
   final String catalogs;
 
+  /// Si los selectores de esta pantalla ofrecen «Crear …».
+  final bool createInPicker;
+
   @override
   Widget build(BuildContext context) => Card(
     child: Padding(
@@ -69,8 +74,8 @@ class VoiceDraftNotice extends StatelessWidget {
       child: Text(
         'La voz sólo prepara un borrador. Nada se registra hasta que usted '
         'revise y pulse «$confirmLabel». Lo que corrija a mano no lo cambia '
-        'la voz. $catalogs se buscan en sus catálogos; si falta uno, créelo '
-        'antes en Catálogos.',
+        'la voz. $catalogs se buscan en sus catálogos; la voz no crea nada '
+        'nuevo. ${createInPicker ? 'Si falta uno, puede darlo de alta desde su selector sin perder el borrador.' : 'Si falta uno, créelo antes en Catálogos.'}',
         style: Theme.of(context).textTheme.bodyMedium,
       ),
     ),
@@ -166,11 +171,15 @@ class DraftFieldRow extends StatelessWidget {
     required this.label,
     required this.field,
     required this.child,
+    this.labelInChild = false,
   });
 
   final String label;
   final DraftField<Object?> field;
   final Widget child;
+
+  /// El control ya muestra la etiqueta (un selector): aquí sólo el estado.
+  final bool labelInChild;
 
   @override
   Widget build(BuildContext context) {
@@ -195,8 +204,14 @@ class DraftFieldRow extends StatelessWidget {
         children: [
           Row(
             children: [
-              Expanded(child: Text(label)),
-              Text(text, style: TextStyle(color: color)),
+              Expanded(
+                child: labelInChild ? const SizedBox.shrink() : Text(label),
+              ),
+              Text(
+                text,
+                semanticsLabel: '$label: $text',
+                style: TextStyle(color: color),
+              ),
             ],
           ),
           if (field.heard != null && !field.isResolved)
@@ -210,6 +225,79 @@ class DraftFieldRow extends StatelessWidget {
           child,
         ],
       ),
+    );
+  }
+}
+
+/// El selector de los formularios (`AdaptiveEntityPicker`, UX del jurado)
+/// sobre las entradas del catálogo: búsqueda, hoja con las opciones y, si la
+/// pantalla lo ofrece, «Crear …» para que **la persona** dé de alta lo que
+/// falta sin perder el borrador. Lo creado vuelve elegido ([onCreate]).
+///
+/// Diferencias deliberadas con el formulario:
+/// - nunca elige solo la única opción (`autoSelectSingle: false`): una
+///   elección automática contaría como corrección manual y la voz ya no
+///   podría cambiarla (ADR-003: no autoelegir entidades críticas);
+/// - no se limpia (`allowClear: false`): un campo vaciado a mano quedaría
+///   sin marca de manual;
+/// - las opciones parecidas a lo dictado van primero y lo dicen.
+class VoiceEntityPicker extends StatelessWidget {
+  const VoiceEntityPicker({
+    super.key,
+    required this.label,
+    required this.entries,
+    required this.field,
+    required this.enabled,
+    required this.onPick,
+    this.createLabel,
+    this.onCreate,
+    this.showUnit = false,
+  });
+
+  final String label;
+  final List<CatalogEntry> entries;
+  final DraftField<CatalogEntry> field;
+  final bool enabled;
+  final ValueChanged<CatalogEntry> onPick;
+
+  /// «Crear proveedor», «Crear producto», «Agregar persona»… Nulo si esta
+  /// pantalla no ofrece el alta.
+  final String? createLabel;
+  final Future<CatalogEntry?> Function()? onCreate;
+
+  /// Muestra la unidad de cada producto en la hoja, como el formulario.
+  final bool showUnit;
+
+  @override
+  Widget build(BuildContext context) {
+    final ordered = [
+      ...field.candidates,
+      for (final e in entries)
+        if (!field.candidates.contains(e)) e,
+    ];
+    final selected = field.isResolved && ordered.contains(field.value)
+        ? field.value
+        : null;
+    String secondary(CatalogEntry e) => [
+      if (field.candidates.contains(e)) 'Parecido a lo dictado',
+      if (showUnit && e.unit != null) e.unit!.code,
+    ].join(' · ');
+    final hasSecondary = ordered.any((e) => secondary(e).isNotEmpty);
+    return AdaptiveEntityPicker<CatalogEntry>(
+      label: label,
+      items: ordered,
+      value: selected,
+      labelOf: (e) => e.name,
+      secondaryOf: hasSecondary ? secondary : null,
+      enabled: enabled,
+      allowClear: false,
+      autoSelectSingle: false,
+      emptyMessage: 'No hay opciones en el catálogo.',
+      createLabel: enabled ? createLabel : null,
+      onCreate: enabled ? onCreate : null,
+      onChanged: (value) {
+        if (value != null) onPick(value);
+      },
     );
   }
 }

@@ -25,9 +25,11 @@ DraftField<CatalogEntry> entryField(Resolution r, String what) =>
       ),
       ResolutionState.missing => DraftField.missing(
         heard: r.heard,
+        // La voz no crea nada (D-F09-2). Que se ofrezca o no el alta en el
+        // selector lo dice cada pantalla.
         message:
-            '«${r.heard}» no está en el catálogo. Elija uno existente; si es '
-            'nuevo, créelo primero en Catálogos.',
+            '«${r.heard}» no está en el catálogo. Elija uno existente; la voz '
+            'no crea nada nuevo.',
       ),
     };
 

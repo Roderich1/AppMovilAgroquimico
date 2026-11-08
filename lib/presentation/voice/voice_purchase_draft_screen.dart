@@ -6,6 +6,12 @@
 ///   muestra como «aplicado».
 /// - Cada campo indica si está resuelto, es ambiguo, falta o no es válido, y
 ///   se puede corregir a mano. Lo corregido a mano no lo cambia la voz.
+/// - Los selectores son los del formulario (búsqueda y «Crear proveedor»,
+///   «Crear producto», «Agregar persona»): el alta la pide la persona, se
+///   abre sobre el borrador y lo creado queda elegido. La voz no crea nada.
+/// - «¿Ya pagaste al proveedor?» se responde como en el formulario: sin
+///   respuesta no se registra; con «Sí, pagué todo» la compra y su pago se
+///   guardan juntos (`confirmPurchase(paidInFull:)`).
 /// - «Registrar compra» sólo se habilita sin bloqueos y escribe una vez, con
 ///   el mismo caso de uso que el formulario manual.
 /// - Cancelar o salir libera el micrófono y descarta el borrador sin escribir.
@@ -14,6 +20,7 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../domain/campaign_calendar.dart' show localDay;
 import '../../domain/models.dart';
 import '../../domain/money.dart';
 import '../../voice/session/voice_session_controller.dart';
@@ -29,6 +36,7 @@ import '../../voice_draft/text/units.dart';
 import '../../operation_mode_controller.dart';
 import '../widgets/common.dart';
 import '../widgets/mode_notice.dart';
+import '../widgets/provider_payment_fields.dart';
 import 'voice_draft_gateway.dart';
 import 'voice_draft_widgets.dart';
 
@@ -251,7 +259,10 @@ class _VoicePurchaseDraftScreenState
   bool get _hasWork {
     final d = _draft?.draft;
     return _applied.isNotEmpty ||
-        (d != null && (d.lines.isNotEmpty || d.supplier.isResolved));
+        (d != null &&
+            (d.lines.isNotEmpty ||
+                d.supplier.isResolved ||
+                d.paidInFull != null));
   }
 
   /// Atrás con un borrador empezado pregunta antes de descartarlo; durante
@@ -317,6 +328,7 @@ class _VoicePurchaseDraftScreenState
           const VoiceDraftNotice(
             confirmLabel: 'Registrar compra',
             catalogs: 'Los productos, proveedores y personas',
+            createInPicker: true,
           ),
           const SizedBox(height: 12),
           VoiceListeningPanel(session: _session),
@@ -384,12 +396,16 @@ class _VoicePurchaseDraftScreenState
         ),
         DraftFieldRow(
           label: 'Proveedor',
+          labelInChild: true,
           field: d.supplier,
-          child: CatalogEntryPicker(
+          child: VoiceEntityPicker(
             key: const Key('voz-borrador-proveedor'),
+            label: 'Proveedor',
             entries: catalog.suppliers,
             field: d.supplier,
             enabled: editable,
+            createLabel: 'Crear proveedor',
+            onCreate: _createSupplier,
             onPick: (entry) => controller.editManually(
               (c) => c.copyWith(
                 supplier: DraftField.resolved(
@@ -412,12 +428,18 @@ class _VoicePurchaseDraftScreenState
         else
           DraftFieldRow(
             label: 'Recibe la compra',
+            labelInChild: true,
             field: d.recipient,
-            child: CatalogEntryPicker(
+            child: VoiceEntityPicker(
               key: const Key('voz-borrador-persona'),
+              label: 'Recibe la compra',
               entries: catalog.people,
               field: d.recipient,
               enabled: editable,
+              // Como el formulario: «Agregar persona» sólo en compartido y
+              // con la modalidad con que se abrió la pantalla.
+              createLabel: modeChanged ? null : 'Agregar persona',
+              onCreate: modeChanged ? null : _createPerson,
               onPick: (entry) => controller.editManually(
                 (c) => c.copyWith(
                   recipient: DraftField.resolved(
@@ -430,15 +452,19 @@ class _VoicePurchaseDraftScreenState
           ),
         for (var i = 0; i < d.lines.length; i++)
           _lineCard(context, controller, catalog, i, d.lines[i], editable),
+        // El mismo texto que el formulario: «Añadir otro producto» agrega
+        // una línea; «Crear producto», en el selector, da de alta uno nuevo.
         Align(
           alignment: Alignment.centerLeft,
-          child: TextButton.icon(
+          child: FilledButton.tonalIcon(
             key: const Key('voz-agregar-linea'),
             onPressed: editable
                 ? () => controller.editManually((c) => c.addEmptyLine())
                 : null,
             icon: const Icon(Icons.add),
-            label: const Text('Añadir producto a mano'),
+            label: Text(
+              d.lines.isEmpty ? 'Añadir producto' : 'Añadir otro producto',
+            ),
           ),
         ),
         if (d.lines.any((l) => l.currency.value == CurrencyCode.usd))
@@ -477,6 +503,8 @@ class _VoicePurchaseDraftScreenState
           key: const Key('voz-total'),
           style: theme.textTheme.titleSmall,
         ),
+        const SizedBox(height: 12),
+        _paymentSection(context, controller, catalog, d, editable),
         if (controller.blockers.isNotEmpty || mismatches.isNotEmpty) ...[
           const SizedBox(height: 8),
           VoiceBlockersPanel(blockers: [...controller.blockers, ...mismatches]),
@@ -521,6 +549,144 @@ class _VoicePurchaseDraftScreenState
       ],
     );
   }
+
+  /// «¿Ya pagaste al proveedor?», con las reglas del formulario (X01): sin
+  /// respuesta por defecto y sin ella no se registra; paga el titular, sin
+  /// elegir pagador; con «Sí, pagué todo» el importe es el total y el medio y
+  /// la fecha se ven y se corrigen. Los textos son los del formulario.
+  Widget _paymentSection(
+    BuildContext context,
+    VoiceDraftController<VoicePurchaseDraft, int> controller,
+    VoiceCatalog catalog,
+    VoicePurchaseDraft d,
+    bool editable,
+  ) {
+    final theme = Theme.of(context);
+    final today = localDay(DateTime.now());
+    final day = d.paymentDay ?? today;
+    return Container(
+      key: const Key('voz-pago'),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('¿Ya pagaste al proveedor?', style: theme.textTheme.titleSmall),
+          const SizedBox(height: 8),
+          SegmentedButton<bool>(
+            key: const Key('voz-pago-eleccion'),
+            emptySelectionAllowed: true,
+            showSelectedIcon: true,
+            expandedInsets: EdgeInsets.zero,
+            segments: const [
+              ButtonSegment(
+                value: true,
+                icon: Icon(Icons.payments_outlined),
+                label: Text('Sí, pagué todo', key: Key('voz-pago-si')),
+              ),
+              ButtonSegment(
+                value: false,
+                icon: Icon(Icons.schedule_outlined),
+                label: Text('No, todavía no', key: Key('voz-pago-no')),
+              ),
+            ],
+            selected: {?d.paidInFull},
+            onSelectionChanged: editable
+                ? (selection) => controller.editManually(
+                    (c) => c.withPaidInFull(
+                      selection.isEmpty ? null : selection.single,
+                    ),
+                  )
+                : null,
+          ),
+          const SizedBox(height: 10),
+          switch (d.paidInFull) {
+            true => Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  key: const Key('voz-pago-titular'),
+                  children: [
+                    Icon(
+                      Icons.check_circle_outline,
+                      color: theme.colorScheme.primary,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        catalog.holderName == null
+                            ? 'No hay un titular vinculado: la compra no '
+                                  'puede quedar pagada.'
+                            : 'Paga el titular: ${catalog.holderName}',
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                ProviderPaymentFields(
+                  method: d.paymentMethod,
+                  onMethodChanged: (value) => controller.editManually(
+                    (c) => c.withPaymentMethod(value),
+                  ),
+                  day: day,
+                  // La compra por voz es de hoy: su día es hoy.
+                  dayHint: day == today ? ' (hoy)' : '',
+                  onDayChanged: (value) =>
+                      controller.editManually((c) => c.withPaymentDay(value)),
+                  enabled: editable,
+                ),
+              ],
+            ),
+            false => const Text(
+              'La compra queda sin pago. Puedes anotarlo después en '
+              'Operaciones, Compras.',
+              key: Key('voz-pago-pendiente-despues'),
+            ),
+            null => Text(
+              'Elige una opción para poder confirmar.',
+              key: const Key('voz-pago-sin-respuesta'),
+              style: TextStyle(color: theme.colorScheme.outline),
+            ),
+          },
+        ],
+      ),
+    );
+  }
+
+  // ------------------------------------------- altas pedidas en un selector
+
+  /// Tras un alta, la lista releída sustituye a la del catálogo y orienta
+  /// también el reconocimiento. El borrador no cambia: lo creado lo deja
+  /// elegido el selector, como una corrección a mano.
+  CatalogEntry? _adopt(
+    (List<CatalogEntry>, CatalogEntry)? created,
+    VoiceCatalog Function(VoiceCatalog current, List<CatalogEntry> list) put,
+  ) {
+    final current = _catalog;
+    if (created == null || current == null || !mounted) return null;
+    final next = put(current, created.$1);
+    _session.setVocabularyHints(voiceVocabularyHints(next));
+    setState(() => _catalog = next);
+    return created.$2;
+  }
+
+  Future<CatalogEntry?> _createSupplier() async => _adopt(
+    await _gateway.createSupplier(context),
+    (c, list) => c.copyWith(suppliers: list),
+  );
+
+  Future<CatalogEntry?> _createProduct() async => _adopt(
+    await _gateway.createProduct(context),
+    (c, list) => c.copyWith(products: list),
+  );
+
+  Future<CatalogEntry?> _createPerson() async => _adopt(
+    await _gateway.createPurchasePerson(context),
+    (c, list) => c.copyWith(people: list),
+  );
 
   Widget _lineCard(
     BuildContext context,
@@ -568,12 +734,29 @@ class _VoicePurchaseDraftScreenState
             ),
             DraftFieldRow(
               label: 'Producto',
+              labelInChild: true,
               field: line.product,
-              child: CatalogEntryPicker(
+              child: VoiceEntityPicker(
                 key: Key('voz-producto-${line.key}'),
-                entries: catalog.products,
+                label: 'Producto',
+                showUnit: true,
+                // Como el formulario: un producto ya elegido en otra línea no
+                // se ofrece otra vez.
+                entries: [
+                  for (final p in catalog.products)
+                    if (p.id == line.product.value?.id ||
+                        !controller.draft.lines.any(
+                          (other) =>
+                              other.key != line.key &&
+                              other.product.isResolved &&
+                              other.product.value?.id == p.id,
+                        ))
+                      p,
+                ],
                 field: line.product,
                 enabled: editable,
+                createLabel: 'Crear producto',
+                onCreate: _createProduct,
                 onPick: (entry) => update(
                   (l) => l.copyWith(
                     product: DraftField.resolved(

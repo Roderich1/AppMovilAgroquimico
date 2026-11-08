@@ -2,8 +2,10 @@
 ///
 /// Es una fotografía de sólo lectura que entrega la capa de presentación. El
 /// borrador no consulta la base ni crea nada: un nombre que no está en el
-/// catálogo queda **faltante** y bloquea la confirmación (decisión pendiente
-/// D-F09-2: sin «Crear nuevo» desde la voz).
+/// catálogo queda **faltante** y bloquea la confirmación (D-F09-2: la voz
+/// nunca crea entidades). Sí puede crearla la **persona**, con «Crear …» en
+/// el selector, como en los formularios; la pantalla relee entonces la lista
+/// ([VoiceCatalog.copyWith]) y lo creado queda elegido a mano.
 library;
 
 import '../../domain/operation_mode.dart';
@@ -93,7 +95,32 @@ final class VoiceCatalog {
     this.loadedMode,
     this.personalOwner,
     this.pendingPlans = const [],
+    this.holderId,
+    this.holderName,
   });
+
+  /// Las mismas opciones con alguna lista releída tras un alta pedida por la
+  /// persona en un selector («Crear proveedor»). La modalidad cargada no
+  /// cambia: si la vigente cambió, el borrador sigue sin poder confirmarse.
+  VoiceCatalog copyWith({
+    List<CatalogEntry>? products,
+    List<CatalogEntry>? suppliers,
+    List<CatalogEntry>? farms,
+    List<CatalogEntry>? people,
+    Map<int, CatalogEntry>? farmOwners,
+  }) => VoiceCatalog(
+    products: products ?? this.products,
+    suppliers: suppliers ?? this.suppliers,
+    farms: farms ?? this.farms,
+    people: people ?? this.people,
+    activeCampaign: activeCampaign,
+    farmOwners: farmOwners ?? this.farmOwners,
+    loadedMode: loadedMode,
+    personalOwner: personalOwner,
+    pendingPlans: pendingPlans,
+    holderId: holderId,
+    holderName: holderName,
+  );
 
   final List<CatalogEntry> products;
   final List<CatalogEntry> suppliers;
@@ -124,6 +151,14 @@ final class VoiceCatalog {
 
   /// Planes pendientes de la campaña activa en chacos que se pueden usar.
   final List<PendingPlan> pendingPlans;
+
+  /// Titular vigente de la instalación, del vínculo real. En una compra paga
+  /// al proveedor en las dos modalidades, como en el formulario; sin titular
+  /// la compra no puede quedar pagada. Nulo si no hay vínculo.
+  final int? holderId;
+
+  /// Nombre del titular para decir quién paga («Paga el titular: …»).
+  final String? holderName;
 
   /// Planes pendientes de [farmId] en [campaignId] (la campaña del
   /// borrador). Un plan de otro chaco o de otra campaña no se ofrece.
