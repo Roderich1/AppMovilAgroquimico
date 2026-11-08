@@ -270,6 +270,18 @@ void main() {
         p.normalize('lib/data/app_database.dart'),
         p.normalize('lib/data/backup_service.dart'),
       };
+      // Integración (2026-11-08): la presentación sí importa el módulo (el
+      // enganche de las pantallas y la pantalla de consentimiento usan el
+      // sumidero y el almacén). La guarda se precisa en dos partes:
+      // 1. fuera del esquema, el respaldo y el propio módulo, nadie nombra
+      //    las TABLAS (ninguna consulta SQL propia);
+      // 2. Sync, lo colectivo y los servicios no nombran la evidencia de
+      //    ninguna forma.
+      final tableName = RegExp(r'\bvoice_evidence(_consent)?\b');
+      final syncSide = [
+        p.normalize('lib/data/sync'),
+        p.normalize('lib/services'),
+      ];
       final offenders = <String>[];
       for (final file
           in Directory('lib')
@@ -280,10 +292,16 @@ void main() {
         if (allowed.contains(path)) continue;
         if (p.isWithin(p.normalize('lib/voice_evidence'), path)) continue;
         final code = file.readAsStringSync();
-        if (code.contains('voice_evidence') ||
-            code.contains('VoiceEvidenceStore') ||
-            code.contains('voiceEvidence')) {
-          offenders.add(path);
+        final body = code
+            .split('\n')
+            .where((l) => !RegExp(r'^\s*(import|export) ').hasMatch(l))
+            .join('\n');
+        if (tableName.hasMatch(body)) offenders.add('$path (tablas)');
+        if (syncSide.any((dir) => p.isWithin(dir, path)) &&
+            (code.contains('voice_evidence') ||
+                code.contains('VoiceEvidence') ||
+                code.contains('voiceEvidence'))) {
+          offenders.add('$path (Sync/servicios)');
         }
       }
       expect(offenders, isEmpty);

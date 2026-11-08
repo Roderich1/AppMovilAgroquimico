@@ -25,6 +25,7 @@ import '../widgets/common.dart';
 import '../widgets/mode_notice.dart';
 import 'voice_draft_gateway.dart';
 import 'voice_draft_widgets.dart';
+import 'voice_evidence_hook.dart';
 
 class VoicePlanDraftScreen extends ConsumerStatefulWidget {
   const VoicePlanDraftScreen({super.key, this.onOpenManualForm});
@@ -38,7 +39,10 @@ class VoicePlanDraftScreen extends ConsumerStatefulWidget {
 }
 
 class _VoicePlanDraftScreenState extends ConsumerState<VoicePlanDraftScreen>
-    with WidgetsBindingObserver, VoiceDraftExit<VoicePlanDraftScreen> {
+    with
+        WidgetsBindingObserver,
+        VoiceDraftExit<VoicePlanDraftScreen>,
+        VoiceEvidenceRecording<VoicePlanDraftScreen> {
   late final VoiceSessionController _session;
   late final VoiceDraftGateway _gateway;
   VoiceCatalog? _catalog;
@@ -55,6 +59,7 @@ class _VoicePlanDraftScreenState extends ConsumerState<VoicePlanDraftScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _gateway = ref.read(voiceDraftGatewayProvider);
+    initVoiceEvidence();
     _session = VoiceSessionController(
       port: ref.read(speechPortFactoryProvider)(),
     );
@@ -88,6 +93,8 @@ class _VoicePlanDraftScreenState extends ConsumerState<VoicePlanDraftScreen>
     WidgetsBinding.instance.removeObserver(this);
     _session.removeListener(_onSession);
     _session.dispose();
+    // Una sola entrada de evidencia por borrador, sea cual sea la salida.
+    finishVoiceEvidence(_draft);
     _draft?.removeListener(_onDraft);
     _draft?.dispose();
     for (final c in _fields.values) {
@@ -131,6 +138,8 @@ class _VoicePlanDraftScreenState extends ConsumerState<VoicePlanDraftScreen>
         return (r.draft, r.outcome);
       });
       if (accepted) {
+        // Evidencia (#167): sólo se anota en memoria; se entrega al salir.
+        noteVoiceApplied(draft.draft, fresh);
         _otherIntent = other;
         if (other == null) _heard.add(VoiceHeardSegment.from(fresh, outcome));
       }

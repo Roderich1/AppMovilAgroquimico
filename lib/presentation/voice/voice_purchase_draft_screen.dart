@@ -39,6 +39,7 @@ import '../widgets/mode_notice.dart';
 import '../widgets/provider_payment_fields.dart';
 import 'voice_draft_gateway.dart';
 import 'voice_draft_widgets.dart';
+import 'voice_evidence_hook.dart';
 
 class VoicePurchaseDraftScreen extends ConsumerStatefulWidget {
   const VoicePurchaseDraftScreen({super.key, this.onOpenManualForm});
@@ -54,7 +55,10 @@ class VoicePurchaseDraftScreen extends ConsumerStatefulWidget {
 
 class _VoicePurchaseDraftScreenState
     extends ConsumerState<VoicePurchaseDraftScreen>
-    with WidgetsBindingObserver, VoiceDraftExit<VoicePurchaseDraftScreen> {
+    with
+        WidgetsBindingObserver,
+        VoiceDraftExit<VoicePurchaseDraftScreen>,
+        VoiceEvidenceRecording<VoicePurchaseDraftScreen> {
   late final VoiceSessionController _session;
   late final VoiceDraftGateway _gateway;
   VoiceCatalog? _catalog;
@@ -75,6 +79,7 @@ class _VoicePurchaseDraftScreenState
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _gateway = ref.read(voiceDraftGatewayProvider);
+    initVoiceEvidence();
     _session = VoiceSessionController(
       port: ref.read(speechPortFactoryProvider)(),
     );
@@ -109,6 +114,8 @@ class _VoicePurchaseDraftScreenState
     _session.removeListener(_onSession);
     // Salir libera el micrófono y descarta el borrador: no se escribe nada.
     _session.dispose();
+    // Una sola entrada de evidencia por borrador, sea cual sea la salida.
+    finishVoiceEvidence(_draft);
     _draft?.removeListener(_onDraft);
     _draft?.dispose();
     for (final c in _fields.values) {
@@ -207,6 +214,8 @@ class _VoicePurchaseDraftScreenState
         return (r.draft, r.outcome);
       });
       if (accepted) {
+        // Evidencia (#167): sólo se anota en memoria; se entrega al salir.
+        noteVoiceApplied(draft.draft, fresh);
         _otherIntent = other;
         if (ignored != null) _ignoredRecipient = ignored;
         if (other == null) _heard.add(VoiceHeardSegment.from(fresh, outcome));

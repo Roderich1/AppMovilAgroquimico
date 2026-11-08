@@ -55,6 +55,8 @@ import 'services/reports/report_export_service.dart';
 import 'services/reports/report_storage.dart';
 import 'presentation/voice/voice_application_draft_screen.dart';
 import 'presentation/voice/voice_entry_screen.dart';
+import 'presentation/voice/voice_evidence_consent_screen.dart';
+import 'presentation/voice/voice_evidence_hook.dart';
 import 'presentation/voice/voice_plan_draft_screen.dart';
 import 'presentation/voice/voice_purchase_draft_screen.dart';
 
@@ -275,6 +277,13 @@ final routerProvider = Provider<GoRouter>((ref) {
             path: voiceEntryPath,
             builder: (_, __) => const VoiceEntryScreen(),
           ),
+          // Evidencia de dictado (#167): sólo en una compilación de
+          // evaluación; en las demás la ruta no existe.
+          if (voiceEvidenceEnabled)
+            GoRoute(
+              path: voiceEvidenceConsentPath,
+              builder: (_, __) => const VoiceEvidenceConsentScreen(),
+            ),
           GoRoute(
             path: voicePurchasePath,
             builder: (context, __) => VoicePurchaseDraftScreen(
