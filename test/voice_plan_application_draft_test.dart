@@ -203,7 +203,11 @@ void main() {
     test('el chaco dictado antes de la cantidad no se toma por producto', () {
       final catalog = catalogWith(const []);
       final d = dictate('en el chaco Sur dos litros', catalog);
-      expect(d.lines, isEmpty);
+      // La cantidad cierra el tramo: su línea espera el producto, que puede
+      // llegar tras una pausa (POCO §2.2); «Sur» no se toma por producto.
+      expect(d.lines, hasLength(1));
+      expect(d.lines.single.product.status, FieldStatus.missing);
+      expect(d.lines.single.product.heard, isNull);
     });
 
     test('una real menor que la planeada da diferencia negativa', () {

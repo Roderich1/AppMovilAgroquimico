@@ -116,6 +116,10 @@ void main() {
     expect(find.byKey(const Key('voz-aplicado')), findsOneWidget);
     expect(find.byKey(const Key('voz-linea-1')), findsOneWidget);
     expect(find.textContaining('Total calculado'), findsOneWidget);
+    // Falta sólo la respuesta al pago, como en el formulario.
+    expect(registerEnabled(tester), isFalse);
+    expect(find.text('• Indica si ya pagaste al proveedor.'), findsOneWidget);
+    await tap(tester, const Key('voz-pago-no'));
     expect(registerEnabled(tester), isTrue);
   });
 
@@ -130,6 +134,7 @@ void main() {
     await tap(tester, const Key('voz-boton-microfono'));
     expect(await count(tester, 'purchases'), 0);
 
+    await tap(tester, const Key('voz-pago-no'));
     await tester.ensureVisible(find.byKey(const Key('voz-registrar')));
     await tester.pump();
     await tester.tap(find.byKey(const Key('voz-registrar')));
@@ -210,14 +215,42 @@ void main() {
           .text,
       '30',
     );
-    // El dictado posterior sí llegó y se aplicó: no cambió lo corregido.
+    // El dictado posterior sí llegó, pero no cambió lo corregido, y el
+    // panel lo dice en vez de «aplicado» (POCO §2.3).
     expect(find.text('«sesenta litros de Bellator»'), findsOneWidget);
+    expect(
+      tester.widget<Text>(find.byKey(const Key('voz-oido-estado-0'))).data,
+      'No cambió el borrador: se conserva lo corregido a mano.',
+    );
+    expect(
+      tester.widget<Text>(find.byKey(const Key('voz-oido-estado-1'))).data,
+      'Aplicado al borrador:',
+    );
 
+    await tap(tester, const Key('voz-pago-no'));
     await tap(tester, const Key('voz-registrar'));
     final items = (await tester.runAsync(
       () async => (await database.database).query('purchase_items'),
     ))!;
     expect(items.single['quantity_base'], 30000);
+  });
+
+  testWidgets('POCO §2.3: lo oído que no cambia nada no se rotula como '
+      'aplicado', (tester) async {
+    await pumpScreen(
+      tester,
+      script: const [FakeTurn(segment: 'eso sería todo', endsOnStop: true)],
+    );
+    await tap(tester, const Key('voz-boton-microfono'));
+    await tap(tester, const Key('voz-boton-microfono'));
+    expect(find.text('«eso sería todo»'), findsOneWidget);
+    expect(
+      find.text('No cambió el borrador: no se reconoció nada que completar.'),
+      findsOneWidget,
+    );
+    expect(find.text('Aplicado al borrador:'), findsNothing);
+    expect(find.text('Ya aplicado al borrador'), findsNothing);
+    expect(find.byKey(const Key('voz-linea-1')), findsNothing);
   });
 
   testWidgets('un producto que no está en el catálogo bloquea registrar', (
@@ -272,6 +305,7 @@ void main() {
             .text,
         '6,96',
       );
+      await tap(tester, const Key('voz-pago-no'));
       expect(registerEnabled(tester), isTrue);
 
       await tap(tester, const Key('voz-registrar'));

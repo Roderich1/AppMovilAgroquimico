@@ -74,6 +74,20 @@ PlanInterpretation interpretPlan(
   var draft = current;
   var outcome = const VoicePatchOutcome();
 
+  // POCO §2.2: «dos litros por hectárea» [pausa] «de Bellator».
+  final waiting = draft.lines.lastOrNull;
+  final name = intent == VoiceIntent.none ? bareName(words) : null;
+  if (name != null && waiting != null && isAwaitingProduct(waiting.product)) {
+    final (field, o) = mergeField(
+      waiting.product,
+      entryField(resolveName(name, catalog.products), 'producto'),
+    );
+    return PlanInterpretation(
+      draft: draft.updateLine(waiting.key, (l) => l.copyWith(product: field)),
+      outcome: o,
+    );
+  }
+
   final area = findArea(words);
   if (area != null) {
     final (field, o) = mergeField(draft.area, area);
@@ -91,10 +105,13 @@ PlanInterpretation interpretPlan(
   }
 
   for (final line in _doses(words)) {
-    final product = entryField(
-      resolveName(line.productHeard, catalog.products),
-      'producto',
-    );
+    // Una dosis que cerró el tramo espera su producto en el siguiente.
+    final product = line.productHeard.isEmpty
+        ? awaitingProduct
+        : entryField(
+            resolveName(line.productHeard, catalog.products),
+            'producto',
+          );
     final existing = product.isResolved
         ? draft.lines.where((l) => l.product.value?.id == product.value!.id)
         : const <VoicePlanLine>[];
@@ -150,22 +167,20 @@ List<_HeardDose> _doses(List<String> words) {
   var lastEnd = 0;
   var i = 0;
   while (i < words.length) {
-    final n = readNumberAt(words, i);
-    if (n == null) {
-      i++;
-      continue;
-    }
-    final unit = n.end < words.length ? unitWord(words[n.end]) : null;
+    // «dos litros», «litro y medio», «un kilo y medio» (POCO §2.1).
+    final m = readMeasureAt(words, i);
     final perHa =
-        unit != null &&
-        n.end + 2 < words.length &&
-        const {'por', 'x', 'cada'}.contains(words[n.end + 1]) &&
-        hectareWords.contains(words[n.end + 2]);
+        m != null &&
+        m.end + 1 < words.length &&
+        const {'por', 'x', 'cada'}.contains(words[m.end]) &&
+        hectareWords.contains(words[m.end + 1]);
     if (!perHa) {
-      i = n.end > i ? n.end : i + 1;
+      final n = readNumberAt(words, i);
+      i = n != null && n.end > i ? n.end : i + 1;
       continue;
     }
-    var j = n.end + 3;
+    final unit = unitWord(m.unitWord)!;
+    var j = m.end + 2;
     String product;
     if (j < words.length && (words[j] == 'de' || words[j] == 'del')) {
       j++;
@@ -180,7 +195,7 @@ List<_HeardDose> _doses(List<String> words) {
     } else {
       // El producto va antes: «Bellator a dos litros por hectárea».
       final before = <String>[];
-      var k = n.start - 1;
+      var k = m.start - 1;
       // «Bellator a dos litros…», «con Bellator, dos litros…»: los conectores
       // entre el producto y la dosis no son parte del nombre.
       while (k >= lastEnd && const {'a', 'al', 'con', ','}.contains(words[k])) {
@@ -190,27 +205,23 @@ List<_HeardDose> _doses(List<String> words) {
         before.insert(0, words[k]);
         k--;
       }
+      // «el chaco Norte con dos litros…»: lo que sigue a «chaco» es el
+      // nombre del chaco, no un producto.
+      if (k >= 0 && farmKeywords.contains(words[k])) before.clear();
       product = before.join(' ');
     }
-    final heard = '${n.heard} ${words[n.end]} por ${words[n.end + 2]}';
-    final dose =
-        consecutiveNumbers<SpokenDose>(words, n, words[n.end]) ??
-        (!n.isValid
-            ? DraftField<SpokenDose>.invalid(
-                message: n.invalidMessage!,
-                heard: heard,
-              )
-            : n.thousandths <= 0
-            ? DraftField<SpokenDose>.invalid(
-                message: 'La dosis debe ser mayor a cero.',
-                heard: heard,
-              )
-            : DraftField.resolved(
-                SpokenDose(n.thousandths, unit),
-                origin: FieldOrigin.voice,
-                heard: heard,
-              ));
-    if (product.isNotEmpty) out.add(_HeardDose(product, dose));
+    final dose = measureField<SpokenDose>(
+      words,
+      m,
+      (thousandths) => SpokenDose(thousandths, unit),
+      zeroMessage: 'La dosis debe ser mayor a cero.',
+      heard: '${m.heard} por ${words[m.end + 1]}',
+    );
+    // Sin producto y al final del tramo: puede llegar tras una pausa
+    // (POCO §2.2).
+    if (product.isNotEmpty || endsSegment(words, j)) {
+      out.add(_HeardDose(product, dose));
+    }
     lastEnd = j;
     i = j > i ? j : i + 1;
   }
