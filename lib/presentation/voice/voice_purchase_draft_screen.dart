@@ -54,7 +54,7 @@ class VoicePurchaseDraftScreen extends ConsumerStatefulWidget {
 
 class _VoicePurchaseDraftScreenState
     extends ConsumerState<VoicePurchaseDraftScreen>
-    with WidgetsBindingObserver {
+    with WidgetsBindingObserver, VoiceDraftExit<VoicePurchaseDraftScreen> {
   late final VoiceSessionController _session;
   late final VoiceDraftGateway _gateway;
   VoiceCatalog? _catalog;
@@ -65,7 +65,7 @@ class _VoicePurchaseDraftScreenState
 
   /// Persona dictada que se ignoró por estar en inventario propio.
   String? _ignoredRecipient;
-  final List<String> _applied = [];
+  final List<VoiceHeardSegment> _heard = [];
   VoiceIntent? _otherIntent;
 
   final Map<String, TextEditingController> _fields = {};
@@ -198,16 +198,18 @@ class _VoicePurchaseDraftScreenState
     if (fresh != null) {
       VoiceIntent? other;
       String? ignored;
+      var outcome = const VoicePatchOutcome();
       final accepted = draft!.applyVoice((current) {
         final r = interpretPurchase(fresh, current, catalog!);
         other = r.otherIntent;
         ignored = r.ignoredRecipient;
+        outcome = r.outcome;
         return (r.draft, r.outcome);
       });
       if (accepted) {
         _otherIntent = other;
         if (ignored != null) _ignoredRecipient = ignored;
-        if (other == null) _applied.add(fresh);
+        if (other == null) _heard.add(VoiceHeardSegment.from(fresh, outcome));
       }
     }
     setState(() {});
@@ -231,6 +233,9 @@ class _VoicePurchaseDraftScreenState
     if (c.text != value) c.text = value;
   }
 
+  /// Registra una vez. Sólo la llamada que escribió sale, con el mensaje de
+  /// éxito y sin preguntar nada (#120); si la escritura falla, no se sale y
+  /// el borrador queda editable con el error a la vista.
   Future<void> _confirm() async {
     final draft = _draft;
     if (draft == null || _visibleMismatches(draft.draft).isNotEmpty) return;
@@ -238,27 +243,22 @@ class _VoicePurchaseDraftScreenState
     if (id == null || !mounted) return;
     await _session.discard();
     if (!mounted) return;
-    setState(() => _leaving = true);
     ScaffoldMessenger.of(context)
         .showSnackBar(SnackBar(content: Text('Compra registrada (n.º $id).')));
-    Navigator.of(context).maybePop(id);
+    leave(id);
   }
 
   Future<void> _cancel() async {
     _draft?.discard();
     await _session.discard();
     if (!mounted) return;
-    setState(() => _leaving = true);
-    Navigator.of(context).maybePop();
+    leave();
   }
-
-  /// Ya se decidió salir: el siguiente «Atrás» no vuelve a preguntar.
-  bool _leaving = false;
 
   /// Hay algo que se perdería al salir.
   bool get _hasWork {
     final d = _draft?.draft;
-    return _applied.isNotEmpty ||
+    return _heard.isNotEmpty ||
         (d != null &&
             (d.lines.isNotEmpty ||
                 d.supplier.isResolved ||
@@ -284,12 +284,15 @@ class _VoicePurchaseDraftScreenState
     _draft?.discard();
     await _session.discard();
     if (!mounted) return;
-    setState(() => _leaving = true);
+    markLeaving();
     open();
   }
 
+  /// «Atrás» con un borrador en edición pregunta antes de descartarlo. Con
+  /// el borrador ya registrado o descartado no pregunta: la salida ya está
+  /// en curso (#120). Durante la escritura no se puede salir.
   Future<void> _onBack() async {
-    if (_draft?.phase == DraftPhase.confirming) return;
+    if (!shouldAskBeforeDiscard(_draft?.phase)) return;
     final discard = await confirmDestructiveAction(
       context,
       title: '¿Descartar el borrador?',
@@ -303,9 +306,8 @@ class _VoicePurchaseDraftScreenState
   Widget build(BuildContext context) {
     final draft = _draft;
     final catalog = _catalog;
-    final confirming = draft?.phase == DraftPhase.confirming;
     return PopScope(
-      canPop: _leaving || (!confirming && !_hasWork),
+      canPop: canPopDraft(draft?.phase, hasWork: _hasWork),
       onPopInvokedWithResult: (didPop, _) {
         if (!didPop) _onBack();
       },
@@ -335,7 +337,7 @@ class _VoicePurchaseDraftScreenState
           const SizedBox(height: 12),
           if (_otherIntent != null)
             VoiceOtherIntentBanner(intent: _otherIntent!, current: 'compra'),
-          if (_applied.isNotEmpty) VoiceAppliedPanel(applied: _applied),
+          if (_heard.isNotEmpty) VoiceAppliedPanel(segments: _heard),
           const SizedBox(height: 12),
           if (_loadError != null)
             Text(_loadError!, key: const Key('voz-borrador-error-carga'))

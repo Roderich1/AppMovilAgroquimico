@@ -7,6 +7,7 @@ library;
 import 'package:flutter/material.dart';
 
 import '../../voice_draft/catalog/voice_catalog.dart';
+import '../../voice_draft/core/voice_draft_controller.dart';
 import '../widgets/adaptive_entity_picker.dart';
 import '../../voice_draft/core/draft_field.dart';
 import '../../voice_draft/interpretation/voice_intent.dart';
@@ -49,6 +50,57 @@ class VoiceSegmentFeed {
   }
 }
 
+/// Salida de una pantalla de borrador (#120, F09-D2).
+///
+/// El defecto: tras registrar bien, aparecía «¿Descartar el borrador? No se
+/// registró…». La pantalla marcaba que salía con `setState` y llamaba a
+/// `maybePop` **en el mismo fotograma**; el `PopScope` aún tenía el
+/// `canPop: false` del borrador con trabajo, así que `maybePop` lo trataba
+/// como un «Atrás» y abría el diálogo de descarte. Lo mismo pasaba al
+/// cancelar.
+///
+/// Ahora:
+/// - un borrador confirmado o descartado nunca pregunta al salir;
+/// - la salida se hace **después** del fotograma que publica `canPop: true`,
+///   y sólo una vez (un doble toque no saca dos pantallas);
+/// - un fallo al escribir no sale: el borrador sigue editable con su error.
+mixin VoiceDraftExit<W extends StatefulWidget> on State<W> {
+  bool _leaving = false;
+
+  /// Ya se decidió salir: el siguiente «Atrás» no vuelve a preguntar.
+  bool get leaving => _leaving;
+
+  /// `PopScope.canPop`: sin preguntar si ya se sale, si el borrador está
+  /// cerrado (confirmado o descartado) o si no hay nada que perder; nunca
+  /// durante la escritura.
+  bool canPopDraft(DraftPhase? phase, {required bool hasWork}) =>
+      _leaving ||
+      phase == DraftPhase.confirmed ||
+      phase == DraftPhase.discarded ||
+      (phase != DraftPhase.confirming && !hasWork);
+
+  /// Si un «Atrás» bloqueado debe preguntar antes de descartar: sólo con un
+  /// borrador que todavía se edita.
+  bool shouldAskBeforeDiscard(DraftPhase? phase) =>
+      !_leaving && (phase == null || phase == DraftPhase.editing);
+
+  /// Sale de la pantalla con [result], una sola vez y con el `PopScope` ya
+  /// reconstruido.
+  void leave([Object? result]) {
+    if (_leaving || !mounted) return;
+    setState(() => _leaving = true);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) Navigator.of(context).maybePop(result);
+    });
+  }
+
+  /// Marca la salida sin navegar: quien llama sustituye la pantalla (el
+  /// formulario manual con `pushReplacement`).
+  void markLeaving() {
+    if (mounted) setState(() => _leaving = true);
+  }
+}
+
 /// Aviso común: la voz sólo prepara un borrador.
 class VoiceDraftNotice extends StatelessWidget {
   const VoiceDraftNotice({
@@ -82,30 +134,77 @@ class VoiceDraftNotice extends StatelessWidget {
   );
 }
 
-/// Lo dictado que ya se aplicó al borrador (lo «refinado»).
+/// Un tramo de dictado cerrado que ya se interpretó, y si cambió algo.
+final class VoiceHeardSegment {
+  const VoiceHeardSegment(
+    this.text, {
+    required this.changedDraft,
+    this.keptManual = 0,
+  });
+
+  /// Lo oído, tal cual. Sólo en memoria, nunca en registros.
+  final String text;
+
+  /// Si la interpretación cambió algún campo o añadió una línea.
+  final bool changedDraft;
+
+  /// Campos que el tramo quería cambiar y se conservaron por ser manuales.
+  final int keptManual;
+
+  /// A partir del resultado de interpretar el tramo.
+  factory VoiceHeardSegment.from(String text, VoicePatchOutcome outcome) =>
+      VoiceHeardSegment(
+        text,
+        changedDraft: outcome.applied > 0,
+        keptManual: outcome.keptManual,
+      );
+}
+
+/// Lo dictado ya interpretado (lo «refinado»), con lo que hizo cada tramo.
+///
+/// POCO §2.3 (2026-11-05): bajo «Ya aplicado al borrador» aparecían frases
+/// que no habían cambiado nada, y el rótulo hacía creer que sí. Ahora cada
+/// tramo dice si cambió el borrador o no, y por qué no cuando se sabe.
 class VoiceAppliedPanel extends StatelessWidget {
-  const VoiceAppliedPanel({super.key, required this.applied});
-  final List<String> applied;
+  const VoiceAppliedPanel({super.key, required this.segments});
+  final List<VoiceHeardSegment> segments;
 
   @override
-  Widget build(BuildContext context) => Container(
-    key: const Key('voz-aplicado'),
-    padding: const EdgeInsets.all(12),
-    decoration: BoxDecoration(
-      border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
-      borderRadius: BorderRadius.circular(8),
-    ),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Ya aplicado al borrador',
-          style: Theme.of(context).textTheme.labelMedium,
-        ),
-        for (final text in applied.reversed.take(3)) Text('«$text»'),
-      ],
-    ),
-  );
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Container(
+      key: const Key('voz-aplicado'),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('Lo último que se oyó', style: theme.textTheme.labelMedium),
+          for (final (i, s) in segments.reversed.take(3).indexed) ...[
+            const SizedBox(height: 4),
+            Text(
+              s.changedDraft
+                  ? 'Aplicado al borrador:'
+                  : s.keptManual > 0
+                  ? 'No cambió el borrador: se conserva lo corregido a mano.'
+                  : 'No cambió el borrador: no se reconoció nada que '
+                        'completar.',
+              key: Key('voz-oido-estado-$i'),
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: s.changedDraft
+                    ? theme.colorScheme.primary
+                    : theme.colorScheme.tertiary,
+              ),
+            ),
+            Text('«${s.text}»'),
+          ],
+        ],
+      ),
+    );
+  }
 }
 
 /// El dictado parece otra operación: no se aplicó nada.
