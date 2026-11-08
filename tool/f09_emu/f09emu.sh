@@ -165,14 +165,19 @@ PY
     case "$dest" in
       voz) target='' ;;
       compra) target='Compra por voz' ;;
-      plan) target='Planificación por voz' ;;
-      aplicacion) target='Aplicación por voz' ;;
+      plan) target='^Planificaci.n por voz' ;;
+      aplicacion) target='^Aplicaci.n por voz' ;;
       *) echo "destino: voz|compra|plan|aplicacion"; exit 2 ;;
     esac
     guard
-    if ! has 'Dictar una compra, un plan o una aplicación|Productos, cantidades, precios y proveedor'; then
-      if ! has '^Más$'; then tap '^Operaciones$'; wait_for '^Más$' 10; fi
-      tap '^Más$'; wait_for 'Registrar por voz' 10
+    if ! has 'Dictar una compra, un plan o una aplicaci.n|Productos, cantidades, precios y proveedor'; then
+      # Las pestañas leen «Operaciones / Pestaña 2 de 5»; los argumentos no ASCII no llegan bien a
+      # Python desde Git Bash: se usan '.' en su lugar (verificación del 2026-11-08).
+      if ! has '^M.s$'; then tap '^Operaciones'; wait_for '^M.s$' 10; fi
+      tap '^M.s$'; sleep 2
+      # «Registrar por voz» queda bajo el pliegue en «Más»: se desliza (con guarda).
+      for _ in 1 2 3; do has 'Registrar por voz' && break; guard; adb shell input swipe 540 1700 540 700 400; sleep 1; done
+      wait_for 'Registrar por voz' 5
     fi
     if ! has 'Productos, cantidades, precios y proveedor'; then
       tap 'Registrar por voz'; wait_for 'Compra por voz' 10
