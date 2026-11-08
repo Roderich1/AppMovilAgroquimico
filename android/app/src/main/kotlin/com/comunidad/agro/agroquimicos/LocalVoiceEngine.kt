@@ -179,7 +179,14 @@ class LocalVoiceEngine(
         return try {
             val dir = models.vosk()
             LibVosk.setLogLevel(LogLevel.WARNINGS)
-            vosk = Model(dir.absolutePath)
+            vosk = try {
+                Model(dir.absolutePath)
+            } catch (t: Throwable) {
+                // La copia pasó la verificación y aun así no carga: no se
+                // reutiliza. La próxima vez se rehace desde el APK.
+                models.invalidateVosk()
+                throw t
+            }
             null
         } catch (e: LocalVoiceModels.ModelException) {
             e.code
@@ -247,11 +254,36 @@ class LocalVoiceEngine(
         current.requestStop("stoppedByUser")
     }
 
-    /** Descarta el turno: no habrá más eventos suyos. */
-    fun cancel() {
+    /**
+     * Descarta el turno: no habrá más eventos suyos.
+     *
+     * Con [gen], sólo si es el turno en curso (#119). Sin número —la Activity
+     * perdió el foco, o se desmonta— se descarta el que haya.
+     */
+    fun cancel(gen: Int? = null) {
         val current = turn ?: return
+        if (gen != null && current.gen != gen) return
         current.cancel()
         finish(current)
+    }
+
+    /**
+     * Suelta la memoria de los modelos si no hay turno en curso.
+     *
+     * Es lo que pide la pantalla que se va. Si otra ya abrió un turno, los
+     * modelos siguen cargados para ella; los soltará quien salga después.
+     */
+    fun releaseIfIdle() {
+        control.execute {
+            if (turn != null) return@execute
+            vosk?.close()
+            vosk = null
+        }
+        reviewer.execute {
+            if (turn != null) return@execute
+            if (whisper != 0L) WhisperNative.free(whisper)
+            whisper = 0L
+        }
     }
 
     /** Suelta micrófono, modelos y memoria nativa. Idempotente. */

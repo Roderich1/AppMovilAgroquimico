@@ -23,7 +23,15 @@ final class FakeTurn {
     this.awaitsPermission = false,
     this.acceptsRoute,
     this.reportsRoute,
+    this.unresponsive = false,
   });
+
+  /// **Apertura sin respuesta** (#119): el motor acepta `start` y no emite
+  /// nada más —ni camino, ni etapa, ni error—. Reproduce el F09-D1 del HONOR:
+  /// «Abriendo el micrófono» indefinidamente, con el permiso denegado y sin
+  /// grabación. A diferencia de [silent], el motor ni siquiera dice que
+  /// escucha.
+  final bool unresponsive;
 
   /// Parciales que se emiten al abrir el turno, en orden.
   final List<String> partials;
@@ -137,6 +145,10 @@ final class FakeSpeechTranscriptionPort implements SpeechTranscriptionPort {
   /// `true` mientras el turno tiene el micrófono tomado.
   bool microphoneOpen = false;
 
+  /// La consulta de disponibilidad no vuelve nunca (#119): reproduce un motor
+  /// cuyo hilo de consulta ya no existe.
+  bool availabilityHangs = false;
+
   /// Nunca debe quedar `true` al terminar una prueba.
   bool get microphoneReleased => !microphoneOpen;
 
@@ -144,6 +156,7 @@ final class FakeSpeechTranscriptionPort implements SpeechTranscriptionPort {
   int _turnIndex = 0;
   FakeTurn? _openTurn;
   Timer? _pending;
+  (FakeTurn, TranscriptionRequest)? _awaiting;
 
   /// Locales con los que se intentó abrir un turno, en orden. Es lo que prueba
   /// la lista de fallback sin depender de un teléfono.
@@ -167,6 +180,7 @@ final class FakeSpeechTranscriptionPort implements SpeechTranscriptionPort {
   @override
   Future<TranscriptionAvailability> checkAvailability(String locale) async {
     calls.add('availability');
+    if (availabilityHangs) return Completer<TranscriptionAvailability>().future;
     _emit(TranscriptionAvailabilityObserved(availability));
     return availability;
   }
@@ -244,6 +258,7 @@ final class FakeSpeechTranscriptionPort implements SpeechTranscriptionPort {
     calls.add('dispose');
     _pending?.cancel();
     _pending = null;
+    _awaiting = null;
     _openTurn = null;
     microphoneOpen = false;
     await _events.close();
@@ -256,6 +271,37 @@ final class FakeSpeechTranscriptionPort implements SpeechTranscriptionPort {
   /// permiso. Son los dos casos en que la sesión debe defenderse del motor.
   void emitForTest(TranscriptionEvent event) => _emit(event);
 
+  /// `true` mientras un turno espera la respuesta al diálogo de permiso.
+  bool get awaitingPermission => _awaiting != null;
+
+  /// El usuario concede el micrófono en el diálogo del sistema: el turno que
+  /// esperaba arranca y sigue su guion.
+  void grantPermission() {
+    final pending = _awaiting;
+    // Como el lado nativo: sin turno esperando (se canceló), no pasa nada.
+    if (pending == null) return;
+    _awaiting = null;
+    microphoneOpen = true;
+    _listen(pending.$1, pending.$2);
+  }
+
+  /// El usuario niega el micrófono. [permanent] reproduce «No volver a
+  /// preguntar»: Android ya no mostrará el diálogo.
+  void denyPermission({bool permanent = false}) {
+    final pending = _awaiting;
+    // Como el lado nativo: sin turno esperando (se canceló), no pasa nada.
+    if (pending == null) return;
+    _awaiting = null;
+    _emit(
+      TranscriptionFailed(
+        permanent
+            ? TranscriptionErrorCode.permissionPermanentlyDenied
+            : TranscriptionErrorCode.permissionDenied,
+      ),
+    );
+    _end(TranscriptionEndReason.error);
+  }
+
   // ---------------------------------------------------------------- privado
 
   FakeTurn _nextTurn() {
@@ -267,6 +313,7 @@ final class FakeSpeechTranscriptionPort implements SpeechTranscriptionPort {
   void _run(FakeTurn turn, TranscriptionRequest request) {
     _pending = null;
     if (_openTurn != turn) return;
+    if (turn.unresponsive) return;
 
     // El motor anuncia por dónde escucha antes que nada: en Android el
     // reconocedor ya está creado cuando empieza el turno.
@@ -311,9 +358,15 @@ final class FakeSpeechTranscriptionPort implements SpeechTranscriptionPort {
       );
       // El micrófono no se toma hasta que haya permiso.
       microphoneOpen = false;
+      _awaiting = (turn, request);
       return;
     }
 
+    _listen(turn, request);
+  }
+
+  /// Lo que hace el turno una vez tiene el micrófono.
+  void _listen(FakeTurn turn, TranscriptionRequest request) {
     _emit(const TranscriptionStageChanged(TranscriptionStage.listening));
     _emit(TranscriptionLocaleInUse(request.locale));
 
@@ -350,6 +403,7 @@ final class FakeSpeechTranscriptionPort implements SpeechTranscriptionPort {
   void _end(TranscriptionEndReason reason) {
     _pending?.cancel();
     _pending = null;
+    _awaiting = null;
     _openTurn = null;
     microphoneOpen = false;
     _emit(TranscriptionTurnEnded(reason));

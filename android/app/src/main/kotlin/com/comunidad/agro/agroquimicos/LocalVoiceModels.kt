@@ -50,7 +50,12 @@ class LocalVoiceModels(private val context: Context) {
         val root = File(File(context.noBackupFilesDir, "voice"), name)
         val sentinel = File(root, SENTINEL)
         val fingerprint = sha256(files.toString().toByteArray())
-        if (sentinel.isFile && sentinel.readText() == fingerprint) return root
+        // Además del centinela, el tamaño de cada archivo: comprobarlo no cuesta
+        // nada, y un archivo truncado después de verificarlo (almacenamiento
+        // lleno, limpieza a medias) se rehace en vez de dárselo a Vosk.
+        if (sentinel.isFile && sentinel.readText() == fingerprint && sizesMatch(root, files)) {
+            return root
+        }
 
         root.deleteRecursively()
         try {
@@ -88,6 +93,25 @@ class LocalVoiceModels(private val context: Context) {
                 if (t is java.io.FileNotFoundException) "model-missing" else "model-copy",
             )
         }
+    }
+
+    /**
+     * Fuerza a rehacer la copia de Vosk la próxima vez. Para un modelo que pasó
+     * la verificación y aun así no cargó.
+     */
+    fun invalidateVosk() {
+        val name = voskName?.takeIf { it.isNotEmpty() } ?: return
+        File(File(File(context.noBackupFilesDir, "voice"), name), SENTINEL).delete()
+    }
+
+    private fun sizesMatch(root: File, files: JSONObject): Boolean {
+        for (relative in files.keys()) {
+            val file = File(root, relative)
+            if (!file.isFile || file.length() != files.getJSONObject(relative).getLong("size")) {
+                return false
+            }
+        }
+        return true
     }
 
     class ModelException(val code: String) : Exception(code)

@@ -44,7 +44,18 @@ void main() {
       };
     });
     addTearDown(() => messenger.setMockMethodCallHandler(method, null));
-    return LocalSpeechTranscriptionAdapter(facts: voiceQuantityFacts);
+    final adapter = LocalSpeechTranscriptionAdapter(facts: voiceQuantityFacts);
+    // Sin liberar, el adaptador seguiría enganchado al canal compartido y
+    // recibiría los eventos de la prueba siguiente.
+    addTearDown(adapter.dispose);
+    return adapter;
+  }
+
+  /// Número de turno que el adaptador pidió en su `start` número [n] (desde
+  /// 0). Es único en el proceso, así que no se puede escribir a mano.
+  int gen([int n = 0]) {
+    final starts = calls.where((c) => c.method == 'start').toList();
+    return (starts[n].arguments as Map)['gen'] as int;
   }
 
   void native(Map<String, Object?> payload) {
@@ -97,7 +108,7 @@ void main() {
       async.flushMicrotasks();
       final start = calls.singleWhere((c) => c.method == 'start');
       final args = start.arguments as Map;
-      expect(args['gen'], 1);
+      expect(args['gen'], isPositive);
       expect(args['hints'], 'Glifosato, Bellator, Ana Quispe.');
       expect(args['review'], isTrue);
     });
@@ -111,22 +122,22 @@ void main() {
       adapter.start(request);
       async.flushMicrotasks();
 
-      native({'type': 'stage', 'gen': 1, 'stage': 'listening'});
+      native({'type': 'stage', 'gen': gen(), 'stage': 'listening'});
       native({
         'type': 'partial',
-        'gen': 1,
+        'gen': gen(),
         'text': 'compré dos',
         'reviewing': 0,
       });
       native({
         'type': 'partial',
-        'gen': 1,
+        'gen': gen(),
         'text': 'compré dos litros de glifosato',
         'reviewing': 1,
       });
       native({
         'type': 'segment',
-        'gen': 1,
+        'gen': gen(),
         'seq': 0,
         'vosk': 'aplique medio litro de bella thor',
         'review': 'Aplique medio litro de Bellator.',
@@ -134,13 +145,13 @@ void main() {
       });
       native({
         'type': 'segment',
-        'gen': 1,
+        'gen': gen(),
         'seq': 1,
         'vosk': 'compré dos litros',
         'review': 'Con 3 litros.',
         'reviewMs': 800,
       });
-      native({'type': 'ended', 'gen': 1, 'reason': 'stoppedByUser'});
+      native({'type': 'ended', 'gen': gen(), 'reason': 'stoppedByUser'});
       async.flushMicrotasks();
 
       expect(
@@ -177,7 +188,7 @@ void main() {
       adapter.events.listen(events.add);
       adapter.start(request);
       async.flushMicrotasks();
-      native({'type': 'stage', 'gen': 1, 'stage': 'listening'});
+      native({'type': 'stage', 'gen': gen(), 'stage': 'listening'});
       adapter.cancel();
       async.flushMicrotasks();
       expect(events.whereType<TranscriptionCancelled>(), hasLength(1));
@@ -187,17 +198,17 @@ void main() {
       // Llega tarde la revisión del turno 1, y luego lo del turno 2.
       native({
         'type': 'segment',
-        'gen': 1,
+        'gen': gen(),
         'seq': 0,
         'vosk': 'texto viejo',
         'review': null,
         'reviewMs': 0,
       });
-      native({'type': 'ended', 'gen': 1, 'reason': 'stoppedByUser'});
-      native({'type': 'stage', 'gen': 2, 'stage': 'listening'});
+      native({'type': 'ended', 'gen': gen(), 'reason': 'stoppedByUser'});
+      native({'type': 'stage', 'gen': gen(1), 'stage': 'listening'});
       native({
         'type': 'segment',
-        'gen': 2,
+        'gen': gen(1),
         'seq': 0,
         'vosk': 'texto nuevo',
         'review': null,
@@ -219,10 +230,10 @@ void main() {
       adapter.events.listen(events.add);
       adapter.start(request);
       async.flushMicrotasks();
-      native({'type': 'stage', 'gen': 1, 'stage': 'listening'});
+      native({'type': 'stage', 'gen': gen(), 'stage': 'listening'});
       adapter.stop();
       async.flushMicrotasks();
-      native({'type': 'ended', 'gen': 1, 'reason': 'stoppedByUser'});
+      native({'type': 'ended', 'gen': gen(), 'reason': 'stoppedByUser'});
       async.flushMicrotasks();
       expect(events.whereType<TranscriptionSegment>(), isEmpty);
       expect(events.whereType<TranscriptionNoMatch>(), hasLength(1));
@@ -240,10 +251,10 @@ void main() {
       adapter.events.listen(events.add);
       adapter.start(request);
       async.flushMicrotasks();
-      native({'type': 'stage', 'gen': 1, 'stage': 'awaitingPermission'});
+      native({'type': 'stage', 'gen': gen(), 'stage': 'awaitingPermission'});
       native({
         'type': 'error',
-        'gen': 1,
+        'gen': gen(),
         'code': 'permissionDenied',
         'detail': null,
       });
@@ -287,7 +298,7 @@ void main() {
       adapter.events.listen(events.add);
       adapter.start(request);
       async.flushMicrotasks();
-      native({'type': 'stage', 'gen': 1, 'stage': 'listening'});
+      native({'type': 'stage', 'gen': gen(), 'stage': 'listening'});
       native({'type': 'cancelled'});
       async.flushMicrotasks();
       expect(
@@ -306,7 +317,7 @@ void main() {
         adapter.events.listen(events.add);
         adapter.start(request);
         async.flushMicrotasks();
-        native({'type': 'stage', 'gen': 1, 'stage': 'listening'});
+        native({'type': 'stage', 'gen': gen(), 'stage': 'listening'});
         adapter.stop();
         async.flushMicrotasks();
         async.elapse(LocalSpeechTranscriptionAdapter.stopGrace);
@@ -328,19 +339,19 @@ void main() {
         adapter.events.listen(events.add);
         adapter.start(request);
         async.flushMicrotasks();
-        native({'type': 'stage', 'gen': 1, 'stage': 'listening'});
+        native({'type': 'stage', 'gen': gen(), 'stage': 'listening'});
         async.elapse(const Duration(minutes: 5));
         expect(calls.map((c) => c.method), contains('stop'));
         expect(calls.map((c) => c.method), isNot(contains('cancel')));
         native({
           'type': 'segment',
-          'gen': 1,
+          'gen': gen(),
           'seq': 0,
           'vosk': 'dos litros',
           'review': null,
           'reviewMs': 0,
         });
-        native({'type': 'ended', 'gen': 1, 'reason': 'stoppedByUser'});
+        native({'type': 'ended', 'gen': gen(), 'reason': 'stoppedByUser'});
         async.flushMicrotasks();
         expect(events.whereType<TranscriptionSegment>(), hasLength(1));
         expect(
