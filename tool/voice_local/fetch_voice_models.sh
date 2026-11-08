@@ -7,6 +7,12 @@
 #   small               Vosk small-es 0.42 + Whisper small q5_1
 #   none                sólo Vosk, sin segunda pasada
 #
+# Es la ÚNICA forma de elegir el modelo de revisión: la app lee el manifiesto
+# (nombre y variante) y no cambia de modelo por su cuenta. El valor por defecto
+# sigue siendo base (ADR-005, provisional); small es una opción de compilación
+# para medir (#166). Para volver a base basta con ejecutar el script sin
+# argumento.
+#
 # Descarga desde las fuentes oficiales SÓLO durante la preparación, verifica el
 # SHA-256 fijado (el mismo que registró el banco híbrido el 2026-09-07) y escribe
 # en `android/app/voice-models/voice/` (ignorado por git) los archivos y un
@@ -92,6 +98,9 @@ if ggml:
     shutil.copyfile(cache / ggml, folder / ggml)
     manifest['whisper'] = {
         'name': folder.name,
+        # La app la informa en la disponibilidad y decide con ella si el
+        # teléfono admite la segunda pasada (`ReviewCapabilityPolicy`).
+        'variant': review,
         'file': ggml,
         'source': f'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/{ggml}',
         'license': 'MIT',

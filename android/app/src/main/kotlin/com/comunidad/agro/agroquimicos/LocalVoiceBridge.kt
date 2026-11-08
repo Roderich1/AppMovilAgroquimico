@@ -38,7 +38,12 @@ class LocalVoiceBridge(
     private var pendingStart: PendingStart? = null
     private var permissionInFlight = false
 
-    private data class PendingStart(val gen: Int, val hints: String?, val review: Boolean)
+    private data class PendingStart(
+        val gen: Int,
+        val hints: String?,
+        val review: Boolean,
+        val reviewTimeoutMs: Long,
+    )
 
     init {
         method.setMethodCallHandler(this)
@@ -66,11 +71,15 @@ class LocalVoiceBridge(
                 val gen = call.argument<Int>("gen") ?: 0
                 val hints = call.argument<String>("hints")
                 val review = call.argument<Boolean>("review") ?: true
+                // Tope de la revisión por frase; sin él (Dart anterior), el
+                // valor por defecto del motor.
+                val reviewTimeoutMs = call.argument<Number>("reviewTimeoutMs")?.toLong()
+                    ?: LocalVoiceEngine.DEFAULT_REVIEW_TIMEOUT_MS
                 if (hasMicPermission()) {
-                    engine.start(gen, hints, review)
+                    engine.start(gen, hints, review, reviewTimeoutMs)
                     result.success(null)
                 } else {
-                    pendingStart = PendingStart(gen, hints, review)
+                    pendingStart = PendingStart(gen, hints, review, reviewTimeoutMs)
                     // La respuesta dice YA que habrá diálogo: llega a Dart antes
                     // que la pausa que el propio diálogo provoca. Si Dart se
                     // enterara sólo por el evento, la pausa podría llegar antes,
@@ -127,7 +136,7 @@ class LocalVoiceBridge(
         val pending = pendingStart ?: return
         pendingStart = null
         if (granted) {
-            engine.start(pending.gen, pending.hints, pending.review)
+            engine.start(pending.gen, pending.hints, pending.review, pending.reviewTimeoutMs)
             return
         }
         val permanent = !activity.shouldShowRequestPermissionRationale(
@@ -182,6 +191,9 @@ class LocalVoiceBridge(
 
     override fun onPartial(gen: Int, text: String, reviewing: Int) =
         send(mapOf("type" to "partial", "gen" to gen, "text" to text, "reviewing" to reviewing))
+
+    override fun onPhrase(gen: Int, seq: Int, vosk: String, review: Boolean) =
+        send(mapOf("type" to "phrase", "gen" to gen, "seq" to seq, "vosk" to vosk, "review" to review))
 
     override fun onSegment(gen: Int, seq: Int, vosk: String, review: String?, reviewMs: Long) =
         send(

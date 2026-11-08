@@ -1,6 +1,7 @@
 package com.comunidad.agro.agroquimicos
 
 import android.annotation.SuppressLint
+import android.app.ActivityManager
 import android.content.Context
 import android.media.AudioFormat
 import android.media.AudioRecord
@@ -16,6 +17,7 @@ import java.util.TreeMap
 import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
+import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
 import kotlin.math.min
 
@@ -129,12 +131,21 @@ class LocalVoiceEngine(
     interface Listener {
         fun onStage(gen: Int, stage: String)
         fun onPartial(gen: Int, text: String, reviewing: Int)
+
+        /**
+         * Vosk cerró la frase [seq]; su resultado llega después en [onSegment].
+         * Con implementación vacía: quien sólo registra segmentos (la prueba
+         * instrumentada) no necesita atenderlo.
+         */
+        fun onPhrase(gen: Int, seq: Int, vosk: String, review: Boolean) {}
         fun onSegment(gen: Int, seq: Int, vosk: String, review: String?, reviewMs: Long)
         fun onEnded(gen: Int, reason: String)
         fun onError(gen: Int, code: String, detail: String?)
     }
 
     private val models = LocalVoiceModels(context.applicationContext)
+    private val activityManager =
+        context.applicationContext.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
 
     /** Carga de modelos y orden de start/stop/cancel. Nunca el hilo principal. */
     private val control: ExecutorService = Executors.newSingleThreadExecutor { r ->
@@ -146,6 +157,14 @@ class LocalVoiceEngine(
         Thread(r, "agro-voz-revision").apply { priority = Thread.NORM_PRIORITY - 1 }
     }
 
+    /** Aborta la revisión que pasa de su tope. */
+    private val watchdog: ScheduledExecutorService = Executors.newSingleThreadScheduledExecutor { r ->
+        Thread(r, "agro-voz-tope").apply { isDaemon = true }
+    }
+
+    /** La revisión en curso; el tope sólo aborta si sigue siendo ésta. */
+    @Volatile private var reviewToken: Any? = null
+
     private var vosk: Model? = null
     @Volatile private var whisper: Long = 0L
     @Volatile private var whisperFailure: String? = null
@@ -154,15 +173,36 @@ class LocalVoiceEngine(
 
     // ------------------------------------------------------------ disponibilidad
 
-    /** Qué trae este APK. No abre el micrófono ni carga nada pesado. */
-    fun describe(): Map<String, Any?> = mapOf(
-        "modelPresent" to (models.voskName != null),
-        "engineName" to "Vosk (vosk-android $VOSK_VERSION)",
-        "engineVersion" to (models.voskName ?: ""),
-        "reviewModel" to models.whisperName,
-        "reviewAvailable" to (models.whisperName != null && WhisperNative.available),
-        "reviewDetail" to (WhisperNative.loadFailure ?: whisperFailure),
-    )
+    /**
+     * Qué trae este APK y hechos del aparato para decidir la segunda pasada.
+     * No abre el micrófono ni carga nada pesado. La decisión la toma Dart
+     * (`ReviewCapabilityPolicy`): aquí sólo se informa, sin interpretar.
+     */
+    fun describe(): Map<String, Any?> {
+        val memory = try {
+            ActivityManager.MemoryInfo().also { activityManager?.getMemoryInfo(it) }
+        } catch (_: Throwable) {
+            null
+        }
+        val lowRam = try {
+            activityManager?.isLowRamDevice
+        } catch (_: Throwable) {
+            null
+        }
+        return mapOf(
+            "modelPresent" to (models.voskName != null),
+            "engineName" to "Vosk (vosk-android $VOSK_VERSION)",
+            "engineVersion" to (models.voskName ?: ""),
+            "reviewModel" to models.whisperName,
+            "reviewVariant" to models.whisperVariant,
+            "reviewModelBytes" to models.whisperBytes,
+            "reviewAvailable" to (models.whisperName != null && WhisperNative.available),
+            "reviewNativeLib" to WhisperNative.loadFailure,
+            "reviewDetail" to whisperFailure,
+            "totalMemBytes" to memory?.totalMem?.takeIf { it > 0 },
+            "lowRamDevice" to lowRam,
+        )
+    }
 
     /**
      * Copia, verifica y carga los modelos por adelantado, sin micrófono.
@@ -227,12 +267,20 @@ class LocalVoiceEngine(
      * @param hints pista de vocabulario para la segunda pasada (nombres del
      *   catálogo); `null` o vacía si no hay.
      */
-    fun start(gen: Int, hints: String?, review: Boolean) {
+    fun start(
+        gen: Int,
+        hints: String?,
+        review: Boolean,
+        reviewTimeoutMs: Long = DEFAULT_REVIEW_TIMEOUT_MS,
+    ) {
         if (turn != null) {
             listener.onError(gen, "busy", "turn-already-open")
             return
         }
-        val next = Turn(gen, hints?.takeIf { it.isNotBlank() }, review)
+        val next = Turn(
+            gen, hints?.takeIf { it.isNotBlank() }, review,
+            reviewTimeoutMs.coerceIn(MIN_REVIEW_TIMEOUT_MS, MAX_REVIEW_TIMEOUT_MS),
+        )
         turn = next
         control.execute {
             if (next.cancelled) return@execute
@@ -305,7 +353,13 @@ class LocalVoiceEngine(
 
     // ---------------------------------------------------------------- un turno
 
-    private inner class Turn(val gen: Int, val hints: String?, val review: Boolean) {
+    private inner class Turn(
+        val gen: Int,
+        val hints: String?,
+        val review: Boolean,
+        /** Tope de la revisión de cada frase desde que Vosk la cierra. */
+        val reviewTimeoutMs: Long,
+    ) {
 
         private val queue = ArrayBlockingQueue<ShortArray>(QUEUE_CHUNKS)
         @Volatile var cancelled = false
@@ -359,7 +413,7 @@ class LocalVoiceEngine(
             cancelled = true
             capturing = false
             source?.close()
-            synchronized(lock) { if (reviewing > 0) WhisperNative.takeIf { it.available }?.abort() }
+            synchronized(lock) { if (reviewing > 0) abortReview() }
             queue.clear()
         }
 
@@ -441,6 +495,7 @@ class LocalVoiceEngine(
             if (text.isEmpty() || cancelled) return
             val seq: Int
             val reviewIt: Boolean
+            val closedAt = SystemClock.elapsedRealtime()
             synchronized(lock) {
                 seq = nextSeq++
                 waiting[seq] = text
@@ -451,6 +506,9 @@ class LocalVoiceEngine(
                     reviewing < MAX_PENDING_REVIEWS
                 if (reviewIt) reviewing++
             }
+            // Dart arranca aquí el tope de la frase: si su resultado no llega a
+            // tiempo, entrega este texto y descarta lo que venga después.
+            listener.onPhrase(gen, seq, text, reviewIt)
             if (!reviewIt) {
                 complete(seq, null, 0)
                 return
@@ -459,13 +517,33 @@ class LocalVoiceEngine(
             reviewer.execute {
                 var result: String? = null
                 var took = 0L
-                if (!cancelled && ensureWhisper()) {
+                // Lo que quede del tope de esta frase: la espera en la cola (y
+                // la primera carga del modelo) también cuentan. Agotado, ni se
+                // empieza.
+                if (!cancelled && reviewTimeoutMs - (SystemClock.elapsedRealtime() - closedAt) > 0 &&
+                    ensureWhisper()
+                ) {
                     val started = SystemClock.elapsedRealtime()
+                    val remaining = reviewTimeoutMs - (started - closedAt)
                     val samples = FloatArray(pcm.size) { pcm[it] / 32768f }
+                    val token = Any()
+                    reviewToken = token
+                    val guard = watchdog.schedule(
+                        { if (reviewToken === token) WhisperNative.abort() },
+                        maxOf(1L, remaining),
+                        TimeUnit.MILLISECONDS,
+                    )
                     result = try {
-                        WhisperNative.transcribe(whisper, samples, hints, threads(), FloatArray(1))
+                        if (remaining > 0) {
+                            WhisperNative.transcribe(whisper, samples, hints, threads(), FloatArray(1))
+                        } else {
+                            null
+                        }
                     } catch (_: Throwable) {
                         null
+                    } finally {
+                        reviewToken = null
+                        guard.cancel(false)
                     }
                     took = SystemClock.elapsedRealtime() - started
                 }
@@ -492,16 +570,19 @@ class LocalVoiceEngine(
             publishPartial()
         }
 
-        /** Al detener: se espera a las revisiones, con un tope. */
+        /**
+         * Al detener: se espera a las revisiones, como mucho el tope de una
+         * frase (cada una ya corre el suyo desde que se cerró).
+         */
         private fun awaitReviews() {
-            val deadline = SystemClock.elapsedRealtime() + STOP_REVIEW_BUDGET_MS
+            val deadline = SystemClock.elapsedRealtime() + reviewTimeoutMs
             while (!cancelled) {
                 val pending = synchronized(lock) { waiting.size }
                 if (pending == 0) return
                 if (SystemClock.elapsedRealtime() > deadline) {
                     // Se agotó el tope: la revisión en curso se aborta y esas
                     // frases salen tal como las oyó Vosk.
-                    if (WhisperNative.available) WhisperNative.abort()
+                    abortReview()
                 }
                 Thread.sleep(50)
             }
@@ -529,6 +610,10 @@ class LocalVoiceEngine(
             listener.onError(gen, code, detail)
             listener.onEnded(gen, "error")
         }
+    }
+
+    private fun abortReview() {
+        if (WhisperNative.available) WhisperNative.abort()
     }
 
     /** Audio de la frase en curso, con tope: más allá se conserva lo último. */
@@ -564,7 +649,10 @@ class LocalVoiceEngine(
         private const val MAX_SEGMENT_SAMPLES = SAMPLE_RATE * 30    // Whisper ve hasta 30 s
         private const val MAX_PENDING_REVIEWS = 2
         private const val IDLE_LIMIT_MS = 30_000L
-        private const val STOP_REVIEW_BUDGET_MS = 8_000L
+        /** Como `LocalSpeechTranscriptionAdapter.defaultReviewTimeout`. */
+        const val DEFAULT_REVIEW_TIMEOUT_MS = 5_000L
+        private const val MIN_REVIEW_TIMEOUT_MS = 500L
+        private const val MAX_REVIEW_TIMEOUT_MS = 30_000L
         private val END = ShortArray(0)
 
         private fun threads(): Int = min(4, Runtime.getRuntime().availableProcessors()).coerceAtLeast(1)

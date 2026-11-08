@@ -46,8 +46,13 @@ flutter build apk --profile --split-per-abi --target-platform "$PLATFORM" \
   ${AGRO_API_BASE_URL:+--dart-define=AGRO_API_BASE_URL="$AGRO_API_BASE_URL"} > "$OUT/build-$ABI.log" 2>&1 \
   || { tail -30 "$OUT/build-$ABI.log"; exit 1; }
 restore; trap - EXIT
-APK="$OUT/agrocuentas-voz-$(git rev-parse --short HEAD)-$SPLIT-profile.apk"
+# El modelo de revisión empaquetado (fetch_voice_models.sh base|small|none).
+# Con base el nombre no cambia; con otro, lo lleva para no confundirlas.
+REVIEW=$(python -I -c "import json,sys; w=json.load(open(sys.argv[1],encoding='utf-8')).get('whisper'); print(w.get('variant') or w['name'].split('-')[1] if w else 'none')" android/app/voice-models/voice/manifest.json)
+TAG=""; [ "$REVIEW" = base ] || TAG="-review-$REVIEW"
+APK="$OUT/agrocuentas-voz-$(git rev-parse --short HEAD)-$SPLIT$TAG-profile.apk"
 cp "build/app/outputs/flutter-apk/app-$SPLIT-profile.apk" "$APK"
 echo "APK $APK"
+echo "Revisión $REVIEW"
 echo "Mobile $(git rev-parse HEAD)$( [ -n "$(git status --porcelain --untracked-files=no)" ] && echo ' + cambios sin commit')"
 echo "SHA-256 $(sha256sum < "$APK" | awk '{print $1}') · $(stat -c %s "$APK") B"

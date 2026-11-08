@@ -1,0 +1,3393 @@
+{
+ "rows": [
+  {
+   "file": "f01_helena.wav",
+   "ref": "compré dos litros de glifosato a ciento veinte bolivianos",
+   "vosk": "compré dos litros de glifosato a ciento veinte bolivianos",
+   "vosk_segs": [
+    "compré dos litros de glifosato a ciento veinte bolivianos"
+   ],
+   "vosk_segments": 1,
+   "vosk_partials": 8,
+   "vosk_first_partial_audio_ms": 900,
+   "base": "Compré dos litros de glyfosato a 120 bolivianos.",
+   "base_segs": [
+    "Compré dos litros de glyfosato a 120 bolivianos."
+   ],
+   "base_host_s": 0.76,
+   "base_measures": [
+    {
+     "wall_ms": 764.0,
+     "load_ms": 67.19,
+     "encode_ms": 587.09,
+     "infer_ms": 664.9,
+     "peak_rss_mb": 166.2,
+     "peak_private_mb": 656.5,
+     "audio_s": 3.42,
+     "rtf": 0.194
+    }
+   ],
+   "base_hint": "Compré dos litros de glifosato a 120 bolivianos.",
+   "base_hint_segs": [
+    "Compré dos litros de glifosato a 120 bolivianos."
+   ],
+   "base_hint_host_s": 0.79,
+   "base_hint_measures": [
+    {
+     "wall_ms": 793.8,
+     "load_ms": 67.98,
+     "encode_ms": 561.38,
+     "infer_ms": 695.6,
+     "peak_rss_mb": 194.9,
+     "peak_private_mb": 656.5,
+     "audio_s": 3.42,
+     "rtf": 0.203
+    }
+   ],
+   "small_hint": "Compre dos litros de glifosato a 120 bolivianos.",
+   "small_hint_segs": [
+    "Compre dos litros de glifosato a 120 bolivianos."
+   ],
+   "small_hint_host_s": 2.69,
+   "small_hint_measures": [
+    {
+     "wall_ms": 2688.1,
+     "load_ms": 162.01,
+     "encode_ms": 2160.27,
+     "infer_ms": 2486.1,
+     "peak_rss_mb": 389.0,
+     "peak_private_mb": 851.1,
+     "audio_s": 3.42,
+     "rtf": 0.727
+    }
+   ]
+  },
+  {
+   "file": "f01_laura.wav",
+   "ref": "compré dos litros de glifosato a ciento veinte bolivianos",
+   "vosk": "compré dos litros de glifosato a ciento veinte bolivianos",
+   "vosk_segs": [
+    "compré dos litros de glifosato a ciento veinte bolivianos"
+   ],
+   "vosk_segments": 1,
+   "vosk_partials": 7,
+   "vosk_first_partial_audio_ms": 900,
+   "base": "Con 3 litros de glyfosato a 120 bolivianos.",
+   "base_segs": [
+    "Con 3 litros de glyfosato a 120 bolivianos."
+   ],
+   "base_host_s": 0.77,
+   "base_measures": [
+    {
+     "wall_ms": 769.4,
+     "load_ms": 64.8,
+     "encode_ms": 584.19,
+     "infer_ms": 656.3,
+     "peak_rss_mb": 166.1,
+     "peak_private_mb": 656.5,
+     "audio_s": 3.72,
+     "rtf": 0.176
+    }
+   ],
+   "base_hint": "Compré dos litros de glifosato a 120 bolivianos.",
+   "base_hint_segs": [
+    "Compré dos litros de glifosato a 120 bolivianos."
+   ],
+   "base_hint_host_s": 0.89,
+   "base_hint_measures": [
+    {
+     "wall_ms": 891.9,
+     "load_ms": 64.83,
+     "encode_ms": 672.34,
+     "infer_ms": 800.9,
+     "peak_rss_mb": 195.1,
+     "peak_private_mb": 656.7,
+     "audio_s": 3.72,
+     "rtf": 0.215
+    }
+   ],
+   "small_hint": "Compré 2 litros de glifosato a 120 bolivianos.",
+   "small_hint_segs": [
+    "Compré 2 litros de glifosato a 120 bolivianos."
+   ],
+   "small_hint_host_s": 2.87,
+   "small_hint_measures": [
+    {
+     "wall_ms": 2865.3,
+     "load_ms": 149.41,
+     "encode_ms": 2240.03,
+     "infer_ms": 2569.6,
+     "peak_rss_mb": 389.0,
+     "peak_private_mb": 851.1,
+     "audio_s": 3.72,
+     "rtf": 0.691
+    }
+   ]
+  },
+  {
+   "file": "f01_pablo.wav",
+   "ref": "compré dos litros de glifosato a ciento veinte bolivianos",
+   "vosk": "compré dos litros de glifosato a ciento veinte bolivianos",
+   "vosk_segs": [
+    "compré dos litros de glifosato a ciento veinte bolivianos"
+   ],
+   "vosk_segments": 1,
+   "vosk_partials": 7,
+   "vosk_first_partial_audio_ms": 900,
+   "base": "Comple 2 litros de glyfosato a 120 bolivianos.",
+   "base_segs": [
+    "Comple 2 litros de glyfosato a 120 bolivianos."
+   ],
+   "base_host_s": 0.76,
+   "base_measures": [
+    {
+     "wall_ms": 755.2,
+     "load_ms": 61.52,
+     "encode_ms": 570.08,
+     "infer_ms": 638.1,
+     "peak_rss_mb": 166.1,
+     "peak_private_mb": 656.5,
+     "audio_s": 3.57,
+     "rtf": 0.179
+    }
+   ],
+   "base_hint": "Comple 2 litros de glifosato a 120 bolivianos.",
+   "base_hint_segs": [
+    "Comple 2 litros de glifosato a 120 bolivianos."
+   ],
+   "base_hint_host_s": 0.77,
+   "base_hint_measures": [
+    {
+     "wall_ms": 765.3,
+     "load_ms": 59.6,
+     "encode_ms": 555.84,
+     "infer_ms": 680.8,
+     "peak_rss_mb": 195.0,
+     "peak_private_mb": 656.5,
+     "audio_s": 3.57,
+     "rtf": 0.191
+    }
+   ],
+   "small_hint": "Compré 2 litros de glifosato a 120 bolivianos.",
+   "small_hint_segs": [
+    "Compré 2 litros de glifosato a 120 bolivianos."
+   ],
+   "small_hint_host_s": 2.71,
+   "small_hint_measures": [
+    {
+     "wall_ms": 2712.2,
+     "load_ms": 141.89,
+     "encode_ms": 2199.56,
+     "infer_ms": 2535.4,
+     "peak_rss_mb": 389.0,
+     "peak_private_mb": 851.1,
+     "audio_s": 3.57,
+     "rtf": 0.71
+    }
+   ]
+  },
+  {
+   "file": "f02_helena.wav",
+   "ref": "apliqué medio litro de bellator en el chaco de abajo",
+   "vosk": "aplique medio litro de bella thor en el saco de abajo",
+   "vosk_segs": [
+    "aplique medio litro de bella thor en el saco de abajo"
+   ],
+   "vosk_segments": 1,
+   "vosk_partials": 7,
+   "vosk_first_partial_audio_ms": 700,
+   "base": "Apliqué medio litro de bellator en el chaco de abajo.",
+   "base_segs": [
+    "Apliqué medio litro de bellator en el chaco de abajo."
+   ],
+   "base_host_s": 0.86,
+   "base_measures": [
+    {
+     "wall_ms": 862.1,
+     "load_ms": 59.37,
+     "encode_ms": 571.49,
+     "infer_ms": 643.3,
+     "peak_rss_mb": 166.1,
+     "peak_private_mb": 656.5,
+     "audio_s": 2.94,
+     "rtf": 0.219
+    }
+   ],
+   "base_hint": "Apliqué medio litro de Bella Torre en el chaco de abajo.",
+   "base_hint_segs": [
+    "Apliqué medio litro de Bella Torre en el chaco de abajo."
+   ],
+   "base_hint_host_s": 0.81,
+   "base_hint_measures": [
+    {
+     "wall_ms": 805.1,
+     "load_ms": 59.72,
+     "encode_ms": 569.7,
+     "infer_ms": 717.0,
+     "peak_rss_mb": 195.0,
+     "peak_private_mb": 656.6,
+     "audio_s": 2.94,
+     "rtf": 0.244
+    }
+   ],
+   "small_hint": "Apliqué medio litro de Bellator en el chaco de abajo.",
+   "small_hint_segs": [
+    "Apliqué medio litro de Bellator en el chaco de abajo."
+   ],
+   "small_hint_host_s": 2.77,
+   "small_hint_measures": [
+    {
+     "wall_ms": 2766.2,
+     "load_ms": 169.5,
+     "encode_ms": 2230.82,
+     "infer_ms": 2557.7,
+     "peak_rss_mb": 389.1,
+     "peak_private_mb": 851.1,
+     "audio_s": 2.94,
+     "rtf": 0.87
+    }
+   ]
+  },
+  {
+   "file": "f02_laura.wav",
+   "ref": "apliqué medio litro de bellator en el chaco de abajo",
+   "vosk": "aplique medio litro de bella thor en el saco de abajo",
+   "vosk_segs": [
+    "aplique medio litro de bella thor en el saco de abajo"
+   ],
+   "vosk_segments": 1,
+   "vosk_partials": 9,
+   "vosk_first_partial_audio_ms": 900,
+   "base": "aplique medio litro de bella tor en el chaco de abajo.",
+   "base_segs": [
+    "aplique medio litro de bella tor en el chaco de abajo."
+   ],
+   "base_host_s": 0.74,
+   "base_measures": [
+    {
+     "wall_ms": 735.6,
+     "load_ms": 62.32,
+     "encode_ms": 572.89,
+     "infer_ms": 639.0,
+     "peak_rss_mb": 166.1,
+     "peak_private_mb": 656.5,
+     "audio_s": 3.21,
+     "rtf": 0.199
+    }
+   ],
+   "base_hint": "Aplique medio litro de Bellator en el chaco de abajo.",
+   "base_hint_segs": [
+    "Aplique medio litro de Bellator en el chaco de abajo."
+   ],
+   "base_hint_host_s": 0.8,
+   "base_hint_measures": [
+    {
+     "wall_ms": 803.4,
+     "load_ms": 61.26,
+     "encode_ms": 589.72,
+     "infer_ms": 716.2,
+     "peak_rss_mb": 194.9,
+     "peak_private_mb": 656.5,
+     "audio_s": 3.21,
+     "rtf": 0.223
+    }
+   ],
+   "small_hint": "Aplique medio litro de Bellator en el chaco de abajo.",
+   "small_hint_segs": [
+    "Aplique medio litro de Bellator en el chaco de abajo."
+   ],
+   "small_hint_host_s": 2.76,
+   "small_hint_measures": [
+    {
+     "wall_ms": 2756.9,
+     "load_ms": 146.21,
+     "encode_ms": 2239.42,
+     "infer_ms": 2571.7,
+     "peak_rss_mb": 388.9,
+     "peak_private_mb": 851.1,
+     "audio_s": 3.21,
+     "rtf": 0.801
+    }
+   ]
+  },
+  {
+   "file": "f02_pablo.wav",
+   "ref": "apliqué medio litro de bellator en el chaco de abajo",
+   "vosk": "aplique medio litro de bella thor en el saco de abajo",
+   "vosk_segs": [
+    "aplique medio litro de bella thor en el saco de abajo"
+   ],
+   "vosk_segments": 1,
+   "vosk_partials": 8,
+   "vosk_first_partial_audio_ms": 900,
+   "base": "aplique medio litro de bellator en el chaco de abajo.",
+   "base_segs": [
+    "aplique medio litro de bellator en el chaco de abajo."
+   ],
+   "base_host_s": 0.77,
+   "base_measures": [
+    {
+     "wall_ms": 765.9,
+     "load_ms": 59.8,
+     "encode_ms": 581.68,
+     "infer_ms": 649.7,
+     "peak_rss_mb": 166.1,
+     "peak_private_mb": 656.5,
+     "audio_s": 3.09,
+     "rtf": 0.21
+    }
+   ],
+   "base_hint": "Aplique medio litro de Bellator en el chaco de abajo.",
+   "base_hint_segs": [
+    "Aplique medio litro de Bellator en el chaco de abajo."
+   ],
+   "base_hint_host_s": 0.8,
+   "base_hint_measures": [
+    {
+     "wall_ms": 798.7,
+     "load_ms": 62.06,
+     "encode_ms": 581.37,
+     "infer_ms": 710.0,
+     "peak_rss_mb": 194.9,
+     "peak_private_mb": 656.5,
+     "audio_s": 3.09,
+     "rtf": 0.23
+    }
+   ],
+   "small_hint": "Aplique medio litro de Bellator en el chaco de abajo.",
+   "small_hint_segs": [
+    "Aplique medio litro de Bellator en el chaco de abajo."
+   ],
+   "small_hint_host_s": 2.85,
+   "small_hint_measures": [
+    {
+     "wall_ms": 2852.8,
+     "load_ms": 146.1,
+     "encode_ms": 2349.86,
+     "infer_ms": 2672.2,
+     "peak_rss_mb": 389.0,
+     "peak_private_mb": 851.1,
+     "audio_s": 3.09,
+     "rtf": 0.865
+    }
+   ]
+  },
+  {
+   "file": "f03_helena.wav",
+   "ref": "pagué trescientos cincuenta bolivianos a Ana Quispe",
+   "vosk": "trescientos cincuenta bolivianos a ana quispe",
+   "vosk_segs": [
+    "trescientos cincuenta bolivianos a ana quispe"
+   ],
+   "vosk_segments": 1,
+   "vosk_partials": 7,
+   "vosk_first_partial_audio_ms": 1200,
+   "base": "Pague 350 bolivianos a Anaquisp.",
+   "base_segs": [
+    "Pague 350 bolivianos a Anaquisp."
+   ],
+   "base_host_s": 0.75,
+   "base_measures": [
+    {
+     "wall_ms": 745.5,
+     "load_ms": 63.01,
+     "encode_ms": 574.34,
+     "infer_ms": 632.6,
+     "peak_rss_mb": 166.1,
+     "peak_private_mb": 656.5,
+     "audio_s": 2.94,
+     "rtf": 0.215
+    }
+   ],
+   "base_hint": "Pague 350 bolivianos a Ana Quispe.",
+   "base_hint_segs": [
+    "Pague 350 bolivianos a Ana Quispe."
+   ],
+   "base_hint_host_s": 0.81,
+   "base_hint_measures": [
+    {
+     "wall_ms": 813.4,
+     "load_ms": 67.69,
+     "encode_ms": 598.52,
+     "infer_ms": 719.5,
+     "peak_rss_mb": 194.9,
+     "peak_private_mb": 656.5,
+     "audio_s": 2.94,
+     "rtf": 0.245
+    }
+   ],
+   "small_hint": "Pague 350 bolivianos a Ana Quispe.",
+   "small_hint_segs": [
+    "Pague 350 bolivianos a Ana Quispe."
+   ],
+   "small_hint_host_s": 2.81,
+   "small_hint_measures": [
+    {
+     "wall_ms": 2812.1,
+     "load_ms": 155.81,
+     "encode_ms": 2308.01,
+     "infer_ms": 2616.4,
+     "peak_rss_mb": 389.0,
+     "peak_private_mb": 851.1,
+     "audio_s": 2.94,
+     "rtf": 0.89
+    }
+   ]
+  },
+  {
+   "file": "f03_laura.wav",
+   "ref": "pagué trescientos cincuenta bolivianos a Ana Quispe",
+   "vosk": "pague trescientos cincuenta bolivianos a ana quispe",
+   "vosk_segs": [
+    "pague trescientos cincuenta bolivianos a ana quispe"
+   ],
+   "vosk_segments": 1,
+   "vosk_partials": 8,
+   "vosk_first_partial_audio_ms": 700,
+   "base": "Pague 350 bolivianos a Anaquispé.",
+   "base_segs": [
+    "Pague 350 bolivianos a Anaquispé."
+   ],
+   "base_host_s": 0.73,
+   "base_measures": [
+    {
+     "wall_ms": 731.6,
+     "load_ms": 62.95,
+     "encode_ms": 571.56,
+     "infer_ms": 628.2,
+     "peak_rss_mb": 166.1,
+     "peak_private_mb": 656.5,
+     "audio_s": 3.39,
+     "rtf": 0.185
+    }
+   ],
+   "base_hint": "Pague 350 bolivianos a Ana Quispe.",
+   "base_hint_segs": [
+    "Pague 350 bolivianos a Ana Quispe."
+   ],
+   "base_hint_host_s": 0.76,
+   "base_hint_measures": [
+    {
+     "wall_ms": 764.8,
+     "load_ms": 61.22,
+     "encode_ms": 566.54,
+     "infer_ms": 676.9,
+     "peak_rss_mb": 195.0,
+     "peak_private_mb": 656.6,
+     "audio_s": 3.39,
+     "rtf": 0.2
+    }
+   ],
+   "small_hint": "Pague 350 bolivianos a Ana Quispe.",
+   "small_hint_segs": [
+    "Pague 350 bolivianos a Ana Quispe."
+   ],
+   "small_hint_host_s": 2.79,
+   "small_hint_measures": [
+    {
+     "wall_ms": 2793.4,
+     "load_ms": 145.27,
+     "encode_ms": 2321.36,
+     "infer_ms": 2613.6,
+     "peak_rss_mb": 388.9,
+     "peak_private_mb": 851.1,
+     "audio_s": 3.39,
+     "rtf": 0.771
+    }
+   ]
+  },
+  {
+   "file": "f03_pablo.wav",
+   "ref": "pagué trescientos cincuenta bolivianos a Ana Quispe",
+   "vosk": "para que trescientos cincuenta bolivianos a ana quispe",
+   "vosk_segs": [
+    "para que trescientos cincuenta bolivianos a ana quispe"
+   ],
+   "vosk_segments": 1,
+   "vosk_partials": 7,
+   "vosk_first_partial_audio_ms": 700,
+   "base": "Paque 350 Bolivianos a Anaquispé.",
+   "base_segs": [
+    "Paque 350 Bolivianos a Anaquispé."
+   ],
+   "base_host_s": 0.76,
+   "base_measures": [
+    {
+     "wall_ms": 759.6,
+     "load_ms": 63.5,
+     "encode_ms": 586.37,
+     "infer_ms": 644.9,
+     "peak_rss_mb": 166.1,
+     "peak_private_mb": 656.5,
+     "audio_s": 3.27,
+     "rtf": 0.197
+    }
+   ],
+   "base_hint": "Paque 350 bolivianos a Ana Quispe.",
+   "base_hint_segs": [
+    "Paque 350 bolivianos a Ana Quispe."
+   ],
+   "base_hint_host_s": 0.81,
+   "base_hint_measures": [
+    {
+     "wall_ms": 812.9,
+     "load_ms": 60.5,
+     "encode_ms": 609.81,
+     "infer_ms": 726.2,
+     "peak_rss_mb": 195.0,
+     "peak_private_mb": 656.5,
+     "audio_s": 3.27,
+     "rtf": 0.222
+    }
+   ],
+   "small_hint": "Pague 350 bolivianos a Ana Quispe.",
+   "small_hint_segs": [
+    "Pague 350 bolivianos a Ana Quispe."
+   ],
+   "small_hint_host_s": 2.72,
+   "small_hint_measures": [
+    {
+     "wall_ms": 2715.3,
+     "load_ms": 146.96,
+     "encode_ms": 2238.93,
+     "infer_ms": 2532.5,
+     "peak_rss_mb": 388.9,
+     "peak_private_mb": 851.1,
+     "audio_s": 3.27,
+     "rtf": 0.774
+    }
+   ]
+  },
+  {
+   "file": "f04_helena.wav",
+   "ref": "compra de cinco kilos de mancozeb para la campaña de verano",
+   "vosk": "compra de cinco kilos de manco se para la campaña de verano",
+   "vosk_segs": [
+    "compra de cinco kilos de manco se para la campaña de verano"
+   ],
+   "vosk_segments": 1,
+   "vosk_partials": 10,
+   "vosk_first_partial_audio_ms": 700,
+   "base": "compra de 5 kilos de mancoceb para la campaña de verano.",
+   "base_segs": [
+    "compra de 5 kilos de mancoceb para la campaña de verano."
+   ],
+   "base_host_s": 0.84,
+   "base_measures": [
+    {
+     "wall_ms": 840.9,
+     "load_ms": 61.12,
+     "encode_ms": 568.38,
+     "infer_ms": 639.0,
+     "peak_rss_mb": 166.1,
+     "peak_private_mb": 656.5,
+     "audio_s": 3.39,
+     "rtf": 0.188
+    }
+   ],
+   "base_hint": "Compré de 5 kilos de Mancozeb para la campaña de verano.",
+   "base_hint_segs": [
+    "Compré de 5 kilos de Mancozeb para la campaña de verano."
+   ],
+   "base_hint_host_s": 0.79,
+   "base_hint_measures": [
+    {
+     "wall_ms": 790.9,
+     "load_ms": 62.71,
+     "encode_ms": 567.92,
+     "infer_ms": 703.5,
+     "peak_rss_mb": 195.0,
+     "peak_private_mb": 656.5,
+     "audio_s": 3.39,
+     "rtf": 0.208
+    }
+   ],
+   "small_hint": "Comprade 5 kilos de Mancozeb para la campaña de verano.",
+   "small_hint_segs": [
+    "Comprade 5 kilos de Mancozeb para la campaña de verano."
+   ],
+   "small_hint_host_s": 2.92,
+   "small_hint_measures": [
+    {
+     "wall_ms": 2916.1,
+     "load_ms": 152.88,
+     "encode_ms": 2379.92,
+     "infer_ms": 2727.9,
+     "peak_rss_mb": 388.9,
+     "peak_private_mb": 851.1,
+     "audio_s": 3.39,
+     "rtf": 0.805
+    }
+   ]
+  },
+  {
+   "file": "f04_laura.wav",
+   "ref": "compra de cinco kilos de mancozeb para la campaña de verano",
+   "vosk": "compra de cinco kilos de mancos para la campaña de verano",
+   "vosk_segs": [
+    "compra de cinco kilos de mancos para la campaña de verano"
+   ],
+   "vosk_segments": 1,
+   "vosk_partials": 8,
+   "vosk_first_partial_audio_ms": 700,
+   "base": "Compran de 5 kilos de mancoceb para la campaña de verano.",
+   "base_segs": [
+    "Compran de 5 kilos de mancoceb para la campaña de verano."
+   ],
+   "base_host_s": 0.76,
+   "base_measures": [
+    {
+     "wall_ms": 764.3,
+     "load_ms": 64.15,
+     "encode_ms": 589.02,
+     "infer_ms": 662.7,
+     "peak_rss_mb": 166.2,
+     "peak_private_mb": 656.5,
+     "audio_s": 3.75,
+     "rtf": 0.177
+    }
+   ],
+   "base_hint": "Compré de 5 kilos de Mancozeb para la campaña de verano.",
+   "base_hint_segs": [
+    "Compré de 5 kilos de Mancozeb para la campaña de verano."
+   ],
+   "base_hint_host_s": 0.79,
+   "base_hint_measures": [
+    {
+     "wall_ms": 789.7,
+     "load_ms": 62.03,
+     "encode_ms": 573.04,
+     "infer_ms": 702.6,
+     "peak_rss_mb": 195.0,
+     "peak_private_mb": 656.7,
+     "audio_s": 3.75,
+     "rtf": 0.187
+    }
+   ],
+   "small_hint": "Comprade 5 kilos de Mancozeb para la campaña de verano.",
+   "small_hint_segs": [
+    "Comprade 5 kilos de Mancozeb para la campaña de verano."
+   ],
+   "small_hint_host_s": 2.78,
+   "small_hint_measures": [
+    {
+     "wall_ms": 2783.8,
+     "load_ms": 148.41,
+     "encode_ms": 2271.46,
+     "infer_ms": 2596.0,
+     "peak_rss_mb": 389.0,
+     "peak_private_mb": 851.2,
+     "audio_s": 3.75,
+     "rtf": 0.692
+    }
+   ]
+  },
+  {
+   "file": "f04_pablo.wav",
+   "ref": "compra de cinco kilos de mancozeb para la campaña de verano",
+   "vosk": "compra de cinco kilos de manco para la campaña de verano",
+   "vosk_segs": [
+    "compra de cinco kilos de manco para la campaña de verano"
+   ],
+   "vosk_segments": 1,
+   "vosk_partials": 8,
+   "vosk_first_partial_audio_ms": 700,
+   "base": "Compré de 5 kilos de mancoceb para la campaña de verano.",
+   "base_segs": [
+    "Compré de 5 kilos de mancoceb para la campaña de verano."
+   ],
+   "base_host_s": 0.88,
+   "base_measures": [
+    {
+     "wall_ms": 877.2,
+     "load_ms": 58.8,
+     "encode_ms": 600.41,
+     "infer_ms": 676.8,
+     "peak_rss_mb": 166.1,
+     "peak_private_mb": 656.5,
+     "audio_s": 3.6,
+     "rtf": 0.188
+    }
+   ],
+   "base_hint": "Compré de 5 kilos de Mancozeb para la campaña de verano.",
+   "base_hint_segs": [
+    "Compré de 5 kilos de Mancozeb para la campaña de verano."
+   ],
+   "base_hint_host_s": 0.81,
+   "base_hint_measures": [
+    {
+     "wall_ms": 812.2,
+     "load_ms": 62.04,
+     "encode_ms": 583.64,
+     "infer_ms": 724.6,
+     "peak_rss_mb": 195.0,
+     "peak_private_mb": 656.5,
+     "audio_s": 3.6,
+     "rtf": 0.201
+    }
+   ],
+   "small_hint": "Comprá de 5 kilos de Mancozeb para la campaña de verano.",
+   "small_hint_segs": [
+    "Comprá de 5 kilos de Mancozeb para la campaña de verano."
+   ],
+   "small_hint_host_s": 2.94,
+   "small_hint_measures": [
+    {
+     "wall_ms": 2938.2,
+     "load_ms": 144.64,
+     "encode_ms": 2395.4,
+     "infer_ms": 2756.0,
+     "peak_rss_mb": 389.0,
+     "peak_private_mb": 851.3,
+     "audio_s": 3.6,
+     "rtf": 0.766
+    }
+   ]
+  },
+  {
+   "file": "f05_helena.wav",
+   "ref": "aplicación de doscientos cincuenta mililitros de cipermetrina",
+   "vosk": "aplicación de doscientos cincuenta mililitros de pero me trina",
+   "vosk_segs": [
+    "aplicación de doscientos cincuenta mililitros de pero me trina"
+   ],
+   "vosk_segments": 1,
+   "vosk_partials": 7,
+   "vosk_first_partial_audio_ms": 900,
+   "base": "Aplicación de 250 ml de cipermetrina.",
+   "base_segs": [
+    "Aplicación de 250 ml de cipermetrina."
+   ],
+   "base_host_s": 0.75,
+   "base_measures": [
+    {
+     "wall_ms": 747.4,
+     "load_ms": 64.03,
+     "encode_ms": 588.48,
+     "infer_ms": 649.0,
+     "peak_rss_mb": 166.1,
+     "peak_private_mb": 656.5,
+     "audio_s": 3.6,
+     "rtf": 0.18
+    }
+   ],
+   "base_hint": "Aplicación de 250 mililitros de Cipermetrina.",
+   "base_hint_segs": [
+    "Aplicación de 250 mililitros de Cipermetrina."
+   ],
+   "base_hint_host_s": 0.85,
+   "base_hint_measures": [
+    {
+     "wall_ms": 846.4,
+     "load_ms": 69.47,
+     "encode_ms": 623.74,
+     "infer_ms": 751.6,
+     "peak_rss_mb": 195.1,
+     "peak_private_mb": 656.7,
+     "audio_s": 3.6,
+     "rtf": 0.209
+    }
+   ],
+   "small_hint": "Aplicación de 250 mililitros de Cipermetrina.",
+   "small_hint_segs": [
+    "Aplicación de 250 mililitros de Cipermetrina."
+   ],
+   "small_hint_host_s": 2.75,
+   "small_hint_measures": [
+    {
+     "wall_ms": 2747.8,
+     "load_ms": 151.06,
+     "encode_ms": 2253.82,
+     "infer_ms": 2559.4,
+     "peak_rss_mb": 389.0,
+     "peak_private_mb": 851.1,
+     "audio_s": 3.6,
+     "rtf": 0.711
+    }
+   ]
+  },
+  {
+   "file": "f05_laura.wav",
+   "ref": "aplicación de doscientos cincuenta mililitros de cipermetrina",
+   "vosk": "aplicación de doscientos cincuenta mililitros de me trina",
+   "vosk_segs": [
+    "aplicación de doscientos cincuenta mililitros de me trina"
+   ],
+   "vosk_segments": 1,
+   "vosk_partials": 9,
+   "vosk_first_partial_audio_ms": 900,
+   "base": "Aplicación de 250 ml de cíper metrina.",
+   "base_segs": [
+    "Aplicación de 250 ml de cíper metrina."
+   ],
+   "base_host_s": 0.86,
+   "base_measures": [
+    {
+     "wall_ms": 855.7,
+     "load_ms": 58.68,
+     "encode_ms": 598.51,
+     "infer_ms": 656.4,
+     "peak_rss_mb": 166.1,
+     "peak_private_mb": 656.5,
+     "audio_s": 3.96,
+     "rtf": 0.166
+    }
+   ],
+   "base_hint": "Aplicación de 250 mililitros de Cipermetrina.",
+   "base_hint_segs": [
+    "Aplicación de 250 mililitros de Cipermetrina."
+   ],
+   "base_hint_host_s": 0.8,
+   "base_hint_measures": [
+    {
+     "wall_ms": 804.9,
+     "load_ms": 61.08,
+     "encode_ms": 596.02,
+     "infer_ms": 716.7,
+     "peak_rss_mb": 195.0,
+     "peak_private_mb": 656.6,
+     "audio_s": 3.96,
+     "rtf": 0.181
+    }
+   ],
+   "small_hint": "Aplicación de 250 mililitros de Cipermetrina.",
+   "small_hint_segs": [
+    "Aplicación de 250 mililitros de Cipermetrina."
+   ],
+   "small_hint_host_s": 2.81,
+   "small_hint_measures": [
+    {
+     "wall_ms": 2814.2,
+     "load_ms": 142.08,
+     "encode_ms": 2255.5,
+     "infer_ms": 2634.9,
+     "peak_rss_mb": 389.2,
+     "peak_private_mb": 851.2,
+     "audio_s": 3.96,
+     "rtf": 0.665
+    }
+   ]
+  },
+  {
+   "file": "f05_pablo.wav",
+   "ref": "aplicación de doscientos cincuenta mililitros de cipermetrina",
+   "vosk": "aplicación de doscientos cincuenta mililitros de verme trina",
+   "vosk_segs": [
+    "aplicación de doscientos cincuenta mililitros de verme trina"
+   ],
+   "vosk_segments": 1,
+   "vosk_partials": 9,
+   "vosk_first_partial_audio_ms": 900,
+   "base": "Aplicación de 250 ml de cipermetrina.",
+   "base_segs": [
+    "Aplicación de 250 ml de cipermetrina."
+   ],
+   "base_host_s": 0.75,
+   "base_measures": [
+    {
+     "wall_ms": 754.1,
+     "load_ms": 59.98,
+     "encode_ms": 591.34,
+     "infer_ms": 658.1,
+     "peak_rss_mb": 166.2,
+     "peak_private_mb": 656.6,
+     "audio_s": 3.84,
+     "rtf": 0.171
+    }
+   ],
+   "base_hint": "Aplicación de 250 mililitros de Cipermetrina.",
+   "base_hint_segs": [
+    "Aplicación de 250 mililitros de Cipermetrina."
+   ],
+   "base_hint_host_s": 0.83,
+   "base_hint_measures": [
+    {
+     "wall_ms": 830.9,
+     "load_ms": 64.76,
+     "encode_ms": 598.96,
+     "infer_ms": 737.2,
+     "peak_rss_mb": 195.0,
+     "peak_private_mb": 656.5,
+     "audio_s": 3.84,
+     "rtf": 0.192
+    }
+   ],
+   "small_hint": "Aplicación de 250 mililitros de Cipermetrina.",
+   "small_hint_segs": [
+    "Aplicación de 250 mililitros de Cipermetrina."
+   ],
+   "small_hint_host_s": 2.78,
+   "small_hint_measures": [
+    {
+     "wall_ms": 2776.7,
+     "load_ms": 155.07,
+     "encode_ms": 2263.64,
+     "infer_ms": 2583.4,
+     "peak_rss_mb": 389.1,
+     "peak_private_mb": 851.1,
+     "audio_s": 3.84,
+     "rtf": 0.673
+    }
+   ]
+  },
+  {
+   "file": "f06_helena.wav",
+   "ref": "dos coma cinco litros de paraquat",
+   "vosk": "dos coma cinco litros de para coat",
+   "vosk_segs": [
+    "dos coma cinco litros de para coat"
+   ],
+   "vosk_segments": 1,
+   "vosk_partials": 7,
+   "vosk_first_partial_audio_ms": 400,
+   "base": "2,5 litros de paraquad.",
+   "base_segs": [
+    "2,5 litros de paraquad."
+   ],
+   "base_host_s": 0.84,
+   "base_measures": [
+    {
+     "wall_ms": 839.5,
+     "load_ms": 58.98,
+     "encode_ms": 592.0,
+     "infer_ms": 641.2,
+     "peak_rss_mb": 166.0,
+     "peak_private_mb": 656.4,
+     "audio_s": 2.22,
+     "rtf": 0.289
+    }
+   ],
+   "base_hint": "2,5 litros de Paraquat.",
+   "base_hint_segs": [
+    "2,5 litros de Paraquat."
+   ],
+   "base_hint_host_s": 0.78,
+   "base_hint_measures": [
+    {
+     "wall_ms": 779.5,
+     "load_ms": 60.28,
+     "encode_ms": 586.17,
+     "infer_ms": 695.1,
+     "peak_rss_mb": 194.9,
+     "peak_private_mb": 656.4,
+     "audio_s": 2.22,
+     "rtf": 0.313
+    }
+   ],
+   "small_hint": "2,5 litros de Paraquat.",
+   "small_hint_segs": [
+    "2,5 litros de Paraquat."
+   ],
+   "small_hint_host_s": 2.79,
+   "small_hint_measures": [
+    {
+     "wall_ms": 2787.2,
+     "load_ms": 139.86,
+     "encode_ms": 2229.86,
+     "infer_ms": 2506.9,
+     "peak_rss_mb": 388.9,
+     "peak_private_mb": 851.0,
+     "audio_s": 2.22,
+     "rtf": 1.129
+    }
+   ]
+  },
+  {
+   "file": "f06_laura.wav",
+   "ref": "dos coma cinco litros de paraquat",
+   "vosk": "dos coma cinco litros de para coat",
+   "vosk_segs": [
+    "dos coma cinco litros de para coat"
+   ],
+   "vosk_segments": 1,
+   "vosk_partials": 7,
+   "vosk_first_partial_audio_ms": 400,
+   "base": "2,5 litros de paraquad.",
+   "base_segs": [
+    "2,5 litros de paraquad."
+   ],
+   "base_host_s": 0.78,
+   "base_measures": [
+    {
+     "wall_ms": 775.2,
+     "load_ms": 76.93,
+     "encode_ms": 611.79,
+     "infer_ms": 664.2,
+     "peak_rss_mb": 166.1,
+     "peak_private_mb": 656.6,
+     "audio_s": 2.37,
+     "rtf": 0.28
+    }
+   ],
+   "base_hint": "2,5 litros de Paraquat.",
+   "base_hint_segs": [
+    "2,5 litros de Paraquat."
+   ],
+   "base_hint_host_s": 0.79,
+   "base_hint_measures": [
+    {
+     "wall_ms": 788.6,
+     "load_ms": 63.24,
+     "encode_ms": 589.34,
+     "infer_ms": 699.9,
+     "peak_rss_mb": 194.9,
+     "peak_private_mb": 656.4,
+     "audio_s": 2.37,
+     "rtf": 0.295
+    }
+   ],
+   "small_hint": "2,5 litros de Paraquat.",
+   "small_hint_segs": [
+    "2,5 litros de Paraquat."
+   ],
+   "small_hint_host_s": 2.7,
+   "small_hint_measures": [
+    {
+     "wall_ms": 2702.4,
+     "load_ms": 143.86,
+     "encode_ms": 2245.61,
+     "infer_ms": 2524.5,
+     "peak_rss_mb": 388.9,
+     "peak_private_mb": 851.0,
+     "audio_s": 2.37,
+     "rtf": 1.065
+    }
+   ]
+  },
+  {
+   "file": "f06_pablo.wav",
+   "ref": "dos coma cinco litros de paraquat",
+   "vosk": "dos coma cinco litros de para coat",
+   "vosk_segs": [
+    "dos coma cinco litros de para coat"
+   ],
+   "vosk_segments": 1,
+   "vosk_partials": 6,
+   "vosk_first_partial_audio_ms": 700,
+   "base": "2,5 litros de paraquad.",
+   "base_segs": [
+    "2,5 litros de paraquad."
+   ],
+   "base_host_s": 0.75,
+   "base_measures": [
+    {
+     "wall_ms": 745.3,
+     "load_ms": 60.15,
+     "encode_ms": 595.3,
+     "infer_ms": 648.2,
+     "peak_rss_mb": 166.0,
+     "peak_private_mb": 656.4,
+     "audio_s": 2.28,
+     "rtf": 0.284
+    }
+   ],
+   "base_hint": "Los coma cinco litros de Paraquat.",
+   "base_hint_segs": [
+    "Los coma cinco litros de Paraquat."
+   ],
+   "base_hint_host_s": 0.78,
+   "base_hint_measures": [
+    {
+     "wall_ms": 778.0,
+     "load_ms": 64.23,
+     "encode_ms": 577.78,
+     "infer_ms": 688.7,
+     "peak_rss_mb": 194.8,
+     "peak_private_mb": 656.4,
+     "audio_s": 2.28,
+     "rtf": 0.302
+    }
+   ],
+   "small_hint": "2,5 litros de Paraquat.",
+   "small_hint_segs": [
+    "2,5 litros de Paraquat."
+   ],
+   "small_hint_host_s": 2.85,
+   "small_hint_measures": [
+    {
+     "wall_ms": 2849.5,
+     "load_ms": 141.5,
+     "encode_ms": 2265.79,
+     "infer_ms": 2554.9,
+     "peak_rss_mb": 388.8,
+     "peak_private_mb": 851.0,
+     "audio_s": 2.28,
+     "rtf": 1.121
+    }
+   ]
+  },
+  {
+   "file": "f07_helena.wav",
+   "ref": "tres kilogramos y medio de atrazina",
+   "vosk": "tres kilogramos y medio de atrás tina",
+   "vosk_segs": [
+    "tres kilogramos y medio de atrás tina"
+   ],
+   "vosk_segments": 1,
+   "vosk_partials": 6,
+   "vosk_first_partial_audio_ms": 700,
+   "base": "3 kg y medio de atracina.",
+   "base_segs": [
+    "3 kg y medio de atracina."
+   ],
+   "base_host_s": 0.77,
+   "base_measures": [
+    {
+     "wall_ms": 774.6,
+     "load_ms": 59.08,
+     "encode_ms": 601.68,
+     "infer_ms": 660.7,
+     "peak_rss_mb": 166.0,
+     "peak_private_mb": 656.4,
+     "audio_s": 2.4,
+     "rtf": 0.275
+    }
+   ],
+   "base_hint": "3 kg y medio de Atrazina.",
+   "base_hint_segs": [
+    "3 kg y medio de Atrazina."
+   ],
+   "base_hint_host_s": 0.88,
+   "base_hint_measures": [
+    {
+     "wall_ms": 879.6,
+     "load_ms": 73.63,
+     "encode_ms": 662.69,
+     "infer_ms": 777.2,
+     "peak_rss_mb": 194.9,
+     "peak_private_mb": 656.4,
+     "audio_s": 2.4,
+     "rtf": 0.324
+    }
+   ],
+   "small_hint": "3 kg y medio de Atrazina.",
+   "small_hint_segs": [
+    "3 kg y medio de Atrazina."
+   ],
+   "small_hint_host_s": 2.84,
+   "small_hint_measures": [
+    {
+     "wall_ms": 2842.7,
+     "load_ms": 144.64,
+     "encode_ms": 2279.29,
+     "infer_ms": 2551.8,
+     "peak_rss_mb": 389.0,
+     "peak_private_mb": 851.2,
+     "audio_s": 2.4,
+     "rtf": 1.063
+    }
+   ]
+  },
+  {
+   "file": "f07_laura.wav",
+   "ref": "tres kilogramos y medio de atrazina",
+   "vosk": "tres kilogramos y medio de atrás china",
+   "vosk_segs": [
+    "tres kilogramos y medio de atrás china"
+   ],
+   "vosk_segments": 1,
+   "vosk_partials": 7,
+   "vosk_first_partial_audio_ms": 700,
+   "base": "3 kg y medio de atracina.",
+   "base_segs": [
+    "3 kg y medio de atracina."
+   ],
+   "base_host_s": 0.72,
+   "base_measures": [
+    {
+     "wall_ms": 724.5,
+     "load_ms": 62.21,
+     "encode_ms": 578.15,
+     "infer_ms": 625.2,
+     "peak_rss_mb": 166.1,
+     "peak_private_mb": 656.4,
+     "audio_s": 2.49,
+     "rtf": 0.251
+    }
+   ],
+   "base_hint": "3 kg y medio de Atrazina.",
+   "base_hint_segs": [
+    "3 kg y medio de Atrazina."
+   ],
+   "base_hint_host_s": 0.78,
+   "base_hint_measures": [
+    {
+     "wall_ms": 775.2,
+     "load_ms": 61.44,
+     "encode_ms": 576.23,
+     "infer_ms": 688.2,
+     "peak_rss_mb": 195.0,
+     "peak_private_mb": 656.4,
+     "audio_s": 2.49,
+     "rtf": 0.276
+    }
+   ],
+   "small_hint": "3 kg y medio de Atrazina.",
+   "small_hint_segs": [
+    "3 kg y medio de Atrazina."
+   ],
+   "small_hint_host_s": 2.82,
+   "small_hint_measures": [
+    {
+     "wall_ms": 2822.8,
+     "load_ms": 147.18,
+     "encode_ms": 2269.03,
+     "infer_ms": 2540.0,
+     "peak_rss_mb": 389.0,
+     "peak_private_mb": 851.1,
+     "audio_s": 2.49,
+     "rtf": 1.02
+    }
+   ]
+  },
+  {
+   "file": "f07_pablo.wav",
+   "ref": "tres kilogramos y medio de atrazina",
+   "vosk": "tres kilogramos y medio de atrás cina",
+   "vosk_segs": [
+    "tres kilogramos y medio de atrás cina"
+   ],
+   "vosk_segments": 1,
+   "vosk_partials": 6,
+   "vosk_first_partial_audio_ms": 700,
+   "base": "3 kilogramos y medio de atracina.",
+   "base_segs": [
+    "3 kilogramos y medio de atracina."
+   ],
+   "base_host_s": 0.74,
+   "base_measures": [
+    {
+     "wall_ms": 742.1,
+     "load_ms": 59.26,
+     "encode_ms": 585.85,
+     "infer_ms": 638.2,
+     "peak_rss_mb": 166.1,
+     "peak_private_mb": 656.4,
+     "audio_s": 2.4,
+     "rtf": 0.266
+    }
+   ],
+   "base_hint": "3 kg y medio de Atrazina.",
+   "base_hint_segs": [
+    "3 kg y medio de Atrazina."
+   ],
+   "base_hint_host_s": 0.82,
+   "base_hint_measures": [
+    {
+     "wall_ms": 820.5,
+     "load_ms": 59.69,
+     "encode_ms": 606.62,
+     "infer_ms": 731.7,
+     "peak_rss_mb": 194.8,
+     "peak_private_mb": 656.4,
+     "audio_s": 2.4,
+     "rtf": 0.305
+    }
+   ],
+   "small_hint": "3 kg y medio de Atrazina.",
+   "small_hint_segs": [
+    "3 kg y medio de Atrazina."
+   ],
+   "small_hint_host_s": 2.76,
+   "small_hint_measures": [
+    {
+     "wall_ms": 2757.6,
+     "load_ms": 171.15,
+     "encode_ms": 2272.54,
+     "infer_ms": 2547.3,
+     "peak_rss_mb": 388.9,
+     "peak_private_mb": 851.0,
+     "audio_s": 2.4,
+     "rtf": 1.061
+    }
+   ]
+  },
+  {
+   "file": "f08_helena.wav",
+   "ref": "Beto Mamani recibió un litro de tebuconazole",
+   "vosk": "me mamani recibió un litro de temuco con azules",
+   "vosk_segs": [
+    "me mamani recibió un litro de temuco con azules"
+   ],
+   "vosk_segments": 1,
+   "vosk_partials": 9,
+   "vosk_first_partial_audio_ms": 400,
+   "base": "Veto mamá ni recibió un litro de tebucona sole.",
+   "base_segs": [
+    "Veto mamá ni recibió un litro de tebucona sole."
+   ],
+   "base_host_s": 0.76,
+   "base_measures": [
+    {
+     "wall_ms": 760.4,
+     "load_ms": 64.75,
+     "encode_ms": 591.94,
+     "infer_ms": 658.8,
+     "peak_rss_mb": 166.2,
+     "peak_private_mb": 656.6,
+     "audio_s": 2.82,
+     "rtf": 0.234
+    }
+   ],
+   "base_hint": "Beto Mamani recibió un litro de Tebuconazole.",
+   "base_hint_segs": [
+    "Beto Mamani recibió un litro de Tebuconazole."
+   ],
+   "base_hint_host_s": 0.82,
+   "base_hint_measures": [
+    {
+     "wall_ms": 823.8,
+     "load_ms": 61.32,
+     "encode_ms": 606.16,
+     "infer_ms": 736.9,
+     "peak_rss_mb": 194.9,
+     "peak_private_mb": 656.6,
+     "audio_s": 2.82,
+     "rtf": 0.261
+    }
+   ],
+   "small_hint": "Beto Mamani recibió un litro de Tebuconazole.",
+   "small_hint_segs": [
+    "Beto Mamani recibió un litro de Tebuconazole."
+   ],
+   "small_hint_host_s": 2.74,
+   "small_hint_measures": [
+    {
+     "wall_ms": 2740.4,
+     "load_ms": 144.12,
+     "encode_ms": 2233.73,
+     "infer_ms": 2563.3,
+     "peak_rss_mb": 388.9,
+     "peak_private_mb": 851.1,
+     "audio_s": 2.82,
+     "rtf": 0.909
+    }
+   ]
+  },
+  {
+   "file": "f08_laura.wav",
+   "ref": "Beto Mamani recibió un litro de tebuconazole",
+   "vosk": "de mamani recibió un litro de con sole",
+   "vosk_segs": [
+    "de mamani recibió un litro de con sole"
+   ],
+   "vosk_segments": 1,
+   "vosk_partials": 10,
+   "vosk_first_partial_audio_ms": 700,
+   "base": "Beto Mamá ni recibió un litro de tebucona sole.",
+   "base_segs": [
+    "Beto Mamá ni recibió un litro de tebucona sole."
+   ],
+   "base_host_s": 0.75,
+   "base_measures": [
+    {
+     "wall_ms": 750.2,
+     "load_ms": 60.69,
+     "encode_ms": 580.87,
+     "infer_ms": 650.4,
+     "peak_rss_mb": 166.1,
+     "peak_private_mb": 656.5,
+     "audio_s": 3.09,
+     "rtf": 0.21
+    }
+   ],
+   "base_hint": "Beto Mamani recibió un litro de Tebuconazole.",
+   "base_hint_segs": [
+    "Beto Mamani recibió un litro de Tebuconazole."
+   ],
+   "base_hint_host_s": 0.8,
+   "base_hint_measures": [
+    {
+     "wall_ms": 803.0,
+     "load_ms": 60.68,
+     "encode_ms": 592.22,
+     "infer_ms": 718.7,
+     "peak_rss_mb": 194.9,
+     "peak_private_mb": 656.5,
+     "audio_s": 3.09,
+     "rtf": 0.233
+    }
+   ],
+   "small_hint": "Beto Mamani recibió un litro de Tebuconazole.",
+   "small_hint_segs": [
+    "Beto Mamani recibió un litro de Tebuconazole."
+   ],
+   "small_hint_host_s": 2.94,
+   "small_hint_measures": [
+    {
+     "wall_ms": 2943.0,
+     "load_ms": 145.75,
+     "encode_ms": 2419.81,
+     "infer_ms": 2763.2,
+     "peak_rss_mb": 389.0,
+     "peak_private_mb": 851.1,
+     "audio_s": 3.09,
+     "rtf": 0.894
+    }
+   ]
+  },
+  {
+   "file": "f08_pablo.wav",
+   "ref": "Beto Mamani recibió un litro de tebuconazole",
+   "vosk": "toma y recibió un litro de gasóleo",
+   "vosk_segs": [
+    "toma y recibió un litro de gasóleo"
+   ],
+   "vosk_segments": 1,
+   "vosk_partials": 8,
+   "vosk_first_partial_audio_ms": 900,
+   "base": "Veto mamá ni recibió un litro de tebucona sole.",
+   "base_segs": [
+    "Veto mamá ni recibió un litro de tebucona sole."
+   ],
+   "base_host_s": 0.86,
+   "base_measures": [
+    {
+     "wall_ms": 859.9,
+     "load_ms": 61.31,
+     "encode_ms": 585.31,
+     "infer_ms": 655.3,
+     "peak_rss_mb": 166.1,
+     "peak_private_mb": 656.5,
+     "audio_s": 3.0,
+     "rtf": 0.218
+    }
+   ],
+   "base_hint": "Beto Mamani recibió un litro de Tebuconazole.",
+   "base_hint_segs": [
+    "Beto Mamani recibió un litro de Tebuconazole."
+   ],
+   "base_hint_host_s": 0.82,
+   "base_hint_measures": [
+    {
+     "wall_ms": 819.1,
+     "load_ms": 62.93,
+     "encode_ms": 598.29,
+     "infer_ms": 730.5,
+     "peak_rss_mb": 194.9,
+     "peak_private_mb": 656.5,
+     "audio_s": 3.0,
+     "rtf": 0.244
+    }
+   ],
+   "small_hint": "Beto Mamani recibió un litro de Tebuconazole.",
+   "small_hint_segs": [
+    "Beto Mamani recibió un litro de Tebuconazole."
+   ],
+   "small_hint_host_s": 2.82,
+   "small_hint_measures": [
+    {
+     "wall_ms": 2815.4,
+     "load_ms": 149.23,
+     "encode_ms": 2292.84,
+     "infer_ms": 2631.6,
+     "peak_rss_mb": 389.0,
+     "peak_private_mb": 851.1,
+     "audio_s": 3.0,
+     "rtf": 0.877
+    }
+   ]
+  },
+  {
+   "file": "f09_helena.wav",
+   "ref": "quinientos gramos de glifosato a ochenta bolivianos el kilo",
+   "vosk": "quinientos gramos de glifosato a ochenta bolivianos el kilo",
+   "vosk_segs": [
+    "quinientos gramos de glifosato a ochenta bolivianos el kilo"
+   ],
+   "vosk_segments": 1,
+   "vosk_partials": 8,
+   "vosk_first_partial_audio_ms": 700,
+   "base": "500 gramos de glyfosa toa 80 bolivianos el kilo.",
+   "base_segs": [
+    "500 gramos de glyfosa toa 80 bolivianos el kilo."
+   ],
+   "base_host_s": 0.87,
+   "base_measures": [
+    {
+     "wall_ms": 871.5,
+     "load_ms": 62.5,
+     "encode_ms": 585.02,
+     "infer_ms": 657.2,
+     "peak_rss_mb": 166.1,
+     "peak_private_mb": 656.5,
+     "audio_s": 3.39,
+     "rtf": 0.194
+    }
+   ],
+   "base_hint": "500 gramos de glifosato a 80 bolivianos el kilo.",
+   "base_hint_segs": [
+    "500 gramos de glifosato a 80 bolivianos el kilo."
+   ],
+   "base_hint_host_s": 0.93,
+   "base_hint_measures": [
+    {
+     "wall_ms": 927.4,
+     "load_ms": 63.45,
+     "encode_ms": 592.56,
+     "infer_ms": 728.1,
+     "peak_rss_mb": 195.0,
+     "peak_private_mb": 656.5,
+     "audio_s": 3.39,
+     "rtf": 0.215
+    }
+   ],
+   "small_hint": "500 gramos de glifosato a 80 bolivianos el kilo.",
+   "small_hint_segs": [
+    "500 gramos de glifosato a 80 bolivianos el kilo."
+   ],
+   "small_hint_host_s": 2.91,
+   "small_hint_measures": [
+    {
+     "wall_ms": 2913.7,
+     "load_ms": 149.0,
+     "encode_ms": 2384.05,
+     "infer_ms": 2728.8,
+     "peak_rss_mb": 389.1,
+     "peak_private_mb": 851.3,
+     "audio_s": 3.39,
+     "rtf": 0.805
+    }
+   ]
+  },
+  {
+   "file": "f09_laura.wav",
+   "ref": "quinientos gramos de glifosato a ochenta bolivianos el kilo",
+   "vosk": "quinientos gramos de glifosato a ochenta bolivianos el kilo",
+   "vosk_segs": [
+    "quinientos gramos de glifosato a ochenta bolivianos el kilo"
+   ],
+   "vosk_segments": 1,
+   "vosk_partials": 8,
+   "vosk_first_partial_audio_ms": 700,
+   "base": "500 gramos de glyfosato a 80 bolivianos el kilo.",
+   "base_segs": [
+    "500 gramos de glyfosato a 80 bolivianos el kilo."
+   ],
+   "base_host_s": 0.87,
+   "base_measures": [
+    {
+     "wall_ms": 873.4,
+     "load_ms": 62.27,
+     "encode_ms": 579.46,
+     "infer_ms": 656.4,
+     "peak_rss_mb": 166.2,
+     "peak_private_mb": 656.6,
+     "audio_s": 3.81,
+     "rtf": 0.172
+    }
+   ],
+   "base_hint": "500 gramos de glifosato a 80 bolivianos el kilo.",
+   "base_hint_segs": [
+    "500 gramos de glifosato a 80 bolivianos el kilo."
+   ],
+   "base_hint_host_s": 0.82,
+   "base_hint_measures": [
+    {
+     "wall_ms": 815.2,
+     "load_ms": 63.29,
+     "encode_ms": 595.09,
+     "infer_ms": 726.8,
+     "peak_rss_mb": 195.0,
+     "peak_private_mb": 656.5,
+     "audio_s": 3.81,
+     "rtf": 0.191
+    }
+   ],
+   "small_hint": "500 gramos de glifosato a 80 bolivianos el kilo.",
+   "small_hint_segs": [
+    "500 gramos de glifosato a 80 bolivianos el kilo."
+   ],
+   "small_hint_host_s": 2.79,
+   "small_hint_measures": [
+    {
+     "wall_ms": 2792.8,
+     "load_ms": 152.46,
+     "encode_ms": 2256.37,
+     "infer_ms": 2600.9,
+     "peak_rss_mb": 389.0,
+     "peak_private_mb": 851.2,
+     "audio_s": 3.81,
+     "rtf": 0.683
+    }
+   ]
+  },
+  {
+   "file": "f09_pablo.wav",
+   "ref": "quinientos gramos de glifosato a ochenta bolivianos el kilo",
+   "vosk": "quinientos gramos de glifosato a ochenta bolivianos el kilo",
+   "vosk_segs": [
+    "quinientos gramos de glifosato a ochenta bolivianos el kilo"
+   ],
+   "vosk_segments": 1,
+   "vosk_partials": 8,
+   "vosk_first_partial_audio_ms": 700,
+   "base": "500 gramos de glyfosato a 80 bolivianos el kilo.",
+   "base_segs": [
+    "500 gramos de glyfosato a 80 bolivianos el kilo."
+   ],
+   "base_host_s": 0.75,
+   "base_measures": [
+    {
+     "wall_ms": 750.2,
+     "load_ms": 60.61,
+     "encode_ms": 585.56,
+     "infer_ms": 658.9,
+     "peak_rss_mb": 166.1,
+     "peak_private_mb": 656.6,
+     "audio_s": 3.66,
+     "rtf": 0.18
+    }
+   ],
+   "base_hint": "500 gramos de glifosato a 80 bolivianos el kilo.",
+   "base_hint_segs": [
+    "500 gramos de glifosato a 80 bolivianos el kilo."
+   ],
+   "base_hint_host_s": 0.81,
+   "base_hint_measures": [
+    {
+     "wall_ms": 812.1,
+     "load_ms": 61.14,
+     "encode_ms": 590.58,
+     "infer_ms": 724.0,
+     "peak_rss_mb": 195.0,
+     "peak_private_mb": 656.6,
+     "audio_s": 3.66,
+     "rtf": 0.198
+    }
+   ],
+   "small_hint": "500 gramos de glifosato a 80 bolivianos el kilo.",
+   "small_hint_segs": [
+    "500 gramos de glifosato a 80 bolivianos el kilo."
+   ],
+   "small_hint_host_s": 2.94,
+   "small_hint_measures": [
+    {
+     "wall_ms": 2940.7,
+     "load_ms": 150.37,
+     "encode_ms": 2407.59,
+     "infer_ms": 2750.5,
+     "peak_rss_mb": 389.1,
+     "peak_private_mb": 851.2,
+     "audio_s": 3.66,
+     "rtf": 0.752
+    }
+   ]
+  },
+  {
+   "file": "f10_helena.wav",
+   "ref": "registrar una compra de cuatro litros de herbicida",
+   "vosk": "registrar una compra de cuatro litros de herbicidas",
+   "vosk_segs": [
+    "registrar una compra de cuatro litros de herbicidas"
+   ],
+   "vosk_segments": 1,
+   "vosk_partials": 8,
+   "vosk_first_partial_audio_ms": 900,
+   "base": "Registrar una compra de 4 litros de herbicida.",
+   "base_segs": [
+    "Registrar una compra de 4 litros de herbicida."
+   ],
+   "base_host_s": 0.77,
+   "base_measures": [
+    {
+     "wall_ms": 767.0,
+     "load_ms": 62.97,
+     "encode_ms": 600.85,
+     "infer_ms": 665.6,
+     "peak_rss_mb": 166.1,
+     "peak_private_mb": 656.5,
+     "audio_s": 2.91,
+     "rtf": 0.229
+    }
+   ],
+   "base_hint": "Registrar una compra de 4 litros de Herbicida.",
+   "base_hint_segs": [
+    "Registrar una compra de 4 litros de Herbicida."
+   ],
+   "base_hint_host_s": 0.8,
+   "base_hint_measures": [
+    {
+     "wall_ms": 800.4,
+     "load_ms": 62.01,
+     "encode_ms": 594.04,
+     "infer_ms": 713.5,
+     "peak_rss_mb": 194.9,
+     "peak_private_mb": 656.5,
+     "audio_s": 2.91,
+     "rtf": 0.245
+    }
+   ],
+   "small_hint": "Registrar una compra de 4 litros de herbicida.",
+   "small_hint_segs": [
+    "Registrar una compra de 4 litros de herbicida."
+   ],
+   "small_hint_host_s": 2.79,
+   "small_hint_measures": [
+    {
+     "wall_ms": 2790.4,
+     "load_ms": 141.86,
+     "encode_ms": 2283.18,
+     "infer_ms": 2612.4,
+     "peak_rss_mb": 389.1,
+     "peak_private_mb": 851.1,
+     "audio_s": 2.91,
+     "rtf": 0.898
+    }
+   ]
+  },
+  {
+   "file": "f10_laura.wav",
+   "ref": "registrar una compra de cuatro litros de herbicida",
+   "vosk": "registrar una compra de cuatro litros de herbicidas",
+   "vosk_segs": [
+    "registrar una compra de cuatro litros de herbicidas"
+   ],
+   "vosk_segments": 1,
+   "vosk_partials": 7,
+   "vosk_first_partial_audio_ms": 1200,
+   "base": "Registrar una compra de 4 litros de herbicida.",
+   "base_segs": [
+    "Registrar una compra de 4 litros de herbicida."
+   ],
+   "base_host_s": 0.8,
+   "base_measures": [
+    {
+     "wall_ms": 795.2,
+     "load_ms": 67.33,
+     "encode_ms": 612.19,
+     "infer_ms": 681.6,
+     "peak_rss_mb": 166.1,
+     "peak_private_mb": 656.5,
+     "audio_s": 3.24,
+     "rtf": 0.21
+    }
+   ],
+   "base_hint": "Registrar una compra de 4 litros de Herbicida.",
+   "base_hint_segs": [
+    "Registrar una compra de 4 litros de Herbicida."
+   ],
+   "base_hint_host_s": 0.98,
+   "base_hint_measures": [
+    {
+     "wall_ms": 982.7,
+     "load_ms": 67.93,
+     "encode_ms": 651.61,
+     "infer_ms": 783.8,
+     "peak_rss_mb": 195.0,
+     "peak_private_mb": 656.5,
+     "audio_s": 3.24,
+     "rtf": 0.242
+    }
+   ],
+   "small_hint": "Registrar una compra de 4 litros de herbicida.",
+   "small_hint_segs": [
+    "Registrar una compra de 4 litros de herbicida."
+   ],
+   "small_hint_host_s": 2.96,
+   "small_hint_measures": [
+    {
+     "wall_ms": 2962.7,
+     "load_ms": 155.25,
+     "encode_ms": 2454.18,
+     "infer_ms": 2771.3,
+     "peak_rss_mb": 388.9,
+     "peak_private_mb": 851.1,
+     "audio_s": 3.24,
+     "rtf": 0.855
+    }
+   ]
+  },
+  {
+   "file": "f10_pablo.wav",
+   "ref": "registrar una compra de cuatro litros de herbicida",
+   "vosk": "registrar una compra de cuatro litros de herbicidas",
+   "vosk_segs": [
+    "registrar una compra de cuatro litros de herbicidas"
+   ],
+   "vosk_segments": 1,
+   "vosk_partials": 5,
+   "vosk_first_partial_audio_ms": 1200,
+   "base": "Registrar una compra de 4 litros de herbicida.",
+   "base_segs": [
+    "Registrar una compra de 4 litros de herbicida."
+   ],
+   "base_host_s": 0.74,
+   "base_measures": [
+    {
+     "wall_ms": 740.1,
+     "load_ms": 60.7,
+     "encode_ms": 584.33,
+     "infer_ms": 650.8,
+     "peak_rss_mb": 166.1,
+     "peak_private_mb": 656.5,
+     "audio_s": 3.12,
+     "rtf": 0.209
+    }
+   ],
+   "base_hint": "Registrar una compra de 4 litros de Herbicida.",
+   "base_hint_segs": [
+    "Registrar una compra de 4 litros de Herbicida."
+   ],
+   "base_hint_host_s": 0.82,
+   "base_hint_measures": [
+    {
+     "wall_ms": 815.8,
+     "load_ms": 62.64,
+     "encode_ms": 601.68,
+     "infer_ms": 727.6,
+     "peak_rss_mb": 195.0,
+     "peak_private_mb": 656.5,
+     "audio_s": 3.12,
+     "rtf": 0.233
+    }
+   ],
+   "small_hint": "Registrar una compra de 4 litros de herbicida.",
+   "small_hint_segs": [
+    "Registrar una compra de 4 litros de herbicida."
+   ],
+   "small_hint_host_s": 2.88,
+   "small_hint_measures": [
+    {
+     "wall_ms": 2878.9,
+     "load_ms": 145.3,
+     "encode_ms": 2273.99,
+     "infer_ms": 2591.7,
+     "peak_rss_mb": 389.0,
+     "peak_private_mb": 851.1,
+     "audio_s": 3.12,
+     "rtf": 0.831
+    }
+   ]
+  },
+  {
+   "file": "f11_helena.wav",
+   "ref": "necesito dieciocho litros de fungicida para la próxima campaña",
+   "vosk": "necesito dieciocho litros de fungicida para la próxima campaña",
+   "vosk_segs": [
+    "necesito dieciocho litros de fungicida para la próxima campaña"
+   ],
+   "vosk_segments": 1,
+   "vosk_partials": 7,
+   "vosk_first_partial_audio_ms": 900,
+   "base": "Necesito 18 litros de fungicida para la próxima campaña.",
+   "base_segs": [
+    "Necesito 18 litros de fungicida para la próxima campaña."
+   ],
+   "base_host_s": 0.75,
+   "base_measures": [
+    {
+     "wall_ms": 754.1,
+     "load_ms": 59.06,
+     "encode_ms": 589.59,
+     "infer_ms": 657.5,
+     "peak_rss_mb": 166.3,
+     "peak_private_mb": 656.6,
+     "audio_s": 3.81,
+     "rtf": 0.173
+    }
+   ],
+   "base_hint": "Necesito 18 litros de fungicida para la próxima campaña.",
+   "base_hint_segs": [
+    "Necesito 18 litros de fungicida para la próxima campaña."
+   ],
+   "base_hint_host_s": 0.82,
+   "base_hint_measures": [
+    {
+     "wall_ms": 819.9,
+     "load_ms": 61.79,
+     "encode_ms": 597.9,
+     "infer_ms": 728.8,
+     "peak_rss_mb": 195.0,
+     "peak_private_mb": 656.5,
+     "audio_s": 3.81,
+     "rtf": 0.191
+    }
+   ],
+   "small_hint": "Necesito 18 litros de fungicida para la próxima campaña.",
+   "small_hint_segs": [
+    "Necesito 18 litros de fungicida para la próxima campaña."
+   ],
+   "small_hint_host_s": 2.9,
+   "small_hint_measures": [
+    {
+     "wall_ms": 2904.2,
+     "load_ms": 140.89,
+     "encode_ms": 2379.4,
+     "infer_ms": 2720.5,
+     "peak_rss_mb": 389.1,
+     "peak_private_mb": 851.2,
+     "audio_s": 3.81,
+     "rtf": 0.714
+    }
+   ]
+  },
+  {
+   "file": "f11_laura.wav",
+   "ref": "necesito dieciocho litros de fungicida para la próxima campaña",
+   "vosk": "necesito dieciocho litros de fungicida para la próxima campaña",
+   "vosk_segs": [
+    "necesito dieciocho litros de fungicida para la próxima campaña"
+   ],
+   "vosk_segments": 1,
+   "vosk_partials": 8,
+   "vosk_first_partial_audio_ms": 900,
+   "base": "Necesito 18 litros de fungicida para la próxima campaña.",
+   "base_segs": [
+    "Necesito 18 litros de fungicida para la próxima campaña."
+   ],
+   "base_host_s": 0.87,
+   "base_measures": [
+    {
+     "wall_ms": 869.3,
+     "load_ms": 59.64,
+     "encode_ms": 597.23,
+     "infer_ms": 665.7,
+     "peak_rss_mb": 166.2,
+     "peak_private_mb": 656.6,
+     "audio_s": 4.23,
+     "rtf": 0.157
+    }
+   ],
+   "base_hint": "Necesito 18 litros de fungicida para la próxima campaña.",
+   "base_hint_segs": [
+    "Necesito 18 litros de fungicida para la próxima campaña."
+   ],
+   "base_hint_host_s": 0.92,
+   "base_hint_measures": [
+    {
+     "wall_ms": 918.4,
+     "load_ms": 62.67,
+     "encode_ms": 604.16,
+     "infer_ms": 730.5,
+     "peak_rss_mb": 195.0,
+     "peak_private_mb": 656.6,
+     "audio_s": 4.23,
+     "rtf": 0.173
+    }
+   ],
+   "small_hint": "Necesito 18 litros de fungicida para la próxima campaña.",
+   "small_hint_segs": [
+    "Necesito 18 litros de fungicida para la próxima campaña."
+   ],
+   "small_hint_host_s": 2.82,
+   "small_hint_measures": [
+    {
+     "wall_ms": 2817.8,
+     "load_ms": 143.68,
+     "encode_ms": 2298.44,
+     "infer_ms": 2632.0,
+     "peak_rss_mb": 389.0,
+     "peak_private_mb": 851.2,
+     "audio_s": 4.23,
+     "rtf": 0.622
+    }
+   ]
+  },
+  {
+   "file": "f11_pablo.wav",
+   "ref": "necesito dieciocho litros de fungicida para la próxima campaña",
+   "vosk": "necesito diez y ocho litros de fungicida para la próxima campaña",
+   "vosk_segs": [
+    "necesito diez y ocho litros de fungicida para la próxima campaña"
+   ],
+   "vosk_segments": 1,
+   "vosk_partials": 7,
+   "vosk_first_partial_audio_ms": 900,
+   "base": "Necesito 18 litros de fungicida para la próxima campaña.",
+   "base_segs": [
+    "Necesito 18 litros de fungicida para la próxima campaña."
+   ],
+   "base_host_s": 0.76,
+   "base_measures": [
+    {
+     "wall_ms": 763.7,
+     "load_ms": 61.54,
+     "encode_ms": 592.73,
+     "infer_ms": 659.5,
+     "peak_rss_mb": 166.2,
+     "peak_private_mb": 656.6,
+     "audio_s": 4.05,
+     "rtf": 0.163
+    }
+   ],
+   "base_hint": "Necesito 18 litros de fungicida para la próxima campaña.",
+   "base_hint_segs": [
+    "Necesito 18 litros de fungicida para la próxima campaña."
+   ],
+   "base_hint_host_s": 0.84,
+   "base_hint_measures": [
+    {
+     "wall_ms": 841.2,
+     "load_ms": 66.74,
+     "encode_ms": 608.11,
+     "infer_ms": 743.1,
+     "peak_rss_mb": 195.0,
+     "peak_private_mb": 656.6,
+     "audio_s": 4.05,
+     "rtf": 0.183
+    }
+   ],
+   "small_hint": "Necesito 18 litros de fungicida para la próxima campaña.",
+   "small_hint_segs": [
+    "Necesito 18 litros de fungicida para la próxima campaña."
+   ],
+   "small_hint_host_s": 2.95,
+   "small_hint_measures": [
+    {
+     "wall_ms": 2949.4,
+     "load_ms": 150.13,
+     "encode_ms": 2396.88,
+     "infer_ms": 2751.0,
+     "peak_rss_mb": 389.0,
+     "peak_private_mb": 851.2,
+     "audio_s": 4.05,
+     "rtf": 0.679
+    }
+   ]
+  },
+  {
+   "file": "f12_helena.wav",
+   "ref": "pagué mil doscientos bolivianos al proveedor",
+   "vosk": "pague mil doscientos bolivianos al proveedor",
+   "vosk_segs": [
+    "pague mil doscientos bolivianos al proveedor"
+   ],
+   "vosk_segments": 1,
+   "vosk_partials": 7,
+   "vosk_first_partial_audio_ms": 900,
+   "base": "Pague 1200 bolivianos al proveedor.",
+   "base_segs": [
+    "Pague 1200 bolivianos al proveedor."
+   ],
+   "base_host_s": 0.76,
+   "base_measures": [
+    {
+     "wall_ms": 756.2,
+     "load_ms": 64.34,
+     "encode_ms": 598.65,
+     "infer_ms": 656.8,
+     "peak_rss_mb": 166.1,
+     "peak_private_mb": 656.4,
+     "audio_s": 2.7,
+     "rtf": 0.243
+    }
+   ],
+   "base_hint": "Pague 1200 bolivianos al proveedor.",
+   "base_hint_segs": [
+    "Pague 1200 bolivianos al proveedor."
+   ],
+   "base_hint_host_s": 0.81,
+   "base_hint_measures": [
+    {
+     "wall_ms": 805.8,
+     "load_ms": 61.88,
+     "encode_ms": 591.91,
+     "infer_ms": 714.9,
+     "peak_rss_mb": 194.9,
+     "peak_private_mb": 656.4,
+     "audio_s": 2.7,
+     "rtf": 0.265
+    }
+   ],
+   "small_hint": "Pagué 1200 bolivianos al proveedor.",
+   "small_hint_segs": [
+    "Pagué 1200 bolivianos al proveedor."
+   ],
+   "small_hint_host_s": 3.01,
+   "small_hint_measures": [
+    {
+     "wall_ms": 3009.6,
+     "load_ms": 153.75,
+     "encode_ms": 2356.42,
+     "infer_ms": 2701.8,
+     "peak_rss_mb": 388.9,
+     "peak_private_mb": 851.1,
+     "audio_s": 2.7,
+     "rtf": 1.001
+    }
+   ]
+  },
+  {
+   "file": "f12_laura.wav",
+   "ref": "pagué mil doscientos bolivianos al proveedor",
+   "vosk": "pague mil doscientos bolivianos al proveedor",
+   "vosk_segs": [
+    "pague mil doscientos bolivianos al proveedor"
+   ],
+   "vosk_segments": 1,
+   "vosk_partials": 8,
+   "vosk_first_partial_audio_ms": 700,
+   "base": "Pague 1200 bolivianos al proveedor.",
+   "base_segs": [
+    "Pague 1200 bolivianos al proveedor."
+   ],
+   "base_host_s": 0.77,
+   "base_measures": [
+    {
+     "wall_ms": 773.5,
+     "load_ms": 63.37,
+     "encode_ms": 614.3,
+     "infer_ms": 672.6,
+     "peak_rss_mb": 166.1,
+     "peak_private_mb": 656.5,
+     "audio_s": 2.91,
+     "rtf": 0.231
+    }
+   ],
+   "base_hint": "Pague 1200 bolivianos al proveedor.",
+   "base_hint_segs": [
+    "Pague 1200 bolivianos al proveedor."
+   ],
+   "base_hint_host_s": 0.92,
+   "base_hint_measures": [
+    {
+     "wall_ms": 922.3,
+     "load_ms": 65.08,
+     "encode_ms": 603.81,
+     "infer_ms": 719.7,
+     "peak_rss_mb": 195.0,
+     "peak_private_mb": 656.5,
+     "audio_s": 2.91,
+     "rtf": 0.247
+    }
+   ],
+   "small_hint": "Pague 1200 bolivianos al proveedor.",
+   "small_hint_segs": [
+    "Pague 1200 bolivianos al proveedor."
+   ],
+   "small_hint_host_s": 3.02,
+   "small_hint_measures": [
+    {
+     "wall_ms": 3018.7,
+     "load_ms": 146.98,
+     "encode_ms": 2520.63,
+     "infer_ms": 2835.5,
+     "peak_rss_mb": 388.8,
+     "peak_private_mb": 851.1,
+     "audio_s": 2.91,
+     "rtf": 0.974
+    }
+   ]
+  },
+  {
+   "file": "f12_pablo.wav",
+   "ref": "pagué mil doscientos bolivianos al proveedor",
+   "vosk": "para que mil doscientos bolivianos al proveedor",
+   "vosk_segs": [
+    "para que mil doscientos bolivianos al proveedor"
+   ],
+   "vosk_segments": 1,
+   "vosk_partials": 8,
+   "vosk_first_partial_audio_ms": 700,
+   "base": "Paquemil 200 bolivianos al proveedor.",
+   "base_segs": [
+    "Paquemil 200 bolivianos al proveedor."
+   ],
+   "base_host_s": 0.79,
+   "base_measures": [
+    {
+     "wall_ms": 789.7,
+     "load_ms": 67.76,
+     "encode_ms": 624.47,
+     "infer_ms": 688.4,
+     "peak_rss_mb": 166.1,
+     "peak_private_mb": 656.4,
+     "audio_s": 2.82,
+     "rtf": 0.244
+    }
+   ],
+   "base_hint": "Paquemil 200 bolivianos al proveedor.",
+   "base_hint_segs": [
+    "Paquemil 200 bolivianos al proveedor."
+   ],
+   "base_hint_host_s": 0.88,
+   "base_hint_measures": [
+    {
+     "wall_ms": 875.4,
+     "load_ms": 64.02,
+     "encode_ms": 645.98,
+     "infer_ms": 783.3,
+     "peak_rss_mb": 195.0,
+     "peak_private_mb": 656.5,
+     "audio_s": 2.82,
+     "rtf": 0.278
+    }
+   ],
+   "small_hint": "Pague 1.200 bolivianos al proveedor.",
+   "small_hint_segs": [
+    "Pague 1.200 bolivianos al proveedor."
+   ],
+   "small_hint_host_s": 2.89,
+   "small_hint_measures": [
+    {
+     "wall_ms": 2890.2,
+     "load_ms": 160.5,
+     "encode_ms": 2363.81,
+     "infer_ms": 2692.6,
+     "peak_rss_mb": 389.1,
+     "peak_private_mb": 851.1,
+     "audio_s": 2.82,
+     "rtf": 0.955
+    }
+   ]
+  },
+  {
+   "file": "f13_helena.wav",
+   "ref": "uno coma setenta y cinco litros de insecticida",
+   "vosk": "uno coma setenta y cinco litros de insecticida",
+   "vosk_segs": [
+    "uno coma setenta y cinco litros de insecticida"
+   ],
+   "vosk_segments": 1,
+   "vosk_partials": 8,
+   "vosk_first_partial_audio_ms": 700,
+   "base": "1,75 litros de insecticida.",
+   "base_segs": [
+    "1,75 litros de insecticida."
+   ],
+   "base_host_s": 0.75,
+   "base_measures": [
+    {
+     "wall_ms": 748.8,
+     "load_ms": 64.27,
+     "encode_ms": 594.09,
+     "infer_ms": 647.5,
+     "peak_rss_mb": 166.1,
+     "peak_private_mb": 656.5,
+     "audio_s": 2.91,
+     "rtf": 0.223
+    }
+   ],
+   "base_hint": "1,75 litros de Insecticida.",
+   "base_hint_segs": [
+    "1,75 litros de Insecticida."
+   ],
+   "base_hint_host_s": 0.83,
+   "base_hint_measures": [
+    {
+     "wall_ms": 825.7,
+     "load_ms": 64.16,
+     "encode_ms": 612.94,
+     "infer_ms": 735.0,
+     "peak_rss_mb": 194.9,
+     "peak_private_mb": 656.5,
+     "audio_s": 2.91,
+     "rtf": 0.253
+    }
+   ],
+   "small_hint": "1,75 litros de insecticida.",
+   "small_hint_segs": [
+    "1,75 litros de insecticida."
+   ],
+   "small_hint_host_s": 3.11,
+   "small_hint_measures": [
+    {
+     "wall_ms": 3110.5,
+     "load_ms": 153.71,
+     "encode_ms": 2509.6,
+     "infer_ms": 2808.7,
+     "peak_rss_mb": 389.0,
+     "peak_private_mb": 851.2,
+     "audio_s": 2.91,
+     "rtf": 0.965
+    }
+   ]
+  },
+  {
+   "file": "f13_laura.wav",
+   "ref": "uno coma setenta y cinco litros de insecticida",
+   "vosk": "uno coma setenta y cinco litros de insecticida",
+   "vosk_segs": [
+    "uno coma setenta y cinco litros de insecticida"
+   ],
+   "vosk_segments": 1,
+   "vosk_partials": 8,
+   "vosk_first_partial_audio_ms": 700,
+   "base": "1,75 litros de insecticida.",
+   "base_segs": [
+    "1,75 litros de insecticida."
+   ],
+   "base_host_s": 0.82,
+   "base_measures": [
+    {
+     "wall_ms": 822.5,
+     "load_ms": 64.31,
+     "encode_ms": 645.91,
+     "infer_ms": 703.8,
+     "peak_rss_mb": 166.1,
+     "peak_private_mb": 656.5,
+     "audio_s": 3.18,
+     "rtf": 0.221
+    }
+   ],
+   "base_hint": "1,75 litros de insecticida.",
+   "base_hint_segs": [
+    "1,75 litros de insecticida."
+   ],
+   "base_hint_host_s": 0.86,
+   "base_hint_measures": [
+    {
+     "wall_ms": 857.3,
+     "load_ms": 69.08,
+     "encode_ms": 636.06,
+     "infer_ms": 759.9,
+     "peak_rss_mb": 195.1,
+     "peak_private_mb": 656.5,
+     "audio_s": 3.18,
+     "rtf": 0.239
+    }
+   ],
+   "small_hint": "1,75 litros de insecticida.",
+   "small_hint_segs": [
+    "1,75 litros de insecticida."
+   ],
+   "small_hint_host_s": 4.56,
+   "small_hint_measures": [
+    {
+     "wall_ms": 4557.1,
+     "load_ms": 167.95,
+     "encode_ms": 2454.94,
+     "infer_ms": 4345.2,
+     "peak_rss_mb": 352.5,
+     "peak_private_mb": 851.1,
+     "audio_s": 3.18,
+     "rtf": 1.366
+    }
+   ]
+  },
+  {
+   "file": "f13_pablo.wav",
+   "ref": "uno coma setenta y cinco litros de insecticida",
+   "vosk": "uno coma setenta y cinco litros de insecticida",
+   "vosk_segs": [
+    "uno coma setenta y cinco litros de insecticida"
+   ],
+   "vosk_segments": 1,
+   "vosk_partials": 8,
+   "vosk_first_partial_audio_ms": 700,
+   "base": "1,75 litros de insecticida.",
+   "base_segs": [
+    "1,75 litros de insecticida."
+   ],
+   "base_host_s": 0.8,
+   "base_measures": [
+    {
+     "wall_ms": 802.3,
+     "load_ms": 67.35,
+     "encode_ms": 649.25,
+     "infer_ms": 702.4,
+     "peak_rss_mb": 166.0,
+     "peak_private_mb": 656.5,
+     "audio_s": 3.06,
+     "rtf": 0.23
+    }
+   ],
+   "base_hint": "1,75 litros de Insecticida.",
+   "base_hint_segs": [
+    "1,75 litros de Insecticida."
+   ],
+   "base_hint_host_s": 0.85,
+   "base_hint_measures": [
+    {
+     "wall_ms": 848.3,
+     "load_ms": 67.21,
+     "encode_ms": 629.96,
+     "infer_ms": 751.9,
+     "peak_rss_mb": 194.9,
+     "peak_private_mb": 656.5,
+     "audio_s": 3.06,
+     "rtf": 0.246
+    }
+   ],
+   "small_hint": "1,75 litros de insecticida.",
+   "small_hint_segs": [
+    "1,75 litros de insecticida."
+   ],
+   "small_hint_host_s": 3.2,
+   "small_hint_measures": [
+    {
+     "wall_ms": 3202.0,
+     "load_ms": 159.53,
+     "encode_ms": 2698.97,
+     "infer_ms": 2997.9,
+     "peak_rss_mb": 388.9,
+     "peak_private_mb": 851.2,
+     "audio_s": 3.06,
+     "rtf": 0.98
+    }
+   ]
+  },
+  {
+   "file": "f14_helena.wav",
+   "ref": "apliqué veinte litros de glifosato en dos hectáreas",
+   "vosk": "aplique veinte litros de glifosato en dos hectáreas",
+   "vosk_segs": [
+    "aplique veinte litros de glifosato en dos hectáreas"
+   ],
+   "vosk_segments": 1,
+   "vosk_partials": 8,
+   "vosk_first_partial_audio_ms": 900,
+   "base": "Aplique 20 litros de glyfosato en 2 sectarias.",
+   "base_segs": [
+    "Aplique 20 litros de glyfosato en 2 sectarias."
+   ],
+   "base_host_s": 0.8,
+   "base_measures": [
+    {
+     "wall_ms": 803.8,
+     "load_ms": 64.67,
+     "encode_ms": 631.49,
+     "infer_ms": 699.8,
+     "peak_rss_mb": 166.1,
+     "peak_private_mb": 656.5,
+     "audio_s": 3.0,
+     "rtf": 0.233
+    }
+   ],
+   "base_hint": "Aplique 20 litros de glifosato en 2 sectarias.",
+   "base_hint_segs": [
+    "Aplique 20 litros de glifosato en 2 sectarias."
+   ],
+   "base_hint_host_s": 0.98,
+   "base_hint_measures": [
+    {
+     "wall_ms": 977.8,
+     "load_ms": 69.63,
+     "encode_ms": 640.38,
+     "infer_ms": 769.1,
+     "peak_rss_mb": 194.9,
+     "peak_private_mb": 656.5,
+     "audio_s": 3.0,
+     "rtf": 0.256
+    }
+   ],
+   "small_hint": "Aplique 20 litros de glifosato en 2 hectáreas.",
+   "small_hint_segs": [
+    "Aplique 20 litros de glifosato en 2 hectáreas."
+   ],
+   "small_hint_host_s": 2.98,
+   "small_hint_measures": [
+    {
+     "wall_ms": 2979.9,
+     "load_ms": 163.98,
+     "encode_ms": 2419.4,
+     "infer_ms": 2775.7,
+     "peak_rss_mb": 388.9,
+     "peak_private_mb": 851.4,
+     "audio_s": 3.0,
+     "rtf": 0.925
+    }
+   ]
+  },
+  {
+   "file": "f14_laura.wav",
+   "ref": "apliqué veinte litros de glifosato en dos hectáreas",
+   "vosk": "aplique veinte litros de glifosato en dos hectáreas",
+   "vosk_segs": [
+    "aplique veinte litros de glifosato en dos hectáreas"
+   ],
+   "vosk_segments": 1,
+   "vosk_partials": 9,
+   "vosk_first_partial_audio_ms": 900,
+   "base": "aplique 20 litros de glifosato en 2 sectarias.",
+   "base_segs": [
+    "aplique 20 litros de glifosato en 2 sectarias."
+   ],
+   "base_host_s": 0.83,
+   "base_measures": [
+    {
+     "wall_ms": 833.4,
+     "load_ms": 66.13,
+     "encode_ms": 653.76,
+     "infer_ms": 734.0,
+     "peak_rss_mb": 166.1,
+     "peak_private_mb": 656.6,
+     "audio_s": 3.27,
+     "rtf": 0.224
+    }
+   ],
+   "base_hint": "Aplique 20 litros de glifosato en 2 sectarias.",
+   "base_hint_segs": [
+    "Aplique 20 litros de glifosato en 2 sectarias."
+   ],
+   "base_hint_host_s": 0.88,
+   "base_hint_measures": [
+    {
+     "wall_ms": 884.0,
+     "load_ms": 66.0,
+     "encode_ms": 640.98,
+     "infer_ms": 785.9,
+     "peak_rss_mb": 194.9,
+     "peak_private_mb": 656.5,
+     "audio_s": 3.27,
+     "rtf": 0.24
+    }
+   ],
+   "small_hint": "Aplique 20 litros de glifosato en 2 hectáreas.",
+   "small_hint_segs": [
+    "Aplique 20 litros de glifosato en 2 hectáreas."
+   ],
+   "small_hint_host_s": 3.04,
+   "small_hint_measures": [
+    {
+     "wall_ms": 3044.0,
+     "load_ms": 182.53,
+     "encode_ms": 2484.09,
+     "infer_ms": 2823.9,
+     "peak_rss_mb": 389.0,
+     "peak_private_mb": 851.3,
+     "audio_s": 3.27,
+     "rtf": 0.864
+    }
+   ]
+  },
+  {
+   "file": "f14_pablo.wav",
+   "ref": "apliqué veinte litros de glifosato en dos hectáreas",
+   "vosk": "aplique veinte litros de glifosato en dos hectáreas",
+   "vosk_segs": [
+    "aplique veinte litros de glifosato en dos hectáreas"
+   ],
+   "vosk_segments": 1,
+   "vosk_partials": 9,
+   "vosk_first_partial_audio_ms": 900,
+   "base": "Aplique 20 litros de glyfosato en 2 hectáreas.",
+   "base_segs": [
+    "Aplique 20 litros de glyfosato en 2 hectáreas."
+   ],
+   "base_host_s": 0.79,
+   "base_measures": [
+    {
+     "wall_ms": 785.1,
+     "load_ms": 65.63,
+     "encode_ms": 611.87,
+     "infer_ms": 682.4,
+     "peak_rss_mb": 166.1,
+     "peak_private_mb": 656.6,
+     "audio_s": 3.15,
+     "rtf": 0.217
+    }
+   ],
+   "base_hint": "Aplique 20 litros de glifosato en 2 hectáreas.",
+   "base_hint_segs": [
+    "Aplique 20 litros de glifosato en 2 hectáreas."
+   ],
+   "base_hint_host_s": 0.85,
+   "base_hint_measures": [
+    {
+     "wall_ms": 848.4,
+     "load_ms": 66.8,
+     "encode_ms": 622.62,
+     "infer_ms": 749.8,
+     "peak_rss_mb": 195.0,
+     "peak_private_mb": 656.5,
+     "audio_s": 3.15,
+     "rtf": 0.238
+    }
+   ],
+   "small_hint": "Aplique 20 litros de glifosato en 2 hectáreas.",
+   "small_hint_segs": [
+    "Aplique 20 litros de glifosato en 2 hectáreas."
+   ],
+   "small_hint_host_s": 2.86,
+   "small_hint_measures": [
+    {
+     "wall_ms": 2858.5,
+     "load_ms": 150.71,
+     "encode_ms": 2360.07,
+     "infer_ms": 2675.9,
+     "peak_rss_mb": 389.0,
+     "peak_private_mb": 851.1,
+     "audio_s": 3.15,
+     "rtf": 0.849
+    }
+   ]
+  },
+  {
+   "file": "f15_helena.wav",
+   "ref": "compré doce bolsas de mancozeb a noventa y cinco bolivianos cada una",
+   "vosk": "compre doce bolsas de manco ceba noventa y cinco bolivianos cada una",
+   "vosk_segs": [
+    "compre doce bolsas de manco ceba noventa y cinco bolivianos cada una"
+   ],
+   "vosk_segments": 1,
+   "vosk_partials": 11,
+   "vosk_first_partial_audio_ms": 900,
+   "base": "Compré 12 bolsas de mancoceba 95 bolivianos cada una.",
+   "base_segs": [
+    "Compré 12 bolsas de mancoceba 95 bolivianos cada una."
+   ],
+   "base_host_s": 0.92,
+   "base_measures": [
+    {
+     "wall_ms": 917.9,
+     "load_ms": 65.15,
+     "encode_ms": 617.54,
+     "infer_ms": 699.1,
+     "peak_rss_mb": 166.2,
+     "peak_private_mb": 656.7,
+     "audio_s": 3.93,
+     "rtf": 0.178
+    }
+   ],
+   "base_hint": "Compré 12 bolsas de Mancozeba 95 bolivianos cada una.",
+   "base_hint_segs": [
+    "Compré 12 bolsas de Mancozeba 95 bolivianos cada una."
+   ],
+   "base_hint_host_s": 0.89,
+   "base_hint_measures": [
+    {
+     "wall_ms": 887.3,
+     "load_ms": 63.91,
+     "encode_ms": 624.02,
+     "infer_ms": 793.0,
+     "peak_rss_mb": 195.0,
+     "peak_private_mb": 656.6,
+     "audio_s": 3.93,
+     "rtf": 0.202
+    }
+   ],
+   "small_hint": "Compre 12 bolsas de Mancozeba 95 bolivianos cada una.",
+   "small_hint_segs": [
+    "Compre 12 bolsas de Mancozeba 95 bolivianos cada una."
+   ],
+   "small_hint_host_s": 3.08,
+   "small_hint_measures": [
+    {
+     "wall_ms": 3085.0,
+     "load_ms": 201.2,
+     "encode_ms": 2473.72,
+     "infer_ms": 2841.4,
+     "peak_rss_mb": 389.0,
+     "peak_private_mb": 851.3,
+     "audio_s": 3.93,
+     "rtf": 0.723
+    }
+   ]
+  },
+  {
+   "file": "f15_laura.wav",
+   "ref": "compré doce bolsas de mancozeb a noventa y cinco bolivianos cada una",
+   "vosk": "compre doce bolsas de manco ceba noventa y cinco bolivianos cada una",
+   "vosk_segs": [
+    "compre doce bolsas de manco ceba noventa y cinco bolivianos cada una"
+   ],
+   "vosk_segments": 1,
+   "vosk_partials": 12,
+   "vosk_first_partial_audio_ms": 900,
+   "base": "Compré 12 bolsas de mancoceba 95 bolivianos cada una.",
+   "base_segs": [
+    "Compré 12 bolsas de mancoceba 95 bolivianos cada una."
+   ],
+   "base_host_s": 0.85,
+   "base_measures": [
+    {
+     "wall_ms": 851.2,
+     "load_ms": 75.57,
+     "encode_ms": 646.31,
+     "infer_ms": 735.7,
+     "peak_rss_mb": 166.2,
+     "peak_private_mb": 656.6,
+     "audio_s": 4.38,
+     "rtf": 0.168
+    }
+   ],
+   "base_hint": "Compré 12 bolsas de Mancozeba 95 bolivianos cada una.",
+   "base_hint_segs": [
+    "Compré 12 bolsas de Mancozeba 95 bolivianos cada una."
+   ],
+   "base_hint_host_s": 0.89,
+   "base_hint_measures": [
+    {
+     "wall_ms": 892.2,
+     "load_ms": 69.72,
+     "encode_ms": 657.53,
+     "infer_ms": 795.9,
+     "peak_rss_mb": 195.2,
+     "peak_private_mb": 656.8,
+     "audio_s": 4.38,
+     "rtf": 0.182
+    }
+   ],
+   "small_hint": "Compré 12 bolsas de Mancozeba 95 bolivianos cada una.",
+   "small_hint_segs": [
+    "Compré 12 bolsas de Mancozeba 95 bolivianos cada una."
+   ],
+   "small_hint_host_s": 3.07,
+   "small_hint_measures": [
+    {
+     "wall_ms": 3071.3,
+     "load_ms": 162.3,
+     "encode_ms": 2485.67,
+     "infer_ms": 2867.7,
+     "peak_rss_mb": 389.1,
+     "peak_private_mb": 851.2,
+     "audio_s": 4.38,
+     "rtf": 0.655
+    }
+   ]
+  },
+  {
+   "file": "f15_pablo.wav",
+   "ref": "compré doce bolsas de mancozeb a noventa y cinco bolivianos cada una",
+   "vosk": "compre doce bolsas de manco ceba noventa y cinco bolivianos cada una",
+   "vosk_segs": [
+    "compre doce bolsas de manco ceba noventa y cinco bolivianos cada una"
+   ],
+   "vosk_segments": 1,
+   "vosk_partials": 10,
+   "vosk_first_partial_audio_ms": 900,
+   "base": "Compré 12 bolsas de Mancoceba 95 Bolivianos cada una.",
+   "base_segs": [
+    "Compré 12 bolsas de Mancoceba 95 Bolivianos cada una."
+   ],
+   "base_host_s": 0.82,
+   "base_measures": [
+    {
+     "wall_ms": 818.2,
+     "load_ms": 63.88,
+     "encode_ms": 621.88,
+     "infer_ms": 708.5,
+     "peak_rss_mb": 166.2,
+     "peak_private_mb": 656.7,
+     "audio_s": 4.2,
+     "rtf": 0.169
+    }
+   ],
+   "base_hint": "Compré 12 bolsas de Mancozeba 95 bolivianos cada una.",
+   "base_hint_segs": [
+    "Compré 12 bolsas de Mancozeba 95 bolivianos cada una."
+   ],
+   "base_hint_host_s": 1.02,
+   "base_hint_measures": [
+    {
+     "wall_ms": 1021.8,
+     "load_ms": 68.36,
+     "encode_ms": 781.6,
+     "infer_ms": 926.3,
+     "peak_rss_mb": 195.0,
+     "peak_private_mb": 656.6,
+     "audio_s": 4.2,
+     "rtf": 0.221
+    }
+   ],
+   "small_hint": "Compré 12 bolsas de Mancozeba 95 bolivianos cada una.",
+   "small_hint_segs": [
+    "Compré 12 bolsas de Mancozeba 95 bolivianos cada una."
+   ],
+   "small_hint_host_s": 2.98,
+   "small_hint_measures": [
+    {
+     "wall_ms": 2983.9,
+     "load_ms": 150.99,
+     "encode_ms": 2444.68,
+     "infer_ms": 2798.2,
+     "peak_rss_mb": 389.0,
+     "peak_private_mb": 851.2,
+     "audio_s": 4.2,
+     "rtf": 0.666
+    }
+   ]
+  },
+  {
+   "file": "f16_helena.wav",
+   "ref": "compré un litro de glicerina para la casa",
+   "vosk": "compré un litro de glicerina para la casa",
+   "vosk_segs": [
+    "compré un litro de glicerina para la casa"
+   ],
+   "vosk_segments": 1,
+   "vosk_partials": 5,
+   "vosk_first_partial_audio_ms": 900,
+   "base": "Compre un litro de glicerina para la casa.",
+   "base_segs": [
+    "Compre un litro de glicerina para la casa."
+   ],
+   "base_host_s": 0.79,
+   "base_measures": [
+    {
+     "wall_ms": 790.0,
+     "load_ms": 65.52,
+     "encode_ms": 620.35,
+     "infer_ms": 688.0,
+     "peak_rss_mb": 166.0,
+     "peak_private_mb": 656.4,
+     "audio_s": 2.49,
+     "rtf": 0.276
+    }
+   ],
+   "base_hint": "Compre un litro de glicerina para la casa.",
+   "base_hint_segs": [
+    "Compre un litro de glicerina para la casa."
+   ],
+   "base_hint_host_s": 0.83,
+   "base_hint_measures": [
+    {
+     "wall_ms": 833.5,
+     "load_ms": 63.99,
+     "encode_ms": 617.14,
+     "infer_ms": 743.1,
+     "peak_rss_mb": 194.9,
+     "peak_private_mb": 656.4,
+     "audio_s": 2.49,
+     "rtf": 0.298
+    }
+   ],
+   "small_hint": "Compré un litro de glicerina para la casa.",
+   "small_hint_segs": [
+    "Compré un litro de glicerina para la casa."
+   ],
+   "small_hint_host_s": 2.84,
+   "small_hint_measures": [
+    {
+     "wall_ms": 2844.6,
+     "load_ms": 151.48,
+     "encode_ms": 2352.07,
+     "infer_ms": 2661.1,
+     "peak_rss_mb": 388.9,
+     "peak_private_mb": 851.1,
+     "audio_s": 2.49,
+     "rtf": 1.069
+    }
+   ]
+  },
+  {
+   "file": "f16_laura.wav",
+   "ref": "compré un litro de glicerina para la casa",
+   "vosk": "compré un litro de glicerina para la casa",
+   "vosk_segs": [
+    "compré un litro de glicerina para la casa"
+   ],
+   "vosk_segments": 1,
+   "vosk_partials": 6,
+   "vosk_first_partial_audio_ms": 900,
+   "base": "compré un litro de glisterina para la casa.",
+   "base_segs": [
+    "compré un litro de glisterina para la casa."
+   ],
+   "base_host_s": 0.76,
+   "base_measures": [
+    {
+     "wall_ms": 764.4,
+     "load_ms": 63.84,
+     "encode_ms": 609.58,
+     "infer_ms": 670.4,
+     "peak_rss_mb": 166.1,
+     "peak_private_mb": 656.4,
+     "audio_s": 2.76,
+     "rtf": 0.243
+    }
+   ],
+   "base_hint": "Compre un litro de glisserina para la casa.",
+   "base_hint_segs": [
+    "Compre un litro de glisserina para la casa."
+   ],
+   "base_hint_host_s": 0.97,
+   "base_hint_measures": [
+    {
+     "wall_ms": 965.2,
+     "load_ms": 65.44,
+     "encode_ms": 702.5,
+     "infer_ms": 869.0,
+     "peak_rss_mb": 194.9,
+     "peak_private_mb": 656.6,
+     "audio_s": 2.76,
+     "rtf": 0.315
+    }
+   ],
+   "small_hint": "Compré un litro de glicerina para la casa.",
+   "small_hint_segs": [
+    "Compré un litro de glicerina para la casa."
+   ],
+   "small_hint_host_s": 3.03,
+   "small_hint_measures": [
+    {
+     "wall_ms": 3033.2,
+     "load_ms": 156.41,
+     "encode_ms": 2501.4,
+     "infer_ms": 2841.6,
+     "peak_rss_mb": 389.0,
+     "peak_private_mb": 851.1,
+     "audio_s": 2.76,
+     "rtf": 1.03
+    }
+   ]
+  },
+  {
+   "file": "f16_pablo.wav",
+   "ref": "compré un litro de glicerina para la casa",
+   "vosk": "compré un litro de glicerina para la casa",
+   "vosk_segs": [
+    "compré un litro de glicerina para la casa"
+   ],
+   "vosk_segments": 1,
+   "vosk_partials": 5,
+   "vosk_first_partial_audio_ms": 900,
+   "base": "Compre un litro de glisterina para la casa.",
+   "base_segs": [
+    "Compre un litro de glisterina para la casa."
+   ],
+   "base_host_s": 0.76,
+   "base_measures": [
+    {
+     "wall_ms": 760.0,
+     "load_ms": 63.36,
+     "encode_ms": 607.36,
+     "infer_ms": 667.6,
+     "peak_rss_mb": 166.1,
+     "peak_private_mb": 656.5,
+     "audio_s": 2.67,
+     "rtf": 0.25
+    }
+   ],
+   "base_hint": "Compre un litro de glisserina para la casa.",
+   "base_hint_segs": [
+    "Compre un litro de glisserina para la casa."
+   ],
+   "base_hint_host_s": 0.83,
+   "base_hint_measures": [
+    {
+     "wall_ms": 827.9,
+     "load_ms": 61.72,
+     "encode_ms": 620.37,
+     "infer_ms": 742.1,
+     "peak_rss_mb": 194.9,
+     "peak_private_mb": 656.4,
+     "audio_s": 2.67,
+     "rtf": 0.278
+    }
+   ],
+   "small_hint": "Compré un litro de glicerina para la casa.",
+   "small_hint_segs": [
+    "Compré un litro de glicerina para la casa."
+   ],
+   "small_hint_host_s": 2.84,
+   "small_hint_measures": [
+    {
+     "wall_ms": 2840.0,
+     "load_ms": 147.61,
+     "encode_ms": 2313.55,
+     "infer_ms": 2642.2,
+     "peak_rss_mb": 388.8,
+     "peak_private_mb": 851.1,
+     "audio_s": 2.67,
+     "rtf": 0.99
+    }
+   ]
+  },
+  {
+   "file": "p01_helena.wav",
+   "ref": "compré dos litros de glifosato a ciento veinte bolivianos pagué trescientos cincuenta bolivianos a Ana Quispe",
+   "vosk": "compré dos litros de glifosato a ciento veinte bolivianos pague trescientos cincuenta bolivianos a ana quispe",
+   "vosk_segs": [
+    "compré dos litros de glifosato a ciento veinte bolivianos",
+    "pague trescientos cincuenta bolivianos a ana quispe"
+   ],
+   "vosk_segments": 2,
+   "vosk_partials": 15,
+   "vosk_first_partial_audio_ms": 900,
+   "base": "Compré dos litros de glyfosato a 120 bolivianos. Pague 350 bolivianos a Anaquisp.",
+   "base_segs": [
+    "Compré dos litros de glyfosato a 120 bolivianos.",
+    "Pague 350 bolivianos a Anaquisp."
+   ],
+   "base_host_s": 1.77,
+   "base_measures": [
+    {
+     "wall_ms": 767.5,
+     "load_ms": 59.92,
+     "encode_ms": 587.93,
+     "infer_ms": 668.4,
+     "peak_rss_mb": 166.2,
+     "peak_private_mb": 656.6,
+     "audio_s": 3.42,
+     "rtf": 0.195
+    },
+    {
+     "wall_ms": 1000.4,
+     "load_ms": 59.51,
+     "encode_ms": 737.83,
+     "infer_ms": 796.0,
+     "peak_rss_mb": 166.1,
+     "peak_private_mb": 656.5,
+     "audio_s": 3.21,
+     "rtf": 0.248
+    }
+   ],
+   "base_hint": "Compré dos litros de glifosato a 120 bolivianos. Pague 350 bolivianos a Ana Quispe.",
+   "base_hint_segs": [
+    "Compré dos litros de glifosato a 120 bolivianos.",
+    "Pague 350 bolivianos a Ana Quispe."
+   ],
+   "base_hint_host_s": 1.67,
+   "base_hint_measures": [
+    {
+     "wall_ms": 867.4,
+     "load_ms": 67.7,
+     "encode_ms": 628.78,
+     "infer_ms": 771.8,
+     "peak_rss_mb": 195.0,
+     "peak_private_mb": 656.6,
+     "audio_s": 3.42,
+     "rtf": 0.226
+    },
+    {
+     "wall_ms": 806.1,
+     "load_ms": 62.76,
+     "encode_ms": 597.51,
+     "infer_ms": 717.8,
+     "peak_rss_mb": 194.8,
+     "peak_private_mb": 656.5,
+     "audio_s": 3.21,
+     "rtf": 0.224
+    }
+   ],
+   "small_hint": "Compre dos litros de glifosato a 120 bolivianos. Pague 350 bolivianos a Ana Quispe.",
+   "small_hint_segs": [
+    "Compre dos litros de glifosato a 120 bolivianos.",
+    "Pague 350 bolivianos a Ana Quispe."
+   ],
+   "small_hint_host_s": 5.85,
+   "small_hint_measures": [
+    {
+     "wall_ms": 2928.1,
+     "load_ms": 150.37,
+     "encode_ms": 2383.04,
+     "infer_ms": 2737.8,
+     "peak_rss_mb": 389.0,
+     "peak_private_mb": 851.3,
+     "audio_s": 3.42,
+     "rtf": 0.801
+    },
+    {
+     "wall_ms": 2917.9,
+     "load_ms": 150.37,
+     "encode_ms": 2406.54,
+     "infer_ms": 2729.1,
+     "peak_rss_mb": 389.0,
+     "peak_private_mb": 851.1,
+     "audio_s": 3.21,
+     "rtf": 0.85
+    }
+   ]
+  },
+  {
+   "file": "p01_laura.wav",
+   "ref": "compré dos litros de glifosato a ciento veinte bolivianos pagué trescientos cincuenta bolivianos a Ana Quispe",
+   "vosk": "compré dos litros de glifosato a ciento veinte bolivianos pague trescientos cincuenta bolivianos a ana quispe",
+   "vosk_segs": [
+    "compré dos litros de glifosato a ciento veinte bolivianos",
+    "pague trescientos cincuenta bolivianos a ana quispe"
+   ],
+   "vosk_segments": 2,
+   "vosk_partials": 14,
+   "vosk_first_partial_audio_ms": 900,
+   "base": "Con 3 litros de glyfosato a 120 bolivianos. Pague 350 bolivianos a Anaquíspe.",
+   "base_segs": [
+    "Con 3 litros de glyfosato a 120 bolivianos.",
+    "Pague 350 bolivianos a Anaquíspe."
+   ],
+   "base_host_s": 1.77,
+   "base_measures": [
+    {
+     "wall_ms": 871.2,
+     "load_ms": 62.44,
+     "encode_ms": 601.69,
+     "infer_ms": 669.3,
+     "peak_rss_mb": 166.1,
+     "peak_private_mb": 656.5,
+     "audio_s": 3.72,
+     "rtf": 0.18
+    },
+    {
+     "wall_ms": 893.8,
+     "load_ms": 68.63,
+     "encode_ms": 693.2,
+     "infer_ms": 772.2,
+     "peak_rss_mb": 166.2,
+     "peak_private_mb": 656.6,
+     "audio_s": 3.57,
+     "rtf": 0.216
+    }
+   ],
+   "base_hint": "Compré dos litros de glifosato a 120 bolivianos. Pague 350 bolivianos a Ana Quispe.",
+   "base_hint_segs": [
+    "Compré dos litros de glifosato a 120 bolivianos.",
+    "Pague 350 bolivianos a Ana Quispe."
+   ],
+   "base_hint_host_s": 1.8,
+   "base_hint_measures": [
+    {
+     "wall_ms": 870.6,
+     "load_ms": 70.68,
+     "encode_ms": 639.85,
+     "infer_ms": 772.9,
+     "peak_rss_mb": 195.0,
+     "peak_private_mb": 656.7,
+     "audio_s": 3.72,
+     "rtf": 0.208
+    },
+    {
+     "wall_ms": 926.4,
+     "load_ms": 62.13,
+     "encode_ms": 610.78,
+     "infer_ms": 730.5,
+     "peak_rss_mb": 194.9,
+     "peak_private_mb": 656.5,
+     "audio_s": 3.57,
+     "rtf": 0.205
+    }
+   ],
+   "small_hint": "Compré 2 litros de glifosato a 120 bolivianos. Pague 350 bolivianos a Ana Quispe.",
+   "small_hint_segs": [
+    "Compré 2 litros de glifosato a 120 bolivianos.",
+    "Pague 350 bolivianos a Ana Quispe."
+   ],
+   "small_hint_host_s": 10.22,
+   "small_hint_measures": [
+    {
+     "wall_ms": 7117.4,
+     "load_ms": 172.62,
+     "encode_ms": 2492.02,
+     "infer_ms": 6890.8,
+     "peak_rss_mb": 352.5,
+     "peak_private_mb": 851.2,
+     "audio_s": 3.72,
+     "rtf": 1.852
+    },
+    {
+     "wall_ms": 3107.3,
+     "load_ms": 188.15,
+     "encode_ms": 2556.55,
+     "infer_ms": 2873.1,
+     "peak_rss_mb": 388.9,
+     "peak_private_mb": 851.1,
+     "audio_s": 3.57,
+     "rtf": 0.805
+    }
+   ]
+  },
+  {
+   "file": "p01_pablo.wav",
+   "ref": "compré dos litros de glifosato a ciento veinte bolivianos pagué trescientos cincuenta bolivianos a Ana Quispe",
+   "vosk": "compré dos litros de glifosato a ciento veinte bolivianos para que trescientos cincuenta bolivianos a ana quispe",
+   "vosk_segs": [
+    "compré dos litros de glifosato a ciento veinte bolivianos",
+    "para que trescientos cincuenta bolivianos a ana quispe"
+   ],
+   "vosk_segments": 2,
+   "vosk_partials": 14,
+   "vosk_first_partial_audio_ms": 900,
+   "base": "Comple 2 litros de glyfosato a 120 bolivianos. Paque 350 Bolivianos a Anaquisp.",
+   "base_segs": [
+    "Comple 2 litros de glyfosato a 120 bolivianos.",
+    "Paque 350 Bolivianos a Anaquisp."
+   ],
+   "base_host_s": 1.58,
+   "base_measures": [
+    {
+     "wall_ms": 817.5,
+     "load_ms": 65.28,
+     "encode_ms": 640.66,
+     "infer_ms": 713.5,
+     "peak_rss_mb": 166.1,
+     "peak_private_mb": 656.5,
+     "audio_s": 3.57,
+     "rtf": 0.2
+    },
+    {
+     "wall_ms": 758.2,
+     "load_ms": 62.24,
+     "encode_ms": 595.76,
+     "infer_ms": 653.5,
+     "peak_rss_mb": 166.1,
+     "peak_private_mb": 656.5,
+     "audio_s": 3.45,
+     "rtf": 0.189
+    }
+   ],
+   "base_hint": "Comple 2 litros de glifosato a 120 bolivianos. Paque 350 bolivianos a Ana Quispe.",
+   "base_hint_segs": [
+    "Comple 2 litros de glifosato a 120 bolivianos.",
+    "Paque 350 bolivianos a Ana Quispe."
+   ],
+   "base_hint_host_s": 1.65,
+   "base_hint_measures": [
+    {
+     "wall_ms": 832.4,
+     "load_ms": 64.13,
+     "encode_ms": 607.62,
+     "infer_ms": 739.7,
+     "peak_rss_mb": 194.9,
+     "peak_private_mb": 656.5,
+     "audio_s": 3.57,
+     "rtf": 0.207
+    },
+    {
+     "wall_ms": 813.1,
+     "load_ms": 63.96,
+     "encode_ms": 607.15,
+     "infer_ms": 724.6,
+     "peak_rss_mb": 195.0,
+     "peak_private_mb": 656.6,
+     "audio_s": 3.45,
+     "rtf": 0.21
+    }
+   ],
+   "small_hint": "Compré 2 litros de glifosato a 120 bolivianos. Pague 350 bolivianos a Ana Quispe.",
+   "small_hint_segs": [
+    "Compré 2 litros de glifosato a 120 bolivianos.",
+    "Pague 350 bolivianos a Ana Quispe."
+   ],
+   "small_hint_host_s": 6.05,
+   "small_hint_measures": [
+    {
+     "wall_ms": 3018.6,
+     "load_ms": 151.44,
+     "encode_ms": 2366.84,
+     "infer_ms": 2723.7,
+     "peak_rss_mb": 388.9,
+     "peak_private_mb": 851.1,
+     "audio_s": 3.57,
+     "rtf": 0.763
+    },
+    {
+     "wall_ms": 3027.9,
+     "load_ms": 152.44,
+     "encode_ms": 2530.76,
+     "infer_ms": 2836.7,
+     "peak_rss_mb": 388.5,
+     "peak_private_mb": 851.1,
+     "audio_s": 3.45,
+     "rtf": 0.822
+    }
+   ]
+  },
+  {
+   "file": "x_ruido.wav",
+   "ref": "",
+   "vosk": "",
+   "vosk_segs": [],
+   "vosk_segments": 0,
+   "vosk_partials": 0,
+   "vosk_first_partial_audio_ms": null,
+   "base": "",
+   "base_segs": [],
+   "base_host_s": 0.0,
+   "base_measures": [],
+   "base_hint": "",
+   "base_hint_segs": [],
+   "base_hint_host_s": 0.0,
+   "base_hint_measures": [],
+   "small_hint": "",
+   "small_hint_segs": [],
+   "small_hint_host_s": 0.0,
+   "small_hint_measures": [],
+   "base_whole_file": "y",
+   "small_whole_file": "La"
+  },
+  {
+   "file": "x_silencio.wav",
+   "ref": "",
+   "vosk": "",
+   "vosk_segs": [],
+   "vosk_segments": 0,
+   "vosk_partials": 0,
+   "vosk_first_partial_audio_ms": null,
+   "base": "",
+   "base_segs": [],
+   "base_host_s": 0.0,
+   "base_measures": [],
+   "base_hint": "",
+   "base_hint_segs": [],
+   "base_hint_host_s": 0.0,
+   "base_hint_measures": [],
+   "small_hint": "",
+   "small_hint_segs": [],
+   "small_hint_host_s": 0.0,
+   "small_hint_measures": [],
+   "base_whole_file": "y",
+   "small_whole_file": "La Cámara de la Sombra de la Sombra de la Sombra de la Sombra de la Sombra de la Sombra de la Sombra de la Sombra de la Sombra de la Sombra de la Sombra de la Sombra de la Sombra de la Sombra de la Sombra de la Sombra de la Sombra de la Sombra de la Sombra de la Sombra de la Sombra de la Sombra de la Sombra de la Sombra de la Sombra de la Sombra de la Sombra de la Sombra de la Sombra de la Sombra de la Sombra de la Sombra de la Sombra de la Sombra de la Sombra de la Sombra de la Sombra de la Sombra de la Sombra de la Sombra de la Sombra de la Sombra de la Sombra de"
+  }
+ ],
+ "summary": {
+  "vosk": {
+   "wer_mean": 0.154,
+   "exact_after_normalization": 23,
+   "products_ok": "21/45",
+   "products_not_said": 0,
+   "numbers_ok": "51/51"
+  },
+  "base": {
+   "wer_mean": 0.193,
+   "exact_after_normalization": 14,
+   "products_ok": "15/45",
+   "products_not_said": 0,
+   "numbers_ok": "48/51"
+  },
+  "base_hint": {
+   "wer_mean": 0.06,
+   "exact_after_normalization": 32,
+   "products_ok": "39/45",
+   "products_not_said": 0,
+   "numbers_ok": "49/51"
+  },
+  "small_hint": {
+   "wer_mean": 0.029,
+   "exact_after_normalization": 43,
+   "products_ok": "42/45",
+   "products_not_said": 0,
+   "numbers_ok": "51/51"
+  }
+ },
+ "cost": {
+  "base": {
+   "segments": 54,
+   "audio_s_max": 4.38,
+   "infer_ms_p50": 658.9,
+   "infer_ms_p95": 735.7,
+   "infer_ms_max": 796.0,
+   "wall_ms_p50": 769.4,
+   "wall_ms_p95": 893.8,
+   "load_ms_p50": 62.95,
+   "rtf_p50": 0.21,
+   "rtf_p95": 0.28,
+   "peak_rss_mb_max": 166.3,
+   "peak_private_mb_max": 656.7
+  },
+  "base_hint": {
+   "segments": 54,
+   "audio_s_max": 4.38,
+   "infer_ms_p50": 728.8,
+   "infer_ms_p95": 800.9,
+   "infer_ms_max": 926.3,
+   "wall_ms_p50": 820.5,
+   "wall_ms_p95": 977.8,
+   "load_ms_p50": 63.29,
+   "rtf_p50": 0.226,
+   "rtf_p95": 0.313,
+   "peak_rss_mb_max": 195.2,
+   "peak_private_mb_max": 656.8
+  },
+  "small_hint": {
+   "segments": 54,
+   "audio_s_max": 4.38,
+   "infer_ms_p50": 2672.2,
+   "infer_ms_p95": 2997.9,
+   "infer_ms_max": 6890.8,
+   "wall_ms_p50": 2865.3,
+   "wall_ms_p95": 3202.0,
+   "load_ms_p50": 150.37,
+   "rtf_p50": 0.849,
+   "rtf_p95": 1.129,
+   "peak_rss_mb_max": 389.2,
+   "peak_private_mb_max": 851.4
+  }
+ },
+ "phrases": 51,
+ "hint": "Glifosato, Bellator, Atrazina, Paraquat, Mancozeb, Cipermetrina, Tebuconazole, Herbicida, Fungicida, Insecticida, Ana Quispe, Beto Mamani, litros, mililitros, kilos, gramos, bolivianos.",
+ "threads": 4,
+ "decoding": "app",
+ "percentile": "rango más cercano, sin interpolar"
+}

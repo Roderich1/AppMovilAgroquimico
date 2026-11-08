@@ -40,6 +40,9 @@ bash tool/voice_local/build_voice_apk.sh x64   <carpeta>  # emulador
 bash tool/voice_local/build_voice_apk.sh arm64 <carpeta>  # teléfono, sin instalar
 ```
 
+- **Modelo de revisión (#166).** Se elige **sólo** al compilar, con `fetch_voice_models.sh base|small|none`; el valor por defecto sigue siendo `base` (ADR-005, provisional). El manifiesto lleva la variante, la app la muestra en la disponibilidad (`reviewModel`, `reviewDetail`) y `build_voice_apk.sh` la añade al nombre de la APK si no es `base`. Después de compilar con `small`, vuelve a ejecutar `fetch_voice_models.sh` sin argumento para dejar `base`.
+- **Segunda pasada condicional.** Aunque el APK traiga el modelo, la app sólo la usa si el teléfono la admite (`lib/voice/port/review_capability.dart`: memoria total, `isLowRamDevice`, fallo de carga). Si no, dicta sólo con Vosk y la disponibilidad dice el motivo. Los mínimos de memoria son de prudencia, no una medición.
+- **Tope por frase.** Si la revisión de una frase no llega en 5 000 ms desde que Vosk la cerró, queda el texto de Vosk y la revisión tardía se descarta. Se cambia con `--dart-define=AGRO_VOICE_REVIEW_TIMEOUT_MS=…`.
 - **Activar una instalación nueva.** Hace falta el Central. Exporta `AGRO_API_BASE_URL` con un origen HTTPS (por ejemplo, el túnel de la DEMO) antes de `build_voice_apk.sh`. El dictado en sí no usa la red.
 - **Sin modelos ni librerías.** La app compila igual, y la pantalla de voz dice que el modelo no está instalado.
 
@@ -47,7 +50,8 @@ bash tool/voice_local/build_voice_apk.sh arm64 <carpeta>  # teléfono, sin insta
 
 - **Comparación HOST:** `synth_reference_audio.ps1` (audio sintético) y `host_compare.py`.
 - **Inferencia real en el emulador:** `run_reference_check.sh <wav> <salida>`, que ejecuta `LocalVoiceEngineReferenceTest`.
-- **La regla de la app sobre esos resultados:** `selection_on_results_test.dart`.
+- **La regla de la app sobre esos resultados:** `selection_on_results_test.dart` (con `AGRO_HOST_COMPARE`, sobre la comparación HOST; se puntúa con `host_compare.py --score-selection`).
+- **Base frente a small en HOST, con tiempos, RTF y memoria:** `docs/f09/whisper/WHISPER_SMALL_HOST_2026-11-08.md`. Describe el PC, no un teléfono.
 - **Pausas que parten el dictado (POCO, §2.2):** `synth_pause_parts.ps1` (audio sintético en dos tramos) y `pause_split_check.py`, que inserta silencios de 0 a 4 s entre los tramos y pasa el audio por Vosk como lo hace `LocalVoiceEngine`.
   - Ejecutado el 2026-11-08 sobre `49108ba` (HOST, `vosk-model-small-es-0.42`, voces Helena, Laura y Pablo, dos pares de tramos, 42 casos). Sin pausa, 1 segmento en los 6 casos. Con una pausa de 0,5 s o más, Vosk cierra la frase en la pausa en los 30 casos: 2 segmentos. Con 0,3 s, en 4 de 6. En los 36 casos con pausa sale el mismo número de palabras que sin ella; en 31 son idénticas, y en 5 (una voz) cambia la última palabra del producto, mal oído en los dos casos. El corte no se come ningún tramo.
   - Lectura: el tramo del POCO no se perdió en el motor ni en la sesión, que entregan las dos frases (`test/voice/local_voice_model_and_session_test.dart`). Se pierde para el borrador porque éste interpreta cada frase nueva por separado y la segunda («de …») no trae verbo ni cantidad; además, el producto se oyó mal (modelo). Ninguna de las dos cosas se corrige en el motor.

@@ -54,6 +54,10 @@ enum ReviewVerdict {
 
   /// No hay con qué comprobar las cantidades: no se arriesga.
   unchecked,
+
+  /// La revisión no llegó dentro del tope por frase: se entregó el texto de
+  /// la primera pasada sin esperar más, y lo que llegue después se descarta.
+  timedOut,
 }
 
 final class ReviewChoice {
