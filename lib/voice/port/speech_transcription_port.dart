@@ -196,6 +196,7 @@ final class TranscriptionSegment extends TranscriptionEvent {
     required this.elapsed,
     this.sequence,
     this.revised = false,
+    this.numericDisagreement = false,
   });
 
   final String text;
@@ -209,10 +210,21 @@ final class TranscriptionSegment extends TranscriptionEvent {
   /// El texto es el de la segunda pasada, elegido frente al de la primera.
   final bool revised;
 
+  /// Una segunda lectura válida de esta misma frase leyó **otros valores** de
+  /// cantidad, unidad o moneda (no sólo otra forma de escribirlos). [text]
+  /// sigue siendo una sola transcripción —la de la primera pasada—; esto es
+  /// una marca aparte, sin texto, para que lo que interprete [text] deje sus
+  /// cifras por revisar en lugar de darlas por buenas (POCO 2026-11-08).
+  ///
+  /// Nunca es `true` si no hubo segunda lectura válida: no llegó a tiempo,
+  /// vino vacía, era no-habla o degenerada.
+  final bool numericDisagreement;
+
   @override
   String toString() =>
       'TranscriptionSegment(chars=${text.length}, '
-      'elapsed=${elapsed.inMilliseconds}ms)';
+      'elapsed=${elapsed.inMilliseconds}ms'
+      '${numericDisagreement ? ', numericDisagreement' : ''})';
 }
 
 /// El motor dejó de escuchar. Siempre llega, gane o falle el turno.

@@ -41,6 +41,10 @@ import 'speech_transcription_port.dart';
 ///   vez, con el texto de Vosk **o** el de la revisión, nunca los dos ni una
 ///   mezcla ([chooseReviewedText]). Un segundo resultado de la misma frase se
 ///   descarta.
+/// * **Desacuerdo numérico a la vista.** Si la revisión lee otros valores de
+///   cantidad, unidad o moneda, la frase sale con el texto de Vosk y con
+///   [TranscriptionSegment.numericDisagreement]; no se calla. Si la revisión
+///   no llegó a tiempo (o tras el cierre), no hay desacuerdo que marcar.
 /// * **Tope por frase.** Si la revisión de una frase no llega en
 ///   [reviewTimeout] desde que Vosk la cerró, se entrega el texto de Vosk sin
 ///   esperar más, y la revisión que llegue después se descarta. Un fallo de la
@@ -438,7 +442,12 @@ final class LocalSpeechTranscriptionAdapter implements SpeechTranscriptionPort {
           'voz local: frase $seq ${choice.verdict.name} '
           'revision=${map['reviewMs']}ms',
         );
-        _deliver(seq, choice.text, revised: choice.revised);
+        _deliver(
+          seq,
+          choice.text,
+          revised: choice.revised,
+          numericDisagreement: choice.numericDisagreement,
+        );
 
       case 'error':
         _failTurn(_codeFrom(map['code'] as String?), map['detail'] as String?);
@@ -467,8 +476,15 @@ final class LocalSpeechTranscriptionAdapter implements SpeechTranscriptionPort {
     }
   }
 
-  /// Entrega una frase una sola vez.
-  void _deliver(int? seq, String text, {required bool revised}) {
+  /// Entrega una frase una sola vez. La marca de desacuerdo numérico viaja
+  /// con su frase y con nada más: no hay contador aquí que pueda pasar a otra
+  /// frase, a otro turno o a otra pantalla.
+  void _deliver(
+    int? seq,
+    String text, {
+    required bool revised,
+    bool numericDisagreement = false,
+  }) {
     if (seq != null && !_delivered.add(seq)) return;
     if (text.isEmpty) return;
     _segments++;
@@ -478,6 +494,7 @@ final class LocalSpeechTranscriptionAdapter implements SpeechTranscriptionPort {
         elapsed: _elapsed,
         sequence: seq,
         revised: revised,
+        numericDisagreement: numericDisagreement,
       ),
     );
   }

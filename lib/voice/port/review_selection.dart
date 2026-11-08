@@ -24,11 +24,35 @@
 /// Tampoco se acepta texto típico de alucinación sobre ruido («[MÚSICA]»,
 /// «Subtítulos por…»), repeticiones degeneradas ni cambios de longitud
 /// desproporcionados.
+///
+/// ## Formato frente a valor (POCO 2026-11-08)
+///
+/// Que la revisión no coincida **no demuestra que Vosk tenga razón**: en el
+/// POCO, 4 de 12 frases de compra acabaron en `quantities` y en una el precio
+/// de Vosk era el equivocado. Por eso se distinguen dos casos:
+///
+/// * **Mismo valor, otra forma** («1,5 litros», «uno y medio litros», «un litro
+///   y medio», «1.5 litros»): no hay desacuerdo. Si el lector de la app lee la
+///   revisión igual, se acepta; si sólo la entiende con una lectura tolerante
+///   («1.5», que el convenio es-BO rechaza), queda Vosk ([ReviewVerdict.format]),
+///   también sin desacuerdo.
+/// * **Otro valor** («veinte» frente a «ciento veinte»): queda el texto de
+///   Vosk —una sola transcripción, sin mezclar— y la frase lleva la marca
+///   [ReviewChoice.numericDisagreement]. La marca no lleva texto; quien
+///   interpreta decide qué campos quedan por revisar.
+///
+/// Sin segunda lectura válida (no llegó, vacía, no-habla, degenerada o sin
+/// lector) no hay nada con qué discrepar: nunca es desacuerdo.
 library;
 
 /// Cantidades, unidades y monedas de un texto, en orden y en forma comparable.
 ///
-/// `n?` marca una cifra que el lector rechaza; nunca es igual a otra.
+/// Cada elemento es `n<milésimas>`, `u<unidad>` o `c<moneda>`. Una cifra que el
+/// lector de la app rechaza se marca con `n?`: sola si no tiene un valor
+/// seguro («1,500» es ambiguo), o `n?<milésimas>` si una lectura tolerante sí
+/// lo tiene («1.5» → `n?1500`). Ninguna `n?` cuenta como igual a otra para
+/// aceptar la revisión; `n?<v>` sólo sirve para reconocer que el valor es el
+/// mismo y que la diferencia es de formato.
 typedef ReviewFacts = List<String> Function(String text);
 
 /// Por qué se eligió un texto. Sólo códigos: va al diagnóstico, nunca el texto.
@@ -49,8 +73,14 @@ enum ReviewVerdict {
   /// Repeticiones o longitud desproporcionada.
   degenerate,
 
-  /// Cambiaría una cantidad, una unidad o una moneda.
+  /// Los dos reconocedores leen **valores distintos** de cantidad, unidad o
+  /// moneda. Queda Vosk y la frase lleva la marca de desacuerdo numérico.
   quantities,
+
+  /// Las mismas cantidades, unidades y monedas escritas de una forma que el
+  /// lector de la app no acepta («1.5 litros»). Queda Vosk, que sí se lee, y
+  /// no es desacuerdo: la diferencia es sólo de formato.
+  format,
 
   /// No hay con qué comprobar las cantidades: no se arriesga.
   unchecked,
@@ -67,6 +97,10 @@ final class ReviewChoice {
   final ReviewVerdict verdict;
 
   bool get revised => verdict == ReviewVerdict.accepted;
+
+  /// Hubo una segunda lectura válida y sus cifras no coinciden en valor con
+  /// las de [text] (que es la de Vosk). No lleva texto de ninguno de los dos.
+  bool get numericDisagreement => verdict == ReviewVerdict.quantities;
 
   @override
   String toString() => 'ReviewChoice(${verdict.name}, chars=${text.length})';
@@ -92,10 +126,11 @@ ReviewChoice chooseReviewedText(
     return ReviewChoice(base, ReviewVerdict.degenerate);
   }
   if (facts == null) return ReviewChoice(base, ReviewVerdict.unchecked);
-  if (!_sameFacts(facts(base), facts(candidate))) {
-    return ReviewChoice(base, ReviewVerdict.quantities);
-  }
-  return ReviewChoice(candidate, ReviewVerdict.accepted);
+  return switch (_compareFacts(facts(base), facts(candidate))) {
+    _FactsMatch.same => ReviewChoice(candidate, ReviewVerdict.accepted),
+    _FactsMatch.sameValues => ReviewChoice(base, ReviewVerdict.format),
+    _FactsMatch.different => ReviewChoice(base, ReviewVerdict.quantities),
+  };
 }
 
 /// Palabras en minúsculas, sin puntuación. Sólo para contar y comparar.
@@ -128,10 +163,33 @@ bool _repeats(List<String> words) {
   return false;
 }
 
-bool _sameFacts(List<String> a, List<String> b) {
-  if (a.length != b.length) return false;
+enum _FactsMatch {
+  /// Iguales y legibles por la app: la revisión se puede aceptar.
+  same,
+
+  /// Mismos valores, pero alguna cifra sólo se entiende con la lectura
+  /// tolerante: diferencia de formato.
+  sameValues,
+
+  /// Algún valor, unidad o moneda distinto, o una cifra sin valor seguro.
+  different,
+}
+
+_FactsMatch _compareFacts(List<String> a, List<String> b) {
+  if (a.length != b.length) return _FactsMatch.different;
+  var readable = true;
   for (var i = 0; i < a.length; i++) {
-    if (a[i] != b[i] || a[i] == 'n?') return false;
+    if (a[i] == b[i] && !a[i].startsWith('n?')) continue;
+    readable = false;
+    final x = _valueOf(a[i]);
+    if (x == null || x != _valueOf(b[i])) return _FactsMatch.different;
   }
-  return true;
+  return readable ? _FactsMatch.same : _FactsMatch.sameValues;
+}
+
+/// El valor de un hecho, venga de la lectura de la app o de la tolerante;
+/// `null` si no hay valor seguro (`n?` sola).
+String? _valueOf(String fact) {
+  if (!fact.startsWith('n?')) return fact;
+  return fact.length > 2 ? 'n${fact.substring(2)}' : null;
 }

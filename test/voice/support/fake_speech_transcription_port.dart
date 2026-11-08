@@ -24,7 +24,13 @@ final class FakeTurn {
     this.acceptsRoute,
     this.reportsRoute,
     this.unresponsive = false,
+    this.numericDisagreement = false,
   });
+
+  /// El segmento del turno sale marcado con desacuerdo numérico entre los dos
+  /// reconocedores ([TranscriptionSegment.numericDisagreement]). Es texto
+  /// inyectado: no hay reconocimiento real detrás.
+  final bool numericDisagreement;
 
   /// **Apertura sin respuesta** (#119): el motor acepta `start` y no emite
   /// nada más —ni camino, ni etapa, ni error—. Reproduce el F09-D1 del HONOR:
@@ -220,7 +226,13 @@ final class FakeSpeechTranscriptionPort implements SpeechTranscriptionPort {
       _emit(const TranscriptionStageChanged(TranscriptionStage.processing));
       final text = turn.segment;
       if (text != null && text.isNotEmpty) {
-        _emit(TranscriptionSegment(text, elapsed: Duration.zero));
+        _emit(
+          TranscriptionSegment(
+            text,
+            elapsed: Duration.zero,
+            numericDisagreement: turn.numericDisagreement,
+          ),
+        );
         _end(TranscriptionEndReason.stoppedByUser);
       } else {
         _emit(const TranscriptionNoMatch());
@@ -389,7 +401,13 @@ final class FakeSpeechTranscriptionPort implements SpeechTranscriptionPort {
       return;
     }
     _emit(const TranscriptionStageChanged(TranscriptionStage.processing));
-    _emit(TranscriptionSegment(turn.segment!, elapsed: Duration.zero));
+    _emit(
+      TranscriptionSegment(
+        turn.segment!,
+        elapsed: Duration.zero,
+        numericDisagreement: turn.numericDisagreement,
+      ),
+    );
     _end(TranscriptionEndReason.segment);
   }
 
