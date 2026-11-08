@@ -54,7 +54,8 @@ guard() {
   [ "$fg" = "$PKG" ] || { echo "ABORTADO: en primer plano está '${fg:-nada}', no $PKG"; exit 1; }
 }
 # Volcado de la interfaz directo a la salida (sin archivo en /sdcard).
-ui_dump() { adb exec-out uiautomator dump /dev/tty 2>/dev/null | sed 's#</hierarchy>.*#</hierarchy>#'; }
+# MIUI (POCO) imprime antes una traza de ThemeCompatibilityLoader: sólo el XML.
+ui_dump() { adb exec-out uiautomator dump /dev/tty 2>/dev/null | tr -d '\r' | grep -o '<?xml.*</hierarchy>'; }
 has() { ui_dump | py has "$PKG" "$1"; }
 wait_for() {
   local rx=$1 secs=${2:-20}
