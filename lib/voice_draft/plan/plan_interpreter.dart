@@ -146,7 +146,9 @@ VoicePlanDraft proposeFarmArea(VoicePlanDraft draft) {
     return draft;
   }
   final area = draft.area;
-  if (area.isManual || (area.isResolved && area.origin == FieldOrigin.voice)) {
+  // Un área dictada, resuelta o por revisar, no se pisa con la del chaco.
+  if (area.isManual ||
+      ((area.isResolved || area.review) && area.origin == FieldOrigin.voice)) {
     return draft;
   }
   return draft.copyWith(

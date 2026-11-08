@@ -6,8 +6,11 @@ library;
 
 import 'package:flutter/material.dart';
 
+import '../../domain/money.dart' show baseUnitsPerMajor;
+import '../../domain/numeric_input.dart' show formatForInput;
 import '../../voice_draft/catalog/voice_catalog.dart';
 import '../../voice_draft/core/voice_draft_controller.dart';
+import '../../voice_draft/text/units.dart';
 import '../widgets/adaptive_entity_picker.dart';
 import '../../voice_draft/core/draft_field.dart';
 import '../../voice_draft/interpretation/voice_intent.dart';
@@ -160,18 +163,41 @@ final class VoiceHeardSegment {
       );
 }
 
+/// Cómo se corrige el borrador, para cuando un dictado no cambió nada.
+///
+/// POCO 2026-11-08: la persona dijo «el producto uno selecciona…» y
+/// «eliminan el producto». La voz sólo completa datos; corregir, elegir y
+/// quitar se hace en la pantalla. El texto lo dice sin prometer órdenes de
+/// voz.
+String voiceCorrectionHint({required bool hasLines}) => hasLines
+    ? 'Para corregir, elija en el selector o escriba en el campo; para quitar '
+          'un producto, toque «Quitar este producto». La voz sólo completa '
+          'datos del borrador.'
+    : 'Para corregir, elija en el selector o escriba en el campo. La voz sólo '
+          'completa datos del borrador.';
+
 /// Lo dictado ya interpretado (lo «refinado»), con lo que hizo cada tramo.
 ///
 /// POCO §2.3 (2026-11-05): bajo «Ya aplicado al borrador» aparecían frases
 /// que no habían cambiado nada, y el rótulo hacía creer que sí. Ahora cada
 /// tramo dice si cambió el borrador o no, y por qué no cuando se sabe.
+///
+/// Si el último tramo no cambió nada, se añade [correctionHint]: cómo
+/// corregir a mano (POCO 2026-11-08).
 class VoiceAppliedPanel extends StatelessWidget {
-  const VoiceAppliedPanel({super.key, required this.segments});
+  const VoiceAppliedPanel({
+    super.key,
+    required this.segments,
+    this.correctionHint,
+  });
   final List<VoiceHeardSegment> segments;
+  final String? correctionHint;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final hint = correctionHint;
+    final lastUnchanged = segments.isNotEmpty && !segments.last.changedDraft;
     return Container(
       key: const Key('voz-aplicado'),
       padding: const EdgeInsets.all(12),
@@ -200,6 +226,14 @@ class VoiceAppliedPanel extends StatelessWidget {
               ),
             ),
             Text('«${s.text}»'),
+          ],
+          if (hint != null && lastUnchanged) ...[
+            const SizedBox(height: 6),
+            Text(
+              hint,
+              key: const Key('voz-como-corregir'),
+              style: theme.textTheme.bodySmall,
+            ),
           ],
         ],
       ),
@@ -264,6 +298,16 @@ class VoiceBlockersPanel extends StatelessWidget {
 }
 
 /// Etiqueta, estado del campo y el control para corregirlo.
+///
+/// Estados que ve la persona (POCO 2026-11-08):
+/// - «Dictado», «Propuesto»: lo puso la voz o el sistema;
+/// - «Corregido a mano»: la persona **cambió** el valor;
+/// - «Confirmado»: la persona dio por bueno el valor que ya había (eligió la
+///   misma opción o pulsó «Confirmar este valor»), sin cambiarlo;
+/// - «Revisar»: un valor leído que hay que mirar antes de registrar
+///   ([DraftField.review]); se ve el valor, el motivo y «Confirmar este
+///   valor»;
+/// - «Ambiguo: elija», «Falta», «No válido».
 class DraftFieldRow extends StatelessWidget {
   const DraftFieldRow({
     super.key,
@@ -271,6 +315,10 @@ class DraftFieldRow extends StatelessWidget {
     required this.field,
     required this.child,
     this.labelInChild = false,
+    this.id,
+    this.onConfirmReview,
+    this.note,
+    this.problem,
   });
 
   final String label;
@@ -280,22 +328,47 @@ class DraftFieldRow extends StatelessWidget {
   /// El control ya muestra la etiqueta (un selector): aquí sólo el estado.
   final bool labelInChild;
 
+  /// Sufijo de las claves del estado (`voz-estado-<id>`) y del botón de
+  /// confirmación (`voz-confirmar-<id>`).
+  final String? id;
+
+  /// Da por bueno el valor por revisar ([DraftField.confirmedByUser]). Se
+  /// muestra «Confirmar este valor» sólo si el campo está por revisar; nulo
+  /// lo deja deshabilitado (borrador cerrado).
+  final VoidCallback? onConfirmReview;
+
+  /// Aclaración que acompaña al campo (por ejemplo, una unidad que aún no se
+  /// puede comprobar porque falta el producto).
+  final String? note;
+
+  /// Un valor resuelto que, sin embargo, no se puede registrar así (por
+  /// ejemplo, la unidad dicha no es la del producto). Se muestra como «No
+  /// válido» con el motivo.
+  final String? problem;
+
   @override
   Widget build(BuildContext context) {
     final scheme = Theme.of(context).colorScheme;
-    final (text, color) = switch (field.status) {
-      FieldStatus.resolved => (
-        switch (field.origin) {
-          FieldOrigin.manual => 'Corregido a mano',
-          FieldOrigin.preset => 'Propuesto',
-          _ => 'Dictado',
-        },
-        scheme.primary,
-      ),
-      FieldStatus.ambiguous => ('Ambiguo: elija', scheme.tertiary),
-      FieldStatus.missing => ('Falta', scheme.error),
-      FieldStatus.invalid => ('No válido', scheme.error),
-    };
+    final small = Theme.of(context).textTheme.bodySmall;
+    final problem = field.isResolved ? this.problem : null;
+    final (text, color) = field.review
+        ? ('Revisar', scheme.tertiary)
+        : problem != null
+        ? ('No válido', scheme.error)
+        : switch (field.status) {
+            FieldStatus.resolved => (
+              switch (field.origin) {
+                FieldOrigin.manual => 'Corregido a mano',
+                FieldOrigin.confirmed => 'Confirmado',
+                FieldOrigin.preset => 'Propuesto',
+                _ => 'Dictado',
+              },
+              scheme.primary,
+            ),
+            FieldStatus.ambiguous => ('Ambiguo: elija', scheme.tertiary),
+            FieldStatus.missing => ('Falta', scheme.error),
+            FieldStatus.invalid => ('No válido', scheme.error),
+          };
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Column(
@@ -308,24 +381,108 @@ class DraftFieldRow extends StatelessWidget {
               ),
               Text(
                 text,
+                key: id == null ? null : Key('voz-estado-$id'),
                 semanticsLabel: '$label: $text',
                 style: TextStyle(color: color),
               ),
             ],
           ),
           if (field.heard != null && !field.isResolved)
-            Text(
-              'Oído: «${field.heard}»',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
+            Text('Oído: «${field.heard}»', style: small),
           if (field.message != null && !field.isResolved)
-            Text(field.message!, style: Theme.of(context).textTheme.bodySmall),
+            Text(
+              field.message!,
+              key: id == null ? null : Key('voz-mensaje-$id'),
+              style: small,
+            ),
+          if (problem != null)
+            Text(
+              problem,
+              key: id == null ? null : Key('voz-problema-$id'),
+              style: small?.copyWith(color: scheme.error),
+            ),
+          if (note != null)
+            Text(
+              note!,
+              key: id == null ? null : Key('voz-nota-$id'),
+              style: small,
+            ),
           const SizedBox(height: 4),
           child,
+          if (field.review)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                key: id == null ? null : Key('voz-confirmar-$id'),
+                onPressed: onConfirmReview,
+                icon: const Icon(Icons.check_circle_outline),
+                label: const Text('Confirmar este valor'),
+              ),
+            ),
         ],
       ),
     );
   }
+}
+
+/// Lo que deja un toque en el selector sobre [current]: elegir **otra**
+/// opción es una corrección a mano; tocar la que ya estaba elegida sólo la
+/// confirma (POCO 2026-11-08: «Corregido a mano» sin haber cambiado nada). Lo
+/// que ya puso o confirmó la persona queda como estaba.
+DraftField<CatalogEntry> pickEntry(
+  DraftField<CatalogEntry> current,
+  CatalogEntry entry,
+) {
+  final same = current.value == entry && (current.isResolved || current.review);
+  if (!same) return DraftField.resolved(entry, origin: FieldOrigin.manual);
+  return current.isManual ? current : current.confirmedByUser();
+}
+
+/// Cantidad dicha en unidad base (ML o G) de su propia familia, sin depender
+/// del producto: «un litro» → 1000, «500 ml» → 500. `null` si no es un entero
+/// de ML o G mayor que cero.
+int? spokenBase(int thousandths, SpokenUnit unit) {
+  final base = unit.toBase(thousandths);
+  return base == null || base <= 0 ? null : base;
+}
+
+/// Texto de un campo de cantidad: el valor leído, normalizado a L o KG
+/// («1», «0,5»), aunque el producto aún no esté elegido; si no hay valor
+/// utilizable, lo oído tal cual.
+String spokenAmountText(int? base, String? heard) =>
+    base == null ? (heard ?? '') : formatForInput(base / baseUnitsPerMajor);
+
+/// Unidad en que se escribe una cantidad de la línea: la del producto si se
+/// conoce; si no, la de lo dicho; si nada, litros.
+CatalogUnit lineUnit(DraftField<CatalogEntry> product, SpokenUnit? spoken) =>
+    product.value?.unit ?? spoken?.family ?? CatalogUnit.liter;
+
+/// Aclaración o problema de unidad para una cantidad con valor (POCO
+/// 2026-11-08, dosis con el producto pendiente): sin producto, la unidad aún
+/// no se comprobó; con un producto de otra unidad, no se puede registrar.
+({String? note, String? problem}) unitCheck({
+  required DraftField<CatalogEntry> product,
+  required SpokenUnit? spoken,
+  String suffix = '',
+}) {
+  if (spoken == null) return (note: null, problem: null);
+  final said = '${spoken.family.code}$suffix';
+  final unit = product.isResolved ? product.value?.unit : null;
+  if (unit == null) {
+    return (
+      note: 'En $said; falta elegir el producto para comprobar su unidad.',
+      problem: null,
+    );
+  }
+  if (unit != spoken.family) {
+    return (
+      note: null,
+      problem:
+          'La cifra está en $said, pero el producto se mide en '
+          '${unit.code}$suffix: corrija la cifra o el producto.',
+    );
+  }
+  return (note: null, problem: null);
 }
 
 /// El selector de los formularios (`AdaptiveEntityPicker`, UX del jurado)

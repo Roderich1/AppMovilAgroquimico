@@ -215,6 +215,15 @@ final class VoiceApplicationDraft implements VoiceDraft<VoiceApplicationDraft> {
     return (stock[id] ?? 0) - base;
   }
 
+  /// Lo que falta del dueño del chaco para aplicar la línea, en unidad base,
+  /// o `null` si alcanza o aún no se puede calcular (POCO 2026-11-08: con 0 L
+  /// y 10 L pedidos se veía «quedaría 0 L (insuficiente)»; ahora «Faltan
+  /// 10 L»).
+  int? shortfall(VoiceApplicationLine line) {
+    final after = stockAfter(line);
+    return after == null || after >= 0 ? null : -after;
+  }
+
   @override
   List<String> get blockers {
     final out = <String>[];
@@ -224,6 +233,8 @@ final class VoiceApplicationDraft implements VoiceDraft<VoiceApplicationDraft> {
           break;
         case FieldStatus.missing:
           out.add(f.message ?? 'Falta $name.');
+        case FieldStatus.ambiguous when f.review:
+          out.add(_reviewBlocker('Revise $name', f));
         case FieldStatus.ambiguous:
           out.add(
             'Elija $name: «${f.heard ?? ''}» tiene varias opciones o no es '
@@ -276,7 +287,9 @@ final class VoiceApplicationDraft implements VoiceDraft<VoiceApplicationDraft> {
               : '$n: ${l.product.message ?? 'falta el producto.'}',
         );
       }
-      if (!l.quantity.isResolved) {
+      if (l.quantity.review) {
+        out.add(_reviewBlocker('$n: revise la cantidad', l.quantity));
+      } else if (!l.quantity.isResolved) {
         out.add('$n: ${l.quantity.message ?? 'falta la cantidad.'}');
       } else if (l.product.isResolved && l.quantityBase == null) {
         out.add('$n: la cantidad no corresponde a la unidad del producto.');
@@ -287,9 +300,13 @@ final class VoiceApplicationDraft implements VoiceDraft<VoiceApplicationDraft> {
           'Quítelo o registre una aplicación sin plan.',
         );
       }
-      final after = stockAfter(l);
-      if (after != null && after < 0) {
-        out.add('$n: no hay stock suficiente del dueño del chaco.');
+      // Sólo cuenta el stock del dueño del chaco: nunca el de otra persona.
+      final missing = shortfall(l);
+      if (missing != null) {
+        out.add(
+          '$n: no hay stock suficiente del dueño del chaco (faltan '
+          '${formatQuantity(missing, l.product.value?.unit?.code ?? 'L')}).',
+        );
       }
       final id = l.product.value?.id;
       if (l.product.isResolved && id != null && !seen.add(id)) {
@@ -334,3 +351,8 @@ final class VoiceApplicationDraft implements VoiceDraft<VoiceApplicationDraft> {
     );
   }
 }
+
+/// Bloqueo de un valor por revisar ([DraftField.review]): se nombra el campo
+/// y el motivo; se resuelve confirmándolo o corrigiéndolo a mano.
+String _reviewBlocker(String lead, DraftField<Object?> f) =>
+    '$lead. ${f.message ?? 'Confirme el valor o corríjalo.'}';
