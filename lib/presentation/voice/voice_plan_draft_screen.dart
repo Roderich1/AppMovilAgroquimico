@@ -267,6 +267,7 @@ class _VoicePlanDraftScreenState extends ConsumerState<VoicePlanDraftScreen>
           const VoiceDraftNotice(
             confirmLabel: 'Crear plan',
             catalogs: 'Los chacos y productos',
+            createInPicker: true,
           ),
           const SizedBox(height: 12),
           VoiceListeningPanel(session: _session),
@@ -330,12 +331,16 @@ class _VoicePlanDraftScreenState extends ConsumerState<VoicePlanDraftScreen>
         ),
         DraftFieldRow(
           label: 'Chaco',
+          labelInChild: true,
           field: d.farm,
-          child: CatalogEntryPicker(
+          child: VoiceEntityPicker(
             key: const Key('voz-borrador-chaco'),
+            label: 'Chaco',
             entries: catalog.farms,
             field: d.farm,
             enabled: editable,
+            createLabel: modeChanged ? null : 'Crear chaco',
+            onCreate: modeChanged ? null : _createFarm,
             onPick: (entry) => controller.editManually(
               (c) => proposeFarmArea(
                 c.copyWith(
@@ -375,13 +380,14 @@ class _VoicePlanDraftScreenState extends ConsumerState<VoicePlanDraftScreen>
           _lineCard(context, controller, catalog, d, i, d.lines[i], editable),
         Align(
           alignment: Alignment.centerLeft,
-          child: TextButton.icon(
+          // El texto del formulario de planificación.
+          child: FilledButton.tonalIcon(
             key: const Key('voz-agregar-linea'),
             onPressed: editable
                 ? () => controller.editManually((c) => c.addEmptyLine())
                 : null,
             icon: const Icon(Icons.add),
-            label: const Text('Añadir producto a mano'),
+            label: const Text('Agregar producto'),
           ),
         ),
         if (controller.blockers.isNotEmpty || mismatches.isNotEmpty) ...[
@@ -427,6 +433,32 @@ class _VoicePlanDraftScreenState extends ConsumerState<VoicePlanDraftScreen>
         ),
       ],
     );
+  }
+
+  // ------------------------------------------- altas pedidas en un selector
+
+  /// «Crear chaco» y «Crear producto», como el formulario de planificación:
+  /// los pide la persona, el borrador se conserva y lo creado queda elegido.
+  Future<CatalogEntry?> _createFarm() async {
+    final created = await _gateway.createPlanFarm(context);
+    return _adopt(created, (c, list) => c.copyWith(farms: list));
+  }
+
+  Future<CatalogEntry?> _createProduct() async {
+    final created = await _gateway.createProduct(context);
+    return _adopt(created, (c, list) => c.copyWith(products: list));
+  }
+
+  CatalogEntry? _adopt(
+    (List<CatalogEntry>, CatalogEntry)? created,
+    VoiceCatalog Function(VoiceCatalog current, List<CatalogEntry> list) put,
+  ) {
+    final current = _catalog;
+    if (created == null || current == null || !mounted) return null;
+    final next = put(current, created.$1);
+    _session.setVocabularyHints(voiceVocabularyHints(next));
+    setState(() => _catalog = next);
+    return created.$2;
   }
 
   Widget _lineCard(
@@ -475,12 +507,17 @@ class _VoicePlanDraftScreenState extends ConsumerState<VoicePlanDraftScreen>
             ),
             DraftFieldRow(
               label: 'Producto',
+              labelInChild: true,
               field: line.product,
-              child: CatalogEntryPicker(
+              child: VoiceEntityPicker(
                 key: Key('voz-producto-${line.key}'),
+                label: 'Producto',
+                showUnit: true,
                 entries: catalog.products,
                 field: line.product,
                 enabled: editable,
+                createLabel: 'Crear producto',
+                onCreate: _createProduct,
                 onPick: (entry) => update(
                   (l) => l.copyWith(
                     product: DraftField.resolved(

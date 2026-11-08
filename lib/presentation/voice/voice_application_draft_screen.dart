@@ -10,6 +10,7 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../domain/campaign_calendar.dart' show localDay;
 import '../../domain/money.dart';
 import '../../voice/session/voice_session_controller.dart';
 import '../../voice/ui/voice_capture_screen.dart';
@@ -23,6 +24,7 @@ import '../../voice_draft/interpretation/voice_intent.dart';
 import '../../voice_draft/text/units.dart';
 import '../../operation_mode_controller.dart';
 import '../widgets/common.dart';
+import '../widgets/application_expiry_notice.dart';
 import '../widgets/mode_notice.dart';
 import 'voice_draft_gateway.dart';
 import 'voice_draft_widgets.dart';
@@ -113,8 +115,94 @@ class _VoiceApplicationDraftScreenState
         _sync('q${line.key}', _quantityText(line), line.quantity);
       }
       _loadStockIfNeeded(d);
+      _loadExpiryPreview(d);
     }
     setState(() {});
+  }
+
+  // ------------------------------------------------ aviso de lote vencido
+
+  /// Lotes previstos que vencen antes o el mismo día de la aplicación (hoy).
+  List<ExpiringLotUse> _expiring = const [];
+  String? _expiryDay;
+  String? _previewFor;
+  int _previewRequest = 0;
+
+  /// Lee, como el formulario al pasar al resumen, qué lotes usaría cada
+  /// producto ahora (`previewApplicationLots`) cuando cambian quien aplica o
+  /// las líneas. Sólo informa: si no se puede leer, no se avisa y la
+  /// confirmación valida como siempre.
+  Future<void> _loadExpiryPreview(VoiceApplicationDraft d) async {
+    final owner = d.person?.id;
+    final wanted = [
+      if (owner != null)
+        for (final l in d.lines)
+          if (l.product.isResolved && l.quantityBase != null)
+            (product: l.product.value!, quantity: l.quantityBase!),
+    ];
+    final signature =
+        '$owner|${[for (final w in wanted) '${w.product.id}:${w.quantity}'].join(',')}';
+    if (signature == _previewFor) return;
+    _previewFor = signature;
+    final request = ++_previewRequest;
+    if (owner == null || wanted.isEmpty) {
+      if (_expiring.isNotEmpty) setState(() => _expiring = const []);
+      return;
+    }
+    final at = _gateway.now();
+    final day = localDay(at);
+    var uses = const <ExpiringLotUse>[];
+    try {
+      final previews = await Future.wait([
+        for (final w in wanted)
+          _gateway.previewLots(
+            personId: owner,
+            productId: w.product.id,
+            quantityBase: w.quantity,
+            at: at,
+          ),
+      ]);
+      uses = expiringLotUses(
+        applicationDay: day,
+        lines: [
+          for (var i = 0; i < wanted.length; i++)
+            (
+              productName: wanted[i].product.name,
+              unit: wanted[i].product.unit?.code ?? 'L',
+              lots: previews[i],
+            ),
+        ],
+      );
+    } catch (_) {
+      // Sin previsión no hay aviso; nada más cambia.
+    }
+    if (!mounted || request != _previewRequest) return;
+    setState(() {
+      _expiring = uses;
+      _expiryDay = day;
+    });
+  }
+
+  /// «Crear chaco» como en el formulario: lo pide la persona y el borrador
+  /// se conserva. Si el dueño elegido no puede aplicar, el chaco se crea pero
+  /// no se ofrece aquí, y se dice.
+  Future<CatalogEntry?> _createFarm() async {
+    final created = await _gateway.createApplicationFarm(context);
+    final current = _catalog;
+    if (created == null || current == null || !mounted) return null;
+    final next = current.copyWith(
+      farms: created.farms,
+      farmOwners: created.farmOwners,
+    );
+    _session.setVocabularyHints(voiceVocabularyHints(next));
+    setState(() => _catalog = next);
+    if (created.entry == null) {
+      showError(
+        context,
+        'El chaco se creó, pero su dueño no puede registrar aplicaciones.',
+      );
+    }
+    return created.entry;
   }
 
   /// Lee el stock del dueño del chaco elegido. Si el chaco cambia mientras
@@ -353,18 +441,24 @@ class _VoiceApplicationDraftScreenState
         ),
         DraftFieldRow(
           label: 'Chaco',
+          labelInChild: true,
           field: d.farm,
-          child: CatalogEntryPicker(
+          child: VoiceEntityPicker(
             key: const Key('voz-borrador-chaco'),
+            label: 'Chaco',
             entries: catalog.farms,
             field: d.farm,
             enabled: editable,
+            createLabel: modeChanged ? null : 'Crear chaco',
+            onCreate: modeChanged ? null : _createFarm,
             onPick: (entry) => controller.editManually(
               (c) => selectFarm(
                 c.copyWith(
                   farm: DraftField.resolved(entry, origin: FieldOrigin.manual),
                 ),
-                catalog,
+                // El catálogo vigente, no el de esta construcción: tras
+                // «Crear chaco» lo creado se elige antes de reconstruir.
+                _catalog ?? catalog,
               ),
             ),
           ),
@@ -407,15 +501,27 @@ class _VoiceApplicationDraftScreenState
           _lineCard(context, controller, catalog, d, i, d.lines[i], editable),
         Align(
           alignment: Alignment.centerLeft,
-          child: TextButton.icon(
+          // El texto del formulario de aplicación.
+          child: FilledButton.tonalIcon(
             key: const Key('voz-agregar-linea'),
             onPressed: editable
                 ? () => controller.editManually((c) => c.addEmptyLine())
                 : null,
             icon: const Icon(Icons.add),
-            label: const Text('Añadir producto a mano'),
+            label: const Text('Agregar producto'),
           ),
         ),
+        // Aviso de lote vencido de la UX (RN-31, RN-32): sólo informa, como
+        // en el formulario; no bloquea ni cambia la asignación FIFO.
+        if (_expiring.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          ApplicationExpiryNotice(
+            key: const Key('voz-aviso-vencimiento'),
+            uses: _expiring,
+            applicationDay: _expiryDay!,
+            isToday: true,
+          ),
+        ],
         if (controller.blockers.isNotEmpty || mismatches.isNotEmpty) ...[
           const SizedBox(height: 8),
           VoiceBlockersPanel(blockers: [...controller.blockers, ...mismatches]),
@@ -507,11 +613,16 @@ class _VoiceApplicationDraftScreenState
                 ),
               ],
             ),
+            // Sin «Crear producto»: como en el formulario, se aplica lo que
+            // hay en existencias; un producto nuevo no tiene stock.
             DraftFieldRow(
               label: 'Producto',
+              labelInChild: true,
               field: line.product,
-              child: CatalogEntryPicker(
+              child: VoiceEntityPicker(
                 key: Key('voz-producto-${line.key}'),
+                label: 'Producto',
+                showUnit: true,
                 entries: catalog.products,
                 field: line.product,
                 enabled: editable,
@@ -594,8 +705,9 @@ class _VoiceApplicationDraftScreenState
         ? const <PendingPlan>[]
         : catalog.plansFor(farm.id, d.campaign.value?.id);
     if (d.plan == null && options.isEmpty) return const SizedBox.shrink();
-    final picker = CatalogEntryPicker(
+    final picker = VoiceEntityPicker(
       key: const Key('voz-plan-elegir'),
+      label: 'Plan pendiente',
       entries: [for (final o in options) o.entry],
       field: d.plan ?? const DraftField<CatalogEntry>.missing(),
       enabled: editable && options.isNotEmpty,
@@ -616,7 +728,12 @@ class _VoiceApplicationDraftScreenState
           ),
           picker,
         ] else
-          DraftFieldRow(label: 'Plan pendiente', field: d.plan!, child: picker),
+          DraftFieldRow(
+            label: 'Plan pendiente',
+            labelInChild: true,
+            field: d.plan!,
+            child: picker,
+          ),
         // Volver a una aplicación libre es siempre una acción de la persona,
         // también si no hay plan que elegir (EVO-018: la frase no se
         // convierte sola en una aplicación libre).

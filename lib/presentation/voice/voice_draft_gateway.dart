@@ -25,6 +25,20 @@ import '../../voice_draft/purchase/voice_purchase_draft.dart';
 import '../../voice_draft/text/units.dart';
 import '../widgets/catalog_dialogs.dart';
 
+/// Chacos releídos tras «Crear chaco» en una aplicación.
+final class ApplicationFarmCreated {
+  const ApplicationFarmCreated({
+    required this.farms,
+    required this.farmOwners,
+    required this.entry,
+  });
+  final List<CatalogEntry> farms;
+  final Map<int, CatalogEntry> farmOwners;
+
+  /// El chaco creado, o nulo si su dueño no puede aplicar.
+  final CatalogEntry? entry;
+}
+
 final voiceDraftGatewayProvider = Provider<VoiceDraftGateway>(
   (ref) => VoiceDraftGateway(ref.watch(repositoryProvider)),
 );
@@ -126,6 +140,68 @@ class VoiceDraftGateway {
     ];
     return _created(people, id);
   }
+
+  /// «Crear chaco» en una planificación: el diálogo del formulario de
+  /// planificación (`createFarmFromDialog`, que en propio fija al titular).
+  /// Relee los chacos con el mismo filtro que [planCatalog].
+  Future<(List<CatalogEntry>, CatalogEntry)?> createPlanFarm(
+    BuildContext context,
+  ) async {
+    final id = await createFarmFromDialog(context, _repo);
+    if (id == null) return null;
+    final read = await _repo.farmsAndContext();
+    return _created([for (final row in read.farms) _farm(row)], id);
+  }
+
+  /// «Crear chaco» en una aplicación: el mismo diálogo. Como en
+  /// [applicationCatalog], sólo se ofrecen chacos cuyo dueño puede aplicar;
+  /// si el dueño elegido no puede, el chaco se crea igual (lo pidió la
+  /// persona) pero no queda elegido y [ApplicationFarmCreated.entry] es nulo.
+  Future<ApplicationFarmCreated?> createApplicationFarm(
+    BuildContext context,
+  ) async {
+    final id = await createFarmFromDialog(context, _repo);
+    if (id == null) return null;
+    final read = await _repo.peopleAndContextFor(PersonPurpose.applicator);
+    final applicators = {for (final p in read.people) p['id']! as int: p};
+    final farms = [
+      for (final farm in await _repo.farms())
+        if (applicators.containsKey(farm['owner_person_id'])) farm,
+    ];
+    final entries = [for (final row in farms) _farm(row)];
+    return ApplicationFarmCreated(
+      farms: entries,
+      farmOwners: {
+        for (final row in farms)
+          row['id']! as int: _entry(applicators[row['owner_person_id']]!),
+      },
+      entry: entries.where((e) => e.id == id).firstOrNull,
+    );
+  }
+
+  /// Lotes que usaría cada producto si se aplicara ahora: la misma previsión
+  /// FIFO del formulario (`previewApplicationLots`), sólo para el aviso de
+  /// vencimiento. Sólo lectura.
+  Future<List<ApplicationLotPreview>> previewLots({
+    required int personId,
+    required int productId,
+    required int quantityBase,
+    required DateTime at,
+  }) => _repo.previewApplicationLots(
+    personId: personId,
+    productId: productId,
+    quantityBase: quantityBase,
+    appliedAt: at,
+  );
+
+  /// Instante con que se registraría ahora: el reloj de la confirmación.
+  DateTime now() => _clock();
+
+  static CatalogEntry _farm(Map<String, Object?> row) => CatalogEntry(
+    id: row['id']! as int,
+    name: row['name']! as String,
+    areaM2: row['area_m2'] as int?,
+  );
 
   static (List<CatalogEntry>, CatalogEntry)? _created(
     List<CatalogEntry> entries,
