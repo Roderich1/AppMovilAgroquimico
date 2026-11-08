@@ -60,6 +60,9 @@ void main() {
         return (r.draft, r.outcome);
       });
     }
+    // Desde la sesión B la compra por voz exige responder «¿Ya pagaste al
+    // proveedor?», como el formulario: sin respuesta no se puede confirmar.
+    c.editManually((d) => d.withPaidInFull(false));
     expect(c.canConfirm, isTrue);
     return c;
   }

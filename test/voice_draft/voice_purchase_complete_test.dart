@@ -97,6 +97,19 @@ void main() {
     await settle(tester);
   }
 
+  /// Espera, con tope, a que [finder] aparezca. El alta escribe y relee el
+  /// catálogo con E/S real: bajo carga (suite de integración del 2026-11-08,
+  /// `+500 -2`) la fila ya estaba en la base y la pantalla aún no se había
+  /// reconstruido. Aislado pasaba siempre.
+  Future<void> untilFound(WidgetTester tester, Finder finder) async {
+    for (var i = 0; i < 50 && finder.evaluate().isEmpty; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 20)),
+      );
+      await tester.pump();
+    }
+  }
+
   Future<void> dictate(WidgetTester tester) async {
     await tapKey(tester, 'voz-boton-microfono');
     await tapKey(tester, 'voz-boton-microfono');
@@ -219,13 +232,12 @@ void main() {
     final created = suppliers.last;
     expect(created['name'], 'Agro Sur');
     // Elegido en el selector y marcado como corrección manual.
-    expect(
-      find.descendant(
-        of: find.byKey(const Key('voz-borrador-proveedor')),
-        matching: find.text('Agro Sur'),
-      ),
-      findsOneWidget,
+    final chosenSupplier = find.descendant(
+      of: find.byKey(const Key('voz-borrador-proveedor')),
+      matching: find.text('Agro Sur'),
     );
+    await untilFound(tester, chosenSupplier);
+    expect(chosenSupplier, findsOneWidget);
     // El borrador sigue: la línea dictada, su cantidad y su precio.
     expect(fieldText(tester, 'voz-cantidad-1'), '10');
     expect(fieldText(tester, 'voz-precio-1'), '50');
@@ -266,13 +278,12 @@ void main() {
     await createFrom(tester, 'voz-producto-1', 'Paraquat');
     final products = await rows(tester, s.database, 'products');
     expect(products, hasLength(productsBefore + 1));
-    expect(
-      find.descendant(
-        of: find.byKey(const Key('voz-producto-1')),
-        matching: find.text('Paraquat'),
-      ),
-      findsOneWidget,
+    final chosenProduct = find.descendant(
+      of: find.byKey(const Key('voz-producto-1')),
+      matching: find.text('Paraquat'),
     );
+    await untilFound(tester, chosenProduct);
+    expect(chosenProduct, findsOneWidget);
     expect(fieldText(tester, 'voz-cantidad-1'), '20');
     await tapKey(tester, 'voz-pago-no');
     expect(registerEnabled(tester), isTrue);
