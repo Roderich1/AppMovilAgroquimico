@@ -19,6 +19,7 @@ import '../../voice_draft/application/application_interpreter.dart';
 import '../../voice_draft/application/voice_application_draft.dart';
 import '../../voice_draft/catalog/voice_catalog.dart';
 import '../../voice_draft/core/draft_field.dart';
+import '../../voice_draft/core/numeric_review.dart';
 import '../../voice_draft/core/voice_draft_controller.dart';
 import '../../voice_draft/interpretation/voice_intent.dart';
 import '../../voice_draft/text/units.dart';
@@ -66,6 +67,9 @@ class _VoiceApplicationDraftScreenState
   final VoiceSegmentFeed _feed = VoiceSegmentFeed();
   final List<VoiceHeardSegment> _heard = [];
   VoiceIntent? _otherIntent;
+
+  /// Desacuerdos numéricos de la sesión ya aplicados al borrador.
+  int _seenDisagreements = 0;
   int? _stockRequestedFor;
   final Map<String, TextEditingController> _fields = {};
 
@@ -244,13 +248,20 @@ class _VoiceApplicationDraftScreenState
 
   void _onSession() {
     if (!mounted) return;
-    observeVoiceSession(_session.snapshot);
+    final snapshot = _session.snapshot;
+    observeVoiceSession(snapshot);
     final draft = _draft;
     final catalog = _catalog;
-    final fresh = _feed.take(
-      _session.snapshot.committedText,
-      ready: draft != null && catalog != null,
-    );
+    final ready = draft != null && catalog != null;
+    final fresh = _feed.take(snapshot.committedText, ready: ready);
+    // Desacuerdo numérico entre Vosk y la revisión (POCO 2026-11-08): el
+    // contador sube en la misma notificación que el texto que lo trae. Los
+    // campos numéricos que cambió ese texto quedan «por revisar». Si el
+    // borrador aún carga, no se consume: se marca al tomar el texto.
+    final disagreed = snapshot.numericDisagreements > _seenDisagreements;
+    if (ready || snapshot.numericDisagreements < _seenDisagreements) {
+      _seenDisagreements = snapshot.numericDisagreements;
+    }
     if (fresh != null) {
       VoiceIntent? other;
       var outcome = const VoicePatchOutcome();
@@ -258,7 +269,14 @@ class _VoiceApplicationDraftScreenState
         final r = interpretApplication(fresh, current, catalog!);
         other = r.otherIntent;
         outcome = r.outcome;
-        return (r.draft, r.outcome);
+        final next = disagreed
+            ? reviewApplicationNumbers(
+                current,
+                r.draft,
+                numericDisagreementMessage,
+              )
+            : r.draft;
+        return (next, r.outcome);
       });
       if (accepted) {
         // Evidencia (#167): sólo se anota en memoria; se entrega al salir.

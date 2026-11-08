@@ -28,6 +28,7 @@ import '../../voice/ui/voice_capture_screen.dart';
 import '../../voice/voice_providers.dart';
 import '../../voice_draft/catalog/voice_catalog.dart';
 import '../../voice_draft/core/draft_field.dart';
+import '../../voice_draft/core/numeric_review.dart';
 import '../../voice_draft/core/voice_draft_controller.dart';
 import '../../voice_draft/interpretation/voice_intent.dart';
 import '../../voice_draft/purchase/purchase_interpreter.dart';
@@ -80,6 +81,12 @@ class _VoicePurchaseDraftScreenState
   String? _ignoredRecipient;
   final List<VoiceHeardSegment> _heard = [];
   VoiceIntent? _otherIntent;
+
+  /// Desacuerdos numéricos de la sesión ya aplicados al borrador.
+  int _seenDisagreements = 0;
+
+  /// Precio oído sin una línea clara a la que aplicarlo (último dictado).
+  UnplacedPrice? _unplacedPrice;
 
   final Map<String, TextEditingController> _fields = {};
 
@@ -214,29 +221,46 @@ class _VoicePurchaseDraftScreenState
   /// no se interpreta nunca.
   void _onSession() {
     if (!mounted) return;
-    observeVoiceSession(_session.snapshot);
+    final snapshot = _session.snapshot;
+    observeVoiceSession(snapshot);
     final draft = _draft;
     final catalog = _catalog;
-    final fresh = _feed.take(
-      _session.snapshot.committedText,
-      ready: draft != null && catalog != null,
-    );
+    final ready = draft != null && catalog != null;
+    final fresh = _feed.take(snapshot.committedText, ready: ready);
+    // Desacuerdo numérico entre Vosk y la revisión (POCO 2026-11-08): el
+    // contador sube en la misma notificación que el texto que lo trae. Los
+    // campos numéricos que cambió ese texto quedan «por revisar». Si el
+    // borrador aún carga, no se consume: se marca al tomar el texto.
+    final disagreed = snapshot.numericDisagreements > _seenDisagreements;
+    if (ready || snapshot.numericDisagreements < _seenDisagreements) {
+      _seenDisagreements = snapshot.numericDisagreements;
+    }
     if (fresh != null) {
       VoiceIntent? other;
       String? ignored;
+      UnplacedPrice? unplaced;
       var outcome = const VoicePatchOutcome();
       final accepted = draft!.applyVoice((current) {
         final r = interpretPurchase(fresh, current, catalog!);
         other = r.otherIntent;
         ignored = r.ignoredRecipient;
+        unplaced = r.unplacedPrice;
         outcome = r.outcome;
-        return (r.draft, r.outcome);
+        final next = disagreed
+            ? reviewPurchaseNumbers(
+                current,
+                r.draft,
+                numericDisagreementMessage,
+              )
+            : r.draft;
+        return (next, r.outcome);
       });
       if (accepted) {
         // Evidencia (#167): sólo se anota en memoria; se entrega al salir.
         noteVoiceApplied(draft.draft, fresh);
         _otherIntent = other;
         if (ignored != null) _ignoredRecipient = ignored;
+        _unplacedPrice = other == null ? unplaced : null;
         if (other == null) _heard.add(VoiceHeardSegment.from(fresh, outcome));
       }
     }
@@ -370,6 +394,15 @@ class _VoicePurchaseDraftScreenState
           const SizedBox(height: 12),
           if (_otherIntent != null)
             VoiceOtherIntentBanner(intent: _otherIntent!, current: 'compra'),
+          if (_unplacedPrice != null)
+            Padding(
+              key: const Key('voz-precio-sin-linea'),
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Text(
+                _unplacedPrice!.message,
+                style: TextStyle(color: Theme.of(context).colorScheme.tertiary),
+              ),
+            ),
           if (_heard.isNotEmpty)
             VoiceAppliedPanel(
               segments: _heard,

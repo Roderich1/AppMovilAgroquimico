@@ -153,8 +153,8 @@ List<String> _fieldBlocker(String line, String name, DraftField<Object?> f) =>
       // Un valor por revisar no tiene opciones que elegir: se confirma o se
       // corrige (POCO 2026-11-08).
       FieldStatus.ambiguous when f.review => [
-        '$line: $name por revisar («${f.heard ?? ''}»), confírmelo o '
-            'corríjalo.',
+        '$line: $name por revisar${_heardSuffix(f)}. '
+            '${f.message ?? 'Confírmelo o corríjalo.'}',
       ],
       FieldStatus.ambiguous => [
         '$line: $name ambiguo («${f.heard ?? ''}»), elija una opción.',
@@ -331,7 +331,12 @@ final class VoicePurchaseDraft implements VoiceDraft<VoicePurchaseDraft> {
         );
       }
     }
-    if (_usesUsd && !exchangeRate.isResolved) {
+    if (_usesUsd && exchangeRate.review) {
+      out.add(
+        'Tipo de cambio por revisar${_heardSuffix(exchangeRate)}. '
+        '${exchangeRate.message ?? 'Confírmelo o corríjalo.'}',
+      );
+    } else if (_usesUsd && !exchangeRate.isResolved) {
       out.add('Falta el tipo de cambio para las líneas en dólares.');
     }
     // Mismos mensajes que el formulario al confirmar.
@@ -406,7 +411,8 @@ List<String> _headBlocker(String name, DraftField<Object?> f) =>
       FieldStatus.resolved => const [],
       FieldStatus.missing => [f.message ?? 'Falta $name.'],
       FieldStatus.ambiguous when f.review => [
-        'Revise $name («${f.heard ?? ''}») y confírmelo o corríjalo.',
+        'Revise $name${_heardSuffix(f)}. '
+            '${f.message ?? 'Confírmelo o corríjalo.'}',
       ],
       FieldStatus.ambiguous => [
         'Elija $name: «${f.heard ?? ''}» tiene varias opciones o no es exacto.',
@@ -416,3 +422,8 @@ List<String> _headBlocker(String name, DraftField<Object?> f) =>
 
 /// Marca de «no cambiar» para un campo que admite nulo.
 const Object _keep = Object();
+
+/// « («lo oído»)» si se oyó algo; nada si el campo viene sin texto (por
+/// ejemplo, marcado por el desacuerdo entre reconocedores).
+String _heardSuffix(DraftField<Object?> f) =>
+    (f.heard ?? '').trim().isEmpty ? '' : ' («${f.heard!.trim()}»)';
