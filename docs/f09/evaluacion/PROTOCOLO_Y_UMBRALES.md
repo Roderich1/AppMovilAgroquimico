@@ -7,7 +7,7 @@
 | Estado | **Preparación. No se ha medido nada.** Ningún resultado de esta evaluación existe todavía: todo lo que no se ejecute queda `NOT_RUN` y lo que no se mida, `NOT_MEASURED` |
 | Qué hace este documento | Versiona, **sin cambiar ningún valor**, las definiciones y los umbrales que hasta hoy sólo estaban en un comentario de GitHub, y los pone junto a lo que dicen los documentos ya versionados. Señala lo que está `Proposed`, lo ambiguo y lo que falta decidir |
 | Qué no hace | No fija valores nuevos (número de participantes, tamaño del holdout, margen de «no inferior»), no escribe frases de aceptación y no decide ningún gate |
-| Trazabilidad | RU-12, CU-16, RF-28, RF-29, RNF-14, INT-07, DAT-17. RF-41 y DAT-21 sólo **según #167**: no aparecen en ningún documento versionado; hay que confirmarlos en el Cap. III antes de usarlos en `Requirement refs` |
+| Trazabilidad | RU-12, CU-16, RF-28, RF-29, RNF-14, INT-07, DAT-17. RF-41 y DAT-21: verificados el 2026-11-08 en la copia local del documento entregado (Tablas 3.23 y 3.27); falta que el autor confirme que esa copia es la entregada. Ver [`TRAZABILIDAD_RF41_DAT21.md`](TRAZABILIDAD_RF41_DAT21.md) |
 
 ## 1. Fuentes, por orden de autoridad para esta evaluación
 
@@ -119,6 +119,8 @@ Se copia tal cual, incluido lo que remite a otras tarjetas. Si F1 cambia en GitH
 ## 4. Lo que está `Proposed`, es ambiguo o falta decidir
 
 Ninguno de estos puntos se resuelve aquí. Cada uno es una pregunta para Roderich (o lo resuelve un documento suyo) **antes** de la primera toma.
+
+**Revisión del 2026-11-08:** la clasificación de A1–A14, las preguntas nuevas A15–A24, lo resuelto técnicamente y las propuestas (pendientes del autor) están en [`PREGUNTAS_CLASIFICADAS.md`](PREGUNTAS_CLASIFICADAS.md). Esta tabla y §2 no cambian.
 
 | # | Punto | Qué dicen las fuentes | Efecto si no se decide |
 |---|---|---|---|
