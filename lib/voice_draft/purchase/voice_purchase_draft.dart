@@ -150,6 +150,12 @@ List<String> _fieldBlocker(String line, String name, DraftField<Object?> f) =>
             ? '$line: falta $name.'
             : '$line: $name «${f.heard}» no está en el catálogo.',
       ],
+      // Un valor por revisar no tiene opciones que elegir: se confirma o se
+      // corrige (POCO 2026-11-08).
+      FieldStatus.ambiguous when f.review => [
+        '$line: $name por revisar («${f.heard ?? ''}»), confírmelo o '
+            'corríjalo.',
+      ],
       FieldStatus.ambiguous => [
         '$line: $name ambiguo («${f.heard ?? ''}»), elija una opción.',
       ],
@@ -399,6 +405,9 @@ List<String> _headBlocker(String name, DraftField<Object?> f) =>
     switch (f.status) {
       FieldStatus.resolved => const [],
       FieldStatus.missing => [f.message ?? 'Falta $name.'],
+      FieldStatus.ambiguous when f.review => [
+        'Revise $name («${f.heard ?? ''}») y confírmelo o corríjalo.',
+      ],
       FieldStatus.ambiguous => [
         'Elija $name: «${f.heard ?? ''}» tiene varias opciones o no es exacto.',
       ],

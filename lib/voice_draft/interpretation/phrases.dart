@@ -230,6 +230,9 @@ const _bareConnectors = {
   'para',
   'proveedor',
   'proveedora',
+  // Como lo entrega a veces el reconocedor (POCO 2026-11-08).
+  'provedor',
+  'provedora',
   'todo',
   'tipo',
   'chaco',

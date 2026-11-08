@@ -105,10 +105,13 @@ void main() {
     test('dictado en varias partes y total calculado, no dictado', () {
       var d = interpret('compra de cincuenta litros de Bellator');
       d = interpret('a ciento ochenta y seis bolivianos el litro', current: d);
-      // Sin producto en el segundo dictado no hay línea que completar: la
-      // frase suelta no inventa nada.
+      // POCO 2026-11-08: un precio dicho aparte va a la única línea que
+      // puede recibirlo (sin precio, producto en litros, «el litro» dicho).
+      // Con varias líneas posibles no se pone en ninguna
+      // (test/voice_draft/compra_interpretacion_test.dart).
       expect(d.lines, hasLength(1));
-      expect(d.lines.single.price.status, FieldStatus.missing);
+      expect(d.lines.single.price.isResolved, isTrue);
+      expect(d.lines.single.unitPriceMinor, 18600);
 
       d = interpret(
         'cincuenta litros de Bellator a ciento ochenta y seis bolivianos el '
