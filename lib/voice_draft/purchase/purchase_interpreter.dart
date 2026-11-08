@@ -249,32 +249,21 @@ List<_HeardLine> _lines(List<String> words) {
   final out = <_HeardLine>[];
   var i = 0;
   while (i < words.length) {
-    final n = readNumberAt(words, i);
-    if (n == null || n.end >= words.length) {
-      i++;
+    // «cincuenta litros», «un litro y medio», «litro y medio» (POCO §2.1).
+    final m = readMeasureAt(words, i);
+    if (m == null) {
+      final n = readNumberAt(words, i);
+      i = n != null && n.end > i ? n.end : i + 1;
       continue;
     }
-    final unit = unitWord(words[n.end]);
-    if (unit == null) {
-      i = n.end;
-      continue;
-    }
-    var j = n.end + 1;
+    final unit = unitWord(m.unitWord)!;
+    var j = m.end;
     if (j < words.length && (words[j] == 'de' || words[j] == 'del')) j++;
     final productWords = <String>[];
     while (j < words.length && !_stop.contains(words[j])) {
-      if (words[j] == 'y' &&
-          j + 1 < words.length &&
-          isNumberWord(words[j + 1])) {
-        // «… Bellator y cincuenta litros de …» empieza otra línea, salvo que
-        // lo que sigue sea parte del nombre: se decide por la unidad.
-        final next = readNumberAt(words, j + 1);
-        if (next != null &&
-            next.end < words.length &&
-            unitWord(words[next.end]) != null) {
-          break;
-        }
-      }
+      // «… Bellator y cincuenta litros de …» empieza otra línea, salvo que
+      // lo que sigue sea parte del nombre: se decide por la unidad.
+      if (words[j] == 'y' && readMeasureAt(words, j + 1) != null) break;
       productWords.add(words[j]);
       j++;
     }
@@ -283,20 +272,14 @@ List<_HeardLine> _lines(List<String> words) {
       continue;
     }
     final line = _HeardLine(productWords.join(' '));
-    line.quantity =
-        consecutiveNumbers<SpokenQuantity>(words, n, words[n.end]) ??
-        (!n.isValid
-            ? DraftField.invalid(message: n.invalidMessage!, heard: n.heard)
-            : n.thousandths <= 0
-            ? DraftField.invalid(
-                message: 'La cantidad debe ser mayor a cero.',
-                heard: n.heard,
-              )
-            : DraftField.resolved(
-                SpokenQuantity(n.thousandths, unit),
-                origin: FieldOrigin.voice,
-                heard: '${n.heard} ${words[n.end]}',
-              ));
+    line.quantity = measureField<SpokenQuantity>(
+      words,
+      m,
+      (thousandths) => SpokenQuantity(thousandths, unit),
+      zeroMessage: 'La cantidad debe ser mayor a cero.',
+      // Como antes: una cantidad que no vale muestra sólo el número oído.
+      invalidHeard: m.numberHeard.isEmpty ? m.heard : m.numberHeard,
+    );
 
     // Precio.
     if (j < words.length && const {'a', 'al', 'por'}.contains(words[j])) {
