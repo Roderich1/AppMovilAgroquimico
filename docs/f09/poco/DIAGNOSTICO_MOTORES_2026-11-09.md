@@ -383,7 +383,7 @@ Sin saturación ni audio perdido en ninguna. Límite de 5 s no agotado; la frase
 
 | Etapa | Resultado |
 |---|---|
-| Vosk | Escribió el plural «herbicidas» (palabra del vocabulario, véase C1) seguido de «demo», que la app deja **ambiguo**. El importe sí llega; **no hay moneda** y la unidad llegó deformada (no es unidad) |
+| Vosk | Escribió la forma plural del nombre (palabra que sí está en el vocabulario, véase C1), que la app deja **ambiguo**. El importe sí llega; **no hay moneda** y la unidad llegó deformada (no es unidad) |
 | Whisper | **Producto, cantidad, importe, moneda y unidad correctos**; solo «del litro» en lugar de «el litro» |
 | Comparador | A Vosk le faltan la moneda y la unidad: `missing@revision`. **No es una contradicción de valores** |
 | Regla A | Lo trata como desacuerdo y **entrega Vosk**: se pierde todo lo que Whisper trajo bien |
@@ -497,7 +497,7 @@ Sin saturación ni audio perdido; ninguna frase agotó el límite.
 
 **Turno 7 (vista):**
 
-- Vosk escribió bien todo el precio (importe, moneda y «el litro»), pero el producto llegó en plural («herbicidas», palabra del vocabulario), que la app deja ambiguo.
+- Vosk escribió bien todo el precio (importe, moneda y «el litro»), pero el producto llegó en plural (palabra que sí está en el vocabulario), que la app deja ambiguo.
 - Whisper trajo el producto correcto y el mismo importe y moneda. Perdió la «a» (puso una coma) y escribió «de litro».
 - Las listas coinciden, así que A y B eligen lo mismo: Whisper.
 - Interpretación de Whisper: Herbicida DEMO y 5 L resueltos; precio 120 pendiente («de litro» tras la moneda, que lleva a la pregunta «¿… por L?» de `ba3feb6`); BOB en «Revisar», por faltar la «a».
@@ -531,7 +531,7 @@ Resultado por campo frente a lo dictado (producto Fungicida DEMO, 3 L, 45 por L,
 | 1 | Interpretación | **Una coma entre el importe y la moneda** («45, Bolivianos el litro») separa la moneda del precio: precio sin unidad y moneda «Falta». Es puntuación de Whisper; sin corregir |
 | 2 | Selección (B) | **Cuando Whisper pierde un dato que Vosk sí trae** (turno 12: la cantidad; turno 9: la moneda), B entrega menos que A. No hay error sin aviso, pero el dato de Vosk solo se ve en la vista de diagnóstico; el formulario no ofrece elegir la otra propuesta |
 | 3 | Transcripción (Whisper) | Fundió «compré tres litros» en una sola palabra en dos turnos: se pierde la cantidad |
-| 4 | Transcripción (Vosk) | Esta vez escribió «fungicida» (palabra de su vocabulario), pero «DEMO» llegó como «de uno», que el lector toma como la cifra 1. Esa cifra de más hizo la alineación ambigua. No se corrige: sería suponer |
+| 4 | Transcripción (Vosk) | Esta vez escribió «fungicida» (palabra de su vocabulario), pero «DEMO» llegó como dos palabras que el lector toma como la cifra 1. Esa cifra de más hizo la alineación ambigua. No se corrige: sería suponer |
 | 5 | Pista de Whisper (exploratorio) | Turno 11: con la pista del catálogo, otro nombre; con la de dominio y catálogo, **«Fungicida DEMO» correcto** (sobre el mismo audio). Turno 12: las dos pistas dieron lo mismo. Sin conclusión con dos intentos |
 | 6 | Producto | «Fungicida» falló también en Whisper (dos nombres distintos), aunque está en el vocabulario de Vosk: no es solo un problema de vocabulario |
 
