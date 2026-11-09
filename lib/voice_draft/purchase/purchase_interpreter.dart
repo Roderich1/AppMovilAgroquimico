@@ -47,6 +47,7 @@ final class PurchaseInterpretation {
     this.otherIntent,
     this.ignoredRecipient,
     this.unplacedPrice,
+    this.lineNotice,
   });
 
   final VoicePurchaseDraft draft;
@@ -65,6 +66,11 @@ final class PurchaseInterpretation {
   /// pantalla debe decirlo ([UnplacedPrice.message]); el borrador no cambió
   /// por ese precio.
   final UnplacedPrice? unplacedPrice;
+
+  /// Lo oído que no se aplicó a ninguna línea porque no estaba claro a cuál
+  /// iba (o un producto fuera del catálogo dicho sin cantidad). La pantalla
+  /// lo muestra; el borrador no cambió por eso.
+  final String? lineNotice;
 }
 
 /// Por qué un precio dicho aparte no se puso en ninguna línea.
@@ -231,6 +237,10 @@ PurchaseInterpretation interpretPurchase(
   }
 
   final heard = _scan(words, catalog.products);
+  // Líneas creadas por este mismo dictado: un segundo producto igual en la
+  // misma frase es otra línea, no una corrección de la primera.
+  final added = <int>{};
+  final notices = <String>[];
   for (final line in heard.lines) {
     // Una cantidad que cerró el tramo espera su producto en el siguiente.
     final product = line.productHeard.isEmpty
@@ -239,22 +249,29 @@ PurchaseInterpretation interpretPurchase(
             resolveName(line.productHeard, catalog.products),
             'producto',
           );
-    final existing = product.isResolved
-        ? draft.lines.where((l) => l.product.value?.id == product.value!.id)
-        : const <VoicePurchaseLine>[];
-    if (existing.isNotEmpty) {
-      final target = existing.first;
-      var updated = target;
-      var o = const VoicePatchOutcome();
-      final (q, oq) = mergeField(updated.quantity, line.quantity);
-      final (p, op) = mergeField(updated.price, line.price);
-      final (c, oc) = mergeField(updated.currency, line.currency);
-      updated = updated.copyWith(quantity: q, price: p, currency: c);
-      o = oq + op + oc;
-      draft = draft.updateLine(target.key, (_) => updated);
-      outcome += o;
+    final placed = _placeLine(draft, line, product, added);
+    if (placed.notice != null) {
+      notices.add(placed.notice!);
+      continue;
+    }
+    final target = placed.target;
+    if (target != null) {
+      // El producto sólo se vuelve a leer en una línea cuyo producto no se
+      // había resuelto (lo mismo oído otra vez); el de una línea ya resuelta
+      // es el mismo y no se toca.
+      final (pr, opr) = line.productHeard.isEmpty || target.product.isResolved
+          ? (target.product, const VoicePatchOutcome())
+          : mergeField(target.product, product);
+      final (q, oq) = mergeField(target.quantity, line.quantity);
+      final (p, op) = mergeField(target.price, line.price);
+      final (c, oc) = mergeField(target.currency, line.currency);
+      draft = draft.updateLine(
+        target.key,
+        (l) => l.copyWith(product: pr, quantity: q, price: p, currency: c),
+      );
+      outcome += opr + oq + op + oc;
     } else {
-      final added = VoicePurchaseLine(
+      final created = VoicePurchaseLine(
         key: draft.nextLineKey,
         product: product,
         quantity: line.quantity ?? const DraftField.missing(),
@@ -265,11 +282,35 @@ PurchaseInterpretation interpretPurchase(
             line.currency ??
             const DraftField.missing(message: 'Diga o elija la moneda.'),
       );
+      added.add(created.key);
       draft = draft.copyWith(
-        lines: [...draft.lines, added],
+        lines: [...draft.lines, created],
         nextLineKey: draft.nextLineKey + 1,
       );
       outcome += const VoicePatchOutcome(applied: 1);
+    }
+  }
+
+  // «compré herbicida demo»: un producto sin cantidad. Completa la línea que
+  // espera producto, o abre una línea que espera la cantidad. Un nombre que
+  // no está en el catálogo no abre nada: se avisa.
+  if (heard.lines.isEmpty &&
+      !heard.sawMeasure &&
+      heard.loose.isEmpty &&
+      intent == VoiceIntent.purchase &&
+      supplier == null &&
+      recipient == null &&
+      fx == null) {
+    final alone = _productAlone(words);
+    if (alone != null) {
+      final field = entryField(
+        resolveName(alone, catalog.products),
+        'producto',
+      );
+      final (d, o, notice) = _productWithoutQuantity(draft, field, alone);
+      draft = d;
+      outcome += o;
+      if (notice != null) notices.add(notice);
     }
   }
 
@@ -296,6 +337,158 @@ PurchaseInterpretation interpretPurchase(
     outcome: outcome,
     ignoredRecipient: ignoredRecipient,
     unplacedPrice: unplaced,
+    lineNotice: notices.isEmpty ? null : notices.join(' '),
+  );
+}
+
+/// A qué línea va lo oído ([_HeardLine]): `target` nula = línea nueva;
+/// `notice` = no está claro y no se aplica nada.
+///
+/// - Producto del catálogo: la línea de ese producto (corrige los campos
+///   dichos), salvo «otros …» o que la haya creado este mismo dictado (dos
+///   líneas del mismo producto en una frase no se funden en silencio). Con
+///   varias líneas de ese producto se pide corregir a mano.
+/// - Cantidad sin producto: la línea que espera producto (repetir la frase
+///   no añade otra); si no hay, la **única** línea con producto y sin
+///   cantidad; con varias, se pide elegir. Con «tres litros de» (el producto
+///   viene después) o sin ninguna, una línea nueva que espera producto.
+/// - Producto oído que no se resuelve: la línea con lo mismo oído y sin
+///   resolver, si hay una sola (repetir la frase no la duplica).
+({VoicePurchaseLine? target, String? notice}) _placeLine(
+  VoicePurchaseDraft draft,
+  _HeardLine line,
+  DraftField<CatalogEntry> product,
+  Set<int> added,
+) {
+  final earlier = [
+    for (final l in draft.lines)
+      if (!added.contains(l.key)) l,
+  ];
+  if (line.explicitNew) return (target: null, notice: null);
+  if (product.isResolved) {
+    final same = [
+      for (final l in earlier)
+        if (l.product.value?.id == product.value!.id) l,
+    ];
+    if (same.length > 1) {
+      return (
+        target: null,
+        notice:
+            'Hay varias líneas de ${product.value!.name}: corrija a mano la '
+            'que corresponda.',
+      );
+    }
+    return (target: same.firstOrNull, notice: null);
+  }
+  if (line.productHeard.isEmpty) {
+    final waiting = [
+      for (final l in earlier)
+        if (isAwaitingProduct(l.product)) l,
+    ];
+    if (waiting.length > 1) {
+      return (
+        target: null,
+        notice:
+            'Se oyó una cantidad, pero hay varias líneas sin producto: elija '
+            'el producto en la que corresponda o quite las que sobren.',
+      );
+    }
+    if (waiting.length == 1) return (target: waiting.single, notice: null);
+    if (line.open) return (target: null, notice: null);
+    final noQuantity = [
+      for (final l in earlier)
+        if (l.product.isResolved && l.quantity.status == FieldStatus.missing) l,
+    ];
+    if (noQuantity.length > 1) {
+      return (
+        target: null,
+        notice:
+            'Se oyó una cantidad sin producto y hay varias líneas sin '
+            'cantidad: dígala con el producto o escríbala en su línea.',
+      );
+    }
+    return (target: noQuantity.firstOrNull, notice: null);
+  }
+  final heard = canonicalName(line.productHeard);
+  final same = [
+    for (final l in earlier)
+      if (!l.product.isResolved &&
+          l.product.heard != null &&
+          canonicalName(l.product.heard!) == heard)
+        l,
+  ];
+  return (target: same.length == 1 ? same.single : null, notice: null);
+}
+
+/// Verbo y enlaces que pueden preceder a un producto dicho solo («compré
+/// herbicida demo», «también compré …»).
+const _purchaseLead = {
+  'compré',
+  'compre',
+  'compramos',
+  'también',
+  'tambien',
+  'además',
+  'ademas',
+  'y',
+};
+
+/// El producto de «compré herbicida demo», o `null` si el dictado dice algo
+/// más que un nombre.
+String? _productAlone(List<String> words) {
+  var i = 0;
+  while (i < words.length && _purchaseLead.contains(words[i])) {
+    i++;
+  }
+  if (i == 0 || i >= words.length) return null;
+  return bareName(words.sublist(i));
+}
+
+/// Un producto dicho sin cantidad: completa la línea que espera producto;
+/// si ya hay una línea de ese producto, no cambia nada; si no, abre una
+/// línea que espera la cantidad. Fuera del catálogo no abre nada y avisa.
+(VoicePurchaseDraft, VoicePatchOutcome, String?) _productWithoutQuantity(
+  VoicePurchaseDraft draft,
+  DraftField<CatalogEntry> product,
+  String heard,
+) {
+  if (product.status == FieldStatus.missing) {
+    return (
+      draft,
+      const VoicePatchOutcome(),
+      'Se oyó «$heard», que no está en el catálogo: dígalo de nuevo o '
+          'elíjalo en la línea.',
+    );
+  }
+  final waiting = [
+    for (final l in draft.lines)
+      if (isAwaitingProduct(l.product)) l,
+  ];
+  if (waiting.length == 1) {
+    final (field, o) = mergeField(waiting.single.product, product);
+    return (
+      draft.updateLine(waiting.single.key, (l) => l.copyWith(product: field)),
+      o,
+      null,
+    );
+  }
+  if (product.isResolved &&
+      draft.lines.any((l) => l.product.value?.id == product.value!.id)) {
+    return (draft, const VoicePatchOutcome(), null);
+  }
+  final line = VoicePurchaseLine(
+    key: draft.nextLineKey,
+    product: product,
+    price: const DraftField.missing(message: 'Diga o escriba el precio.'),
+    currency: const DraftField.missing(message: 'Diga o elija la moneda.'),
+  );
+  return (
+    draft.copyWith(
+      lines: [...draft.lines, line],
+      nextLineKey: draft.nextLineKey + 1,
+    ),
+    const VoicePatchOutcome(applied: 1),
+    null,
   );
 }
 
@@ -598,7 +791,15 @@ _PriceClause? _readClause(
   var form = _PerUnit.none;
   CatalogUnit? perUnit;
   var total = false;
-  if (k + 1 < words.length &&
+  if (k + 2 < words.length &&
+      words[k] == 'por' &&
+      const {'cada', 'el', 'la'}.contains(words[k + 1]) &&
+      unitWord(words[k + 2]) != null) {
+    // «por cada litro», «por el kilo»: tan claros como «el litro».
+    perUnit = unitWord(words[k + 2])!.family;
+    form = _PerUnit.clean;
+    k += 3;
+  } else if (k + 1 < words.length &&
       const {'el', 'la', 'por', 'cada'}.contains(words[k]) &&
       unitWord(words[k + 1]) != null) {
     perUnit = unitWord(words[k + 1])!.family;
@@ -680,12 +881,25 @@ _PriceClause? _readClause(
     );
   }
   if (c.total) {
+    // Se dijo un importe total («seiscientos bolivianos en total»): la
+    // compra se registra con precio por unidad. No se divide por su cuenta:
+    // la persona elige «Total de la línea» y entonces se reparte entre la
+    // cantidad, si da centavos exactos.
+    if (c.number.thousandths % 10 != 0 || c.number.thousandths <= 0) {
+      return (
+        DraftField.invalid(
+          message: 'El importe debe ser mayor a cero y en centavos enteros.',
+          heard: heard,
+        ),
+        currency(c.connector),
+      );
+    }
     return (
-      DraftField.invalid(
-        message:
-            'Se dijo un total. La compra se registra con precio por litro '
-            'o kilo: dígalo así o escríbalo.',
+      DraftField.ambiguous(
+        candidates: const [],
         heard: heard,
+        value: SpokenPrice(c.number.thousandths ~/ 10, total: true),
+        message: totalSaidMessage,
       ),
       currency(c.connector),
     );
@@ -732,7 +946,7 @@ _PriceClause? _readClause(
         candidates: const [],
         heard: heard,
         value: value,
-        message: '¿Es el precio por litro o kilo? Confírmelo o corríjalo.',
+        message: unitNotSaidMessage,
       ),
       currency(true),
     );
@@ -845,8 +1059,15 @@ UnplacedPrice _unplaced(String heard, UnplacedPriceReason reason) {
 // ------------------------------------------------------------------ líneas
 
 final class _HeardLine {
-  _HeardLine(this.productHeard);
+  _HeardLine(this.productHeard, {this.explicitNew = false, this.open = false});
   final String productHeard;
+
+  /// «otros dos litros de …»: se pidió una línea nueva.
+  final bool explicitNew;
+
+  /// Cantidad sin producto que termina en «de» («tres litros de»): el
+  /// producto viene en el tramo siguiente; no completa otra línea.
+  final bool open;
   DraftField<SpokenQuantity>? quantity;
   DraftField<SpokenPrice>? price;
   DraftField<CurrencyCode>? currency;
@@ -861,6 +1082,10 @@ final class _Heard {
   /// Se dijo alguna cantidad, aunque no formara línea.
   var sawMeasure = false;
 }
+
+/// «otro», «otros dos litros…»: pide una línea nueva aunque el producto ya
+/// esté en el borrador.
+const _another = {'otro', 'otra', 'otros', 'otras'};
 
 /// Precio suelto que empieza en [i], o `null`.
 _PriceClause? _looseAt(List<String> words, int i) {
@@ -963,7 +1188,11 @@ _Heard _scan(List<String> words, List<CatalogEntry> products) {
       i = j;
       continue;
     }
-    final line = _HeardLine(productWords.join(' '));
+    final line = _HeardLine(
+      productWords.join(' '),
+      explicitNew: m.start > 0 && _another.contains(words[m.start - 1]),
+      open: productWords.isEmpty && nameStart > m.end,
+    );
     line.quantity = measureField<SpokenQuantity>(
       words,
       m,

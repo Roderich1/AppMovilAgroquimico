@@ -32,20 +32,39 @@ final class SpokenQuantity {
 
 /// Un precio dicho: centavos por litro o kilo, y la unidad a la que se dijo
 /// que corresponde («el litro»), si se dijo.
+///
+/// Con [total] la cifra es un **importe total** dicho («seiscientos
+/// bolivianos en total»), no un precio por unidad: nunca se registra así; la
+/// persona elige «Total de la línea» ([VoicePurchaseLine.priceFromLineTotal])
+/// y se reparte entre la cantidad.
 final class SpokenPrice {
-  const SpokenPrice(this.minorPerUnit, {this.perUnit});
+  const SpokenPrice(this.minorPerUnit, {this.perUnit, this.total = false});
   final int minorPerUnit;
   final CatalogUnit? perUnit;
+  final bool total;
 
   @override
   bool operator ==(Object other) =>
       other is SpokenPrice &&
       other.minorPerUnit == minorPerUnit &&
-      other.perUnit == perUnit;
+      other.perUnit == perUnit &&
+      other.total == total;
 
   @override
-  int get hashCode => Object.hash(minorPerUnit, perUnit);
+  int get hashCode => Object.hash(minorPerUnit, perUnit, total);
 }
+
+/// Precio dicho sin decir a qué corresponde («a ciento veinte bolivianos»).
+/// No se supone por unidad aunque el producto se mida en litros: la persona
+/// elige «Por litro» o «Total de la línea».
+const unitNotSaidMessage =
+    'No se dijo si es el precio por unidad o el total de la línea: elija una '
+    'opción o escriba el precio por unidad.';
+
+/// Se dijo un importe total.
+const totalSaidMessage =
+    'Se dijo un importe total: toque «Total de la línea» para calcular el '
+    'precio por unidad, o escriba el precio por unidad.';
 
 final class VoicePurchaseLine {
   const VoicePurchaseLine({
@@ -94,6 +113,60 @@ final class VoicePurchaseLine {
     if (!price.isResolved || p == null || p.minorPerUnit <= 0) return null;
     if (p.perUnit != null && _unit != null && p.perUnit != _unit) return null;
     return p.minorPerUnit;
+  }
+
+  /// El precio oído, sin unidad clara, se toma **por unidad** del producto:
+  /// queda confirmado por la persona. `this` si no hay un precio así.
+  VoicePurchaseLine pricePerUnitConfirmed() {
+    final p = price.value;
+    if (p == null || p.total || price.isResolved) return this;
+    return copyWith(
+      price: DraftField.resolved(
+        SpokenPrice(p.minorPerUnit, perUnit: _unit),
+        origin: FieldOrigin.confirmed,
+        heard: price.heard,
+      ),
+    );
+  }
+
+  /// El precio oído es el **total de la línea**: se reparte entre la
+  /// cantidad. Sólo si la cantidad está completa y la división da centavos
+  /// exactos; si no, el precio queda no válido con el motivo y sin valor (no
+  /// se redondea). `this` si no hay un precio que repartir.
+  VoicePurchaseLine priceFromLineTotal() {
+    final p = price.value;
+    if (p == null || price.isResolved) return this;
+    final base = quantityBase;
+    if (base == null) {
+      return copyWith(
+        price: DraftField.invalid(
+          message:
+              'Para repartir el total, complete antes el producto y la '
+              'cantidad; o escriba el precio por unidad.',
+          heard: price.heard,
+          origin: FieldOrigin.manual,
+        ),
+      );
+    }
+    final scaled = p.minorPerUnit * baseUnitsPerMajor;
+    if (scaled % base != 0) {
+      return copyWith(
+        price: DraftField.invalid(
+          message:
+              'El total no se reparte en centavos exactos entre la cantidad: '
+              'escriba el precio por unidad.',
+          heard: price.heard,
+          origin: FieldOrigin.manual,
+        ),
+      );
+    }
+    return copyWith(
+      price: DraftField.resolved(
+        SpokenPrice(scaled ~/ base, perUnit: _unit),
+        origin: FieldOrigin.confirmed,
+        heard: price.heard,
+      ),
+    );
   }
 
   List<String> blockers(int index, int? exchangeRateScaled) {

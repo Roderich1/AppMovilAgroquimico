@@ -189,11 +189,10 @@ SpokenNumber? readNumberAt(List<String> words, int start) {
     value += 500;
     i += 2;
   } else if (i + 1 < words.length && words[i] == 'coma') {
-    // «cinco coma cinco»: una cifra decimal dicha con palabra.
-    final decimal = _units[words[i + 1]];
-    if (decimal != null && decimal < 10) {
-      value += decimal * 100;
-      i += 2;
+    final (decimal, used) = _decimalAfterComma(words, i + 1);
+    if (used > 0) {
+      value += decimal;
+      i += 1 + used;
     }
   }
   return SpokenNumber(
@@ -202,4 +201,34 @@ SpokenNumber? readNumberAt(List<String> words, int start) {
     end: i,
     heard: words.sublist(start, i).join(' '),
   );
+}
+
+/// Decimales dichos con palabras tras «coma», en milésimas, y cuántas
+/// palabras se usaron (0 si no hay decimales legibles):
+///
+/// - una cifra: «cinco coma cinco» → 0,5;
+/// - dos cifras, como se dicen los centavos: «setenta y cinco coma
+///   cincuenta» → ,50; «coma veinticinco» → ,25; «coma cero cinco» → ,05.
+///
+/// Más de dos cifras no se leen: no se adivina dónde termina el número.
+(int, int) _decimalAfterComma(List<String> words, int at) {
+  if (at >= words.length) return (0, 0);
+  final w = words[at];
+  if (w == 'cero' &&
+      at + 1 < words.length &&
+      (_units[words[at + 1]] ?? 10) < 10 &&
+      words[at + 1] != 'cero') {
+    return (_units[words[at + 1]]! * 10, 2);
+  }
+  if (_tens.containsKey(w)) {
+    if (at + 2 < words.length &&
+        words[at + 1] == 'y' &&
+        (_units[words[at + 2]] ?? 10) < 10) {
+      return ((_tens[w]! + _units[words[at + 2]]!) * 10, 3);
+    }
+    return (_tens[w]! * 10, 1);
+  }
+  final unit = _units[w];
+  if (unit == null) return (0, 0);
+  return unit < 10 ? (unit * 100, 1) : (unit * 10, 1);
 }

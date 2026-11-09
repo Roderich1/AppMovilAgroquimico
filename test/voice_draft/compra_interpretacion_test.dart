@@ -202,13 +202,16 @@ void main() {
       expect(noUnit.price.status, FieldStatus.ambiguous);
       expect(noUnit.price.review, isFalse);
       expect(noUnit.price.value?.minorPerUnit, 12000);
-      expect(noUnit.price.message, contains('por litro o kilo'));
+      expect(noUnit.price.message, unitNotSaidMessage);
 
+      // Un total dicho no se registra como precio por unidad: queda para
+      // elegir «Total de la línea» (antes era no válido sin opción).
       final total = dictate([
         'compré cinco litros de herbicida demo a 600 bolivianos en total',
       ]).lines.single;
-      expect(total.price.status, FieldStatus.invalid);
-      expect(total.price.message, contains('total'));
+      expect(total.price.status, FieldStatus.ambiguous);
+      expect(total.price.value?.total, isTrue);
+      expect(total.price.message, totalSaidMessage);
       expect(total.unitPriceMinor, isNull);
 
       // Con pausa antes de la «a», y con «precio de»: igual.

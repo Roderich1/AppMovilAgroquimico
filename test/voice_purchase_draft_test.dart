@@ -203,7 +203,10 @@ void main() {
       final d = interpret(
         'compra de diez litros de Bellator a 1860 bolivianos en total',
       );
-      expect(d.lines.single.price.status, FieldStatus.invalid);
+      final price = d.lines.single.price;
+      expect(price.isResolved, isFalse);
+      expect(price.value?.total, isTrue);
+      expect(d.lines.single.unitPriceMinor, isNull);
     });
 
     test('otra operación no toca el borrador', () {

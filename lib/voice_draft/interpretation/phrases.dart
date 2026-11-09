@@ -5,6 +5,7 @@ library;
 import '../catalog/voice_catalog.dart';
 import '../core/draft_field.dart';
 import '../text/spanish_numbers.dart';
+import '../text/normalize.dart';
 import '../text/units.dart';
 
 const hectareWords = {'hectarea', 'hectareas', 'ha'};
@@ -210,6 +211,42 @@ bool isAwaitingProduct(DraftField<CatalogEntry> f) =>
     f.status == FieldStatus.missing &&
     f.heard == null &&
     f.message == awaitingProductMessage;
+
+/// Línea ya presente a la que va una línea oída, por su clave, o `null` para
+/// una línea nueva (POCO 2026-11-08: repetir una frase añadía líneas vacías).
+///
+/// - Producto del catálogo: la línea de ese producto, salvo que la haya
+///   creado este mismo dictado ([added]): dos veces el mismo producto en una
+///   frase son dos líneas, no una sobrescrita en silencio.
+/// - Sin producto (cantidad o dosis que espera producto): la **única** línea
+///   que ya lo espera; repetir la frase no añade otra.
+/// - Producto oído que no se resuelve: la **única** línea con lo mismo oído
+///   y sin resolver.
+int? sameLineKey<L>(
+  List<L> lines, {
+  required Set<int> added,
+  required int Function(L line) keyOf,
+  required DraftField<CatalogEntry> Function(L line) productOf,
+  required String productHeard,
+  required DraftField<CatalogEntry> product,
+}) {
+  final earlier = [
+    for (final l in lines)
+      if (!added.contains(keyOf(l))) l,
+  ];
+  bool matches(L l) {
+    final p = productOf(l);
+    if (product.isResolved) return p.value?.id == product.value!.id;
+    if (productHeard.isEmpty) return isAwaitingProduct(p);
+    return !p.isResolved &&
+        p.heard != null &&
+        canonicalName(p.heard!) == canonicalName(productHeard);
+  }
+
+  final same = earlier.where(matches).toList();
+  if (product.isResolved) return same.isEmpty ? null : keyOf(same.first);
+  return same.length == 1 ? keyOf(same.single) : null;
+}
 
 /// ¿Desde [j] sólo quedan pausas? La cantidad cerró el tramo.
 bool endsSegment(List<String> words, int j) {

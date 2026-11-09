@@ -88,6 +88,9 @@ class _VoicePurchaseDraftScreenState
   /// Precio oído sin una línea clara a la que aplicarlo (último dictado).
   UnplacedPrice? _unplacedPrice;
 
+  /// Lo oído que no se aplicó a ninguna línea por no estar claro a cuál iba.
+  String? _lineNotice;
+
   final Map<String, TextEditingController> _fields = {};
 
   @override
@@ -239,12 +242,14 @@ class _VoicePurchaseDraftScreenState
       VoiceIntent? other;
       String? ignored;
       UnplacedPrice? unplaced;
+      String? lineNotice;
       var outcome = const VoicePatchOutcome();
       final accepted = draft!.applyVoice((current) {
         final r = interpretPurchase(fresh, current, catalog!);
         other = r.otherIntent;
         ignored = r.ignoredRecipient;
         unplaced = r.unplacedPrice;
+        lineNotice = r.lineNotice;
         outcome = r.outcome;
         final next = disagreed
             ? reviewPurchaseNumbers(
@@ -261,6 +266,7 @@ class _VoicePurchaseDraftScreenState
         _otherIntent = other;
         if (ignored != null) _ignoredRecipient = ignored;
         _unplacedPrice = other == null ? unplaced : null;
+        _lineNotice = other == null ? lineNotice : null;
         if (other == null) _heard.add(VoiceHeardSegment.from(fresh, outcome));
       }
     }
@@ -280,13 +286,18 @@ class _VoicePurchaseDraftScreenState
     return q == null ? null : spokenBase(q.thousandths, q.unit);
   }
 
-  static String _priceText(VoicePurchaseLine line) => line.price.value == null
+  // Un importe total dicho no se muestra en «Precio por L»: no lo es. Se ve
+  // en lo oído y en el aviso de la línea.
+  static String _priceText(VoicePurchaseLine line) =>
+      line.price.value == null || line.price.value!.total
       ? ''
       : formatForInput(line.price.value!.minorPerUnit / 100, maxDecimals: 2);
 
   void _sync(String id, String value, DraftField<Object?> field) {
     final c = _fields[id];
-    if (c == null || field.isManual) return;
+    // Lo tecleado no se reescribe mientras se escribe. Un valor confirmado
+    // con un botón («Total de la línea») sí: puede ser otra cifra.
+    if (c == null || field.origin == FieldOrigin.manual) return;
     if (c.text != value) c.text = value;
   }
 
@@ -400,6 +411,15 @@ class _VoicePurchaseDraftScreenState
               padding: const EdgeInsets.only(bottom: 8),
               child: Text(
                 _unplacedPrice!.message,
+                style: TextStyle(color: Theme.of(context).colorScheme.tertiary),
+              ),
+            ),
+          if (_lineNotice != null)
+            Padding(
+              key: const Key('voz-linea-sin-aplicar'),
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Text(
+                _lineNotice!,
                 style: TextStyle(color: Theme.of(context).colorScheme.tertiary),
               ),
             ),
@@ -918,29 +938,33 @@ class _VoicePurchaseDraftScreenState
                       );
                     },
                   ),
-                  // ¿Por unidad o total? Decir que sí es dar por bueno el
-                  // precio que se ve: queda «Confirmado», como «Confirmar este
-                  // valor» en un precio por revisar (que ya trae su botón).
+                  // ¿Por unidad o total? Sin unidad dicha, «Por L» da por
+                  // bueno el precio que se ve («Confirmado»); «Total de la
+                  // línea» lo reparte entre la cantidad si da centavos
+                  // exactos. Un total dicho sólo ofrece repartirlo. No se
+                  // supone ninguna de las dos (POCO 2026-11-08).
                   if (line.price.status == FieldStatus.ambiguous &&
                       !line.price.review &&
                       line.price.value != null)
-                    Align(
-                      alignment: Alignment.centerLeft,
-                      child: TextButton(
-                        key: Key('voz-precio-por-unidad-${line.key}'),
-                        onPressed: editable
-                            ? () => update(
-                                (l) => l.copyWith(
-                                  price: DraftField.resolved(
-                                    SpokenPrice(l.price.value!.minorPerUnit),
-                                    origin: FieldOrigin.confirmed,
-                                    heard: l.price.heard,
-                                  ),
-                                ),
-                              )
-                            : null,
-                        child: Text('Sí, es el precio por $unitLabel'),
-                      ),
+                    Wrap(
+                      spacing: 8,
+                      children: [
+                        if (!line.price.value!.total)
+                          OutlinedButton(
+                            key: Key('voz-precio-por-unidad-${line.key}'),
+                            onPressed: editable
+                                ? () => update((l) => l.pricePerUnitConfirmed())
+                                : null,
+                            child: Text('Por $unitLabel'),
+                          ),
+                        OutlinedButton(
+                          key: Key('voz-precio-total-${line.key}'),
+                          onPressed: editable
+                              ? () => update((l) => l.priceFromLineTotal())
+                              : null,
+                          child: const Text('Total de la línea'),
+                        ),
+                      ],
                     ),
                 ],
               ),

@@ -191,6 +191,115 @@ void main() {
     });
   });
 
+  group('compra: unidad del precio y líneas (texto inyectado)', () {
+    testWidgets('sin unidad, «Total de la línea» reparte el total entre la '
+        'cantidad y calcula el total de la compra, sin escribir nada', (
+      tester,
+    ) async {
+      final w = await pumpDraftScreen(
+        tester,
+        screen: const VoicePurchaseDraftScreen(),
+        script: const [
+          FakeTurn(
+            segment:
+                'compré ocho litros de Glifosato a cuatrocientos bolivianos',
+            endsOnStop: true,
+          ),
+        ],
+        seed: seed,
+      );
+      final before = await dump(tester, w.database);
+      await dictate(tester);
+      await until(
+        tester,
+        () => find.byKey(const Key('voz-precio-total-1')).evaluate().isNotEmpty,
+      );
+      expect(find.byKey(const Key('voz-precio-por-unidad-1')), findsOneWidget);
+      expect(find.text('Por L'), findsOneWidget);
+      await tapKey(tester, 'voz-precio-total-1');
+      expect(fieldText(tester, 'voz-precio-1'), '50');
+      expect(fieldState(tester, 'precio-1'), 'Confirmado');
+      expect(
+        tester.widget<Text>(find.byKey(const Key('voz-total'))).data,
+        contains('400'),
+      );
+      expect(find.byKey(const Key('voz-precio-total-1')), findsNothing);
+      expect(await dump(tester, w.database), before);
+    });
+
+    testWidgets('«Por L» toma la cifra como precio por litro', (tester) async {
+      await pumpDraftScreen(
+        tester,
+        screen: const VoicePurchaseDraftScreen(),
+        script: const [
+          FakeTurn(
+            segment: 'compré ocho litros de Glifosato a cuarenta bolivianos',
+            endsOnStop: true,
+          ),
+        ],
+        seed: seed,
+      );
+      await dictate(tester);
+      await until(
+        tester,
+        () => find
+            .byKey(const Key('voz-precio-por-unidad-1'))
+            .evaluate()
+            .isNotEmpty,
+      );
+      await tapKey(tester, 'voz-precio-por-unidad-1');
+      expect(fieldState(tester, 'precio-1'), 'Confirmado');
+      expect(
+        tester.widget<Text>(find.byKey(const Key('voz-total'))).data,
+        contains('320'),
+      );
+    });
+
+    testWidgets('un total dicho no aparece como precio por litro y sólo '
+        'ofrece repartirlo', (tester) async {
+      await pumpDraftScreen(
+        tester,
+        screen: const VoicePurchaseDraftScreen(),
+        script: const [
+          FakeTurn(
+            segment:
+                'compré ocho litros de Glifosato por trescientos veinte '
+                'bolivianos en total',
+            endsOnStop: true,
+          ),
+        ],
+        seed: seed,
+      );
+      await dictate(tester);
+      await until(
+        tester,
+        () => find.byKey(const Key('voz-precio-total-1')).evaluate().isNotEmpty,
+      );
+      expect(fieldText(tester, 'voz-precio-1'), '');
+      expect(find.byKey(const Key('voz-precio-por-unidad-1')), findsNothing);
+      await tapKey(tester, 'voz-precio-total-1');
+      expect(fieldText(tester, 'voz-precio-1'), '40');
+    });
+
+    testWidgets('repetir una cantidad sin producto no añade líneas y una '
+        'cantidad sin línea clara se avisa', (tester) async {
+      await pumpDraftScreen(
+        tester,
+        screen: const VoicePurchaseDraftScreen(),
+        script: const [
+          FakeTurn(segment: 'cuatro litros', endsOnStop: true),
+          FakeTurn(segment: 'cuatro litros', endsOnStop: true),
+        ],
+        seed: seed,
+      );
+      await dictate(tester);
+      await dictate(tester);
+      await drain(tester);
+      expect(find.byKey(const Key('voz-linea-1')), findsOneWidget);
+      expect(find.byKey(const Key('voz-linea-2')), findsNothing);
+    });
+  });
+
   group('planificación: desacuerdo numérico (texto inyectado)', () {
     testWidgets('la dosis dictada con desacuerdo queda por revisar', (
       tester,

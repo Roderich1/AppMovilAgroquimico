@@ -104,6 +104,7 @@ PlanInterpretation interpretPlan(
     draft = proposeFarmArea(draft);
   }
 
+  final added = <int>{};
   for (final line in _doses(words)) {
     // Una dosis que cerró el tramo espera su producto en el siguiente.
     final product = line.productHeard.isEmpty
@@ -112,15 +113,21 @@ PlanInterpretation interpretPlan(
             resolveName(line.productHeard, catalog.products),
             'producto',
           );
-    final existing = product.isResolved
-        ? draft.lines.where((l) => l.product.value?.id == product.value!.id)
-        : const <VoicePlanLine>[];
-    if (existing.isNotEmpty) {
-      final target = existing.first;
+    final targetKey = sameLineKey(
+      draft.lines,
+      added: added,
+      keyOf: (l) => l.key,
+      productOf: (l) => l.product,
+      productHeard: line.productHeard,
+      product: product,
+    );
+    if (targetKey != null) {
+      final target = draft.lines.firstWhere((l) => l.key == targetKey);
       final (dose, o) = mergeField(target.dose, line.dose);
       draft = draft.updateLine(target.key, (l) => l.copyWith(dose: dose));
       outcome += o;
     } else {
+      added.add(draft.nextLineKey);
       draft = draft.copyWith(
         lines: [
           ...draft.lines,
