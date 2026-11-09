@@ -33,8 +33,10 @@ DEMO_MOB=${DEMO_MOB:-$ROOT/_wt/DEMO-MOB}
 DEMO_MOB_RUN=/c/Users/MSI/AppData/Local/Temp/agro_demo_mob
 RUN=${F09_RUN:-/c/Users/MSI/AppData/Local/Temp/agro_f09_emu}
 export ANDROID_SERIAL=${F09_SERIAL:-emulator-5554}
-PKG=com.comunidad.agro.agroquimicos.f09
-LABEL="AC F09"
+# F09_PKG / F09_LABEL: otra instalación aislada de la misma familia (p. ej.
+# `.f09sm`, «AC F09 Small»). Por defecto, `.f09`.
+PKG=${F09_PKG:-com.comunidad.agro.agroquimicos.f09}
+LABEL=${F09_LABEL:-AC F09}
 DB=agroquimicos_v2.db
 AAPT2=${AAPT2:-/c/Users/MSI/AppData/Local/Android/Sdk/build-tools/37.0.0/aapt2.exe}
 export MSYS2_ARG_CONV_EXCL="/sdcard;/data/local;/dev/tty"
