@@ -127,6 +127,8 @@ SpokenNumber? readNumberAt(List<String> words, int start) {
 
   if (RegExp(r'^\d').hasMatch(first)) {
     final parsed = parseBaseQuantity(first);
+    final millions = _millionsAt(words, start, start + 1);
+    if (millions != null) return millions;
     return SpokenNumber(
       thousandths: parsed.base ?? 0,
       start: start,
@@ -181,6 +183,8 @@ SpokenNumber? readNumberAt(List<String> words, int start) {
     i++;
   }
   if (!any) return null;
+  final millions = _millionsAt(words, start, i);
+  if (millions != null) return millions;
   var value = (total + group) * 1000;
 
   if (i + 1 < words.length &&
@@ -200,6 +204,27 @@ SpokenNumber? readNumberAt(List<String> words, int start) {
     start: start,
     end: i,
     heard: words.sublist(start, i).join(' '),
+  );
+}
+
+/// Palabras de millones: no se leen (POCO 2026-11-09). Antes el lector se
+/// paraba delante y «ciento veinte millones» valía 120 en silencio.
+const _millionWords = {'millón', 'millon', 'millones'};
+
+/// Si tras la cifra que va de [start] a [end] viene «millón/millones», la
+/// cifra entera queda **no válida**, con lo oído a la vista: ni se trunca ni
+/// se supone su valor. En compras de agroquímicos no es una cifra plausible;
+/// así el comparador la ve ilegible y no igual a otra.
+SpokenNumber? _millionsAt(List<String> words, int start, int end) {
+  if (end >= words.length || !_millionWords.contains(words[end])) return null;
+  return SpokenNumber(
+    thousandths: 0,
+    start: start,
+    end: end + 1,
+    heard: words.sublist(start, end + 1).join(' '),
+    invalidMessage:
+        'Se oyó una cifra en millones («${words.sublist(start, end + 1).join(' ')}»): '
+        'no se lee. Dígala de nuevo o escríbala.',
   );
 }
 
