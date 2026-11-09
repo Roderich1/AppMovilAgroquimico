@@ -571,6 +571,7 @@ class VoiceSessionController extends ChangeNotifier {
         :final numericDisagreement,
         :final reviewConflictFields,
         :final reviewSingleFields,
+        :final turn,
       ):
         // Después del cierre del turno, un resultado es tardío y no entra
         // (#119). Los adaptadores ya los descartan por número de turno; esto
@@ -584,6 +585,7 @@ class VoiceSessionController extends ChangeNotifier {
           numericDisagreement,
           conflict: reviewConflictFields,
           single: reviewSingleFields,
+          turn: turn,
         );
 
       case TranscriptionFailed(:final code, :final detail):
@@ -630,6 +632,7 @@ class VoiceSessionController extends ChangeNotifier {
     bool numericDisagreement, {
     Set<String> conflict = const {},
     Set<String> single = const {},
+    int? turn,
   }) {
     if (sequence != null) {
       // Motor con varias frases por turno: cada número entra una sola vez.
@@ -668,6 +671,8 @@ class VoiceSessionController extends ChangeNotifier {
             : null,
         reviewConflictFields: numericDisagreement ? conflict : null,
         reviewSingleFields: numericDisagreement ? single : null,
+        lastSegmentTurn: turn,
+        lastSegmentSeq: sequence,
       ),
     );
   }

@@ -199,7 +199,12 @@ final class TranscriptionSegment extends TranscriptionEvent {
     this.numericDisagreement = false,
     this.reviewConflictFields = const {},
     this.reviewSingleFields = const {},
+    this.turn,
   });
+
+  /// Número de turno del motor que la entregó (efímero, del proceso). Con
+  /// [sequence] identifica la frase de forma estable dentro de la sesión.
+  final int? turn;
 
   final String text;
   final Duration elapsed;

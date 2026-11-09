@@ -218,6 +218,8 @@ final class VoiceSessionSnapshot {
     this.numericDisagreements = 0,
     this.reviewConflictFields = const {},
     this.reviewSingleFields = const {},
+    this.lastSegmentTurn,
+    this.lastSegmentSeq,
   });
 
   final VoiceSessionStatus status;
@@ -345,6 +347,12 @@ final class VoiceSessionSnapshot {
   /// ([TranscriptionSegment.reviewSingleFields]).
   final Set<String> reviewSingleFields;
 
+  /// Turno y número de frase del último segmento sumado a [committedText]
+  /// (en la misma actualización). Con [segmentCount] quien consume el texto
+  /// sabe si lo nuevo es exactamente una frase y cuál.
+  final int? lastSegmentTurn;
+  final int? lastSegmentSeq;
+
   /// El locale mostrado difiere del pedido.
   ///
   /// El modelo local de la app no tiene «idioma pedido» que pueda faltar: es
@@ -398,6 +406,8 @@ final class VoiceSessionSnapshot {
     int? numericDisagreements,
     Set<String>? reviewConflictFields,
     Set<String>? reviewSingleFields,
+    int? lastSegmentTurn,
+    int? lastSegmentSeq,
   }) => VoiceSessionSnapshot(
     status: status ?? this.status,
     committedText: committedText ?? this.committedText,
@@ -426,6 +436,8 @@ final class VoiceSessionSnapshot {
     numericDisagreements: numericDisagreements ?? this.numericDisagreements,
     reviewConflictFields: reviewConflictFields ?? this.reviewConflictFields,
     reviewSingleFields: reviewSingleFields ?? this.reviewSingleFields,
+    lastSegmentTurn: lastSegmentTurn ?? this.lastSegmentTurn,
+    lastSegmentSeq: lastSegmentSeq ?? this.lastSegmentSeq,
   );
 
   /// Representación para diagnóstico. **Sin una sola palabra de lo dictado.**

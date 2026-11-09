@@ -25,6 +25,7 @@ import '../../domain/models.dart';
 import '../../domain/money.dart';
 import '../../voice/port/voice_engine_diagnostics.dart';
 import '../../voice/session/voice_session_controller.dart';
+import '../../voice/session/voice_session_state.dart';
 import '../../voice/ui/voice_capture_screen.dart';
 import '../../voice/voice_providers.dart';
 import '../../voice_draft/catalog/voice_catalog.dart';
@@ -42,6 +43,7 @@ import '../widgets/provider_payment_fields.dart';
 import 'voice_draft_gateway.dart';
 import 'voice_draft_widgets.dart';
 import 'voice_evidence_hook.dart';
+import 'voice_alternative.dart';
 import 'voice_proposals_view.dart';
 
 class VoicePurchaseDraftScreen extends ConsumerStatefulWidget {
@@ -245,7 +247,15 @@ class _VoicePurchaseDraftScreenState
     if (ready || snapshot.numericDisagreements < _seenDisagreements) {
       _seenDisagreements = snapshot.numericDisagreements;
     }
+    // Cuántas frases trae lo nuevo: sólo con exactamente una se sabe de qué
+    // frase es la aportación (diagnóstico «usar la otra propuesta»).
+    final newSegments = snapshot.segmentCount - _seenSegments;
+    if (ready || snapshot.segmentCount < _seenSegments) {
+      _seenSegments = snapshot.segmentCount;
+    }
     if (fresh != null) {
+      VoicePurchaseDraft? before;
+      VoicePurchaseDraft? after;
       VoiceIntent? other;
       String? ignored;
       UnplacedPrice? unplaced;
@@ -266,8 +276,20 @@ class _VoicePurchaseDraftScreenState
                 snapshot.reviewSingleFields,
               )
             : r.draft;
+        before = current;
+        after = next;
         return (next, r.outcome);
       });
+      if (accepted && before != null && after != null) {
+        _noteContribution(
+          snapshot,
+          before!,
+          after!,
+          single: newSegments == 1,
+          disagreed: disagreed,
+          catalog: catalog!,
+        );
+      }
       if (accepted) {
         // Evidencia (#167): sólo se anota en memoria; se entrega al salir.
         noteVoiceApplied(draft.draft, fresh);
@@ -278,6 +300,90 @@ class _VoicePurchaseDraftScreenState
         if (other == null) _heard.add(VoiceHeardSegment.from(fresh, outcome));
       }
     }
+    setState(() {});
+  }
+
+  /// Aportación de cada frase al borrador, por su turno y número (sólo
+  /// diagnóstico, para «usar la otra propuesta» con la política B).
+  final Map<String, TurnContribution> _contributions = {};
+  int _seenSegments = 0;
+
+  /// Anota lo que aportó una frase si se sabe exactamente cuál fue y si la
+  /// otra propuesta trae algún dato que falta. Sólo en diagnóstico.
+  void _noteContribution(
+    VoiceSessionSnapshot snapshot,
+    VoicePurchaseDraft before,
+    VoicePurchaseDraft after, {
+    required bool single,
+    required bool disagreed,
+    required VoiceCatalog catalog,
+  }) {
+    final turn = snapshot.lastSegmentTurn;
+    final seq = snapshot.lastSegmentSeq;
+    if (!voiceDiagnosticsActive || !single || turn == null || seq == null) {
+      return;
+    }
+    final c = TurnContribution(
+      turn: turn,
+      seq: seq,
+      before: before,
+      after: after,
+      disagreed: disagreed,
+      conflict: snapshot.reviewConflictFields,
+      single: snapshot.reviewSingleFields,
+    );
+    final alt = _alternativeFor(c, catalog);
+    if (alt == null || !alternativeAddsData(c, alt)) return;
+    c.offered = true;
+    _contributions[c.key] = c;
+  }
+
+  /// La otra propuesta de esa frase, interpretada sobre el borrador de antes
+  /// y con las mismas marcas, o `null` si no la hay (no se entregó con la
+  /// política B, o las propuestas se borraron).
+  VoicePurchaseDraft? _alternativeFor(
+    TurnContribution c,
+    VoiceCatalog catalog,
+  ) {
+    final p = VoiceProposalsInspector.instance.items
+        .where((e) => e.turn == c.turn && e.seq == c.seq)
+        .firstOrNull;
+    final usedReview = p?.policyBUsedReview;
+    if (p == null || usedReview == null) return null;
+    final text = usedReview ? p.vosk : (p.review ?? '');
+    if (text.trim().isEmpty) return null;
+    final interpreted = interpretPurchase(text, c.before, catalog).draft;
+    return c.disagreed
+        ? _reviewDisagreement(c.before, interpreted, c.conflict, c.single)
+        : interpreted;
+  }
+
+  Future<void> _useAlternative(TurnContribution c, VoiceCatalog catalog) async {
+    final draft = _draft;
+    final alt = _alternativeFor(c, catalog);
+    if (draft == null || alt == null || c.used) return;
+    final plan = planAlternative(
+      current: draft.draft,
+      contribution: c,
+      alternative: alt,
+    );
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlternativePreviewDialog(plan: plan),
+    );
+    if (ok != true || !mounted || c.used) return;
+    c.used = true;
+    draft.applyVoice((current) {
+      // Se vuelve a planificar sobre el borrador de este momento.
+      final now = planAlternative(
+        current: current,
+        contribution: c,
+        alternative: alt,
+      );
+      return now.blocked
+          ? (current, const VoicePatchOutcome())
+          : (now.draft!, const VoicePatchOutcome(applied: 1));
+    });
     setState(() {});
   }
 
@@ -306,6 +412,43 @@ class _VoicePurchaseDraftScreenState
       marked,
       singleSourceMessage,
       only: purchaseFieldsFor(single).difference(conflictFields),
+    );
+  }
+
+  /// Botones «usar la otra propuesta» de las frases que la tienen (sólo
+  /// diagnóstico). Sin las propuestas en memoria (se borraron), deshabilitados.
+  Widget _alternativesPanel(VoiceCatalog catalog) {
+    final offered = [
+      for (final c in _contributions.values)
+        if (c.offered && !c.used) c,
+    ];
+    if (!voiceDiagnosticsActive || offered.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    return ListenableBuilder(
+      listenable: VoiceProposalsInspector.instance,
+      builder: (context, _) => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (final c in offered)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: OutlinedButton(
+                key: Key('voz-otra-propuesta-${c.key}'),
+                onPressed: _alternativeFor(c, catalog) == null
+                    ? null
+                    : () => _useAlternative(c, catalog),
+                child: Text(
+                  _alternativeFor(c, catalog) == null
+                      ? 'Diagnóstico: otra propuesta no disponible (propuestas '
+                            'borradas)'
+                      : 'Diagnóstico: ver la otra propuesta de la frase '
+                            '${c.seq + 1} (turno ${c.turn})',
+                ),
+              ),
+            ),
+        ],
+      ),
     );
   }
 
@@ -346,6 +489,7 @@ class _VoicePurchaseDraftScreenState
     final id = await draft.confirm();
     if (id == null || !mounted) return;
     VoiceProposalsInspector.instance.clear();
+    _contributions.clear();
     await _session.discard();
     if (!mounted) return;
     ScaffoldMessenger.of(context)
@@ -355,6 +499,7 @@ class _VoicePurchaseDraftScreenState
 
   Future<void> _cancel() async {
     _draft?.discard();
+    _contributions.clear();
     VoiceProposalsInspector.instance.clear();
     await _session.discard();
     if (!mounted) return;
@@ -478,6 +623,7 @@ class _VoicePurchaseDraftScreenState
             VoiceProposalsButton(
               describe: (text) => describePurchaseProposal(text, catalog),
             ),
+            _alternativesPanel(catalog),
           ],
           const SizedBox(height: 12),
           if (_loadError != null)

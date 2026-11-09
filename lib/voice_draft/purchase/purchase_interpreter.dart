@@ -151,11 +151,19 @@ bool _currencyLike(String w) =>
 /// cien», «glifosato 480», «2,4-D amina 720»).
 bool _numberThenCurrency(List<String> words, int i) {
   final n = readNumberAt(words, i);
-  return n != null &&
-      n.end > i &&
-      n.end < words.length &&
-      _currencyLike(words[n.end]);
+  if (n == null || n.end <= i) return false;
+  final at = _skipSeparatorComma(words, n.end);
+  return at < words.length && _currencyLike(words[at]);
 }
+
+/// Una coma suelta entre la cifra y una palabra de moneda («45, Bolivianos el
+/// litro», POCO 2026-11-09) es puntuación del reconocedor: se salta. Sólo
+/// ahí: una coma decimal va dentro de la cifra («45,50»), y una coma seguida
+/// de otra cosa (otra cifra, otro producto) no se toca.
+int _skipSeparatorComma(List<String> words, int at) =>
+    at + 1 < words.length && words[at] == ',' && _currencyLike(words[at + 1])
+    ? at + 1
+    : at;
 
 /// Palabras que unen el nombre con la cifra sin ser parte de ninguno («de
 /// ciento veinte bolivianos»). Se quitan del nombre sin sospechar de ellas.
@@ -933,6 +941,7 @@ _PriceClause? _readClause(
   // «a cinco litros»: una cantidad, no un precio.
   if (k < words.length && unitWord(words[k]) != null) return null;
   int? currencyIndex;
+  k = _skipSeparatorComma(words, k);
   if (k < words.length && _currencyLike(words[k])) {
     currencyIndex = k;
     k++;

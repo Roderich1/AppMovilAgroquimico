@@ -700,6 +700,7 @@ final class LocalSpeechTranscriptionAdapter implements SpeechTranscriptionPort {
         numericDisagreement: numericDisagreement,
         reviewConflictFields: conflictFields,
         reviewSingleFields: singleFields,
+        turn: _generation,
       ),
     );
   }

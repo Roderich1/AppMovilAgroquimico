@@ -25,7 +25,17 @@ final class FakeTurn {
     this.reportsRoute,
     this.unresponsive = false,
     this.numericDisagreement = false,
+    this.turnId,
+    this.seq,
+    this.reviewSingleFields = const {},
   });
+
+  /// Identidad de la frase (turno y número), como la del motor local.
+  final int? turnId;
+  final int? seq;
+
+  /// Campos que trajo un solo reconocedor (política B). Texto inyectado.
+  final Set<String> reviewSingleFields;
 
   /// El segmento del turno sale marcado con desacuerdo numérico entre los dos
   /// reconocedores ([TranscriptionSegment.numericDisagreement]). Es texto
@@ -231,6 +241,9 @@ final class FakeSpeechTranscriptionPort implements SpeechTranscriptionPort {
             text,
             elapsed: Duration.zero,
             numericDisagreement: turn.numericDisagreement,
+            turn: turn.turnId,
+            sequence: turn.seq,
+            reviewSingleFields: turn.reviewSingleFields,
           ),
         );
         _end(TranscriptionEndReason.stoppedByUser);
@@ -406,6 +419,9 @@ final class FakeSpeechTranscriptionPort implements SpeechTranscriptionPort {
         turn.segment!,
         elapsed: Duration.zero,
         numericDisagreement: turn.numericDisagreement,
+        turn: turn.turnId,
+        sequence: turn.seq,
+        reviewSingleFields: turn.reviewSingleFields,
       ),
     );
     _end(TranscriptionEndReason.segment);

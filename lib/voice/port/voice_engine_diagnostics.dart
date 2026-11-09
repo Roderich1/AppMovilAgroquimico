@@ -25,6 +25,12 @@ import 'review_selection.dart';
 /// existe.
 const voiceDiagnosticsBuild = bool.fromEnvironment('AGRO_VOICE_DIAG');
 
+/// Diagnóstico activo: la compilación de diagnóstico o, sólo en pruebas, la
+/// habilitación explícita de [VoiceExperiment.debugAllowOutsideDiagnostics].
+bool get voiceDiagnosticsActive =>
+    voiceDiagnosticsBuild ||
+    VoiceExperiment.instance.debugAllowOutsideDiagnostics;
+
 /// Línea de diagnóstico de una frase. [info] es lo que mandó el lado nativo
 /// (`phraseInfo`): sólo números y códigos. Las claves desconocidas no se
 /// copian, para que nada más pueda colarse.
