@@ -119,12 +119,24 @@ void main() {
 
     test('variantes de mala transcripción sin «a»: nunca resuelto ni con '
         'valor aceptado', () {
+      // Palabra extraña antes de la cifra o moneda deformada: no válido, sin
+      // valor (no se reconstruye nada).
       for (final text in const [
-        // Palabra extraña antes de la cifra.
         'compré tres litros de fungicida demo cuando cuarenta bolivianos el '
             'litro',
-        // Moneda deformada.
         'compré tres litros de fungicida demo cuarenta bolivianas el litro',
+      ]) {
+        final line = dictate([text]).lines.single;
+        expect(line.product.value, fungicida, reason: text);
+        expect(line.price.status, FieldStatus.invalid, reason: text);
+        expect(line.price.value, isNull, reason: text);
+        expect(line.unitPriceMinor, isNull, reason: text);
+        expect(line.price.heard, contains('cuarenta'), reason: text);
+      }
+      // Estructura incompleta sin palabra extraña (2026-11-09, aprobado por
+      // el autor): la cifra queda a la vista **pendiente de confirmar**, sin
+      // aceptarse, y la moneda dicha se conserva por revisar.
+      for (final text in const [
         // Falta «el» antes de la unidad.
         'compré tres litros de fungicida demo cuarenta bolivianos litro',
         // «de litro» no es una forma clara de precio unitario.
@@ -134,11 +146,14 @@ void main() {
       ]) {
         final line = dictate([text]).lines.single;
         expect(line.product.value, fungicida, reason: text);
-        expect(line.product.isResolved, isTrue, reason: text);
-        expect(line.price.status, FieldStatus.invalid, reason: text);
-        expect(line.price.value, isNull, reason: text);
+        expect(line.price.isResolved, isFalse, reason: text);
+        expect(line.price.status, FieldStatus.ambiguous, reason: text);
         expect(line.unitPriceMinor, isNull, reason: text);
+        expect(line.price.value?.minorPerUnit, 4000, reason: text);
+        expect(line.price.value?.perUnit, isNull, reason: text);
         expect(line.price.heard, contains('cuarenta'), reason: text);
+        expect(line.currency.value, CurrencyCode.bob, reason: text);
+        expect(line.currency.isResolved, isFalse, reason: text);
       }
     });
 

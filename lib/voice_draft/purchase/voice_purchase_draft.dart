@@ -61,18 +61,31 @@ const unitNotSaidMessage =
     'No se dijo si es el precio por unidad o el total de la línea: elija una '
     'opción o escriba el precio por unidad.';
 
-/// Entre la cifra y «el litro» se oyó una palabra que no es moneda («a 120
-/// volviendo el litro», POCO 2026-11-09). Se pregunta por el precio por
-/// unidad; la palabra no se sustituye y la moneda queda pendiente.
-String unknownWordBeforeUnitMessage(String word, int minor, String unit) {
+/// Entre el importe y «el litro» se oyó una palabra de más («a 120 volviendo
+/// el litro», «120 bolivianos en el litro», POCO 2026-11-09). Se pregunta por
+/// el precio por unidad; la palabra no se sustituye por ninguna moneda. Si la
+/// moneda se dijo, se conserva y aparece en la pregunta; si no, sigue
+/// pendiente.
+String perUnitQuestionMessage({
+  required String word,
+  required int minor,
+  required String unit,
+  CurrencyCode? currency,
+}) {
   final whole = minor ~/ 100;
   final cents = minor % 100;
   final amount = cents == 0
       ? '$whole'
       : '$whole,${cents.toString().padLeft(2, '0')}';
-  return 'Entre el importe y la unidad se oyó «$word», que no es una moneda. '
-      '¿$amount por $unit? Elija «Por $unit» o «Total de la línea», o escriba '
-      'el precio. La moneda sigue pendiente.';
+  final symbol = switch (currency) {
+    CurrencyCode.bob => ' Bs',
+    CurrencyCode.usd => ' \$us',
+    null => '',
+  };
+  final what = word == 'en' ? '«en»' : '«$word», que no es una moneda';
+  return 'Entre el importe y la unidad se oyó $what. ¿$amount$symbol por '
+      '$unit? Elija «Por $unit» o «Total de la línea», o escriba el precio.'
+      '${currency == null ? ' La moneda sigue pendiente.' : ''}';
 }
 
 /// Se dijo un importe total.

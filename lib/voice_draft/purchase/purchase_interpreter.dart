@@ -291,31 +291,31 @@ PurchaseInterpretation interpretPurchase(
     }
   }
 
-  // «compré herbicida demo»: un producto sin cantidad. Completa la línea que
-  // espera producto, o abre una línea que espera la cantidad. Un nombre que
-  // no está en el catálogo no abre nada: se avisa.
+  // Un producto sin cantidad, con o sin «compré» y con o sin precio
+  // («compré herbicida demo», «Insecticida DEMO, 40 bolivianos el litro»):
+  // va a la línea inequívoca, abre una que espera la cantidad o pide elegir.
+  // Nunca se ignora en silencio (POCO 2026-11-09).
+  var mentioned = false;
   if (heard.lines.isEmpty &&
       !heard.sawMeasure &&
-      heard.loose.isEmpty &&
-      intent == VoiceIntent.purchase &&
+      heard.loose.length <= 1 &&
+      (intent == VoiceIntent.purchase || intent == VoiceIntent.none) &&
       supplier == null &&
       recipient == null &&
       fx == null) {
-    final alone = _productAlone(words);
-    if (alone != null) {
-      final field = entryField(
-        resolveName(alone, catalog.products),
-        'producto',
-      );
-      final (d, o, notice) = _productWithoutQuantity(draft, field, alone);
-      draft = d;
-      outcome += o;
-      if (notice != null) notices.add(notice);
+    final m = _productMention(draft, words, catalog);
+    if (m != null) {
+      mentioned = true;
+      draft = m.draft;
+      outcome += m.outcome;
+      if (m.notice != null) notices.add(m.notice!);
     }
   }
 
   UnplacedPrice? unplaced;
-  if (heard.loose.length > 1) {
+  if (mentioned) {
+    // El precio de la frase ya se trató junto a su producto.
+  } else if (heard.loose.length > 1) {
     unplaced = _unplaced(
       heard.loose.map((c) => c.heard).join(' · '),
       UnplacedPriceReason.notAlone,
@@ -433,62 +433,187 @@ const _purchaseLead = {
   'y',
 };
 
-/// El producto de «compré herbicida demo», o `null` si el dictado dice algo
-/// más que un nombre.
-String? _productAlone(List<String> words) {
-  var i = 0;
-  while (i < words.length && _purchaseLead.contains(words[i])) {
-    i++;
-  }
-  if (i == 0 || i >= words.length) return null;
-  return bareName(words.sublist(i));
-}
-
-/// Un producto dicho sin cantidad: completa la línea que espera producto;
-/// si ya hay una línea de ese producto, no cambia nada; si no, abre una
-/// línea que espera la cantidad. Fuera del catálogo no abre nada y avisa.
-(VoicePurchaseDraft, VoicePatchOutcome, String?) _productWithoutQuantity(
+/// Un producto dicho **sin cantidad**, con o sin «compré» y con o sin precio
+/// («compré herbicida demo», «compré insecticida demo a cuarenta bolivianos
+/// el litro», «Insecticida DEMO, 40 bolivianos el litro»). POCO 2026-11-09:
+/// una frase así se ignoraba sin avisar.
+///
+/// A qué línea va:
+/// - la **única** línea que espera producto: la completa;
+/// - la **única** línea de ese producto: le pone el precio dicho (lo puesto a
+///   mano no cambia);
+/// - varias líneas de ese producto, o líneas con un producto oído que no se
+///   resolvió (no se sabe si es la misma): **no se aplica nada** y se pide
+///   elegir la línea;
+/// - si no: una línea nueva que espera la cantidad.
+///
+/// Fuera del catálogo no abre nada y avisa. Un nombre suelto que no está en
+/// el catálogo y sin «compré» ni precio no se trata como producto (podría ser
+/// cualquier frase): `null`, como antes.
+({VoicePurchaseDraft draft, VoicePatchOutcome outcome, String? notice})?
+_productMention(
   VoicePurchaseDraft draft,
-  DraftField<CatalogEntry> product,
-  String heard,
+  List<String> words,
+  VoiceCatalog catalog,
 ) {
+  var start = 0;
+  while (start < words.length && _purchaseLead.contains(words[start])) {
+    start++;
+  }
+  final lead = start > 0;
+  // El precio empieza en un conector o en una cifra seguida de moneda; lo
+  // anterior es el nombre (como en [_scan]).
+  var j = start;
+  while (j < words.length &&
+      !_priceConnectors.contains(words[j]) &&
+      words[j] != 'precio' &&
+      !_numberThenCurrency(words, j)) {
+    j++;
+  }
+  var nameEnd = j;
+  while (nameEnd > start &&
+      (words[nameEnd - 1] == ',' || _glue.contains(words[nameEnd - 1]))) {
+    nameEnd--;
+  }
+  if (nameEnd <= start) return null;
+  final name = words.sublist(start, nameEnd).join(' ');
+  final clause = j < words.length ? _readClause(words, j) : null;
+  final product = entryField(resolveName(name, catalog.products), 'producto');
+  final said = clause == null ? '«$name»' : '«$name» con «${clause.heard}»';
+  const none = VoicePatchOutcome();
+
   if (product.status == FieldStatus.missing) {
+    // Sin «compré», una palabra desconocida antes de la cifra es más
+    // probablemente un precio mal oído («haciendo veinte…») que un
+    // producto: sigue por la vía del precio suelto, que lo marca.
+    if (!lead) return null;
     return (
-      draft,
-      const VoicePatchOutcome(),
-      'Se oyó «$heard», que no está en el catálogo: dígalo de nuevo o '
+      draft: draft,
+      outcome: none,
+      notice:
+          'Se oyó «$name», que no está en el catálogo: dígalo de nuevo o '
           'elíjalo en la línea.',
     );
   }
+
+  // Un nombre suelto, sin «compré» ni precio («Bellator»): puede ser un
+  // tramo tardío o una corrección. No crea ni cambia líneas; si no es el
+  // de una línea que ya lo tiene, se dice que no se añadió.
+  if (!lead && clause == null) {
+    final already =
+        product.isResolved &&
+        draft.lines.any((l) => l.product.value?.id == product.value!.id);
+    if (already) return (draft: draft, outcome: none, notice: null);
+    return (
+      draft: draft,
+      outcome: none,
+      notice:
+          'Se oyó «$name» sin cantidad ni «compré»: no se añadió. Dígalo '
+          'con la cantidad («compré dos litros de …») o elíjalo en una línea.',
+    );
+  }
+
+  VoicePurchaseLine? target;
   final waiting = [
     for (final l in draft.lines)
       if (isAwaitingProduct(l.product)) l,
   ];
   if (waiting.length == 1) {
-    final (field, o) = mergeField(waiting.single.product, product);
+    target = waiting.single;
+  } else if (product.isResolved) {
+    final same = [
+      for (final l in draft.lines)
+        if (l.product.value?.id == product.value!.id) l,
+    ];
+    if (same.length > 1) {
+      return (
+        draft: draft,
+        outcome: none,
+        notice:
+            'Se oyó $said, pero hay varias líneas de ${product.value!.name}: '
+            'corrija la que corresponda en el borrador.',
+      );
+    }
+    if (same.length == 1) target = same.single;
+  }
+
+  if (target == null) {
+    // Una línea con un producto oído que no se resolvió puede ser esta misma
+    // compra mal oída: no se adivina ni se duplica.
+    final unresolved = [
+      for (var i = 0; i < draft.lines.length; i++)
+        if (!draft.lines[i].product.isResolved)
+          draft.lines[i].product.heard == null
+              ? 'la línea ${i + 1}'
+              : 'la línea ${i + 1} («${draft.lines[i].product.heard}»)',
+    ];
+    if (unresolved.isNotEmpty) {
+      final which = unresolved.length == 1
+          ? unresolved.single
+          : 'una de estas: ${unresolved.join(', ')}';
+      return (
+        draft: draft,
+        outcome: none,
+        notice:
+            'Se oyó $said sin cantidad. No se sabe si es el producto de '
+            '$which o otra compra: elíjalo en el selector de producto de esa '
+            'línea, o dígalo con la cantidad para añadir una línea nueva.',
+      );
+    }
+  }
+
+  DraftField<SpokenPrice>? price;
+  DraftField<CurrencyCode>? currency;
+  String? notice;
+  if (clause != null) {
+    final unit = (target?.product.value ?? product.value)?.unit;
+    if (clause.perUnit != null && unit != null && clause.perUnit != unit) {
+      notice = _unplaced(
+        clause.heard,
+        UnplacedPriceReason.unitMismatch,
+      ).message;
+    } else {
+      (price, currency) = _priceFields(clause);
+    }
+  }
+
+  if (target != null) {
+    final t = target;
+    final (pr, opr) = t.product.isResolved
+        ? (t.product, none)
+        : mergeField(t.product, product);
+    final (p, op) = price == null
+        ? (t.price, none)
+        : mergeField(t.price, price);
+    final (c, oc) = currency == null
+        ? (t.currency, none)
+        : mergeField(t.currency, currency);
     return (
-      draft.updateLine(waiting.single.key, (l) => l.copyWith(product: field)),
-      o,
-      null,
+      draft: draft.updateLine(
+        t.key,
+        (l) => l.copyWith(product: pr, price: p, currency: c),
+      ),
+      outcome: opr + op + oc,
+      notice: notice,
     );
   }
-  if (product.isResolved &&
-      draft.lines.any((l) => l.product.value?.id == product.value!.id)) {
-    return (draft, const VoicePatchOutcome(), null);
-  }
+
   final line = VoicePurchaseLine(
     key: draft.nextLineKey,
     product: product,
-    price: const DraftField.missing(message: 'Diga o escriba el precio.'),
-    currency: const DraftField.missing(message: 'Diga o elija la moneda.'),
+    price:
+        price ?? const DraftField.missing(message: 'Diga o escriba el precio.'),
+    currency:
+        currency ??
+        const DraftField.missing(message: 'Diga o elija la moneda.'),
   );
   return (
-    draft.copyWith(
+    draft: draft.copyWith(
       lines: [...draft.lines, line],
       nextLineKey: draft.nextLineKey + 1,
     ),
-    const VoicePatchOutcome(applied: 1),
-    null,
+    outcome: const VoicePatchOutcome(applied: 1),
+    notice: notice,
   );
 }
 
@@ -799,15 +924,13 @@ _PriceClause? _readClause(
   CatalogUnit? perUnit;
   var total = false;
   String? unknownBeforeUnit;
-  if (currencyIndex == null &&
-      connector &&
-      k + 2 < words.length &&
-      _unknownPriceWord(words[k]) &&
+  if (k + 2 < words.length &&
+      (words[k] == 'en' || _unknownPriceWord(words[k])) &&
       const {'el', 'la', 'por', 'cada'}.contains(words[k + 1]) &&
       unitWord(words[k + 2]) != null) {
-    // «a 120 volviendo el litro»: la unidad del precio se dijo, pero entre
-    // ella y la cifra hay una palabra que no es moneda. No se adivina cuál
-    // era: se pregunta.
+    // «a 120 volviendo el litro», «120 bolivianos en el litro»: la unidad
+    // del precio se dijo, pero entre ella y la cifra (o la moneda) hay una
+    // palabra de más. No se adivina qué era: se pregunta.
     unknownBeforeUnit = words[k];
     perUnit = unitWord(words[k + 2])!.family;
     form = _PerUnit.unclear;
@@ -890,38 +1013,51 @@ bool _unknownPriceWord(String w) =>
     !_currencyLike(w) &&
     readNumberAt([w], 0) == null;
 
-/// Precio y moneda de una cláusula (la moneda, `null` si no se da por
-/// buena).
+/// Precio y moneda de una cláusula (la moneda, `null` si no se dijo).
 ///
-/// Frontera (POCO 2026-11-08):
+/// La **extracción** ([_readClause]) y la **validación** (aquí) están
+/// separadas. La validación nunca descarta lo extraído: si el precio queda
+/// en duda, la cifra sigue a la vista y la moneda dicha se conserva (POCO
+/// 2026-11-09: el comparador leía 120, BOB y litro, y el formulario mostraba
+/// el precio no válido y la moneda ausente).
 ///
-/// - **Con conector** se mantiene lo de siempre: resuelto si se dijo la
-///   unidad («el litro»), ambiguo «¿por litro o kilo?» si no, y no válido si
-///   se dijo un total. Si la moneda llegó deformada («bolivianas») la cifra
-///   tras la «a» sigue siendo legible, pero queda **por revisar** y la moneda
-///   sin elegir.
-/// - **Sin conector** la cifra no es fiable: la «a» perdida puede haberse
-///   comido parte del número («a ciento» → «haciendo»). Nunca queda resuelta.
-///   Si la cláusula está completa y limpia queda **por revisar** con el valor
-///   a la vista; si no (moneda deformada, falta «el» antes de la unidad, «de
-///   litro», sin unidad, palabra extraña delante), queda **no válida, sin
-///   valor**, con lo oído y pidiendo que se diga de nuevo o se escriba.
+/// - **Moneda:** con conector («a», «al», «por») queda dicha; sin él, queda
+///   por revisar. Una duda sobre el tipo de precio no la quita.
+/// - **Con conector:** resuelto si se dijo la unidad («el litro», «por
+///   litro»); ambiguo si no; ambiguo con «¿120 Bs por L?» si entre el importe
+///   y la unidad hubo una palabra de más; un total dicho queda como total.
+/// - **Sin conector** la cifra puede haber perdido parte («a ciento» → otra
+///   palabra). Nunca queda resuelta. Con una palabra extraña pegada delante
+///   («haciendo veinte») o la moneda deformada, **no válida**, con lo oído.
+///   Si no, la cifra queda a la vista **por confirmar**: por revisar si la
+///   cláusula es completa y limpia («ciento veinte bolivianos por litro»), y
+///   ambigua en los demás casos.
 (DraftField<SpokenPrice>, DraftField<CurrencyCode>?) _priceFields(
   _PriceClause c,
 ) {
   final heard = c.heard;
-  DraftField<CurrencyCode>? currency(bool trusted) =>
-      trusted && c.currency != null
-      ? DraftField.resolved(
-          c.currency!,
-          origin: FieldOrigin.voice,
-          heard: c.currencyHeard,
-        )
-      : null;
+  DraftField<CurrencyCode>? currency() {
+    final code = c.currency;
+    if (code == null) return null;
+    return c.connector
+        ? DraftField.resolved(
+            code,
+            origin: FieldOrigin.voice,
+            heard: c.currencyHeard,
+          )
+        : DraftField.toReview(
+            code,
+            message:
+                'Se oyó «${c.currencyHeard}» sin «a» antes de la cifra: '
+                'confirme la moneda.',
+            heard: c.currencyHeard,
+          );
+  }
+
   if (!c.number.isValid) {
     return (
       DraftField.invalid(message: c.number.invalidMessage!, heard: heard),
-      currency(c.connector),
+      currency(),
     );
   }
   if (c.total) {
@@ -935,7 +1071,7 @@ bool _unknownPriceWord(String w) =>
           message: 'El importe debe ser mayor a cero y en centavos enteros.',
           heard: heard,
         ),
-        currency(c.connector),
+        currency(),
       );
     }
     return (
@@ -945,10 +1081,10 @@ bool _unknownPriceWord(String w) =>
         value: SpokenPrice(c.number.thousandths ~/ 10, total: true),
         message: totalSaidMessage,
       ),
-      currency(c.connector),
+      currency(),
     );
   }
-  if (!c.connector && !c.cleanWithoutConnector) {
+  if (!c.connector && (c.stray != null || c.currencyVariant)) {
     return (
       DraftField.invalid(
         message:
@@ -956,7 +1092,7 @@ bool _unknownPriceWord(String w) =>
             'nuevo («a … bolivianos el litro») o escríbalo.',
         heard: heard,
       ),
-      null,
+      currency(),
     );
   }
   if (c.number.thousandths % 10 != 0 || c.number.thousandths <= 0) {
@@ -965,39 +1101,51 @@ bool _unknownPriceWord(String w) =>
         message: 'El precio debe ser mayor a cero y en centavos enteros.',
         heard: heard,
       ),
-      currency(c.connector),
+      currency(),
     );
   }
   final value = SpokenPrice(
     c.number.thousandths ~/ 10,
     perUnit: c.form == _PerUnit.clean ? c.perUnit : null,
   );
-  if (!c.connector) {
-    return (
-      DraftField.toReview(
-        value,
-        message:
-            'Se entendió «$heard» sin «a» antes de la cifra: confirme el '
-            'precio o corríjalo.',
-        heard: heard,
-      ),
-      currency(true),
-    );
-  }
   if (c.unknownBeforeUnit != null) {
-    final unit = c.perUnit == CatalogUnit.kilogram ? 'kg' : 'L';
     return (
       DraftField.ambiguous(
         candidates: const [],
         heard: heard,
         value: value,
-        message: unknownWordBeforeUnitMessage(
-          c.unknownBeforeUnit!,
-          value.minorPerUnit,
-          unit,
+        message: perUnitQuestionMessage(
+          word: c.unknownBeforeUnit!,
+          minor: value.minorPerUnit,
+          unit: c.perUnit == CatalogUnit.kilogram ? 'kg' : 'L',
+          currency: c.currency,
         ),
       ),
-      currency(true),
+      currency(),
+    );
+  }
+  if (!c.connector) {
+    if (c.cleanWithoutConnector) {
+      return (
+        DraftField.toReview(
+          value,
+          message:
+              'Se entendió «$heard» sin «a» antes de la cifra: confirme el '
+              'precio o corríjalo.',
+          heard: heard,
+        ),
+        currency(),
+      );
+    }
+    return (
+      DraftField.ambiguous(
+        candidates: const [],
+        heard: heard,
+        value: value,
+        message:
+            'Se oyó «$heard» sin «a» antes de la cifra. $unitNotSaidMessage',
+      ),
+      currency(),
     );
   }
   if (!c.perUnitSaid) {
@@ -1008,7 +1156,7 @@ bool _unknownPriceWord(String w) =>
         value: value,
         message: unitNotSaidMessage,
       ),
-      currency(true),
+      currency(),
     );
   }
   if (c.currencyVariant) {
@@ -1025,7 +1173,7 @@ bool _unknownPriceWord(String w) =>
   }
   return (
     DraftField.resolved(value, origin: FieldOrigin.voice, heard: heard),
-    currency(true),
+    currency(),
   );
 }
 
