@@ -8,7 +8,6 @@ import 'package:agroquimicos/voice/port/voice_engine_diagnostics.dart';
 import 'package:agroquimicos/voice_draft/catalog/voice_catalog.dart';
 import 'package:agroquimicos/voice_draft/text/units.dart';
 import 'package:fake_async/fake_async.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -321,7 +320,7 @@ void main() {
       expect(find.byKey(const Key('voz-diagnostico-vista')), findsOneWidget);
       expect(find.text('Vosk: «$vosk»'), findsOneWidget);
       expect(find.text('Whisper: «$review»'), findsOneWidget);
-      expect(find.text('Se usó: Vosk'), findsOneWidget);
+      expect(find.text('· Llegó al formulario: Vosk'), findsOneWidget);
       expect(
         find.textContaining('moneda: sólo la oyó Whisper'),
         findsOneWidget,

@@ -702,9 +702,16 @@ final class _PriceClause {
     required this.form,
     required this.total,
     required this.stray,
+    this.unknownBeforeUnit,
   });
 
   final List<String> words;
+
+  /// Una sola palabra desconocida entre la cifra y «el/por/cada» + unidad,
+  /// sin moneda («a 120 volviendo el litro», POCO 2026-11-09). No se
+  /// sustituye por ninguna moneda: el precio queda por elegir y la moneda
+  /// pendiente.
+  final String? unknownBeforeUnit;
 
   /// Primera palabra de lo oído que se muestra: la cifra, o la palabra
   /// extraña que la precedía.
@@ -791,7 +798,21 @@ _PriceClause? _readClause(
   var form = _PerUnit.none;
   CatalogUnit? perUnit;
   var total = false;
-  if (k + 2 < words.length &&
+  String? unknownBeforeUnit;
+  if (currencyIndex == null &&
+      connector &&
+      k + 2 < words.length &&
+      _unknownPriceWord(words[k]) &&
+      const {'el', 'la', 'por', 'cada'}.contains(words[k + 1]) &&
+      unitWord(words[k + 2]) != null) {
+    // «a 120 volviendo el litro»: la unidad del precio se dijo, pero entre
+    // ella y la cifra hay una palabra que no es moneda. No se adivina cuál
+    // era: se pregunta.
+    unknownBeforeUnit = words[k];
+    perUnit = unitWord(words[k + 2])!.family;
+    form = _PerUnit.unclear;
+    k += 3;
+  } else if (k + 2 < words.length &&
       words[k] == 'por' &&
       const {'cada', 'el', 'la'}.contains(words[k + 1]) &&
       unitWord(words[k + 2]) != null) {
@@ -843,8 +864,31 @@ _PriceClause? _readClause(
     form: form,
     total: total,
     stray: stray,
+    unknownBeforeUnit: unknownBeforeUnit,
   );
 }
+
+/// ¿Puede [w] ser una palabra que no se entendió entre la cifra y la unidad
+/// del precio? No si es una cifra, unidad, moneda o palabra de enlace.
+bool _unknownPriceWord(String w) =>
+    !const {
+      'de',
+      'del',
+      'y',
+      'en',
+      'total',
+      'el',
+      'la',
+      'por',
+      'cada',
+      'a',
+      'al',
+      'con',
+      'para',
+    }.contains(w) &&
+    unitWord(w) == null &&
+    !_currencyLike(w) &&
+    readNumberAt([w], 0) == null;
 
 /// Precio y moneda de una cláusula (la moneda, `null` si no se da por
 /// buena).
@@ -936,6 +980,22 @@ _PriceClause? _readClause(
             'Se entendió «$heard» sin «a» antes de la cifra: confirme el '
             'precio o corríjalo.',
         heard: heard,
+      ),
+      currency(true),
+    );
+  }
+  if (c.unknownBeforeUnit != null) {
+    final unit = c.perUnit == CatalogUnit.kilogram ? 'kg' : 'L';
+    return (
+      DraftField.ambiguous(
+        candidates: const [],
+        heard: heard,
+        value: value,
+        message: unknownWordBeforeUnitMessage(
+          c.unknownBeforeUnit!,
+          value.minorPerUnit,
+          unit,
+        ),
       ),
       currency(true),
     );

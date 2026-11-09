@@ -43,6 +43,7 @@ class LocalVoiceBridge(
         val hints: String?,
         val review: Boolean,
         val reviewTimeoutMs: Long,
+        val compare: List<Pair<String, String>>,
     )
 
     init {
@@ -75,11 +76,18 @@ class LocalVoiceBridge(
                 // valor por defecto del motor.
                 val reviewTimeoutMs = call.argument<Number>("reviewTimeoutMs")?.toLong()
                     ?: LocalVoiceEngine.DEFAULT_REVIEW_TIMEOUT_MS
+                // Sólo diagnóstico: pistas alternativas [etiqueta, pista] para
+                // comparar sobre el mismo audio. Sin ellas, lista vacía.
+                val compare = (call.argument<List<Any?>>("compare") ?: emptyList()).mapNotNull { item ->
+                    val pair = item as? List<*> ?: return@mapNotNull null
+                    val label = pair.getOrNull(0) as? String ?: return@mapNotNull null
+                    label to (pair.getOrNull(1) as? String ?: "")
+                }
                 if (hasMicPermission()) {
-                    engine.start(gen, hints, review, reviewTimeoutMs)
+                    engine.start(gen, hints, review, reviewTimeoutMs, compare)
                     result.success(null)
                 } else {
-                    pendingStart = PendingStart(gen, hints, review, reviewTimeoutMs)
+                    pendingStart = PendingStart(gen, hints, review, reviewTimeoutMs, compare)
                     // La respuesta dice YA que habrá diálogo: llega a Dart antes
                     // que la pausa que el propio diálogo provoca. Si Dart se
                     // enterara sólo por el evento, la pausa podría llegar antes,
@@ -136,7 +144,7 @@ class LocalVoiceBridge(
         val pending = pendingStart ?: return
         pendingStart = null
         if (granted) {
-            engine.start(pending.gen, pending.hints, pending.review, pending.reviewTimeoutMs)
+            engine.start(pending.gen, pending.hints, pending.review, pending.reviewTimeoutMs, pending.compare)
             return
         }
         val permanent = !activity.shouldShowRequestPermissionRationale(
@@ -198,6 +206,15 @@ class LocalVoiceBridge(
     // Sólo números y códigos de la frase; nunca audio ni texto.
     override fun onPhraseInfo(gen: Int, seq: Int, info: Map<String, Any?>) =
         send(mapOf("type" to "phraseInfo", "gen" to gen, "seq" to seq, "info" to info))
+
+    // Sólo diagnóstico: otra transcripción del mismo audio, para la vista.
+    override fun onComparison(gen: Int, seq: Int, label: String, text: String?, ms: Long, outcome: String) =
+        send(
+            mapOf(
+                "type" to "comparison", "gen" to gen, "seq" to seq, "label" to label,
+                "text" to text, "ms" to ms, "outcome" to outcome,
+            ),
+        )
 
     override fun onSegment(gen: Int, seq: Int, vosk: String, review: String?, reviewMs: Long) =
         send(

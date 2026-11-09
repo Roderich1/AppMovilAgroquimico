@@ -100,6 +100,7 @@ class _VoicePurchaseDraftScreenState
     super.initState();
     // Diagnóstico (sólo compilación de diagnóstico): nada de otra pantalla.
     VoiceProposalsInspector.instance.clear();
+    VoiceExperiment.instance.reset();
     WidgetsBinding.instance.addObserver(this);
     _gateway = ref.read(voiceDraftGatewayProvider);
     initVoiceEvidence();
@@ -140,6 +141,7 @@ class _VoicePurchaseDraftScreenState
     // Salir libera el micrófono y descarta el borrador: no se escribe nada.
     _session.dispose();
     VoiceProposalsInspector.instance.clear();
+    VoiceExperiment.instance.reset();
     // Una sola entrada de evidencia por borrador, sea cual sea la salida.
     finishVoiceEvidence(_draft);
     _draft?.removeListener(_onDraft);
@@ -439,10 +441,14 @@ class _VoicePurchaseDraftScreenState
               ),
             ),
           // Sólo en la compilación de diagnóstico; se abre con un toque.
-          if (catalog != null)
+          if (catalog != null) ...[
+            VoiceContextExperimentSwitch(
+              domainHints: () => voiceDomainContextHints(catalog),
+            ),
             VoiceProposalsButton(
               describe: (text) => describePurchaseProposal(text, catalog),
             ),
+          ],
           const SizedBox(height: 12),
           if (_loadError != null)
             Text(_loadError!, key: const Key('voz-borrador-error-carga'))

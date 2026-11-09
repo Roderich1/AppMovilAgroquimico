@@ -157,6 +157,13 @@ class LocalVoiceEngine(
          * pasó con la revisión). Nunca audio ni texto.
          */
         fun onPhraseInfo(gen: Int, seq: Int, info: Map<String, Any?>) {}
+
+        /**
+         * Sólo diagnóstico: otra transcripción del mismo audio de la frase
+         * [seq] con la pista [label]. Va a la vista temporal, nunca al
+         * formulario ni al registro.
+         */
+        fun onComparison(gen: Int, seq: Int, label: String, text: String?, ms: Long, outcome: String) {}
         fun onSegment(gen: Int, seq: Int, vosk: String, review: String?, reviewMs: Long)
         fun onEnded(gen: Int, reason: String)
         fun onError(gen: Int, code: String, detail: String?)
@@ -291,6 +298,7 @@ class LocalVoiceEngine(
         hints: String?,
         review: Boolean,
         reviewTimeoutMs: Long = DEFAULT_REVIEW_TIMEOUT_MS,
+        compare: List<Pair<String, String>> = emptyList(),
     ) {
         if (turn != null) {
             listener.onError(gen, "busy", "turn-already-open")
@@ -299,6 +307,7 @@ class LocalVoiceEngine(
         val next = Turn(
             gen, hints?.takeIf { it.isNotBlank() }, review,
             reviewTimeoutMs.coerceIn(MIN_REVIEW_TIMEOUT_MS, MAX_REVIEW_TIMEOUT_MS),
+            compare.take(MAX_COMPARISONS),
         )
         turn = next
         control.execute {
@@ -378,7 +387,19 @@ class LocalVoiceEngine(
         val review: Boolean,
         /** Tope de la revisión de cada frase desde que Vosk la cierra. */
         val reviewTimeoutMs: Long,
+        /**
+         * Sólo diagnóstico: otras pistas (etiqueta, pista) con las que volver a
+         * transcribir el MISMO audio de la frase en memoria, después de
+         * entregarla. Sus textos van a la vista temporal, nunca al formulario.
+         */
+        val compare: List<Pair<String, String>> = emptyList(),
     ) {
+
+        /** Muestras leídas del micrófono en el turno (todas van a Vosk). */
+        @Volatile private var capturedSamples = 0L
+
+        /** Momento en que Vosk cerró cada frase. Bajo `lock`. */
+        private val closedAtBySeq = HashMap<Int, Long>()
 
         private val queue = ArrayBlockingQueue<ShortArray>(QUEUE_CHUNKS)
         @Volatile var cancelled = false
@@ -452,6 +473,7 @@ class LocalVoiceEngine(
                     }
                     if (read == 0) continue
                     val chunk = buffer.copyOf(read)
+                    capturedSamples += read
                     // Cola llena: Vosk va atrasado. Se tira lo más viejo para que
                     // el retraso no crezca sin límite.
                     while (!queue.offer(chunk)) {
@@ -536,9 +558,14 @@ class LocalVoiceEngine(
                 reviewIt = review && whisperFailure == null && WhisperNative.available &&
                     reviewing < MAX_PENDING_REVIEWS
                 if (reviewIt) reviewing++
+                closedAtBySeq[seq] = closedAt
                 info[seq] = PcmStats.of(pcm).toMutableMap().apply {
                     put("closedBy", closedBy)
                     put("droppedMs", droppedHere * 100)
+                    // Vosk recibe todo lo capturado en el turno; Whisper, sólo
+                    // el audio de esta frase (`audioMs`, el mismo búfer medido).
+                    put("turnCapturedMs", capturedSamples * 1000L / SAMPLE_RATE)
+                    put("reviewAudioMs", if (reviewIt) pcm.size * 1000L / SAMPLE_RATE else 0L)
                     put(
                         "reviewOutcome",
                         when {
@@ -624,6 +651,53 @@ class LocalVoiceEngine(
                     }
                 }
                 complete(seq, result?.trim(), took)
+                if (ready && compare.isNotEmpty()) compareContexts(seq, pcm)
+            }
+        }
+
+        /**
+         * Sólo diagnóstico: vuelve a transcribir el audio de la frase con cada
+         * pista de [compare], después de haberla entregado, con el mismo tope
+         * por transcripción. Los textos van sólo a la vista temporal. El audio
+         * sigue sólo en memoria y se suelta al terminar.
+         */
+        private fun compareContexts(seq: Int, pcm: ShortArray) {
+            val samples = FloatArray(pcm.size) { pcm[it] / 32768f }
+            for ((label, prompt) in compare) {
+                if (cancelled || whisper == 0L) return
+                val aborted = AtomicBoolean(false)
+                val token = Any()
+                reviewToken = token
+                val guard = watchdog.schedule(
+                    {
+                        if (reviewToken === token) {
+                            aborted.set(true)
+                            WhisperNative.abort()
+                        }
+                    },
+                    reviewTimeoutMs,
+                    TimeUnit.MILLISECONDS,
+                )
+                val started = SystemClock.elapsedRealtime()
+                val text = try {
+                    WhisperNative.transcribe(
+                        whisper, samples, prompt.takeIf { it.isNotBlank() }, threads(), FloatArray(1),
+                    )
+                } catch (_: Throwable) {
+                    null
+                } finally {
+                    reviewToken = null
+                    guard.cancel(false)
+                }
+                val took = SystemClock.elapsedRealtime() - started
+                val outcome = when {
+                    text != null -> "ok"
+                    cancelled -> "cancelled"
+                    aborted.get() -> "aborted"
+                    else -> "error"
+                }
+                if (cancelled) return
+                listener.onComparison(gen, seq, label, text?.trim(), took, outcome)
             }
         }
 
@@ -637,6 +711,10 @@ class LocalVoiceEngine(
                     val vosk = waiting.remove(nextCommit)!!
                     ready += Triple(nextCommit, vosk, result)
                     info.remove(nextCommit)?.let { details[nextCommit] = it }
+                    closedAtBySeq.remove(nextCommit)?.let { at ->
+                        details[nextCommit] = (details[nextCommit] ?: emptyMap()) +
+                            ("closeToDeliverMs" to SystemClock.elapsedRealtime() - at)
+                    }
                     nextCommit++
                 }
             }
@@ -722,12 +800,16 @@ class LocalVoiceEngine(
             }
             val window = rate * WINDOW_MS / 1000
             val levels = ArrayList<Double>()
+            val energy = ArrayList<Double>()
+            val sizes = ArrayList<Int>()
             var start = 0
             while (start < n) {
                 val end = min(n, start + window)
                 var w = 0.0
                 for (k in start until end) w += pcm[k].toDouble() * pcm[k]
                 levels += dbfs(sqrt(w / (end - start)))
+                energy += w
+                sizes += end - start
                 start = end
             }
             val sorted = levels.sorted()
@@ -735,6 +817,21 @@ class LocalVoiceEngine(
             val loudest = sorted.last()
             val voice = floor + VOICE_MARGIN_DB
             val hasVoice = loudest >= voice
+            // Nivel durante el habla y durante el silencio, por separado: la
+            // media de toda la frase mezcla los dos (POCO 2026-11-09).
+            var speechE = 0.0
+            var speechN = 0
+            var quietE = 0.0
+            var quietN = 0
+            for (k in levels.indices) {
+                if (levels[k] >= voice) {
+                    speechE += energy[k]
+                    speechN += sizes[k]
+                } else {
+                    quietE += energy[k]
+                    quietN += sizes[k]
+                }
+            }
             fun quiet(range: IntProgression): Int {
                 var count = 0
                 for (k in range) {
@@ -746,6 +843,10 @@ class LocalVoiceEngine(
             return mapOf(
                 "audioMs" to n * 1000L / rate,
                 "rmsDbfs" to dbfs(sqrt(sumSq / n)).roundToInt(),
+                "speechRmsDbfs" to if (speechN > 0) dbfs(sqrt(speechE / speechN)).roundToInt() else null,
+                "silenceRmsDbfs" to if (quietN > 0) dbfs(sqrt(quietE / quietN)).roundToInt() else null,
+                "speechMs" to speechN * 1000L / rate,
+                "levelMethod" to "v50ms-p10-12dB",
                 "peakDbfs" to dbfs(peak.toDouble()).roundToInt(),
                 "floorDbfs" to floor.roundToInt(),
                 "loudestDbfs" to loudest.roundToInt(),
@@ -792,6 +893,8 @@ class LocalVoiceEngine(
         private const val QUEUE_CHUNKS = 30                         // 3 s de retraso máximo
         private const val MAX_SEGMENT_SAMPLES = SAMPLE_RATE * 30    // Whisper ve hasta 30 s
         private const val MAX_PENDING_REVIEWS = 2
+        /** Sólo diagnóstico: pistas alternativas por frase, como mucho. */
+        private const val MAX_COMPARISONS = 3
         private const val IDLE_LIMIT_MS = 30_000L
         /** Como `LocalSpeechTranscriptionAdapter.defaultReviewTimeout`. */
         const val DEFAULT_REVIEW_TIMEOUT_MS = 5_000L

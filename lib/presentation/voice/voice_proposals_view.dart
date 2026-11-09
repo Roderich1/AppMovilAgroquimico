@@ -21,6 +21,7 @@ import 'package:flutter/material.dart';
 import '../../domain/models.dart';
 import '../../domain/numeric_input.dart';
 import '../../voice/port/review_discrepancy.dart';
+import '../../voice/port/review_policy_b.dart';
 import '../../voice/port/review_selection.dart';
 import '../../voice/port/voice_engine_diagnostics.dart';
 import '../../voice_draft/catalog/voice_catalog.dart';
@@ -28,6 +29,7 @@ import '../../voice_draft/core/draft_field.dart';
 import '../../voice_draft/purchase/purchase_interpreter.dart';
 import '../../voice_draft/purchase/voice_purchase_draft.dart';
 import '../../voice_draft/text/units.dart';
+import 'voice_quantity_facts.dart';
 
 /// Botón que abre la vista. No se dibuja fuera de la compilación de
 /// diagnóstico.
@@ -80,6 +82,53 @@ class VoiceProposalsButton extends StatelessWidget {
     );
     // Cerrar la vista borra lo que mostró.
     store.clear();
+  }
+}
+
+/// Interruptor del experimento de contexto de Whisper (sólo compilación de
+/// diagnóstico). Encendido, cada frase se vuelve a transcribir sobre el mismo
+/// audio en memoria sin pista y con la pista de dominio y catálogo, **después**
+/// de entregarla; sólo la vista muestra esos textos. Al salir de la pantalla
+/// vuelve a apagado.
+class VoiceContextExperimentSwitch extends StatefulWidget {
+  const VoiceContextExperimentSwitch({
+    super.key,
+    required this.domainHints,
+    this.enabled = voiceDiagnosticsBuild,
+  });
+
+  /// Pista de dominio y catálogo de la cuenta actual.
+  final List<String> Function() domainHints;
+  final bool enabled;
+
+  @override
+  State<VoiceContextExperimentSwitch> createState() =>
+      _VoiceContextExperimentSwitchState();
+}
+
+class _VoiceContextExperimentSwitchState
+    extends State<VoiceContextExperimentSwitch> {
+  @override
+  Widget build(BuildContext context) {
+    if (!widget.enabled) return const SizedBox.shrink();
+    final experiment = VoiceExperiment.instance;
+    return SwitchListTile(
+      key: const Key('voz-diagnostico-comparar-pistas'),
+      contentPadding: EdgeInsets.zero,
+      title: const Text('Diagnóstico: comparar pistas de Whisper'),
+      subtitle: const Text(
+        'Vuelve a transcribir cada frase sin pista y con la pista de dominio, '
+        'sobre el mismo audio y después de entregarla. Tarda unos segundos '
+        'más por frase y no cambia el borrador.',
+      ),
+      value: experiment.compareContexts,
+      onChanged: (on) => setState(() {
+        experiment.compareContexts = on;
+        experiment.comparisonHints = on
+            ? {'sin-pista': const <String>[], 'dominio': widget.domainHints()}
+            : const {};
+      }),
+    );
   }
 }
 
@@ -144,11 +193,19 @@ class _ProposalCard extends StatelessWidget {
                   : 'Whisper: «$review»',
             ),
             const SizedBox(height: 6),
-            Text('Se usó: ${chosenText(p)}'),
-            Text('Regla: ${verdictText(p.verdict, late: p.late)}'),
+            Text('Datos extraídos', style: bold),
+            Text('· de Vosk: ${factsText(voiceQuantityFacts(p.vosk))}'),
+            if (review != null && review.isNotEmpty)
+              Text('· de Whisper: ${factsText(voiceQuantityFacts(review))}'),
+            const SizedBox(height: 6),
+            Text('Comparador y selección', style: bold),
             Text(
-              'Diferencias de cifras: ${discrepanciesText(p.discrepancies)}',
+              '· Diferencias de cifras: '
+              '${discrepanciesText(p.discrepancies)}',
             ),
+            Text('· Regla actual (A): ${verdictText(p.verdict, late: p.late)}'),
+            Text('· Llegó al formulario: ${chosenText(p)}'),
+            Text('· Política B (experimental, sin aplicar): ${policyBText(p)}'),
             const SizedBox(height: 6),
             Text('Interpretación de Vosk', style: bold),
             for (final l in describe(p.vosk)) Text('· $l'),
@@ -157,12 +214,93 @@ class _ProposalCard extends StatelessWidget {
               Text('Interpretación de Whisper', style: bold),
               for (final l in describe(review)) Text('· $l'),
             ],
+            for (final alt in p.alternatives) ...[
+              const SizedBox(height: 6),
+              Text(
+                'Whisper con ${hintLabelText(alt.label)} (mismo audio)',
+                style: bold,
+              ),
+              Text(
+                alt.text == null || alt.text!.isEmpty
+                    ? '· Sin texto (${reviewOutcomeText(alt.outcome)}), '
+                          '${alt.ms} ms'
+                    : '· «${alt.text}» (${alt.ms} ms)',
+              ),
+              if (alt.text != null && alt.text!.isNotEmpty) ...[
+                Text('· Datos: ${factsText(voiceQuantityFacts(alt.text!))}'),
+                Text(
+                  '· Diferencias con Vosk: '
+                  '${discrepanciesText(alt.discrepancies)}',
+                ),
+                for (final l in describe(alt.text!)) Text('· $l'),
+              ],
+            ],
           ],
         ),
       ),
     );
   }
 }
+
+/// Hechos de cifras, unidades y monedas en palabras, sin interpretar.
+String factsText(List<String> facts) {
+  if (facts.isEmpty) return 'ninguno';
+  return facts
+      .map((f) {
+        if (f == 'uha') return 'hectáreas';
+        if (f.startsWith('n?')) {
+          return f.length > 2
+              ? '${formatForInput(int.parse(f.substring(2)) / 1000)} '
+                    '(formato no admitido)'
+              : 'cifra ilegible';
+        }
+        if (f.startsWith('n')) {
+          return formatForInput(int.parse(f.substring(1)) / 1000);
+        }
+        if (f.startsWith('u')) {
+          return switch (f.substring(1)) {
+            'liter' => 'litro',
+            'milliliter' => 'mililitro',
+            'kilogram' => 'kilo',
+            'gram' => 'gramo',
+            final other => other,
+          };
+        }
+        if (f.startsWith('c')) return 'moneda ${f.substring(1).toUpperCase()}';
+        return f;
+      })
+      .join(' · ');
+}
+
+/// Lo que haría la política B con la frase, en palabras.
+String policyBText(EngineProposal p) {
+  final b = choosePolicyB(
+    verdict: p.verdict,
+    late: p.late,
+    discrepancies: p.discrepancies,
+  );
+  if (!b.useReview) return 'usaría Vosk (${b.reason}).';
+  if (b.reviewFields.isEmpty) return 'usaría Whisper, sin campos por revisar.';
+  final names = b.reviewFields.map(fieldText).join(', ');
+  return 'usaría Whisper y dejaría por revisar: $names.';
+}
+
+String fieldText(ReviewField f) => switch (f) {
+  ReviewField.quantity => 'cantidad',
+  ReviewField.price => 'precio',
+  ReviewField.area => 'área',
+  ReviewField.number => 'cifra',
+  ReviewField.unit => 'unidad',
+  ReviewField.currency => 'moneda',
+};
+
+/// Nombre de la pista de una transcripción alternativa.
+String hintLabelText(String label) => switch (label) {
+  'sin-pista' => 'sin pista',
+  'dominio' => 'pista de dominio y catálogo',
+  'catalogo' => 'pista del catálogo',
+  _ => 'pista «$label»',
+};
 
 /// Qué texto llegó al formulario.
 String chosenText(EngineProposal p) {

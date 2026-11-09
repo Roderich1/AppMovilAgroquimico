@@ -252,6 +252,12 @@ final class LocalSpeechTranscriptionAdapter implements SpeechTranscriptionPort {
         'hints': _hintText(request.hints),
         'review': request.review && _capability.allowed,
         'reviewTimeoutMs': reviewTimeout.inMilliseconds,
+        // Sólo diagnóstico: otras pistas para el mismo audio. Vacío fuera de
+        // la compilación de diagnóstico o con el experimento apagado.
+        'compare': [
+          for (final e in VoiceExperiment.instance.activeComparisons.entries)
+            [e.key, _hintText(e.value)],
+        ],
       });
       // Habrá diálogo de permiso: se avisa ahora, antes de la pausa que
       // provoca, para que la sesión no la tome por «el usuario se fue».
@@ -374,6 +380,12 @@ final class LocalSpeechTranscriptionAdapter implements SpeechTranscriptionPort {
       if (!_turnOpen) return;
       _emit(const TranscriptionCancelled());
       _closeTurn(TranscriptionEndReason.cancelled);
+      return;
+    }
+    // Sólo diagnóstico: llega después de entregar la frase, a veces con el
+    // turno ya cerrado. Vale si es del último turno; no toca la sesión.
+    if (type == 'comparison') {
+      if (map['gen'] == _generation) _onComparison(map);
       return;
     }
     if (map['gen'] != _generation || !_turnOpen) return;
@@ -537,6 +549,46 @@ final class LocalSpeechTranscriptionAdapter implements SpeechTranscriptionPort {
         revised: choice?.revised ?? false,
         discrepancies: discrepancies,
         late: choice == null,
+      ),
+    );
+  }
+
+  /// Otra transcripción del mismo audio con otra pista (sólo diagnóstico):
+  /// códigos al registro y el texto sólo a la memoria de la vista.
+  void _onComparison(Map<Object?, Object?> map) {
+    final seq = map['seq'] as int?;
+    final label = map['label'] as String? ?? '-';
+    final text = (map['text'] as String?)?.trim();
+    final ms = (map['ms'] as num?)?.toInt() ?? 0;
+    final outcome = map['outcome'] as String? ?? '-';
+    final vosk = VoiceProposalsInspector.instance.items
+        .where((p) => p.turn == _generation && p.seq == seq)
+        .map((p) => p.vosk)
+        .firstOrNull;
+    final facts = _facts;
+    final discrepancies =
+        facts == null || vosk == null || text == null || text.isEmpty
+        ? const <FactDiscrepancy>[]
+        : classifyFactDifferences(facts(vosk), facts(text));
+    AppLog.info(
+      comparisonDiagnosticLine(
+        turn: _generation,
+        seq: seq,
+        label: label,
+        ms: ms,
+        outcome: outcome,
+        discrepancies: discrepancies,
+      ),
+    );
+    VoiceProposalsInspector.instance.attach(
+      _generation,
+      seq,
+      ReviewAlternative(
+        label: label,
+        text: text,
+        ms: ms,
+        outcome: outcome,
+        discrepancies: discrepancies,
       ),
     );
   }

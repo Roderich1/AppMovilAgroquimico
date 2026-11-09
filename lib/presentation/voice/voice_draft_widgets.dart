@@ -35,6 +35,35 @@ List<String> voiceVocabularyHints(VoiceCatalog catalog) {
   ];
 }
 
+/// Términos del dominio para el experimento de contexto de Whisper (F09,
+/// 2026-11-09): monedas, unidades y vocabulario agrícola. Son los mismos para
+/// todos, no llevan cantidades, precios ni frases, y no son instrucciones.
+const voiceDomainTerms = <String>[
+  'bolivianos',
+  'dólares',
+  'litro',
+  'litros',
+  'kilo',
+  'kilos',
+  'hectárea',
+  'hectáreas',
+  'herbicida',
+  'fungicida',
+  'insecticida',
+  'proveedor',
+];
+
+/// Pista de dominio y catálogo: primero los términos del dominio (así no los
+/// corta el tope de longitud) y después los nombres del catálogo de **esta**
+/// cuenta, sin repetir. Se construye siempre igual a partir del catálogo.
+List<String> voiceDomainContextHints(VoiceCatalog catalog) {
+  final seen = <String>{};
+  return [
+    for (final term in [...voiceDomainTerms, ...voiceVocabularyHints(catalog)])
+      if (seen.add(term.trim().toLowerCase())) term.trim(),
+  ];
+}
+
 class VoiceSegmentFeed {
   String _consumed = '';
 
