@@ -197,6 +197,8 @@ final class TranscriptionSegment extends TranscriptionEvent {
     this.sequence,
     this.revised = false,
     this.numericDisagreement = false,
+    this.reviewConflictFields = const {},
+    this.reviewSingleFields = const {},
   });
 
   final String text;
@@ -219,6 +221,16 @@ final class TranscriptionSegment extends TranscriptionEvent {
   /// Nunca es `true` si no hubo segunda lectura válida: no llegó a tiempo,
   /// vino vacía, era no-habla o degenerada.
   final bool numericDisagreement;
+
+  /// Sólo con la política experimental B (diagnóstico, 2026-11-09): campos
+  /// por revisar porque los dos reconocedores leen valores distintos
+  /// (`quantity`, `price`, `currency`, `unit`, `number`, `area`). Vacíos con
+  /// [numericDisagreement]: se revisan todas las cifras (regla A).
+  final Set<String> reviewConflictFields;
+
+  /// Sólo con la política B: campos que trajo un solo reconocedor o cuya
+  /// cifra uno de los dos no pudo leer. Se proponen, pero por revisar.
+  final Set<String> reviewSingleFields;
 
   @override
   String toString() =>

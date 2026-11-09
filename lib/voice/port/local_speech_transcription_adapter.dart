@@ -7,6 +7,7 @@ import '../../data/app_log.dart';
 import 'native_event_hub.dart';
 import 'review_capability.dart';
 import 'review_discrepancy.dart';
+import 'review_policy_b.dart';
 import 'review_selection.dart';
 import 'speech_transcription_port.dart';
 import 'voice_engine_diagnostics.dart';
@@ -61,11 +62,13 @@ final class LocalSpeechTranscriptionAdapter implements SpeechTranscriptionPort {
     MethodChannel? method,
     EventChannel? event,
     ReviewFacts? facts,
+    ReviewFacts? fieldFacts,
     ReviewCapabilityPolicy capabilityPolicy = const ReviewCapabilityPolicy(),
     this.reviewTimeout = defaultReviewTimeout,
   }) : _method = method ?? const MethodChannel(methodChannelName),
        _event = event ?? const EventChannel(eventChannelName),
        _facts = facts,
+       _fieldFacts = fieldFacts,
        _capabilityPolicy = capabilityPolicy {
     _lease = NativeEventHub.attach(
       _event,
@@ -102,6 +105,10 @@ final class LocalSpeechTranscriptionAdapter implements SpeechTranscriptionPort {
   /// Con qué se comprueba que la revisión no cambia cantidades. Sin ella, la
   /// revisión no se acepta.
   final ReviewFacts? _facts;
+
+  /// Hechos con el papel de cada cifra (precio o cantidad), para clasificar
+  /// las diferencias por campo. La regla A no los usa. Sin ellos, [_facts].
+  final ReviewFacts? _fieldFacts;
   final ReviewCapabilityPolicy _capabilityPolicy;
   late final NativeEventLease _lease;
 
@@ -471,7 +478,18 @@ final class LocalSpeechTranscriptionAdapter implements SpeechTranscriptionPort {
           'voz local: frase $seq ${choice.verdict.name} '
           'revision=${map['reviewMs']}ms',
         );
-        _diagnose(seq, vosk, review, info, map['reviewMs'], choice);
+        final discrepancies = _diagnose(
+          seq,
+          vosk,
+          review,
+          info,
+          map['reviewMs'],
+          choice,
+        );
+        if (VoiceExperiment.instance.policyBActive) {
+          _deliverPolicyB(seq, vosk, review, choice, discrepancies);
+          return;
+        }
         _deliver(
           seq,
           choice.text,
@@ -510,7 +528,7 @@ final class LocalSpeechTranscriptionAdapter implements SpeechTranscriptionPort {
   /// compilación de diagnóstico, las dos propuestas a la memoria de la vista.
   /// Con [choice] `null`, la revisión llegó tarde y ya se había entregado
   /// Vosk. No cambia nada de lo que se entrega.
-  void _diagnose(
+  List<FactDiscrepancy> _diagnose(
     int? seq,
     String vosk,
     String? review,
@@ -518,7 +536,7 @@ final class LocalSpeechTranscriptionAdapter implements SpeechTranscriptionPort {
     Object? reviewMs,
     ReviewChoice? choice,
   ) {
-    final facts = _facts;
+    final facts = _fieldFacts ?? _facts;
     final discrepancies =
         facts == null || review == null || review.trim().isEmpty
         ? const <FactDiscrepancy>[]
@@ -551,6 +569,72 @@ final class LocalSpeechTranscriptionAdapter implements SpeechTranscriptionPort {
         late: choice == null,
       ),
     );
+    return discrepancies;
+  }
+
+  /// Política experimental B (diagnóstico): si la revisión es válida, se
+  /// entrega **su texto entero** —nunca una mezcla— con los campos afectados
+  /// por revisar: los de valor distinto por un lado y los que trajo un solo
+  /// reconocedor (o con cifra ilegible en uno) por otro. Si no es válida
+  /// (vacía, no-habla, degenerada, sin comprobar), se entrega Vosk con el
+  /// motivo en el registro. Lo que llega tarde ya se trata antes, como en A.
+  void _deliverPolicyB(
+    int? seq,
+    String vosk,
+    String? review,
+    ReviewChoice choice,
+    List<FactDiscrepancy> discrepancies,
+  ) {
+    final b = choosePolicyB(
+      verdict: choice.verdict,
+      late: false,
+      discrepancies: discrepancies,
+    );
+    final conflict = <String>{};
+    final single = <String>{};
+    for (final d in discrepancies) {
+      switch (d.kind) {
+        case DiscrepancyKind.equivalentFormat:
+          break;
+        case DiscrepancyKind.missing:
+        case DiscrepancyKind.extractionFailed:
+          single.add(d.field.name);
+        case DiscrepancyKind.differentValue:
+        case DiscrepancyKind.differentUnit:
+        case DiscrepancyKind.differentCurrency:
+        case DiscrepancyKind.ambiguousAlignment:
+          conflict.add(d.field.name);
+      }
+    }
+    // Sólo códigos.
+    AppLog.info(
+      'voz diag politicaB: frase ${seq ?? '-'} '
+      'elegido=${b.useReview ? 'revision' : 'vosk'} motivo=${b.reason} '
+      'conflicto=${conflict.isEmpty ? '-' : (conflict.toList()..sort()).join(',')} '
+      'unSolo=${single.isEmpty ? '-' : (single.toList()..sort()).join(',')}',
+    );
+    VoiceProposalsInspector.instance.notePolicyB(
+      _generation,
+      seq,
+      usedReview: b.useReview && review != null,
+    );
+    if (!b.useReview || review == null) {
+      _deliver(
+        seq,
+        choice.verdict == ReviewVerdict.accepted ? choice.text : vosk.trim(),
+        revised: false,
+      );
+      return;
+    }
+    final marked = conflict.isNotEmpty || single.isNotEmpty;
+    _deliver(
+      seq,
+      review.trim(),
+      revised: true,
+      numericDisagreement: marked,
+      conflictFields: conflict,
+      singleFields: single,
+    );
   }
 
   /// Otra transcripción del mismo audio con otra pista (sólo diagnóstico):
@@ -565,7 +649,7 @@ final class LocalSpeechTranscriptionAdapter implements SpeechTranscriptionPort {
         .where((p) => p.turn == _generation && p.seq == seq)
         .map((p) => p.vosk)
         .firstOrNull;
-    final facts = _facts;
+    final facts = _fieldFacts ?? _facts;
     final discrepancies =
         facts == null || vosk == null || text == null || text.isEmpty
         ? const <FactDiscrepancy>[]
@@ -601,6 +685,8 @@ final class LocalSpeechTranscriptionAdapter implements SpeechTranscriptionPort {
     String text, {
     required bool revised,
     bool numericDisagreement = false,
+    Set<String> conflictFields = const {},
+    Set<String> singleFields = const {},
   }) {
     if (seq != null && !_delivered.add(seq)) return;
     if (text.isEmpty) return;
@@ -612,6 +698,8 @@ final class LocalSpeechTranscriptionAdapter implements SpeechTranscriptionPort {
         sequence: seq,
         revised: revised,
         numericDisagreement: numericDisagreement,
+        reviewConflictFields: conflictFields,
+        reviewSingleFields: singleFields,
       ),
     );
   }

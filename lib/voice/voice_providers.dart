@@ -39,11 +39,17 @@ const voiceReviewTimeoutMs = int.fromEnvironment(
 /// `main.dart` con el lector de la app; sin él, la revisión no se acepta.
 final reviewFactsProvider = Provider<ReviewFacts?>((ref) => null);
 
+/// Hechos con el papel de cada cifra (precio o cantidad), para clasificar las
+/// diferencias por campo (diagnóstico y política B). La regla A no los usa.
+final reviewFieldFactsProvider = Provider<ReviewFacts?>((ref) => null);
+
 final speechPortFactoryProvider = Provider<SpeechPortFactory>((ref) {
   if (voiceEngine == 'android') return AndroidSpeechTranscriptionAdapter.new;
   final facts = ref.watch(reviewFactsProvider);
+  final fieldFacts = ref.watch(reviewFieldFactsProvider);
   return () => LocalSpeechTranscriptionAdapter(
     facts: facts,
+    fieldFacts: fieldFacts,
     reviewTimeout: const Duration(milliseconds: voiceReviewTimeoutMs),
   );
 });

@@ -249,6 +249,25 @@ PurchaseInterpretation interpretPurchase(
             resolveName(line.productHeard, catalog.products),
             'producto',
           );
+    // «¿120 Bs por L?» sólo si la unidad oída es la del producto: si no, la
+    // pregunta propondría otra unidad. Queda ambiguo, con el motivo.
+    final heardUnit = line.priceUnitHeard;
+    final productUnit = product.value?.unit;
+    if (heardUnit != null &&
+        product.isResolved &&
+        productUnit != null &&
+        heardUnit != productUnit &&
+        line.price != null) {
+      line.price = DraftField.ambiguous(
+        candidates: const [],
+        heard: line.price!.heard ?? '',
+        value: line.price!.value,
+        message:
+            'La unidad oída en el precio no es la del producto '
+            '(${productUnit == CatalogUnit.kilogram ? 'kg' : 'L'}): escriba '
+            'el precio por unidad o elija «Total de la línea».',
+      );
+    }
     final placed = _placeLine(draft, line, product, added);
     if (placed.notice != null) {
       notices.add(placed.notice!);
@@ -926,7 +945,7 @@ _PriceClause? _readClause(
   String? unknownBeforeUnit;
   if (k + 2 < words.length &&
       (words[k] == 'en' || _unknownPriceWord(words[k])) &&
-      const {'el', 'la', 'por', 'cada'}.contains(words[k + 1]) &&
+      const {'el', 'la', 'por', 'cada', 'de', 'del'}.contains(words[k + 1]) &&
       unitWord(words[k + 2]) != null) {
     // «a 120 volviendo el litro», «120 bolivianos en el litro»: la unidad
     // del precio se dijo, pero entre ella y la cifra (o la moneda) hay una
@@ -959,6 +978,11 @@ _PriceClause? _readClause(
       unitWord(words[k + 1]) != null) {
     perUnit = unitWord(words[k + 1])!.family;
     form = _PerUnit.unclear;
+    // «a 120 del litro», «120 bolivianos de litro»: dentro de un precio (con
+    // conector o con moneda) es una propuesta de precio por unidad que se
+    // pregunta (aprobado por el autor, 2026-11-09). «de» no pasa a «por» en
+    // ningún otro sitio.
+    if (connector || currencyIndex != null) unknownBeforeUnit = words[k];
     k += 2;
   } else if (currencyIndex != null &&
       k < words.length &&
@@ -1279,6 +1303,10 @@ final class _HeardLine {
   DraftField<SpokenQuantity>? quantity;
   DraftField<SpokenPrice>? price;
   DraftField<CurrencyCode>? currency;
+
+  /// Unidad oída en un precio que se pregunta («¿120 Bs por L?»): si no es
+  /// la del producto, no se pregunta por ella.
+  CatalogUnit? priceUnitHeard;
 }
 
 final class _Heard {
@@ -1413,6 +1441,8 @@ _Heard _scan(List<String> words, List<CatalogEntry> products) {
       final (price, currency) = _priceFields(clause);
       line.price = price;
       line.currency = currency;
+      if (clause.unknownBeforeUnit != null)
+        line.priceUnitHeard = clause.perUnit;
       j = clause.end;
     }
     out.lines.add(line);

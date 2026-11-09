@@ -87,7 +87,23 @@ final class EngineProposal {
     required this.discrepancies,
     this.late = false,
     this.alternatives = const [],
+    this.policyBUsedReview,
   });
+
+  /// La misma propuesta, entregada con la política B.
+  EngineProposal withPolicyB({required bool usedReview}) => EngineProposal(
+    turn: turn,
+    seq: seq,
+    vosk: vosk,
+    review: review,
+    reviewOutcome: reviewOutcome,
+    verdict: verdict,
+    revised: revised,
+    discrepancies: discrepancies,
+    late: late,
+    alternatives: alternatives,
+    policyBUsedReview: usedReview,
+  );
 
   /// La misma propuesta con una transcripción alternativa más.
   EngineProposal withAlternative(ReviewAlternative alternative) =>
@@ -102,6 +118,7 @@ final class EngineProposal {
         discrepancies: discrepancies,
         late: late,
         alternatives: [...alternatives, alternative],
+        policyBUsedReview: policyBUsedReview,
       );
 
   final int turn;
@@ -125,6 +142,10 @@ final class EngineProposal {
   /// Sólo diagnóstico: otras transcripciones de Whisper del mismo audio con
   /// otra pista. No llegan al formulario.
   final List<ReviewAlternative> alternatives;
+
+  /// Con la política B activa: si se entregó la revisión (`true`) o Vosk
+  /// (`false`). `null`: se entregó con la regla A.
+  final bool? policyBUsedReview;
 }
 
 /// Otra transcripción de Whisper del mismo audio de la frase, con otra pista
@@ -163,6 +184,19 @@ final class VoiceExperiment {
   /// en memoria, después de entregarla.
   bool compareContexts = false;
 
+  /// Política experimental B: si la revisión es válida, se entrega su texto
+  /// entero y sólo los campos afectados quedan por revisar. Apagada, la regla
+  /// A de siempre. Sólo en la compilación de diagnóstico.
+  bool policyB = false;
+
+  bool get policyBActive =>
+      (voiceDiagnosticsBuild || debugAllowOutsideDiagnostics) && policyB;
+
+  /// Sólo pruebas: permite la política B fuera de la compilación de
+  /// diagnóstico.
+  @visibleForTesting
+  bool debugAllowOutsideDiagnostics = false;
+
   /// Pistas alternativas por etiqueta (lista de nombres o términos; vacía =
   /// sin pista). La pista principal sigue siendo la del catálogo.
   Map<String, List<String>> comparisonHints = const {};
@@ -174,6 +208,8 @@ final class VoiceExperiment {
 
   void reset() {
     compareContexts = false;
+    policyB = false;
+    debugAllowOutsideDiagnostics = false;
     comparisonHints = const {};
   }
 }
@@ -226,6 +262,14 @@ final class VoiceProposalsInspector extends ChangeNotifier {
     final i = _items.indexWhere((p) => p.turn == turn && p.seq == seq);
     if (i < 0) return;
     _items[i] = _items[i].withAlternative(alternative);
+    notifyListeners();
+  }
+
+  /// Anota qué entregó la política B para esa frase.
+  void notePolicyB(int turn, int? seq, {required bool usedReview}) {
+    final i = _items.indexWhere((p) => p.turn == turn && p.seq == seq);
+    if (i < 0) return;
+    _items[i] = _items[i].withPolicyB(usedReview: usedReview);
     notifyListeners();
   }
 

@@ -216,6 +216,8 @@ final class VoiceSessionSnapshot {
     this.reviewing = 0,
     this.reviewEnabled = true,
     this.numericDisagreements = 0,
+    this.reviewConflictFields = const {},
+    this.reviewSingleFields = const {},
   });
 
   final VoiceSessionStatus status;
@@ -333,6 +335,16 @@ final class VoiceSessionSnapshot {
   /// sesión nueva y lo devuelve a cero: no pasa a otra sesión de captura.
   final int numericDisagreements;
 
+  /// Campos por revisar del **último** segmento con desacuerdo, sólo con la
+  /// política experimental B ([TranscriptionSegment.reviewConflictFields]).
+  /// Vacíos: se revisan todas las cifras de ese dictado (regla A). Cambian
+  /// en la misma actualización que sube [numericDisagreements].
+  final Set<String> reviewConflictFields;
+
+  /// Ídem, campos que trajo un solo reconocedor
+  /// ([TranscriptionSegment.reviewSingleFields]).
+  final Set<String> reviewSingleFields;
+
   /// El locale mostrado difiere del pedido.
   ///
   /// El modelo local de la app no tiene «idioma pedido» que pueda faltar: es
@@ -384,6 +396,8 @@ final class VoiceSessionSnapshot {
     int? reviewing,
     bool? reviewEnabled,
     int? numericDisagreements,
+    Set<String>? reviewConflictFields,
+    Set<String>? reviewSingleFields,
   }) => VoiceSessionSnapshot(
     status: status ?? this.status,
     committedText: committedText ?? this.committedText,
@@ -410,6 +424,8 @@ final class VoiceSessionSnapshot {
     reviewing: reviewing ?? this.reviewing,
     reviewEnabled: reviewEnabled ?? this.reviewEnabled,
     numericDisagreements: numericDisagreements ?? this.numericDisagreements,
+    reviewConflictFields: reviewConflictFields ?? this.reviewConflictFields,
+    reviewSingleFields: reviewSingleFields ?? this.reviewSingleFields,
   );
 
   /// Representación para diagnóstico. **Sin una sola palabra de lo dictado.**

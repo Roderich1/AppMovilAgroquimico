@@ -68,6 +68,84 @@ List<String> voiceQuantityFacts(String text) {
   return out;
 }
 
+/// Marca de papel: la cifra que sigue es un **precio** (POCO 2026-11-09).
+const priceRoleFact = 'P';
+
+/// Como [voiceQuantityFacts], pero con el **papel** de cada cifra para el
+/// diagnóstico y la política B: antes de una cifra que es precio va
+/// [priceRoleFact]. La regla A sigue usando [voiceQuantityFacts], sin
+/// cambios, para seguir siendo reproducible.
+///
+/// Una cifra es precio si no va pegada a una unidad (eso es cantidad) y:
+/// - la precede «a», «al» o «precio»; o
+/// - la sigue una moneda; o
+/// - la sigue (con una palabra de más como mucho) «el/la/de/del/por/cada»
+///   + unidad («120V de litro», «120 boliganos del litro»).
+///
+/// Una cifra ilegible conserva su papel («120V» sigue siendo el precio) sin
+/// limpiarse ni convertirse en otra cosa.
+List<String> voiceFieldFacts(String text) {
+  final words = tokenize(text);
+  final out = <String>[];
+  var i = 0;
+  bool perUnitAfter(int k) {
+    for (final skip in const [0, 1]) {
+      final a = k + skip;
+      if (a + 1 < words.length &&
+          const {'el', 'la', 'de', 'del', 'por', 'cada'}.contains(words[a]) &&
+          unitWord(words[a + 1]) != null) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  while (i < words.length) {
+    final measure = readMeasureAt(words, i);
+    if (measure != null) {
+      out
+        ..add(_measureFact(words, measure))
+        ..add('u${unitWord(measure.unitWord)!.name}');
+      i = measure.end;
+      continue;
+    }
+    final area = readAreaAt(words, i);
+    if (area != null) {
+      out
+        ..add(_measureFact(words, area))
+        ..add(_hectare);
+      i = area.end;
+      continue;
+    }
+    final number = readNumberAt(words, i);
+    if (number != null && number.end > i) {
+      final prev = i > 0 ? words[i - 1] : null;
+      final next = number.end < words.length ? words[number.end] : null;
+      final isPrice =
+          const {'a', 'al', 'precio'}.contains(prev) ||
+          (next != null && currencyWord(next) != null) ||
+          perUnitAfter(number.end) ||
+          (next != null &&
+              currencyWord(next) == null &&
+              perUnitAfter(number.end + 1) &&
+              unitWord(next) == null);
+      if (isPrice) out.add(priceRoleFact);
+      out.add(
+        number.isValid ? 'n${number.thousandths}' : _unreadable(words[i]),
+      );
+      i = number.end;
+      continue;
+    }
+    final unit = unitWord(words[i]);
+    if (unit != null) out.add('u${unit.name}');
+    if (hectareWords.contains(words[i])) out.add(_hectare);
+    final currency = currencyWord(words[i]);
+    if (currency != null) out.add('c${currency.name}');
+    i++;
+  }
+  return out;
+}
+
 String _measureFact(List<String> words, SpokenMeasure m) {
   if (m.isValid) return 'n${m.thousandths}';
   // Una cifra de una sola palabra que el lector rechaza, sin «y medio».

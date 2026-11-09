@@ -46,6 +46,7 @@ Future<void> main() async {
         installationRefProvider.overrideWithValue(installationRef),
         // La revisión de voz local compara cantidades con el lector de la app.
         reviewFactsProvider.overrideWithValue(voiceQuantityFacts),
+        reviewFieldFactsProvider.overrideWithValue(voiceFieldFacts),
         // Evidencia de dictado (#167): sólo en una compilación de
         // evaluación (AGRO_VOICE_EVIDENCE=true), y aun así sólo con
         // consentimiento vigente.

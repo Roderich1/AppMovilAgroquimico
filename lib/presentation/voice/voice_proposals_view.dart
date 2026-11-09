@@ -132,6 +132,38 @@ class _VoiceContextExperimentSwitchState
   }
 }
 
+/// Interruptor de la política experimental B (sólo compilación de
+/// diagnóstico). Cambia la regla para los dictados **siguientes**; lo ya
+/// aplicado al borrador no se vuelve a aplicar. Al salir vuelve a A.
+class VoicePolicyBSwitch extends StatefulWidget {
+  const VoicePolicyBSwitch({super.key, this.enabled = voiceDiagnosticsBuild});
+
+  final bool enabled;
+
+  @override
+  State<VoicePolicyBSwitch> createState() => _VoicePolicyBSwitchState();
+}
+
+class _VoicePolicyBSwitchState extends State<VoicePolicyBSwitch> {
+  @override
+  Widget build(BuildContext context) {
+    if (!widget.enabled) return const SizedBox.shrink();
+    final experiment = VoiceExperiment.instance;
+    return SwitchListTile(
+      key: const Key('voz-diagnostico-politica-b'),
+      contentPadding: EdgeInsets.zero,
+      title: const Text('Diagnóstico: política B (Whisper como propuesta)'),
+      subtitle: const Text(
+        'Si Whisper termina bien, su texto entero llega al borrador y sólo '
+        'los datos en que difiere o que oyó un solo motor quedan «Revisar». '
+        'Vale para los dictados siguientes; use un borrador nuevo.',
+      ),
+      value: experiment.policyB,
+      onChanged: (on) => setState(() => experiment.policyB = on),
+    );
+  }
+}
+
 class _ProposalsDialog extends StatelessWidget {
   const _ProposalsDialog({required this.proposals, required this.describe});
 
@@ -305,6 +337,11 @@ String hintLabelText(String label) => switch (label) {
 /// Qué texto llegó al formulario.
 String chosenText(EngineProposal p) {
   if (p.late) return 'Vosk (Whisper llegó tarde y se descartó)';
+  if (p.policyBUsedReview != null) {
+    return p.policyBUsedReview!
+        ? 'Whisper (política B activa)'
+        : 'Vosk (política B activa: Whisper no era válido)';
+  }
   return p.revised ? 'Whisper' : 'Vosk';
 }
 

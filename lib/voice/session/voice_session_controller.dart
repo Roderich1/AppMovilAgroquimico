@@ -569,6 +569,8 @@ class VoiceSessionController extends ChangeNotifier {
         :final text,
         :final sequence,
         :final numericDisagreement,
+        :final reviewConflictFields,
+        :final reviewSingleFields,
       ):
         // Después del cierre del turno, un resultado es tardío y no entra
         // (#119). Los adaptadores ya los descartan por número de turno; esto
@@ -576,7 +578,13 @@ class VoiceSessionController extends ChangeNotifier {
         // por el estado visible: los eventos llegan en orden pero después de
         // que la sesión cambie de estado.
         if (!_turnActive) return;
-        _appendSegment(text, sequence, numericDisagreement);
+        _appendSegment(
+          text,
+          sequence,
+          numericDisagreement,
+          conflict: reviewConflictFields,
+          single: reviewSingleFields,
+        );
 
       case TranscriptionFailed(:final code, :final detail):
         _pendingErrorCode = code;
@@ -616,7 +624,13 @@ class VoiceSessionController extends ChangeNotifier {
     );
   }
 
-  void _appendSegment(String text, int? sequence, bool numericDisagreement) {
+  void _appendSegment(
+    String text,
+    int? sequence,
+    bool numericDisagreement, {
+    Set<String> conflict = const {},
+    Set<String> single = const {},
+  }) {
     if (sequence != null) {
       // Motor con varias frases por turno: cada número entra una sola vez.
       if (!_turnSequences.add(sequence)) return;
@@ -652,6 +666,8 @@ class VoiceSessionController extends ChangeNotifier {
         numericDisagreements: numericDisagreement
             ? _snapshot.numericDisagreements + 1
             : null,
+        reviewConflictFields: numericDisagreement ? conflict : null,
+        reviewSingleFields: numericDisagreement ? single : null,
       ),
     );
   }

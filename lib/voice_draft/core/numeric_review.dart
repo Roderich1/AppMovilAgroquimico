@@ -46,22 +46,51 @@ const numericDisagreementMessage =
     'Los dos reconocedores oyeron cifras distintas. Revise este valor y '
     'confírmelo o corríjalo.';
 
+/// Mensaje para un dato que trajo un solo reconocedor, o cuya cifra uno de
+/// los dos no pudo leer (política experimental B, 2026-11-09).
+const singleSourceMessage =
+    'Este dato lo entregó un solo reconocedor (o el otro no lo pudo leer). '
+    'Revíselo y confírmelo o corríjalo.';
+
+/// Campos de la compra que afecta una diferencia del comparador, por su
+/// papel (`quantity`, `price`, `unit`, `currency`, `number`, `area`):
+/// - la unidad que difiere es la del precio («el litro»);
+/// - una cifra sin papel claro puede ser cantidad o precio: las dos;
+/// - el área no es de la compra.
+Set<String> purchaseFieldsFor(Set<String> roles) => {
+  for (final r in roles)
+    ...switch (r) {
+      'quantity' => const ['quantity'],
+      'price' || 'unit' => const ['price'],
+      'currency' => const ['currency'],
+      'number' => const ['quantity', 'price'],
+      _ => const <String>[],
+    },
+};
+
 /// Compra: marca la cantidad, el precio y la moneda de las líneas, y el tipo
 /// de cambio, que el dictado cambió entre [before] y [after].
+///
+/// Con [only] (política B) se marcan sólo esos campos (`quantity`, `price`,
+/// `currency`, `exchangeRate`); sin él, todas las cifras (regla A).
 VoicePurchaseDraft reviewPurchaseNumbers(
   VoicePurchaseDraft before,
   VoicePurchaseDraft after,
-  String message,
-) {
+  String message, {
+  Set<String>? only,
+}) {
+  bool on(String f) => only == null || only.contains(f);
+  DraftField<T> mark<T>(String f, DraftField<T>? b, DraftField<T> a) =>
+      on(f) ? _review(b, a, message) : a;
   final old = {for (final l in before.lines) l.key: l};
   return after.copyWith(
-    exchangeRate: _review(before.exchangeRate, after.exchangeRate, message),
+    exchangeRate: mark('exchangeRate', before.exchangeRate, after.exchangeRate),
     lines: [
       for (final l in after.lines)
         l.copyWith(
-          quantity: _review(old[l.key]?.quantity, l.quantity, message),
-          price: _review(old[l.key]?.price, l.price, message),
-          currency: _review(old[l.key]?.currency, l.currency, message),
+          quantity: mark('quantity', old[l.key]?.quantity, l.quantity),
+          price: mark('price', old[l.key]?.price, l.price),
+          currency: mark('currency', old[l.key]?.currency, l.currency),
         ),
     ],
   );

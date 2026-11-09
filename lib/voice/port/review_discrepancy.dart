@@ -182,6 +182,39 @@ List<_Claim> _claims(List<String> facts) {
 
   while (i < facts.length) {
     final f = facts[i];
+    // Marca de papel («P»): la cifra que sigue es un precio, aunque la siga
+    // una unidad («120V de litro») o no sea legible. Lo que la sigue es su
+    // moneda y la unidad del precio, no una cantidad.
+    if (f == 'P' && isNumber(at(i + 1))) {
+      final (value, tolerant, unreadable) = _number(at(i + 1)!);
+      var k = i + 2;
+      String? currency;
+      String? priceUnit;
+      if (isCurrency(at(k))) {
+        currency = at(k)!.substring(1);
+        k++;
+      }
+      if (isUnit(at(k))) {
+        priceUnit = at(k)!.substring(1);
+        k++;
+      }
+      out.add(
+        _Claim(
+          ReviewField.price,
+          value: value,
+          tolerant: tolerant,
+          unreadable: unreadable,
+          currency: currency,
+          priceUnit: priceUnit,
+        ),
+      );
+      i = k;
+      continue;
+    }
+    if (f == 'P') {
+      i++;
+      continue;
+    }
     if (isNumber(f)) {
       final (value, tolerant, unreadable) = _number(f);
       final next = at(i + 1);
@@ -365,7 +398,23 @@ List<FactDiscrepancy> _pair(_Claim x, _Claim y) {
           );
         }
       case ReviewField.price:
-        if (x.currency != y.currency) {
+        if (x.currency == null && y.currency != null) {
+          out.add(
+            const FactDiscrepancy(
+              ReviewField.currency,
+              DiscrepancyKind.missing,
+              onlyIn: ReviewSide.review,
+            ),
+          );
+        } else if (x.currency != null && y.currency == null) {
+          out.add(
+            const FactDiscrepancy(
+              ReviewField.currency,
+              DiscrepancyKind.missing,
+              onlyIn: ReviewSide.first,
+            ),
+          );
+        } else if (x.currency != y.currency) {
           out.add(
             const FactDiscrepancy(
               ReviewField.price,

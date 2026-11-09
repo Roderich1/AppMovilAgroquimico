@@ -259,10 +259,11 @@ class _VoicePurchaseDraftScreenState
         lineNotice = r.lineNotice;
         outcome = r.outcome;
         final next = disagreed
-            ? reviewPurchaseNumbers(
+            ? _reviewDisagreement(
                 current,
                 r.draft,
-                numericDisagreementMessage,
+                snapshot.reviewConflictFields,
+                snapshot.reviewSingleFields,
               )
             : r.draft;
         return (next, r.outcome);
@@ -278,6 +279,34 @@ class _VoicePurchaseDraftScreenState
       }
     }
     setState(() {});
+  }
+
+  /// Cifras por revisar de un dictado con desacuerdo. Regla A (sin campos):
+  /// todas las que cambió. Política B (diagnóstico): sólo los campos
+  /// afectados, con un mensaje para los valores distintos y otro para lo que
+  /// trajo un solo reconocedor.
+  static VoicePurchaseDraft _reviewDisagreement(
+    VoicePurchaseDraft before,
+    VoicePurchaseDraft after,
+    Set<String> conflict,
+    Set<String> single,
+  ) {
+    if (conflict.isEmpty && single.isEmpty) {
+      return reviewPurchaseNumbers(before, after, numericDisagreementMessage);
+    }
+    final conflictFields = purchaseFieldsFor(conflict);
+    final marked = reviewPurchaseNumbers(
+      before,
+      after,
+      numericDisagreementMessage,
+      only: conflictFields,
+    );
+    return reviewPurchaseNumbers(
+      before,
+      marked,
+      singleSourceMessage,
+      only: purchaseFieldsFor(single).difference(conflictFields),
+    );
   }
 
   TextEditingController _controller(String id, String value) =>
@@ -442,6 +471,7 @@ class _VoicePurchaseDraftScreenState
             ),
           // Sólo en la compilación de diagnóstico; se abre con un toque.
           if (catalog != null) ...[
+            const VoicePolicyBSwitch(),
             VoiceContextExperimentSwitch(
               domainHints: () => voiceDomainContextHints(catalog),
             ),

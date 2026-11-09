@@ -82,7 +82,9 @@ String perUnitQuestionMessage({
     CurrencyCode.usd => ' \$us',
     null => '',
   };
-  final what = word == 'en' ? '«en»' : '«$word», que no es una moneda';
+  final what = const {'en', 'de', 'del'}.contains(word)
+      ? '«$word»'
+      : '«$word», que no es una moneda';
   return 'Entre el importe y la unidad se oyó $what. ¿$amount$symbol por '
       '$unit? Elija «Por $unit» o «Total de la línea», o escriba el precio.'
       '${currency == null ? ' La moneda sigue pendiente.' : ''}';
