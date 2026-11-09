@@ -97,6 +97,12 @@ Sin red durante todo el bloque. «Revisar cada frase» como usted la use normalm
 
 Antes de empezar, Inventario debe mostrar Herbicida DEMO con al menos 2 L.
 
+**Efectos en Cuentas según la política de la persona** (nota añadida el 2026-11-09, tras una indicación errónea durante una sesión que anunció un cargo al comprar):
+- **Familiar con liquidación por uso real** (`BY_ACTUAL_USAGE`): la **compra** asignada a esa persona **no** genera cargo; la **aplicación** genera un cargo por uso (`USAGE_CHARGE`) igual a su costo FIFO.
+- **Tercero con cobro por compra** (`BY_PURCHASE_ALLOCATION`): el cargo se genera al asignarle la compra; la aplicación no genera cargo.
+- **Titular:** su consumo aparece en «Consumo y costos propios» y no suma a «Familias por cobrar» ni a «Terceros por cobrar».
+- La aplicación consume por FIFO (fecha de adquisición) los lotes de quien aplica y **no salta lotes vencidos**: para un recorrido normal, compruebe antes que el primer lote del producto no esté vencido.
+
 | # | Acción | Resultado esperado | Observado | P / F / NE |
 |---|---|---|---|---|
 | C1 | Más → Registrar por voz → Aplicación por voz. «Hablar», **E5**, «Detener» | Chaco Norte DEMO, con el titular como persona (el dueño del chaco), y Herbicida DEMO **2 L**. Sin aviso de existencias | | |

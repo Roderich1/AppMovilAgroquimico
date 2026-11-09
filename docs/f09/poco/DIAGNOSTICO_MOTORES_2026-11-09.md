@@ -18,6 +18,8 @@ Rama `feat/f09-diagnostico-motores`, que parte de `d5808d0`. Configuración: Vos
 | «Usar la otra propuesta», coma entre importe y moneda | HOST | `932e368` |
 | OP-1, CTX-2, CTX-3 / OP-2 | DEVICE | `932e368` |
 | Aviso de posible repetición, emparejamiento seguro, espera de la prueba de salida | HOST | ver sección 25 |
+| Compra completa: acierto inicial, correcciones, efectos y persistencia (sección 26) | DEVICE | `71e55fc` |
+| Aplicación de prueba: preparación y valores iniciales (sección 27) | DEVICE | `71e55fc` |
 
 Ningún resultado declara ganadoras a A, a B ni a la pista de dominio. Las comparaciones son diagnóstico.
 
@@ -772,7 +774,7 @@ Hubo 5 dictados (18:14–18:17), con veredicto `quantities` en los 5 (A entregó
 | Lotes / movimientos de inventario | 6 / 9 | **7 / 10** (lote de Beto, 2 L a 50 Bs/L; `PURCHASE_IN` +2 L) |
 | Existencias de Fungicida de Beto | 2 L | **4 L** (las demás, sin cambios) |
 | Pagos a proveedor | 2 (3 000,00 Bs) | Sin cambios |
-| Movimientos de cuentas | 5 | **5, sin cambios.** Es correcto: Beto es familiar con liquidación por uso real y se le cobra al aplicar, no al comprar. La primera indicación de esta sesión, que anunciaba un cargo, era errónea |
+| Movimientos de cuentas | 5 | **5, sin cambios.** Es lo correcto según la configuración: Beto es familiar con liquidación `BY_ACTUAL_USAGE`, y el cargo (`USAGE_CHARGE`) se escribe al **aplicar**, no al comprar (`_insertApplication`, `lib/data/agro_repository.dart`). Ver «Expectativa corregida» |
 | Integridad | ok | ok |
 
 ### Persistencia (cierre forzado y nueva apertura)
@@ -785,3 +787,71 @@ Hubo 5 dictados (18:14–18:17), con veredicto `quantities` en los 5 (A entregó
 | Base de datos | Idéntica a la de justo después de registrar |
 
 **Conclusión:** el **recorrido** se completó con éxito, con una sola escritura y efectos correctos y persistentes. El **reconocimiento** no acertó la compra: hicieron falta correcciones en 4 de los 6 datos de la compra (producto, precio, proveedor y receptor) y confirmar los otros 2. No se presenta como dictado acertado.
+
+### Expectativa corregida
+
+Antes de registrar, la indicación de esta sesión al autor anunció como efecto esperado un **cargo a Beto en Cuentas**. Era errónea: con `BY_ACTUAL_USAGE` la compra no genera cargo; el cargo llega con la aplicación, por el costo FIFO consumido. Lo esperado correcto, y lo observado, es: sin movimiento de cuentas por la compra. El guion versionado (`GUION_PRUEBA_VOZ_POCO.md`) no contenía ese cargo; se le añade una nota sobre los efectos en cuentas según la política (2026-11-09).
+
+### Observación del usuario y comprobación técnica final (19:22–19:26)
+
+- **Observación del usuario (Roderich, 2026-11-09):** cerró y reabrió «AC F09» por su cuenta y la información seguía guardada.
+- **Comprobación técnica,** sin crear operaciones: copia de solo lectura de la base a las 19:22, **idéntica** a la de justo después de registrar y a la de tras el cierre forzado (mismos conteos, existencias, compras y cuentas; integridad ok). Inicio: compras 4 985,00 Bs; pagado a proveedores 3 000,00; familias por cobrar 400,00; terceros por cobrar 210,00; pagos recibidos 350,00. Compras: la n.º 4 arriba, 100,00 Bs, pagado 0,00.
+- **Nota de precisión:** a las 19:26 el proceso de la app era el iniciado a las 18:33:39, tras el cierre forzado hecho por esta sesión. El cierre del usuario no terminó el proceso (MIUI puede conservarlo al cerrar la ventana). La prueba técnica de persistencia entre procesos es la del cierre forzado; la observación del usuario confirma lo mismo en la interfaz.
+
+### Caso cerrado: compra asistida con correcciones
+
+Completado. Una sola compra de 100,00 Bs; entrada de 2 L de Fungicida DEMO para Beto; existencias finales de Beto 4 L; sin pago nuevo; sin cargo por la compra, porque Beto liquida por uso real. Éxito del **registro**; fallo del **reconocimiento inicial** (0 de 4 campos correctos sin revisión).
+
+## 27. DEVICE: aplicación de prueba (POCO, 2026-11-09, APK `71e55fc`): preparación
+
+Misma APK y configuración que la sección 26 (regla A; modelos, política y contexto sin cambios). Estado inicial leído a las 19:22–19:26 de una copia de solo lectura y de la interfaz.
+
+### Reglas que aplican (comprobadas en el código y en la base)
+
+| Regla | Dónde | Consecuencia para el caso |
+|---|---|---|
+| Modalidad | `app_settings` sin ajuste → `OperationMode.defaultMode` = compartido | Cualquier persona activa puede aplicar en su chaco |
+| Titular | `owner_bindings` vigente: Rosa Mamani F09 (FAMILY, `BY_ACTUAL_USAGE`) | Su consumo es «Consumo y costos propios», fuera de «Familias por cobrar» (E-15) |
+| Quién aplica | La aplicación por voz fija la persona = dueño del chaco (`voice_application_draft.dart`) y sólo cuenta su stock | Chaco Río DEMO → Beto; Chaco Norte DEMO → Rosa |
+| Consumo | `_lotsAvailableNow`: lotes de esa persona y producto con saldo, por `acquired_date`, `id` (FIFO). **No salta lotes vencidos** | Hay que elegir un producto cuyo primer lote FIFO no esté vencido |
+| Aviso de vencimiento | Pantalla de voz: sólo lotes previstos que vencen antes o el mismo día de la aplicación | Con lote no vencido, sin aviso |
+| Cargo | Con `BY_ACTUAL_USAGE`, un `USAGE_CHARGE` por el costo FIFO total | Beto: cargo por el costo consumido |
+
+### Lotes con saldo y vencimiento (hoy 2026-11-09)
+
+| Lote | Producto | Dueño | Adquirido | Vence | Costo | Saldo | ¿Apto? |
+|---|---|---|---|---|---|---|---|
+| 6 | Fungicida DEMO | Beto | 24/10 | 03/11 | 150 Bs/L | 2 L | **Vencido**; es el primero FIFO de Beto |
+| 7 | Fungicida DEMO | Beto | 09/11 | — | 50 Bs/L | 2 L | Sólo se usaría después del 6 |
+| 3 | Fungicida DEMO | Rosa | 24/10 | 03/11 | 150 Bs/L | 8 L | **Vencido** |
+| 2 | Herbicida DEMO | Beto | 19/10 | 18/11 | 120 Bs/L | 3 L | Sí (no vencido) |
+| 1 | Herbicida DEMO | Rosa | 19/10 | 18/11 | 120 Bs/L | 6 L | Sí |
+| 5 | Herbicida DEMO | Rosa | 29/10 | — | 125 Bs/L | 5 L | Sí |
+| 4 | Insecticida DEMO | Carmen | 24/10 | 02/11 | 90 Bs/L | 4 L | **Vencido**; Carmen no tiene chaco |
+
+El Fungicida comprado en la sección 26 **no** sirve para este recorrido normal: cualquier aplicación de Fungicida de Beto consume primero el lote 6, vencido.
+
+### Caso elegido
+
+**Beto aplica 1 L de Herbicida DEMO en Chaco Río DEMO (2 ha), hoy, campaña Invierno 2026 (DEMO).** Beto es el dueño del chaco y el responsable; se usan sus propias existencias (lote 2, no vencido); como familiar con uso real, la aplicación le genera un cargo. Comprobado en HOST con el catálogo del teléfono: la frase prevista se interpreta como Chaco Río DEMO, Beto, 2 ha, Herbicida DEMO 1 L (prueba temporal, no versionada). Vosk no tiene «herbicida» en singular en su vocabulario (C1, sección 1): un fallo en el producto es esperable y no se corrige ahora.
+
+### Valores iniciales
+
+| Comprobación | Valor |
+|---|---|
+| Conteos | aplicaciones 2, ítems 2, consumos 2, movimientos de inventario 10, lotes 7, cuentas 5, compras 4, pagos a proveedor 2, planes 0, consentimiento 0; integridad ok |
+| Herbicida DEMO | Beto 3 L (lote 2); Rosa 11 L (lotes 1 y 5); total 14 L |
+| Cuentas | Beto: cargos 600,00, pagos 200,00, saldo 400,00; Carmen 210,00; Rosa (titular): 720,00 en asientos propios, «no son deuda» |
+| Inicio | Familias por cobrar 400,00; terceros por cobrar 210,00; pagos recibidos 350,00; compras 4 985,00 |
+
+### Efectos esperados al registrar (una pulsación)
+
+| Comprobación | Antes | Después esperado |
+|---|---|---|
+| Aplicaciones / ítems / consumos | 2 / 2 / 2 | **3 / 3 / 3**: chaco 2, persona Beto, 2 ha, costo 120,00 Bs; consumo lote 2, 1 L, 120,00 Bs |
+| Movimientos de inventario | 10 | **11**: `APPLICATION_OUT` −1 L del lote 2, dueño Beto |
+| Lotes | 7 | 7 (sin lotes nuevos) |
+| Herbicida DEMO | Beto 3 L, total 14 L | **Beto 2 L, total 13 L**; Rosa sin cambios |
+| Cuentas | 5 | **6**: `USAGE_CHARGE` +120,00 Bs a Beto, campaña 1, referencia a la aplicación |
+| Saldo de Beto / Familias por cobrar | 400,00 | **520,00** |
+| Compras, pagos, terceros, planes | — | Sin cambios |
