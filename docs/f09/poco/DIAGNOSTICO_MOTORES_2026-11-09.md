@@ -734,3 +734,54 @@ Pruebas (`otra_propuesta_test` +11): la otra omite un producto (sin tocar se qui
 | `dart format --set-exit-if-changed`, `flutter analyze` | Limpios |
 | Suites de voz, concurrencia por defecto | 2 de 3 limpias (+800); 1 con los dos fallos de navegación descritos |
 | Suites de voz, `-j 4` | +800 |
+
+## 26. DEVICE: compra completa (POCO, 2026-11-09 18:14–18:30, APK `71e55fc`)
+
+APK `agrocuentas-f09diag-71e55fc-arm64-v8a-profile.apk`, SHA-256 `8a323bd1881417e0d094cb3f073e5dfcd88c1abf30c0244071eb09ebc993d849`. Configuración normal (regla A, interruptores de diagnóstico apagados al empezar). Datos sintéticos de la DEMO. Roderich dictó, corrigió y registró con su pulsación; tras registrar, autorizó a esta sesión a usar el teléfono para comprobar la persistencia.
+
+**Frase de prueba:** compra de 2 L de Fungicida DEMO a 50 Bs por L.
+
+### Acierto inicial del reconocimiento (antes de corregir)
+
+Hubo 5 dictados (18:14–18:17), con veredicto `quantities` en los 5 (A entregó Vosk; en uno estuvieron encendidas B y la comparación de pistas). Revisión de Whisper entre 3,1 y 3,6 s, sin agotar el límite. Se valora el borrador del **último**; los anteriores se descartaron y no se pueden valorar.
+
+| Campo | Estado tras el dictado | Valoración |
+|---|---|---|
+| Producto | «Falta», nombre fuera del catálogo | ✗ |
+| Cantidad | 2 L en «Revisar» (conflicto entre motores) | Valor correcto, pendiente |
+| Precio | «No válido» (palabra extraña delante de la cifra) | ✗, sin suponer |
+| Moneda | BOB en «Revisar» (sin «a» delante) | Valor correcto, pendiente |
+
+**0 de 4 campos correctos sin revisión, 2 correctos pendientes, 2 no reconocidos, 0 incorrectos sin aviso.**
+
+### Recorrido con correcciones
+
+- **A mano:** producto, precio, proveedor y quién recibe (Beto Mamani (DEMO)).
+- **Con «Confirmar este valor»:** cantidad y moneda.
+- **¿Ya pagaste?:** «No, todavía no».
+- **Total calculado:** 100,00 Bs.
+- **Base de datos idéntica** desde la instalación hasta justo antes de registrar: cero escrituras durante el dictado y las correcciones.
+
+### Efectos tras registrar (una pulsación)
+
+| Comprobación | Antes | Después |
+|---|---|---|
+| Compras | 3 | **4** (n.º 4, Agroinsumos DEMO (sintético), 100,00 Bs, confirmada) |
+| Líneas de compra | 4 | **5** (Fungicida DEMO, 2 L, 50 Bs/L, BOB, 100,00 Bs) |
+| Reparto | — | 2 L para Beto, política `BY_ACTUAL_USAGE` |
+| Lotes / movimientos de inventario | 6 / 9 | **7 / 10** (lote de Beto, 2 L a 50 Bs/L; `PURCHASE_IN` +2 L) |
+| Existencias de Fungicida de Beto | 2 L | **4 L** (las demás, sin cambios) |
+| Pagos a proveedor | 2 (3 000,00 Bs) | Sin cambios |
+| Movimientos de cuentas | 5 | **5, sin cambios.** Es correcto: Beto es familiar con liquidación por uso real y se le cobra al aplicar, no al comprar. La primera indicación de esta sesión, que anunciaba un cargo, era errónea |
+| Integridad | ok | ok |
+
+### Persistencia (cierre forzado y nueva apertura)
+
+| Pantalla | Resultado |
+|---|---|
+| Inicio | Compras 4 985,00 Bs (antes 4 885,00); pagado a proveedores 3 000,00; familias por cobrar 400,00, sin cambios |
+| Operaciones → Compras | La compra nueva arriba: 1 producto, total 100,00 Bs, pagado 0,00, confirmada |
+| Inventario | Fungicida DEMO, físico 12 L (antes 10); detalle por persona: Beto 4 L |
+| Base de datos | Idéntica a la de justo después de registrar |
+
+**Conclusión:** el **recorrido** se completó con éxito, con una sola escritura y efectos correctos y persistentes. El **reconocimiento** no acertó la compra: hicieron falta correcciones en 4 de los 6 datos de la compra (producto, precio, proveedor y receptor) y confirmar los otros 2. No se presenta como dictado acertado.
