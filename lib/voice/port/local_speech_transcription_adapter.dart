@@ -6,8 +6,10 @@ import 'package:flutter/services.dart';
 import '../../data/app_log.dart';
 import 'native_event_hub.dart';
 import 'review_capability.dart';
+import 'review_discrepancy.dart';
 import 'review_selection.dart';
 import 'speech_transcription_port.dart';
+import 'voice_engine_diagnostics.dart';
 
 /// Adaptador de [SpeechTranscriptionPort] sobre el reconocimiento **dentro de
 /// la app** (`LocalVoiceEngine` en Kotlin): Vosk en vivo y, si el APK la trae,
@@ -114,6 +116,10 @@ final class LocalSpeechTranscriptionAdapter implements SpeechTranscriptionPort {
 
   /// Frases ya entregadas en este turno: cada número entra una sola vez.
   final Set<int> _delivered = <int>{};
+
+  /// Diagnóstico nativo de cada frase (números y códigos), hasta su segmento.
+  final Map<int, Map<Object?, Object?>> _phraseInfo =
+      <int, Map<Object?, Object?>>{};
 
   /// Frases entregadas por tope cuyo resultado nativo aún no llegó. El
   /// parcial nativo todavía las incluye al principio, y se quitan de él para
@@ -287,6 +293,9 @@ final class LocalSpeechTranscriptionAdapter implements SpeechTranscriptionPort {
     // Cerrar aquí invalida el número de sesión: nada de lo que llegue después
     // de este turno entra en la sesión.
     if (wasOpen) {
+      AppLog.info(
+        'voz diag: turno=$_generation cancelado pendientes=${_pending.length}',
+      );
       _emit(const TranscriptionCancelled());
       _closeTurn(TranscriptionEndReason.cancelled);
     }
@@ -420,28 +429,37 @@ final class LocalSpeechTranscriptionAdapter implements SpeechTranscriptionPort {
         _pending[seq] = phrase;
         phrase.timer = Timer(reviewTimeout, () => _expireUpTo(seq));
 
+      // Diagnóstico nativo de la frase: llega justo antes de su segmento.
+      case 'phraseInfo':
+        final seq = map['seq'] as int?;
+        final info = map['info'];
+        if (seq != null && info is Map) _phraseInfo[seq] = info;
+
       case 'segment':
         final seq = map['seq'] as int?;
+        final vosk = map['vosk'] as String? ?? '';
+        final review = map['review'] as String?;
+        final info =
+            (seq == null ? null : _phraseInfo.remove(seq)) ??
+            const <Object?, Object?>{};
         if (seq != null) {
           _expiredAwaitingNative.removeWhere((p) => p.seq == seq);
           if (_delivered.contains(seq)) {
             // Ya se entregó (por tope, o repetido): una revisión tardía no
             // sustituye ni se suma a lo entregado.
             AppLog.info('voz local: frase $seq resultado tardío descartado');
+            _diagnose(seq, vosk, review, info, map['reviewMs'], null);
             return;
           }
           _pending.remove(seq)?.timer?.cancel();
         }
-        final choice = chooseReviewedText(
-          map['vosk'] as String? ?? '',
-          map['review'] as String?,
-          facts: _facts,
-        );
+        final choice = chooseReviewedText(vosk, review, facts: _facts);
         // Diagnóstico con códigos y tiempos, nunca con lo dictado.
         AppLog.info(
           'voz local: frase $seq ${choice.verdict.name} '
           'revision=${map['reviewMs']}ms',
         );
+        _diagnose(seq, vosk, review, info, map['reviewMs'], choice);
         _deliver(
           seq,
           choice.text,
@@ -474,6 +492,53 @@ final class LocalSpeechTranscriptionAdapter implements SpeechTranscriptionPort {
         }
         _closeTurn(reason);
     }
+  }
+
+  /// Diagnóstico de una frase: la línea de códigos al registro y, sólo en la
+  /// compilación de diagnóstico, las dos propuestas a la memoria de la vista.
+  /// Con [choice] `null`, la revisión llegó tarde y ya se había entregado
+  /// Vosk. No cambia nada de lo que se entrega.
+  void _diagnose(
+    int? seq,
+    String vosk,
+    String? review,
+    Map<Object?, Object?> info,
+    Object? reviewMs,
+    ReviewChoice? choice,
+  ) {
+    final facts = _facts;
+    final discrepancies =
+        facts == null || review == null || review.trim().isEmpty
+        ? const <FactDiscrepancy>[]
+        : classifyFactDifferences(facts(vosk), facts(review));
+    final verdict = choice?.verdict ?? ReviewVerdict.timedOut;
+    AppLog.info(
+      phraseDiagnosticLine(
+        turn: _generation,
+        seq: seq,
+        info: info,
+        reviewMs: reviewMs,
+        verdict: verdict,
+        revised: choice?.revised ?? false,
+        discrepancies: discrepancies,
+        late: choice == null,
+      ),
+    );
+    VoiceProposalsInspector.instance.add(
+      EngineProposal(
+        turn: _generation,
+        seq: seq,
+        vosk: vosk.trim(),
+        review: review?.trim(),
+        reviewOutcome: info['reviewOutcome'] is String
+            ? info['reviewOutcome']! as String
+            : '-',
+        verdict: verdict,
+        revised: choice?.revised ?? false,
+        discrepancies: discrepancies,
+        late: choice == null,
+      ),
+    );
   }
 
   /// Entrega una frase una sola vez. La marca de desacuerdo numérico viaja
@@ -542,6 +607,7 @@ final class LocalSpeechTranscriptionAdapter implements SpeechTranscriptionPort {
     _pending.clear();
     _delivered.clear();
     _expiredAwaitingNative.clear();
+    _phraseInfo.clear();
   }
 
   void _failTurn(TranscriptionErrorCode code, String? detail) {

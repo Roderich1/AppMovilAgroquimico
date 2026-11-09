@@ -23,6 +23,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../domain/campaign_calendar.dart' show localDay;
 import '../../domain/models.dart';
 import '../../domain/money.dart';
+import '../../voice/port/voice_engine_diagnostics.dart';
 import '../../voice/session/voice_session_controller.dart';
 import '../../voice/ui/voice_capture_screen.dart';
 import '../../voice/voice_providers.dart';
@@ -41,6 +42,7 @@ import '../widgets/provider_payment_fields.dart';
 import 'voice_draft_gateway.dart';
 import 'voice_draft_widgets.dart';
 import 'voice_evidence_hook.dart';
+import 'voice_proposals_view.dart';
 
 class VoicePurchaseDraftScreen extends ConsumerStatefulWidget {
   const VoicePurchaseDraftScreen({
@@ -96,6 +98,8 @@ class _VoicePurchaseDraftScreenState
   @override
   void initState() {
     super.initState();
+    // Diagnóstico (sólo compilación de diagnóstico): nada de otra pantalla.
+    VoiceProposalsInspector.instance.clear();
     WidgetsBinding.instance.addObserver(this);
     _gateway = ref.read(voiceDraftGatewayProvider);
     initVoiceEvidence();
@@ -135,6 +139,7 @@ class _VoicePurchaseDraftScreenState
     _session.removeListener(_onSession);
     // Salir libera el micrófono y descarta el borrador: no se escribe nada.
     _session.dispose();
+    VoiceProposalsInspector.instance.clear();
     // Una sola entrada de evidencia por borrador, sea cual sea la salida.
     finishVoiceEvidence(_draft);
     _draft?.removeListener(_onDraft);
@@ -309,6 +314,7 @@ class _VoicePurchaseDraftScreenState
     if (draft == null || _visibleMismatches(draft.draft).isNotEmpty) return;
     final id = await draft.confirm();
     if (id == null || !mounted) return;
+    VoiceProposalsInspector.instance.clear();
     await _session.discard();
     if (!mounted) return;
     ScaffoldMessenger.of(context)
@@ -318,6 +324,7 @@ class _VoicePurchaseDraftScreenState
 
   Future<void> _cancel() async {
     _draft?.discard();
+    VoiceProposalsInspector.instance.clear();
     await _session.discard();
     if (!mounted) return;
     leave();
@@ -350,6 +357,7 @@ class _VoicePurchaseDraftScreenState
       return;
     }
     _draft?.discard();
+    VoiceProposalsInspector.instance.clear();
     await _session.discard();
     if (!mounted) return;
     markLeaving();
@@ -429,6 +437,11 @@ class _VoicePurchaseDraftScreenState
               correctionHint: voiceCorrectionHint(
                 hasLines: draft?.draft.lines.isNotEmpty ?? false,
               ),
+            ),
+          // Sólo en la compilación de diagnóstico; se abre con un toque.
+          if (catalog != null)
+            VoiceProposalsButton(
+              describe: (text) => describePurchaseProposal(text, catalog),
             ),
           const SizedBox(height: 12),
           if (_loadError != null)

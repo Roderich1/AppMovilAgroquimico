@@ -195,6 +195,10 @@ class LocalVoiceBridge(
     override fun onPhrase(gen: Int, seq: Int, vosk: String, review: Boolean) =
         send(mapOf("type" to "phrase", "gen" to gen, "seq" to seq, "vosk" to vosk, "review" to review))
 
+    // Sólo números y códigos de la frase; nunca audio ni texto.
+    override fun onPhraseInfo(gen: Int, seq: Int, info: Map<String, Any?>) =
+        send(mapOf("type" to "phraseInfo", "gen" to gen, "seq" to seq, "info" to info))
+
     override fun onSegment(gen: Int, seq: Int, vosk: String, review: String?, reviewMs: Long) =
         send(
             mapOf(

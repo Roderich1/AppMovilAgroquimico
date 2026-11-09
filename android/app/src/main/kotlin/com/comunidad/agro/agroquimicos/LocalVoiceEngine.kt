@@ -19,7 +19,12 @@ import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.math.abs
+import kotlin.math.log10
 import kotlin.math.min
+import kotlin.math.roundToInt
+import kotlin.math.sqrt
 
 /**
  * Reconocimiento de voz **dentro de la app**: Vosk en vivo y, si el APK la
@@ -109,6 +114,13 @@ class LocalVoiceEngine(
                 return "busy" to "microphone-in-use"
             }
             record = audio
+            // Lo que el sistema entregó de verdad (diagnóstico F09): sin audio.
+            Log.i(
+                TAG,
+                "captura: pedido=$SAMPLE_RATE Hz real=${audio.sampleRate} Hz " +
+                    "canales=${audio.channelCount} formato=${audio.audioFormat} " +
+                    "fuente=VOICE_RECOGNITION",
+            )
             return null
         }
 
@@ -138,6 +150,13 @@ class LocalVoiceEngine(
          * instrumentada) no necesita atenderlo.
          */
         fun onPhrase(gen: Int, seq: Int, vosk: String, review: Boolean) {}
+
+        /**
+         * Diagnóstico de la frase [seq], justo antes de su [onSegment]: sólo
+         * números y códigos (duración y nivel del audio, cómo se cerró, qué
+         * pasó con la revisión). Nunca audio ni texto.
+         */
+        fun onPhraseInfo(gen: Int, seq: Int, info: Map<String, Any?>) {}
         fun onSegment(gen: Int, seq: Int, vosk: String, review: String?, reviewMs: Long)
         fun onEnded(gen: Int, reason: String)
         fun onError(gen: Int, code: String, detail: String?)
@@ -366,7 +385,11 @@ class LocalVoiceEngine(
         @Volatile private var capturing = true
         @Volatile private var endReason = "stoppedByUser"
         @Volatile private var source: PcmSource? = null
-        private var dropped = 0
+        @Volatile private var dropped = 0
+        private var droppedAtClose = 0
+
+        /** Diagnóstico por frase, hasta entregarla. Bajo `lock`. */
+        private val info = HashMap<Int, MutableMap<String, Any?>>()
 
         // Estado de frases: sólo lo tocan el hilo de Vosk y el de revisión, bajo `lock`.
         private val lock = Any()
@@ -456,7 +479,7 @@ class LocalVoiceEngine(
                     if (recognizer.acceptWaveForm(chunk, chunk.size)) {
                         val text = textOf(recognizer.result, "text")
                         if (text.isNotEmpty()) lastSpeech = SystemClock.elapsedRealtime()
-                        close(text, segment.take())
+                        close(text, segment.take(), "pausa")
                     } else {
                         val text = textOf(recognizer.partialResult, "partial")
                         if (text.isNotEmpty()) lastSpeech = SystemClock.elapsedRealtime()
@@ -470,7 +493,7 @@ class LocalVoiceEngine(
                     }
                 }
                 if (cancelled) return
-                close(textOf(recognizer.finalResult, "text"), segment.take())
+                close(textOf(recognizer.finalResult, "text"), segment.take(), endReason)
                 awaitReviews()
                 if (cancelled) return
                 if (dropped > 0) Log.w(TAG, "audio descartado por retraso: ${dropped * 100} ms")
@@ -490,8 +513,16 @@ class LocalVoiceEngine(
             }
         }
 
-        /** Vosk cerró una frase (pausa o fin). Sin texto, no hay frase. */
-        private fun close(text: String, pcm: ShortArray) {
+        /**
+         * Vosk cerró una frase (pausa o fin). Sin texto, no hay frase.
+         *
+         * [closedBy]: `pausa` si la cerró una pausa; si no, el motivo del fin
+         * del turno (`stoppedByUser`, `timeout`).
+         */
+        private fun close(text: String, pcm: ShortArray, closedBy: String) {
+            val droppedNow = dropped
+            val droppedHere = droppedNow - droppedAtClose
+            droppedAtClose = droppedNow
             if (text.isEmpty() || cancelled) return
             val seq: Int
             val reviewIt: Boolean
@@ -505,6 +536,19 @@ class LocalVoiceEngine(
                 reviewIt = review && whisperFailure == null && WhisperNative.available &&
                     reviewing < MAX_PENDING_REVIEWS
                 if (reviewIt) reviewing++
+                info[seq] = PcmStats.of(pcm).toMutableMap().apply {
+                    put("closedBy", closedBy)
+                    put("droppedMs", droppedHere * 100)
+                    put(
+                        "reviewOutcome",
+                        when {
+                            reviewIt -> "pending"
+                            !review -> "off"
+                            whisperFailure != null || !WhisperNative.available -> "unavailable"
+                            else -> "queue-full"
+                        },
+                    )
+                }
             }
             // Dart arranca aquí el tope de la frase: si su resultado no llega a
             // tiempo, entrega este texto y descarta lo que venga después.
@@ -517,19 +561,37 @@ class LocalVoiceEngine(
             reviewer.execute {
                 var result: String? = null
                 var took = 0L
+                var loadMs = 0L
+                val aborted = AtomicBoolean(false)
+                val queuedMs = SystemClock.elapsedRealtime() - closedAt
                 // Lo que quede del tope de esta frase: la espera en la cola (y
                 // la primera carga del modelo) también cuentan. Agotado, ni se
                 // empieza.
-                if (!cancelled && reviewTimeoutMs - (SystemClock.elapsedRealtime() - closedAt) > 0 &&
-                    ensureWhisper()
-                ) {
+                val wasLoaded = whisper != 0L
+                val loadStart = SystemClock.elapsedRealtime()
+                val budgetLeft = !cancelled &&
+                    reviewTimeoutMs - (SystemClock.elapsedRealtime() - closedAt) > 0
+                val ready = budgetLeft && ensureWhisper()
+                if (budgetLeft && !wasLoaded) loadMs = SystemClock.elapsedRealtime() - loadStart
+                var outcome = when {
+                    cancelled -> "cancelled"
+                    !budgetLeft -> "budget-exhausted"
+                    !ready -> "unavailable"
+                    else -> "pending"
+                }
+                if (ready) {
                     val started = SystemClock.elapsedRealtime()
                     val remaining = reviewTimeoutMs - (started - closedAt)
                     val samples = FloatArray(pcm.size) { pcm[it] / 32768f }
                     val token = Any()
                     reviewToken = token
                     val guard = watchdog.schedule(
-                        { if (reviewToken === token) WhisperNative.abort() },
+                        {
+                            if (reviewToken === token) {
+                                aborted.set(true)
+                                WhisperNative.abort()
+                            }
+                        },
                         maxOf(1L, remaining),
                         TimeUnit.MILLISECONDS,
                     )
@@ -546,25 +608,41 @@ class LocalVoiceEngine(
                         guard.cancel(false)
                     }
                     took = SystemClock.elapsedRealtime() - started
+                    outcome = when {
+                        result != null -> "ok"
+                        cancelled -> "cancelled"
+                        aborted.get() || remaining <= 0 -> "aborted"
+                        else -> "error"
+                    }
                 }
-                synchronized(lock) { reviewing-- }
+                synchronized(lock) {
+                    reviewing--
+                    info[seq]?.apply {
+                        put("reviewOutcome", outcome)
+                        put("loadMs", loadMs)
+                        put("queuedMs", queuedMs)
+                    }
+                }
                 complete(seq, result?.trim(), took)
             }
         }
 
         private fun complete(seq: Int, review: String?, took: Long) {
             val ready = mutableListOf<Triple<Int, String, Pair<String?, Long>>>()
+            val details = HashMap<Int, Map<String, Any?>>()
             synchronized(lock) {
                 done[seq] = review to took
                 while (done.containsKey(nextCommit)) {
                     val result = done.remove(nextCommit)!!
                     val vosk = waiting.remove(nextCommit)!!
                     ready += Triple(nextCommit, vosk, result)
+                    info.remove(nextCommit)?.let { details[nextCommit] = it }
                     nextCommit++
                 }
             }
             if (cancelled) return
             for ((s, vosk, result) in ready) {
+                details[s]?.let { listener.onPhraseInfo(gen, s, it) }
                 listener.onSegment(gen, s, vosk, result.first, result.second)
             }
             publishPartial()
@@ -614,6 +692,72 @@ class LocalVoiceEngine(
 
     private fun abortReview() {
         if (WhisperNative.available) WhisperNative.abort()
+    }
+
+    /**
+     * Métricas del audio de una frase, sin conservar el audio (diagnóstico F09).
+     *
+     * Niveles en dBFS por ventanas de 50 ms. El «suelo» es el percentil 10 de
+     * las ventanas (ruido de fondo); una ventana es voz si supera el suelo en
+     * [VOICE_MARGIN_DB]. `trailingQuietMs` cerca de 0 en una frase cerrada al
+     * detener indica que se habló hasta el último instante capturado: el final
+     * pudo quedar cortado.
+     */
+    internal object PcmStats {
+        private const val WINDOW_MS = 50
+        private const val VOICE_MARGIN_DB = 12.0
+        private const val CLIP_LEVEL = 32_700
+
+        fun of(pcm: ShortArray, rate: Int = SAMPLE_RATE): Map<String, Any?> {
+            val n = pcm.size
+            if (n == 0) return mapOf("audioMs" to 0L)
+            var peak = 0
+            var clipped = 0
+            var sumSq = 0.0
+            for (s in pcm) {
+                val a = abs(s.toInt())
+                if (a > peak) peak = a
+                if (a >= CLIP_LEVEL) clipped++
+                sumSq += a.toDouble() * a
+            }
+            val window = rate * WINDOW_MS / 1000
+            val levels = ArrayList<Double>()
+            var start = 0
+            while (start < n) {
+                val end = min(n, start + window)
+                var w = 0.0
+                for (k in start until end) w += pcm[k].toDouble() * pcm[k]
+                levels += dbfs(sqrt(w / (end - start)))
+                start = end
+            }
+            val sorted = levels.sorted()
+            val floor = sorted[(sorted.size - 1) / 10]
+            val loudest = sorted.last()
+            val voice = floor + VOICE_MARGIN_DB
+            val hasVoice = loudest >= voice
+            fun quiet(range: IntProgression): Int {
+                var count = 0
+                for (k in range) {
+                    if (levels[k] >= voice) break
+                    count++
+                }
+                return count * WINDOW_MS
+            }
+            return mapOf(
+                "audioMs" to n * 1000L / rate,
+                "rmsDbfs" to dbfs(sqrt(sumSq / n)).roundToInt(),
+                "peakDbfs" to dbfs(peak.toDouble()).roundToInt(),
+                "floorDbfs" to floor.roundToInt(),
+                "loudestDbfs" to loudest.roundToInt(),
+                "clipPermille" to clipped * 1000 / n,
+                "voiceDetected" to hasVoice,
+                "leadingQuietMs" to if (hasVoice) quiet(levels.indices) else -1,
+                "trailingQuietMs" to if (hasVoice) quiet(levels.indices.reversed()) else -1,
+            )
+        }
+
+        private fun dbfs(amplitude: Double): Double =
+            if (amplitude <= 0.0) -96.0 else maxOf(-96.0, 20 * log10(amplitude / 32768.0))
     }
 
     /** Audio de la frase en curso, con tope: más allá se conserva lo último. */
