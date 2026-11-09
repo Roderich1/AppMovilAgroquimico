@@ -429,10 +429,7 @@ class DraftFieldRow extends StatelessWidget {
 /// opción es una corrección a mano; tocar la que ya estaba elegida sólo la
 /// confirma (POCO 2026-11-08: «Corregido a mano» sin haber cambiado nada). Lo
 /// que ya puso o confirmó la persona queda como estaba.
-DraftField<CatalogEntry> pickEntry(
-  DraftField<CatalogEntry> current,
-  CatalogEntry entry,
-) {
+DraftField<T> pickEntry<T extends Object>(DraftField<T> current, T entry) {
   final same = current.value == entry && (current.isResolved || current.review);
   if (!same) return DraftField.resolved(entry, origin: FieldOrigin.manual);
   return current.isManual ? current : current.confirmedByUser();

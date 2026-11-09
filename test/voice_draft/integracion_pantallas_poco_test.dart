@@ -1,4 +1,5 @@
 import 'package:agroquimicos/data/agro_repository.dart';
+import 'package:agroquimicos/domain/models.dart';
 import 'package:agroquimicos/presentation/voice/voice_plan_draft_screen.dart';
 import 'package:agroquimicos/presentation/voice/voice_purchase_draft_screen.dart';
 import 'package:flutter/material.dart';
@@ -62,6 +63,74 @@ void main() {
       expect(fieldState(tester, 'precio-1'), 'Confirmado');
       // Confirmar no escribe: sólo «Registrar compra» escribe.
       expect(await dump(tester, w.database), before);
+    });
+
+    // POCO 2026-11-08 con `4e995ec`: la moneda por revisar no se podía dar
+    // por buena (botón deshabilitado y ningún segmento marcado).
+    testWidgets('la moneda por revisar se ve marcada y se confirma con el '
+        'botón o tocando el mismo segmento, sin escribir nada', (tester) async {
+      final w = await pumpDraftScreen(
+        tester,
+        screen: const VoicePurchaseDraftScreen(),
+        script: const [
+          FakeTurn(
+            segment:
+                'compré diez litros de Glifosato a cincuenta bolivianos '
+                'el litro',
+            endsOnStop: true,
+            numericDisagreement: true,
+          ),
+        ],
+        seed: seed,
+      );
+      final before = await dump(tester, w.database);
+      await dictate(tester);
+      await until(
+        tester,
+        () =>
+            find.byKey(const Key('voz-estado-moneda-1')).evaluate().isNotEmpty,
+      );
+      expect(fieldState(tester, 'moneda-1'), 'Revisar');
+      final segments = tester.widget<SegmentedButton<CurrencyCode>>(
+        find.byKey(const Key('voz-moneda-1')),
+      );
+      expect(segments.selected, {CurrencyCode.bob});
+
+      await tapKey(tester, 'voz-confirmar-moneda-1');
+      expect(fieldState(tester, 'moneda-1'), 'Confirmado');
+      expect(await dump(tester, w.database), before);
+    });
+
+    testWidgets('tocar el segmento ya marcado de una moneda por revisar la '
+        'confirma; tocar el otro es corrección a mano', (tester) async {
+      await pumpDraftScreen(
+        tester,
+        screen: const VoicePurchaseDraftScreen(),
+        script: const [
+          FakeTurn(
+            segment:
+                'compré diez litros de Glifosato a cincuenta bolivianos '
+                'el litro',
+            endsOnStop: true,
+            numericDisagreement: true,
+          ),
+        ],
+        seed: seed,
+      );
+      await dictate(tester);
+      await until(
+        tester,
+        () =>
+            find.byKey(const Key('voz-estado-moneda-1')).evaluate().isNotEmpty,
+      );
+      final moneda = find.byKey(const Key('voz-moneda-1'));
+      await tester.ensureVisible(moneda);
+      await tester.tap(find.descendant(of: moneda, matching: find.text('BOB')));
+      await tester.pump();
+      expect(fieldState(tester, 'moneda-1'), 'Confirmado');
+      await tester.tap(find.descendant(of: moneda, matching: find.text('USD')));
+      await tester.pump();
+      expect(fieldState(tester, 'moneda-1'), 'Corregido a mano');
     });
 
     testWidgets('sin desacuerdo, lo mismo queda dictado', (tester) async {

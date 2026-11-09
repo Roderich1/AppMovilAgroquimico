@@ -945,9 +945,21 @@ class _VoicePurchaseDraftScreenState
                 ],
               ),
             ),
+            // POCO 2026-11-08 (`4e995ec`): la moneda por revisar mostraba
+            // «Confirmar este valor» deshabilitado y ningún segmento marcado,
+            // así que no había forma de darla por buena. Ahora se ve la moneda
+            // leída, el botón la confirma, y tocar el segmento que ya está
+            // marcado también la confirma (como elegir la misma opción en un
+            // selector); tocar el otro es una corrección a mano.
             DraftFieldRow(
               label: 'Moneda',
+              id: 'moneda-${line.key}',
               field: line.currency,
+              onConfirmReview: editable
+                  ? () => update(
+                      (l) => l.copyWith(currency: l.currency.confirmedByUser()),
+                    )
+                  : null,
               child: SegmentedButton<CurrencyCode>(
                 key: Key('voz-moneda-${line.key}'),
                 emptySelectionAllowed: true,
@@ -955,19 +967,21 @@ class _VoicePurchaseDraftScreenState
                   ButtonSegment(value: CurrencyCode.bob, label: Text('BOB')),
                   ButtonSegment(value: CurrencyCode.usd, label: Text('USD')),
                 ],
-                selected: {if (line.currency.isResolved) line.currency.value!},
+                selected: {
+                  if (line.currency.isResolved || line.currency.review)
+                    line.currency.value!,
+                },
                 onSelectionChanged: editable
-                    ? (selection) {
-                        if (selection.isEmpty) return;
-                        update(
-                          (l) => l.copyWith(
-                            currency: DraftField.resolved(
-                              selection.single,
-                              origin: FieldOrigin.manual,
-                            ),
-                          ),
+                    ? (selection) => update((l) {
+                        // Vacío: se tocó el segmento ya marcado.
+                        final picked = selection.isEmpty
+                            ? l.currency.value
+                            : selection.single;
+                        if (picked == null) return l;
+                        return l.copyWith(
+                          currency: pickEntry(l.currency, picked),
                         );
-                      }
+                      })
                     : null,
               ),
             ),
