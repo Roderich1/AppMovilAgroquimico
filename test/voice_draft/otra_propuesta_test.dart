@@ -5,6 +5,7 @@ import 'package:agroquimicos/voice_draft/core/draft_field.dart';
 import 'package:agroquimicos/voice_draft/purchase/purchase_interpreter.dart';
 import 'package:agroquimicos/voice_draft/purchase/voice_purchase_draft.dart';
 import 'package:agroquimicos/voice_draft/text/units.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// «Usar la otra propuesta» (diagnóstico, política B, 2026-11-09).
@@ -323,5 +324,235 @@ void main() {
       );
       expect(d.lines, hasLength(2));
     });
+  });
+
+  group('emparejamiento de líneas sin suponer', () {
+    VoicePurchaseDraft manualPrice(
+      VoicePurchaseDraft d,
+      int index,
+      int minor,
+    ) => d.updateLine(
+      d.lines[index].key,
+      (l) => l.copyWith(
+        price: DraftField.resolved(
+          SpokenPrice(minor, perUnit: CatalogUnit.liter),
+          origin: FieldOrigin.manual,
+        ),
+      ),
+    );
+
+    test('la otra omite un producto: se empareja por producto; la línea '
+        'omitida sin tocar se quitaría', () {
+      final t = turn(
+        empty,
+        'compré dos litros de fungicida demo y tres litros de herbicida demo',
+        'compré tres litros de herbicida demo a 40 bolivianos el litro',
+      );
+      final plan = planAlternative(
+        current: t.c.after,
+        contribution: t.c,
+        alternative: t.alt,
+      );
+      expect(plan.blocked, isFalse);
+      expect(plan.draft!.lines, hasLength(1));
+      expect(plan.draft!.lines.single.product.value, herbicida);
+      expect(plan.draft!.lines.single.unitPriceMinor, 4000);
+      expect(plan.pending.join(' '), contains('se quitaría'));
+    });
+
+    test('la otra omite un producto corregido a mano: bloquea, no traslada '
+        'la corrección', () {
+      final t = turn(
+        empty,
+        'compré dos litros de fungicida demo y tres litros de herbicida demo',
+        'compré tres litros de herbicida demo a 40 bolivianos el litro',
+      );
+      final plan = planAlternative(
+        current: manualPrice(t.c.after, 0, 4700),
+        contribution: t.c,
+        alternative: t.alt,
+      );
+      expect(plan.blocked, isTrue);
+    });
+
+    test('otro orden: cada línea con su producto y la corrección a mano se '
+        'queda en el suyo', () {
+      final t = turn(
+        empty,
+        'compré dos litros de fungicida demo y tres litros de herbicida demo',
+        'compré tres litros de herbicida demo a 40 bolivianos el litro y dos '
+            'litros de fungicida demo a 50 bolivianos el litro',
+      );
+      final plan = planAlternative(
+        current: manualPrice(t.c.after, 0, 4700),
+        contribution: t.c,
+        alternative: t.alt,
+      );
+      expect(plan.blocked, isFalse);
+      final byProduct = {
+        for (final l in plan.draft!.lines) l.product.value!.id: l,
+      };
+      expect(byProduct[fungicida.id]!.unitPriceMinor, 4700);
+      expect(byProduct[fungicida.id]!.price.origin, FieldOrigin.manual);
+      expect(byProduct[herbicida.id]!.unitPriceMinor, 4000);
+      expect(plan.draft!.lines, hasLength(2));
+    });
+
+    test('dos líneas del mismo producto en los dos lados: en orden si nada se '
+        'tocó; si se tocó una, bloquea', () {
+      final t = turn(
+        empty,
+        'compré dos litros de fungicida demo y tres litros de fungicida demo',
+        'compré dos litros de fungicida demo a 40 bolivianos el litro y tres '
+            'litros de fungicida demo a 41 bolivianos el litro',
+      );
+      final ok = planAlternative(
+        current: t.c.after,
+        contribution: t.c,
+        alternative: t.alt,
+      );
+      expect(ok.blocked, isFalse);
+      expect(ok.draft!.lines.map((l) => l.unitPriceMinor), [4000, 4100]);
+      final touched = planAlternative(
+        current: manualPrice(t.c.after, 1, 4700),
+        contribution: t.c,
+        alternative: t.alt,
+      );
+      expect(touched.blocked, isTrue);
+    });
+
+    test('distinto número de líneas de un mismo producto: bloquea', () {
+      final t = turn(
+        empty,
+        'compré dos litros de fungicida demo y tres litros de fungicida demo',
+        'compré cinco litros de fungicida demo',
+      );
+      expect(
+        planAlternative(
+          current: t.c.after,
+          contribution: t.c,
+          alternative: t.alt,
+        ).blocked,
+        isTrue,
+      );
+    });
+
+    test('cambiar el producto de una línea con una corrección a mano en otro '
+        'campo: bloquea (la corrección no pasa a otro producto)', () {
+      final t = turn(
+        empty,
+        'compré tres litros de herbicida demo',
+        'compré tres litros de fungicida demo a 40 bolivianos el litro',
+      );
+      final plan = planAlternative(
+        current: manualPrice(t.c.after, 0, 4700),
+        contribution: t.c,
+        alternative: t.alt,
+      );
+      expect(plan.blocked, isTrue);
+      expect(plan.reason, contains('otro producto'));
+    });
+
+    test('un producto sin resolver frente a uno resuelto, una línea por lado: '
+        'se emparejan', () {
+      final t = turn(
+        empty,
+        'compré tres litros de fungisida',
+        'compré tres litros de fungicida demo',
+      );
+      final plan = planAlternative(
+        current: t.c.after,
+        contribution: t.c,
+        alternative: t.alt,
+      );
+      expect(plan.blocked, isFalse);
+      expect(plan.draft!.lines.single.product.value, fungicida);
+      expect(plan.added, isEmpty);
+    });
+
+    test('varias líneas sin resolver en los dos lados: bloquea', () {
+      final t = turn(
+        empty,
+        'compré tres litros de fungisida y dos litros de erbisida',
+        'compré tres litros de fungicida demo y dos litros de herbicida demo',
+      );
+      expect(
+        planAlternative(
+          current: t.c.after,
+          contribution: t.c,
+          alternative: t.alt,
+        ).blocked,
+        isTrue,
+      );
+    });
+  });
+
+  group('aviso de posible repetición', () {
+    test(
+      'añadir líneas a un borrador con otras avisa; no fusiona ni quita',
+      () {
+        final first = apply('compré tres litros de fungicida demo', empty);
+        final t = turn(
+          first,
+          'compré algo',
+          'compré dos kilos de mancozeb demo a 30 bolivianos el kilo',
+        );
+        final plan = planAlternative(
+          current: t.c.after,
+          contribution: t.c,
+          alternative: t.alt,
+        );
+        expect(plan.added, hasLength(1));
+        expect(plan.mayRepeat, isTrue);
+        expect(plan.draft!.lines, hasLength(2));
+        expect(plan.draft!.lines.first.product.value, fungicida);
+      },
+    );
+
+    test('en un borrador vacío no hay aviso', () {
+      final t = turn(
+        empty,
+        'compré algo',
+        'compré dos kilos de mancozeb demo a 30 bolivianos el kilo',
+      );
+      final plan = planAlternative(
+        current: t.c.after,
+        contribution: t.c,
+        alternative: t.alt,
+      );
+      expect(plan.added, hasLength(1));
+      expect(plan.mayRepeat, isFalse);
+    });
+
+    testWidgets(
+      'la vista previa lista las líneas añadidas y muestra el aviso',
+      (tester) async {
+        final first = apply('compré tres litros de fungicida demo', empty);
+        final t = turn(
+          first,
+          'compré algo',
+          'compré dos kilos de mancozeb demo a 30 bolivianos el kilo',
+        );
+        final plan = planAlternative(
+          current: t.c.after,
+          contribution: t.c,
+          alternative: t.alt,
+        );
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(body: AlternativePreviewDialog(plan: plan)),
+          ),
+        );
+        expect(find.text('Líneas que se añadirían'), findsOneWidget);
+        expect(
+          find.byKey(const Key('voz-otra-propuesta-aviso-repetir')),
+          findsOneWidget,
+        );
+        expect(
+          find.textContaining('no se fusiona ni se quita nada'),
+          findsOneWidget,
+        );
+      },
+    );
   });
 }

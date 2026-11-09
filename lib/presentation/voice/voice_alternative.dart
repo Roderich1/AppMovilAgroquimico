@@ -68,7 +68,9 @@ final class AlternativePlan {
       recovered = const [],
       changed = const [],
       pending = const [],
-      kept = const [];
+      kept = const [],
+      added = const [],
+      mayRepeat = false;
 
   const AlternativePlan({
     required VoicePurchaseDraft this.draft,
@@ -76,6 +78,8 @@ final class AlternativePlan {
     required this.changed,
     required this.pending,
     required this.kept,
+    this.added = const [],
+    this.mayRepeat = false,
   }) : reason = null;
 
   /// Borrador con la otra propuesta, o `null` si está bloqueada.
@@ -84,7 +88,8 @@ final class AlternativePlan {
   /// Por qué no se puede sustituir sin suponer.
   final String? reason;
 
-  /// Datos que ahora faltan y la otra propuesta trae.
+  /// Datos que ahora faltan y la otra propuesta trae (en líneas que ya
+  /// están).
   final List<String> recovered;
 
   /// Datos que cambiarían de valor.
@@ -96,10 +101,21 @@ final class AlternativePlan {
   /// Lo que se conserva porque se tocó después (a mano u otra frase).
   final List<String> kept;
 
+  /// Líneas que la otra propuesta **añadiría**.
+  final List<String> added;
+
+  /// Se añadirían líneas a un borrador que ya tiene otras: podrían repetir
+  /// algo dictado antes. Sólo un aviso: no se fusiona ni se quita nada, y
+  /// nada dice que haya una compra repetida en la base de datos.
+  final bool mayRepeat;
+
   bool get blocked => draft == null;
 
   bool get hasChanges =>
-      recovered.isNotEmpty || changed.isNotEmpty || pending.isNotEmpty;
+      recovered.isNotEmpty ||
+      changed.isNotEmpty ||
+      pending.isNotEmpty ||
+      added.isNotEmpty;
 }
 
 /// ¿Trae la otra propuesta algún dato que falta en lo que aportó la frase?
@@ -109,7 +125,69 @@ bool alternativeAddsData(TurnContribution c, VoicePurchaseDraft alternative) {
     contribution: c,
     alternative: alternative,
   );
-  return !plan.blocked && plan.recovered.isNotEmpty;
+  return !plan.blocked && (plan.recovered.isNotEmpty || plan.added.isNotEmpty);
+}
+
+/// Bloqueo por falta de correspondencia segura entre líneas.
+const _noCorrespondence =
+    'No se puede saber con seguridad qué línea de la otra propuesta '
+    'corresponde a cada línea de esta frase: no se sustituye. Corrija a mano.';
+
+/// Empareja las líneas que creó la frase ([orig]) con las que crearía la
+/// otra propuesta ([alt]), sin suponer:
+///
+/// 1. Por **producto del catálogo resuelto**: mismo producto en los dos
+///    lados. Con más de una línea de un mismo producto, sólo si hay las
+///    mismas en los dos lados, en orden, y ninguna se tocó después.
+/// 2. Lo que queda (productos sin resolver, o distintos en los dos lados):
+///    sólo si queda **exactamente una línea** en cada lado.
+///
+/// Devuelve `orig → alt` y las líneas sin pareja, o `null` si no hay
+/// correspondencia segura.
+({Map<int, int> pairs, List<int> origOnly, List<int> altOnly})? _pairLines(
+  List<VoicePurchaseLine> orig,
+  List<VoicePurchaseLine> alt,
+  bool Function(int key) touched,
+) {
+  int? idOf(VoicePurchaseLine l) =>
+      l.product.isResolved ? l.product.value?.id : null;
+  final pairs = <int, int>{};
+  final ids = {
+    for (final l in [...orig, ...alt])
+      if (idOf(l) != null) idOf(l)!,
+  };
+  for (final id in ids) {
+    final o = [
+      for (final l in orig)
+        if (idOf(l) == id) l.key,
+    ];
+    final a = [
+      for (final l in alt)
+        if (idOf(l) == id) l.key,
+    ];
+    if (o.isEmpty || a.isEmpty) continue;
+    if (o.length != a.length) return null;
+    if (o.length > 1 && o.any(touched)) return null;
+    for (var i = 0; i < o.length; i++) {
+      pairs[o[i]] = a[i];
+    }
+  }
+  final restO = [
+    for (final l in orig)
+      if (!pairs.containsKey(l.key)) l.key,
+  ];
+  final restA = [
+    for (final l in alt)
+      if (!pairs.containsValue(l.key)) l.key,
+  ];
+  if (restO.length == 1 && restA.length == 1) {
+    pairs[restO.single] = restA.single;
+    return (pairs: pairs, origOnly: const [], altOnly: const []);
+  }
+  // Lo que queda en un solo lado se quita o se añade; en los dos, no se sabe
+  // qué corresponde a qué.
+  if (restO.isNotEmpty && restA.isNotEmpty) return null;
+  return (pairs: pairs, origOnly: restO, altOnly: restA);
 }
 
 /// Planifica sustituir la aportación de [contribution] en [current] por
@@ -122,33 +200,40 @@ AlternativePlan planAlternative({
 }) {
   final before = contribution.before;
   final orig = contribution.after;
-  final beforeKeys = {for (final l in before.lines) l.key};
-  final origNew = [
-    for (final l in orig.lines)
-      if (!beforeKeys.contains(l.key)) l.key,
-  ];
-  final altNew = [
-    for (final l in alternative.lines)
-      if (!beforeKeys.contains(l.key)) l.key,
-  ];
+  final beforeByKey = {for (final l in before.lines) l.key: l};
   final currentByKey = {for (final l in current.lines) l.key: l};
   final origByKey = {for (final l in orig.lines) l.key: l};
   final altByKey = {for (final l in alternative.lines) l.key: l};
+  final origNew = [
+    for (final l in orig.lines)
+      if (!beforeByKey.containsKey(l.key)) l,
+  ];
+  final altNew = [
+    for (final l in alternative.lines)
+      if (!beforeByKey.containsKey(l.key)) l,
+  ];
 
   // Una línea que creó la frase y ya no está: se quitó a mano.
-  for (final k in origNew) {
-    if (!currentByKey.containsKey(k)) {
+  for (final l in origNew) {
+    if (!currentByKey.containsKey(l.key)) {
       return const AlternativePlan.blocked(
         'Una línea de esa frase se quitó del borrador: no se puede sustituir '
         'sin suponer. Corrija a mano.',
       );
     }
   }
+  bool touched(int key) => !sameLine(currentByKey[key]!, origByKey[key]!);
+
+  final paired = _pairLines(origNew, altNew, touched);
+  if (paired == null) {
+    return const AlternativePlan.blocked(_noCorrespondence);
+  }
 
   final recovered = <String>[];
   final changed = <String>[];
   final pending = <String>[];
   final kept = <String>[];
+  final added = <String>[];
 
   DraftField<T> merge<T>(
     String label,
@@ -181,79 +266,95 @@ AlternativePlan planAlternative({
     return alt;
   }
 
-  VoicePurchaseLine mergeLine(
-    String name,
-    VoicePurchaseLine? b,
-    VoicePurchaseLine o,
-    VoicePurchaseLine a,
-    VoicePurchaseLine c,
-  ) => c.copyWith(
-    product: merge(
-      '$name, producto',
-      b?.product,
-      o.product,
-      a.product,
-      c.product,
-    ),
-    quantity: merge(
-      '$name, cantidad',
-      b?.quantity,
-      o.quantity,
-      a.quantity,
-      c.quantity,
-    ),
-    price: merge('$name, precio', b?.price, o.price, a.price, c.price),
-    currency: merge(
-      '$name, moneda',
-      b?.currency,
-      o.currency,
-      a.currency,
-      c.currency,
-    ),
-  );
-
   String nameOf(int key) {
     final i = current.lines.indexWhere((l) => l.key == key);
     return i < 0 ? 'Línea nueva' : 'Línea ${i + 1}';
   }
 
-  var lines = <VoicePurchaseLine>[];
+  /// Mezcla una línea. `null` si una corrección hecha después en ella
+  /// pasaría a ser de otro producto.
+  VoicePurchaseLine? mergeLine(
+    VoicePurchaseLine? b,
+    VoicePurchaseLine o,
+    VoicePurchaseLine a,
+    VoicePurchaseLine c,
+  ) {
+    final name = nameOf(c.key);
+    final product = merge(
+      '$name, producto',
+      b?.product,
+      o.product,
+      a.product,
+      c.product,
+    );
+    final otherTouched =
+        !sameField(c.quantity, o.quantity) ||
+        !sameField(c.price, o.price) ||
+        !sameField(c.currency, o.currency);
+    final productChanges = !_sameValue(product.value, c.product.value);
+    if (otherTouched && productChanges) return null;
+    return c.copyWith(
+      product: product,
+      quantity: merge(
+        '$name, cantidad',
+        b?.quantity,
+        o.quantity,
+        a.quantity,
+        c.quantity,
+      ),
+      price: merge('$name, precio', b?.price, o.price, a.price, c.price),
+      currency: merge(
+        '$name, moneda',
+        b?.currency,
+        o.currency,
+        a.currency,
+        c.currency,
+      ),
+    );
+  }
+
+  const transfer = AlternativePlan.blocked(
+    'Una corrección hecha después en esa línea pasaría a otro producto: no '
+    'se sustituye. Corrija a mano.',
+  );
+  final lines = <VoicePurchaseLine>[];
   for (final c in current.lines) {
     final o = origByKey[c.key];
     if (o == null) {
       lines.add(c); // de después de la frase: no es de esta aportación
       continue;
     }
-    final newIndex = origNew.indexOf(c.key);
-    if (newIndex < 0) {
-      // Ya estaba antes de la frase: sólo sus campos.
-      final b = before.lines.firstWhere((l) => l.key == c.key);
-      final a = altByKey[c.key] ?? b;
-      lines.add(mergeLine(nameOf(c.key), b, o, a, c));
-    } else if (newIndex < altNew.length) {
-      final a = altByKey[altNew[newIndex]]!;
-      lines.add(mergeLine(nameOf(c.key), null, o, a, c));
-    } else {
-      // La creó la frase y la otra propuesta no la crearía.
-      if (!sameLine(c, o)) {
-        return const AlternativePlan.blocked(
-          'Una línea de esa frase se corrigió después y la otra propuesta no '
-          'la tiene: no se puede quitar sin suponer. Corrija a mano.',
-        );
-      }
-      pending.add(
-        '${nameOf(c.key)} (se quitaría: la otra propuesta no la '
-        'trae)',
+    final b = beforeByKey[c.key];
+    if (b != null) {
+      // Ya estaba antes de la frase: la misma clave en los dos lados.
+      final merged = mergeLine(b, o, altByKey[c.key] ?? b, c);
+      if (merged == null) return transfer;
+      lines.add(merged);
+      continue;
+    }
+    final altKey = paired.pairs[c.key];
+    if (altKey != null) {
+      final merged = mergeLine(null, o, altByKey[altKey]!, c);
+      if (merged == null) return transfer;
+      lines.add(merged);
+      continue;
+    }
+    // La creó la frase y la otra propuesta no la crearía.
+    if (touched(c.key)) {
+      return const AlternativePlan.blocked(
+        'Una línea de esa frase se corrigió después y la otra propuesta no '
+        'la tiene: no se puede quitar sin suponer. Corrija a mano.',
       );
     }
+    pending.add('${nameOf(c.key)} (se quitaría: la otra propuesta no la trae)');
   }
 
-  // Líneas que sólo crearía la otra propuesta: claves nuevas.
+  // Líneas que sólo crearía la otra propuesta: claves libres.
   var next = current.nextLineKey;
-  for (final k in altNew.skip(origNew.length)) {
+  for (final k in paired.altOnly) {
     final a = altByKey[k]!;
     lines.add(a.copyWithKey(next++));
-    recovered.add('Línea nueva: ${describeLine(a)}');
+    added.add(describeLine(a));
   }
 
   // Un producto que quedaría repetido y antes no lo estaba: no se decide.
@@ -271,12 +372,10 @@ AlternativePlan planAlternative({
   }
 
   if (!repeated(current.lines).containsAll(repeated(lines))) {
-    {
-      return const AlternativePlan.blocked(
-        'Con la otra propuesta un producto quedaría en dos líneas: no se '
-        'sustituye. Corrija a mano.',
-      );
-    }
+    return const AlternativePlan.blocked(
+      'Con la otra propuesta un producto quedaría en dos líneas: no se '
+      'sustituye. Corrija a mano.',
+    );
   }
 
   var draft = current.copyWith(lines: lines, nextLineKey: next);
@@ -303,12 +402,16 @@ AlternativePlan planAlternative({
       current.exchangeRate,
     ),
   );
+  // Aviso: se añaden líneas a un borrador que ya tiene otras.
+  final mayRepeat = added.isNotEmpty && current.lines.isNotEmpty;
   return AlternativePlan(
     draft: draft,
     recovered: recovered,
     changed: changed,
     pending: pending,
     kept: kept,
+    added: added,
+    mayRepeat: mayRepeat,
   );
 }
 
@@ -411,6 +514,17 @@ class AlternativePreviewDialog extends StatelessWidget {
               )
             else ...[
               section('Datos que se recuperarían', plan.recovered),
+              section('Líneas que se añadirían', plan.added),
+              if (plan.mayRepeat)
+                const Padding(
+                  key: Key('voz-otra-propuesta-aviso-repetir'),
+                  padding: EdgeInsets.only(top: 8),
+                  child: Text(
+                    'Atención: el borrador ya tiene otras líneas. Las líneas '
+                    'añadidas podrían repetir algo que ya dictó. Revíselas: '
+                    'no se fusiona ni se quita nada.',
+                  ),
+                ),
               section('Datos que cambiarían', plan.changed),
               section('Quedarían pendientes', plan.pending),
               section('Se conservan (tocados después)', plan.kept),

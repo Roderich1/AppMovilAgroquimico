@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:agroquimicos/app.dart';
 import 'package:agroquimicos/data/app_database.dart';
 import 'package:agroquimicos/presentation/voice/voice_application_draft_screen.dart';
@@ -133,7 +135,7 @@ void main() {
         final before = await count(tester, db, op.table);
         expect(registerEnabled(tester), isTrue);
         await _tapKey(tester, 'voz-registrar');
-        await _finishTransition(tester);
+        await _finishTransition(tester, op.screen);
 
         expect(find.text('¿Descartar el borrador?'), findsNothing);
         expect(find.textContaining(op.success), findsOneWidget);
@@ -154,7 +156,7 @@ void main() {
         await tester.tap(register);
         await tester.tap(register, warnIfMissed: false);
         await settle(tester);
-        await _finishTransition(tester);
+        await _finishTransition(tester, op.screen);
 
         expect(await count(tester, db, op.table), before + 1);
         expect(find.text('¿Descartar el borrador?'), findsNothing);
@@ -169,7 +171,7 @@ void main() {
           () async => dumpTables(await db.database),
         ))!;
         await _tapKey(tester, 'voz-cancelar');
-        await _finishTransition(tester);
+        await _finishTransition(tester, op.screen);
         expect(find.text('¿Descartar el borrador?'), findsNothing);
         expect(find.byType(op.screen), findsNothing);
         expect(find.byType(VoiceEntryScreen), findsOneWidget);
@@ -230,7 +232,72 @@ void main() {
         await settle(tester);
         expect(find.text('¿Descartar el borrador?'), findsOneWidget);
       });
+
+      testWidgets('con la escritura retenida y la pantalla abierta, más '
+          'pulsaciones no crean otra operación', (tester) async {
+        final hold = _HeldGateway.hold = Completer<void>();
+        final db = await open(
+          tester,
+          op,
+          '120-retenida-${op.table}',
+          overrides: [
+            voiceDraftGatewayProvider.overrideWith(
+              (ref) => _HeldGateway(ref.watch(repositoryProvider)),
+            ),
+          ],
+        );
+        final before = await count(tester, db, op.table);
+        final register = find.byKey(const Key('voz-registrar'));
+        await tester.ensureVisible(register);
+        await tester.pump();
+        await tester.tap(register);
+        await tester.pump();
+        // Escribiendo: la pantalla sigue abierta y el botón no responde.
+        expect(find.byType(op.screen), findsOneWidget);
+        expect(registerEnabled(tester), isFalse);
+        for (var i = 0; i < 3; i++) {
+          await tester.tap(register, warnIfMissed: false);
+          await tester.pump(const Duration(milliseconds: 50));
+        }
+        expect(_HeldGateway.calls, 1);
+        hold.complete();
+        await _finishTransition(tester, op.screen);
+        expect(_HeldGateway.calls, 1);
+        expect(await count(tester, db, op.table), before + 1);
+        expect(find.byType(op.screen), findsNothing);
+      });
     });
+  }
+}
+
+/// Retiene la escritura hasta [hold] y cuenta cuántas veces se pidió.
+final class _HeldGateway extends VoiceDraftGateway {
+  _HeldGateway(super.repo) {
+    calls = 0;
+  }
+
+  static Completer<void> hold = Completer<void>();
+  static int calls = 0;
+
+  @override
+  Future<int> confirmPurchase(VoicePurchaseDraft draft) async {
+    calls++;
+    await hold.future;
+    return super.confirmPurchase(draft);
+  }
+
+  @override
+  Future<int> confirmPlan(VoicePlanDraft draft) async {
+    calls++;
+    await hold.future;
+    return super.confirmPlan(draft);
+  }
+
+  @override
+  Future<int> confirmApplication(VoiceApplicationDraft draft) async {
+    calls++;
+    await hold.future;
+    return super.confirmApplication(draft);
   }
 }
 
@@ -282,8 +349,22 @@ final class _FailingGateway extends VoiceDraftGateway {
 
 /// Deja terminar la animación de salida de la ruta: mientras dura, la
 /// pantalla que sale sigue en el árbol.
-Future<void> _finishTransition(WidgetTester tester) async {
-  for (var i = 0; i < 10; i++) {
+/// Espera a que la pantalla del borrador salga, dejando avanzar la escritura
+/// REAL en SQLite (`runAsync`) y el reloj de la prueba (`pump`), con tope.
+///
+/// Antes sólo se bombeaban diez cuadros de reloj falso: si la escritura o la
+/// navegación tardaban más que la ventana de tiempo real de `settle` (unos
+/// 160 ms, más con la máquina cargada), la prueba comprobaba la pantalla
+/// antes de que saliera (intermitente, F09 2026-11-09). La app no cambia.
+Future<void> _finishTransition(WidgetTester tester, Type screen) async {
+  for (var i = 0; i < 150; i++) {
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 20)),
+    );
+    await tester.pump(const Duration(milliseconds: 100));
+    if (i >= 9 && find.byType(screen).evaluate().isEmpty) break;
+  }
+  for (var i = 0; i < 5; i++) {
     await tester.pump(const Duration(milliseconds: 100));
   }
 }
