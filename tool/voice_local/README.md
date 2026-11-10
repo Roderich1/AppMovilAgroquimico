@@ -34,16 +34,16 @@
 ## Recompilar
 
 ```bash
-bash tool/voice_local/fetch_voice_models.sh base        # o: small | both | none
+bash tool/voice_local/fetch_voice_models.sh             # both (por defecto): Vosk + base + small
 bash tool/voice_local/build_whisper_libs.sh             # arm64-v8a y x86_64
 bash tool/voice_local/build_voice_apk.sh x64   <carpeta>  # emulador
 bash tool/voice_local/build_voice_apk.sh arm64 <carpeta>  # teléfono, sin instalar
 ```
 
-- **Modelo de revisión (#166).** Se elige **sólo** al compilar, con `fetch_voice_models.sh base|small|none`; el valor por defecto sigue siendo `base` (ADR-005, provisional). El manifiesto lleva la variante, la app la muestra en la disponibilidad (`reviewModel`, `reviewDetail`) y `build_voice_apk.sh` la añade al nombre de la APK si no es `base`. Después de compilar con `small`, vuelve a ejecutar `fetch_voice_models.sh` sin argumento para dejar `base`.
+- **Modelos por recorrido (2026-11-10).** Aplicación y planificación: Vosk segmenta y Whisper **base** revisa cada frase (sin cambios). Compra: turno entero con Whisper **small**, haz de 5. Por eso el valor por defecto de `fetch_voice_models.sh` es `both` (~310 MB de modelos). Con `base` la compra por voz queda **no disponible** (lo dice la pantalla y queda el formulario); `small` y `none` cambian la revisión de los otros recorridos. El manifiesto lleva las variantes y la app las muestra en la disponibilidad.
 - **Segunda pasada condicional.** Aunque el APK traiga el modelo, la app sólo la usa si el teléfono la admite (`lib/voice/port/review_capability.dart`: memoria total, `isLowRamDevice`, fallo de carga). Si no, dicta sólo con Vosk y la disponibilidad dice el motivo. Los mínimos de memoria son de prudencia, no una medición.
 - **Tope por frase.** Si la revisión de una frase no llega en 5 000 ms desde que Vosk la cerró, queda el texto de Vosk y la revisión tardía se descarta. Se cambia con `--dart-define=AGRO_VOICE_REVIEW_TIMEOUT_MS=…`.
-- **Experimento «un solo transcriptor por turno» (F09, 2026-11-09).** `fetch_voice_models.sh both` empaqueta base como revisión y, además, small como alternativa (`whisperAlternatives` en el manifiesto; ~310 MB de modelos). Sólo en una compilación de diagnóstico (`--dart-define=AGRO_VOICE_DIAG=true`) aparece en «Registrar por voz» el interruptor del experimento; afecta únicamente a «Compra por voz»: Vosk no segmenta ni decide, el audio del turno (máximo 30 s) se transcribe de una vez al pulsar «Terminar», y en la pantalla se elige el modelo del próximo turno (base o small, uno por turno). El nombre de la APK lleva `+small` cuando el manifiesto trae la alternativa. Informe: `docs/f09/poco/EXPERIMENTO_TURNO_ENTERO_2026-11-09.md`.
+- **Compra por voz en turno entero (F09, integrada el 2026-11-10).** Sin interruptores: Vosk no segmenta ni decide, el audio del turno (máximo 30 s) se transcribe de una vez al pulsar «Terminar» con Whisper small (haz de 5, `es`, sin traducción, temperatura 0, sin reintentos) y el borrador se revisa antes de registrar. Sólo en una compilación de diagnóstico (`--dart-define=AGRO_VOICE_DIAG=true`) aparece en la pantalla una tarjeta con el modelo del próximo turno y métricas sin texto. Volver a la ruta por frases: `purchaseVoiceWholeTurn = false` (`lib/presentation/voice/voice_purchase_port.dart`); a voraz: `WholeTurnDecoding.greedy`. El nombre de la APK lleva `+small` cuando el manifiesto trae la alternativa. Informes: `docs/f09/poco/EXPERIMENTO_TURNO_ENTERO_2026-11-09.md` y `docs/f09/INTEGRACION_COMPRA_VOZ_SMALL_2026-11-10.md`.
 - **Activar una instalación nueva.** Hace falta el Central. Exporta `AGRO_API_BASE_URL` con un origen HTTPS (por ejemplo, el túnel de la DEMO) antes de `build_voice_apk.sh`. El dictado en sí no usa la red.
 - **Sin modelos ni librerías.** La app compila igual, y la pantalla de voz dice que el modelo no está instalado.
 

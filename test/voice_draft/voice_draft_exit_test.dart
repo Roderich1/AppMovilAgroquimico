@@ -94,6 +94,11 @@ void main() {
           (ref) =>
               () => port,
         ),
+        // La compra tiene su propio puerto (turno entero): el mismo simulado.
+        wholeTurnPortFactoryProvider.overrideWith(
+          (ref) =>
+              () => port,
+        ),
         ...overrides,
       ],
     );

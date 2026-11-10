@@ -10,7 +10,9 @@ import '../voice/support/fake_speech_transcription_port.dart';
 import 'ui_draft_harness.dart';
 
 /// «Usar la otra propuesta» en la pantalla de compra (diagnóstico,
-/// política B). TEXTO INYECTADO: el motor es simulado y la otra propuesta se
+/// política B), en la **ruta por frases** (`wholeTurn: false`): con el turno
+/// entero (la configuración elegida) hay un solo transcriptor y la opción no
+/// se muestra (última prueba). TEXTO INYECTADO: el motor es simulado y la otra propuesta se
 /// pone a mano en la memoria del diagnóstico. No prueba el reconocimiento.
 void main() {
   Future<void> seed(AgroRepository repo, Household h) async {
@@ -24,7 +26,8 @@ void main() {
   Future<UiDraftWorld> open(WidgetTester tester) async {
     final w = await pumpDraftScreen(
       tester,
-      screen: const VoicePurchaseDraftScreen(),
+      // Ruta por frases (dos motores): la única con «otra propuesta».
+      screen: const VoicePurchaseDraftScreen(wholeTurn: false),
       script: const [
         FakeTurn(
           segment: delivered,
@@ -108,5 +111,29 @@ void main() {
     );
     expect(button.onPressed, isNull);
     expect(find.textContaining('propuestas borradas'), findsOneWidget);
+  });
+
+  testWidgets('en turno entero (la configuración elegida) no hay otra '
+      'propuesta ni controles de política B o comparación', (tester) async {
+    await pumpDraftScreen(
+      tester,
+      screen: const VoicePurchaseDraftScreen(),
+      script: const [FakeTurn(segment: delivered, endsOnStop: true)],
+      seed: seed,
+    );
+    addTearDown(VoiceExperiment.instance.reset);
+    VoiceExperiment.instance
+      ..debugAllowOutsideDiagnostics = true
+      ..policyB = true;
+    await dictate(tester);
+    await tester.pump();
+    for (final key in const [
+      'voz-otra-propuesta-7:0',
+      'voz-diagnostico-politica-b',
+      'voz-diagnostico-comparar-pistas',
+      'voz-diagnostico-propuestas',
+    ]) {
+      expect(find.byKey(Key(key)), findsNothing, reason: key);
+    }
   });
 }

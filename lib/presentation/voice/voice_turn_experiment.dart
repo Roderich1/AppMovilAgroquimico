@@ -1,10 +1,10 @@
-/// Experimento F09 (2026-11-09): compra por voz con **un solo transcriptor
-/// por turno** (Whisper base o small, sin Vosk).
+/// Diagnóstico de la compra por voz en turno entero (F09): modelo del
+/// próximo turno, decodificación y métricas de los turnos.
 ///
-/// Sólo en la compilación de diagnóstico. El interruptor vive en la entrada
-/// «Registrar por voz» y se lee al abrir «Compra por voz»; aplicación y
-/// planificación no cambian. Las métricas son números y códigos: nunca texto
-/// dictado ni audio.
+/// La compra usa siempre el turno entero con Whisper small y haz de 5
+/// ([purchaseVoiceWholeTurn]); esta tarjeta sólo aparece en la compilación de
+/// diagnóstico. Las métricas son números y códigos: nunca texto dictado ni
+/// audio.
 library;
 
 import 'package:flutter/material.dart';
@@ -12,53 +12,20 @@ import 'package:flutter/material.dart';
 import '../../voice/port/voice_engine_diagnostics.dart';
 import '../../voice/session/voice_session_controller.dart';
 import '../../voice/session/voice_session_state.dart';
+import 'voice_purchase_port.dart';
 
-/// Interruptor del experimento, en la entrada a la voz.
-class VoiceSingleTranscriberSwitch extends StatefulWidget {
-  const VoiceSingleTranscriberSwitch({
+/// Tarjeta de diagnóstico en «Compra por voz»: modelo del próximo turno y
+/// métricas de los turnos de esta sesión de la app. Sólo en la compilación de
+/// diagnóstico ([enabled]).
+class VoiceSingleTranscriberPanel extends StatefulWidget {
+  const VoiceSingleTranscriberPanel({
     super.key,
+    required this.session,
     this.enabled = voiceDiagnosticsBuild,
   });
 
-  final bool enabled;
-
-  @override
-  State<VoiceSingleTranscriberSwitch> createState() =>
-      _VoiceSingleTranscriberSwitchState();
-}
-
-class _VoiceSingleTranscriberSwitchState
-    extends State<VoiceSingleTranscriberSwitch> {
-  @override
-  Widget build(BuildContext context) {
-    if (!widget.enabled) return const SizedBox.shrink();
-    final experiment = VoiceExperiment.instance;
-    return Card(
-      child: SwitchListTile(
-        key: const Key('voz-experimento-turno-entero'),
-        title: const Text(
-          'Experimento: compra con un solo transcriptor (Whisper) por turno',
-        ),
-        subtitle: const Text(
-          'Sólo en «Compra por voz». Vosk no segmenta ni decide: al pulsar '
-          '«Terminar», Whisper transcribe todo el turno de una vez (máximo '
-          '30 s). El modelo (base o small) se elige en la pantalla de compra. '
-          'Aplicación y planificación no cambian. Se apaga al cerrar la app.',
-        ),
-        value: experiment.singleTranscriberTurn,
-        onChanged: (on) =>
-            setState(() => experiment.singleTranscriberTurn = on),
-      ),
-    );
-  }
-}
-
-/// Tarjeta del experimento en «Compra por voz»: modelo del próximo turno y
-/// métricas de los turnos de esta sesión de la app.
-class VoiceSingleTranscriberPanel extends StatefulWidget {
-  const VoiceSingleTranscriberPanel({super.key, required this.session});
-
   final VoiceSessionController session;
+  final bool enabled;
 
   @override
   State<VoiceSingleTranscriberPanel> createState() =>
@@ -70,7 +37,9 @@ class _VoiceSingleTranscriberPanelState
   @override
   Widget build(BuildContext context) {
     final experiment = VoiceExperiment.instance;
-    if (!experiment.singleTranscriberTurnActive) return const SizedBox.shrink();
+    if (!widget.enabled || !purchaseVoiceWholeTurn) {
+      return const SizedBox.shrink();
+    }
     final snapshot = widget.session.snapshot;
     final idle =
         !snapshot.status.microphoneMayBeOpen &&
@@ -87,7 +56,7 @@ class _VoiceSingleTranscriberPanelState
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Experimento activo: un solo transcriptor por turno',
+              'Diagnóstico: un solo transcriptor por turno',
               style: theme.textTheme.titleSmall?.copyWith(
                 fontWeight: FontWeight.w700,
               ),

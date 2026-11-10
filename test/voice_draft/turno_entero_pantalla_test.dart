@@ -7,13 +7,13 @@ import 'package:flutter_test/flutter_test.dart';
 
 import '../voice/support/fake_speech_transcription_port.dart';
 
-/// Interruptor y tarjeta del experimento «un solo transcriptor por turno»:
-/// sólo aparecen habilitados, el selector de modelo elige la variante del
-/// próximo turno y las métricas se muestran sin texto.
+/// Tarjeta de diagnóstico de la compra en turno entero: sólo aparece en la
+/// compilación de diagnóstico, el selector de modelo elige la variante del
+/// próximo turno y las métricas se muestran sin texto. (El interruptor del
+/// experimento ya no existe: la compra usa siempre el turno entero.)
 void main() {
   setUp(() {
     VoiceExperiment.instance.reset();
-    VoiceExperiment.instance.singleTranscriberTurn = false;
     VoiceExperiment.instance.turnVariant = 'base';
     VoiceExperiment.instance.clearTurnMetrics();
   });
@@ -22,38 +22,17 @@ void main() {
     home: Scaffold(body: SingleChildScrollView(child: child)),
   );
 
-  testWidgets('el interruptor no aparece fuera de diagnóstico y, habilitado, '
-      'enciende el experimento', (tester) async {
-    await tester.pumpWidget(
-      wrap(const VoiceSingleTranscriberSwitch(enabled: false)),
-    );
-    expect(find.byKey(const Key('voz-experimento-turno-entero')), findsNothing);
-
-    await tester.pumpWidget(
-      wrap(const VoiceSingleTranscriberSwitch(enabled: true)),
-    );
-    expect(
-      find.byKey(const Key('voz-experimento-turno-entero')),
-      findsOneWidget,
-    );
-    expect(VoiceExperiment.instance.singleTranscriberTurn, isFalse);
-    await tester.tap(find.byKey(const Key('voz-experimento-turno-entero')));
-    await tester.pump();
-    expect(VoiceExperiment.instance.singleTranscriberTurn, isTrue);
-  });
-
-  testWidgets('la tarjeta sólo aparece con el experimento activo; el selector '
-      'cambia la variante y las métricas se listan sin texto', (tester) async {
+  testWidgets('la tarjeta sólo aparece en diagnóstico; el selector cambia la '
+      'variante y las métricas se listan sin texto', (tester) async {
     final session = VoiceSessionController(port: FakeSpeechTranscriptionPort());
     addTearDown(session.dispose);
 
+    // Recorrido normal (sin diagnóstico): no aparece.
     await tester.pumpWidget(
       wrap(VoiceSingleTranscriberPanel(session: session)),
     );
     expect(find.byKey(const Key('voz-experimento-panel')), findsNothing);
 
-    VoiceExperiment.instance.debugAllowOutsideDiagnostics = true;
-    VoiceExperiment.instance.singleTranscriberTurn = true;
     VoiceExperiment.instance.noteTurn(
       const SingleTranscriberTurnMetric(
         turn: 7,
@@ -70,7 +49,7 @@ void main() {
       ),
     );
     await tester.pumpWidget(
-      wrap(VoiceSingleTranscriberPanel(session: session)),
+      wrap(VoiceSingleTranscriberPanel(session: session, enabled: true)),
     );
     expect(find.byKey(const Key('voz-experimento-panel')), findsOneWidget);
     expect(find.byKey(const Key('voz-experimento-turno-7')), findsOneWidget);

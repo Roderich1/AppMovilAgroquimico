@@ -212,18 +212,6 @@ final class VoiceExperiment {
   Map<String, List<String>> get activeComparisons =>
       voiceDiagnosticsBuild && compareContexts ? comparisonHints : const {};
 
-  /// Experimento F09 (2026-11-09): **compra por voz con un solo transcriptor
-  /// por turno**. Vosk no segmenta ni decide; al terminar, el modelo de
-  /// revisión transcribe todo el audio del turno de una vez. Se elige antes de
-  /// abrir «Compra por voz»; aplicación y planificación no lo usan. [reset]
-  /// no lo toca: es una elección deliberada para la sesión de la app (se
-  /// pierde al cerrarla; nunca se guarda en disco).
-  bool singleTranscriberTurn = false;
-
-  bool get singleTranscriberTurnActive =>
-      (voiceDiagnosticsBuild || debugAllowOutsideDiagnostics) &&
-      singleTranscriberTurn;
-
   /// Variante del modelo de revisión del próximo turno entero (`base` o
   /// `small`). Un solo modelo por turno; nunca se combinan resultados.
   ///

@@ -3,17 +3,18 @@
 #
 #   bash tool/voice_local/fetch_voice_models.sh [base|small|both|none]
 #
-#   base  (por defecto) Vosk small-es 0.42 + Whisper base q5_1 (segunda pasada)
-#   small               Vosk small-es 0.42 + Whisper small q5_1
-#   both                base como revisión y, además, small como alternativa
-#                       (experimento F09 «un solo transcriptor por turno»)
+#   both  (por defecto) Vosk small-es 0.42 + Whisper base q5_1 (revisión por
+#                       frases de aplicación y planificación) + Whisper small
+#                       q5_1 (turno entero de la compra, F09 2026-11-10)
+#   base                Vosk + Whisper base: la compra por voz NO estará
+#                       disponible (necesita small)
+#   small               Vosk + Whisper small como revisión
 #   none                sólo Vosk, sin segunda pasada
 #
-# Es la ÚNICA forma de elegir el modelo de revisión: la app lee el manifiesto
-# (nombre y variante) y no cambia de modelo por su cuenta. El valor por defecto
-# sigue siendo base (ADR-005, provisional); small es una opción de compilación
-# para medir (#166). Para volver a base basta con ejecutar el script sin
-# argumento.
+# Es la ÚNICA forma de elegir los modelos empaquetados: la app lee el
+# manifiesto (nombre y variante) y no cambia de modelo por su cuenta. Con
+# `both`, la revisión por frases sigue siendo base (ADR-005, provisional) y
+# small viaja como alternativa, que es la que usa la compra en turno entero.
 #
 # Descarga desde las fuentes oficiales SÓLO durante la preparación, verifica el
 # SHA-256 fijado (el mismo que registró el banco híbrido el 2026-09-07) y escribe
@@ -22,7 +23,7 @@
 # archivo contra ese manifiesto al copiarlo; nunca descarga nada.
 set -euo pipefail
 
-REVIEW=${1:-base}
+REVIEW=${1:-both}
 HERE="$(cd "$(dirname "$0")/../.." && pwd)"
 CACHE="${AGRO_VOICE_CACHE:-${LOCALAPPDATA:-$HOME/.cache}/AgroVoiceModels/dl}"
 command -v cygpath >/dev/null && CACHE=$(cygpath -u "$CACHE")
@@ -60,8 +61,9 @@ case "$REVIEW" in
     GGML=ggml-$REVIEW-q5_1.bin
     fetch "$GGML" "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/$GGML" "${WHISPER_SHA[$REVIEW]}" ;;
   both)
-    # La revisión sigue siendo base (ADR-005); small viaja como alternativa
-    # seleccionable en el experimento. Ambos verificados por SHA-256.
+    # La revisión por frases sigue siendo base (ADR-005); small viaja como
+    # alternativa y la usa la compra en turno entero. Ambos verificados por
+    # SHA-256.
     REVIEW=base; ALT=small
     GGML=ggml-base-q5_1.bin
     fetch "$GGML" "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/$GGML" "${WHISPER_SHA[base]}"
@@ -117,8 +119,8 @@ if ggml:
         'files': describe(folder),
     }
 if alt:
-    # Alternativa para el experimento F09: misma cuantización, otra variante.
-    # La app la carga sólo cuando el usuario la elige; nunca las dos a la vez.
+    # Alternativa (F09): misma cuantización, otra variante. La compra en turno
+    # entero la carga al transcribir; nunca dos modelos Whisper a la vez.
     alt_ggml = f'ggml-{alt}-q5_1.bin'
     folder = out / f'whisper-{alt}-q5_1'
     folder.mkdir()

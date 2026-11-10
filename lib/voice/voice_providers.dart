@@ -56,15 +56,11 @@ final speechPortFactoryProvider = Provider<SpeechPortFactory>((ref) {
   );
 });
 
-/// Puerto de la pantalla donde puede correr el experimento F09 «un solo
-/// transcriptor por turno» (la compra por voz): el de siempre o, con el
-/// experimento encendido al abrir la pantalla, el puerto que transcribe todo el
-/// turno de una vez. Aplicación y planificación siguen con
-/// [speechPortFactoryProvider]: el experimento no las alcanza.
-final experimentSpeechPortFactoryProvider = Provider<SpeechPortFactory>((ref) {
-  final standard = ref.watch(speechPortFactoryProvider);
-  if (voiceEngine == 'android') return standard;
-  return () => VoiceExperiment.instance.singleTranscriberTurnActive
-      ? WholeTurnTranscriptionAdapter()
-      : standard();
+/// Puerto de **turno entero con un solo transcriptor** (Whisper sobre todo
+/// el audio del turno; variante y decodificación de [VoiceExperiment]). Qué
+/// pantalla lo usa lo decide la capa de presentación; con el motor del
+/// sistema (`android`) se usa el puerto de siempre.
+final wholeTurnPortFactoryProvider = Provider<SpeechPortFactory>((ref) {
+  if (voiceEngine == 'android') return ref.watch(speechPortFactoryProvider);
+  return WholeTurnTranscriptionAdapter.new;
 });

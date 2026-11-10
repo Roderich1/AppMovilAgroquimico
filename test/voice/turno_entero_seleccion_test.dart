@@ -1,3 +1,4 @@
+import 'package:agroquimicos/presentation/voice/voice_purchase_port.dart';
 import 'package:agroquimicos/voice/port/local_speech_transcription_adapter.dart';
 import 'package:agroquimicos/voice/port/speech_transcription_port.dart';
 import 'package:agroquimicos/voice/port/voice_engine_diagnostics.dart';
@@ -6,16 +7,17 @@ import 'package:agroquimicos/voice/voice_providers.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-/// El experimento «un solo transcriptor por turno» sólo alcanza a la compra
-/// por voz, sólo en diagnóstico, y la elección no se pierde al entrar en la
-/// pantalla (que reinicia los demás experimentos).
+/// Integración (F09, 2026-11-10): la **compra** por voz usa siempre el turno
+/// entero con Whisper small y haz de 5, sin interruptores ni compilación de
+/// diagnóstico. Aplicación y planificación siguen con el puerto de siempre
+/// (Vosk + revisión por frases).
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   setUp(() {
     VoiceExperiment.instance.reset();
-    VoiceExperiment.instance.singleTranscriberTurn = false;
-    VoiceExperiment.instance.turnVariant = 'base';
+    VoiceExperiment.instance.turnVariant = VoiceExperiment.defaultTurnVariant;
+    VoiceExperiment.instance.turnDecoding = VoiceExperiment.defaultTurnDecoding;
   });
 
   ProviderContainer container() {
@@ -28,57 +30,45 @@ void main() {
     addTearDown(port.dispose);
   }
 
-  test('apagado: la compra usa el mismo puerto de siempre', () async {
-    final c = container();
-    final port = c.read(experimentSpeechPortFactoryProvider)();
-    await use(port);
-    expect(port, isA<LocalSpeechTranscriptionAdapter>());
-    expect(port.engineId, 'vosk-local');
+  test('configuración elegida: turno entero, small y haz de 5, sin '
+      'diagnóstico', () {
+    expect(purchaseVoiceWholeTurn, isTrue);
+    expect(voiceDiagnosticsBuild, isFalse, reason: 'prueba fuera de diag');
+    expect(VoiceExperiment.defaultTurnVariant, 'small');
+    expect(VoiceExperiment.defaultTurnDecoding, WholeTurnDecoding.beam5);
   });
 
-  test(
-    'encendido fuera de la compilación de diagnóstico: no cambia nada',
-    () async {
-      VoiceExperiment.instance.singleTranscriberTurn = true;
-      expect(VoiceExperiment.instance.singleTranscriberTurnActive, isFalse);
-      final c = container();
-      final port = c.read(experimentSpeechPortFactoryProvider)();
-      await use(port);
-      expect(port, isA<LocalSpeechTranscriptionAdapter>());
-    },
-  );
-
-  test('encendido (diagnóstico): la compra abre el puerto de turno entero; '
-      'el puerto general sigue siendo el de siempre', () async {
-    VoiceExperiment.instance.debugAllowOutsideDiagnostics = true;
-    VoiceExperiment.instance.singleTranscriberTurn = true;
+  test('la compra abre el puerto de turno entero con small y haz de 5; el '
+      'puerto general (aplicación y planificación) sigue siendo el de '
+      'siempre', () async {
     final c = container();
-    final purchase = c.read(experimentSpeechPortFactoryProvider)();
+    final purchase = c.read(purchaseSpeechPortFactoryProvider)();
     final general = c.read(speechPortFactoryProvider)();
     await use(purchase);
     await use(general);
     expect(purchase, isA<WholeTurnTranscriptionAdapter>());
     expect(purchase.engineId, singleTranscriberTurnEngineId);
-    // Aplicación y planificación piden este puerto: sin cambios.
+    final whole = purchase as WholeTurnTranscriptionAdapter;
+    expect(whole.variant, 'small');
+    expect(whole.decoding, WholeTurnDecoding.beam5);
     expect(general, isA<LocalSpeechTranscriptionAdapter>());
+    expect(general.engineId, 'vosk-local');
   });
 
-  test(
-    'reset() de los demás experimentos conserva la elección y la variante',
-    () {
-      final e = VoiceExperiment.instance;
-      e.singleTranscriberTurn = true;
-      e.turnVariant = 'small';
-      e.policyB = true;
-      e.reset();
-      expect(e.policyB, isFalse);
-      expect(e.singleTranscriberTurn, isTrue);
-      expect(e.turnVariant, 'small');
-    },
-  );
+  test('reset() de los controles de diagnóstico no cambia la configuración '
+      'de la compra', () {
+    final e = VoiceExperiment.instance;
+    e.policyB = true;
+    e.compareContexts = true;
+    e.reset();
+    expect(e.policyB, isFalse);
+    expect(e.compareContexts, isFalse);
+    expect(e.turnVariant, 'small');
+    expect(e.turnDecoding, WholeTurnDecoding.beam5);
+  });
 
-  test('la variante del próximo turno la lee el puerto al abrirlo', () async {
-    VoiceExperiment.instance.turnVariant = 'small';
+  test('la variante del próximo turno la lee el puerto al abrirlo (sólo se '
+      'cambia desde la tarjeta de diagnóstico)', () async {
     final port = WholeTurnTranscriptionAdapter();
     await use(port);
     expect(port.variant, 'small');

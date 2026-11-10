@@ -28,7 +28,7 @@ import '../../voice/port/voice_engine_diagnostics.dart';
 import '../../voice/session/voice_session_controller.dart';
 import '../../voice/session/voice_session_state.dart';
 import '../../voice/ui/voice_capture_screen.dart';
-import '../../voice/voice_providers.dart';
+
 import '../../voice_draft/catalog/voice_catalog.dart';
 import '../../voice_draft/core/draft_field.dart';
 import '../../voice_draft/core/numeric_review.dart';
@@ -39,6 +39,8 @@ import '../../voice_draft/purchase/voice_purchase_draft.dart';
 import '../../voice_draft/text/units.dart';
 import '../../operation_mode_controller.dart';
 import '../widgets/common.dart';
+import '../../voice/voice_providers.dart' show speechPortFactoryProvider;
+import 'voice_purchase_port.dart';
 import 'voice_turn_experiment.dart' show VoiceSingleTranscriberPanel;
 import '../widgets/mode_notice.dart';
 import '../widgets/provider_payment_fields.dart';
@@ -53,7 +55,14 @@ class VoicePurchaseDraftScreen extends ConsumerStatefulWidget {
     super.key,
     this.onOpenManualForm,
     this.initialDraftForTest,
+    this.wholeTurn = purchaseVoiceWholeTurn,
   });
+
+  /// Turno entero con un solo transcriptor (la configuración elegida,
+  /// [purchaseVoiceWholeTurn]) o la ruta por frases de antes (Vosk +
+  /// revisión, con sus controles de diagnóstico). Sólo las pruebas de la ruta
+  /// por frases pasan `false`.
+  final bool wholeTurn;
 
   /// Alternativa manual equivalente (formulario de compra). La conecta quien
   /// integra la ruta.
@@ -108,21 +117,24 @@ class _VoicePurchaseDraftScreenState
     WidgetsBinding.instance.addObserver(this);
     _gateway = ref.read(voiceDraftGatewayProvider);
     initVoiceEvidence();
-    // Experimento F09 «un solo transcriptor por turno»: sólo esta pantalla
-    // puede abrir ese puerto, y sólo si se eligió antes de entrar.
+    // Turno entero con Whisper small (configuración elegida, F09): sólo esta
+    // pantalla abre ese puerto.
     _session = VoiceSessionController(
-      port: ref.read(experimentSpeechPortFactoryProvider)(),
+      port: ref.read(
+        widget.wholeTurn
+            ? purchaseSpeechPortFactoryProvider
+            : speechPortFactoryProvider,
+      )(),
     );
     _session.addListener(_onSession);
     _load();
   }
 
-  /// Pista de vocabulario para el modelo de revisión. En el experimento de un
-  /// solo transcriptor, la pista breve de la compra ([voicePurchaseTurnHints]:
-  /// productos, unidades, monedas y expresiones de precio; 2026-11-10). Nunca
-  /// cantidades ni precios. En la ruta de siempre, sólo el catálogo.
-  List<String> _hintsFor(VoiceCatalog catalog) =>
-      VoiceExperiment.instance.singleTranscriberTurnActive
+  /// Pista de vocabulario para el transcriptor. En el turno entero, la pista
+  /// breve de la compra ([voicePurchaseTurnHints]: productos, unidades,
+  /// monedas y expresiones de precio; 2026-11-10). Nunca cantidades ni
+  /// precios. En la ruta por frases, sólo el catálogo.
+  List<String> _hintsFor(VoiceCatalog catalog) => widget.wholeTurn
       ? voicePurchaseTurnHints(catalog)
       : voiceVocabularyHints(catalog);
 
@@ -608,8 +620,8 @@ class _VoicePurchaseDraftScreenState
             createInPicker: true,
           ),
           const SizedBox(height: 12),
-          // Experimento F09 (sólo diagnóstico y encendido): modelo del próximo
-          // turno y métricas sin texto. Fuera de él no ocupa espacio.
+          // Sólo en la compilación de diagnóstico: modelo del próximo turno y
+          // métricas sin texto. Fuera de ella no ocupa espacio.
           VoiceSingleTranscriberPanel(session: _session),
           VoiceListeningPanel(session: _session),
           const SizedBox(height: 12),
@@ -640,8 +652,10 @@ class _VoicePurchaseDraftScreenState
                 hasLines: draft?.draft.lines.isNotEmpty ?? false,
               ),
             ),
-          // Sólo en la compilación de diagnóstico; se abre con un toque.
-          if (catalog != null) ...[
+          // Sólo en la compilación de diagnóstico y sólo en la ruta por frases:
+          // en el turno entero hay un solo transcriptor y estos controles (y
+          // «usar la otra propuesta») no tienen efecto, así que no se muestran.
+          if (catalog != null && !widget.wholeTurn) ...[
             const VoicePolicyBSwitch(),
             VoiceContextExperimentSwitch(
               domainHints: () => voiceDomainContextHints(catalog),
