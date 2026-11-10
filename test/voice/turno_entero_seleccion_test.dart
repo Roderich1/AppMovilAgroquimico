@@ -4,6 +4,7 @@ import 'package:agroquimicos/voice/port/speech_transcription_port.dart';
 import 'package:agroquimicos/voice/port/voice_engine_diagnostics.dart';
 import 'package:agroquimicos/voice/port/whole_turn_transcription_adapter.dart';
 import 'package:agroquimicos/voice/voice_providers.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -53,6 +54,49 @@ void main() {
     expect(whole.decoding, WholeTurnDecoding.beam5);
     expect(general, isA<LocalSpeechTranscriptionAdapter>());
     expect(general.engineId, 'vosk-local');
+  });
+
+  test('con la configuración por defecto, lo que llega al canal nativo desde '
+      'el puerto de la COMPRA es turno entero, small y beamSize 5; desde el '
+      'puerto general, la ruta por frases', () async {
+    const method = MethodChannel(
+      LocalSpeechTranscriptionAdapter.methodChannelName,
+    );
+    final messenger =
+        TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    final starts = <Map<Object?, Object?>>[];
+    messenger.setMockMethodCallHandler(method, (call) async {
+      if (call.method == 'start') {
+        starts.add((call.arguments as Map).cast<Object?, Object?>());
+      }
+      return null;
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(method, null));
+    // Frase de guion sintética; no hay audio ni texto reconocido.
+    const request = TranscriptionRequest(
+      locale: 'es-US',
+      maxTurnDuration: Duration(minutes: 5),
+      hints: ['Herbicida DEMO', 'bolivianos'],
+    );
+
+    final c = container();
+    final purchase = c.read(purchaseSpeechPortFactoryProvider)();
+    await use(purchase);
+    await purchase.start(request);
+    final general = c.read(speechPortFactoryProvider)();
+    await use(general);
+    await general.start(request);
+
+    expect(starts, hasLength(2));
+    expect(starts[0]['mode'], 'whole');
+    expect(starts[0]['variant'], 'small');
+    expect(starts[0]['beamSize'], 5);
+    expect(starts[0]['review'], isFalse);
+    // Ruta por frases: sin modo entero, sin variante ni haz (la revisión con
+    // base depende de la capacidad del teléfono, probada aparte).
+    expect(starts[1]['mode'], isNot('whole'));
+    expect(starts[1]['variant'], isNull);
+    expect(starts[1].containsKey('beamSize'), isFalse);
   });
 
   test('reset() de los controles de diagnóstico no cambia la configuración '
