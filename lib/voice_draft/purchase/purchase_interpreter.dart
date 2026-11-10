@@ -246,7 +246,7 @@ PurchaseInterpretation interpretPurchase(
   VoicePurchaseDraft current,
   VoiceCatalog catalog,
 ) {
-  final words = _purchaseWords(text);
+  final words = _purchaseWords(text, catalog.products);
   final intent = classifyIntent(words);
   if (intent != VoiceIntent.purchase && intent != VoiceIntent.none) {
     return PurchaseInterpretation(
@@ -498,12 +498,25 @@ PurchaseInterpretation interpretPurchase(
 ///   hay ambigüedad. «1.500» sigue siendo mil quinientos (es-BO) y «1,500»
 ///   sigue sin leerse (ambiguo);
 /// - la pausa que deja el punto de «Bs.» antes de «el / por / cada litro»
-///   («50 Bs. el litro»): es la abreviatura, no una pausa.
-List<String> _purchaseWords(String text) {
+///   («50 Bs. el litro»): es la abreviatura, no una pausa;
+/// - el verbo de compra pegado a la palabra siguiente («Compréfungicida
+///   demo», POCO 2026-11-10; «Comprade», HOST): ver [_splitGluedVerb].
+List<String> _purchaseWords(String text, List<CatalogEntry> products) {
   final out = <String>[];
   final words = tokenize(text);
+  Set<String>? productWords;
   for (var i = 0; i < words.length; i++) {
     final w = words[i];
+    final split = _splitGluedVerb(
+      w,
+      () => productWords ??= {
+        for (final p in products) ...canonicalTokens(p.name),
+      },
+    );
+    if (split != null) {
+      out.addAll(split);
+      continue;
+    }
     final glued = _gluedCurrency.firstMatch(w);
     if (glued != null) {
       out
@@ -522,6 +535,51 @@ List<String> _purchaseWords(String text) {
     out.add(_dotDecimal(w));
   }
   return out;
+}
+
+/// Formas del verbo, de la más larga a la más corta, para separarlas.
+const _gluedVerbForms = [
+  'compraron',
+  'compramos',
+  'comprado',
+  'compre',
+  'compra',
+];
+
+/// Lo que puede quedar tras el verbo pegado para separarlo: enlaces y
+/// artículos («Comprade»), números («Comprédos») y unidades. Además, una
+/// palabra de un producto del catálogo de esta cuenta.
+const _afterGluedVerb = {
+  'de',
+  'del',
+  'el',
+  'la',
+  'los',
+  'las',
+  'un',
+  'una',
+  'unos',
+  'unas',
+};
+
+/// «comprefungicida» → «compre», «fungicida» si lo que sigue al verbo es
+/// **exactamente** una palabra conocida ([_afterGluedVerb], un número, una
+/// unidad o una palabra de un producto del catálogo); si no, `null` y la
+/// palabra queda como está («comprador», «comprender», «comprefungi»). Una
+/// palabra que ya es un verbo de compra no se parte.
+List<String>? _splitGluedVerb(String w, Set<String> Function() productWords) {
+  if (_purchaseVerbs.contains(w) || !w.startsWith('compr')) return null;
+  for (final verb in _gluedVerbForms) {
+    if (!w.startsWith(verb) || w.length <= verb.length) continue;
+    final rest = w.substring(verb.length);
+    final known =
+        _afterGluedVerb.contains(rest) ||
+        (isNumberWord(rest) && readNumberAt([rest], 0) != null) ||
+        unitWord(rest) != null ||
+        productWords().contains(rest);
+    return known ? [verb, rest] : null;
+  }
+  return null;
 }
 
 final _gluedCurrency = RegExp(r'^(\d(?:[\d.,]*\d)?)(bs|bob|usd)$');

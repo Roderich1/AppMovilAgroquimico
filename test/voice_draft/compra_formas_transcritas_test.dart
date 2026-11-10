@@ -267,6 +267,54 @@ void main() {
     });
   });
 
+  group('verbo pegado a la palabra siguiente (POCO, 2026-11-10, P4)', () {
+    // En el teléfono, «Compré fungicida demo» llegó con el verbo y el
+    // producto juntos en una palabra y «demo» aparte (dicho por el autor,
+    // sin copiar el texto). En HOST, con voz sintética, «compra de» llegó
+    // como «Comprade». Las frases de aquí son sintéticas.
+    for (final text in const [
+      'Comprefungicida demo',
+      'Compréfungicida DEMO.',
+      'Comprafungicida demo',
+      'Comprade fungicida demo',
+    ]) {
+      test('«$text»: línea incompleta con el producto', () {
+        final r = hear(text);
+        expectIncompleteLine(r, fungicida);
+        expect(r.trace.intent, 'purchase');
+      });
+    }
+
+    test('«Comprédos litros de fungicida demo a cincuenta bolivianos el '
+        'litro»', () {
+      final l = only(
+        hear(
+          'Comprédos litros de fungicida demo a cincuenta bolivianos el litro',
+        ),
+      );
+      expect(l.product.value, fungicida);
+      expect(l.quantityBase, 2000);
+      expect(l.unitPriceMinor, 5000);
+    });
+
+    test('no se parte una palabra que no termina en algo conocido', () {
+      for (final text in const [
+        'Comprador fungicida demo',
+        'Comprender fungicida demo',
+        'Comprefungi demo',
+      ]) {
+        final r = hear(text);
+        expect(r.draft.lines, isEmpty, reason: text);
+      }
+    });
+
+    test('pegado y negado: «No comprefungicida demo» no anota nada', () {
+      final r = hear('No comprefungicida demo');
+      expect(r.draft.lines, isEmpty);
+      expect(r.trace.reason, 'negacion');
+    });
+  });
+
   group('el verbo no es la primera palabra', () {
     for (final text in const [
       'Hoy compré fungicida demo',

@@ -124,4 +124,14 @@ void main() {
     expect(fieldText(tester, 'voz-precio-1'), '50');
     expect(await purchases(tester), 0);
   });
+
+  testWidgets('«Compréfungicida DEMO.» (verbo pegado): línea incompleta a la '
+      'vista, sin poder registrar', (tester) async {
+    await pumpScreen(tester, 'Compréfungicida DEMO.');
+    expect(find.byKey(const Key('voz-linea-1')), findsOneWidget);
+    expect(find.textContaining('Fungicida DEMO'), findsWidgets);
+    await tap(tester, const Key('voz-pago-no'));
+    expect(registerEnabled(tester), isFalse);
+    expect(await purchases(tester), 0);
+  });
 }
