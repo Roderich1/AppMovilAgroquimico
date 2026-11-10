@@ -1,0 +1,119 @@
+# F09: experimento «un solo transcriptor por turno» en la compra por voz (2026-11-09)
+
+Ensayo exploratorio, no una evaluación formal con usuarios. Rama `feat/f09-diagnostico-motores`, sobre el estado local donde se hicieron las pruebas anteriores (`bf3d022`); código del experimento en `e9b3d66`. Sin push, sin PR, sin cambios en issues ni en el documento de grado. Las frases que aparecen aquí son **escritas y sintéticas** (pruebas automatizadas); de los dictados reales sólo se anotan modelo, campos correctos/incorrectos/pendientes, correcciones, tiempos y códigos de error.
+
+## 1. Estado de partida (revisado antes de tocar nada)
+
+| Qué | Dónde | Estado |
+|---|---|---|
+| Rama y commit | `feat/f09-diagnostico-motores`, `bf3d022` | Árbol limpio; 13 commits propios desde `d5808d0` |
+| Captura | `android/.../LocalVoiceEngine.kt` (`MicrophoneSource`, `Turn.capture`) | `AudioRecord` `VOICE_RECOGNITION`, 16 kHz mono PCM16, bloques de 100 ms, cola de 3 s |
+| Segmentación | `Turn.decode` | **Vosk** cierra cada frase en las pausas (`acceptWaveForm`) y al detener; su audio (hasta 30 s) va a la revisión |
+| Vosk | `vosk-model-small-es-0.42` (grafo *lookahead*), `vosk-android 0.3.75` | Sin «herbicida» en singular (causa C1) |
+| Whisper | `whisper.cpp 52a939a` por `libagro_whisper.so`; modelo `ggml-base-q5_1.bin` (SHA-256 `422f1ae4…8898`) | **Sólo corre si Vosk cerró una frase con texto** y dentro del tope de 5 000 ms por frase; `language=es`, `translate=false`, greedy, `no_context`, `single_segment`, pista = nombres del catálogo |
+| Selección | `lib/voice/port/review_selection.dart` (`chooseReviewedText`, regla A) | Si los hechos numéricos difieren, se entrega Vosk; política B sólo en diagnóstico |
+| Intérprete de compras | `lib/voice_draft/purchase/purchase_interpreter.dart` | Determinista; recibe el texto cerrado de la sesión |
+| Modelo small | Caché local `AgroVoiceModels/dl/ggml-small-q5_1.bin` (SHA-256 `ae85e4a9…11bb`) | Existía (medición HOST del 2026-11-08); no se empaquetaba |
+
+**Qué se reutiliza:** la captura, la cola, el puente JNI de whisper.cpp (idioma, sin traducción, pista), la copia verificada de modelos, el hilo único de inferencia con tope y aborto, las métricas `PcmStats`, los canales de plataforma y el `NativeEventHub`, el contrato `SpeechTranscriptionPort`, la sesión (`VoiceSessionController`), el intérprete, el borrador y la confirmación.
+
+**Qué dependencia de Vosk se retira de este recorrido:** en el modo experimental Vosk **no se carga ni se usa**: no segmenta el audio, no produce parciales y no condiciona si Whisper corre. El micrófono graba el turno entero en memoria y Whisper lo transcribe de una vez al terminar. Vosk sigue en el proyecto y en los demás recorridos (aplicación, planificación y la compra con el experimento apagado).
+
+## 2. El intérprete, probado con frases escritas (sin micrófono)
+
+`test/voice_draft/compra_frases_turno_completo_test.dart`, 17 casos, catálogo que imita al del POCO. **Todos pasan; no hubo que corregir el intérprete.**
+
+| Caso | Resultado |
+|---|---|
+| «Compré un litro y medio de fungicida demo» (4 variantes, con y sin «un», con «1») | Producto Fungicida DEMO; **1,5 L** (1 500 mL); «y medio» no entra en el producto; precio pendiente, sin inventar |
+| «Compré dos litros de fungicida demo a cincuenta bolivianos por litro / el litro» | 2 L, 50,00 Bs/L, BOB, total 100,00 Bs |
+| «… a cien bolivianos en total» | Total de 100 Bs, **distinto del unitario**: queda «Revisar» para elegir «Total de la línea»; no se registra como precio por litro |
+| «… a cien bolivianos por todo» | «por todo» **no es una forma reconocida** de total: el precio queda sin resolver (no se toma como unitario) y el importe se conserva. Limitación anotada, sin cambio |
+| Frase incompleta («compré tres litros de herbicida demo»; «compré herbicida demo»; «compré fungicida demo a cincuenta bolivianos el litro») | Lo no dicho queda **pendiente** (precio, moneda, proveedor, cantidad); nada se rellena solo |
+| Producto ambiguo («fungicida» con dos fungicidas en el catálogo) | **Pide elegir** entre los dos; la cantidad dicha se conserva |
+| Nombre fuera del catálogo («fungisida») | Sin coincidencia aproximada: falta el producto |
+| Frase completa con proveedor | Línea completa y total 100,00; el proveedor resuelto o propuesto, nunca otro |
+
+Los 7 fallos de la primera ejecución eran errores de tipo de las propias aserciones (unidad dicha frente a unidad de catálogo; conversión a mililitros que exige el producto resuelto), no del intérprete.
+
+## 3. El modo experimental
+
+```text
+Hablar ─► graba el turno en memoria (≤ 30 s) ─► Terminar ─► Whisper (base | small) sobre todo el audio ─► un segmento ─► intérprete ─► borrador ─► revisar y corregir ─► Registrar compra
+Cancelar ─► descarta el audio, aborta la inferencia, el borrador no cambia
+```
+
+### Nativo (Kotlin)
+
+- `LocalVoiceEngine.start(... mode, variant, turnMaxMs, turnTimeoutMs)`: con `mode="whole"` crea un `WholeTurn`. `ActiveTurn` es la interfaz común con el `Turn` por frases, que sigue igual (la lectura del micrófono se compartió en `pump`).
+- `WholeTurn`: graba en un `PcmBuffer` hasta `turnMaxMs` (30 s, la ventana de Whisper; al llegar termina solo, sin perder lo oído); al cerrarse el micrófono transcribe en el hilo de revisión con tope `turnTimeoutMs` (45 s) y aborto; emite `onTurnText(gen, text, ms, outcome, info)` con métricas (`PcmStats`, `audioMs`, `loadMs`, `inferenceMs`, `variant`, `model`, `closedBy`) y luego `onEnded`. Cancelar aborta y no emite nada. El audio y los flotantes se sueltan al terminar.
+- `ensureWhisper(variant)`: **una sola variante en memoria**; pedir otra libera la cargada. El modelo se empieza a cargar al abrir el turno, mientras se habla. Un fallo de carga queda ligado a su variante (`whisperFailedVariant`), para que un fallo de small no apague la revisión con base.
+- `LocalVoiceModels.whisperVariants` / `whisperOrNull(variant)`: la variante principal (`whisper`, la de la revisión) y las alternativas (`whisperAlternatives`). `describe()` informa `reviewVariants` y `reviewModels`.
+- `LocalVoiceBridge`: argumentos `mode`, `variant`, `turnMaxMs`, `turnTimeoutMs`; evento `turnText`.
+
+### Dart (`lib/voice`)
+
+- `WholeTurnTranscriptionAdapter` (`engineId` `single-transcriber-turn`): mismos canales y misma pista (`hintText`, tope 600 caracteres) que el puerto por frases; números de turno compartidos (`nextGeneration`) para que ningún evento se confunda. Un turno entrega como mucho **un** segmento. Vacío → «nada reconocido»; tope agotado → «tiempo»; error del modelo → fallo con código y sesión recuperable; cancelado → nada, aunque el texto llegue después; un turno anterior nunca toca el actual. Plazo de grabación (30 s) y guarda de cierre (45 s + 20 s).
+- `experimentSpeechPortFactoryProvider`: sólo lo usa **Compra por voz**; aplicación y planificación siguen con `speechPortFactoryProvider`.
+- `VoiceExperiment.singleTranscriberTurn` / `turnVariant` / `turnMetrics`: la elección se hace en «Registrar por voz» antes de abrir la compra y no se borra con `reset()`; vive en memoria y se pierde al cerrar la app. Las métricas no llevan texto.
+- Interfaz: el botón dice **«Terminar»**; estados «Grabando el turno (máximo 30 s)», «Terminando la grabación», «Transcribiendo el turno completo»; botón «Cancelar este turno (descarta el audio)»; sin texto provisional (y se dice); «Revisar cada frase» no aparece. Tarjeta del experimento: selector **Whisper base / Whisper small** (sólo con el micrófono cerrado) y últimos turnos con tiempos y códigos.
+
+### Lo que NO cambia
+
+Captura y tratamiento del audio (misma fuente, misma tasa, mismo PCM), idioma (`es`, sin traducción), parámetros de búsqueda de Whisper (greedy, temperatura 0, `single_segment`, `no_context`), intérprete de compras, borrador, validaciones y confirmación. Aplicación y planificación no se tocaron. Vosk sigue en el APK y en la ruta por frases.
+
+### Condiciones de la comparación base ↔ small
+
+Idénticas salvo el archivo del modelo: misma captura, misma pista, mismo intérprete, mismos topes, un modelo por turno, sin cascada ni combinación. **Frente al recorrido anterior** (Vosk + revisión por frases) cambian dos cosas, y se declaran: (1) la segmentación: turno entero en vez de frases cerradas por Vosk; (2) la pista: además de los nombres del catálogo lleva los términos del dominio (unidades, monedas, familias de producto; `voiceDomainContextHints`, medida antes como «nunca peor» en CTX-1…3), **sin cantidades ni precios**. Modelo (base), cuantización (q5_1) y parámetros de búsqueda son los mismos.
+
+## 4. Pruebas ejecutadas (HOST, Windows 11, Flutter)
+
+| Prueba | Resultado |
+|---|---|
+| `flutter analyze` | Sin avisos |
+| `dart format --set-exit-if-changed lib test` | Sin cambios |
+| `test/voice_draft/compra_frases_turno_completo_test.dart` | 17/17 |
+| `test/voice/turno_entero_adapter_test.dart` (puerto con canales simulados: argumentos del `start`, un segmento por turno, vacío, tope, modelo no disponible, cancelación, turno anterior, dos turnos, audio máximo, guarda de cierre, plazo de grabación, tope de métricas) | 13/13 |
+| `test/voice/turno_entero_seleccion_test.dart` (sólo compra, sólo diagnóstico, `reset()` conserva la elección) | 5/5 |
+| `test/voice_draft/turno_entero_pantalla_test.dart` (interruptor, tarjeta, selector, métricas sin texto, panel de siempre sin cambios) | 4/4 |
+| Guardas de arquitectura (`test/voice/voice_architecture_guard_test.dart`, `test/voice_draft/voice_draft_architecture_guard_test.dart`) | Pasan (el puerto nuevo se añadió a la lista de adaptadores que pueden hablar con la plataforma; `lib/voice` sigue sin nombrar compras ni proveedores) |
+| Suites completas `test/voice` + `test/voice_draft` | **689/689**, una sola ejecución limpia |
+
+No hay prueba instrumentada nueva del `WholeTurn` (haría falta el emulador con audio sintético); su comportamiento se comprueba en el teléfono (sección 7).
+
+## 5. APK aislada
+
+| Dato | Valor |
+|---|---|
+| Archivo | `%TEMP%\agro_f09\apk_wt_e9b3d66\agrocuentas-f09wt-e9b3d66-arm64-v8a-profile.apk` |
+| Paquete / etiqueta | `com.comunidad.agro.agroquimicos.f09w` / **«AC F09 WT»** (no sustituye a `.f09` «AC F09» ni toca sus datos) |
+| Código | `e9b3d66` (`AGRO_APP_COMMIT`), `AGRO_VOICE_DIAG=true`, `AGRO_VOICE_EVIDENCE=true`, origen del Central del túnel abierto |
+| SHA-256 | `0fd6107a8d33e3d3985feaab4da40ac58b796e36716346b631b9dffafaf73259` · 333 200 964 B |
+| Modelos (comprobado en el ZIP) | `vosk-model-small-es-0.42`; `whisper-base-q5_1/ggml-base-q5_1.bin` (59 707 625 B); `whisper-small-q5_1/ggml-small-q5_1.bin` (190 085 487 B); manifiesto con `whisper.variant=base` y `whisperAlternatives.small` |
+| Librerías | `libagro_whisper.so`, `libggml*.so`, `libvosk.so` (arm64-v8a) |
+| Script | scratchpad `f09/build_f09wt_apk.sh` (derivado de `tool/voice_local/build_voice_apk.sh`); modelos con `fetch_voice_models.sh both` |
+
+Que el selector carga el modelo indicado se comprueba en el teléfono con la métrica del turno (`modelo=whisper-small-q5_1`, `carga=…ms`, visible en la tarjeta y en el registro técnico con códigos) y con el tiempo de inferencia, que en small es varias veces el de base.
+
+## 6. Instalar y activar
+
+1. **Instalada el 2026-11-09 22:30** en el POCO (`cc14247a`) sin desinstalar nada: `.f09` «AC F09» conserva su `lastUpdateTime` (18:09:22). Con `adb install` MIUI canceló dos veces sin mostrar diálogo (`INSTALL_FAILED_USER_RESTRICTED`); funcionó `adb push` a `/data/local/tmp` + `pm install -r`, que sí abre «Instalar vía USB» (`com.miui.permcenter.install.AdbInstallActivity`), aceptado tocando «Instalar» en (310, 2102). El archivo temporal se borró del teléfono.
+2. Abrir «AC F09 WT» y activar con una cuenta de agricultor de la DEMO (la DEMO admite varias instalaciones por cuenta; `agricultor3` tiene una sola). La contraseña de un solo uso la teclea `demo.sh credential <cuenta> cc14247a` en el campo enfocado; no se anota. Crear el titular en modo **Compartido**.
+3. Datos sintéticos mínimos para la compra: proveedor «Agroinsumos DEMO (sintético)», productos «Herbicida DEMO», «Fungicida DEMO», «Insecticida DEMO» (litros), campaña activa. No hace falta chaco ni existencias previas.
+4. Operaciones → Más → Registrar por voz: encender **«Experimento: compra con un solo transcriptor (Whisper) por turno»**. Entrar en **Compra por voz**: la tarjeta «Experimento activo» muestra el modelo del próximo turno (base por defecto).
+5. Hablar → dictar → **Terminar** → esperar «Transcribiendo el turno completo» → revisar y corregir → Registrar compra (sólo cuando se decida registrar).
+
+El experimento se apaga al cerrar la app. Aplicación y planificación no cambian.
+
+## 7. Comprobaciones en el teléfono (pendientes de ejecutar con el autor)
+
+Casos: dictado completo con pausas · silencio · cancelación · dos turnos consecutivos · error al cargar el modelo (variante ausente o memoria) · campos incompletos · revisión y confirmación sin duplicados · sin conexión (modo avión) con los modelos ya copiados. Y la comparación base ↔ small sobre las mismas frases (producto, cantidad, unidad, precio unitario/total, moneda, líneas adicionales, correcciones manuales, tiempo desde «Terminar» hasta el borrador). Se conservan los intentos fallidos. La coincidencia entre modelos no vale como acierto: cada campo se contrasta con lo que debía registrarse.
+
+## 8. Limitaciones conocidas
+
+- Sin texto provisional en el modo experimental: el usuario no ve nada hasta «Terminar».
+- 30 s por turno; con más audio el turno termina solo.
+- small pesa 190 MB: el APK pasa de 148 a 333 MB y la primera carga del modelo tarda más (se mide en el teléfono).
+- «por todo» no se reconoce como total (sí «en total»).
+- El experimento no se guarda: hay que encenderlo en cada arranque de la app.
+- No hay prueba instrumentada del turno entero con audio de referencia.

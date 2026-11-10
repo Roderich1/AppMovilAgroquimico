@@ -49,7 +49,9 @@ restore; trap - EXIT
 # El modelo de revisión empaquetado (fetch_voice_models.sh base|small|none).
 # Con base el nombre no cambia; con otro, lo lleva para no confundirlas.
 REVIEW=$(python -I -c "import json,sys; w=json.load(open(sys.argv[1],encoding='utf-8')).get('whisper'); print(w.get('variant') or w['name'].split('-')[1] if w else 'none')" android/app/voice-models/voice/manifest.json)
-TAG=""; [ "$REVIEW" = base ] || TAG="-review-$REVIEW"
+# Alternativas empaquetadas (fetch_voice_models.sh both): van al nombre con «+».
+ALT=$(python -I -c "import json,sys; print('+'.join(sorted(json.load(open(sys.argv[1],encoding='utf-8')).get('whisperAlternatives',{}))))" android/app/voice-models/voice/manifest.json)
+TAG=""; [ "$REVIEW" = base ] || TAG="-review-$REVIEW"; [ -z "$ALT" ] || TAG="$TAG+$ALT"
 APK="$OUT/agrocuentas-voz-$(git rev-parse --short HEAD)-$SPLIT$TAG-profile.apk"
 cp "build/app/outputs/flutter-apk/app-$SPLIT-profile.apk" "$APK"
 echo "APK $APK"
