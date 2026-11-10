@@ -89,15 +89,28 @@ mixin VoiceEvidenceRecording<W extends ConsumerStatefulWidget>
   /// Llamar en `dispose`, **antes** de liberar el controlador del borrador.
   /// Sin ningún dictado aplicado no hay evidencia que entregar.
   void finishVoiceEvidence(VoiceDraftController<dynamic, dynamic>? draft) {
-    if (_evidenceDone || draft == null || !_evidence.hasVoice) return;
-    _evidenceDone = true;
-    final outcome = switch (draft.phase) {
-      DraftPhase.confirmed => VoiceEvidenceOutcome.confirmed,
-      _ when draft.error != null => VoiceEvidenceOutcome.failed,
-      _ => VoiceEvidenceOutcome.discarded,
-    };
-    final entry = _evidence.finish(
+    if (draft == null) return;
+    finishVoiceEvidenceWith(
       finalDraft: draft.draft as Object,
+      outcome: switch (draft.phase) {
+        DraftPhase.confirmed => VoiceEvidenceOutcome.confirmed,
+        _ when draft.error != null => VoiceEvidenceOutcome.failed,
+        _ => VoiceEvidenceOutcome.discarded,
+      },
+    );
+  }
+
+  /// Formulario único (F09): el borrador final es lo que propuso el último
+  /// dictado y el resultado, el del guardado del formulario. Lo que la
+  /// persona corrigió en el formulario no se compara aquí (límite declarado).
+  void finishVoiceEvidenceWith({
+    required Object? finalDraft,
+    required VoiceEvidenceOutcome outcome,
+  }) {
+    if (_evidenceDone || finalDraft == null || !_evidence.hasVoice) return;
+    _evidenceDone = true;
+    final entry = _evidence.finish(
+      finalDraft: finalDraft,
       outcome: outcome,
       engine: voiceEngine,
       model: _model,

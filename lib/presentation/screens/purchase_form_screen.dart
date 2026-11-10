@@ -3,7 +3,6 @@ import 'dart:io';
 import 'package:flutter/foundation.dart' show SynchronousFuture;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../app.dart';
@@ -21,6 +20,22 @@ import '../widgets/common.dart';
 import '../widgets/provider_payment_fields.dart';
 import 'late_operations_screen.dart' show offerLateRegistration;
 import '../widgets/mode_notice.dart';
+import '../voice/voice_draft_widgets.dart' show voicePurchaseTurnHints;
+import '../voice/voice_evidence_hook.dart';
+import '../voice/voice_form_dictation.dart';
+import '../voice/voice_purchase_port.dart';
+import '../../voice/session/voice_session_controller.dart';
+import '../../voice/session/voice_session_state.dart';
+import '../../voice_draft/catalog/voice_catalog.dart';
+import '../../voice_draft/core/draft_field.dart';
+import '../../voice_draft/core/numeric_review.dart';
+import '../../voice_draft/interpretation/voice_intent.dart';
+import '../../voice_draft/purchase/purchase_interpreter.dart';
+import '../../voice_draft/purchase/voice_purchase_draft.dart';
+import '../../voice_draft/text/units.dart' show CatalogUnit;
+import '../../voice_evidence/voice_evidence.dart' show VoiceEvidenceOutcome;
+
+part 'purchase_form_voice.dart';
 
 /// Nueva compra en dos pasos (ajuste tras el piloto X01, 2026-10-25):
 ///
@@ -47,7 +62,11 @@ import '../widgets/mode_notice.dart';
 /// por filas sigue existiendo cuando se elige. El orden de las personas, su
 /// rol o la última selección nunca deciden una asignación.
 class PurchaseFormScreen extends ConsumerStatefulWidget {
-  const PurchaseFormScreen({super.key});
+  const PurchaseFormScreen({super.key, this.voice = false});
+
+  /// Abrir con el panel «Completar por voz» visible (atajo «Registrar por
+  /// voz»). El micrófono no se abre solo: hay que pulsar «Hablar».
+  final bool voice;
 
   @override
   ConsumerState<PurchaseFormScreen> createState() => _PurchaseFormScreenState();
@@ -74,6 +93,11 @@ class _AllocationEditor {
 }
 
 class _PurchaseLineEditor {
+  _PurchaseLineEditor(this.id);
+
+  /// Identificador estable de la línea (no su posición): lo usa el dictado
+  /// para saber qué línea completó o añadió.
+  final int id;
   int? productId;
   CurrencyCode currency = CurrencyCode.bob;
   final quantity = TextEditingController();
@@ -164,11 +188,26 @@ typedef _PurchaseCatalogs = ({
   List<Map<String, Object?>> people,
 });
 
-class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
+class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen>
+    with WidgetsBindingObserver, VoiceEvidenceRecording<PurchaseFormScreen> {
   late Future<_PurchaseCatalogs> catalogs;
   final invoiceNumber = TextEditingController();
   final notes = TextEditingController();
-  final lines = <_PurchaseLineEditor>[_PurchaseLineEditor()];
+  int _nextLineId = 2;
+  final lines = <_PurchaseLineEditor>[_PurchaseLineEditor(1)];
+  _PurchaseLineEditor _newLine() => _PurchaseLineEditor(_nextLineId++);
+
+  /// «Completar por voz»: el dictado de esta compra (se crea al abrir el
+  /// panel) y el puente con el formulario.
+  VoiceFormDictation<VoicePurchaseDraft>? voice;
+  late final _voiceTarget = _PurchaseVoice(this);
+  bool showVoice = false;
+
+  /// Lo que propuso el último dictado y si la compra se guardó (evidencia,
+  /// sólo con consentimiento).
+  VoicePurchaseDraft? _lastVoiceDraft;
+  bool _voiceSaved = false;
+  bool _voiceFailed = false;
   int? supplierId;
   int? campaignId;
   _PurchaseStep step = _PurchaseStep.items;
@@ -208,7 +247,37 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
   bool saving = false;
   bool dirty = false;
 
-  void _markDirty() => setState(() => dirty = true);
+  void _markDirty() {
+    setState(() => dirty = true);
+    voice?.reconcile(_voiceTarget.snapshot());
+  }
+
+  /// Muestra el panel de voz (lo crea la primera vez). No abre el micrófono.
+  void _openVoice() {
+    voice ??= VoiceFormDictation<VoicePurchaseDraft>(
+      session: VoiceSessionController(
+        port: ref.read(purchaseSpeechPortFactoryProvider)(),
+      ),
+      target: _voiceTarget,
+    )..addListener(_onVoice);
+    final catalog = _voiceTarget.catalog;
+    if (catalog != null) {
+      voice!.session.setVocabularyHints(voicePurchaseTurnHints(catalog));
+    }
+    setState(() => showVoice = true);
+  }
+
+  void _onVoice() {
+    if (mounted) setState(() {});
+  }
+
+  void _voiceApplied(VoicePurchaseDraft shadow, String text) {
+    _lastVoiceDraft = shadow;
+    noteVoiceApplied(shadow, text);
+  }
+
+  /// `setState` para el puente de voz (`purchase_form_voice.dart`).
+  void _voiceSetState(VoidCallback fn) => setState(fn);
 
   /// Día de la compra (#121): hoy por defecto; se puede elegir un día pasado.
   /// El selector no ofrece el futuro, y el repositorio lo rechaza también.
@@ -264,7 +333,20 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    initVoiceEvidence();
     catalogs = _loadCatalogs();
+    if (widget.voice) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _openVoice();
+      });
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // En segundo plano se libera el micrófono, como en el dictado de siempre.
+    if (state != AppLifecycleState.resumed) voice?.session.handleAppPaused();
   }
 
   Future<_PurchaseCatalogs> _loadCatalogs() async {
@@ -290,12 +372,14 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
         ? operating.ownerPersonId
         : null;
     products = result[2];
-    return (
+    final loaded = (
       suppliers: result[0],
       campaigns: result[1],
       products: result[2],
       people: result[3],
     );
+    _voiceTarget.updateCatalog(loaded);
+    return loaded;
   }
 
   /// Tras crear un proveedor, un producto o una persona desde su selector:
@@ -317,6 +401,7 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
       products: fresh[1],
       people: people ? fresh[2] : current.people,
     );
+    _voiceTarget.updateCatalog(next);
     if (mounted) {
       setState(() {
         products = next.products;
@@ -377,6 +462,19 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    finishVoiceEvidenceWith(
+      finalDraft: _lastVoiceDraft,
+      outcome: _voiceSaved
+          ? VoiceEvidenceOutcome.confirmed
+          : _voiceFailed
+          ? VoiceEvidenceOutcome.failed
+          : VoiceEvidenceOutcome.discarded,
+    );
+    // Salir libera el micrófono: nada de un dictado en curso se aplica.
+    voice?.removeListener(_onVoice);
+    voice?.release();
+    voice?.dispose();
     invoiceNumber.dispose();
     notes.dispose();
     for (final line in lines) {
@@ -656,6 +754,7 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
       // volvería a habilitarse durante el fotograma previo al `pop` y un
       // segundo toque podría escribir otra compra (revisión cruzada X01).
       done = true;
+      _voiceSaved = true;
       setState(() => dirty = false);
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) Navigator.of(context).pop(true);
@@ -689,6 +788,7 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
           if (mounted) Navigator.of(context).pop(false);
         });
       } else {
+        _voiceFailed = true;
         showError(context, error);
       }
     } finally {
@@ -716,30 +816,21 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
       appBar: AppBar(
         title: const Text('Nueva compra'),
         actions: [
-          // F09: la misma operación por voz. Si el formulario tiene
-          // cambios, se pregunta antes de descartarlos.
+          // F09 (formulario único): la voz completa ESTE formulario; no
+          // abre otra pantalla ni descarta nada.
           IconButton(
             key: const Key('form-dictar'),
-            tooltip: 'Dictar con voz',
-            icon: const Icon(Icons.mic_none_outlined),
-            onPressed: saving
+            tooltip: showVoice
+                ? 'Ocultar el panel de voz'
+                : 'Completar por voz',
+            icon: Icon(showVoice ? Icons.mic : Icons.mic_none_outlined),
+            onPressed: saving || step != _PurchaseStep.items
                 ? null
-                : () async {
-                    if (dirty &&
-                        !await confirmDestructiveAction(
-                          context,
-                          title: '¿Descartar cambios?',
-                          detail:
-                              'Lo escrito en el formulario no se '
-                              'guardó. Se abrirá el borrador por voz.',
-                          confirmLabel: 'Descartar y dictar',
-                        )) {
-                      return;
-                    }
-                    if (!context.mounted) return;
-                    setState(() => dirty = false);
-                    context.pushReplacement('/compras/voz');
-                  },
+                : showVoice
+                ? (voice?.busy ?? false)
+                      ? null
+                      : () => setState(() => showVoice = false)
+                : _openVoice,
           ),
         ],
         leading: IconButton(
@@ -760,19 +851,36 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
           child: FutureBuilder<_PurchaseCatalogs>(
             future: catalogs,
             builder: (context, snapshot) {
+              final voiceBlock = voice?.blocksSave ?? false;
               final blocked =
                   saving ||
+                  voiceBlock ||
                   !snapshot.hasData ||
                   modeChangedSince(
                     loadedMode,
                     ref.watch(operationModeProvider),
                   );
               if (step == _PurchaseStep.items) {
-                return FilledButton.icon(
-                  key: const Key('purchase-continue'),
-                  onPressed: blocked ? null : _goToReview,
-                  icon: const Icon(Icons.arrow_forward),
-                  label: const Text('Continuar'),
+                return Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    if (voiceBlock)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 6),
+                        child: Text(
+                          voice!.saveBlockReason!,
+                          key: const Key('voz-bloqueo-guardar'),
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    FilledButton.icon(
+                      key: const Key('purchase-continue'),
+                      onPressed: blocked ? null : _goToReview,
+                      icon: const Icon(Icons.arrow_forward),
+                      label: const Text('Continuar'),
+                    ),
+                  ],
                 );
               }
               return Row(
@@ -860,7 +968,33 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
 
   List<Widget> _itemsStep(BuildContext context, _PurchaseCatalogs data) {
     final ownerName = _ownerName(data);
+    final supplierName = data.suppliers
+        .where((row) => row['id'] == supplierId)
+        .firstOrNull?['name']
+        ?.toString();
     return [
+      if (showVoice && voice != null) ...[
+        VoiceFormPanel(
+          dictation: voice!,
+          engineHint:
+              'Diga la compra completa —producto, cantidad, precio y '
+              'proveedor— y pulse «Terminar». Lo reconocido aparece en los '
+              'campos; nada se guarda solo.',
+          onClose: () => setState(() => showVoice = false),
+        ),
+        const SizedBox(height: 12),
+      ] else ...[
+        Align(
+          alignment: Alignment.centerLeft,
+          child: OutlinedButton.icon(
+            key: const Key('compra-completar-voz'),
+            onPressed: saving ? null : _openVoice,
+            icon: const Icon(Icons.mic_none_outlined),
+            label: const Text('Completar por voz'),
+          ),
+        ),
+        const SizedBox(height: 8),
+      ],
       _dropdown(
         'Proveedor',
         data.suppliers,
@@ -878,7 +1012,14 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
             supplierId = value;
             if (!autoSelected) dirty = true;
           });
+          voice?.reconcile(_voiceTarget.snapshot());
         },
+      ),
+      VoiceSlotMark(
+        dictation: voice,
+        slot: const SlotRef.header('supplier'),
+        current: supplierId,
+        currentDisplay: supplierName,
       ),
       const SizedBox(height: 10),
       ListTile(
@@ -906,7 +1047,7 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
           key: const Key('purchase-add-line'),
           onPressed: () {
             setState(() {
-              lines.add(_PurchaseLineEditor());
+              lines.add(_newLine());
               dirty = true;
             });
           },
@@ -936,10 +1077,13 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen> {
             onChanged: _markDirty,
             onCreateProduct: _createProduct,
             onCreatePerson: _canCreatePeople ? _createPerson : null,
+            voice: voice,
+            shared: personalOwnerId == null,
             onRemove: lines.length == 1
                 ? null
                 : () {
                     final removed = lines.removeAt(index);
+                    voice?.lineRemoved(removed.id);
                     removed.dispose();
                     setState(() => dirty = true);
                   },
@@ -1437,9 +1581,35 @@ class _LineCard extends StatelessWidget {
     this.personalOwnerName,
     this.onCreateProduct,
     this.onCreatePerson,
+    this.voice,
+    this.shared = true,
   });
   final int index;
   final _PurchaseLineEditor line;
+
+  /// Dictado del formulario (marcas «Por voz», «Revisar», «Elegir»).
+  final VoiceFormDictation<dynamic>? voice;
+  final bool shared;
+
+  Widget _mark(String field, {String? currentDisplay}) => VoiceSlotMark(
+    dictation: voice,
+    slot: SlotRef.line(line.id, field),
+    current: line.voiceFields(shared)[field],
+    currentDisplay: currentDisplay,
+  );
+
+  /// «Falta» de los datos obligatorios en una línea que tocó la voz.
+  List<Widget> _missing() {
+    final v = voice;
+    if (v == null || !v.touchesLine(line.id)) return const [];
+    final f = line.voiceFields(shared);
+    return [
+      if (f['product'] == null) const VoiceMissingMark(label: 'producto'),
+      if (f['quantity'] == null) const VoiceMissingMark(label: 'cantidad'),
+      if (f['price'] == null) const VoiceMissingMark(label: 'precio'),
+    ];
+  }
+
   final List<Map<String, Object?>> products, people;
 
   /// Titular vigente (de `owner_bindings`), para rotularlo «Titular» en la
@@ -1570,6 +1740,10 @@ class _LineCard extends StatelessWidget {
             createLabel: onCreateProduct == null ? null : 'Crear producto',
             onCreate: onCreateProduct,
           ),
+          _mark(
+            'product',
+            currentDisplay: selectedProduct?['name']?.toString(),
+          ),
           const SizedBox(height: 10),
           // Apilados en ancho de móvil: media fila recortaba la etiqueta a
           // "Cantidad compr…" (UIBUG-040).
@@ -1595,6 +1769,11 @@ class _LineCard extends StatelessWidget {
               ),
             ),
             second: DropdownButtonFormField<CurrencyCode>(
+              // La clave sigue al valor: si la voz cambia la moneda, el
+              // selector la muestra (su `initialValue` sólo cuenta al crearlo).
+              key: ValueKey(
+                'purchase-currency-${line.id}-${line.currency.name}',
+              ),
               initialValue: line.currency,
               decoration: const InputDecoration(labelText: 'Moneda'),
               items: const [
@@ -1607,6 +1786,8 @@ class _LineCard extends StatelessWidget {
               },
             ),
           ),
+          _mark('quantity'),
+          _mark('currency', currentDisplay: line.currency.name.toUpperCase()),
           const SizedBox(height: 10),
           Row(
             children: [
@@ -1655,6 +1836,9 @@ class _LineCard extends StatelessWidget {
               ],
             ],
           ),
+          _mark('price', currentDisplay: line.price.text),
+          _mark('fx', currentDisplay: line.fx.text),
+          ..._missing(),
           const SizedBox(height: 8),
           Align(
             alignment: Alignment.centerRight,
@@ -1679,8 +1863,15 @@ class _LineCard extends StatelessWidget {
                 key: Key('purchase-personal-allocation-$index'),
               ),
             )
-          else
+          else ...[
             ..._recipientSection(context, unit),
+            _mark(
+              'recipient',
+              currentDisplay: line.singlePersonId == null
+                  ? null
+                  : _personName(line.singlePersonId),
+            ),
+          ],
         ],
       ),
     );
