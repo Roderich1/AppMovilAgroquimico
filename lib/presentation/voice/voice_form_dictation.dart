@@ -65,8 +65,9 @@ abstract interface class VoiceFormTarget<S> {
   /// Foto actual del formulario en valores canónicos.
   FormSnapshot snapshot();
 
-  /// Sombra vacía para un dictado nuevo.
-  S startShadow();
+  /// Sombra vacía para un dictado nuevo, o `null` si el formulario todavía
+  /// no está listo (catálogos cargando).
+  S? startShadow();
 
   /// Interpreta [text] (sólo lo nuevo y cerrado) sobre [shadow].
   S interpret(S shadow, String text, VoiceSessionSnapshot session);
@@ -183,11 +184,21 @@ class VoiceFormDictation<S> extends ChangeNotifier {
   /// termina.
   Future<void> start() async {
     if (_dictating || _disposed) return;
+    final shadow = target.startShadow();
+    if (shadow == null) {
+      _setPhase(
+        VoiceFormPhase.ready,
+        message:
+            'Espere a que termine de cargar el formulario y vuelva a '
+            'pulsar «Hablar».',
+      );
+      return;
+    }
     _dictating = true;
     _opened = false;
     _errorStatus = null;
     _before = target.snapshot();
-    _shadow = target.startShadow();
+    _shadow = shadow;
     _consumed = session.snapshot.committedText;
     _text.clear();
     _setPhase(VoiceFormPhase.opening, message: null);

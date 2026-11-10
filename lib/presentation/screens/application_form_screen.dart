@@ -17,6 +17,23 @@ import '../widgets/catalog_dialogs.dart';
 import '../widgets/common.dart';
 import 'late_operations_screen.dart' show offerLateRegistration;
 import '../widgets/mode_notice.dart';
+import '../voice/voice_draft_gateway.dart' show voiceDraftGatewayProvider;
+import '../voice/voice_draft_widgets.dart' show voiceVocabularyHints;
+import '../voice/voice_evidence_hook.dart';
+import '../voice/voice_form_dictation.dart';
+import '../../voice/session/voice_session_controller.dart';
+import '../../voice/session/voice_session_state.dart';
+import '../../voice/voice_providers.dart' show speechPortFactoryProvider;
+import '../../voice_draft/application/application_interpreter.dart';
+import '../../voice_draft/application/voice_application_draft.dart';
+import '../../voice_draft/catalog/voice_catalog.dart';
+import '../../voice_draft/core/draft_field.dart';
+import '../../voice_draft/core/numeric_review.dart';
+import '../../voice_draft/interpretation/voice_intent.dart';
+import '../../voice_draft/text/units.dart';
+import '../../voice_evidence/voice_evidence.dart' show VoiceEvidenceOutcome;
+
+part 'application_form_voice.dart';
 
 typedef _ApplicationCatalogs = ({
   List<Map<String, Object?>> people,
@@ -44,15 +61,29 @@ enum _ApplicationStep { who, products, review }
 /// igual, en el «Detalle» de cada tarjeta. Las aplicaciones vinculadas a un
 /// plan conservan su área exacta, sus cantidades previstas y su confirmación.
 class ApplicationFormScreen extends ConsumerStatefulWidget {
-  const ApplicationFormScreen({super.key, this.planId});
+  const ApplicationFormScreen({super.key, this.planId, this.voice = false});
   final int? planId;
+
+  /// Abrir con el panel «Completar por voz» visible (atajo «Registrar por
+  /// voz»). El micrófono no se abre solo.
+  final bool voice;
   @override
   ConsumerState<ApplicationFormScreen> createState() =>
       _ApplicationFormScreenState();
 }
 
-class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
+class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen>
+    with WidgetsBindingObserver, VoiceEvidenceRecording<ApplicationFormScreen> {
   late Future<_ApplicationCatalogs> catalogs;
+  int _nextLineId = 1;
+
+  /// «Completar por voz».
+  VoiceFormDictation<VoiceApplicationDraft>? voice;
+  late final _voiceTarget = _ApplicationVoice(this);
+  bool showVoice = false;
+  VoiceApplicationDraft? _lastVoiceDraft;
+  bool _voiceSaved = false;
+  bool _voiceFailed = false;
   int? personId, farmId;
   _ApplicationStep step = _ApplicationStep.who;
 
@@ -86,7 +117,142 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    initVoiceEvidence();
     catalogs = _load();
+    if (widget.voice && widget.planId == null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _openVoice();
+      });
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state != AppLifecycleState.resumed) voice?.session.handleAppPaused();
+  }
+
+  void _openVoice() {
+    voice ??= VoiceFormDictation<VoiceApplicationDraft>(
+      session: VoiceSessionController(
+        port: ref.read(speechPortFactoryProvider)(),
+      ),
+      target: _voiceTarget,
+    )..addListener(_onVoice);
+    setState(() => showVoice = true);
+    _voiceTarget.loadCatalog().then((_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  void _onVoice() {
+    if (mounted) setState(() {});
+  }
+
+  void _voiceApplied(VoiceApplicationDraft shadow, String text) {
+    _lastVoiceDraft = shadow;
+    noteVoiceApplied(shadow, text);
+  }
+
+  void _voiceSetState(VoidCallback fn) => setState(fn);
+
+  /// Fila de existencias del producto para una línea: la del responsable si
+  /// la tiene; si no, una sin existencias (Continuar y Confirmar la
+  /// rechazan con su aviso de siempre); sin producto, «por elegir».
+  Map<String, Object?> _productRow(int? productId) {
+    if (productId == null) {
+      return const {
+        'product_id': null,
+        'product_name': 'Producto por elegir',
+        'unit': '',
+        'available_base': 0,
+        'lot_count': 0,
+        'next_fifo_cost_minor': 0,
+      };
+    }
+    final stock = stocks.where((r) => r['product_id'] == productId).firstOrNull;
+    if (stock != null) return stock;
+    final product = _latestCatalogs?.products
+        .where((p) => p['id'] == productId)
+        .firstOrNull;
+    return {
+      'product_id': productId,
+      'product_name': product?['name'] ?? 'Producto',
+      'unit': product?['unit'] ?? '',
+      'available_base': 0,
+      'lot_count': 0,
+      'next_fifo_cost_minor': 0,
+    };
+  }
+
+  /// Tras un dictado o al llegar las existencias del responsable: cada línea
+  /// toma su fila de existencias y se estima su costo, como al agregarla.
+  void _refreshVoiceLines() {
+    for (final line in lines) {
+      final id = line.product['product_id'] as int?;
+      if (id == null) continue;
+      final stock = stocks.where((r) => r['product_id'] == id).firstOrNull;
+      if (stock != null && !identical(stock, line.product)) {
+        line.product = stock;
+      }
+      if (line.quantityBase > 0) estimate(line);
+    }
+    if (mounted) setState(() {});
+  }
+
+  /// Chaco puesto por voz: el responsable es su dueño (si cambia, la mezcla
+  /// se vacía, como al elegirlo a mano: sólo se llega aquí sin persona o tras
+  /// confirmarlo). No pisa el área, que tiene su propia ranura.
+  void _selectFarmForVoice(int? id) {
+    final farm = _latestCatalogs?.farms.where((f) => f['id'] == id).firstOrNull;
+    if (farm == null) {
+      farmId = null;
+      return;
+    }
+    final owner = farm['owner_person_id'] as int;
+    if (personId != owner) {
+      final ownerRow = _latestCatalogs?.people
+          .where((p) => p['id'] == owner)
+          .firstOrNull;
+      if (ownerRow == null) return;
+      personId = owner;
+      _clearLines();
+      stocks = [];
+      loadingStock = true;
+      _loadStocksForVoice(owner);
+    }
+    farmId = farm['id'] as int;
+  }
+
+  Future<void> _loadStocksForVoice(int owner) async {
+    final result = await ref
+        .read(repositoryProvider)
+        .availableProductsForOwner(owner);
+    if (!mounted || personId != owner) return;
+    setState(() {
+      stocks = result;
+      loadingStock = false;
+    });
+    _refreshVoiceLines();
+  }
+
+  /// Un plan pendiente elegido por voz: se abre el recorrido de siempre
+  /// «Aplicar este plan» (sus productos y cantidades previstas).
+  Future<void> _openPlanFromVoice(int planId) async {
+    if (dirty &&
+        !await confirmDestructiveAction(
+          context,
+          title: '¿Descartar cambios?',
+          detail:
+              'Lo cargado en esta aplicación no se guardó. Se abrirá el plan '
+              'elegido con sus productos.',
+          confirmLabel: 'Abrir el plan',
+        )) {
+      return;
+    }
+    if (!mounted) return;
+    setState(() => dirty = false);
+    context.pushReplacement('/aplicaciones/nueva?planId=$planId');
   }
 
   Future<_ApplicationCatalogs> _load() async {
@@ -149,6 +315,7 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
         final line = _ApplicationLineEditor(
           stock,
           quantityBase: item['required_quantity_base'] as int,
+          id: _nextLineId++,
         );
         line.dose.text = formatForInput(
           (item['dose_base_per_ha'] as int) / 1000,
@@ -171,6 +338,18 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    finishVoiceEvidenceWith(
+      finalDraft: _lastVoiceDraft,
+      outcome: _voiceSaved
+          ? VoiceEvidenceOutcome.confirmed
+          : _voiceFailed
+          ? VoiceEvidenceOutcome.failed
+          : VoiceEvidenceOutcome.discarded,
+    );
+    voice?.removeListener(_onVoice);
+    voice?.release();
+    voice?.dispose();
     area.dispose();
     notes.dispose();
     for (final line in lines) {
@@ -201,6 +380,7 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
       stocks = result;
       loadingStock = false;
     });
+    voice?.reconcile(_voiceTarget.snapshot());
   }
 
   /// Día de la aplicación (#121): hoy por defecto; se puede elegir un día
@@ -400,6 +580,7 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
     final line = _ApplicationLineEditor(
       result.product,
       quantityBase: result.quantityBase,
+      id: _nextLineId++,
     );
     setState(() {
       lines.add(line);
@@ -415,10 +596,17 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
-      builder: (context) => _ProductSheet(
-        options: [line.product, ..._addable],
-        initial: _LineInput(line.product, line.quantityBase),
-      ),
+      builder: (context) => line.product['product_id'] == null
+          // Línea dictada con el producto por elegir: se elige aquí, con la
+          // cantidad dictada ya escrita.
+          ? _ProductSheet(
+              options: _addable,
+              initialQuantityBase: line.quantityBase,
+            )
+          : _ProductSheet(
+              options: [line.product, ..._addable],
+              initial: _LineInput(line.product, line.quantityBase),
+            ),
     );
     if (result == null || !mounted) return;
     setState(() {
@@ -427,10 +615,12 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
         ..quantityBase = result.quantityBase;
       dirty = true;
     });
+    voice?.reconcile(_voiceTarget.snapshot());
     await estimate(line);
   }
 
   void _removeLine(_ApplicationLineEditor line) {
+    voice?.lineRemoved(line.id);
     setState(() {
       lines.remove(line);
       line.dispose();
@@ -440,7 +630,7 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
 
   Future<void> estimate(_ApplicationLineEditor line) async {
     final q = line.quantityBase;
-    if (personId == null || q <= 0) {
+    if (personId == null || q <= 0 || line.product['product_id'] == null) {
       if (mounted) setState(() => line.cost = 0);
       return;
     }
@@ -562,6 +752,13 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
           showError(context, 'Agrega al menos un producto a la mezcla.');
           return;
         }
+        if (lines.any((l) => l.product['product_id'] == null)) {
+          showError(
+            context,
+            'Elige el producto de cada línea (toca «Editar») o quita la línea.',
+          );
+          return;
+        }
         setState(() => step = _ApplicationStep.review);
         _loadLotPreview();
       case _ApplicationStep.review:
@@ -622,6 +819,10 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
       showError(context, 'Elige persona, chaco y al menos un producto.');
       return;
     }
+    if (lines.any((l) => l.product['product_id'] == null)) {
+      showError(context, 'Elige el producto de cada línea o quita la línea.');
+      return;
+    }
     final drafts = <ApplicationLineDraft>[];
     for (final line in lines) {
       final real = line.quantityBase;
@@ -678,6 +879,7 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
     try {
       await ref.read(repositoryProvider).confirmApplication(application);
       if (!mounted) return;
+      _voiceSaved = true;
       // `saving` se queda en true hasta cerrar: si bajara aquí, el botón
       // volvería a habilitarse durante el fotograma previo al `pop` y un
       // segundo toque podría escribir otra aplicación (revisión cruzada X01).
@@ -700,6 +902,7 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
                 .captureLateApplication(application, reason: reason),
           );
       if (!mounted) return;
+      if (!captured) _voiceFailed = true;
       if (captured) {
         setState(() => dirty = false);
         // Sólo quedó pendiente de revisión: false, para que la lista no
@@ -724,30 +927,24 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
       appBar: AppBar(
         title: const Text('Nueva aplicación'),
         actions: [
-          // F09: la misma operación por voz. Si el formulario tiene
-          // cambios, se pregunta antes de descartarlos.
+          // F09 (formulario único): la voz completa ESTE formulario. Con un
+          // plan, persona, chaco y productos vienen del plan.
           IconButton(
             key: const Key('form-dictar'),
-            tooltip: 'Dictar con voz',
-            icon: const Icon(Icons.mic_none_outlined),
-            onPressed: saving || widget.planId != null
+            tooltip: showVoice
+                ? 'Ocultar el panel de voz'
+                : 'Completar por voz',
+            icon: Icon(showVoice ? Icons.mic : Icons.mic_none_outlined),
+            onPressed:
+                saving ||
+                    widget.planId != null ||
+                    step == _ApplicationStep.review
                 ? null
-                : () async {
-                    if (dirty &&
-                        !await confirmDestructiveAction(
-                          context,
-                          title: '¿Descartar cambios?',
-                          detail:
-                              'Lo escrito en el formulario no se '
-                              'guardó. Se abrirá el borrador por voz.',
-                          confirmLabel: 'Descartar y dictar',
-                        )) {
-                      return;
-                    }
-                    if (!context.mounted) return;
-                    setState(() => dirty = false);
-                    context.pushReplacement('/aplicaciones/voz');
-                  },
+                : showVoice
+                ? (voice?.busy ?? false)
+                      ? null
+                      : () => setState(() => showVoice = false)
+                : _openVoice,
           ),
         ],
         leading: IconButton(
@@ -761,22 +958,41 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
           child: FutureBuilder<_ApplicationCatalogs>(
             future: catalogs,
             builder: (context, snapshot) {
+              final voiceBlock = voice?.blocksSave ?? false;
               final blocked =
                   saving ||
+                  voiceBlock ||
                   !snapshot.hasData ||
                   modeChangedSince(
                     loadedMode,
                     ref.watch(operationModeProvider),
                   );
+              final reason = voiceBlock
+                  ? Padding(
+                      padding: const EdgeInsets.only(bottom: 6),
+                      child: Text(
+                        voice!.saveBlockReason!,
+                        key: const Key('voz-bloqueo-guardar'),
+                        textAlign: TextAlign.center,
+                      ),
+                    )
+                  : null;
               if (step == _ApplicationStep.who) {
-                return FilledButton.icon(
-                  key: const Key('application-continue'),
-                  onPressed: blocked ? null : _continue,
-                  icon: const Icon(Icons.arrow_forward),
-                  label: const Text('Continuar'),
+                return Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    ?reason,
+                    FilledButton.icon(
+                      key: const Key('application-continue'),
+                      onPressed: blocked ? null : _continue,
+                      icon: const Icon(Icons.arrow_forward),
+                      label: const Text('Continuar'),
+                    ),
+                  ],
                 );
               }
-              return Row(
+              final row = Row(
                 children: [
                   OutlinedButton.icon(
                     key: const Key('application-back'),
@@ -806,6 +1022,13 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
                   ),
                 ],
               );
+              return reason == null
+                  ? row
+                  : Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [reason, row],
+                    );
             },
           ),
         ),
@@ -850,8 +1073,14 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
                 ),
                 const SizedBox(height: 12),
                 ...switch (step) {
-                  _ApplicationStep.who => _whoStep(context, data),
-                  _ApplicationStep.products => _productsStep(context),
+                  _ApplicationStep.who => [
+                    ..._voiceEntry(),
+                    ..._whoStep(context, data),
+                  ],
+                  _ApplicationStep.products => [
+                    ..._voiceEntry(),
+                    ..._productsStep(context),
+                  ],
                   _ApplicationStep.review => _reviewStep(context, data),
                 },
               ],
@@ -867,6 +1096,37 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
 
   Map<String, Object?>? _farm(_ApplicationCatalogs data) =>
       data.farms.where((f) => f['id'] == farmId).firstOrNull;
+
+  /// Panel «Completar por voz» (pasos 1 y 2), o el botón que lo abre. Sin
+  /// él con un plan: persona, chaco y productos vienen del plan.
+  List<Widget> _voiceEntry() {
+    if (widget.planId != null) return const [];
+    if (showVoice && voice != null) {
+      return [
+        VoiceFormPanel(
+          dictation: voice!,
+          engineHint:
+              'Hable por frases cortas: el chaco, el área y cuánto usó de cada '
+              'producto. Pulse «Terminar» al acabar. Lo dictado aparece en '
+              'los pasos 1 y 2; nada se guarda solo.',
+          onClose: () => setState(() => showVoice = false),
+        ),
+        const SizedBox(height: 12),
+      ];
+    }
+    return [
+      Align(
+        alignment: Alignment.centerLeft,
+        child: OutlinedButton.icon(
+          key: const Key('aplicacion-completar-voz'),
+          onPressed: saving ? null : _openVoice,
+          icon: const Icon(Icons.mic_none_outlined),
+          label: const Text('Completar por voz'),
+        ),
+      ),
+      const SizedBox(height: 8),
+    ];
+  }
 
   List<Widget> _whoStep(BuildContext context, _ApplicationCatalogs data) {
     final person = _person(data);
@@ -932,10 +1192,24 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
           value: farm,
           labelOf: (f) => f['name'] as String,
           secondaryOf: (f) => formatHectares(f['area_m2'] as int),
-          onChanged: selectFarm,
+          onChanged: (f) async {
+            await selectFarm(f);
+            voice?.reconcile(_voiceTarget.snapshot());
+          },
           enabled: personId != null,
           createLabel: 'Crear chaco',
           onCreate: _createFarm,
+        ),
+        VoiceSlotMark(
+          dictation: voice,
+          slot: const SlotRef.header('farm'),
+          current: farmId,
+          currentDisplay: farm?['name']?.toString(),
+        ),
+        VoiceSlotMark(
+          dictation: voice,
+          slot: const SlotRef.header('plan'),
+          current: null,
         ),
       ],
       const SizedBox(height: 12),
@@ -947,6 +1221,7 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
             dirty = true;
             areaError = null;
           });
+          voice?.reconcile(_voiceTarget.snapshot());
         },
         keyboardType: const TextInputType.numberWithOptions(decimal: true),
         decoration: InputDecoration(
@@ -956,6 +1231,20 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
           errorMaxLines: 3,
         ),
       ),
+      VoiceSlotMark(
+        dictation: voice,
+        slot: const SlotRef.header('area'),
+        current: _ApplicationVoice._areaCanon(area.text),
+        currentDisplay: area.text,
+      ),
+      if (lines.isNotEmpty && (voice?.busy == false) && showVoice)
+        Padding(
+          padding: const EdgeInsets.only(top: 8),
+          child: Text(
+            'Productos en la mezcla: ${lines.length} (paso 2).',
+            key: const Key('aplicacion-lineas-paso2'),
+          ),
+        ),
     ];
   }
 
@@ -1013,7 +1302,8 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
         ),
       for (final line in lines)
         _LineCard(
-          key: ValueKey(line.product['product_id']),
+          key: ObjectKey(line),
+          voice: voice,
           line: line,
           theoretical: theoretical(line),
           doseError: doseError(line),
@@ -1182,9 +1472,7 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen> {
                       ),
                       Text(
                         formatBob(line.cost),
-                        key: Key(
-                          'application-review-cost-${line.product['product_id']}',
-                        ),
+                        key: Key('application-review-cost-${line.keyId}'),
                       ),
                     ],
                   ),
@@ -1317,8 +1605,19 @@ class _StepHeader extends StatelessWidget {
 String _areaInput(int areaM2) => formatForInput(areaM2 / 10000, maxDecimals: 4);
 
 class _ApplicationLineEditor {
-  _ApplicationLineEditor(this.product, {required this.quantityBase});
+  _ApplicationLineEditor(
+    this.product, {
+    required this.quantityBase,
+    required this.id,
+  });
+
+  /// Identificador estable (no la posición), para el dictado.
+  final int id;
   Map<String, Object?> product;
+
+  /// Sufijo de las claves de la tarjeta: el producto, o el id si la línea
+  /// dictada aún no tiene producto (dos así no comparten clave).
+  String get keyId => product['product_id']?.toString() ?? 'voz-$id';
 
   /// Cantidad realmente usada, en la unidad base del producto.
   int quantityBase;
@@ -1341,7 +1640,14 @@ class _LineInput {
 /// Hoja del recorrido explícito: elegir producto, escribir la cantidad usada
 /// y confirmar con «Agregar a la mezcla». Devuelve `null` al cancelar.
 class _ProductSheet extends StatefulWidget {
-  const _ProductSheet({required this.options, this.initial});
+  const _ProductSheet({
+    required this.options,
+    this.initial,
+    this.initialQuantityBase,
+  });
+
+  /// Cantidad ya escrita sin producto (línea dictada «por elegir»).
+  final int? initialQuantityBase;
 
   /// Productos que se pueden elegir (los que aún no están en la mezcla y, al
   /// editar, el de la tarjeta).
@@ -1355,9 +1661,11 @@ class _ProductSheet extends StatefulWidget {
 class _ProductSheetState extends State<_ProductSheet> {
   Map<String, Object?>? product;
   late final quantity = TextEditingController(
-    text: widget.initial == null
-        ? ''
-        : formatForInput(widget.initial!.quantityBase / 1000),
+    text: widget.initial != null
+        ? formatForInput(widget.initial!.quantityBase / 1000)
+        : (widget.initialQuantityBase ?? 0) > 0
+        ? formatForInput(widget.initialQuantityBase! / 1000)
+        : '',
   );
   String? error;
 
@@ -1507,8 +1815,12 @@ class _LineCard extends StatelessWidget {
     required this.onEdit,
     required this.onRemove,
     required this.onDoseChanged,
+    this.voice,
   });
   final _ApplicationLineEditor line;
+
+  /// Dictado del formulario (marcas y revisiones de esta línea).
+  final VoiceFormDictation<dynamic>? voice;
 
   /// Cantidad teórica por dosis y área, o `null` sin dosis.
   final int? theoretical;
@@ -1523,7 +1835,7 @@ class _LineCard extends StatelessWidget {
     final missing = line.quantityBase - line.available;
     final name = line.product['product_name'] as String;
     return Card(
-      key: Key('application-line-${line.product['product_id']}'),
+      key: Key('application-line-${line.keyId}'),
       margin: const EdgeInsets.only(bottom: 8),
       child: Padding(
         padding: const EdgeInsets.fromLTRB(14, 12, 14, 4),
@@ -1531,16 +1843,32 @@ class _LineCard extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(name, style: const TextStyle(fontWeight: FontWeight.w700)),
+            VoiceSlotMark(
+              dictation: voice,
+              slot: SlotRef.line(line.id, 'product'),
+              current: line.product['product_id'],
+              currentDisplay: name,
+            ),
             const SizedBox(height: 4),
             Text(
               formatQuantity(line.quantityBase, line.unit),
-              key: Key(
-                'application-line-quantity-${line.product['product_id']}',
-              ),
+              key: Key('application-line-quantity-${line.keyId}'),
               style: theme.textTheme.titleLarge?.copyWith(
                 fontWeight: FontWeight.w800,
               ),
             ),
+            VoiceSlotMark(
+              dictation: voice,
+              slot: SlotRef.line(line.id, 'quantity'),
+              current: line.quantityBase > 0 ? line.quantityBase : null,
+              currentDisplay: formatQuantity(line.quantityBase, line.unit),
+            ),
+            if (voice?.touchesLine(line.id) ?? false) ...[
+              if (line.product['product_id'] == null)
+                const VoiceMissingMark(label: 'producto (toque «Editar»)'),
+              if (line.quantityBase <= 0)
+                const VoiceMissingMark(label: 'cantidad usada'),
+            ],
             Text(
               missing > 0
                   ? 'Hay ${formatQuantity(line.available, line.unit)}: faltan '
@@ -1560,17 +1888,13 @@ class _LineCard extends StatelessWidget {
               spacing: 4,
               children: [
                 TextButton.icon(
-                  key: Key(
-                    'application-line-edit-${line.product['product_id']}',
-                  ),
+                  key: Key('application-line-edit-${line.keyId}'),
                   onPressed: onEdit,
                   icon: const Icon(Icons.edit_outlined),
                   label: const Text('Editar'),
                 ),
                 TextButton.icon(
-                  key: Key(
-                    'application-line-remove-${line.product['product_id']}',
-                  ),
+                  key: Key('application-line-remove-${line.keyId}'),
                   onPressed: onRemove,
                   icon: const Icon(Icons.close),
                   label: const Text('Quitar'),
@@ -1578,7 +1902,7 @@ class _LineCard extends StatelessWidget {
               ],
             ),
             ExpansionTile(
-              key: Key('application-line-detail-${line.product['product_id']}'),
+              key: Key('application-line-detail-${line.keyId}'),
               tilePadding: EdgeInsets.zero,
               childrenPadding: const EdgeInsets.only(bottom: 12),
               title: Text(
