@@ -120,7 +120,8 @@ final class PurchaseTrace {
 
   /// Por qué no cambió el borrador, si no cambió: `ok`, `vacio`,
   /// `otra-operacion`, `sin-linea`, `aviso`, `precio-no-colocado`,
-  /// `sin-cambios` (lo dicho ya estaba o se conservó lo corregido a mano).
+  /// `sin-cambios` (lo dicho ya estaba o se conservó lo corregido a mano),
+  /// `negacion` («no compré …») o `intencion-futura` («quiero comprar …»).
   final String reason;
 
   /// Una línea de registro: sólo cuentas y códigos.
@@ -245,7 +246,7 @@ PurchaseInterpretation interpretPurchase(
   VoicePurchaseDraft current,
   VoiceCatalog catalog,
 ) {
-  final words = tokenize(text);
+  final words = _purchaseWords(text);
   final intent = classifyIntent(words);
   if (intent != VoiceIntent.purchase && intent != VoiceIntent.none) {
     return PurchaseInterpretation(
@@ -260,6 +261,26 @@ PurchaseInterpretation interpretPurchase(
     );
   }
 
+  // «No compré …», «Quiero comprar …», «Compraré …» (F09, 2026-11-10): no es
+  // una compra hecha. No se anota nada y se dice por qué.
+  final mood = _purchaseMood(words);
+  if (mood != null) {
+    return PurchaseInterpretation(
+      draft: current,
+      outcome: const VoicePatchOutcome(),
+      lineNotice: mood == _negated
+          ? 'Se oyó una compra negada («no compré …»): no se añadió nada al '
+                'borrador.'
+          : 'Se oyó una compra por hacer («quiero comprar …», «voy a comprar '
+                '…»): no se añadió nada. Dicte la compra cuando esté hecha.',
+      trace: PurchaseTrace(
+        words: words.length,
+        intent: intent.name,
+        reason: mood,
+      ),
+    );
+  }
+
   var draft = current;
   var outcome = const VoicePatchOutcome();
 
@@ -269,7 +290,7 @@ PurchaseInterpretation interpretPurchase(
   if (name != null && waiting != null && isAwaitingProduct(waiting.product)) {
     final (field, o) = mergeField(
       waiting.product,
-      entryField(resolveName(name, catalog.products), 'producto'),
+      entryField(_resolveProduct(name, catalog.products), 'producto'),
     );
     return PurchaseInterpretation(
       draft: draft.updateLine(waiting.key, (l) => l.copyWith(product: field)),
@@ -324,7 +345,7 @@ PurchaseInterpretation interpretPurchase(
     final product = line.productHeard.isEmpty
         ? awaitingProduct
         : entryField(
-            resolveName(line.productHeard, catalog.products),
+            _resolveProduct(line.productHeard, catalog.products),
             'producto',
           );
     // «¿120 Bs por L?» sólo si la unidad oída es la del producto: si no, la
@@ -467,6 +488,118 @@ PurchaseInterpretation interpretPurchase(
   );
 }
 
+/// Palabras de un dictado de compra. Sobre `tokenize` (compartido con las
+/// demás rutas de voz, que no cambian) se ajustan sólo en la compra tres
+/// formas que el transcriptor escribe (F09, 2026-11-10, sondas §9.5):
+///
+/// - cifra y sigla de moneda pegadas: «100Bs», «50bob» → «100 bs»;
+/// - punto decimal con una o dos cifras: «100.00», «1.5» → «100,00»,
+///   «1,5». Un punto así no puede separar miles (van de tres en tres): no
+///   hay ambigüedad. «1.500» sigue siendo mil quinientos (es-BO) y «1,500»
+///   sigue sin leerse (ambiguo);
+/// - la pausa que deja el punto de «Bs.» antes de «el / por / cada litro»
+///   («50 Bs. el litro»): es la abreviatura, no una pausa.
+List<String> _purchaseWords(String text) {
+  final out = <String>[];
+  final words = tokenize(text);
+  for (var i = 0; i < words.length; i++) {
+    final w = words[i];
+    final glued = _gluedCurrency.firstMatch(w);
+    if (glued != null) {
+      out
+        ..add(_dotDecimal(glued.group(1)!))
+        ..add(glued.group(2)!);
+      continue;
+    }
+    if (w == ',' &&
+        out.isNotEmpty &&
+        out.last == 'bs' &&
+        i + 2 < words.length &&
+        const {'el', 'la', 'por', 'cada'}.contains(words[i + 1]) &&
+        unitWord(words[i + 2]) != null) {
+      continue;
+    }
+    out.add(_dotDecimal(w));
+  }
+  return out;
+}
+
+final _gluedCurrency = RegExp(r'^(\d(?:[\d.,]*\d)?)(bs|bob|usd)$');
+final _dotDecimalPattern = RegExp(r'^\d+\.\d{1,2}$');
+
+String _dotDecimal(String w) =>
+    _dotDecimalPattern.hasMatch(w) ? w.replaceFirst('.', ',') : w;
+
+const _negated = 'negacion';
+const _future = 'intencion-futura';
+
+/// Futuro del verbo: no es una compra hecha.
+const _futurePurchase = {
+  'comprare',
+  'compraremos',
+  'compraran',
+  'compraria',
+  'comprariamos',
+};
+
+/// Lo que, justo antes de «comprar», lo vuelve una intención («quiero
+/// comprar»).
+const _wantTo = {
+  'quiero',
+  'queremos',
+  'quisiera',
+  'quisieramos',
+  'necesito',
+  'necesitamos',
+  'pienso',
+  'pensamos',
+  'debo',
+  'debemos',
+  'deberia',
+  'deberiamos',
+  'podria',
+  'podriamos',
+};
+
+/// `negacion` si un verbo de compra va negado justo antes («no compré», «no
+/// lo compré», «nunca compramos»); `intencion-futura` si es futuro o va
+/// tras «quiero / necesito / voy a / tengo que / hay que …»; si no, `null`.
+/// «No, compré …» (con la pausa) es una corrección, no una negación.
+String? _purchaseMood(List<String> words) {
+  String? at(int i) => i >= 0 && i < words.length ? words[i] : null;
+  const negations = {'no', 'nunca', 'tampoco'};
+  const pronouns = {'lo', 'la', 'los', 'las', 'le', 'les'};
+  for (var i = 0; i < words.length; i++) {
+    final w = words[i];
+    if (_futurePurchase.contains(w)) return _future;
+    if (!_purchaseVerbs.contains(w) && w != 'compraron') continue;
+    final before = at(i - 1);
+    if (negations.contains(before) ||
+        (pronouns.contains(before) && negations.contains(at(i - 2)))) {
+      return _negated;
+    }
+    if (w == 'comprar') {
+      if (_wantTo.contains(before)) return _future;
+      if (before == 'a' &&
+          const {
+            'voy',
+            'vamos',
+            'va',
+            'van',
+            'iba',
+            'ibamos',
+          }.contains(at(i - 2))) {
+        return _future;
+      }
+      if (before == 'que' &&
+          const {'tengo', 'tenemos', 'tiene', 'hay'}.contains(at(i - 2))) {
+        return _future;
+      }
+    }
+  }
+  return null;
+}
+
 String _matchCode(FieldStatus s) => switch (s) {
   FieldStatus.resolved => 'unico',
   FieldStatus.ambiguous => 'varios',
@@ -566,6 +699,139 @@ const _purchaseLead = {
   'y',
 };
 
+/// Formas del verbo de compra que abren una compra hecha (las de
+/// `classifyIntent`, F09 2026-11-10). Antes sólo «compré/compre/compramos»
+/// al principio de la frase abrían la línea de un producto dicho sin
+/// cantidad, mientras la intención se reconocía con todas: «Compra fungicida
+/// demo» o «He comprado …» se descartaban con `sin-verbo-aviso`.
+const _purchaseVerbs = {
+  'compre',
+  'compramos',
+  'compra',
+  'compras',
+  'compraron',
+  'comprado',
+  'comprar',
+};
+
+/// Lo que puede ir **antes** del verbo sin cambiar la frase: muletillas,
+/// cuándo y quién («Bueno, compré…», «Hoy compré…», «Yo compré…», «Esta
+/// mañana compré…», «He comprado…»). Cualquier otra palabra antes del verbo
+/// hace que la frase no se tome como «compré» + producto.
+const _beforePurchaseVerb = {
+  ',',
+  'bueno',
+  'eh',
+  'em',
+  'este',
+  'ya',
+  'ok',
+  'okey',
+  'pues',
+  'entonces',
+  'hoy',
+  'ayer',
+  'anteayer',
+  'antier',
+  'recien',
+  'esta',
+  'manana',
+  'tarde',
+  'noche',
+  'yo',
+  'nosotros',
+  'tambien',
+  'ademas',
+  'y',
+  'he',
+  'hemos',
+};
+
+/// Primera palabra tras el verbo de compra si sólo lo preceden palabras de
+/// [_beforePurchaseVerb] («Compra de fungicida…»: también salta el «de»);
+/// `null` si no hay verbo o lo precede otra cosa.
+int? _afterPurchaseVerb(List<String> words) {
+  for (var i = 0; i < words.length; i++) {
+    final w = words[i];
+    if (_purchaseVerbs.contains(w)) {
+      var after = i + 1;
+      if (w == 'compra' &&
+          after < words.length &&
+          const {'de', 'del'}.contains(words[after])) {
+        after++;
+      }
+      return after;
+    }
+    if (!_beforePurchaseVerb.contains(w)) return null;
+  }
+  return null;
+}
+
+/// Artículos que pueden ir delante del nombre de un producto.
+const _leadingArticles = {
+  'el',
+  'la',
+  'los',
+  'las',
+  'un',
+  'una',
+  'unos',
+  'unas',
+};
+
+/// Expresiones de tiempo que pueden ir **después** del nombre («Compré
+/// fungicida demo hoy»).
+const _trailingTime = <List<String>>[
+  ['esta', 'manana'],
+  ['esta', 'tarde'],
+  ['esta', 'noche'],
+  ['esta', 'semana'],
+  ['hoy'],
+  ['ayer'],
+  ['anteayer'],
+  ['antier'],
+  ['recien'],
+];
+
+/// Busca un producto dicho. Primero el nombre **tal como se oyó**; sólo si no
+/// coincide con uno del catálogo se prueba sin un artículo al principio («el
+/// fungicida demo») y/o sin una expresión de tiempo al final («fungicida demo
+/// hoy»), y eso vale **sólo** si entonces coincide **exactamente** con un
+/// único producto. Si no, queda lo de antes (pendiente o para elegir). Un
+/// nombre del catálogo que lleva esa palabra («El Tigre», «Fungicida Hoy»)
+/// gana siempre, porque se prueba primero. No se quita ninguna otra palabra.
+Resolution _resolveProduct(String heard, List<CatalogEntry> products) {
+  final full = resolveName(heard, products);
+  if (full.state == ResolutionState.resolved) return full;
+  final words = heard.split(' ').where((w) => w.isNotEmpty).toList();
+  final from = words.length > 1 && _leadingArticles.contains(words.first)
+      ? 1
+      : 0;
+  var to = words.length;
+  for (final time in _trailingTime) {
+    final at = words.length - time.length;
+    if (at > from && _sameWords(words.sublist(at), time)) {
+      to = at;
+      break;
+    }
+  }
+  for (final (a, b) in [(from, words.length), (0, to), (from, to)]) {
+    if (a == 0 && b == words.length) continue;
+    if (b <= a) continue;
+    final trimmed = resolveName(words.sublist(a, b).join(' '), products);
+    if (trimmed.state == ResolutionState.resolved) return trimmed;
+  }
+  return full;
+}
+
+bool _sameWords(List<String> a, List<String> b) {
+  if (a.length != b.length) return false;
+  for (var i = 0; i < a.length; i++) {
+    if (a[i] != b[i]) return false;
+  }
+  return true;
+}
+
 /// Un producto dicho **sin cantidad**, con o sin «compré» y con o sin precio
 /// («compré herbicida demo», «compré insecticida demo a cuarenta bolivianos
 /// el litro», «Insecticida DEMO, 40 bolivianos el litro»). POCO 2026-11-09:
@@ -594,18 +860,20 @@ _productMention(
   List<String> words,
   VoiceCatalog catalog,
 ) {
-  var start = 0;
+  var start = _afterPurchaseVerb(words) ?? 0;
   while (start < words.length && _purchaseLead.contains(words[start])) {
     start++;
   }
   final lead = start > 0;
-  // El precio empieza en un conector o en una cifra seguida de moneda; lo
-  // anterior es el nombre (como en [_scan]).
+  // El precio empieza en un conector, en una cifra seguida de moneda o en
+  // «en / con / para un total de»; lo anterior es el nombre (como en
+  // [_scan]).
   var j = start;
   while (j < words.length &&
       !_priceConnectors.contains(words[j]) &&
       words[j] != 'precio' &&
-      !_numberThenCurrency(words, j)) {
+      !_numberThenCurrency(words, j) &&
+      _totalIntroEnd(words, j) == null) {
     j++;
   }
   var nameEnd = j;
@@ -615,8 +883,16 @@ _productMention(
   }
   if (nameEnd <= start) return null;
   final name = words.sublist(start, nameEnd).join(' ');
-  final clause = j < words.length ? _readClause(words, j) : null;
-  final product = entryField(resolveName(name, catalog.products), 'producto');
+  final totalIntro = _totalIntroEnd(words, j);
+  final clause = j >= words.length
+      ? null
+      : totalIntro != null
+      ? _readClause(words, totalIntro, totalSaidBefore: true)
+      : _readClause(words, j);
+  final product = entryField(
+    _resolveProduct(name, catalog.products),
+    'producto',
+  );
   final said = clause == null ? '«$name»' : '«$name» con «${clause.heard}»';
   const none = VoicePatchOutcome();
 
@@ -1049,7 +1325,9 @@ _PriceClause? _readClause(
   bool totalSaidBefore = false,
 }) {
   var k = at;
-  var connector = false;
+  // «en / con / para un total de cien bolivianos» (F09, 2026-11-10): el
+  // «total» dicho antes de la cifra la anuncia tanto como «a» o «por».
+  var connector = totalSaidBefore;
   var totalLead = totalSaidBefore;
   if (k < words.length && _priceConnectors.contains(words[k])) {
     connector = true;
@@ -1183,6 +1461,20 @@ int? _totalLeadEnd(List<String> words, int k) {
   t++;
   if (t < words.length && const {'de', 'del'}.contains(words[t])) t++;
   return t;
+}
+
+/// «en / con / para (un|el) [monto|importe] total [de]» + cifra desde [j]: la
+/// posición de la cifra; si no, `null`. Sólo con «total» y una cifra
+/// detrás: «para el chaco», «con el proveedor» o «en la campaña» no cambian.
+/// («por un total de» ya lo lee [_readClause] como conector.)
+int? _totalIntroEnd(List<String> words, int j) {
+  if (j >= words.length || !const {'en', 'con', 'para'}.contains(words[j])) {
+    return null;
+  }
+  final end = _totalLeadEnd(words, j + 1);
+  if (end == null) return null;
+  final n = readNumberAt(words, end);
+  return n != null && n.end > end ? end : null;
 }
 
 /// ¿Puede [w] ser una palabra que no se entendió entre la cifra y la unidad
@@ -1578,6 +1870,7 @@ _Heard _scan(List<String> words, List<CatalogEntry> products) {
       // Una cifra seguida de moneda empieza el precio, aunque no se haya
       // oído la «a» (POCO 2026-11-08). Una cifra sin moneda es del nombre.
       if (_numberThenCurrency(words, j)) break;
+      if (_totalIntroEnd(words, j) != null) break;
       j++;
     }
     var nameEnd = j;
@@ -1585,7 +1878,10 @@ _Heard _scan(List<String> words, List<CatalogEntry> products) {
     // Precio.
     _PriceClause? clause;
     final pause = j < words.length && words[j] == ',' ? j + 1 : j;
-    if (pause < words.length &&
+    final totalIntro = _totalIntroEnd(words, pause);
+    if (totalIntro != null) {
+      clause = _readClause(words, totalIntro, totalSaidBefore: true);
+    } else if (pause < words.length &&
         (_priceConnectors.contains(words[pause]) || words[pause] == 'precio')) {
       if (pause == j && words[j] == 'precio') {
         // «… Bellator con el precio de …»: el artículo no es del nombre.
@@ -1713,7 +2009,7 @@ _PriceClause? _followingClause(List<String> words, int from) {
   if (p >= words.length) return null;
   // «en total cien bolivianos», «un total de cien bolivianos».
   var t = p;
-  if (t < words.length && words[t] == 'en') t++;
+  if (t < words.length && const {'en', 'para'}.contains(words[t])) t++;
   final afterTotal = _totalLeadEnd(words, t);
   if (afterTotal != null && _numberThenCurrency(words, afterTotal)) {
     return _readClause(words, afterTotal, totalSaidBefore: true);
