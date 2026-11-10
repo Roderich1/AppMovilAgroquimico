@@ -118,12 +118,12 @@ class _VoicePurchaseDraftScreenState
   }
 
   /// Pista de vocabulario para el modelo de revisión. En el experimento de un
-  /// solo transcriptor lleva además los términos del dominio (unidades,
-  /// monedas, familias de producto), medidos antes como «nunca peor» (CTX);
-  /// nunca cantidades ni precios. En la ruta de siempre, sólo el catálogo.
+  /// solo transcriptor, la pista breve de la compra ([voicePurchaseTurnHints]:
+  /// productos, unidades, monedas y expresiones de precio; 2026-11-10). Nunca
+  /// cantidades ni precios. En la ruta de siempre, sólo el catálogo.
   List<String> _hintsFor(VoiceCatalog catalog) =>
       VoiceExperiment.instance.singleTranscriberTurnActive
-      ? voiceDomainContextHints(catalog)
+      ? voicePurchaseTurnHints(catalog)
       : voiceVocabularyHints(catalog);
 
   Future<void> _load() async {

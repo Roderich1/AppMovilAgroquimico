@@ -31,6 +31,7 @@ final class WholeTurnTranscriptionAdapter implements SpeechTranscriptionPort {
     MethodChannel? method,
     EventChannel? event,
     String? variant,
+    WholeTurnDecoding? decoding,
     this.maxCapture = defaultMaxCapture,
     this.transcriptionTimeout = defaultTranscriptionTimeout,
   }) : _method =
@@ -41,7 +42,8 @@ final class WholeTurnTranscriptionAdapter implements SpeechTranscriptionPort {
        _event =
            event ??
            const EventChannel(LocalSpeechTranscriptionAdapter.eventChannelName),
-       _fixedVariant = variant {
+       _fixedVariant = variant,
+       _fixedDecoding = decoding {
     _lease = NativeEventHub.attach(
       _event,
       onEvent: _onNativeEvent,
@@ -67,6 +69,15 @@ final class WholeTurnTranscriptionAdapter implements SpeechTranscriptionPort {
 
   final Duration maxCapture;
   final Duration transcriptionTimeout;
+
+  /// Caracteres máximos de la pista del turno entero.
+  static const maxHintChars = 400;
+
+  /// Decodificación del próximo turno: la fijada al crear el puerto (pruebas)
+  /// o la de [VoiceExperiment.turnDecoding].
+  WholeTurnDecoding get decoding =>
+      _fixedDecoding ?? VoiceExperiment.instance.turnDecoding;
+  final WholeTurnDecoding? _fixedDecoding;
   final MethodChannel _method;
   final EventChannel _event;
 
@@ -183,8 +194,15 @@ final class WholeTurnTranscriptionAdapter implements SpeechTranscriptionPort {
         'gen': generation,
         'mode': 'whole',
         'variant': _variantInUse,
-        // La misma pista que la ruta por frases, con el mismo tope.
-        'hints': LocalSpeechTranscriptionAdapter.hintText(request.hints),
+        // Tope de la pista por debajo de los 223 tokens que whisper.cpp
+        // admite (n_text_ctx / 2 − 1); más allá recorta el principio en
+        // silencio. ~2,4 caracteres por token con nombres de productos
+        // (medido en HOST, 2026-11-10): 400 caracteres ≈ 170 tokens.
+        'hints': LocalSpeechTranscriptionAdapter.hintText(
+          request.hints,
+          maxChars: maxHintChars,
+        ),
+        'beamSize': decoding.beamSize,
         'review': false,
         'turnMaxMs': maxCapture.inMilliseconds,
         'turnTimeoutMs': transcriptionTimeout.inMilliseconds,
@@ -367,10 +385,20 @@ final class WholeTurnTranscriptionAdapter implements SpeechTranscriptionPort {
       loadMs: asInt(info['loadMs']),
       inferenceMs: asInt(info['inferenceMs']),
       closedBy: info['closedBy'] as String? ?? '-',
+      beamSize: (info['beamSize'] as num?)?.round() ?? 1,
+      leadingQuietMs: _quiet(info['leadingQuietMs']),
+      trailingQuietMs: _quiet(info['trailingQuietMs']),
+      droppedMs: asInt(info['droppedMs']),
     );
     VoiceExperiment.instance.noteTurn(metric);
     // Sólo códigos y tiempos; nunca el texto.
     AppLog.info(metric.logLine);
+  }
+
+  /// `-1` del motor (sin voz detectada) → `null`.
+  static int? _quiet(Object? v) {
+    final n = (v as num?)?.round();
+    return n == null || n < 0 ? null : n;
   }
 
   void _failTurn(TranscriptionErrorCode code, String? detail) {

@@ -357,6 +357,8 @@ class LocalVoiceEngine(
         variant: String? = null,
         turnMaxMs: Long = DEFAULT_TURN_MAX_MS,
         turnTimeoutMs: Long = DEFAULT_TURN_TIMEOUT_MS,
+        /** Ancho del haz del turno entero: 1 = voraz (como antes). */
+        beamSize: Int = 1,
     ) {
         if (turn != null) {
             listener.onError(gen, "busy", "turn-already-open")
@@ -367,6 +369,7 @@ class LocalVoiceEngine(
                 gen, hints?.takeIf { it.isNotBlank() }, variant,
                 turnMaxMs.coerceIn(MIN_TURN_MAX_MS, MAX_TURN_MAX_MS),
                 turnTimeoutMs.coerceIn(MIN_REVIEW_TIMEOUT_MS, MAX_TURN_TIMEOUT_MS),
+                beamSize.coerceIn(1, MAX_BEAM_SIZE),
             )
             turn = whole
             control.execute {
@@ -895,6 +898,7 @@ class LocalVoiceEngine(
         val variant: String?,
         val maxMs: Long,
         val timeoutMs: Long,
+        val beamSize: Int,
     ) : ActiveTurn {
         @Volatile override var cancelled = false
         @Volatile private var capturing = true
@@ -984,6 +988,7 @@ class LocalVoiceEngine(
                 put("closedBy", endReason)
                 put("droppedMs", dropped * 100)
                 put("variant", variant ?: models.whisperVariant)
+                put("beamSize", beamSize)
             }
             val wanted = variant ?: models.whisperVariant
             val wasLoaded = whisper != 0L && whisperVariant == wanted
@@ -1025,7 +1030,11 @@ class LocalVoiceEngine(
             val noSpeech = FloatArray(1)
             val started = SystemClock.elapsedRealtime()
             val text = try {
-                WhisperNative.transcribe(whisper, samples, hints, threads(), noSpeech)
+                if (beamSize > 1) {
+                    WhisperNative.transcribeWith(whisper, samples, hints, threads(), noSpeech, beamSize)
+                } else {
+                    WhisperNative.transcribe(whisper, samples, hints, threads(), noSpeech)
+                }
             } catch (_: Throwable) {
                 null
             } finally {
@@ -1197,6 +1206,8 @@ class LocalVoiceEngine(
         private const val MIN_TURN_MAX_MS = 1_000L
         private const val MAX_TURN_MAX_MS = 30_000L
         const val DEFAULT_TURN_TIMEOUT_MS = 45_000L
+        /** Haz máximo admitido (whisper.cpp acepta más; no hace falta). */
+        private const val MAX_BEAM_SIZE = 8
         private const val MAX_TURN_TIMEOUT_MS = 120_000L
         private val END = ShortArray(0)
 

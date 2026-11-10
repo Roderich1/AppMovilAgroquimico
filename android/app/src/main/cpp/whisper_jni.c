@@ -60,11 +60,9 @@ Java_com_comunidad_agro_agroquimicos_WhisperNative_abort(JNIEnv *env, jobject th
 /// `prompt` es la pista de vocabulario (nombres del catálogo); puede ser
 /// nula. Devuelve el texto, o NULL si falló o se abortó. `out_no_speech[0]`
 /// recibe la mayor probabilidad de «sin habla» de los segmentos.
-JNIEXPORT jstring JNICALL
-Java_com_comunidad_agro_agroquimicos_WhisperNative_transcribe(
-        JNIEnv *env, jobject thiz, jlong ptr, jfloatArray audio, jstring prompt,
-        jint threads, jfloatArray out_no_speech) {
-    (void) thiz;
+static jstring transcribe_impl(
+        JNIEnv *env, jlong ptr, jfloatArray audio, jstring prompt,
+        jint threads, jfloatArray out_no_speech, jint beam_size) {
     struct whisper_context *ctx = (struct whisper_context *) ptr;
     if (ctx == NULL) return NULL;
     atomic_store(&g_abort, false);
@@ -73,7 +71,13 @@ Java_com_comunidad_agro_agroquimicos_WhisperNative_transcribe(
     const jsize length = (*env)->GetArrayLength(env, audio);
     const char *hint = prompt == NULL ? NULL : (*env)->GetStringUTFChars(env, prompt, NULL);
 
-    struct whisper_full_params p = whisper_full_default_params(WHISPER_SAMPLING_GREEDY);
+    // beam_size <= 1: voraz (la revisión por frases y la configuración
+    // anterior del turno entero). > 1: búsqueda en haz con ese ancho, a
+    // temperatura 0 y sin reintentos (F09, 2026-11-10).
+    const bool beam = beam_size > 1;
+    struct whisper_full_params p = whisper_full_default_params(
+            beam ? WHISPER_SAMPLING_BEAM_SEARCH : WHISPER_SAMPLING_GREEDY);
+    if (beam) p.beam_search.beam_size = beam_size;
     p.print_realtime = false;
     p.print_progress = false;
     p.print_timestamps = false;
@@ -88,7 +92,10 @@ Java_com_comunidad_agro_agroquimicos_WhisperNative_transcribe(
     p.suppress_blank = true;
     p.suppress_nst = true;        // sin [MÚSICA], (risas) ni símbolos
     p.temperature = 0.0f;
-    p.temperature_inc = 0.0f;     // sin reintentos a mayor temperatura
+    // Sin reintentos a mayor temperatura: con una sola temperatura, los
+    // umbrales entropy_thold / logprob_thold / no_speech_thold no disparan
+    // otra pasada (whisper.cpp 52a939a, whisper_full_with_state).
+    p.temperature_inc = 0.0f;
     p.initial_prompt = hint;
     p.abort_callback = should_abort;
     p.abort_callback_user_data = NULL;
@@ -114,4 +121,23 @@ Java_com_comunidad_agro_agroquimicos_WhisperNative_transcribe(
     jstring result = (*env)->NewStringUTF(env, text);
     free(text);
     return result;
+}
+
+/// Voraz (beam_size 1): la firma de siempre, sin cambios para la revisión
+/// por frases.
+JNIEXPORT jstring JNICALL
+Java_com_comunidad_agro_agroquimicos_WhisperNative_transcribe(
+        JNIEnv *env, jobject thiz, jlong ptr, jfloatArray audio, jstring prompt,
+        jint threads, jfloatArray out_no_speech) {
+    (void) thiz;
+    return transcribe_impl(env, ptr, audio, prompt, threads, out_no_speech, 1);
+}
+
+/// Igual que `transcribe`, con el ancho del haz explícito (1 = voraz).
+JNIEXPORT jstring JNICALL
+Java_com_comunidad_agro_agroquimicos_WhisperNative_transcribeWith(
+        JNIEnv *env, jobject thiz, jlong ptr, jfloatArray audio, jstring prompt,
+        jint threads, jfloatArray out_no_speech, jint beam_size) {
+    (void) thiz;
+    return transcribe_impl(env, ptr, audio, prompt, threads, out_no_speech, beam_size);
 }

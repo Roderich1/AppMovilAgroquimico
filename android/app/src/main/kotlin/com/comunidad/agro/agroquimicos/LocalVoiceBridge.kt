@@ -48,9 +48,11 @@ class LocalVoiceBridge(
         val variant: String?,
         val turnMaxMs: Long,
         val turnTimeoutMs: Long,
+        val beamSize: Int,
     ) {
         fun startOn(engine: LocalVoiceEngine) = engine.start(
             gen, hints, review, reviewTimeoutMs, compare, mode, variant, turnMaxMs, turnTimeoutMs,
+            beamSize,
         )
     }
 
@@ -99,8 +101,11 @@ class LocalVoiceBridge(
                     ?: LocalVoiceEngine.DEFAULT_TURN_MAX_MS
                 val turnTimeoutMs = call.argument<Number>("turnTimeoutMs")?.toLong()
                     ?: LocalVoiceEngine.DEFAULT_TURN_TIMEOUT_MS
+                // Ancho del haz del turno entero (F09, 2026-11-10); 1 = voraz.
+                val beamSize = call.argument<Number>("beamSize")?.toInt() ?: 1
                 val pending = PendingStart(
                     gen, hints, review, reviewTimeoutMs, compare, mode, variant, turnMaxMs, turnTimeoutMs,
+                    beamSize,
                 )
                 if (hasMicPermission()) {
                     pending.startOn(engine)

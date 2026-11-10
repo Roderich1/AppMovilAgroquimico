@@ -29,4 +29,18 @@ object WhisperNative {
         threads: Int,
         outNoSpeech: FloatArray,
     ): String?
+
+    /**
+     * Como [transcribe], con el ancho del haz: 1 = voraz (igual que
+     * [transcribe]); > 1 = búsqueda en haz a temperatura 0, sin reintentos.
+     * Sólo la usa el turno entero (F09, 2026-11-10).
+     */
+    external fun transcribeWith(
+        context: Long,
+        audio: FloatArray,
+        prompt: String?,
+        threads: Int,
+        outNoSpeech: FloatArray,
+        beamSize: Int,
+    ): String?
 }

@@ -487,4 +487,104 @@ void main() {
     experiment.clearTurnMetrics();
     expect(experiment.turnMetrics, isEmpty);
   });
+
+  group('small con haz de 5 (F09, 2026-11-10)', () {
+    tearDown(
+      () => VoiceExperiment.instance.turnDecoding =
+          VoiceExperiment.defaultTurnDecoding,
+    );
+
+    test('por defecto: small y haz de 5; la anterior (voraz) sigue '
+        'disponible para volver atrás', () {
+      expect(VoiceExperiment.defaultTurnVariant, 'small');
+      expect(VoiceExperiment.defaultTurnDecoding, WholeTurnDecoding.beam5);
+      expect(WholeTurnDecoding.beam5.beamSize, 5);
+      expect(WholeTurnDecoding.greedy.beamSize, 1);
+    });
+
+    test('el motor recibe el ancho del haz elegido', () async {
+      VoiceExperiment.instance.turnVariant = 'small';
+      VoiceExperiment.instance.turnDecoding = WholeTurnDecoding.beam5;
+      await build().start(request);
+      expect(startArgs()['beamSize'], 5);
+      expect(startArgs()['variant'], 'small');
+
+      VoiceExperiment.instance.turnDecoding = WholeTurnDecoding.greedy;
+      await build().start(request);
+      expect(startArgs()['beamSize'], 1);
+    });
+
+    test('la pista del turno entero tiene tope de 400 caracteres (menos de '
+        '223 tokens) y no arrastra nada del turno anterior', () async {
+      final many = [for (var i = 0; i < 80; i++) 'Producto sintético $i'];
+      final adapter = build();
+      await adapter.start(
+        TranscriptionRequest(
+          locale: 'es-US',
+          maxTurnDuration: const Duration(minutes: 5),
+          hints: many,
+        ),
+      );
+      final hint = startArgs()['hints'] as String;
+      expect(hint.length, lessThanOrEqualTo(401));
+      expect(hint, startsWith('Producto sintético 0, '));
+      native({'type': 'ended', 'gen': gen(), 'reason': 'stoppedByUser'});
+      await Future<void>.delayed(Duration.zero);
+      await adapter.start(request);
+      expect(
+        startArgs(1)['hints'],
+        'Fungicida DEMO, Agroinsumos DEMO (sintético), bolivianos.',
+      );
+    });
+
+    test('la métrica dice el haz, el silencio al principio y al final y el '
+        'audio perdido; sin texto', () async {
+      final adapter = build();
+      await adapter.start(request);
+      await adapter.stop();
+      native({
+        'type': 'turnText',
+        'gen': gen(),
+        'text': 'compré fungicida demo',
+        'ms': 9000,
+        'outcome': 'ok',
+        'info': {
+          ...info(variant: 'small'),
+          'beamSize': 5,
+          'leadingQuietMs': 350,
+          'trailingQuietMs': 1200,
+          'droppedMs': 0,
+        },
+      });
+      native({'type': 'ended', 'gen': gen(), 'reason': 'stoppedByUser'});
+      await Future<void>.delayed(Duration.zero);
+      final m = VoiceExperiment.instance.turnMetrics.last;
+      expect(m.beamSize, 5);
+      expect(m.leadingQuietMs, 350);
+      expect(m.trailingQuietMs, 1200);
+      expect(m.logLine, contains('haz=5'));
+      expect(m.logLine, contains('silencioFin=1200ms'));
+      expect(m.logLine, contains('perdido=0ms'));
+      expect(m.logLine, isNot(contains('fungicida')));
+    });
+
+    test('sin voz detectada (-1 del motor) el silencio queda «-»', () async {
+      final adapter = build();
+      await adapter.start(request);
+      await adapter.stop();
+      native({
+        'type': 'turnText',
+        'gen': gen(),
+        'text': '',
+        'ms': 100,
+        'outcome': 'ok',
+        'info': {...info(), 'leadingQuietMs': -1, 'trailingQuietMs': -1},
+      });
+      native({'type': 'ended', 'gen': gen(), 'reason': 'stoppedByUser'});
+      await Future<void>.delayed(Duration.zero);
+      final m = VoiceExperiment.instance.turnMetrics.last;
+      expect(m.leadingQuietMs, isNull);
+      expect(m.logLine, contains('silencioInicio=-ms'));
+    });
+  });
 }

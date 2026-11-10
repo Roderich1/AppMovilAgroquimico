@@ -114,6 +114,16 @@ class _VoiceSingleTranscriberPanelState
                         setState(() => experiment.turnVariant = selected.first)
                   : null,
             ),
+            const SizedBox(height: 4),
+            Text(
+              experiment.turnDecoding == WholeTurnDecoding.greedy
+                  ? 'Decodificación: voraz (temperatura 0, sin reintentos).'
+                  : 'Decodificación: haz de '
+                        '${experiment.turnDecoding.beamSize} (temperatura 0, '
+                        'sin reintentos).',
+              key: const Key('voz-experimento-decodificacion'),
+              style: theme.textTheme.bodySmall,
+            ),
             const SizedBox(height: 8),
             Row(
               children: [

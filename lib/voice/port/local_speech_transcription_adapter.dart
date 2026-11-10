@@ -373,10 +373,10 @@ final class LocalSpeechTranscriptionAdapter implements SpeechTranscriptionPort {
   /// Pista de vocabulario para el modelo de revisión: nombres separados por
   /// coma, con tope de 600 caracteres. La comparte el puerto de un solo
   /// transcriptor para que las dos rutas manden la misma pista.
-  static String hintText(List<String> hints) {
+  static String hintText(List<String> hints, {int maxChars = 600}) {
     final out = StringBuffer();
     for (final hint in hints.map((h) => h.trim()).where((h) => h.isNotEmpty)) {
-      if (out.length + hint.length + 2 > 600) break;
+      if (out.length + hint.length + 2 > maxChars) break;
       if (out.isNotEmpty) out.write(', ');
       out.write(hint);
     }

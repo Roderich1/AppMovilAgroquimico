@@ -64,6 +64,41 @@ List<String> voiceDomainContextHints(VoiceCatalog catalog) {
   ];
 }
 
+/// Pista del **turno entero** de la compra (F09, 2026-11-10): vocabulario
+/// breve y pertinente, en este orden:
+///
+/// 1. los productos del catálogo de **esta** cuenta (sólo nombres);
+/// 2. las unidades de esos productos (litro / kilo);
+/// 3. las monedas que la app admite (bolivianos, dólares);
+/// 4. expresiones de precio unitario y total («por litro», «el litro», «en
+///    total», «por un total de»).
+///
+/// Sin cantidades, precios, frases de casos, proveedores, personas, chacos
+/// ni nada de un dictado anterior. Cada producto aparece una vez: la pista
+/// orienta, no elige; el intérprete sigue sin aproximar nombres.
+List<String> voicePurchaseTurnHints(VoiceCatalog catalog) {
+  final units = {for (final p in catalog.products) p.unit}
+      .whereType<CatalogUnit>();
+  final hasLiter = units.contains(CatalogUnit.liter);
+  final hasKilo = units.contains(CatalogUnit.kilogram);
+  final seen = <String>{};
+  return [
+    for (final term in [
+      for (final p in catalog.products) p.name,
+      if (hasLiter) ...['litro', 'litros'],
+      if (hasKilo) ...['kilo', 'kilos'],
+      'bolivianos',
+      'dólares',
+      if (hasLiter) ...['por litro', 'el litro'],
+      if (hasKilo) ...['por kilo', 'el kilo'],
+      'en total',
+      'por un total de',
+    ])
+      if (term.trim().isNotEmpty && seen.add(term.trim().toLowerCase()))
+        term.trim(),
+  ];
+}
+
 class VoiceSegmentFeed {
   String _consumed = '';
 

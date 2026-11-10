@@ -226,7 +226,20 @@ final class VoiceExperiment {
 
   /// Variante del modelo de revisión del próximo turno entero (`base` o
   /// `small`). Un solo modelo por turno; nunca se combinan resultados.
-  String turnVariant = singleTranscriberVariants.first;
+  ///
+  /// **small** desde el 2026-11-10, por decisión del autor (prioridad de
+  /// precisión sobre la espera; no es una superioridad demostrada). base
+  /// sigue empaquetado y elegible para volver atrás.
+  String turnVariant = defaultTurnVariant;
+
+  static const defaultTurnVariant = 'small';
+
+  /// Decodificación del turno entero. Desde el 2026-11-10, haz de 5 a
+  /// temperatura 0 y sin reintentos; la anterior ([WholeTurnDecoding.greedy])
+  /// queda para volver atrás.
+  WholeTurnDecoding turnDecoding = defaultTurnDecoding;
+
+  static const defaultTurnDecoding = WholeTurnDecoding.beam5;
 
   /// Variantes que se pueden elegir (las que empaqueta
   /// `fetch_voice_models.sh both`).
@@ -255,6 +268,20 @@ final class VoiceExperiment {
   }
 }
 
+/// Cómo decodifica Whisper el turno entero. Idioma `es`, sin traducción,
+/// temperatura 0 y sin reintentos en las dos; sólo cambia el ancho del haz.
+enum WholeTurnDecoding {
+  /// Voraz: lo que se usó hasta el 2026-11-10 (y la revisión por frases).
+  greedy(1, 'voraz'),
+
+  /// Búsqueda en haz de ancho 5.
+  beam5(5, 'haz5');
+
+  const WholeTurnDecoding(this.beamSize, this.code);
+  final int beamSize;
+  final String code;
+}
+
 /// Métrica de un turno entero (experimento de un solo transcriptor): qué
 /// modelo corrió, cómo terminó y cuánto tardó. Sin texto ni audio.
 final class SingleTranscriberTurnMetric {
@@ -270,7 +297,23 @@ final class SingleTranscriberTurnMetric {
     required this.loadMs,
     required this.inferenceMs,
     required this.closedBy,
+    this.beamSize = 1,
+    this.leadingQuietMs,
+    this.trailingQuietMs,
+    this.droppedMs = 0,
   });
+
+  /// Ancho del haz con que se decodificó (1 = voraz), según el motor.
+  final int beamSize;
+
+  /// Silencio antes de la primera voz y después de la última, en el audio
+  /// capturado (`null` si no se detectó voz). Un final cerca de 0 al pulsar
+  /// «Terminar» indicaría que la última sílaba pudo quedar cortada.
+  final int? leadingQuietMs;
+  final int? trailingQuietMs;
+
+  /// Audio que se perdió por la cola llena (debería ser 0).
+  final int droppedMs;
 
   final int turn;
 
@@ -300,7 +343,9 @@ final class SingleTranscriberTurnMetric {
       'resultado=${_safe(outcome)} texto=${hadText ? 'si' : 'no'} '
       'audio=${audioMs}ms habla=${speechMs}ms '
       'nivelHabla=${speechDbfs == null ? '-' : '${speechDbfs}dBFS'} '
-      'carga=${loadMs}ms inferencia=${inferenceMs}ms cierre=${_safe(closedBy)}';
+      'carga=${loadMs}ms inferencia=${inferenceMs}ms cierre=${_safe(closedBy)} '
+      'haz=$beamSize silencioInicio=${leadingQuietMs ?? '-'}ms '
+      'silencioFin=${trailingQuietMs ?? '-'}ms perdido=${droppedMs}ms';
 
   static String _safe(String value) =>
       RegExp(r'^[a-zA-Z0-9_.-]+$').hasMatch(value) ? value : '-';
