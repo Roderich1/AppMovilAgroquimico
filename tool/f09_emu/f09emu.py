@@ -1,6 +1,7 @@
 """Ayudante de tool/f09_emu/f09emu.sh (F09, emulador). Sólo lectura.
 
   python -I -X utf8 f09emu.py ui <paquete>            < volcado-uiautomator.xml
+  python -I -X utf8 f09emu.py estado <paquete>        < volcado-uiautomator.xml
   python -I -X utf8 f09emu.py find <paquete> <regex>  < volcado-uiautomator.xml
   python -I -X utf8 f09emu.py has <paquete> <regex>   < volcado-uiautomator.xml
   python -I -X utf8 f09emu.py db <copia.db>
@@ -10,6 +11,14 @@ nunca se eligen para tocar. Sólo se consideran los nodos del paquete indicado
 (o del diálogo de permisos del sistema, cuando se pide explícitamente con el
 paquete «permisos»). La consulta de la base abre la COPIA en modo de sólo
 lectura y no imprime transcripciones ni campos de la evidencia: sólo cuentas.
+
+Pantallas de voz: `estado` imprime SÓLO lo que está en una lista blanca
+(estado y configuración del motor, etiquetas fijas de campo, fichas de estado,
+valores numéricos, elección de catálogo y botones conocidos); lo demás se
+cuenta como omitido. `ui` cambia solo a `estado` si reconoce una pantalla de
+voz, de modo que lo reconocido («Lo último que se oyó», «Oído: …», frases del
+borrador) no sale nunca por la herramienta. Autoprueba:
+`python -I -X utf8 tool/f09_emu/test_f09emu_privacidad.py`.
 """
 
 import re
@@ -55,8 +64,13 @@ def _label(node):
 
 
 def ui(package):
+    nodes = list(_nodes(package))
+    if is_voice_screen(nodes):
+        print("(pantalla de voz: sólo la lista blanca)")
+        estado(package, nodes)
+        return
     shown = 0
-    for node in _nodes(package):
+    for node in nodes:
         label = _label(node)
         center = _center(node)
         if not label or center is None:
@@ -72,6 +86,138 @@ def ui(package):
         shown += 1
     if shown == 0:
         print(f"(sin elementos visibles de {package})")
+
+
+# --- Pantallas de voz: lista blanca -----------------------------------------
+# Marcas que identifican una pantalla de dictado (compra, plan o aplicación).
+VOICE_MARKERS = (
+    "Hablar. Abre el micrófono",
+    "Terminar. El micrófono",
+    "Lo último que se oyó",
+    "Reconocedor:",
+)
+# Nunca se imprime un elemento que contenga alguna de estas marcas, aunque
+# encaje en la lista blanca: son lo oído o lo transcrito.
+DENY = ("«", "»", "Oído", "oído", "Lo último que se oyó", "Aplicado al borrador")
+# Prefijos de líneas de estado y configuración (sin contenido dictado).
+ALLOWED_PREFIXES = (
+    "Estado: ",
+    "Reconocedor: ",
+    "Revisión de cada frase: ",
+    "Idioma: ",
+    "Funciona sin conexión",
+    "Modo avión: ",
+    "Total: ",
+)
+# Etiquetas fijas de la interfaz (texto exacto).
+ALLOWED_EXACT = {
+    "Hablar", "Terminar", "Micrófono abierto", "Borrador", "Campaña",
+    "Moneda", "Proveedor", "Recibe la compra", "Total de la línea", "BOB",
+    "USD", "Cancelar", "Registrar compra", "Registrar plan",
+    "Registrar aplicación", "Añadir producto", "Añadir otro producto",
+    "Quitar este producto", "Usar el formulario manual", "Volver",
+    "Sí, pagué todo", "No, todavía no", "¿Ya pagaste al proveedor?",
+    "Para registrar falta:", "Hablar. Abre el micrófono.",
+    "Terminar. El micrófono está escuchando.",
+    "Cancelar este turno (descarta el audio)",
+    "No cambió el borrador: no se reconoció nada que completar.",
+    "No hay una campaña activa.", "Falta el proveedor.",
+    "Elige una opción para poder confirmar.",
+    # Fichas de estado de un campo.
+    "Dictado", "Falta", "Confirmado", "Propuesto", "Corregido a mano",
+    "Ambiguo: elija", "Revisar", "Sin seleccionar",
+}
+ALLOWED_PATTERNS = (
+    re.compile(r"^Producto \d+$"),
+    # Ficha de estado de un campo: «<campo>: <estado>», ambos de listas fijas.
+    re.compile(
+        r"^(Producto|Cantidad|Moneda|Proveedor|Campaña|Recibe la compra|"
+        r"Tipo de cambio|Precio por [^:«»]{1,8}|Total de la línea)"
+        r"( \([^:«»]{1,12}\))?: "
+        r"(Dictado|Falta|Confirmado|Propuesto|Corregido a mano|Ambiguo: elija|"
+        r"Revisar|Por revisar)$"
+    ),
+    re.compile(r"^Cantidad( \([^«»]{1,12}\))?$"),
+    re.compile(r"^Precio por [^«»]{1,12}$"),
+    re.compile(r"^Por [^«»]{1,12}$"),
+    re.compile(r"^• [^«»]{1,80}\.$"),
+    # Selector: «<elemento del catálogo>, <campo>…» (catálogo, no lo dictado).
+    re.compile(r"^(?P<valor>[^«»\n]{1,60}), (?P<campo>Producto|Proveedor|Recibe la compra)\n"),
+)
+NUMERIC = re.compile(r"^[0-9]+([.,][0-9]+)?$")
+
+
+def is_voice_screen(nodes):
+    return any(
+        marker in (n.get("text") or "") + (n.get("content-desc") or "")
+        for n in nodes
+        for marker in VOICE_MARKERS
+    )
+
+
+def _allowed_value(value):
+    """Un texto (una línea o un selector) si está en la lista blanca, o None."""
+    if not value or any(d in value for d in DENY):
+        return None
+    if value in ALLOWED_EXACT or value.startswith(ALLOWED_PREFIXES):
+        return value
+    for rx in ALLOWED_PATTERNS:
+        m = rx.match(value)
+        if m:
+            if "campo" in m.groupdict():
+                return f"{m.group('campo')}: {m.group('valor')}"
+            return value
+    return None
+
+
+def allowed_label(node):
+    """Lo que se puede imprimir de un nodo de una pantalla de voz, o None.
+
+    Un elemento de varias líneas se evalúa línea a línea: sólo salen las
+    líneas permitidas (las demás, incluida cualquier línea con lo oído, no).
+    """
+    if node.get("password") == "true":
+        return None
+    for raw in (node.get("text") or "", node.get("content-desc") or ""):
+        value = raw.strip()
+        if not value:
+            continue
+        if node.get("class", "").endswith("EditText"):
+            if NUMERIC.match(value) and not any(d in value for d in DENY):
+                return f"[campo numérico] {value}"
+            continue
+        whole = _allowed_value(value)
+        if whole is not None:
+            return whole
+        if "\n" in value:
+            lines = [_allowed_value(l.strip()) for l in value.split("\n")]
+            kept = [l for l in lines if l]
+            if kept:
+                return " / ".join(kept) + (
+                    f"  [{len(lines) - len(kept)} líneas omitidas]"
+                    if len(kept) < len(lines) else ""
+                )
+    return None
+
+
+def estado(package, nodes=None):
+    nodes = list(_nodes(package)) if nodes is None else nodes
+    omitted = 0
+    for node in nodes:
+        label = allowed_label(node)
+        has_content = (node.get("text") or "").strip() or (
+            node.get("content-desc") or ""
+        ).strip()
+        if label is None:
+            omitted += 1 if has_content else 0
+            continue
+        flags = []
+        if node.get("checked") == "true" or node.get("selected") == "true":
+            flags.append("marcado")
+        if node.get("enabled") == "false":
+            flags.append("deshabilitado")
+        print(label + (f"  [{', '.join(flags)}]" if flags else ""))
+    print(f"[{omitted} elementos omitidos por la lista blanca]")
 
 
 def find(package, pattern, tap=True):
@@ -127,6 +273,9 @@ def main(argv):
     mode = argv[1]
     if mode == "ui":
         ui(argv[2])
+        return 0
+    if mode == "estado":
+        estado(argv[2])
         return 0
     if mode == "find":
         return find(argv[2], argv[3])

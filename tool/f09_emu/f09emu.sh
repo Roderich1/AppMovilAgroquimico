@@ -17,6 +17,7 @@
 #   f09emu.sh ir voz|compra|plan|aplicacion   Operaciones → Más → Registrar por voz → opción
 #   f09emu.sh captura <nombre>       PNG en $F09_RUN/capturas (sólo con `.f09` en primer plano); imprime SHA-256
 #   f09emu.sh microfono              permiso, appops, entradas de audio activas y AVD (sólo lectura)
+#   f09emu.sh voz                    pantalla de voz sólo con la lista blanca (sin lo oído)
 #   f09emu.sh base                   cuentas de la base de `.f09` (copia temporal por run-as, sólo lectura)
 #   f09emu.sh sembrar [cuenta]       siembra local DEMO con el código F09 (app detenida; ver ENTORNO_EMULADOR_F09.md)
 #   f09emu.sh red on|off             Wi‑Fi y datos del EMULADOR entero (afecta a todas las apps)
@@ -152,6 +153,7 @@ PY
     ;;
   primer-plano) fg=$(foreground); echo "$fg"; [ "$fg" = "$PKG" ] ;;
   ui) guard; ui_dump | py ui "$PKG" ;;
+  voz) guard; ui_dump | py estado "$PKG" ;;
   tocar) tap "${1:?regex}" ;;
   permiso)
     rx=${1:?regex}
@@ -198,6 +200,11 @@ PY
     ;;
   captura)
     guard
+    # Privacidad: una captura de una pantalla de voz puede mostrar lo oído o lo
+    # transcrito; para esas pantallas se usa `estado` (lista blanca).
+    if has 'Hablar. Abre el micr|Terminar. El micr|Reconocedor:|Lo .ltimo que se oy'; then
+      echo "ABORTADO: captura bloqueada en una pantalla de voz (use «voz»)"; exit 1
+    fi
     mkdir -p "$RUN/capturas"; out="$RUN/capturas/${1:?nombre}.png"
     adb exec-out screencap -p > "$out"
     echo "$(sha256sum "$out" | awk '{print $1}')  $out"
