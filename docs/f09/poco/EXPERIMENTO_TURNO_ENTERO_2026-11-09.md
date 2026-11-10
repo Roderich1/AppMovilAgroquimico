@@ -219,6 +219,8 @@ Repetir las frases de viva voz **no es el mismo audio**: las diferencias pueden 
 | Líneas de más | **0** | **0** |
 | Correcciones de la línea (sin contar proveedor y «¿ya pagaste?»), R1–R5 | 11 (3 · 2 · 3 · 1 · 2) | 8 (1 · 1 · 3 · 2 · 1) |
 | R6: corrección | la línea entera a mano | la línea entera a mano |
+| Transcripción del turno | 2 585 – 3 123 ms (≈3 s) | 9 384 – 9 853 ms (≈10 s) |
+| «Terminar» → borrador | ≈3 s | ≈10 s (unas 3,3–3,8 veces más) |
 
 **Intervención por campo (R1–R5, 20 campos por modelo).** Una confirmación manual cuenta como intervención de la persona, no como reconocimiento correcto.
 
@@ -230,8 +232,6 @@ Repetir las frases de viva voz **no es el mismo audio**: las diferencias pueden 
 | **Ausente**: hay que elegir o escribir (Falta, o Ambiguo sin valor) | 6 — producto R1, R2, R3, R5; precio R3; moneda R3 | 3 — producto R3, R4; cantidad R3 |
 
 R6 (sólo producto esperado): en los dos modelos el borrador quedó **sin línea**; el producto quedó ausente.
-| Transcripción del turno | 2 585 – 3 123 ms (≈3 s) | 9 384 – 9 853 ms (≈10 s) |
-| «Terminar» → borrador | ≈3 s | ≈10 s (unas 3,3–3,8 veces más) |
 
 Lectura prudente:
 
@@ -276,6 +276,41 @@ Diagnóstico añadido, **sin texto** (sólo en compilaciones de diagnóstico): p
 ### 9.3 Validación (HOST)
 
 `flutter analyze` sin avisos; `test/voice`, `test/voice_draft` y `test/voice_evidence`: **748/748**. Suite completa de la app (`flutter test --timeout 120s`, 2026-11-10 08:31–08:34, código de `8afead0`): **2849 pasan, 3 omitidas, 0 fallan** (otras rutas de voz —aplicación, planificación, salida del borrador— incluidas). Un primer intento de la suite completa quedó detenido sin consumir CPU durante más de una hora y se canceló; al repetirlo con límite por prueba terminó sin fallos. Se actualizaron tres pruebas que fijaban el comportamiento anterior: el defecto anotado (ahora 100,00), el total sin cantidad (ahora conserva la cifra) y el texto exacto del aviso de total (ahora lleva la cifra).
+
+### 9.4 Ronda posterior a la corrección (APK `64d6c5a`, **sólo Whisper base**, POCO, 2026-11-10 08:40–09:22)
+
+**Otra versión y otra ronda**: no se suma a §7a ni a R1–R6. APK aislada `.f09w` compilada de `64d6c5a` (SHA-256 `cce5313da852f11208556a737ada507d92158ca313a16632a81b2efe28a2b035`, 347 558 137 B; mismos 174 archivos y mismos modelos que `e9b3d66`, sólo cambia `libapp.so`), instalada encima con `pm install -r` conservando datos; `.f09` sin tocar. Experimento encendido, **base** comprobado en el selector y en cada turno (`variante=base`). Con small no se hizo ninguna ronda con esta versión. Se conservan todos los intentos. 0 compras registradas.
+
+| Turno | Caso previsto | Palabras | Diagnóstico (`voz compra:`) | Producto | Cantidad | Precio | Moneda | Intervención necesaria | Habla / audio | Transcripción |
+|---|---|---|---|---|---|---|---|---|---|---|
+| 1 | — (no previsto) | 3 | compra; sin línea; `mencion=descartado` | — | — | — | — | — | 1,65 / 4,62 s | 2 866 ms |
+| 2 | **C1** precio unitario (Fungicida, 2 L, 50 Bs/L) | 15 | `unico/nueva`, `ok` | ✓ | ✓ 2 L | **✓ 50 Bs/L resuelto** | ✓ BOB | ninguna (total 100,00) | 5,15 / 10,36 s | 2 691 ms |
+| 3 | **C2** total, intento 1 (Fungicida, 2 L, «por un total de» 100) | 11 | intención **none**; `medidas=0`; `precios-sueltos=0`; `sin-verbo-aviso` | ausente (aviso) | ausente | ausente | ausente | la línea entera | 4,70 / 8,24 s | 2 809 ms |
+| 4 | **C2** total, intento 2 | 14 | `unico/nueva`, `ok`; `precios-sueltos=0` | ✓ | ✓ 2 L | **ausente** | **ausente** | escribir el precio, elegir la moneda | 6,00 / 15,18 s | 2 814 ms |
+| 5 | — (no coincide con C3) | 12 | `sin-nombre/nueva` | ausente | dictada | ausente | ausente | — | 4,30 / 14,54 s | 2 745 ms |
+| 6 | — (mismo borrador que 5) | 12 | `varios/nueva` | ambiguo | dictada | dictado | dictada | — | 5,75 / 9,32 s | 3 042 ms |
+| 7 | **C3** sólo producto (Fungicida) | 7 | compra; `medidas=0`; **`sin-verbo-aviso`** | ausente (aviso, sin línea) | — | — | — | la línea entera | 2,25 / 5,70 s | 2 593 ms |
+| 8 | **C3** repetido (borrador limpio) | 8 | compra; `medidas=0`; **`sin-verbo-aviso`** | ausente (aviso, sin línea) | — | — | — | la línea entera | 2,95 / 4,48 s | 2 898 ms |
+
+Lectura:
+
+- **C1** es el primer precio por unidad resuelto solo en el teléfono (4 de 4 campos sin intervención).
+- **C2**: la corrección del total **no se ha observado en el teléfono**: en ningún intento se reconoció un importe. El autor confirmó que lo oído no llevaba «$»; la causa no está localizada (sondas escritas en §9.5).
+- **C3**: la intención de compra se reconoció, pero el producto se rechazó con `sin-verbo-aviso`. Con frases sintéticas esa combinación sólo aparece si el verbo no es la primera palabra o no es «compré/compre/compramos» (§9.5). Qué variante hubo en el teléfono: sin verificar.
+- Turnos 1, 5 y 6: fuera del guion; se conservan y no se cuentan.
+
+### 9.5 Sondas escritas posteriores (sintéticas, sin texto del teléfono, sobre `64d6c5a`)
+
+| Forma escrita | Resultado en `64d6c5a` |
+|---|---|
+| «por un total de 100Bs» (unidad pegada) | precio no válido, sin moneda |
+| «por un total de 100.00 bolivianos» (punto decimal) | precio no válido |
+| «en un total de 100 bolivianos» | importe suelto, sin colocar |
+| «para / con un total de 100 bolivianos» | el producto pasa a «varios» y el precio no es válido |
+| «por un total de $100» | precio y moneda ausentes (la única forma que reproducía C2; descartada por el autor) |
+| «Hoy / Bueno / Yo compré fungicida demo» | sin línea, `sin-verbo-aviso` |
+| «Compra / Comprar / He comprado fungicida demo» | sin línea, `sin-verbo-aviso` |
+| «Compré el / un fungicida demo», «Compré fungicida demo hoy / para la campaña» | producto ambiguo |
 
 ## 8. Limitaciones conocidas
 
