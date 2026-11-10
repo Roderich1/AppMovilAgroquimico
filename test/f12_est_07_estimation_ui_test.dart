@@ -49,6 +49,24 @@ Future<void> _openEstimation(WidgetTester tester, ProviderContainer c) async {
   await settle(tester);
 }
 
+/// Tras consultar, elegir campaña o descargar. La pantalla indica la operación
+/// en curso con una barra lineal (`busy`), que [settle] no espera: sólo mira
+/// los indicadores circulares. Sin esto la prueba podía mirar el resultado con
+/// la descarga (HTTP y escritura en SQLite) todavía en curso cuando la suite
+/// completa va cargada, y el cierre de la base quedaba esperando esa
+/// transacción. Se espera a la condición real y, si no se cumple, falla con
+/// el motivo.
+Future<void> _settleOperation(WidgetTester tester) async {
+  await settle(tester);
+  await waitUntil(
+    tester,
+    'la operación de la estimación',
+    () => find.byType(LinearProgressIndicator).evaluate().isEmpty,
+  );
+  // Al terminar se vuelve a leer la lista de copias (indicador circular).
+  await settle(tester);
+}
+
 Future<int> _rows(WidgetTester tester, AppDatabase database) async =>
     (await tester.runAsync(
       () async => (await database.database).query('estimation_copies'),
@@ -203,11 +221,11 @@ void main() {
       expect(find.text(estimationNoCopyText), findsOneWidget);
 
       await tester.tap(find.byKey(const Key('estimation-online')));
-      await settle(tester);
+      await _settleOperation(tester);
       await tester.tap(find.byKey(const Key('estimation-campaign')));
       await settle(tester);
       await tester.tap(find.text('Objetivo sintético invierno 2019').last);
-      await settle(tester);
+      await _settleOperation(tester);
       expect(
         tester
             .widget<Text>(
@@ -226,7 +244,7 @@ void main() {
 
       await tester.ensureVisible(find.byKey(const Key('estimation-download')));
       await tester.tap(find.byKey(const Key('estimation-download')));
-      await settle(tester);
+      await _settleOperation(tester);
       expect(find.text('Copia guardada en este teléfono.'), findsOneWidget);
       // La lista de copias se vuelve a leer después de guardar.
       final copyCard = find.byKey(
@@ -256,11 +274,11 @@ void main() {
       );
 
       await tester.tap(find.byKey(const Key('estimation-online')));
-      await settle(tester);
+      await _settleOperation(tester);
       await tester.tap(find.byKey(const Key('estimation-campaign')));
       await settle(tester);
       await tester.tap(find.text('Objetivo sintético invierno 2019').last);
-      await settle(tester);
+      await _settleOperation(tester);
       expect(find.byKey(const Key('estimation-blocked')), findsOneWidget);
       expect(find.textContaining('política de divulgación'), findsOneWidget);
       expect(find.byKey(Key('estimation-copy-$campaignWinter')), findsNothing);
