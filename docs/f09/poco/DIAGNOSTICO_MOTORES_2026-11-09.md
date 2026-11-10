@@ -21,6 +21,7 @@ Rama `feat/f09-diagnostico-motores`, que parte de `d5808d0`. Configuración: Vos
 | Compra completa: acierto inicial, correcciones, efectos y persistencia (sección 26) | DEVICE | `71e55fc` |
 | Aplicación de prueba: preparación y valores iniciales (sección 27) | DEVICE | `71e55fc` |
 | Aplicación de prueba: reconocimiento, corrección, efectos y persistencia (sección 28) | DEVICE | `71e55fc` |
+| Planificación de prueba, ensayo exploratorio (sección 29) | DEVICE | `71e55fc` |
 
 Ningún resultado declara ganadoras a A, a B ni a la pista de dominio. Las comparaciones son diagnóstico.
 
@@ -904,3 +905,70 @@ Proceso nuevo tras `am force-stop` (antes 19159, después 6482).
 | Base de datos | Idéntica a la de justo después de registrar |
 
 **Conclusión:** el **registro** fue correcto y persistente: una sola aplicación, descuento FIFO del lote no vencido del responsable, cargo por uso real a Beto y nada más. En el **reconocimiento**, los datos previstos llegaron correctos sin revisión, con acuerdo entre motores; además entró una línea no prevista, que el usuario quitó. No se presenta como acierto completo del dictado: hizo falta una corrección.
+
+## 29. DEVICE: planificación de prueba, ensayo exploratorio (POCO, 2026-11-09 21:00–21:21, APK `71e55fc`)
+
+**Versión y entorno.** APK `agrocuentas-f09diag-71e55fc-arm64-v8a-profile.apk`, SHA-256 `8a323bd1881417e0d094cb3f073e5dfcd88c1abf30c0244071eb09ebc993d849`, paquete `.f09` «AC F09»; código de la rama `feat/f09-diagnostico-motores` en `71e55fc`. POCO X5 Pro (22101320G, serie `cc14247a`), MIUI, con red (modo avión desactivado). Vosk small-es-0.42 + whisper.cpp con `ggml-base-q5_1`; regla A; «Revisar cada frase» activado; la pantalla de planificación no tiene interruptores de diagnóstico. Instalación de demostración con datos sintéticos, modalidad compartida, titular Rosa Mamani F09. Roderich dictó, corrigió y creó el plan con su pulsación; esta sesión abrió la pantalla, leyó los campos (sin el texto dictado) y comprobó la persistencia. Es un **ensayo exploratorio**, no una prueba de aceptación.
+
+### Reglas comprobadas en el código
+
+- Un plan es chaco + campaña + área + dosis por hectárea de cada producto; no lleva persona. Por voz no se guarda fecha (`planned_date` vacío).
+- `addPlanMulti` escribe sólo `application_plans` (`PLANNED`) y `application_plan_items` (necesidad = área × dosis). No toca lotes, movimientos ni cuentas. El «comprometido» de Inventario se calcula a partir de los planes `DRAFT`/`PLANNED` de la campaña activa.
+- «Crear plan» registra con un toque, sin diálogo de resumen; la pantalla de plan por voz no compara la necesidad con las existencias.
+- La app no tiene forma de editar ni anular un plan: Planificación ofrece «Nuevo plan» y «Aplicar este plan».
+
+### Caso previsto
+
+Chaco Norte DEMO (Rosa, 3 ha), campaña Invierno 2026 (DEMO), Herbicida DEMO a 1 L/ha → 3 L (Rosa tiene 11 L de Herbicida; su primer lote vence el 18/11). Descartado el Fungicida: en todos sus responsables el primer lote FIFO está vencido. Comprobado en HOST con el catálogo del teléfono (prueba temporal, no versionada): la frase prevista da ese borrador; con «herbicidas» en plural el producto queda por elegir.
+
+Valores iniciales: planes 0, ítems de plan 0, comprometido 0 en los tres productos; Herbicida 13 L (Rosa 11, Beto 2); aplicaciones 3, lotes 7, movimientos 11, cuentas 6; saldo de Beto 520,00. Base idéntica a la de tras reabrir en la sección 28.
+
+### Reconocimiento (antes de corregir)
+
+9 turnos de dictado entre las 21:00 y las 21:05; los turnos 2, 4, 5 y 8 terminaron cancelados. Revisión `ok` en todas las frases; la mayoría con acuerdo entre motores (`accepted`); con la regla A se entregó Vosk en varias por `unit:missing@revision`, `number:missing@vosk`, `unit:ambiguousAlignment` y, en una frase corta, `degenerate`; la última (turno 9), por `unit:missing@revision`. Habla −33 a −35 dBFS.
+
+| Campo | Tras el dictado | Valoración |
+|---|---|---|
+| Campaña | Invierno 2026 (DEMO), propuesta | ✓ (no dictada) |
+| Chaco | Falta | ✗ |
+| Área | Falta (depende del chaco) | — |
+| Producto | Ninguna línea | ✗ |
+| Dosis | Ninguna línea | ✗ |
+
+**0 de 3 datos dictados reconocidos** (chaco, producto, dosis). No se pidió repetir el dictado.
+
+### Correcciones a mano
+
+1. Chaco: Chaco Norte DEMO en el selector («Corregido a mano»). El área se propuso sola: 3 ha.
+2. «Agregar producto»: Herbicida DEMO y dosis 1 L/ha («Corregido a mano»); la pantalla mostró «Necesita 3 L» y «Crear plan» habilitado (leído hacia las 21:18).
+3. Antes de tocar «Crear plan», el campo de dosis volvió a recibir foco y dos pulsaciones del teclado numérico (21:18:38–21:18:41): **la dosis quedó en 14 L/ha**. Roderich lo identificó como una entrada involuntaria suya y **decidió conservarla**. Es un dato introducido a mano, no un error de la voz.
+
+### Efectos tras crear (una pulsación, 21:19:10)
+
+| Comprobación | Antes | Después |
+|---|---|---|
+| Planes | 0 | **1**: chaco 1, campaña 1, sin fecha, `PLANNED` |
+| Ítems de plan | 0 | **1**: Herbicida DEMO, 30 000 m², 14 000 mL/ha, necesidad 42 000 mL (42 L) |
+| Compras, ítems, lotes, movimientos, aplicaciones, consumos, cuentas, pagos, consentimiento | — | **Sin cambios** (comparación completa de la copia de solo lectura) |
+| Existencias por producto y dueño; saldo de Beto (520,00) | — | Sin cambios |
+| Comprometido de Herbicida DEMO (derivado) | 0 | **42 L** |
+| Integridad | ok | ok |
+
+### Persistencia (cierre forzado y nueva apertura, 21:20)
+
+Proceso nuevo tras `am force-stop` (antes 6482, después 18791).
+
+| Pantalla | Resultado |
+|---|---|
+| Operaciones → Planificación | «Chaco Norte DEMO · Rosa Mamani F09 / Invierno 2026 (DEMO) · 1 producto(s) · pendiente»; desplegado: Herbicida DEMO, área 3 ha, dosis 14 L/ha, 42 L; botón «Aplicar este plan» |
+| Inventario | Herbicida DEMO: físico 13 L, comprometido 42 L, **proyectado −29 L**; Fungicida 12 L e Insecticida 4 L sin comprometido |
+| Base de datos | Idéntica a la de justo después de crear el plan |
+
+### Observaciones del ensayo (sin cambios de código)
+
+- **O-1.** Un error de tecleo llega a guardarse sin aviso: no hay resumen antes de «Crear plan» ni comparación de la necesidad con las existencias. Resultado: comprometido mayor que el físico (proyectado negativo).
+- **O-2.** Un plan creado no se puede corregir ni anular desde la app. Aplicarlo con 42 L sería rechazado por falta de existencias (RN-25); queda pendiente mientras la campaña esté activa.
+- **O-3.** Al salir tras crear el plan, el registro técnico dice «voz: sesión descartada por el usuario»: es la limpieza de la sesión de voz (micrófono y textos transitorios), no el descarte del borrador. El texto del registro es engañoso.
+- **O-4.** Privacidad: en una lectura de pantalla de esta sesión, el filtro dejó pasar una vez el texto reconocido a la salida de la sesión. No se copió a ningún archivo, registro ni informe; el lector se cambió para omitir todo texto entre comillas.
+
+**Conclusión del ensayo:** el **registro** creó exactamente un plan, persistente, sin tocar existencias, lotes ni cuentas. El **reconocimiento** no aportó ningún dato del plan (0 de 3): el plan se completó a mano. La dosis guardada (14 L/ha) es la que el usuario dejó y decidió conservar.
