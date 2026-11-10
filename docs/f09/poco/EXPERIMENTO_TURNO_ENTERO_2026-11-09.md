@@ -312,6 +312,91 @@ Lectura:
 | «Compra / Comprar / He comprado fungicida demo» | sin línea, `sin-verbo-aviso` |
 | «Compré el / un fungicida demo», «Compré fungicida demo hoy / para la campaña» | producto ambiguo |
 
+## 10. Whisper small como transcriptor del turno entero (2026-11-10)
+
+**Decisión del autor** (2026-11-10): seguir con Whisper small en el modo de turno entero, por prioridad de precisión aunque la espera sea mayor. **No es una superioridad demostrada**: la comparación de §7a/R1–R6 es exploratoria y no se continúa. Versiones separadas: intérprete `b673523`; decodificación y pista `339a6ce`.
+
+### 10.1 Intérprete (`b673523`)
+
+Las formas de §9.5 se reprodujeron primero con pruebas escritas (**36 fallaban** sobre `da2aca0`) y después se corrigieron:
+
+| Forma (sintética) | Ahora |
+|---|---|
+| «100Bs», «50Bs.», «50 Bs. el litro» | cifra y sigla se separan; el punto de «Bs.» no es una pausa |
+| «100.00», «1.5» | punto con una o dos cifras = decimal (no puede separar miles). «1.500» sigue siendo 1 500 (es-BO) y «1,500» sigue **sin leerse** (ambiguo) |
+| «en / con / para / por un total de N» | total de la línea, **por confirmar**; con varias líneas no se asigna a ninguna; «para el chaco» no cambia |
+| «el / un / la fungicida demo» | sin el artículo inicial **sólo si** así coincide exactamente con un único producto |
+| «fungicida demo hoy / ayer / esta mañana» | sin la expresión de tiempo final, con la misma condición; «para la campaña» no se quita |
+| «Hoy / Bueno / Yo compré …», «He comprado …», «Compra (de) …» | el verbo puede no ser la primera palabra (sólo tras muletillas, tiempo o sujeto) y vale en las formas que ya reconocía la intención |
+| «Compré fungicida demo» (y las anteriores) | línea incompleta; no se puede registrar |
+
+Controles añadidos: «no compré», «nunca compramos», «quiero / voy a / tengo que / necesito comprar» y «compraré» no anotan nada y lo dicen (`motivo=negacion` / `intencion-futura`); «No, compré …» (con pausa) sí es una compra. Nombres parecidos («Fungicida DEMO» / «Fungicida DEMO Plus») y nombres con palabras aparentemente prescindibles («El Tigre», «Total 500», «Fungicida Hoy», «Ahora Plus») resuelven al producto correcto; «fungicida» solo sigue pidiendo elegir. Cifras contradictorias siguen sin valor. Sólo en la compra: `tokenize` y `readNumberAt` compartidos no cambian (al cambiarlos fallaron 4 pruebas de la revisión por frases, que trata «1.5» como no legible a propósito; el ajuste se movió al intérprete de compras).
+
+Pruebas separadas: intérprete `compra_formas_transcritas_test.dart` (57), controlador del borrador `compra_formas_borrador_test.dart` (6), pantalla `compra_formas_pantalla_test.dart` (3).
+
+### 10.2 Configuración real de small (`339a6ce`)
+
+| Qué | Valor | Dónde se comprobó |
+|---|---|---|
+| whisper.cpp | **1.9.3-dev**, commit `52a939a2a762224e255d366c1182b2af4dd1a032` (tarball SHA-256 `6212572f…4a19`) | `build_whisper_libs.sh`; `CMakeLists.txt` del código fijado |
+| Modelo | `ggml-small-q5_1.bin`, small **multilingüe**, 190 085 487 B, SHA-256 `ae85e4a9…11bb` | ZIP del APK (mismo CRC que en `e9b3d66`) |
+| Idioma / tarea | `language="es"`, `detect_language=false`, `translate=false` | `whisper_jni.c` |
+| Decodificación | `WHISPER_SAMPLING_BEAM_SEARCH`, `beam_size=5` (5 decodificadores), `temperature=0` | `transcribe_impl` vía `transcribeWith` (nuevo); el motor informa `haz=5` en cada turno |
+| Reintentos | `temperature_inc=0`: una sola temperatura. En `whisper_full_with_state` sólo se reintenta si quedan temperaturas, así que `entropy_thold` (2,4), `logprob_thold` (−1) y `no_speech_thold` (0,6) **no provocan otra pasada**; la entropía sólo puede descartar un decodificador del haz | código fijado (bucle de temperaturas y condición de éxito) |
+| Contexto | `no_context=true` (nada de un turno anterior), `initial_prompt` = pista, `carry_initial_prompt=false`, `single_segment=true`, `no_timestamps=true`, `suppress_blank`, `suppress_nst` | `whisper_jni.c` |
+| Hilos | `min(4, núcleos)` | `LocalVoiceEngine.threads()` |
+| Topes | grabación 30 s; transcripción 45 s con aborto + guarda de 20 s en Dart; cancelar aborta y descarta; un resultado de un turno anterior no toca el actual | sin cambios: en el teléfono la transcripción tardó 10,2–12,0 s |
+| Volver atrás | `VoiceExperiment.turnDecoding = WholeTurnDecoding.greedy` (voraz, la anterior) y/o `turnVariant = 'base'`; `transcribe` voraz se conserva y la revisión por frases lo sigue usando | `voice_engine_diagnostics.dart`, `WhisperNative.kt` |
+
+`libagro_whisper.so` se recompiló (arm64-v8a y x86_64) desde el mismo commit; exporta `transcribe` y `transcribeWith`.
+
+### 10.3 Pista
+
+Antes: términos del dominio (incluidas hectáreas y familias) + productos, personas, proveedores, chacos y campaña, con tope de 600 caracteres. whisper.cpp admite como mucho `n_text_ctx/2 − 1` = **223 tokens** de pista y, si se pasa, **recorta el principio en silencio**. Medido en HOST con el tokenizador real (aviso de `--carry-initial-prompt` con relleno conocido): ≈2,4 caracteres por token con nombres de productos, así que 600 caracteres ≈ 245–250 tokens (se pasaba con catálogos grandes).
+
+Ahora (sólo turno entero de compra): productos de la cuenta, unidades de esos productos, monedas admitidas (bolivianos, dólares) y expresiones de precio («por litro», «el litro», «en total», «por un total de»); tope de 400 caracteres (≈170 tokens). Para el catálogo del POCO: «Herbicida DEMO, Fungicida DEMO, Insecticida DEMO, litro, litros, bolivianos, dólares, por litro, el litro, en total, por un total de.» = 133 caracteres ≈ **49 tokens** (la anterior: 218 caracteres ≈ 80 tokens). Sin cantidades ni precios, sin proveedores, personas ni chacos, sin nada de un turno anterior (`no_context`). Cada producto una vez: la pista orienta, no elige; el intérprete sigue sin aproximar nombres.
+
+### 10.4 Captura (revisada, sin cambios)
+
+`AudioRecord` `VOICE_RECOGNITION`, 16 kHz mono PCM16 (el POCO entrega 16 000 Hz reales, 1 canal, formato 2), bloques de 100 ms, cola de 3 s (si se llenara se perdería lo más viejo, y se cuenta), conversión a flotante `/32768`, sin ganancia ni filtros. Al terminar: `stop()` + `release()`; el audio vive sólo en memoria y se suelta al transcribir o cancelar. No había evidencia para tocar nada; se añadió a la métrica del turno el silencio inicial y final y el audio perdido. En la comprobación (§10.6): **0 ms perdidos** y 400–2 550 ms de silencio final en todos los turnos (ningún indicio de sílabas finales cortadas).
+
+### 10.5 Cuantización (HOST, audio **sintético**; no es teléfono ni voz humana)
+
+`whisper-cli` del mismo commit, 4 hilos, pista de banco, frases de compra f01, f04, f15 y f16 × 3 voces TTS de Windows = 12 grabaciones por configuración. Modelos verificados contra el oid LFS de `ggerganov/whisper.cpp`: q8_0 264 464 607 B (`49c8fb02…779f`), f16 487 601 967 B (`1be3a9b2…987b`).
+
+| Configuración | Exactas | Producto | Cifras | Codificación | Decodificación | Total | Pico RSS |
+|---|---|---|---|---|---|---|---|
+| q5_1 voraz (anterior) | 6/12 | 9/12 | 12/12 | 2 168 ms | 336 ms | 2 694 ms | 390 MB |
+| q5_1 haz 5, sin reintentos (**actual**) | 6/12 | 9/12 | 12/12 | 2 164 ms | 536 ms | 2 981 ms | 511 MB |
+| q5_1 haz 5 con reintentos por defecto | 6/12 | 9/12 | 12/12 | 2 163 ms | 531 ms | 2 976 ms | 511 MB |
+| q8_0 haz 5 | 7/12 | 10/12 | 12/12 | 1 608 ms | 473 ms | 2 465 ms | 581 MB |
+| f16 haz 5 | 8/12 | 10/12 | 12/12 | 2 155 ms | 577 ms | 3 237 ms | 798 MB |
+
+Haz 5 frente a voraz: **mismo texto en las 12**; los reintentos **no se activaron** en ninguna. q8_0 y f16 difieren en una o dos grabaciones (palabras pegadas: «Comprade», «Mancozeba»): con N = 12 sintéticas no demuestra una mejora. **Se conserva q5_1**; q8_0 (+74 MB de APK) o f16 (+298 MB) quedan como opción documentada, a comparar sobre el mismo audio grabado con consentimiento.
+
+### 10.6 Comprobación breve en el teléfono (APK `339a6ce`, small + haz 5, POCO, 2026-11-10 10:34–11:06)
+
+APK `.f09w` SHA-256 `f5a25a37b5c46bedbfd8a8dc8554c6c513442189ef303c83783fd88681f9e6c5` (347 558 137 B), instalada con `pm install -r` conservando datos; `.f09` sin tocar. Experimento encendido tras reiniciar la app; selector en small; «Decodificación: haz de 5». Cada intento se anota; **ninguno se repitió hasta acertar**. 0 compras registradas.
+
+| Turno | Caso | Producto | Cantidad | Precio | Moneda | Intervención | Errores sin aviso | Transcripción |
+|---|---|---|---|---|---|---|---|---|
+| 1 | (sin leer; mismo borrador que el 2) | único en catálogo (código) | dictada | — | — | — | — | 10 993 ms |
+| 2 | (sin leer; descartado por el autor) | ambiguo (código) | dictada | — | — | — | — | 11 552 ms |
+| 3 | **P1** unitario (Fungicida, 2 L, 50/L) | ✓ | ✓ 2 L | 50 ✓ **por confirmar** (preposición entre cifra y unidad) | ✓ | confirmar «Por L» | 0 | 11 126 ms |
+| 4 | **P2** total (Insecticida, 2 L, «por un total de» 100) | ✓ | ✓ 2 L | **«Importe total oído: 100 Bs (sin confirmar)»** ✓ | ✓ | «Total de la línea» → 50 Bs/L confirmado ✓ | 0 | 11 516 ms |
+| 5 | **P3** decimal y nombre (Herbicida, 1,5 L, 80/L) | ✓ | ✓ 1,5 L | ✓ 80 resuelto | ✓ | ninguna (total 120,00 ✓) | 0 | 12 004 ms |
+| 6 | **P4** sólo producto (Fungicida) | **ausente** (sin línea) | — | — | — | la línea entera | 0 | 10 205 ms |
+
+P2 entró en el mismo borrador que P1 (no se descartó entre ambos): fue la línea 2 y la línea 1 no cambió. El toque de «Total de la línea» lo hizo la sesión por adb, sin registrar; cuenta como intervención. P4: 3 palabras, **ningún verbo de compra reconocido** y el nombre sin coincidencia ni aproximada (`mencion=descartado`): lo transcrito no coincide con la frase prevista ni en el verbo ni en el producto; sin leer el texto no se atribuye causa.
+
+### 10.7 Comprobado y por comprobar
+
+- **Comprobado (texto escrito)**: los defectos de §9.5 y los controles de §10.1.
+- **Observado una vez en el teléfono**: el total por confirmar con su cifra y el reparto a 50 Bs/L (P2); 1,5 L y un precio por unidad resuelto sin preguntar (P3). Un intento por caso: no es una tasa.
+- **No observado**: P4 (sólo producto) volvió a quedar sin línea, ahora por la transcripción (ni verbo ni nombre reconocibles), no por la regla del verbo inicial.
+- **Hipótesis**: que haz 5, la pista nueva o q8_0/f16 mejoren el reconocimiento con voz humana. En HOST, con voz sintética, haz 5 no cambió nada y la cuantización mayor cambió 1–2 de 12.
+- **Coste comprobado**: 10,2–12,0 s de transcripción por turno en el POCO con small + haz 5 (small voraz en R1–R6: 9,4–9,9 s; otra ronda y otro audio).
+
 ## 8. Limitaciones conocidas
 
 - Sin texto provisional en el modo experimental: el usuario no ve nada hasta «Terminar».
@@ -324,4 +409,9 @@ Lectura:
 - (§9) Dos importes que no cuadran se detectan sólo si van **seguidos** en la misma línea; un importe dicho más lejos (otra frase, otro producto en medio) no se compara.
 - (§9) Un total dicho al final de un dictado con **varias líneas** nunca se asigna: queda sin valor y la persona escribe el precio de cada línea. No se reparte entre líneas.
 - (§9) El total se reparte sólo si da centavos exactos; si no, se pide el precio por unidad (no se redondea).
+- (§10) La pista limita su tamaño por caracteres (400 ≈ 170 tokens), no por tokens reales: un catálogo de nombres muy raros podría acercarse al límite de 223.
+- (§10) El transcriptor a veces pega palabras («Comprade», «Mancozeba», en HOST con voz sintética): el intérprete no las separa.
+- (§10) Un artículo o una expresión de tiempo sólo se quitan en los extremos del nombre; otras palabras («para la campaña») siguen pidiendo elegir.
+- (§10) «1,500» sigue sin leerse y «1.500» se lee como mil quinientos, como en los formularios.
+- (§10) P4 (sólo producto) no se ha visto funcionar en el teléfono.
 - (§9) R6: con texto escrito el recorrido funciona; la causa en el recorrido real **no está localizada**. El diagnóstico `voz compra:` existe sólo en compilaciones de diagnóstico y no lleva texto, así que distingue «transcripción vacía», «producto no encontrado» o «línea no incorporada», pero no qué palabras se oyeron.
