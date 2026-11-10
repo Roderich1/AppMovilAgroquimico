@@ -402,6 +402,66 @@ P2 entró en el mismo borrador que P1 (no se descartó entre ambos): fue la lín
 
 Causa de P4 en `339a6ce`, dicha por el autor con un sí/no sobre lo oído (sin copiar el texto): el verbo y el producto llegaron como **una sola palabra** y «demo» aparte; la intención no se reconoció y el nombre no se parecía a ningún producto (`mencion=descartado`). En HOST, con voz sintética, ya se había visto «Comprade». Corrección (sólo en la compra): una palabra que empieza por una forma del verbo («compraron», «compramos», «comprado», «compre», «compra») se separa **sólo** si lo que sigue es exactamente una palabra de un producto del catálogo de la cuenta, «de/del», un artículo, un número o una unidad. «Comprador», «comprender» o «comprefungi» no se parten; «No comprefungicida demo» sigue siendo una negación. Reproducido antes con 6 pruebas que fallaban; ahora 64/64 del intérprete, pantalla incluida; suite completa 2932 pasan, 3 omitidas, 0 fallan. APK `.f09w` `a340bbb`, SHA-256 `4770e8210ba0340e84771226f045c6b58851cbc727743f089568ed79c3daacb8`, instalada a las 11:34:44 (datos conservados; `.f09` sin tocar). Un intento de P4 en el teléfono: línea incompleta correcta (§10.6).
 
+## 11. Cierre del bloque: versión final y prueba de registro (2026-11-10)
+
+**Configuración elegida por el autor** (2026-11-10): Whisper small con haz de 5 para la compra por voz en turno entero. Se deja de experimentar con modelos, cuantizaciones y parámetros. Es una decisión por prioridad de precisión, **no una superioridad demostrada**.
+
+### 11.1 Versión final
+
+| Qué | Commit / archivo |
+|---|---|
+| Código con todas las correcciones | **`a340bbb`** (incluye `8afead0`, `b673523`, `339a6ce`) |
+| Prueba P1–P4 sobre la versión final (sólo pruebas) | `98d4132` |
+| Documentación | `5ce3fdb` y este apartado (sólo `docs/`) |
+| Instalada en `.f09w` «AC F09 WT» | APK de `a340bbb`, SHA-256 `4770e8210ba0340e84771226f045c6b58851cbc727743f089568ed79c3daacb8` (comprobado en el teléfono); `.f09` sin tocar (18:09:22 del 09-11) |
+
+Entre `a340bbb` y el último commit sólo cambian `docs/` y `test/`: lo instalado es el código final.
+
+### 11.2 Pruebas automatizadas (HOST)
+
+| Prueba | Resultado |
+|---|---|
+| `compra_p1_p4_final_test.dart`: P1 resuelto con «el litro» y por confirmar con preposición («Por L» = intervención); P2 total por confirmar → «Total de la línea» = 50 Bs/L, total 100, sin redondear lo inexacto; P3 1,5 L × 80 = 120 (tres formas); P4 línea incompleta, registro bloqueado, sin escritura (dos formas); el verbo pegado da los mismos campos en P1–P3 | pasa |
+| P1–P4 junto con negaciones, ambigüedad, total, pantalla, cancelación y resultados tardíos del turno entero, salida del borrador (12 archivos) | **211/211** |
+| Suite completa de la app (`flutter test --timeout 120s`, código `a340bbb` + prueba P1–P4) | **2940 pasan, 3 omitidas, 0 fallan** |
+
+### 11.3 Verificación en el teléfono (POCO, small + haz 5)
+
+Clasificación por campo. Una confirmación o una elección es **intervención de la persona**, no reconocimiento automático. «Corrección de valor» = cambiar un valor dictado que estaba mal.
+
+| Caso (APK) | Resueltos automáticamente | Confirmaciones o elecciones manuales | Correcciones de valores | Ausentes |
+|---|---|---|---|---|
+| P1 unitario (`339a6ce`, turno 3) | producto, cantidad, moneda | **precio: confirmar «Por L»** (50 correcto, preguntado) | 0 | — |
+| P2 total (`339a6ce`, turno 4) | producto, cantidad, moneda | **precio: elegir «Total de la línea»** (100 → 50 Bs/L) | 0 | — |
+| P3 decimal y nombre (`339a6ce`, turno 5) | producto, 1,5 L, 80 Bs/L, moneda | — | 0 | — |
+| P4 sólo producto (`339a6ce`, turno 6) | — | — | 0 | la línea entera (verbo pegado; §10.8) |
+| P4 sólo producto (`a340bbb`, turno 1) | producto | — | 0 | cantidad, precio, moneda (lo esperado) |
+| **Registro final** (`a340bbb`, 12:23–12:30) | producto Herbicida DEMO, 2 L, 50 Bs/L, BOB (total 100,00) | **proveedor elegido** (Agro insumos DEMO); **«Sí, pagué todo»**; destinatario Rosa Mamani WT y campaña aceptados como los propuso la app; medio de pago sin elegir | 0 | — |
+
+Errores aceptados sin aviso: 0 en todos. Líneas de más: 0.
+
+**Prueba de registro.** Datos sintéticos de `.f09w` (titular Rosa Mamani WT, compartido, BY_ACTUAL_USAGE; proveedor Agro insumos DEMO; campaña Invierno 2026 WT). Antes: todas las tablas en 0. Efectos esperados, fijados antes de confirmar, y obtenidos tras un solo toque de «Registrar compra» (12:30:23):
+
+| Tabla | Esperado | Obtenido |
+|---|---|---|
+| `purchases` | 1: proveedor 1, campaña 1, BOB, 10 000, CONFIRMED | igual |
+| `purchase_items` | 1: Herbicida, 2 000 mL, 5 000 → 10 000 | igual |
+| `purchase_allocations` | 1: Rosa, 2 000, BY_ACTUAL_USAGE, sin importe | igual |
+| `inventory_lots` | 1: Rosa, 2 000, 5 000 por L | igual (sin vencimiento ni número de lote) |
+| `inventory_movements` | 1: PURCHASE_IN +2 000 | igual |
+| `account_transactions` | 0 (el cargo llega al aplicar) | 0 |
+| `provider_payments` | 1: titular, 10 000, misma fecha | igual (medio UNSPECIFIED) |
+
+Sin duplicados; `sync_outbox` 0; `integrity_check` ok. **Persistencia**: se cerró la app (`force-stop`, sin proceso) y se volvió a abrir (proceso nuevo): Inicio con Compras 100,00 Bs y Pagado proveedores 100,00 Bs, por cobrar 0,00; Inventario con Herbicida DEMO «Físico 2 L» (y el aviso «1 sin fecha registrada», por no indicarse vencimiento); la base, con los mismos conteos.
+
+### 11.4 Turnos no evaluables (se conservan, no se valoran)
+
+No se reconstruyen sus valores esperados: primera sesión, turno 2 (§7a); base `e9b3d66`, turnos 4–6 y la mezcla 8 + 9 (§7a); base `64d6c5a`, turnos 1, 5 y 6 (§9.4); small `339a6ce`, turnos 1 y 2 (§10.6).
+
+### 11.5 Privacidad
+
+No se guardó audio ni transcripción real: sólo campos, códigos (`voz turno:`, `voz compra:`), tiempos y respuestas sí/no del autor. Los textos de este informe son frases previstas o sintéticas.
+
 ## 8. Limitaciones conocidas
 
 - Sin texto provisional en el modo experimental: el usuario no ve nada hasta «Terminar».
