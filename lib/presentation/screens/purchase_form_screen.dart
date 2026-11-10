@@ -24,6 +24,9 @@ import '../voice/voice_draft_widgets.dart' show voicePurchaseTurnHints;
 import '../voice/voice_evidence_hook.dart';
 import '../voice/voice_form_dictation.dart';
 import '../voice/voice_purchase_port.dart';
+import '../voice/voice_turn_experiment.dart' show VoiceSingleTranscriberPanel;
+import '../../voice/port/voice_engine_diagnostics.dart'
+    show voiceDiagnosticsBuild;
 import '../../voice/session/voice_session_controller.dart';
 import '../../voice/session/voice_session_state.dart';
 import '../../voice_draft/catalog/voice_catalog.dart';
@@ -208,6 +211,7 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen>
   VoicePurchaseDraft? _lastVoiceDraft;
   bool _voiceSaved = false;
   bool _voiceFailed = false;
+  bool _observingSession = false;
   int? supplierId;
   int? campaignId;
   _PurchaseStep step = _PurchaseStep.items;
@@ -260,6 +264,12 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen>
       ),
       target: _voiceTarget,
     )..addListener(_onVoice);
+    if (!_observingSession) {
+      _observingSession = true;
+      voice!.session.addListener(
+        () => observeVoiceSession(voice!.session.snapshot),
+      );
+    }
     final catalog = _voiceTarget.catalog;
     if (catalog != null) {
       voice!.session.setVocabularyHints(voicePurchaseTurnHints(catalog));
@@ -981,6 +991,11 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen>
               'proveedor— y pulse «Terminar». Lo reconocido aparece en los '
               'campos; nada se guarda solo.',
           onClose: () => setState(() => showVoice = false),
+          // Sólo en la compilación de diagnóstico: modelo del próximo turno
+          // y métricas sin texto.
+          diagnostics: voiceDiagnosticsBuild
+              ? VoiceSingleTranscriberPanel(session: voice!.session)
+              : null,
         ),
         const SizedBox(height: 12),
       ] else ...[

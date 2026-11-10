@@ -18,8 +18,13 @@ import '../widgets/common.dart';
 import 'late_operations_screen.dart' show offerLateRegistration;
 import '../widgets/mode_notice.dart';
 import '../voice/voice_draft_gateway.dart' show voiceDraftGatewayProvider;
-import '../voice/voice_draft_widgets.dart' show voiceVocabularyHints;
+import '../voice/voice_draft_widgets.dart'
+    show voiceDomainContextHints, voiceVocabularyHints;
 import '../voice/voice_evidence_hook.dart';
+import '../voice/voice_proposals_view.dart'
+    show VoiceContextExperimentSwitch, VoicePolicyBSwitch, VoiceProposalsButton;
+import '../../voice/port/voice_engine_diagnostics.dart'
+    show voiceDiagnosticsBuild;
 import '../voice/voice_form_dictation.dart';
 import '../../voice/session/voice_session_controller.dart';
 import '../../voice/session/voice_session_state.dart';
@@ -84,6 +89,7 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen>
   VoiceApplicationDraft? _lastVoiceDraft;
   bool _voiceSaved = false;
   bool _voiceFailed = false;
+  bool _observingSession = false;
   int? personId, farmId;
   _ApplicationStep step = _ApplicationStep.who;
 
@@ -139,6 +145,12 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen>
       ),
       target: _voiceTarget,
     )..addListener(_onVoice);
+    if (!_observingSession) {
+      _observingSession = true;
+      voice!.session.addListener(
+        () => observeVoiceSession(voice!.session.snapshot),
+      );
+    }
     setState(() => showVoice = true);
     _voiceTarget.loadCatalog().then((_) {
       if (mounted) setState(() {});
@@ -1110,6 +1122,21 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen>
               'producto. Pulse «Terminar» al acabar. Lo dictado aparece en '
               'los pasos 1 y 2; nada se guarda solo.',
           onClose: () => setState(() => showVoice = false),
+          // Sólo en la compilación de diagnóstico: política B, comparar
+          // pistas y lo que propuso cada motor (ruta por frases).
+          diagnostics: voiceDiagnosticsBuild && _voiceTarget.catalog != null
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const VoicePolicyBSwitch(),
+                    VoiceContextExperimentSwitch(
+                      domainHints: () =>
+                          voiceDomainContextHints(_voiceTarget.catalog!),
+                    ),
+                    VoiceProposalsButton(describe: (_) => const []),
+                  ],
+                )
+              : null,
         ),
         const SizedBox(height: 12),
       ];

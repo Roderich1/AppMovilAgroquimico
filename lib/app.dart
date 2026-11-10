@@ -53,12 +53,9 @@ import 'presentation/screens/estimation_screen.dart';
 import 'services/estimation/estimation_providers.dart';
 import 'services/reports/report_export_service.dart';
 import 'services/reports/report_storage.dart';
-import 'presentation/voice/voice_application_draft_screen.dart';
 import 'presentation/voice/voice_entry_screen.dart';
 import 'presentation/voice/voice_evidence_consent_screen.dart';
 import 'presentation/voice/voice_evidence_hook.dart';
-import 'presentation/voice/voice_plan_draft_screen.dart';
-import 'presentation/voice/voice_purchase_draft_screen.dart';
 
 final databaseProvider = Provider<AppDatabase>((ref) {
   final database = AppDatabase();
@@ -269,10 +266,9 @@ final routerProvider = Provider<GoRouter>((ref) {
             path: '/respaldo-remoto',
             builder: (_, __) => const RemoteBackupScreen(),
           ),
-          // F09. La voz vive DENTRO del shell, como los subdestinos de
-          // Operaciones: se llega apilando y Atrás vuelve. Cada borrador
-          // ofrece su formulario manual, que lo sustituye (el borrador se
-          // descarta sin escribir).
+          // F09. «Registrar por voz» vive DENTRO del shell, como los
+          // subdestinos de Operaciones. Sus opciones abren el formulario
+          // normal con el panel de voz visible (formulario único).
           GoRoute(
             path: voiceEntryPath,
             builder: (_, __) => const VoiceEntryScreen(),
@@ -284,27 +280,22 @@ final routerProvider = Provider<GoRouter>((ref) {
               path: voiceEvidenceConsentPath,
               builder: (_, __) => const VoiceEvidenceConsentScreen(),
             ),
-          GoRoute(
-            path: voicePurchasePath,
-            builder: (context, __) => VoicePurchaseDraftScreen(
-              onOpenManualForm: () => context.pushReplacement('/compras/nueva'),
-            ),
-          ),
-          GoRoute(
-            path: voicePlanPath,
-            builder: (context, __) => VoicePlanDraftScreen(
-              onOpenManualForm: () =>
-                  context.pushReplacement('/planificacion/nueva'),
-            ),
-          ),
-          GoRoute(
-            path: voiceApplicationPath,
-            builder: (context, __) => VoiceApplicationDraftScreen(
-              onOpenManualForm: () =>
-                  context.pushReplacement('/aplicaciones/nueva'),
-            ),
-          ),
         ],
+      ),
+      // F09 (formulario único): los atajos de voz abren el MISMO formulario
+      // con el panel «Completar por voz» visible; el micrófono no se abre
+      // hasta pulsar «Hablar».
+      GoRoute(
+        path: voicePurchasePath,
+        builder: (_, __) => const PurchaseFormScreen(voice: true),
+      ),
+      GoRoute(
+        path: voicePlanPath,
+        builder: (_, __) => const PlanFormScreen(voice: true),
+      ),
+      GoRoute(
+        path: voiceApplicationPath,
+        builder: (_, __) => const ApplicationFormScreen(voice: true),
       ),
       GoRoute(path: '/acceso', builder: (_, __) => const AccessStatusScreen()),
       GoRoute(path: '/titular', builder: (_, __) => const OwnerSetupScreen()),
@@ -345,17 +336,20 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: '/compras/nueva',
-        builder: (_, __) => const PurchaseFormScreen(),
+        builder: (_, state) =>
+            PurchaseFormScreen(voice: state.uri.queryParameters['voz'] == '1'),
       ),
       GoRoute(
         path: '/aplicaciones/nueva',
         builder: (_, state) => ApplicationFormScreen(
           planId: int.tryParse(state.uri.queryParameters['planId'] ?? ''),
+          voice: state.uri.queryParameters['voz'] == '1',
         ),
       ),
       GoRoute(
         path: '/planificacion/nueva',
-        builder: (_, __) => const PlanFormScreen(),
+        builder: (_, state) =>
+            PlanFormScreen(voice: state.uri.queryParameters['voz'] == '1'),
       ),
     ],
   );

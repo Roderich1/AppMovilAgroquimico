@@ -531,9 +531,14 @@ class VoiceFormPanel extends StatelessWidget {
     required this.dictation,
     this.engineHint,
     this.onClose,
+    this.diagnostics,
   });
 
   final VoiceFormDictation<dynamic> dictation;
+
+  /// Instrumentos de diagnóstico del motor. Sólo los pasa la compilación de
+  /// diagnóstico (`AGRO_VOICE_DIAG=true`); en la de presentación es nulo.
+  final Widget? diagnostics;
 
   /// Cómo se dicta con este motor («Diga la compra completa y pulse
   /// Terminar» / «Hable por frases…»), sin nombres técnicos.
@@ -681,6 +686,7 @@ class VoiceFormPanel extends StatelessWidget {
                     ),
                 ],
               ),
+              if (diagnostics != null) ...[const Divider(), diagnostics!],
             ],
           ),
         ),

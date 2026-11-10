@@ -202,7 +202,7 @@ PY
     guard
     # Privacidad: una captura de una pantalla de voz puede mostrar lo oído o lo
     # transcrito; para esas pantallas se usa `estado` (lista blanca).
-    if has 'Hablar. Abre el micr|Terminar. El micr|Reconocedor:|Lo .ltimo que se oy'; then
+    if has 'Hablar. Abre el micr|Terminar. El micr|Reconocedor:|Lo .ltimo que se oy|Completar por voz|Ocultar el panel de voz|Grabando|Procesando tu voz|Revisa los campos marcados|Deshacer .ltimo dictado'; then
       echo "ABORTADO: captura bloqueada en una pantalla de voz (use «voz»)"; exit 1
     fi
     mkdir -p "$RUN/capturas"; out="$RUN/capturas/${1:?nombre}.png"

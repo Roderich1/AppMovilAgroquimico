@@ -12,8 +12,13 @@ import '../widgets/adaptive_entity_picker.dart';
 import '../widgets/catalog_dialogs.dart';
 import '../widgets/common.dart';
 import '../widgets/mode_notice.dart';
-import '../voice/voice_draft_widgets.dart' show voiceVocabularyHints;
+import '../voice/voice_draft_widgets.dart'
+    show voiceDomainContextHints, voiceVocabularyHints;
 import '../voice/voice_evidence_hook.dart';
+import '../voice/voice_proposals_view.dart'
+    show VoiceContextExperimentSwitch, VoicePolicyBSwitch, VoiceProposalsButton;
+import '../../voice/port/voice_engine_diagnostics.dart'
+    show voiceDiagnosticsBuild;
 import '../voice/voice_form_dictation.dart';
 import '../../voice/session/voice_session_controller.dart';
 import '../../voice/session/voice_session_state.dart';
@@ -61,6 +66,7 @@ class _PlanFormScreenState extends ConsumerState<PlanFormScreen>
   VoicePlanDraft? _lastVoiceDraft;
   bool _voiceSaved = false;
   bool _voiceFailed = false;
+  bool _observingSession = false;
   int? farmId;
   Map<String, Object?>? productToAdd;
   final area = TextEditingController();
@@ -95,6 +101,12 @@ class _PlanFormScreenState extends ConsumerState<PlanFormScreen>
       ),
       target: _voiceTarget,
     )..addListener(_onVoice);
+    if (!_observingSession) {
+      _observingSession = true;
+      voice!.session.addListener(
+        () => observeVoiceSession(voice!.session.snapshot),
+      );
+    }
     final catalog = _voiceTarget.catalog;
     if (catalog != null) {
       voice!.session.setVocabularyHints(voiceVocabularyHints(catalog));
@@ -477,6 +489,23 @@ class _PlanFormScreenState extends ConsumerState<PlanFormScreen>
                         'hectárea de cada producto. Pulse «Terminar» al '
                         'acabar. Nada se guarda solo.',
                     onClose: () => setState(() => showVoice = false),
+                    // Sólo en la compilación de diagnóstico: política B, comparar
+                    // pistas y lo que propuso cada motor (ruta por frases).
+                    diagnostics:
+                        voiceDiagnosticsBuild && _voiceTarget.catalog != null
+                        ? Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              const VoicePolicyBSwitch(),
+                              VoiceContextExperimentSwitch(
+                                domainHints: () => voiceDomainContextHints(
+                                  _voiceTarget.catalog!,
+                                ),
+                              ),
+                              VoiceProposalsButton(describe: (_) => const []),
+                            ],
+                          )
+                        : null,
                   )
                 else
                   Align(

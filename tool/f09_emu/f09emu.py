@@ -95,6 +95,17 @@ VOICE_MARKERS = (
     "Terminar. El micrófono",
     "Lo último que se oyó",
     "Reconocedor:",
+    # Formulario único (F09): todo formulario con «Completar por voz», su
+    # panel o un campo marcado por un dictado se lee con la lista blanca.
+    "Completar por voz",
+    "Ocultar el panel de voz",
+    "Listo para dictar",
+    "Grabando",
+    "Procesando tu voz",
+    "Revisa los campos marcados",
+    "Deshacer último dictado",
+    "Usar lo dictado",
+    "Descartar lo dictado",
 )
 # Nunca se imprime un elemento que contenga alguna de estas marcas, aunque
 # encaje en la lista blanca: son lo oído o lo transcrito.
@@ -123,12 +134,43 @@ ALLOWED_EXACT = {
     "No cambió el borrador: no se reconoció nada que completar.",
     "No hay una campaña activa.", "Falta el proveedor.",
     "Elige una opción para poder confirmar.",
+    # Formulario único: panel, marcas y formularios (textos fijos).
+    "Completar por voz", "Ocultar el panel de voz", "Listo para dictar",
+    "Abriendo el micrófono…", "Grabando", "Procesando tu voz",
+    "Revisa los campos marcados", "Cancelar dictado",
+    "Deshacer último dictado", "Por voz", "Elegir", "Mantener",
+    "Usar lo dictado", "Descartar lo dictado", "Abrir ajustes",
+    "Dictado cancelado: el formulario no cambió.",
+    "No se oyó nada que completar. El formulario no cambió.",
+    "No cambió el formulario: no se reconoció nada que completar.",
+    "Se deshizo el último dictado.",
+    "Termine o cancele el dictado antes de continuar.",
+    "Hay 1 campo dictado por revisar.",
+    "Nueva compra", "Nueva aplicación", "Nueva planificación", "Continuar",
+    "Atrás", "Confirmar compra", "Confirmar aplicación",
+    "Guardar planificación", "Agregar producto", "Agregar al plan",
+    "Fecha de la compra", "Fecha de la aplicación", "Cantidad comprada",
+    "Área planificada (ha)", "Área tratada (ha)", "Dosis por hectárea",
+    "Producto por elegir", "Toda para una persona", "Repartir entre varias",
+    "Editar", "Quitar", "Descartar cambios", "Seguir editando",
     # Fichas de estado de un campo.
     "Dictado", "Falta", "Confirmado", "Propuesto", "Corregido a mano",
     "Ambiguo: elija", "Revisar", "Sin seleccionar",
 }
 ALLOWED_PATTERNS = (
     re.compile(r"^Producto \d+$"),
+    re.compile(r"^Productos \(\d+\)$"),
+    re.compile(r"^Paso \d de \d · [A-Za-zÁÉÍÓÚáéíóúñ ]{3,40}$"),
+    re.compile(r"^Hay \d+ campos dictados por revisar\.$"),
+    re.compile(r"^Dosis \((L|kg)/ha\)$"),
+    re.compile(r"^Precio (BOB|USD)/(L|kg)$"),
+    re.compile(r"^Falta: [a-záéíóúñ «»()]{3,40}$"),
+    # Resumen de un dictado: sólo cuentas.
+    re.compile(
+        r"^(\d+ (campo completado|campos completados|línea añadida|"
+        r"líneas añadidas|por revisar)(, )?)+\.( Revisa los campos marcados\.)?"
+        r"( Se conservó lo que editó mientras se procesaba\.)?$"
+    ),
     # Ficha de estado de un campo: «<campo>: <estado>», ambos de listas fijas.
     re.compile(
         r"^(Producto|Cantidad|Moneda|Proveedor|Campaña|Recibe la compra|"
@@ -142,7 +184,11 @@ ALLOWED_PATTERNS = (
     re.compile(r"^Por [^«»]{1,12}$"),
     re.compile(r"^• [^«»]{1,80}\.$"),
     # Selector: «<elemento del catálogo>, <campo>…» (catálogo, no lo dictado).
-    re.compile(r"^(?P<valor>[^«»\n]{1,60}), (?P<campo>Producto|Proveedor|Recibe la compra)\n"),
+    re.compile(
+        r"^(?P<valor>[^«»\n]{1,60}), "
+        r"(?P<campo>Producto|Proveedor|Recibe la compra|Chaco|Persona|"
+        r"Agregar producto)\n"
+    ),
 )
 NUMERIC = re.compile(r"^[0-9]+([.,][0-9]+)?$")
 

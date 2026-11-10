@@ -1,6 +1,6 @@
 import 'package:agroquimicos/app.dart';
 import 'package:agroquimicos/data/app_database.dart';
-import 'package:agroquimicos/presentation/voice/voice_purchase_draft_screen.dart';
+import 'package:agroquimicos/presentation/screens/purchase_form_screen.dart';
 import 'package:agroquimicos/voice/voice_providers.dart';
 import 'package:agroquimicos/voice_evidence/voice_evidence_providers.dart';
 import 'package:agroquimicos/voice_evidence/voice_evidence_store.dart';
@@ -12,9 +12,9 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import '../support/f04_mode_ui_harness.dart';
 import '../voice/support/fake_speech_transcription_port.dart';
 
-/// Cableado de la evidencia de dictado (#167) en la pantalla de compra por
-/// voz, en la app real con base en archivo y el puerto de voz fake (no
-/// prueba el reconocimiento real):
+/// Cableado de la evidencia de dictado (#167) en «Nueva compra» con
+/// «Completar por voz» (formulario único, F09), en la app real con base en
+/// archivo y el puerto de voz fake (no prueba el reconocimiento real):
 ///
 /// - con el almacén activo y consentimiento, registrar deja **una** entrada
 ///   CONFIRMED con la transcripción y los campos confirmados, y cancelar deja
@@ -35,7 +35,7 @@ void main() {
     required bool evaluationBuild,
     required bool consent,
   }) async {
-    tester.view.physicalSize = const Size(500, 2600);
+    tester.view.physicalSize = const Size(800, 3200);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
@@ -83,7 +83,8 @@ void main() {
     await settle(tester);
     router.push('/compras/voz');
     await settle(tester);
-    expect(find.byType(VoicePurchaseDraftScreen), findsOneWidget);
+    expect(find.byType(PurchaseFormScreen), findsOneWidget);
+    expect(find.byKey(const Key('voz-panel')), findsOneWidget);
     return s.database;
   }
 
@@ -96,8 +97,28 @@ void main() {
   }
 
   Future<void> dictate(WidgetTester tester) async {
-    await tapKey(tester, 'voz-boton-microfono');
-    await tapKey(tester, 'voz-boton-microfono');
+    await tapKey(tester, 'voz-hablar');
+    await tapKey(tester, 'voz-terminar');
+  }
+
+  /// Registrar por el procedimiento habitual del formulario.
+  Future<void> register(WidgetTester tester) async {
+    await tapKey(tester, 'purchase-continue');
+    await tapKey(tester, 'purchase-paid-no');
+    await tapKey(tester, 'purchase-confirm');
+  }
+
+  /// Cancelar el formulario: Atrás y «Descartar cambios».
+  Future<void> cancel(WidgetTester tester) async {
+    await tester.tap(
+      find.descendant(
+        of: find.byType(AppBar).last,
+        matching: find.byIcon(Icons.arrow_back),
+      ),
+    );
+    await settle(tester);
+    await tester.tap(find.text('Descartar cambios'));
+    await settle(tester);
   }
 
   /// La entrega es asíncrona (`unawaited` al cerrarse la pantalla) y su
@@ -122,7 +143,7 @@ void main() {
     await drain(tester);
     for (
       var i = 0;
-      i < 60 && find.byType(VoicePurchaseDraftScreen).evaluate().isNotEmpty;
+      i < 60 && find.byType(PurchaseFormScreen).evaluate().isNotEmpty;
       i++
     ) {
       await tester.runAsync(
@@ -158,10 +179,9 @@ void main() {
     await dictate(tester);
     // Mientras se revisa, nada guardado.
     expect(await evidence(tester, db), isEmpty);
-    await tapKey(tester, 'voz-pago-no');
-    await tapKey(tester, 'voz-registrar');
+    await register(tester);
     await untilClosed(tester);
-    expect(find.byType(VoicePurchaseDraftScreen), findsNothing);
+    expect(find.byType(PurchaseFormScreen), findsNothing);
     expect(await purchases(tester, db), 1);
 
     final all = await evidence(tester, db);
@@ -192,9 +212,9 @@ void main() {
       consent: true,
     );
     await dictate(tester);
-    await tapKey(tester, 'voz-cancelar');
+    await cancel(tester);
     await untilClosed(tester);
-    expect(find.byType(VoicePurchaseDraftScreen), findsNothing);
+    expect(find.byType(PurchaseFormScreen), findsNothing);
     expect(await purchases(tester, db), 0);
     final all = await evidence(tester, db);
     expect(all, hasLength(1));
@@ -212,10 +232,9 @@ void main() {
       consent: false,
     );
     await dictate(tester);
-    await tapKey(tester, 'voz-pago-no');
-    await tapKey(tester, 'voz-registrar');
+    await register(tester);
     await untilClosed(tester);
-    expect(find.byType(VoicePurchaseDraftScreen), findsNothing);
+    expect(find.byType(PurchaseFormScreen), findsNothing);
     expect(await purchases(tester, db), 1);
     expect(await evidence(tester, db), isEmpty);
   });
@@ -229,10 +248,9 @@ void main() {
       consent: true,
     );
     await dictate(tester);
-    await tapKey(tester, 'voz-pago-no');
-    await tapKey(tester, 'voz-registrar');
+    await register(tester);
     await untilClosed(tester);
-    expect(find.byType(VoicePurchaseDraftScreen), findsNothing);
+    expect(find.byType(PurchaseFormScreen), findsNothing);
     expect(await purchases(tester, db), 1);
     expect(await evidence(tester, db), isEmpty);
   });

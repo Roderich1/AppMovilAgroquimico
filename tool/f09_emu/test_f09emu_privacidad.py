@@ -25,6 +25,9 @@ SECRETOS = [
     "clave-sintetica",  # campo de contraseña
     "cincuenta bolivianos",
     "sin comillas",
+    # Formulario único: aviso del dictado sin comillas y elección con lo oído.
+    "se oyo erbisida sin cantidad",
+    "proveedor dictado erbisida",
 ]
 # Lo que SÍ debe salir.
 ESPERADO = [
@@ -41,6 +44,15 @@ ESPERADO = [
     "Cancelar este turno (descarta el audio)",
     "Precio por L / Ambiguo: elija  [2 líneas omitidas]",
     "Cantidad (L): Dictado",
+]
+# Lo que SÍ debe salir de un formulario único con un dictado incorporado.
+FORM_ESPERADO = [
+    "Revisa los campos marcados",
+    "1 campo completado, 1 línea añadida, 1 por revisar. Revisa los campos marcados.",
+    "Deshacer último dictado",
+    "Proveedor: Agro insumos DEMO",
+    "Por voz",
+    "Usar lo dictado",
 ]
 
 
@@ -61,6 +73,21 @@ def node(text="", desc="", cls="android.view.View", **extra):
                      .replace("<", "&lt;").replace("\n", "&#10;"))
     return "<node " + " ".join(f'{k}="{esc(v)}"' for k, v in attrs.items()) + " />"
 
+
+FORM_NODES = [
+    node(desc="Nueva compra"),
+    node(desc="Completar por voz"),
+    node(desc="Revisa los campos marcados"),
+    node(desc="1 campo completado, 1 línea añadida, 1 por revisar. Revisa los campos marcados."),
+    # Aviso del intérprete: puede citar lo oído sin comillas.
+    node(desc="se oyo erbisida sin cantidad para ninguna linea"),
+    node(desc="Deshacer último dictado"),
+    node(desc="Agro insumos DEMO, Proveedor\nProveedor\nAgro insumos DEMO"),
+    node(desc="Por voz"),
+    node(desc="Elegir"),
+    node(desc="El dictado dice «proveedor dictado erbisida»; el formulario tiene «Agro insumos DEMO»."),
+    node(desc="Usar lo dictado"),
+]
 
 NODES = [
     node(desc="Hablar. Abre el micrófono."),
@@ -90,12 +117,13 @@ NODES = [
     node(desc="Precio por L\ncincuenta bolivianos el litro sin comillas\nOído: «erbisida demo»\nAmbiguo: elija"),
 ]
 XML = "<?xml version='1.0' encoding='UTF-8' standalone='yes' ?><hierarchy rotation=\"0\">" + "".join(NODES) + "</hierarchy>"
+FORM_XML = "<?xml version='1.0' encoding='UTF-8' standalone='yes' ?><hierarchy rotation=\"0\">" + "".join(FORM_NODES) + "</hierarchy>"
 
 
-def run(mode):
+def run(mode, xml=None):
     out = subprocess.run(
         [sys.executable, "-I", "-X", "utf8", str(HERE / "f09emu.py"), mode, PKG],
-        input=XML, capture_output=True, text=True, encoding="utf-8", check=True,
+        input=xml or XML, capture_output=True, text=True, encoding="utf-8", check=True,
     ).stdout
     return out
 
@@ -103,18 +131,19 @@ def run(mode):
 def main():
     fallos = 0
     for mode in ("estado", "ui"):
-        out = run(mode)
-        for s in SECRETOS:
-            if s.lower() in out.lower():
-                print(f"FALLO [{mode}]: salió «{s}»")
+        for xml, expected in ((XML, ESPERADO), (FORM_XML, FORM_ESPERADO)):
+            out = run(mode, xml)
+            for s in SECRETOS:
+                if s.lower() in out.lower():
+                    print(f"FALLO [{mode}]: salió «{s}»")
+                    fallos += 1
+            for e in expected:
+                if e not in out:
+                    print(f"FALLO [{mode}]: no salió «{e}»")
+                    fallos += 1
+            if "elementos omitidos por la lista blanca" not in out:
+                print(f"FALLO [{mode}]: falta el recuento de omitidos")
                 fallos += 1
-        for e in ESPERADO:
-            if e not in out:
-                print(f"FALLO [{mode}]: no salió «{e}»")
-                fallos += 1
-        if "elementos omitidos por la lista blanca" not in out:
-            print(f"FALLO [{mode}]: falta el recuento de omitidos")
-            fallos += 1
     print("autoprueba de privacidad:", "correcta" if fallos == 0 else f"{fallos} fallos")
     return 1 if fallos else 0
 

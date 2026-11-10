@@ -3,7 +3,6 @@ import 'package:agroquimicos/data/app_database.dart';
 import 'package:agroquimicos/presentation/widgets/adaptive_entity_picker.dart';
 import 'package:agroquimicos/voice/voice_providers.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
