@@ -178,6 +178,48 @@ Cada fila es un turno real; se conservan los fallos. «Pendiente» = valor corre
 
 Patrón dominante: la cifra del precio llega, pero no la forma «a N bolivianos el litro». Como el intérprete resuelve bien el texto correcto (grupo 7 de las pruebas), la causa está en lo que llega transcrito, no en el intérprete; con esta ronda no se puede decir si es la voz, el modelo o la pista. No se cambió nada durante la ronda.
 
+### Resultados de la ronda, Whisper small (misma APK, mismas condiciones; sólo cambia el modelo)
+
+Repetir las frases de viva voz **no es el mismo audio**: las diferencias pueden venir también de cómo se dijo cada frase. Carga de small al cambiar de modelo: 451 ms (copiado y verificado antes).
+
+| Caso | Turno | Audio / habla | Transcripción | «Terminar»→borrador | Correctos sin corrección | Pendientes o ambiguos | Incorrectos sin aviso | Líneas de más | Correcciones necesarias |
+|---|---|---|---|---|---|---|---|---|---|
+| R1 | 14 | 7,0 s / 5,5 s (−36 dBFS) | **9 644 ms** | ≈10 s | producto **Herbicida DEMO**; cantidad 3 L; moneda BOB | precio 120 («¿120 Bs por L?», palabra extra) | 0 | 0 | confirmar «Por L», elegir proveedor |
+| — | — | — | — | — | Reinicio de la app fuera de la vista entre R1 y R2 (proceso nuevo): el experimento se apagó, el selector volvió a base y se perdieron las métricas en memoria. Se reactivó, se eligió small y se comprobó en las métricas del turno siguiente (`variante=small`). La numeración de turnos vuelve a 1 | — | — | — |
+| R2 | 1 (tras el reinicio) | 8,3 s / 3,9 s (−37 dBFS) | **9 853 ms** (carga 0 ms: small ya cargado al elegirlo) | ≈10 s | producto **Fungicida DEMO**; cantidad **1,5 L**; moneda BOB | precio 50 («¿50 Bs por L?», palabra extra) | 0 | 0 | confirmar «Por L», elegir proveedor |
+| R3 | 2 (tras el reinicio) | 7,7 s / 4,6 s (−37 dBFS) | **9 732 ms** | ≈10 s | moneda BOB | producto («Ambiguo: elija», no resuelto); **cantidad «Falta»** (no se extrajo; sin leer el texto no se atribuye causa); precio «Ambiguo: se dijo un importe total» con el campo vacío: se reconoció como total, no como precio por L, pero el importe no puede comprobarse en pantalla mientras falte la cantidad | 0 | 0 | elegir producto, escribir 2 L, tocar «Total de la línea» y comprobar 100, elegir proveedor |
+| R4 | 3 (tras el reinicio) | **23,0 s** / 3,6 s (−37 dBFS) | **9 617 ms** | ≈10 s | cantidad 2 L; moneda BOB; **una sola línea pese a la pausa** | producto («Ambiguo: elija», no resuelto); precio 50 («¿50 Bs por L?», palabra extra) | 0 | 0 | elegir producto, confirmar «Por L», elegir proveedor |
+| R5 | 4 (tras el reinicio) | 8,1 s / 1,5 s (−32 dBFS) | **9 624 ms** | ≈10 s | producto **Insecticida DEMO** (no otro parecido); cantidad 2 L; moneda BOB | precio 90 («¿90 Bs por L?», palabra extra «que no es una moneda») | 0 | 0 | confirmar «Por L», elegir proveedor |
+| R6 | 5 (tras el reinicio) | 5,0 s / 0,9 s (−29 dBFS) | **9 384 ms** | ≈10 s | — (no se inventó nada) | **ninguna línea**: «No cambió el borrador: no se reconoció nada que completar»; la app pide «Añada al menos un producto» y el proveedor | 0 | 0 | añadir la línea a mano (producto, cantidad, precio, moneda) y el proveedor |
+
+### Comparación exploratoria base ↔ small (R1–R6, un intento contado por caso y modelo)
+
+**No es una evaluación formal ni declara un ganador.** Seis frases, un hablante (el autor), un teléfono, un intento contado por caso y modelo. Repetir las frases de viva voz **no es el mismo audio**: cambian el ritmo, las pausas, el volumen y la pronunciación (habla detectada de 0,9 a 6,2 s según el turno), y la ronda small se hizo después de la base (efecto de orden). Las diferencias pueden venir del audio y no del modelo.
+
+| Medida | Whisper base | Whisper small |
+|---|---|---|
+| Campos correctos sin corrección (R1–R5, 4 campos cada uno = 20) | **9 / 20** | **12 / 20** |
+| Producto resuelto solo | 1 / 5 (R4) | 3 / 5 (R1, R2, R5) |
+| Cantidad dictada | 5 / 5 | 4 / 5 (R3: «Falta») |
+| Moneda dictada | 3 / 5 (R1 «Revisar», R3 «Falta») | 5 / 5 |
+| Precio | nunca resuelto solo; 4 / 5 con el valor correcto pendiente de «Por L»; R3 sin importe | nunca resuelto solo; 4 / 5 con el valor correcto pendiente de «Por L»; R3 reconocido como **total**, valor no comprobable mientras falte la cantidad |
+| R6 (incompleta) | sin línea | sin línea |
+| Incorrectos aceptados sin aviso | **0** | **0** |
+| Líneas de más | **0** | **0** |
+| Correcciones de la línea (sin contar proveedor y «¿ya pagaste?»), R1–R5 | 11 (3 · 2 · 3 · 1 · 2) | 8 (1 · 1 · 3 · 2 · 1) |
+| R6: corrección | la línea entera a mano | la línea entera a mano |
+| Transcripción del turno | 2 585 – 3 123 ms (≈3 s) | 9 384 – 9 853 ms (≈10 s) |
+| «Terminar» → borrador | ≈3 s | ≈10 s (unas 3,3–3,8 veces más) |
+
+Lectura prudente:
+
+- En esta ronda small dejó más campos útiles sin tocar, sobre todo el **producto** (3 frente a 1) y la **moneda** (5 frente a 3). Base fue mejor en R4 (resolvió el producto) y en R3 (sacó la cantidad). Caso a caso: small mejor en R1, R2, R5; base mejor en R4; empate en R3 (1 y 1, en campos distintos) y R6.
+- **Ninguno aceptó un dato erróneo sin aviso** ni creó líneas de más: los fallos quedaron como «Falta» o «Ambiguo». Esto es lo que protege el borrador, con cualquiera de los dos.
+- El **precio por unidad no se resuelve solo con ninguno de los dos**: la palabra extra entre la cifra y la unidad aparece en los dos modelos, así que no se atribuye a uno de ellos (§7a); queda la decisión de diseño de cómo tratarla, sin aceptar cualquier palabra intermedia.
+- R6 no dio el producto con ninguno; sin leer el texto no se atribuye causa.
+- El coste de small es la **espera**: unos 7 s más por turno en el POCO, y 185 MB más de APK.
+- Para decidir haría falta más intentos por caso, el mismo audio grabado (con consentimiento) o más hablantes; con un intento por caso la diferencia de 3 campos puede ser ruido.
+
 ## 8. Limitaciones conocidas
 
 - Sin texto provisional en el modo experimental: el usuario no ve nada hasta «Terminar».
