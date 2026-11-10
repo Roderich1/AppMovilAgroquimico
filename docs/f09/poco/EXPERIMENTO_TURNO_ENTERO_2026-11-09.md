@@ -395,7 +395,7 @@ P2 entró en el mismo borrador que P1 (no se descartó entre ambos): fue la lín
 - **Comprobado (texto escrito)**: los defectos de §9.5 y los controles de §10.1.
 - **Observado una vez en el teléfono**: el total por confirmar con su cifra y el reparto a 50 Bs/L (P2); 1,5 L y un precio por unidad resuelto sin preguntar (P3). Un intento por caso: no es una tasa.
 - **P4 (sólo producto)**: con `339a6ce` quedó sin línea porque el verbo y el producto llegaron en **una sola palabra** (el autor lo confirmó mirando lo oído, sin copiarlo); corregido en `a340bbb` (§10.8) y, repetido una vez, dio la línea incompleta esperada.
-- **Hipótesis**: que haz 5, la pista nueva o q8_0/f16 mejoren el reconocimiento con voz humana. En HOST, con voz sintética, haz 5 no cambió nada y la cuantización mayor cambió 1–2 de 12.
+- **Usado con voz humana**: small con haz de 5 y la pista nueva se usaron en el teléfono con la voz del autor (§10.6, §11). **Pendiente**: medir el beneficio **aislado** del haz (frente a voraz) y de la pista (frente a la anterior); en HOST, con voz sintética, el haz no cambió ningún texto. **Q8_0 y F16 no fueron evaluados** (ni en el teléfono ni con voz humana): sólo hay un banco HOST con voz sintética (§10.5) que no permite conclusiones.
 - **Coste comprobado**: 10,2–12,0 s de transcripción por turno en el POCO con small + haz 5 (small voraz en R1–R6: 9,4–9,9 s; otra ronda y otro audio).
 
 ### 10.8 Verbo pegado a la palabra siguiente (`a340bbb`)
@@ -474,6 +474,7 @@ No se guardó audio ni transcripción real: sólo campos, códigos (`voz turno:`
 - (§9) Dos importes que no cuadran se detectan sólo si van **seguidos** en la misma línea; un importe dicho más lejos (otra frase, otro producto en medio) no se compara.
 - (§9) Un total dicho al final de un dictado con **varias líneas** nunca se asigna: queda sin valor y la persona escribe el precio de cada línea. No se reparte entre líneas.
 - (§9) El total se reparte sólo si da centavos exactos; si no, se pide el precio por unidad (no se redondea).
+- (§10) Small con haz de 5 se usó con voz humana (P1–P4 y el registro final, un intento por caso): no hay tasa de acierto. Falta medir el beneficio aislado del haz y de la pista. Q8_0 y F16 no fueron evaluados.
 - (§10) La pista limita su tamaño por caracteres (400 ≈ 170 tokens), no por tokens reales: un catálogo de nombres muy raros podría acercarse al límite de 223.
 - (§10) El transcriptor a veces pega palabras («Comprade», «Mancozeba», en HOST con voz sintética): el intérprete no las separa.
 - (§10) Un artículo o una expresión de tiempo sólo se quitan en los extremos del nombre; otras palabras («para la campaña») siguen pidiendo elegir.
