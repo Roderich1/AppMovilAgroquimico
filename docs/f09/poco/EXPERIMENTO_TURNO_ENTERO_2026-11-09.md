@@ -110,6 +110,44 @@ El experimento se apaga al cerrar la app. Aplicación y planificación no cambia
 
 Casos: dictado completo con pausas · silencio · cancelación · dos turnos consecutivos · error al cargar el modelo (variante ausente o memoria) · campos incompletos · revisión y confirmación sin duplicados · sin conexión (modo avión) con los modelos ya copiados. Y la comparación base ↔ small sobre las mismas frases (producto, cantidad, unidad, precio unitario/total, moneda, líneas adicionales, correcciones manuales, tiempo desde «Terminar» hasta el borrador). Se conservan los intentos fallidos. La coincidencia entre modelos no vale como acierto: cada campo se contrasta con lo que debía registrarse.
 
+## 7a. Primeros dos turnos en el POCO (Whisper base, APK `e9b3d66`, 2026-11-09 23:2x)
+
+Condiciones: experimento encendido, variante **base**, pista = catálogo + términos del dominio, borrador nuevo. Roderich dictó; esta sesión leyó sólo los campos y los tiempos. Los dos turnos se conservan **separados**.
+
+| Turno | Audio | Habla | Nivel | Carga | Transcripción | «Terminar» → borrador |
+|---|---|---|---|---|---|---|
+| 1 | 25,1 s | 5,9 s | −35 dBFS | 0 ms (precargado al abrir: 117 ms) | 2 881 ms | ≈3 s |
+| 2 | 7,2 s | 4,3 s | −32 dBFS | 0 ms | 2 657 ms | ≈3 s |
+
+**Turno 1 (caso previsto: 2 L de Fungicida DEMO a 50 Bs/L).** Producto Fungicida DEMO ✓ dictado; cantidad 2 L ✓; moneda BOB ✓; **precio 50 «Ambiguo: elija»**: entre la cifra y la unidad el modelo escribió otra palabra y la app preguntó «¿50 Bs por L?». Acierto inicial: **3 de 4 campos correctos sin revisión; precio correcto pero pendiente; 0 incorrectos sin aviso; 0 líneas adicionales en este turno.** Correcciones que harían falta: confirmar «Por L» y elegir el proveedor (no se dictó).
+
+**Turno 2 (otro dictado; sus valores esperados se fijarán con el autor, no se valora aquí).** Una línea nueva: producto «Ambiguo: elija» (sin resolver), cantidad 5 L dictada, precio 120 «Ambiguo» (misma pregunta), moneda «por revisar» (sin «a» antes de la cifra). Tiempo igual al del turno 1. No se mezcla con los campos del turno 1.
+
+**No se registró la compra.** El borrador se descartó por la interfaz («Cancelar») y la base de `.f09w` quedó con 0 compras, 0 lotes, 0 movimientos, 0 cuentas. Al volver a entrar, el borrador empieza vacío.
+
+### Ambigüedad del precio: ¿intérprete o transcripción?
+
+Comprobado con frases **escritas** (`compra_frases_turno_completo_test.dart`, grupo 7, 22/22):
+
+- Con texto correcto («… a cincuenta bolivianos por litro / el litro / cada litro / por el litro») el precio queda **resuelto**: 50 Bs/L. El problema **no se reproduce con texto correcto**: en el turno 1 sólo tenemos evidencia de una palabra intercalada en la transcripción, y la app hizo lo previsto (preguntar, sin aceptar cualquier palabra ni asumir unitario).
+- Con una palabra intercalada entre importe y unidad («… cincuenta bolivianos haciendo litro / haciendo el litro») el precio queda **ambiguo** con el importe conservado; con artículo delante de la unidad, la pregunta es «¿50 Bs por L?». Nunca se resuelve solo.
+- «… a cien bolivianos en total» se reconoce como **total** (no unitario).
+- **Defecto encontrado y anotado, sin corregir todavía:** «… por un total de cien bolivianos» no se toma como unitario (bien), pero el importe sale **1,00** en vez de 100,00: «un» se lee como la cifra. Se corregirá después de la ronda, con su propia versión, para no cambiar el intérprete entre mediciones. Mientras, el caso de precio total de la ronda usa la forma «… en total».
+- No se atribuye la ambigüedad al modelo sin más: una palabra intercalada puede venir del habla o de la transcripción; sólo se anota como «palabra extra entre cifra y unidad».
+
+### Ronda exploratoria con Whisper base (6 casos, condiciones constantes)
+
+| # | Caso | Frase prevista | Esperado |
+|---|---|---|---|
+| R1 | Compra sencilla, precio unitario | «Compré tres litros de herbicida demo a ciento veinte bolivianos el litro» | Herbicida DEMO · 3 L · 120 Bs/L · BOB · total 360,00 |
+| R2 | Cantidad decimal | «Compré un litro y medio de fungicida demo a cincuenta bolivianos el litro» | Fungicida DEMO · 1,5 L · 50 Bs/L · BOB · total 75,00 |
+| R3 | Precio total | «Compré dos litros de insecticida demo a cien bolivianos en total» | Insecticida DEMO · 2 L · precio **total** 100 Bs («elija Total de la línea»), nunca 100 Bs/L |
+| R4 | Pausa natural | «Compré dos litros de fungicida demo» … pausa ≈2 s … «a cincuenta bolivianos el litro» | Una sola línea: Fungicida DEMO · 2 L · 50 Bs/L · BOB · 100,00 |
+| R5 | Nombre parecido | «Compré dos litros de insecticida demo a noventa bolivianos el litro» | Insecticida DEMO (no Herbicida ni Fungicida) · 2 L · 90 Bs/L · 180,00 |
+| R6 | Incompleta | «Compré fungicida demo» | Fungicida DEMO; cantidad, precio y moneda pendientes; proveedor falta; no se puede registrar |
+
+Por intento se anota: correctos sin corrección · pendientes/ambiguos · incorrectos aceptados sin aviso · líneas adicionales · correcciones manuales · tiempo «Terminar» → borrador. Se conservan fallos y repeticiones. Luego, small con los mismos casos: repetir las frases de viva voz **no es el mismo audio**; se compara utilidad de los campos, errores sin aviso, correcciones y espera, sin declarar ganador por un acierto.
+
 ## 8. Limitaciones conocidas
 
 - Sin texto provisional en el modo experimental: el usuario no ve nada hasta «Terminar».

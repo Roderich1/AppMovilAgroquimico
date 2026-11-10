@@ -227,6 +227,73 @@ void main() {
     });
   });
 
+  group('7. ambigüedad del precio (POCO 2026-11-09, turno entero)', () {
+    test('«a cincuenta bolivianos por litro»: unitario resuelto', () {
+      final l = dictate([
+        'Compré dos litros de Fungicida DEMO a cincuenta bolivianos por litro',
+      ]).lines.single;
+      expect(l.price.status, FieldStatus.resolved);
+      expect(l.unitPriceMinor, 5000);
+      expect(l.price.value?.total, isFalse);
+    });
+
+    test('«por un total de cien bolivianos»: no se toma como unitario; '
+        'DEFECTO anotado: el importe sale mal (se lee «un» como la cifra)', () {
+      final l = dictate([
+        'Compré dos litros de Fungicida DEMO por un total de cien bolivianos',
+      ]).lines.single;
+      expect(l.product.value, fungicida);
+      expect(l.quantityBase, 2000);
+      expect(l.unitPriceMinor, isNull, reason: 'un total no es precio por L');
+      expect(l.price.status, isNot(FieldStatus.resolved));
+      // Comportamiento actual (e9b3d66), documentado para corregirlo después
+      // de la ronda con condiciones constantes: la cifra tomada es 1,00 y no
+      // 100,00. Si esta aserción falla, el defecto se corrigió: actualizar.
+      expect(l.price.value?.minorPerUnit, 100);
+    });
+
+    test('«a cien bolivianos en total» sí se reconoce como total', () {
+      final l = dictate([
+        'Compré dos litros de Fungicida DEMO a cien bolivianos en total',
+      ]).lines.single;
+      expect(l.unitPriceMinor, isNull);
+      expect(l.price.value?.total, isTrue);
+      expect(l.price.value?.minorPerUnit, 10000);
+    });
+
+    test('palabra intercalada entre el importe y la unidad: ambiguo, con el '
+        'importe conservado; nunca resuelto ni descartado', () {
+      for (final text in const [
+        'compré dos litros de fungicida demo a cincuenta bolivianos haciendo litro',
+        'compré dos litros de fungicida demo a cincuenta bolivianos haciendo el litro',
+      ]) {
+        final l = dictate([text]).lines.single;
+        expect(l.unitPriceMinor, isNull, reason: text);
+        expect(l.price.status, FieldStatus.ambiguous, reason: text);
+        expect(l.price.value?.minorPerUnit, 5000, reason: text);
+        expect(l.currency.value, CurrencyCode.bob, reason: text);
+      }
+      // Con artículo o conector delante de la unidad, la app pregunta
+      // «¿50 Bs por L?» (lo visto en el POCO); sin él, el aviso genérico.
+      final asked = dictate([
+        'compré dos litros de fungicida demo a cincuenta bolivianos haciendo el litro',
+      ]).lines.single;
+      expect(asked.price.message, contains('¿50 Bs por L?'));
+    });
+
+    test('con texto correcto («el litro», «cada litro») no hay ambigüedad', () {
+      for (final text in const [
+        'compré dos litros de fungicida demo a cincuenta bolivianos el litro',
+        'compré dos litros de fungicida demo a cincuenta bolivianos cada litro',
+        'compré dos litros de fungicida demo a cincuenta bolivianos por el litro',
+      ]) {
+        final l = dictate([text]).lines.single;
+        expect(l.price.status, FieldStatus.resolved, reason: text);
+        expect(l.unitPriceMinor, 5000, reason: text);
+      }
+    });
+  });
+
   group('6. frase completa de compra en un solo turno', () {
     test('producto, cantidad, precio, moneda y proveedor en una frase', () {
       final d = dictate([
