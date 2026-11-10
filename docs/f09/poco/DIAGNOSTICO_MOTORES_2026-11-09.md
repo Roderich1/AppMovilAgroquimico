@@ -20,6 +20,7 @@ Rama `feat/f09-diagnostico-motores`, que parte de `d5808d0`. Configuración: Vos
 | Aviso de posible repetición, emparejamiento seguro, espera de la prueba de salida | HOST | ver sección 25 |
 | Compra completa: acierto inicial, correcciones, efectos y persistencia (sección 26) | DEVICE | `71e55fc` |
 | Aplicación de prueba: preparación y valores iniciales (sección 27) | DEVICE | `71e55fc` |
+| Aplicación de prueba: reconocimiento, corrección, efectos y persistencia (sección 28) | DEVICE | `71e55fc` |
 
 Ningún resultado declara ganadoras a A, a B ni a la pista de dominio. Las comparaciones son diagnóstico.
 
@@ -855,3 +856,51 @@ El Fungicida comprado en la sección 26 **no** sirve para este recorrido normal:
 | Cuentas | 5 | **6**: `USAGE_CHARGE` +120,00 Bs a Beto, campaña 1, referencia a la aplicación |
 | Saldo de Beto / Familias por cobrar | 400,00 | **520,00** |
 | Compras, pagos, terceros, planes | — | Sin cambios |
+
+## 28. DEVICE: aplicación de prueba (POCO, 2026-11-09 20:23–20:35, APK `71e55fc`): resultado
+
+APK `agrocuentas-f09diag-71e55fc-arm64-v8a-profile.apk`, SHA-256 `8a323bd1881417e0d094cb3f073e5dfcd88c1abf30c0244071eb09ebc993d849`. La pantalla de aplicación por voz no tiene los interruptores de diagnóstico (sólo la de compra): rige la regla A; «Revisar cada frase» activado. Roderich dictó, corrigió y registró con su pulsación; esta sesión navegó hasta la pantalla con su permiso y comprobó la persistencia.
+
+### Reconocimiento (antes de corregir)
+
+3 frases en 2 turnos (20:23:56, 20:24:40, 20:25:10). En las 3: revisión `ok` (entrega 3,2–3,7 s), `elegido=revision`, `motivo=accepted`, `diferencias=ninguna` (Vosk y Whisper coinciden en los datos). Nivel de habla −28 a −30 dBFS.
+
+| Campo | Estado tras el dictado | Valoración |
+|---|---|---|
+| Chaco | Chaco Río DEMO, dictado | ✓ sin revisión |
+| Quién aplica | Beto Mamani (DEMO), fijado por el chaco | ✓ |
+| Área | 2 ha, propuesta del chaco | ✓ |
+| Campaña | Invierno 2026 (DEMO), propuesta | ✓ |
+| Producto 1 / cantidad 1 | Herbicida DEMO, 1 L, dictados («Stock actual 3 L · quedaría 2 L») | ✓ sin revisión |
+| Línea adicional | Producto 2: Fungicida DEMO, 4 L, dictada, del segundo turno | No prevista en el caso. Sin leer el texto dictado no se puede atribuir a lo dicho o a un error de reconocimiento: no se valora como acierto ni como fallo del motor |
+
+Con la línea adicional apareció el aviso «Se usará producto vencido» (Fungicida DEMO: 2 L del lote F-DEMO-02, vencido el 03/11/2026): el aviso de RN-31/RN-32 funciona y sólo informa. **Corrección:** Roderich quitó la línea 2 con «Quitar este producto». Ninguna otra corrección.
+
+### Efectos tras registrar (una pulsación)
+
+| Comprobación | Antes | Después | ¿Como lo esperado? |
+|---|---|---|---|
+| Aplicaciones | 2 | **3**: n.º 3, Chaco Río DEMO, Beto, campaña 1, sin plan, confirmada, 120,00 Bs, 20 000 m² | Sí |
+| Ítems / consumos | 2 / 2 | **3 / 3**: Herbicida DEMO 1 L, 120,00 Bs; consumo del lote 2, 1 L, 120,00 Bs (un solo ítem en la aplicación) | Sí |
+| Movimientos de inventario | 10 | **11**: `APPLICATION_OUT` −1 L, lote 2, dueño Beto | Sí |
+| Lotes | 7 | 7 | Sí |
+| Herbicida DEMO | Beto 3 L; total 14 L | **Beto 2 L; total 13 L**; Rosa 11 L sin cambios | Sí |
+| Fungicida DEMO (lotes vencidos) | Beto 4 L; Rosa 8 L | Sin cambios: no se consumió ningún lote vencido | Sí |
+| Cuentas | 5 | **6**: `USAGE_CHARGE` +120,00 Bs a Beto, campaña 1, referencia aplicación 3 | Sí |
+| Saldo de Beto | 400,00 | **520,00** | Sí |
+| Compras, pagos a proveedor, Carmen, Rosa, planes, consentimiento | — | Sin cambios | Sí |
+| Integridad | ok | ok | — |
+
+### Persistencia (cierre forzado y nueva apertura, 20:34)
+
+Proceso nuevo tras `am force-stop` (antes 19159, después 6482).
+
+| Pantalla | Resultado |
+|---|---|
+| Inicio | Familias por cobrar **520,00 Bs** (antes 400,00); compras 4 985,00, pagado a proveedores 3 000,00, terceros 210,00 y pagos recibidos 350,00 sin cambios |
+| Cuentas | Beto: cargos de Invierno 2026 720,00, pagos aplicados 200,00, saldo neto 520,00. Rosa (titular): consumo propio 720,00, sin cambios |
+| Operaciones → Aplicaciones | La nueva arriba: Beto · Chaco Río DEMO · Herbicida DEMO 1 L · 120,00 Bs |
+| Inventario | Herbicida DEMO físico 13 L (antes 14); detalle: Beto 2 L. Fungicida 12 L e Insecticida 4 L sin cambios |
+| Base de datos | Idéntica a la de justo después de registrar |
+
+**Conclusión:** el **registro** fue correcto y persistente: una sola aplicación, descuento FIFO del lote no vencido del responsable, cargo por uso real a Beto y nada más. En el **reconocimiento**, los datos previstos llegaron correctos sin revisión, con acuerdo entre motores; además entró una línea no prevista, que el usuario quitó. No se presenta como acierto completo del dictado: hizo falta una corrección.
