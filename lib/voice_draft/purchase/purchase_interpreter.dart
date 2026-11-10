@@ -48,10 +48,15 @@ final class PurchaseInterpretation {
     this.ignoredRecipient,
     this.unplacedPrice,
     this.lineNotice,
+    this.trace = const PurchaseTrace(),
   });
 
   final VoicePurchaseDraft draft;
   final VoicePatchOutcome outcome;
+
+  /// Recorrido del dictado **sin texto**: sólo cuentas y códigos, para el
+  /// registro técnico de diagnóstico.
+  final PurchaseTrace trace;
 
   /// En inventario propio la compra es del titular, sin elegir persona (como
   /// en el formulario): una persona dictada se ignora y se informa.
@@ -71,6 +76,59 @@ final class PurchaseInterpretation {
   /// iba (o un producto fuera del catálogo dicho sin cantidad). La pantalla
   /// lo muestra; el borrador no cambió por eso.
   final String? lineNotice;
+}
+
+/// Recorrido de un dictado por el intérprete, **sin texto ni nombres**:
+/// intérprete → propuesta de línea → incorporación al borrador. Sirve para
+/// localizar dónde se pierde una frase en el teléfono (F09, R6: «No cambió el
+/// borrador» con una frase que, escrita, sí crea la línea) sin guardar lo
+/// dictado.
+final class PurchaseTrace {
+  const PurchaseTrace({
+    this.words = 0,
+    this.intent = 'none',
+    this.measures = 0,
+    this.loosePrices = 0,
+    this.lines = const [],
+    this.mention = 'no-aplica',
+    this.reason = 'ok',
+  });
+
+  /// Palabras del texto recibido (0 = transcripción vacía).
+  final int words;
+
+  /// Operación que se reconoció (`purchase`, `none`, u otra que no se aplica).
+  final String intent;
+
+  /// Cantidades con unidad que propusieron una línea.
+  final int measures;
+
+  /// Precios sueltos (sin producto delante).
+  final int loosePrices;
+
+  /// Por cada línea propuesta, cómo se encontró el producto en el catálogo:
+  /// `unico`, `varios`, `ninguno` o `sin-nombre`, y adónde fue: `nueva`,
+  /// `existente` o `aviso` (no se aplicó).
+  final List<String> lines;
+
+  /// Producto dicho sin cantidad («compré fungicida demo»): `no-aplica` (no
+  /// se intentó: hubo cantidades, varios precios sueltos, proveedor, persona
+  /// o tipo de cambio), `descartado` (sin nombre, o fuera del catálogo sin
+  /// «compré»), o `<coincidencia>-<destino>`: `unico-nueva`,
+  /// `unico-existente`, `varios-nueva`, `ninguno-aviso`, `sin-verbo-aviso`…
+  final String mention;
+
+  /// Por qué no cambió el borrador, si no cambió: `ok`, `vacio`,
+  /// `otra-operacion`, `sin-linea`, `aviso`, `precio-no-colocado`,
+  /// `sin-cambios` (lo dicho ya estaba o se conservó lo corregido a mano).
+  final String reason;
+
+  /// Una línea de registro: sólo cuentas y códigos.
+  String logLine({required int applied, required int keptManual}) =>
+      'voz compra: palabras=$words intencion=$intent medidas=$measures '
+      'precios-sueltos=$loosePrices lineas=[${lines.join(',')}] '
+      'mencion=$mention aplicados=$applied conservados=$keptManual '
+      'motivo=$reason';
 }
 
 /// Por qué un precio dicho aparte no se puso en ninguna línea.
@@ -194,6 +252,11 @@ PurchaseInterpretation interpretPurchase(
       draft: current,
       outcome: const VoicePatchOutcome(),
       otherIntent: intent,
+      trace: PurchaseTrace(
+        words: words.length,
+        intent: intent.name,
+        reason: 'otra-operacion',
+      ),
     );
   }
 
@@ -211,6 +274,12 @@ PurchaseInterpretation interpretPurchase(
     return PurchaseInterpretation(
       draft: draft.updateLine(waiting.key, (l) => l.copyWith(product: field)),
       outcome: o,
+      trace: PurchaseTrace(
+        words: words.length,
+        intent: intent.name,
+        mention: 'completa-linea-en-espera',
+        reason: o.applied > 0 ? 'ok' : 'sin-cambios',
+      ),
     );
   }
 
@@ -249,6 +318,7 @@ PurchaseInterpretation interpretPurchase(
   // misma frase es otra línea, no una corrección de la primera.
   final added = <int>{};
   final notices = <String>[];
+  final traced = <String>[];
   for (final line in heard.lines) {
     // Una cantidad que cerró el tramo espera su producto en el siguiente.
     final product = line.productHeard.isEmpty
@@ -277,11 +347,16 @@ PurchaseInterpretation interpretPurchase(
       );
     }
     final placed = _placeLine(draft, line, product, added);
+    final match = line.productHeard.isEmpty
+        ? 'sin-nombre'
+        : _matchCode(product.status);
     if (placed.notice != null) {
       notices.add(placed.notice!);
+      traced.add('$match/aviso');
       continue;
     }
     final target = placed.target;
+    traced.add('$match/${target == null ? 'nueva' : 'existente'}');
     if (target != null) {
       // El producto sólo se vuelve a leer en una línea cuyo producto no se
       // había resuelto (lo mismo oído otra vez); el de una línea ya resuelta
@@ -323,6 +398,7 @@ PurchaseInterpretation interpretPurchase(
   // va a la línea inequívoca, abre una que espera la cantidad o pide elegir.
   // Nunca se ignora en silencio (POCO 2026-11-09).
   var mentioned = false;
+  var mention = 'no-aplica';
   if (heard.lines.isEmpty &&
       !heard.sawMeasure &&
       heard.loose.length <= 1 &&
@@ -336,6 +412,9 @@ PurchaseInterpretation interpretPurchase(
       draft = m.draft;
       outcome += m.outcome;
       if (m.notice != null) notices.add(m.notice!);
+      mention = m.code;
+    } else {
+      mention = 'descartado';
     }
   }
 
@@ -359,14 +438,41 @@ PurchaseInterpretation interpretPurchase(
     }
   }
 
+  final changed = outcome.applied > 0;
   return PurchaseInterpretation(
     draft: draft,
     outcome: outcome,
     ignoredRecipient: ignoredRecipient,
     unplacedPrice: unplaced,
     lineNotice: notices.isEmpty ? null : notices.join(' '),
+    trace: PurchaseTrace(
+      words: words.length,
+      intent: intent.name,
+      measures: heard.lines.length,
+      loosePrices: heard.loose.length,
+      lines: traced,
+      mention: mention,
+      reason: changed
+          ? 'ok'
+          : words.isEmpty
+          ? 'vacio'
+          : notices.isNotEmpty
+          ? 'aviso'
+          : unplaced != null
+          ? 'precio-no-colocado'
+          : heard.lines.isEmpty && !mentioned
+          ? 'sin-linea'
+          : 'sin-cambios',
+    ),
   );
 }
+
+String _matchCode(FieldStatus s) => switch (s) {
+  FieldStatus.resolved => 'unico',
+  FieldStatus.ambiguous => 'varios',
+  FieldStatus.missing => 'ninguno',
+  FieldStatus.invalid => 'no-valido',
+};
 
 /// A qué línea va lo oído ([_HeardLine]): `target` nula = línea nueva;
 /// `notice` = no está claro y no se aplica nada.
@@ -477,7 +583,12 @@ const _purchaseLead = {
 /// Fuera del catálogo no abre nada y avisa. Un nombre suelto que no está en
 /// el catálogo y sin «compré» ni precio no se trata como producto (podría ser
 /// cualquier frase): `null`, como antes.
-({VoicePurchaseDraft draft, VoicePatchOutcome outcome, String? notice})?
+({
+  VoicePurchaseDraft draft,
+  VoicePatchOutcome outcome,
+  String? notice,
+  String code,
+})?
 _productMention(
   VoicePurchaseDraft draft,
   List<String> words,
@@ -520,6 +631,7 @@ _productMention(
       notice:
           'Se oyó «$name», que no está en el catálogo: dígalo de nuevo o '
           'elíjalo en la línea.',
+      code: 'ninguno-aviso',
     );
   }
 
@@ -530,13 +642,21 @@ _productMention(
     final already =
         product.isResolved &&
         draft.lines.any((l) => l.product.value?.id == product.value!.id);
-    if (already) return (draft: draft, outcome: none, notice: null);
+    if (already) {
+      return (
+        draft: draft,
+        outcome: none,
+        notice: null,
+        code: 'sin-verbo-ya-presente',
+      );
+    }
     return (
       draft: draft,
       outcome: none,
       notice:
           'Se oyó «$name» sin cantidad ni «compré»: no se añadió. Dígalo '
           'con la cantidad («compré dos litros de …») o elíjalo en una línea.',
+      code: 'sin-verbo-aviso',
     );
   }
 
@@ -559,6 +679,7 @@ _productMention(
         notice:
             'Se oyó $said, pero hay varias líneas de ${product.value!.name}: '
             'corrija la que corresponda en el borrador.',
+        code: 'unico-varias-lineas-aviso',
       );
     }
     if (same.length == 1) target = same.single;
@@ -585,6 +706,7 @@ _productMention(
             'Se oyó $said sin cantidad. No se sabe si es el producto de '
             '$which o otra compra: elíjalo en el selector de producto de esa '
             'línea, o dígalo con la cantidad para añadir una línea nueva.',
+        code: '${_matchCode(product.status)}-linea-sin-resolver-aviso',
       );
     }
   }
@@ -622,6 +744,7 @@ _productMention(
       ),
       outcome: opr + op + oc,
       notice: notice,
+      code: '${_matchCode(product.status)}-existente',
     );
   }
 
@@ -641,6 +764,7 @@ _productMention(
     ),
     outcome: const VoicePatchOutcome(applied: 1),
     notice: notice,
+    code: '${_matchCode(product.status)}-nueva',
   );
 }
 
@@ -855,9 +979,15 @@ final class _PriceClause {
     required this.total,
     required this.stray,
     this.unknownBeforeUnit,
+    this.kindsContradict = false,
   });
 
   final List<String> words;
+
+  /// Se dijo «total» y también la unidad del precio en la misma cláusula
+  /// («por un total de cien bolivianos el litro»): no se sabe cuál de las
+  /// dos vale. La cifra queda a la vista y la persona elige.
+  final bool kindsContradict;
 
   /// Una sola palabra desconocida entre la cifra y «el/por/cada» + unidad,
   /// sin moneda («a 120 volviendo el litro», POCO 2026-11-09). No se
@@ -916,12 +1046,22 @@ _PriceClause? _readClause(
   bool loose = false,
   String? stray,
   int? heardFrom,
+  bool totalSaidBefore = false,
 }) {
   var k = at;
   var connector = false;
+  var totalLead = totalSaidBefore;
   if (k < words.length && _priceConnectors.contains(words[k])) {
     connector = true;
     k++;
+    // «por un total de cien bolivianos», «por el total de …», «a un monto
+    // total de …» (POCO 2026-11-09): «un» es el artículo de «total», no la
+    // cifra. Antes se leía 1 y el importe salía 1,00.
+    final afterTotal = _totalLeadEnd(words, k);
+    if (afterTotal != null) {
+      totalLead = true;
+      k = afterTotal;
+    }
     if (k + 1 < words.length &&
         const {'un', 'una'}.contains(words[k]) &&
         words[k + 1] == 'precio') {
@@ -1008,7 +1148,13 @@ _PriceClause? _readClause(
     total = true;
     k += 2;
   }
-  if (loose && currencyIndex == null && form != _PerUnit.clean) return null;
+  // «total» antes de la cifra y además una unidad después: se dijeron las
+  // dos cosas. No se elige ninguna.
+  final kindsContradict = totalLead && form != _PerUnit.none;
+  if (totalLead && !kindsContradict) total = true;
+  if (loose && currencyIndex == null && form != _PerUnit.clean && !totalLead) {
+    return null;
+  }
   return _PriceClause(
     words: words,
     heardFrom: heardFrom ?? number.start,
@@ -1021,7 +1167,22 @@ _PriceClause? _readClause(
     total: total,
     stray: stray,
     unknownBeforeUnit: unknownBeforeUnit,
+    kindsContradict: kindsContradict,
   );
+}
+
+/// Si en [k] empieza «(un|una|el) [monto|importe] total [de|del]», la
+/// primera palabra después; si no, `null`. Sin «total» no se salta nada:
+/// «a un precio de …» lo trata [_readClause] aparte, y «un» suelto sigue
+/// siendo una cifra («a un boliviano el litro»).
+int? _totalLeadEnd(List<String> words, int k) {
+  var t = k;
+  if (t < words.length && const {'un', 'una', 'el'}.contains(words[t])) t++;
+  if (t < words.length && const {'monto', 'importe'}.contains(words[t])) t++;
+  if (t >= words.length || words[t] != 'total') return null;
+  t++;
+  if (t < words.length && const {'de', 'del'}.contains(words[t])) t++;
+  return t;
 }
 
 /// ¿Puede [w] ser una palabra que no se entendió entre la cifra y la unidad
@@ -1093,6 +1254,33 @@ bool _unknownPriceWord(String w) =>
       currency(),
     );
   }
+  if (c.kindsContradict) {
+    // «por un total de cien bolivianos el litro»: la cifra se oyó, pero se
+    // dijo como total y como precio por unidad a la vez. Queda como
+    // candidata, sin tipo: la persona elige «Por L» o «Total de la línea».
+    if (c.number.thousandths % 10 != 0 || c.number.thousandths <= 0) {
+      return (
+        DraftField.invalid(
+          message: 'El importe debe ser mayor a cero y en centavos enteros.',
+          heard: heard,
+        ),
+        currency(),
+      );
+    }
+    return (
+      DraftField.ambiguous(
+        candidates: const [],
+        heard: heard,
+        value: SpokenPrice(c.number.thousandths ~/ 10),
+        message:
+            'Se dijo «total» y también la unidad del precio: no se sabe si '
+            '${amountText(c.number.thousandths ~/ 10, c.currency)} es el '
+            'total o el precio por unidad. Elija una opción o escriba el '
+            'precio por unidad.',
+      ),
+      currency(),
+    );
+  }
   if (c.total) {
     // Se dijo un importe total («seiscientos bolivianos en total»): la
     // compra se registra con precio por unidad. No se divide por su cuenta:
@@ -1112,7 +1300,7 @@ bool _unknownPriceWord(String w) =>
         candidates: const [],
         heard: heard,
         value: SpokenPrice(c.number.thousandths ~/ 10, total: true),
-        message: totalSaidMessage,
+        message: totalSaidMessageFor(c.number.thousandths ~/ 10, c.currency),
       ),
       currency(),
     );
@@ -1316,6 +1504,9 @@ final class _HeardLine {
   /// Unidad oída en un precio que se pregunta («¿120 Bs por L?»): si no es
   /// la del producto, no se pregunta por ella.
   CatalogUnit? priceUnitHeard;
+
+  /// El precio de la línea es un total dicho, aún sin repartir.
+  bool priceIsTotal = false;
 }
 
 final class _Heard {
@@ -1447,15 +1638,141 @@ _Heard _scan(List<String> words, List<CatalogEntry> products) {
       invalidHeard: m.numberHeard.isEmpty ? m.heard : m.numberHeard,
     );
     if (clause != null) {
-      final (price, currency) = _priceFields(clause);
-      line.price = price;
-      line.currency = currency;
-      if (clause.unknownBeforeUnit != null)
-        line.priceUnitHeard = clause.perUnit;
-      j = clause.end;
+      final next = _followingClause(words, clause.end);
+      // Sólo se comparan dos importes si el primero está completo (moneda,
+      // unidad o «total»): «a 45, 50 bolivianos el litro» es una cifra
+      // partida por una coma, no dos precios, y sigue como antes.
+      final second = next != null && (clause.total || _complete(clause))
+          ? next
+          : null;
+      if (second != null) {
+        // Dos importes para la misma línea («a cincuenta bolivianos el litro,
+        // por un total de cien bolivianos»): sólo valen si cuadran.
+        final (price, currency) = _combinePrices(
+          clause,
+          second,
+          line.quantity?.value,
+        );
+        line.price = price;
+        line.currency = currency;
+        j = second.end;
+      } else {
+        final (price, currency) = _priceFields(clause);
+        line.price = price;
+        line.currency = currency;
+        line.priceIsTotal = clause.total;
+        if (clause.unknownBeforeUnit != null)
+          line.priceUnitHeard = clause.perUnit;
+        j = clause.end;
+      }
     }
     out.lines.add(line);
     i = j > i ? j : i + 1;
   }
+  // Un total dicho al final de un dictado con varias líneas («dos litros de
+  // A y tres litros de B por un total de doscientos bolivianos») puede ser
+  // el de la última línea o el de toda la compra. No se pone en ninguna: si
+  // se dejara como candidato de la última línea, «Total de la línea» le
+  // cargaría el total de toda la compra.
+  if (out.lines.length > 1 && out.lines.last.priceIsTotal) {
+    final last = out.lines.last;
+    final said = last.price?.value?.minorPerUnit;
+    last.price = DraftField.ambiguous(
+      candidates: const [],
+      heard: last.price?.heard ?? '',
+      message:
+          'Se oyó un total'
+          '${said == null ? '' : ' de ${amountText(said, last.currency?.value)}'} '
+          'después de varias líneas: no se sabe si es de esta línea o de toda '
+          'la compra. Escriba el precio por unidad de cada línea.',
+    );
+    last.priceIsTotal = false;
+  }
   return out;
+}
+
+/// Una segunda cláusula de precio pegada a la primera, en la misma línea:
+/// tras una coma, «y», «con», «que es» o nada, empieza con un conector, con
+/// una cifra seguida de moneda, o con «en total» / «un total de» sin
+/// conector. `null` si no hay.
+_PriceClause? _followingClause(List<String> words, int from) {
+  var p = from;
+  while (p < words.length &&
+      const {
+        ',',
+        'y',
+        'con',
+        'que',
+        'es',
+        'son',
+        'o',
+        'sea',
+      }.contains(words[p])) {
+    p++;
+  }
+  if (p >= words.length) return null;
+  // «en total cien bolivianos», «un total de cien bolivianos».
+  var t = p;
+  if (t < words.length && words[t] == 'en') t++;
+  final afterTotal = _totalLeadEnd(words, t);
+  if (afterTotal != null && _numberThenCurrency(words, afterTotal)) {
+    return _readClause(words, afterTotal, totalSaidBefore: true);
+  }
+  if (_priceConnectors.contains(words[p]) || words[p] == 'precio') {
+    return _readClause(words, p, loose: true);
+  }
+  if (_numberThenCurrency(words, p)) return _readClause(words, p, loose: true);
+  return null;
+}
+
+bool _complete(_PriceClause c) =>
+    c.kindsContradict || c.currency != null || c.form != _PerUnit.none;
+
+/// Precio de una línea con dos importes dichos. Valen sólo si uno es por
+/// unidad (dicho con la unidad) y el otro el total, y cuadran con la
+/// cantidad dicha; o si son el mismo importe del mismo tipo. Si no, el
+/// precio queda **ambiguo y sin valor** (no se elige una de las cifras) y
+/// se pide escribirlo. Nunca se resuelve en silencio una contradicción.
+(DraftField<SpokenPrice>, DraftField<CurrencyCode>?) _combinePrices(
+  _PriceClause a,
+  _PriceClause b,
+  SpokenQuantity? quantity,
+) {
+  final (pa, ca) = _priceFields(a);
+  final (pb, cb) = _priceFields(b);
+  final currenciesClash =
+      a.currency != null && b.currency != null && a.currency != b.currency;
+  final currency = currenciesClash ? null : (ca ?? cb);
+  final heard = '${a.heard} · ${b.heard}';
+  (DraftField<SpokenPrice>, DraftField<CurrencyCode>?) contradiction() => (
+    DraftField.ambiguous(
+      candidates: const [],
+      heard: heard,
+      message:
+          'Se oyeron dos importes que no cuadran entre sí'
+          '${currenciesClash ? ' (en monedas distintas)' : ''}: escriba el '
+          'precio por unidad.',
+    ),
+    currency,
+  );
+  if (currenciesClash || a.kindsContradict || b.kindsContradict) {
+    return contradiction();
+  }
+  if (a.total == b.total) {
+    // El mismo importe dicho dos veces: vale lo primero, tal cual.
+    return a.number.thousandths == b.number.thousandths
+        ? (pa, currency)
+        : contradiction();
+  }
+  final unit = a.total ? b : a;
+  final total = a.total ? a : b;
+  final unitField = a.total ? pb : pa;
+  final perUnitClear = unit.form == _PerUnit.clean && unit.perUnit != null;
+  final fits =
+      perUnitClear &&
+      quantity != null &&
+      quantity.unit.family == unit.perUnit &&
+      quantity.thousandths * unit.number.thousandths ==
+          total.number.thousandths * 1000;
+  return fits ? (unitField, currency) : contradiction();
 }

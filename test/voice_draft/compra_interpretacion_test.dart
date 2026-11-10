@@ -226,7 +226,9 @@ void main() {
       ]).lines.single;
       expect(total.price.status, FieldStatus.ambiguous);
       expect(total.price.value?.total, isTrue);
-      expect(total.price.message, totalSaidMessage);
+      // Desde 2026-11-10 el aviso lleva además la cifra oída, sin confirmar.
+      expect(total.price.message, totalSaidMessageFor(60000, CurrencyCode.bob));
+      expect(total.price.message, contains(totalSaidMessage));
       expect(total.unitPriceMinor, isNull);
 
       // Con pausa antes de la «a», y con «precio de»: igual.

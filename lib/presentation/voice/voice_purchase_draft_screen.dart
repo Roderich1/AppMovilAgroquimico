@@ -20,6 +20,7 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../data/app_log.dart';
 import '../../domain/campaign_calendar.dart' show localDay;
 import '../../domain/models.dart';
 import '../../domain/money.dart';
@@ -272,9 +273,11 @@ class _VoicePurchaseDraftScreenState
       String? ignored;
       UnplacedPrice? unplaced;
       String? lineNotice;
+      PurchaseTrace? trace;
       var outcome = const VoicePatchOutcome();
       final accepted = draft!.applyVoice((current) {
         final r = interpretPurchase(fresh, current, catalog!);
+        trace = r.trace;
         other = r.otherIntent;
         ignored = r.ignoredRecipient;
         unplaced = r.unplacedPrice;
@@ -300,6 +303,14 @@ class _VoicePurchaseDraftScreenState
           single: newSegments == 1,
           disagreed: disagreed,
           catalog: catalog!,
+        );
+      }
+      // Diagnóstico sin texto (F09, R6): dónde se queda una frase que no
+      // cambia el borrador. Sólo cuentas y códigos; nunca lo dictado.
+      if (voiceDiagnosticsActive && trace != null) {
+        AppLog.info(
+          '${trace!.logLine(applied: outcome.applied, keptManual: outcome.keptManual)} '
+          'aceptado=${accepted ? 'si' : 'no'}',
         );
       }
       if (accepted) {

@@ -113,7 +113,8 @@ void main() {
       expect(r.price.message, contains('centavos exactos'));
     });
 
-    test('el total sin cantidad no se reparte: pide completarla', () {
+    test('el total sin cantidad no se reparte: pide completarla y conserva '
+        'el importe oído', () {
       final d = dictate([
         'compré fungicida demo',
         'a noventa bolivianos en total',
@@ -130,7 +131,10 @@ void main() {
         ),
       );
       final r = line.priceFromLineTotal();
-      expect(r.price.status, FieldStatus.invalid);
+      // Hasta 4a2f324 quedaba no válido y sin valor: el importe se perdía.
+      expect(r.price.status, FieldStatus.ambiguous);
+      expect(r.price.value?.minorPerUnit, 9000);
+      expect(r.price.value?.total, isTrue);
       expect(r.price.message, contains('cantidad'));
     });
 

@@ -237,8 +237,9 @@ void main() {
       expect(l.price.value?.total, isFalse);
     });
 
-    test('«por un total de cien bolivianos»: no se toma como unitario; '
-        'DEFECTO anotado: el importe sale mal (se lee «un» como la cifra)', () {
+    test('«por un total de cien bolivianos»: no se toma como unitario y el '
+        'importe es 100,00 (defecto de «un» leído como cifra, corregido el '
+        '2026-11-10; ver compra_precio_total_test.dart)', () {
       final l = dictate([
         'Compré dos litros de Fungicida DEMO por un total de cien bolivianos',
       ]).lines.single;
@@ -246,10 +247,9 @@ void main() {
       expect(l.quantityBase, 2000);
       expect(l.unitPriceMinor, isNull, reason: 'un total no es precio por L');
       expect(l.price.status, isNot(FieldStatus.resolved));
-      // Comportamiento actual (e9b3d66), documentado para corregirlo después
-      // de la ronda con condiciones constantes: la cifra tomada es 1,00 y no
-      // 100,00. Si esta aserción falla, el defecto se corrigió: actualizar.
-      expect(l.price.value?.minorPerUnit, 100);
+      // Hasta 4a2f324 la cifra tomada era 1,00 («un»); ahora 100,00, total.
+      expect(l.price.value?.minorPerUnit, 10000);
+      expect(l.price.value?.total, isTrue);
     });
 
     test('«a cien bolivianos en total» sí se reconoce como total', () {

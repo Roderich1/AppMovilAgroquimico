@@ -72,6 +72,18 @@ String perUnitQuestionMessage({
   required String unit,
   CurrencyCode? currency,
 }) {
+  final amountSymbol = amountText(minor, currency);
+  final what = const {'en', 'de', 'del'}.contains(word)
+      ? '«$word»'
+      : '«$word», que no es una moneda';
+  return 'Entre el importe y la unidad se oyó $what. ¿$amountSymbol por '
+      '$unit? Elija «Por $unit» o «Total de la línea», o escriba el precio.'
+      '${currency == null ? ' La moneda sigue pendiente.' : ''}';
+}
+
+/// Un importe en centavos como se muestra en los avisos: «120», «1,50»,
+/// con « Bs» o « $us» si se conoce la moneda.
+String amountText(int minor, CurrencyCode? currency) {
   final whole = minor ~/ 100;
   final cents = minor % 100;
   final amount = cents == 0
@@ -82,18 +94,25 @@ String perUnitQuestionMessage({
     CurrencyCode.usd => ' \$us',
     null => '',
   };
-  final what = const {'en', 'de', 'del'}.contains(word)
-      ? '«$word»'
-      : '«$word», que no es una moneda';
-  return 'Entre el importe y la unidad se oyó $what. ¿$amount$symbol por '
-      '$unit? Elija «Por $unit» o «Total de la línea», o escriba el precio.'
-      '${currency == null ? ' La moneda sigue pendiente.' : ''}';
+  return '$amount$symbol';
 }
 
 /// Se dijo un importe total.
 const totalSaidMessage =
     'Se dijo un importe total: toque «Total de la línea» para calcular el '
     'precio por unidad, o escriba el precio por unidad.';
+
+/// Se dijo un importe total, con la cifra oída a la vista **como candidata**:
+/// el campo «Precio por L» no la muestra (no es un precio por unidad), y sin
+/// la cifra la persona no podía comprobarla (POCO 2026-11-10, R3).
+String totalSaidMessageFor(int minor, CurrencyCode? currency) =>
+    'Importe total oído: ${amountText(minor, currency)} (sin confirmar). '
+    '$totalSaidMessage';
+
+/// Para repartir un total hace falta la cantidad (y el producto).
+const totalNeedsQuantityMessage =
+    'Para repartir el total, complete antes el producto y la cantidad; o '
+    'escriba el precio por unidad.';
 
 final class VoicePurchaseLine {
   const VoicePurchaseLine({
@@ -160,20 +179,25 @@ final class VoicePurchaseLine {
 
   /// El precio oído es el **total de la línea**: se reparte entre la
   /// cantidad. Sólo si la cantidad está completa y la división da centavos
-  /// exactos; si no, el precio queda no válido con el motivo y sin valor (no
-  /// se redondea). `this` si no hay un precio que repartir.
+  /// exactos; si la división no es exacta, el precio queda no válido con el
+  /// motivo y sin valor (no se redondea). `this` si no hay un precio que
+  /// repartir.
+  ///
+  /// Sin cantidad (o sin producto) no se reparte, pero **la cifra oída se
+  /// conserva** como candidata, sin confirmar, para repartirla cuando la
+  /// cantidad esté (POCO 2026-11-10, R3 con small: la cantidad faltaba y
+  /// tocar «Total de la línea» borraba el importe).
   VoicePurchaseLine priceFromLineTotal() {
     final p = price.value;
     if (p == null || price.isResolved) return this;
     final base = quantityBase;
     if (base == null) {
       return copyWith(
-        price: DraftField.invalid(
-          message:
-              'Para repartir el total, complete antes el producto y la '
-              'cantidad; o escriba el precio por unidad.',
-          heard: price.heard,
-          origin: FieldOrigin.manual,
+        price: DraftField.ambiguous(
+          candidates: const [],
+          heard: price.heard ?? '',
+          value: p,
+          message: totalNeedsQuantityMessage,
         ),
       );
     }
