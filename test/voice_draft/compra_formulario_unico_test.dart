@@ -53,6 +53,87 @@ void main() {
       ],
     );
     c.read(routerProvider).push('/compras/nueva');
+    await waitFor(tester, find.byKey(const Key('compra-completar-voz')));
+    await settle(tester);
+    return (database: s.database, c: c);
+  }
+
+  Future<void> tapKey(WidgetTester tester, String key) async {
+    await tester.ensureVisible(find.byKey(Key(key)));
+    await tester.pump();
+    await tester.tap(find.byKey(Key(key)));
+    await settle(tester);
+  }
+
+  Finder picker(String label) => find.byWidgetPredicate(
+    (w) => w is AdaptiveEntityPicker<Row> && w.label == label,
+  );
+
+  String? picked(WidgetTester tester, String label, [int at = 0]) => tester
+      .widgetList<AdaptiveEntityPicker<Row>>(picker(label))
+      .elementAt(at)
+      .value?['name']
+      ?.toString();
+
+  Future<void> choose(
+    WidgetTester tester,
+    String label,
+    String name, [
+    int at = 0,
+  ]) async {
+    final w = tester
+        .widgetList<AdaptiveEntityPicker<Row>>(picker(label))
+        .elementAt(at);
+    w.onChanged(w.items.firstWhere((i) => w.labelOf(i) == name));
+    await settle(tester);
+  }
+
+  Finder field(String label) => find.byWidgetPredicate(
+    (w) => w is TextField && w.decoration?.labelText == label,
+  );
+
+  String text(WidgetTester tester, String label, [int at = 0]) =>
+      tester.widgetList<TextField>(field(label)).elementAt(at).controller!.text;
+
+  bool continueEnabled(WidgetTester tester) =>
+      tester
+          .widget<ButtonStyleButton>(find.byKey(const Key('purchase-continue')))
+          .onPressed !=
+      null;
+
+  Future<int> count(WidgetTester tester, AppDatabase db, String table) async =>
+      (await tester.runAsync(() async => (await db.database).query(table)))!
+          .length;
+
+  /// «Hablar» y, si el turno espera a «Terminar», «Terminar».
+  Future<void> dictate(WidgetTester tester, {bool terminate = true}) async {
+    await tapKey(tester, 'voz-hablar');
+    if (terminate) await tapKey(tester, 'voz-terminar');
+    await settle(tester);
+  }
+
+  String panelMessage(WidgetTester tester) =>
+      tester.widget<Text>(find.byKey(const Key('voz-panel-mensaje'))).data!;
+
+  testWidgets('registro completamente manual con el panel abierto: un solo '
+      'registro, sin pasar por la voz', (tester) async {
+    final w = await open(tester, 'u-manual', const []);
+    await tapKey(tester, 'compra-completar-voz');
+    expect(find.byKey(const Key('voz-panel')), findsOneWidget);
+    expect(port.startRequests, isEmpty, reason: 'el micrófono no se abre solo');
+    await choose(tester, 'Proveedor', 'Proveedor');
+    await choose(tester, 'Producto', 'Glifosato');
+    await tester.enterText(field('Cantidad comprada'), '2');
+    await tester.enterText(field('Precio BOB/L'), '45');
+    await settle(tester);
+    await tapKey(tester, 'purchase-alloc-single-0');
+    await choose(tester, 'Persona', 'Hermana');
+    await tapKey(tester, 'purchase-continue');
+    await tester.tap(find.byKey(const Key('purchase-paid-no')));
+    await settle(tester);
+    expect(await count(tester, w.database, 'purchases'), 0);
+    await tapKey(tester, 'purchase-confirm');
+    // La transición de salida tras guardar.
     await tester.pump(const Duration(milliseconds: 500));
     await settle(tester);
     expect(await count(tester, w.database, 'purchases'), 1);
