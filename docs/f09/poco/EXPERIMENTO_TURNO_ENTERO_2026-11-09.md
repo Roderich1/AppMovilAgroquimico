@@ -148,6 +148,36 @@ Comprobado con frases **escritas** (`compra_frases_turno_completo_test.dart`, gr
 
 Por intento se anota: correctos sin corrección · pendientes/ambiguos · incorrectos aceptados sin aviso · líneas adicionales · correcciones manuales · tiempo «Terminar» → borrador. Se conservan fallos y repeticiones. Luego, small con los mismos casos: repetir las frases de viva voz **no es el mismo audio**; se compara utilidad de los campos, errores sin aviso, correcciones y espera, sin declarar ganador por un acierto.
 
+### Resultados de la ronda, Whisper base (APK `e9b3d66`, POCO, 2026-11-09/10)
+
+Cada fila es un turno real; se conservan los fallos. «Pendiente» = valor correcto pero marcado «Revisar/Ambiguo»; «incorrecto sin aviso» = valor erróneo aceptado como resuelto.
+
+| Caso | Turno | Audio / habla | Transcripción | «Terminar»→borrador | Correctos sin corrección | Pendientes o ambiguos | Incorrectos sin aviso | Líneas de más | Correcciones necesarias |
+|---|---|---|---|---|---|---|---|---|---|
+| R1 | 3 | 9,3 s / 5,7 s (−35 dBFS) | 2 913 ms | ≈3 s | cantidad 3 L | producto («Ambiguo: elija», no resuelto); precio 120 («¿120 Bs por L?», palabra extra entre cifra y unidad); moneda BOB («Revisar», sin «a» antes de la cifra) | 0 | 0 | elegir producto, confirmar «Por L», confirmar BOB, elegir proveedor |
+| R2 (intentos previos) | 4, 5, 6 | 9,0 s / 5,9 s · 1,8 s / 0,5 s · 6,3 s / 4,6 s | 2 637 · 2 778 · 2 684 ms | ≈3 s | — | Descartados por el autor antes de la lectura (cada uno con «Cancelar»); sólo se conservan los tiempos. El turno 5 fue una apertura muy corta | — | — | — |
+| R2 | 7 | 11,9 s / 5,7 s (−31 dBFS) | 2 788 ms | ≈3 s | cantidad **1,5 L**; moneda BOB | producto («Falta»: el nombre transcrito no está en el catálogo, sin aproximar); precio 50 («¿50 Bs por L?», palabra extra) | 0 | 0 | elegir producto, confirmar «Por L», elegir proveedor |
+| R3 (**mezclado, no cuenta para base**) | 8 (base) + 9 (**small**) | 10,9 s / 4,9 s · 6,7 s / 4,4 s | base **2 691 ms** · small **10 140 ms** | ≈3 s · ≈10 s | — | El borrador recibió los dos turnos (el selector pasó a small entre ellos): producto Insecticida DEMO dictado, 2 L dictado, precio «Ambiguo: se dijo un importe total», moneda BOB dictada. Los campos no se pueden atribuir a un modelo; se repite R3 con base | 0 | 0 | — |
+| R3 (repetido) | 10 | 10,3 s / 6,2 s (−36 dBFS) | 2 704 ms | ≈3 s | cantidad 2 L | producto («Ambiguo: elija», no resuelto); **precio «Falta»** y **moneda «Falta»**: en este turno no se extrajo ningún importe | 0 | 0 | elegir producto, escribir el precio total y la moneda, elegir proveedor |
+| R4 | 11 | 8,5 s / 5,9 s (−36 dBFS) | 3 123 ms | ≈3 s | producto Fungicida DEMO; cantidad 2 L; moneda BOB; **una sola línea pese a la pausa** | precio 50 («¿50 Bs por L?», palabra extra) | 0 | 0 | confirmar «Por L», elegir proveedor |
+| R5 | 12 | 6,9 s / 5,4 s (−36 dBFS) | 2 748 ms | ≈3 s | cantidad 2 L; moneda BOB | producto («Ambiguo: elija»: no se resolvió, y **tampoco se tomó otro producto parecido**); precio 90 («¿90 Bs por L?», palabra extra) | 0 | 0 | elegir producto, confirmar «Por L», elegir proveedor |
+| R6 | 13 | 5,7 s / 2,5 s (−32 dBFS) | 2 585 ms | ≈3 s | — (no se inventó nada) | **ninguna línea**: «No cambió el borrador: no se reconoció nada que completar»; la app pide «Añada al menos un producto» y el proveedor | 0 | 0 | añadir la línea a mano (producto, cantidad, precio, moneda) y el proveedor |
+
+**Resumen de la ronda con Whisper base** (turnos válidos 3, 7, 10, 11, 12, 13; el turno 8 queda fuera por mezcla con small; los turnos 4–6 se descartaron sin leer):
+
+| Medida | Resultado |
+|---|---|
+| Transcripción del turno entero | 2 585–3 123 ms (mediana ≈2,75 s) con 5,7–11,9 s de audio; «Terminar»→borrador ≈3 s |
+| Incorrectos aceptados sin aviso | **0** en los 6 casos |
+| Líneas de más | **0** (la pausa de R4 no partió la línea) |
+| Producto resuelto sin corrección | 2 de 6 (R4 y, en la ronda previa, el turno 1); ambiguo 3; falta 1 (fuera de catálogo); sin línea 1 (R6) |
+| Cantidad | correcta en los 5 casos que la tenían, incluida **1,5 L** |
+| Precio unitario | nunca resuelto solo: en los 4 casos con precio unitario la cifra llegó bien pero con una palabra extra entre la cifra y la unidad (pregunta «¿N Bs por L?») |
+| Precio total (R3) | en el turno válido no se extrajo importe; en el turno mezclado sí se reconoció como total. Nunca se tomó como unitario |
+| Moneda | correcta en 4, «Revisar» en 1, falta en 1 |
+
+Patrón dominante: la cifra del precio llega, pero no la forma «a N bolivianos el litro». Como el intérprete resuelve bien el texto correcto (grupo 7 de las pruebas), la causa está en lo que llega transcrito, no en el intérprete; con esta ronda no se puede decir si es la voz, el modelo o la pista. No se cambió nada durante la ronda.
+
 ## 8. Limitaciones conocidas
 
 - Sin texto provisional en el modo experimental: el usuario no ve nada hasta «Terminar».
