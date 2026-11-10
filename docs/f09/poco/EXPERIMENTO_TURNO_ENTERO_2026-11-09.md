@@ -110,7 +110,9 @@ El experimento se apaga al cerrar la app. Aplicación y planificación no cambia
 
 Casos: dictado completo con pausas · silencio · cancelación · dos turnos consecutivos · error al cargar el modelo (variante ausente o memoria) · campos incompletos · revisión y confirmación sin duplicados · sin conexión (modo avión) con los modelos ya copiados. Y la comparación base ↔ small sobre las mismas frases (producto, cantidad, unidad, precio unitario/total, moneda, líneas adicionales, correcciones manuales, tiempo desde «Terminar» hasta el borrador). Se conservan los intentos fallidos. La coincidencia entre modelos no vale como acierto: cada campo se contrasta con lo que debía registrarse.
 
-## 7a. Primeros dos turnos en el POCO (Whisper base, APK `e9b3d66`, 2026-11-09 23:2x)
+## 7a. Primera sesión: dos turnos en el POCO (Whisper base, APK `e9b3d66`, 2026-11-09 23:2x)
+
+Esta sesión es **anterior a la ronda R1–R6** y no se suma a sus resultados.
 
 Condiciones: experimento encendido, variante **base**, pista = catálogo + términos del dominio, borrador nuevo. Roderich dictó; esta sesión leyó sólo los campos y los tiempos. Los dos turnos se conservan **separados**.
 
@@ -121,7 +123,7 @@ Condiciones: experimento encendido, variante **base**, pista = catálogo + térm
 
 **Turno 1 (caso previsto: 2 L de Fungicida DEMO a 50 Bs/L).** Producto Fungicida DEMO ✓ dictado; cantidad 2 L ✓; moneda BOB ✓; **precio 50 «Ambiguo: elija»**: entre la cifra y la unidad el modelo escribió otra palabra y la app preguntó «¿50 Bs por L?». Acierto inicial: **3 de 4 campos correctos sin revisión; precio correcto pero pendiente; 0 incorrectos sin aviso; 0 líneas adicionales en este turno.** Correcciones que harían falta: confirmar «Por L» y elegir el proveedor (no se dictó).
 
-**Turno 2 (otro dictado; sus valores esperados se fijarán con el autor, no se valora aquí).** Una línea nueva: producto «Ambiguo: elija» (sin resolver), cantidad 5 L dictada, precio 120 «Ambiguo» (misma pregunta), moneda «por revisar» (sin «a» antes de la cifra). Tiempo igual al del turno 1. No se mezcla con los campos del turno 1.
+**Turno 2 — no evaluable.** Fue otro dictado cuyos valores esperados no se pueden reconstruir con certeza; no se inventan y no se valora (decisión del autor, 2026-11-10). Sólo se anota lo que mostró el borrador: Una línea nueva: producto «Ambiguo: elija» (sin resolver), cantidad 5 L dictada, precio 120 «Ambiguo» (misma pregunta), moneda «por revisar» (sin «a» antes de la cifra). Tiempo igual al del turno 1. No se mezcla con los campos del turno 1.
 
 **No se registró la compra.** El borrador se descartó por la interfaz («Cancelar») y la base de `.f09w` quedó con 0 compras, 0 lotes, 0 movimientos, 0 cuentas. Al volver a entrar, el borrador empieza vacío.
 
@@ -132,7 +134,7 @@ Comprobado con frases **escritas** (`compra_frases_turno_completo_test.dart`, gr
 - Con texto correcto («… a cincuenta bolivianos por litro / el litro / cada litro / por el litro») el precio queda **resuelto**: 50 Bs/L. El problema **no se reproduce con texto correcto**: en el turno 1 sólo tenemos evidencia de una palabra intercalada en la transcripción, y la app hizo lo previsto (preguntar, sin aceptar cualquier palabra ni asumir unitario).
 - Con una palabra intercalada entre importe y unidad («… cincuenta bolivianos haciendo litro / haciendo el litro») el precio queda **ambiguo** con el importe conservado; con artículo delante de la unidad, la pregunta es «¿50 Bs por L?». Nunca se resuelve solo.
 - «… a cien bolivianos en total» se reconoce como **total** (no unitario).
-- **Defecto encontrado y anotado, sin corregir todavía:** «… por un total de cien bolivianos» no se toma como unitario (bien), pero el importe sale **1,00** en vez de 100,00: «un» se lee como la cifra. Se corregirá después de la ronda, con su propia versión, para no cambiar el intérprete entre mediciones. Mientras, el caso de precio total de la ronda usa la forma «… en total».
+- **Defecto encontrado y anotado** (corregido después de las dos rondas, en otra versión: §9): «… por un total de cien bolivianos» no se toma como unitario (bien), pero el importe sale **1,00** en vez de 100,00: «un» se lee como la cifra. Comprobado el 2026-11-10 sobre `4a2f324`, campo por campo: importe extraído **1,00**; tipo **total**, pendiente («Ambiguo»); el campo «Precio por L» **vacío** (un total no se muestra ahí); además, el resto de la frase quedaba como «precio suelto no colocado»; y tras tocar «Total de la línea», **0,50 Bs/L resuelto** (valor erróneo después de una confirmación). Una nota de seguimiento anterior decía «1,00 Bs por L»: era inexacta; nunca quedó como precio por litro antes de confirmar. Durante las rondas, el caso de precio total usó la forma «… en total».
 - No se atribuye la ambigüedad al modelo sin más: una palabra intercalada puede venir del habla o de la transcripción; sólo se anota como «palabra extra entre cifra y unidad».
 
 ### Ronda exploratoria con Whisper base (6 casos, condiciones constantes)
@@ -163,14 +165,14 @@ Cada fila es un turno real; se conservan los fallos. «Pendiente» = valor corre
 | R5 | 12 | 6,9 s / 5,4 s (−36 dBFS) | 2 748 ms | ≈3 s | cantidad 2 L; moneda BOB | producto («Ambiguo: elija»: no se resolvió, y **tampoco se tomó otro producto parecido**); precio 90 («¿90 Bs por L?», palabra extra) | 0 | 0 | elegir producto, confirmar «Por L», elegir proveedor |
 | R6 | 13 | 5,7 s / 2,5 s (−32 dBFS) | 2 585 ms | ≈3 s | — (no se inventó nada) | **ninguna línea**: «No cambió el borrador: no se reconoció nada que completar»; la app pide «Añada al menos un producto» y el proveedor | 0 | 0 | añadir la línea a mano (producto, cantidad, precio, moneda) y el proveedor |
 
-**Resumen de la ronda con Whisper base** (turnos válidos 3, 7, 10, 11, 12, 13; el turno 8 queda fuera por mezcla con small; los turnos 4–6 se descartaron sin leer):
+**Resumen de la ronda con Whisper base** (turnos válidos 3, 7, 10, 11, 12, 13; el turno 8 queda fuera por mezcla con small; los turnos 4–6 se descartaron sin leer; la primera sesión, §7a, no se suma):
 
 | Medida | Resultado |
 |---|---|
 | Transcripción del turno entero | 2 585–3 123 ms (mediana ≈2,75 s) con 5,7–11,9 s de audio; «Terminar»→borrador ≈3 s |
 | Incorrectos aceptados sin aviso | **0** en los 6 casos |
 | Líneas de más | **0** (la pausa de R4 no partió la línea) |
-| Producto resuelto sin corrección | 2 de 6 (R4 y, en la ronda previa, el turno 1); ambiguo 3; falta 1 (fuera de catálogo); sin línea 1 (R6) |
+| Producto resuelto sin corrección | **1 de 5** en R1–R5 (R4); ambiguo 3 (R1, R3, R5); falta 1 (R2, fuera de catálogo); R6 sin línea. (El turno 1 de la primera sesión también lo resolvió, pero es otra sesión.) |
 | Cantidad | correcta en los 5 casos que la tenían, incluida **1,5 L** |
 | Precio unitario | nunca resuelto solo: en los 4 casos con precio unitario la cifra llegó bien pero con una palabra extra entre la cifra y la unidad (pregunta «¿N Bs por L?») |
 | Precio total (R3) | en el turno válido no se extrajo importe; en el turno mezclado sí se reconoció como total. Nunca se tomó como unitario |
@@ -192,6 +194,15 @@ Repetir las frases de viva voz **no es el mismo audio**: las diferencias pueden 
 | R5 | 4 (tras el reinicio) | 8,1 s / 1,5 s (−32 dBFS) | **9 624 ms** | ≈10 s | producto **Insecticida DEMO** (no otro parecido); cantidad 2 L; moneda BOB | precio 90 («¿90 Bs por L?», palabra extra «que no es una moneda») | 0 | 0 | confirmar «Por L», elegir proveedor |
 | R6 | 5 (tras el reinicio) | 5,0 s / 0,9 s (−29 dBFS) | **9 384 ms** | ≈10 s | — (no se inventó nada) | **ninguna línea**: «No cambió el borrador: no se reconoció nada que completar»; la app pide «Añada al menos un producto» y el proveedor | 0 | 0 | añadir la línea a mano (producto, cantidad, precio, moneda) y el proveedor |
 
+### Intentos cancelados, no evaluables y mezclados (se conservan, no se cuentan)
+
+| Turno(s) | Modelo | Qué pasó | Tratamiento |
+|---|---|---|---|
+| Primera sesión, turno 2 | base | Otro dictado; valores esperados no reconstruibles | No evaluable (§7a) |
+| 4, 5, 6 (intentos previos de R2) | base | Cancelados por el autor antes de la lectura; el 5, apertura muy corta | Sólo tiempos |
+| 8 + 9 (R3) | base + **small** | El selector cambió entre los dos turnos y el borrador recibió ambos | No cuenta para ninguno de los dos modelos; R3 se repitió con base (turno 10) y luego con small |
+| — (entre R1 y R2 de small) | small | Reinicio de la app fuera de la vista: experimento apagado, selector en base, métricas en memoria perdidas | Se reactivó y se comprobó `variante=small` en cada turno siguiente; la numeración volvió a 1 |
+
 ### Comparación exploratoria base ↔ small (R1–R6, un intento contado por caso y modelo)
 
 **No es una evaluación formal ni declara un ganador.** Seis frases, un hablante (el autor), un teléfono, un intento contado por caso y modelo. Repetir las frases de viva voz **no es el mismo audio**: cambian el ritmo, las pausas, el volumen y la pronunciación (habla detectada de 0,9 a 6,2 s según el turno), y la ronda small se hizo después de la base (efecto de orden). Las diferencias pueden venir del audio y no del modelo.
@@ -208,6 +219,17 @@ Repetir las frases de viva voz **no es el mismo audio**: las diferencias pueden 
 | Líneas de más | **0** | **0** |
 | Correcciones de la línea (sin contar proveedor y «¿ya pagaste?»), R1–R5 | 11 (3 · 2 · 3 · 1 · 2) | 8 (1 · 1 · 3 · 2 · 1) |
 | R6: corrección | la línea entera a mano | la línea entera a mano |
+
+**Intervención por campo (R1–R5, 20 campos por modelo).** Una confirmación manual cuenta como intervención de la persona, no como reconocimiento correcto.
+
+| Categoría | Whisper base | Whisper small |
+|---|---|---|
+| Correcto sin intervención | 9 | 12 |
+| Correcto, sólo hay que **confirmarlo** (valor a la vista y correcto, marcado «Ambiguo» o «Revisar») | 5 — precio R1, R2, R4, R5 («¿N Bs por L?»); moneda R1 («Revisar») | 5 — precio R1, R2, R4, R5; precio R3 (total reconocido, pero **la cifra no se veía** en pantalla hasta la versión de §9) |
+| Valor **incorrecto que hay que editar** | 0 | 0 |
+| **Ausente**: hay que elegir o escribir (Falta, o Ambiguo sin valor) | 6 — producto R1, R2, R3, R5; precio R3; moneda R3 | 3 — producto R3, R4; cantidad R3 |
+
+R6 (sólo producto esperado): en los dos modelos el borrador quedó **sin línea**; el producto quedó ausente.
 | Transcripción del turno | 2 585 – 3 123 ms (≈3 s) | 9 384 – 9 853 ms (≈10 s) |
 | «Terminar» → borrador | ≈3 s | ≈10 s (unas 3,3–3,8 veces más) |
 
@@ -216,9 +238,44 @@ Lectura prudente:
 - En esta ronda small dejó más campos útiles sin tocar, sobre todo el **producto** (3 frente a 1) y la **moneda** (5 frente a 3). Base fue mejor en R4 (resolvió el producto) y en R3 (sacó la cantidad). Caso a caso: small mejor en R1, R2, R5; base mejor en R4; empate en R3 (1 y 1, en campos distintos) y R6.
 - **Ninguno aceptó un dato erróneo sin aviso** ni creó líneas de más: los fallos quedaron como «Falta» o «Ambiguo». Esto es lo que protege el borrador, con cualquiera de los dos.
 - El **precio por unidad no se resuelve solo con ninguno de los dos**: la palabra extra entre la cifra y la unidad aparece en los dos modelos, así que no se atribuye a uno de ellos (§7a); queda la decisión de diseño de cómo tratarla, sin aceptar cualquier palabra intermedia.
-- R6 no dio el producto con ninguno; sin leer el texto no se atribuye causa.
+- R6 no dio el producto con ninguno. Con texto escrito («Compré fungicida demo», con y sin punto, en mayúsculas o sin tilde) el recorrido intérprete → línea → borrador → pantalla **sí** deja una línea incompleta (§9): el fallo no está en el intérprete con ese texto, y sigue **pendiente localizarlo en el recorrido real**. Sin leer lo transcrito no se atribuye causa.
 - El coste de small es la **espera**: unos 7 s más por turno en el POCO, y 185 MB más de APK.
 - Para decidir haría falta más intentos por caso, el mismo audio grabado (con consentimiento) o más hablantes; con un intento por caso la diferencia de 3 campos puede ser ruido.
+
+## 9. Corrección del intérprete de precios y diagnóstico de borradores incompletos (2026-11-10)
+
+**Versión nueva**, posterior a las dos rondas: las mediciones anteriores (§7a, R1–R6 base y small) se hicieron con `e9b3d66` y **no se recalculan**. Las mediciones con esta versión van aparte (§9.4). Modelo provisional para las pruebas siguientes: **Whisper base**, por su menor espera; small sigue empaquetado y seleccionable, sin declararlo mejor ni peor.
+
+### 9.1 Qué se corrigió (con prueba que lo reproducía antes)
+
+Seis pruebas de reproducción se ejecutaron primero contra el código de `4a2f324` (**las seis fallaron**) y después contra el corregido (pasaron). Quedaron incorporadas en `test/voice_draft/compra_precio_total_test.dart` (unidad, 22 pruebas) y `compra_precio_total_pantalla_test.dart` (pantalla con puerto simulado, 4 pruebas).
+
+| Frase escrita (sintética) | Antes (`4a2f324`) | Ahora |
+|---|---|---|
+| «dos litros … por un total de cien bolivianos» | importe 1,00, total, pendiente; precio suelto sobrante; «Total de la línea» → 0,50 Bs/L | importe **100,00**, total, pendiente, con la cifra a la vista («Importe total oído: 100 Bs (sin confirmar)»); «Total de la línea» → **50 Bs/L**, origen *confirmado* |
+| «dos litros … a cien bolivianos en total» | total 100, pendiente; el aviso no decía la cifra | igual, y el aviso dice la cifra |
+| «dos litros … a cincuenta bolivianos por litro» | 50 Bs/L resuelto, total 100 | sin cambios |
+| «un litro y medio … a cincuenta bolivianos por litro» | 1,5 L, 50 Bs/L, total 75 | sin cambios |
+| «dos litros … a cien bolivianos» (sin unidad ni «total») | candidato 100 pendiente; «Por L» o «Total de la línea» | sin cambios (las dos salidas son intervención de la persona) |
+| «… por un total de cien bolivianos el litro» (los dos tipos a la vez) | — | candidato 100 **sin tipo**, pendiente: la persona elige |
+| «a cincuenta bolivianos el litro por un total de ciento veinte» (no cuadran) | **50 Bs/L resuelto** en la línea y un aviso aparte | precio **ambiguo y sin valor**: «Se oyeron dos importes que no cuadran»; no se puede registrar |
+| «a cincuenta bolivianos el litro, en total cien» (cuadran con 2 L) | 50 resuelto y aviso aparte | 50 Bs/L resuelto (los dos importes coinciden) |
+| «dos litros de A y cuatro litros de B por un total de doscientos» | total 1,00 en la línea de B | **ninguna línea recibe el total**: B queda ambiguo y sin valor («no se sabe si es de esta línea o de toda la compra») |
+| «Total de la línea» con la cantidad aún vacía | el precio pasaba a no válido **y se perdía la cifra** (lo que ocurrió en R3 con small) | la cifra se conserva como candidata; con la cantidad escrita, se reparte |
+
+Reglas que no cambian: un total nunca se registra como precio por unidad; se reparte sólo si da centavos exactos (no se redondea); no se acepta cualquier palabra entre el importe y la unidad (la «palabra extra» sigue preguntando «¿N Bs por L?»); un importe que no se sabe si es unitario o total sigue pidiendo elegir. «un» fuera de «un total» sigue siendo la cifra 1 («a un boliviano el litro»). Dos importes seguidos se comparan sólo si el primero está completo (moneda, unidad o «total»): «a 45, 50 bolivianos el litro» sigue tratándose como antes (prueba existente).
+
+**Confirmación en pantalla** (revisada): «Por L» (precio por litro) y «Total de la línea» aparecen cuando el precio tiene una cifra candidata sin tipo; con un total dicho sólo aparece «Total de la línea»; «corregir importe» es escribir en el campo «Precio por L» (queda *corregido a mano*). Ninguna de las tres es reconocimiento automático: el campo queda con origen *confirmado* o *manual* y así se cuenta en las rondas.
+
+### 9.2 R6: «Compré fungicida demo» con texto escrito
+
+Recorrido intérprete → propuesta de línea → incorporación → pantalla, con «Compré fungicida demo», «Compré fungicida demo.», «Compré Fungicida DEMO.» y «compre fungicida demo»: en todos queda **una línea** con Fungicida DEMO, cantidad, precio y moneda pendientes, «Aplicado al borrador» y el registro deshabilitado. «compré fungicida de mo» (nombre partido) no abre línea y avisa que no está en el catálogo. Por tanto, **con ese texto el fallo no está en el intérprete**, y sigue pendiente localizarlo en el recorrido real (transcripción u otro paso).
+
+Diagnóstico añadido, **sin texto** (sólo en compilaciones de diagnóstico): por cada dictado aplicado, una línea `voz compra:` con número de palabras (0 = transcripción vacía), operación reconocida, cantidades y precios sueltos encontrados, por cada línea propuesta la coincidencia en el catálogo (`unico`, `varios`, `ninguno`, `sin-nombre`) y su destino (`nueva`, `existente`, `aviso`), el resultado del «producto sin cantidad» (`unico-nueva`, `ninguno-aviso`, `descartado`, `no-aplica`…), campos aplicados y conservados, y un código de motivo (`ok`, `vacio`, `otra-operacion`, `sin-linea`, `aviso`, `precio-no-colocado`, `sin-cambios`). Una prueba comprueba que la línea no lleva el nombre del producto ni lo dictado.
+
+### 9.3 Validación (HOST)
+
+`flutter analyze` sin avisos; `test/voice`, `test/voice_draft` y `test/voice_evidence`: **748/748**. Suite completa de la app (`flutter test --timeout 120s`, 2026-11-10 08:31–08:34, código de `8afead0`): **2849 pasan, 3 omitidas, 0 fallan** (otras rutas de voz —aplicación, planificación, salida del borrador— incluidas). Un primer intento de la suite completa quedó detenido sin consumir CPU durante más de una hora y se canceló; al repetirlo con límite por prueba terminó sin fallos. Se actualizaron tres pruebas que fijaban el comportamiento anterior: el defecto anotado (ahora 100,00), el total sin cantidad (ahora conserva la cifra) y el texto exacto del aviso de total (ahora lleva la cifra).
 
 ## 8. Limitaciones conocidas
 
@@ -229,3 +286,7 @@ Lectura prudente:
 - El experimento no se guarda: hay que encenderlo en cada arranque de la app.
 - No hay prueba instrumentada del turno entero con audio de referencia.
 - Los interruptores de diagnóstico «política B» y «comparar pistas» siguen visibles en la pantalla de compra pero **no tienen efecto** en el modo experimental (actúan sólo sobre la ruta por frases).
+- (§9) Dos importes que no cuadran se detectan sólo si van **seguidos** en la misma línea; un importe dicho más lejos (otra frase, otro producto en medio) no se compara.
+- (§9) Un total dicho al final de un dictado con **varias líneas** nunca se asigna: queda sin valor y la persona escribe el precio de cada línea. No se reparte entre líneas.
+- (§9) El total se reparte sólo si da centavos exactos; si no, se pide el precio por unidad (no se redondea).
+- (§9) R6: con texto escrito el recorrido funciona; la causa en el recorrido real **no está localizada**. El diagnóstico `voz compra:` existe sólo en compilaciones de diagnóstico y no lleva texto, así que distingue «transcripción vacía», «producto no encontrado» o «línea no incorporada», pero no qué palabras se oyeron.
