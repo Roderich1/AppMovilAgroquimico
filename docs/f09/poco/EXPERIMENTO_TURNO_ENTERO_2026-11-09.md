@@ -386,6 +386,7 @@ APK `.f09w` SHA-256 `f5a25a37b5c46bedbfd8a8dc8554c6c513442189ef303c83783fd88681f
 | 4 | **P2** total (Insecticida, 2 L, «por un total de» 100) | ✓ | ✓ 2 L | **«Importe total oído: 100 Bs (sin confirmar)»** ✓ | ✓ | «Total de la línea» → 50 Bs/L confirmado ✓ | 0 | 11 516 ms |
 | 5 | **P3** decimal y nombre (Herbicida, 1,5 L, 80/L) | ✓ | ✓ 1,5 L | ✓ 80 resuelto | ✓ | ninguna (total 120,00 ✓) | 0 | 12 004 ms |
 | 6 | **P4** sólo producto (Fungicida) | **ausente** (sin línea) | — | — | — | la línea entera | 0 | 10 205 ms |
+| 1 (APK `a340bbb`) | **P4** repetido tras corregir el verbo pegado (§10.8) | ✓ Fungicida DEMO, **una** línea | falta | falta | falta | — (línea incompleta, como se esperaba; no se puede registrar) | 0 | 10 564 ms |
 
 P2 entró en el mismo borrador que P1 (no se descartó entre ambos): fue la línea 2 y la línea 1 no cambió. El toque de «Total de la línea» lo hizo la sesión por adb, sin registrar; cuenta como intervención. P4: 3 palabras, **ningún verbo de compra reconocido** y el nombre sin coincidencia ni aproximada (`mencion=descartado`): lo transcrito no coincide con la frase prevista ni en el verbo ni en el producto; sin leer el texto no se atribuye causa.
 
@@ -393,9 +394,13 @@ P2 entró en el mismo borrador que P1 (no se descartó entre ambos): fue la lín
 
 - **Comprobado (texto escrito)**: los defectos de §9.5 y los controles de §10.1.
 - **Observado una vez en el teléfono**: el total por confirmar con su cifra y el reparto a 50 Bs/L (P2); 1,5 L y un precio por unidad resuelto sin preguntar (P3). Un intento por caso: no es una tasa.
-- **No observado**: P4 (sólo producto) volvió a quedar sin línea, ahora por la transcripción (ni verbo ni nombre reconocibles), no por la regla del verbo inicial.
+- **P4 (sólo producto)**: con `339a6ce` quedó sin línea porque el verbo y el producto llegaron en **una sola palabra** (el autor lo confirmó mirando lo oído, sin copiarlo); corregido en `a340bbb` (§10.8) y, repetido una vez, dio la línea incompleta esperada.
 - **Hipótesis**: que haz 5, la pista nueva o q8_0/f16 mejoren el reconocimiento con voz humana. En HOST, con voz sintética, haz 5 no cambió nada y la cuantización mayor cambió 1–2 de 12.
 - **Coste comprobado**: 10,2–12,0 s de transcripción por turno en el POCO con small + haz 5 (small voraz en R1–R6: 9,4–9,9 s; otra ronda y otro audio).
+
+### 10.8 Verbo pegado a la palabra siguiente (`a340bbb`)
+
+Causa de P4 en `339a6ce`, dicha por el autor con un sí/no sobre lo oído (sin copiar el texto): el verbo y el producto llegaron como **una sola palabra** y «demo» aparte; la intención no se reconoció y el nombre no se parecía a ningún producto (`mencion=descartado`). En HOST, con voz sintética, ya se había visto «Comprade». Corrección (sólo en la compra): una palabra que empieza por una forma del verbo («compraron», «compramos», «comprado», «compre», «compra») se separa **sólo** si lo que sigue es exactamente una palabra de un producto del catálogo de la cuenta, «de/del», un artículo, un número o una unidad. «Comprador», «comprender» o «comprefungi» no se parten; «No comprefungicida demo» sigue siendo una negación. Reproducido antes con 6 pruebas que fallaban; ahora 64/64 del intérprete, pantalla incluida; suite completa 2932 pasan, 3 omitidas, 0 fallan. APK `.f09w` `a340bbb`, SHA-256 `4770e8210ba0340e84771226f045c6b58851cbc727743f089568ed79c3daacb8`, instalada a las 11:34:44 (datos conservados; `.f09` sin tocar). Un intento de P4 en el teléfono: línea incompleta correcta (§10.6).
 
 ## 8. Limitaciones conocidas
 
@@ -413,5 +418,5 @@ P2 entró en el mismo borrador que P1 (no se descartó entre ambos): fue la lín
 - (§10) El transcriptor a veces pega palabras («Comprade», «Mancozeba», en HOST con voz sintética): el intérprete no las separa.
 - (§10) Un artículo o una expresión de tiempo sólo se quitan en los extremos del nombre; otras palabras («para la campaña») siguen pidiendo elegir.
 - (§10) «1,500» sigue sin leerse y «1.500» se lee como mil quinientos, como en los formularios.
-- (§10) P4 (sólo producto) no se ha visto funcionar en el teléfono.
+- (§10) El verbo pegado sólo se separa si lo que sigue es exactamente una palabra conocida (producto del catálogo, enlace, artículo, número o unidad); un producto mal transcrito pegado al verbo sigue sin línea.
 - (§9) R6: con texto escrito el recorrido funciona; la causa en el recorrido real **no está localizada**. El diagnóstico `voz compra:` existe sólo en compilaciones de diagnóstico y no lleva texto, así que distingue «transcripción vacía», «producto no encontrado» o «línea no incorporada», pero no qué palabras se oyeron.
