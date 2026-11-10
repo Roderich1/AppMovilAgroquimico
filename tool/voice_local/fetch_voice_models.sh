@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 # Deja los modelos de voz local listos para empaquetar en el APK.
 #
-#   bash tool/voice_local/fetch_voice_models.sh [base|small|none]
+#   bash tool/voice_local/fetch_voice_models.sh [base|small|both|none]
 #
 #   base  (por defecto) Vosk small-es 0.42 + Whisper base q5_1 (segunda pasada)
 #   small               Vosk small-es 0.42 + Whisper small q5_1
+#   both                base como revisión y, además, small como alternativa
+#                       (experimento F09 «un solo transcriptor por turno»)
 #   none                sólo Vosk, sin segunda pasada
 #
 # Es la ÚNICA forma de elegir el modelo de revisión: la app lee el manifiesto
@@ -52,19 +54,27 @@ fetch() { # archivo url sha
 }
 
 fetch "$VOSK.zip" "$VOSK_URL" "$VOSK_SHA"
+ALT=
 case "$REVIEW" in
   base|small)
     GGML=ggml-$REVIEW-q5_1.bin
     fetch "$GGML" "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/$GGML" "${WHISPER_SHA[$REVIEW]}" ;;
+  both)
+    # La revisión sigue siendo base (ADR-005); small viaja como alternativa
+    # seleccionable en el experimento. Ambos verificados por SHA-256.
+    REVIEW=base; ALT=small
+    GGML=ggml-base-q5_1.bin
+    fetch "$GGML" "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/$GGML" "${WHISPER_SHA[base]}"
+    fetch "ggml-small-q5_1.bin" "https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small-q5_1.bin" "${WHISPER_SHA[small]}" ;;
   none) GGML= ;;
-  *) echo "uso: $0 [base|small|none]" >&2; exit 2 ;;
+  *) echo "uso: $0 [base|small|both|none]" >&2; exit 2 ;;
 esac
 
 rm -rf "$OUT"
 mkdir -p "$OUT"
-python -I - "$CACHE" "$OUT" "$VOSK" "$GGML" "$REVIEW" <<'PY'
+python -I - "$CACHE" "$OUT" "$VOSK" "$GGML" "$REVIEW" "$ALT" <<'PY'
 import hashlib, json, pathlib, shutil, sys, zipfile
-cache, out, vosk, ggml, review = sys.argv[1:6]
+cache, out, vosk, ggml, review, alt = sys.argv[1:7]
 cache, out = pathlib.Path(cache), pathlib.Path(out)
 
 def describe(root):
@@ -106,7 +116,25 @@ if ggml:
         'license': 'MIT',
         'files': describe(folder),
     }
+if alt:
+    # Alternativa para el experimento F09: misma cuantización, otra variante.
+    # La app la carga sólo cuando el usuario la elige; nunca las dos a la vez.
+    alt_ggml = f'ggml-{alt}-q5_1.bin'
+    folder = out / f'whisper-{alt}-q5_1'
+    folder.mkdir()
+    shutil.copyfile(cache / alt_ggml, folder / alt_ggml)
+    manifest['whisperAlternatives'] = {
+        alt: {
+            'name': folder.name,
+            'variant': alt,
+            'file': alt_ggml,
+            'source': f'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/{alt_ggml}',
+            'license': 'MIT',
+            'files': describe(folder),
+        },
+    }
 (out / 'manifest.json').write_text(json.dumps(manifest, indent=1), encoding='utf-8')
-total = sum(f['size'] for e in manifest.values() for f in e['files'].values())
+entries = [e for e in manifest.values() if 'files' in e] + list(manifest.get('whisperAlternatives', {}).values())
+total = sum(f['size'] for e in entries for f in e['files'].values())
 print(f'modelos listos en {out}: {total} B')
 PY

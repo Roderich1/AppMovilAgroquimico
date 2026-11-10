@@ -200,6 +200,10 @@ class VoiceListeningPanel extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final snapshot = session.snapshot;
+    // Experimento F09: un solo transcriptor por turno. El botón dice
+    // «Terminar», no hay texto provisional y el procesamiento es la
+    // transcripción entera del turno.
+    final wholeTurn = session.engineId == singleTranscriberTurnEngineId;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -224,9 +228,21 @@ class VoiceListeningPanel extends StatelessWidget {
           snapshot: snapshot,
           onStart: session.startListening,
           onStop: session.stopListening,
+          stopLabel: wholeTurn ? 'Terminar' : 'Detener',
         ),
+        if (wholeTurn &&
+            (snapshot.status.microphoneMayBeOpen ||
+                snapshot.status == VoiceSessionStatus.processing))
+          Center(
+            child: TextButton.icon(
+              key: const Key('voz-cancelar-turno'),
+              onPressed: () => session.discard(),
+              icon: const Icon(Icons.delete_outline),
+              label: const Text('Cancelar este turno (descarta el audio)'),
+            ),
+          ),
         const SizedBox(height: 12),
-        _StatusPanel(snapshot: snapshot),
+        _StatusPanel(snapshot: snapshot, wholeTurn: wholeTurn),
         const SizedBox(height: 12),
         _LocalePanel(snapshot: snapshot),
         const SizedBox(height: 12),
@@ -247,7 +263,7 @@ class VoiceListeningPanel extends StatelessWidget {
           ),
         ],
         const SizedBox(height: 12),
-        _PartialPanel(snapshot: snapshot),
+        _PartialPanel(snapshot: snapshot, wholeTurn: wholeTurn),
       ],
     );
   }
@@ -323,11 +339,16 @@ class _MicrophoneButton extends StatelessWidget {
     required this.snapshot,
     required this.onStart,
     required this.onStop,
+    this.stopLabel = 'Detener',
   });
 
   final VoiceSessionSnapshot snapshot;
   final Future<void> Function() onStart;
   final Future<void> Function() onStop;
+
+  /// Qué dice el botón con el micrófono abierto («Detener»; «Terminar» en el
+  /// turno entero, porque ahí termina la grabación y empieza la transcripción).
+  final String stopLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -336,7 +357,7 @@ class _MicrophoneButton extends StatelessWidget {
     // Durante una transición no hay acción: es lo que impide la doble acción sin
     // recurrir a un booleano que pudiera quedarse colgado.
     final enabled = !snapshot.status.isTransition;
-    final label = open ? 'Detener' : 'Hablar';
+    final label = open ? stopLabel : 'Hablar';
 
     return Center(
       child: Column(
@@ -345,7 +366,7 @@ class _MicrophoneButton extends StatelessWidget {
             button: true,
             enabled: enabled,
             label: open
-                ? 'Detener. El micrófono está escuchando.'
+                ? '$stopLabel. El micrófono está escuchando.'
                 : 'Hablar. Abre el micrófono.',
             child: SizedBox(
               width: 132,
@@ -404,31 +425,40 @@ class _MicrophoneButton extends StatelessWidget {
 }
 
 class _StatusPanel extends StatelessWidget {
-  const _StatusPanel({required this.snapshot});
+  const _StatusPanel({required this.snapshot, this.wholeTurn = false});
 
   final VoiceSessionSnapshot snapshot;
 
+  /// Turno entero: grabar, transcribir de una vez y revisar.
+  final bool wholeTurn;
+
   /// Un texto por estado. La interfaz nunca deduce el mensaje de un booleano.
-  static String describe(VoiceSessionStatus status) => switch (status) {
-    VoiceSessionStatus.idle => 'Listo para empezar',
-    VoiceSessionStatus.requestingPermission =>
-      'Esperando el permiso de micrófono',
-    VoiceSessionStatus.starting => 'Abriendo el micrófono',
-    VoiceSessionStatus.listening => 'Escuchando',
-    VoiceSessionStatus.processing => 'Procesando lo que dijiste',
-    VoiceSessionStatus.preview => 'Texto listo para revisar',
-    VoiceSessionStatus.stopping => 'Deteniendo',
-    VoiceSessionStatus.cancelled => 'Sesión descartada',
-    VoiceSessionStatus.permissionDenied => 'Permiso de micrófono denegado',
-    VoiceSessionStatus.permissionPermanentlyDenied =>
-      'Permiso denegado de forma permanente',
-    VoiceSessionStatus.languageUnavailable =>
-      'Sin español disponible en el motor',
-    VoiceSessionStatus.recognizerUnavailable =>
-      'Este teléfono no tiene reconocimiento de voz',
-    VoiceSessionStatus.recoverableError => 'Error del motor de voz',
-    VoiceSessionStatus.fatalError => 'Error del motor de voz',
-  };
+  static String describe(VoiceSessionStatus status, {bool wholeTurn = false}) =>
+      switch (status) {
+        VoiceSessionStatus.idle => 'Listo para empezar',
+        VoiceSessionStatus.requestingPermission =>
+          'Esperando el permiso de micrófono',
+        VoiceSessionStatus.starting => 'Abriendo el micrófono',
+        VoiceSessionStatus.listening =>
+          wholeTurn ? 'Grabando el turno (máximo 30 s)' : 'Escuchando',
+        VoiceSessionStatus.processing =>
+          wholeTurn
+              ? 'Transcribiendo el turno completo'
+              : 'Procesando lo que dijiste',
+        VoiceSessionStatus.preview => 'Texto listo para revisar',
+        VoiceSessionStatus.stopping =>
+          wholeTurn ? 'Terminando la grabación' : 'Deteniendo',
+        VoiceSessionStatus.cancelled => 'Sesión descartada',
+        VoiceSessionStatus.permissionDenied => 'Permiso de micrófono denegado',
+        VoiceSessionStatus.permissionPermanentlyDenied =>
+          'Permiso denegado de forma permanente',
+        VoiceSessionStatus.languageUnavailable =>
+          'Sin español disponible en el motor',
+        VoiceSessionStatus.recognizerUnavailable =>
+          'Este teléfono no tiene reconocimiento de voz',
+        VoiceSessionStatus.recoverableError => 'Error del motor de voz',
+        VoiceSessionStatus.fatalError => 'Error del motor de voz',
+      };
 
   @override
   Widget build(BuildContext context) => Row(
@@ -437,7 +467,7 @@ class _StatusPanel extends StatelessWidget {
       const SizedBox(width: 8),
       Expanded(
         child: Text(
-          'Estado: ${describe(snapshot.status)}',
+          'Estado: ${describe(snapshot.status, wholeTurn: wholeTurn)}',
           key: const Key('voz-estado'),
           style: const TextStyle(fontWeight: FontWeight.w600),
         ),
@@ -819,9 +849,12 @@ class _ReviewSwitch extends StatelessWidget {
 
 /// Texto provisional, siempre separado del texto de sesión.
 class _PartialPanel extends StatelessWidget {
-  const _PartialPanel({required this.snapshot});
+  const _PartialPanel({required this.snapshot, this.wholeTurn = false});
 
   final VoiceSessionSnapshot snapshot;
+
+  /// Turno entero: no hay texto provisional; se avisa de ello.
+  final bool wholeTurn;
 
   @override
   Widget build(BuildContext context) {
@@ -838,7 +871,12 @@ class _PartialPanel extends StatelessWidget {
           borderRadius: BorderRadius.circular(8),
         ),
         child: Text(
-          'Escuchando… habla con normalidad; el texto aparece mientras hablas.',
+          wholeTurn
+              ? 'Grabando… diga la compra completa, con sus pausas. No hay '
+                    'texto provisional: al pulsar «Terminar» se transcribe '
+                    'todo el turno de una vez.'
+              : 'Escuchando… habla con normalidad; el texto aparece mientras '
+                    'hablas.',
           style: Theme.of(context).textTheme.labelMedium,
         ),
       );

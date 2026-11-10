@@ -145,6 +145,10 @@ class VoiceSessionController extends ChangeNotifier {
   }
 
   /// Activa o desactiva la segunda pasada local para los siguientes turnos.
+  /// Identificador del motor del puerto, para que la interfaz nombre el botón
+  /// y los estados (por frases o turno entero). Nada más depende de él.
+  String get engineId => _port.engineId;
+
   void setReviewEnabled(bool enabled) {
     if (_disposed || enabled == _snapshot.reviewEnabled) return;
     _update(_snapshot.copyWith(reviewEnabled: enabled));

@@ -165,8 +165,25 @@ class LocalVoiceEngine(
          */
         fun onComparison(gen: Int, seq: Int, label: String, text: String?, ms: Long, outcome: String) {}
         fun onSegment(gen: Int, seq: Int, vosk: String, review: String?, reviewMs: Long)
+
+        /**
+         * Turno experimental «un solo transcriptor» (modo `whole`): el texto de
+         * TODO el audio del turno, transcrito de una vez al terminar. [text]
+         * es `null` si no hubo resultado ([outcome] `aborted`, `error` o
+         * `unavailable`); vacío si el modelo no oyó nada. [info] lleva sólo
+         * números y códigos (duración, niveles, carga, inferencia, variante).
+         */
+        fun onTurnText(gen: Int, text: String?, ms: Long, outcome: String, info: Map<String, Any?>) {}
         fun onEnded(gen: Int, reason: String)
         fun onError(gen: Int, code: String, detail: String?)
+    }
+
+    /** Lo que start/stop/cancel necesitan de un turno, sea por frases o entero. */
+    private interface ActiveTurn {
+        val gen: Int
+        val cancelled: Boolean
+        fun requestStop(reason: String)
+        fun cancel()
     }
 
     private val models = LocalVoiceModels(context.applicationContext)
@@ -195,7 +212,13 @@ class LocalVoiceEngine(
     @Volatile private var whisper: Long = 0L
     @Volatile private var whisperFailure: String? = null
 
-    @Volatile private var turn: Turn? = null
+    /** Variante de Whisper cargada en [whisper] (`base`, `small`; `null` = la principal sin declarar). */
+    @Volatile private var whisperVariant: String? = null
+
+    /** Variante cuya carga falló con [whisperFailure]; otra variante se puede intentar. */
+    @Volatile private var whisperFailedVariant: String? = null
+
+    @Volatile private var turn: ActiveTurn? = null
 
     // ------------------------------------------------------------ disponibilidad
 
@@ -223,6 +246,10 @@ class LocalVoiceEngine(
             "reviewVariant" to models.whisperVariant,
             "reviewModelBytes" to models.whisperBytes,
             "reviewAvailable" to (models.whisperName != null && WhisperNative.available),
+            // Variantes de Whisper que trae el APK (la principal y las
+            // alternativas), con el nombre de modelo de cada una.
+            "reviewVariants" to models.whisperVariants,
+            "reviewModels" to models.whisperVariants.associateWith { models.whisperNameOf(it) },
             "reviewNativeLib" to WhisperNative.loadFailure,
             "reviewDetail" to whisperFailure,
             "totalMemBytes" to memory?.totalMem?.takeIf { it > 0 },
@@ -263,24 +290,46 @@ class LocalVoiceEngine(
         }
     }
 
-    private fun ensureWhisper(): Boolean {
-        if (whisper != 0L) return true
-        if (whisperFailure != null || !WhisperNative.available) return false
+    /**
+     * Carga la variante [variant] de Whisper (`null` = la principal del APK, la
+     * de la revisión). Hay **una sola** variante en memoria: pedir otra suelta
+     * la cargada antes de cargar la nueva. Sólo lo llama el hilo de revisión.
+     */
+    private fun ensureWhisper(variant: String? = null): Boolean {
+        val wanted = variant ?: models.whisperVariant
+        if (whisper != 0L && whisperVariant == wanted) return true
+        if (!WhisperNative.available) return false
+        if (whisperFailure != null && whisperFailedVariant == wanted) return false
         return try {
-            val file = models.whisperOrNull() ?: run {
+            val file = models.whisperOrNull(wanted) ?: run {
                 whisperFailure = "review-model-missing"
+                whisperFailedVariant = wanted
                 return false
+            }
+            if (whisper != 0L) {
+                WhisperNative.free(whisper)
+                whisper = 0L
+                whisperVariant = null
             }
             val started = SystemClock.elapsedRealtime()
             whisper = WhisperNative.init(file.absolutePath)
-            if (whisper == 0L) whisperFailure = "review-model-load"
-            Log.i(TAG, "segunda pasada cargada en ${SystemClock.elapsedRealtime() - started} ms")
+            if (whisper == 0L) {
+                whisperFailure = "review-model-load"
+                whisperFailedVariant = wanted
+            } else {
+                whisperVariant = wanted
+                whisperFailure = null
+                whisperFailedVariant = null
+            }
+            Log.i(TAG, "modelo de revisión ${wanted ?: "principal"} cargado en ${SystemClock.elapsedRealtime() - started} ms")
             whisper != 0L
         } catch (e: LocalVoiceModels.ModelException) {
             whisperFailure = e.code
+            whisperFailedVariant = wanted
             false
         } catch (t: Throwable) {
             whisperFailure = "review-${t.javaClass.simpleName}"
+            whisperFailedVariant = wanted
             false
         }
     }
@@ -299,9 +348,34 @@ class LocalVoiceEngine(
         review: Boolean,
         reviewTimeoutMs: Long = DEFAULT_REVIEW_TIMEOUT_MS,
         compare: List<Pair<String, String>> = emptyList(),
+        /**
+         * `phrases` (por defecto): Vosk segmenta y, si hay revisión, Whisper
+         * revisa cada frase. `whole` (experimento F09): sin Vosk; todo el
+         * audio del turno se transcribe de una vez con [variant] al terminar.
+         */
+        mode: String = MODE_PHRASES,
+        variant: String? = null,
+        turnMaxMs: Long = DEFAULT_TURN_MAX_MS,
+        turnTimeoutMs: Long = DEFAULT_TURN_TIMEOUT_MS,
     ) {
         if (turn != null) {
             listener.onError(gen, "busy", "turn-already-open")
+            return
+        }
+        if (mode == MODE_WHOLE) {
+            val whole = WholeTurn(
+                gen, hints?.takeIf { it.isNotBlank() }, variant,
+                turnMaxMs.coerceIn(MIN_TURN_MAX_MS, MAX_TURN_MAX_MS),
+                turnTimeoutMs.coerceIn(MIN_REVIEW_TIMEOUT_MS, MAX_TURN_TIMEOUT_MS),
+            )
+            turn = whole
+            control.execute {
+                if (whole.cancelled) return@execute
+                // El modelo se carga mientras se habla: «Terminar» no espera
+                // la carga entera. Vosk no se carga ni se usa en este modo.
+                reviewer.execute { ensureWhisper(variant) }
+                whole.begin()
+            }
             return
         }
         val next = Turn(
@@ -359,6 +433,7 @@ class LocalVoiceEngine(
             if (turn != null) return@execute
             if (whisper != 0L) WhisperNative.free(whisper)
             whisper = 0L
+            whisperVariant = null
         }
     }
 
@@ -372,17 +447,55 @@ class LocalVoiceEngine(
         reviewer.execute {
             if (whisper != 0L) WhisperNative.free(whisper)
             whisper = 0L
+            whisperVariant = null
         }
     }
 
-    private fun finish(t: Turn) {
+    private fun finish(t: ActiveTurn) {
         if (turn === t) turn = null
+    }
+
+    /**
+     * Lee del micrófono en bloques de 100 ms hacia [queue] mientras
+     * [capturing] sea cierto. Cola llena: se tira lo más viejo y se cuenta
+     * ([onDrop]). Al salir cierra la fuente y encola [END]. Común a los dos
+     * tipos de turno.
+     */
+    private fun pump(
+        audio: PcmSource,
+        queue: ArrayBlockingQueue<ShortArray>,
+        capturing: () -> Boolean,
+        onRead: (Int) -> Unit,
+        onDrop: () -> Unit,
+        onReadError: () -> Unit,
+    ) {
+        val buffer = ShortArray(CHUNK_SAMPLES)
+        try {
+            while (capturing()) {
+                val read = audio.read(buffer)
+                if (read == PcmSource.EOF) break
+                if (read < 0) {
+                    onReadError()
+                    break
+                }
+                if (read == 0) continue
+                val chunk = buffer.copyOf(read)
+                onRead(read)
+                while (!queue.offer(chunk)) {
+                    queue.poll()
+                    onDrop()
+                }
+            }
+        } finally {
+            audio.close()
+            queue.put(END)
+        }
     }
 
     // ---------------------------------------------------------------- un turno
 
     private inner class Turn(
-        val gen: Int,
+        override val gen: Int,
         val hints: String?,
         val review: Boolean,
         /** Tope de la revisión de cada frase desde que Vosk la cierra. */
@@ -393,7 +506,7 @@ class LocalVoiceEngine(
          * entregarla. Sus textos van a la vista temporal, nunca al formulario.
          */
         val compare: List<Pair<String, String>> = emptyList(),
-    ) {
+    ) : ActiveTurn {
 
         /** Muestras leídas del micrófono en el turno (todas van a Vosk). */
         @Volatile private var capturedSamples = 0L
@@ -402,7 +515,7 @@ class LocalVoiceEngine(
         private val closedAtBySeq = HashMap<Int, Long>()
 
         private val queue = ArrayBlockingQueue<ShortArray>(QUEUE_CHUNKS)
-        @Volatile var cancelled = false
+        @Volatile override var cancelled = false
         @Volatile private var capturing = true
         @Volatile private var endReason = "stoppedByUser"
         @Volatile private var source: PcmSource? = null
@@ -446,14 +559,14 @@ class LocalVoiceEngine(
             Thread({ decode(recognizer) }, "agro-voz-vosk").start()
         }
 
-        fun requestStop(reason: String) {
+        override fun requestStop(reason: String) {
             endReason = reason
             capturing = false
             listener.onStage(gen, "processing")
             source?.close()
         }
 
-        fun cancel() {
+        override fun cancel() {
             cancelled = true
             capturing = false
             source?.close()
@@ -462,29 +575,17 @@ class LocalVoiceEngine(
         }
 
         private fun capture(audio: PcmSource) {
-            val buffer = ShortArray(CHUNK_SAMPLES)
             try {
-                while (capturing) {
-                    val read = audio.read(buffer)
-                    if (read == PcmSource.EOF) break
-                    if (read < 0) {
-                        if (capturing) endReason = "error"
-                        break
-                    }
-                    if (read == 0) continue
-                    val chunk = buffer.copyOf(read)
-                    capturedSamples += read
-                    // Cola llena: Vosk va atrasado. Se tira lo más viejo para que
-                    // el retraso no crezca sin límite.
-                    while (!queue.offer(chunk)) {
-                        queue.poll()
-                        dropped++
-                    }
-                }
+                // Cola llena: Vosk va atrasado. Se tira lo más viejo para que
+                // el retraso no crezca sin límite.
+                pump(
+                    audio, queue, { capturing },
+                    onRead = { capturedSamples += it },
+                    onDrop = { dropped++ },
+                    onReadError = { if (capturing) endReason = "error" },
+                )
             } finally {
-                audio.close()
                 source = null
-                queue.put(END)
             }
         }
 
@@ -555,7 +656,7 @@ class LocalVoiceEngine(
                 partial = ""
                 // Revisión acotada: con dos frases ya esperando, la siguiente
                 // se entrega tal como la oyó Vosk en vez de crecer la espera.
-                reviewIt = review && whisperFailure == null && WhisperNative.available &&
+                reviewIt = review && !reviewModelBroken() && WhisperNative.available &&
                     reviewing < MAX_PENDING_REVIEWS
                 if (reviewIt) reviewing++
                 closedAtBySeq[seq] = closedAt
@@ -571,7 +672,7 @@ class LocalVoiceEngine(
                         when {
                             reviewIt -> "pending"
                             !review -> "off"
-                            whisperFailure != null || !WhisperNative.available -> "unavailable"
+                            reviewModelBroken() || !WhisperNative.available -> "unavailable"
                             else -> "queue-full"
                         },
                     )
@@ -772,6 +873,188 @@ class LocalVoiceEngine(
         if (WhisperNative.available) WhisperNative.abort()
     }
 
+    /** El modelo de la revisión (variante principal) falló al cargar: la revisión no corre. */
+    private fun reviewModelBroken(): Boolean =
+        whisperFailure != null && whisperFailedVariant == models.whisperVariant
+
+    // ------------------------------------------- un turno entero (experimento)
+
+    /**
+     * Turno experimental «un solo transcriptor» (F09, 2026-11-09).
+     *
+     * Todo el audio del turno se guarda **en memoria** (tope [maxMs]; al
+     * llegar se termina solo, sin perder lo oído) y, al terminar, se
+     * transcribe de una vez con la variante [variant] de Whisper. Vosk no
+     * interviene: no segmenta, no produce parciales y no decide si Whisper
+     * corre. Cancelar descarta el audio y aborta la inferencia: ningún texto
+     * de un turno cancelado sale de aquí. El audio se suelta al terminar.
+     */
+    private inner class WholeTurn(
+        override val gen: Int,
+        val hints: String?,
+        val variant: String?,
+        val maxMs: Long,
+        val timeoutMs: Long,
+    ) : ActiveTurn {
+        @Volatile override var cancelled = false
+        @Volatile private var capturing = true
+        @Volatile private var endReason = "stoppedByUser"
+        @Volatile private var source: PcmSource? = null
+        @Volatile private var dropped = 0
+        private val queue = ArrayBlockingQueue<ShortArray>(QUEUE_CHUNKS)
+
+        fun begin() {
+            if (cancelled) return
+            val audio = openSource()
+            val failure = if (cancelled) null else audio.open()
+            if (failure != null || cancelled) {
+                audio.close()
+                if (failure != null) fail(failure.first, failure.second)
+                return
+            }
+            source = audio
+            listener.onStage(gen, "listening")
+            Thread({
+                try {
+                    pump(
+                        audio, queue, { capturing },
+                        onRead = {},
+                        onDrop = { dropped++ },
+                        onReadError = { if (capturing) endReason = "error" },
+                    )
+                } finally {
+                    source = null
+                }
+            }, "agro-voz-captura").start()
+            Thread({ collect() }, "agro-voz-turno").start()
+        }
+
+        override fun requestStop(reason: String) {
+            if (!capturing) return
+            endReason = reason
+            capturing = false
+            listener.onStage(gen, "processing")
+            source?.close()
+        }
+
+        override fun cancel() {
+            cancelled = true
+            capturing = false
+            source?.close()
+            abortReview()
+            queue.clear()
+        }
+
+        /** Junta el audio del turno; al cerrarse el micrófono lo manda a transcribir. */
+        private fun collect() {
+            val maxSamples = (maxMs * SAMPLE_RATE / 1000).toInt()
+            // Un bloque de margen: así nunca se desplaza el principio.
+            val buffer = PcmBuffer(maxSamples + CHUNK_SAMPLES)
+            var samples = 0
+            try {
+                while (true) {
+                    val chunk = queue.poll(200, TimeUnit.MILLISECONDS)
+                    if (cancelled) return
+                    if (chunk == null) continue
+                    if (chunk === END) break
+                    if (samples < maxSamples) {
+                        buffer.append(chunk)
+                        samples += chunk.size
+                    }
+                    if (capturing && samples >= maxSamples) requestStop("maxDuration")
+                }
+                if (cancelled) return
+                val pcm = buffer.take()
+                reviewer.execute { transcribe(pcm) }
+            } catch (t: Throwable) {
+                finish(this)
+                if (!cancelled) {
+                    listener.onError(gen, "engineFailure", "collect:${t.javaClass.simpleName}")
+                    listener.onEnded(gen, "error")
+                }
+            }
+        }
+
+        /** Hilo de revisión: una inferencia a la vez en el proceso. */
+        private fun transcribe(pcm: ShortArray) {
+            if (cancelled) return
+            val audioMs = pcm.size * 1000L / SAMPLE_RATE
+            val stats = PcmStats.of(pcm).toMutableMap().apply {
+                put("audioMs", audioMs)
+                put("closedBy", endReason)
+                put("droppedMs", dropped * 100)
+                put("variant", variant ?: models.whisperVariant)
+            }
+            val wanted = variant ?: models.whisperVariant
+            val wasLoaded = whisper != 0L && whisperVariant == wanted
+            val loadStart = SystemClock.elapsedRealtime()
+            val ready = ensureWhisper(variant)
+            val loadMs = if (wasLoaded) 0L else SystemClock.elapsedRealtime() - loadStart
+            stats["loadMs"] = loadMs
+            if (cancelled) return
+            if (!ready) {
+                val detail = whisperFailure ?: WhisperNative.loadFailure ?: "review-unavailable"
+                stats["detail"] = detail
+                finish(this)
+                listener.onTurnText(gen, null, 0L, "unavailable", stats)
+                listener.onError(gen, "recognizerUnavailable", detail)
+                listener.onEnded(gen, "error")
+                return
+            }
+            stats["model"] = models.whisperNameOf(whisperVariant)
+            if (pcm.isEmpty()) {
+                finish(this)
+                listener.onTurnText(gen, "", 0L, "ok", stats)
+                listener.onEnded(gen, endReason)
+                return
+            }
+            val samples = FloatArray(pcm.size) { pcm[it] / 32768f }
+            val aborted = AtomicBoolean(false)
+            val token = Any()
+            reviewToken = token
+            val guard = watchdog.schedule(
+                {
+                    if (reviewToken === token) {
+                        aborted.set(true)
+                        WhisperNative.abort()
+                    }
+                },
+                timeoutMs,
+                TimeUnit.MILLISECONDS,
+            )
+            val noSpeech = FloatArray(1)
+            val started = SystemClock.elapsedRealtime()
+            val text = try {
+                WhisperNative.transcribe(whisper, samples, hints, threads(), noSpeech)
+            } catch (_: Throwable) {
+                null
+            } finally {
+                reviewToken = null
+                guard.cancel(false)
+            }
+            val took = SystemClock.elapsedRealtime() - started
+            if (cancelled) return
+            val outcome = when {
+                text != null -> "ok"
+                aborted.get() -> "aborted"
+                else -> "error"
+            }
+            stats["inferenceMs"] = took
+            stats["noSpeech"] = noSpeech[0].toDouble()
+            // El turno queda libre ANTES de avisar, como en el modo por frases.
+            finish(this)
+            listener.onTurnText(gen, text?.trim(), took, outcome, stats)
+            listener.onEnded(gen, endReason)
+        }
+
+        private fun fail(code: String, detail: String) {
+            finish(this)
+            if (cancelled) return
+            listener.onError(gen, code, detail)
+            listener.onEnded(gen, "error")
+        }
+    }
+
     /**
      * Métricas del audio de una frase, sin conservar el audio (diagnóstico F09).
      *
@@ -900,6 +1183,21 @@ class LocalVoiceEngine(
         const val DEFAULT_REVIEW_TIMEOUT_MS = 5_000L
         private const val MIN_REVIEW_TIMEOUT_MS = 500L
         private const val MAX_REVIEW_TIMEOUT_MS = 30_000L
+
+        /** Modos de turno (`start`). */
+        const val MODE_PHRASES = "phrases"
+        const val MODE_WHOLE = "whole"
+
+        /**
+         * Turno entero (experimento): audio máximo por turno y tope de su
+         * transcripción. 30 s es la ventana de Whisper; con más audio habría
+         * varias ventanas y el modo pierde su sentido («una frase, una pasada»).
+         */
+        const val DEFAULT_TURN_MAX_MS = 30_000L
+        private const val MIN_TURN_MAX_MS = 1_000L
+        private const val MAX_TURN_MAX_MS = 30_000L
+        const val DEFAULT_TURN_TIMEOUT_MS = 45_000L
+        private const val MAX_TURN_TIMEOUT_MS = 120_000L
         private val END = ShortArray(0)
 
         private fun threads(): Int = min(4, Runtime.getRuntime().availableProcessors()).coerceAtLeast(1)

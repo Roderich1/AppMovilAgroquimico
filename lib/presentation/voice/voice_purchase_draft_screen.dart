@@ -38,6 +38,7 @@ import '../../voice_draft/purchase/voice_purchase_draft.dart';
 import '../../voice_draft/text/units.dart';
 import '../../operation_mode_controller.dart';
 import '../widgets/common.dart';
+import 'voice_turn_experiment.dart' show VoiceSingleTranscriberPanel;
 import '../widgets/mode_notice.dart';
 import '../widgets/provider_payment_fields.dart';
 import 'voice_draft_gateway.dart';
@@ -106,12 +107,23 @@ class _VoicePurchaseDraftScreenState
     WidgetsBinding.instance.addObserver(this);
     _gateway = ref.read(voiceDraftGatewayProvider);
     initVoiceEvidence();
+    // Experimento F09 «un solo transcriptor por turno»: sólo esta pantalla
+    // puede abrir ese puerto, y sólo si se eligió antes de entrar.
     _session = VoiceSessionController(
-      port: ref.read(speechPortFactoryProvider)(),
+      port: ref.read(experimentSpeechPortFactoryProvider)(),
     );
     _session.addListener(_onSession);
     _load();
   }
+
+  /// Pista de vocabulario para el modelo de revisión. En el experimento de un
+  /// solo transcriptor lleva además los términos del dominio (unidades,
+  /// monedas, familias de producto), medidos antes como «nunca peor» (CTX);
+  /// nunca cantidades ni precios. En la ruta de siempre, sólo el catálogo.
+  List<String> _hintsFor(VoiceCatalog catalog) =>
+      VoiceExperiment.instance.singleTranscriberTurnActive
+      ? voiceDomainContextHints(catalog)
+      : voiceVocabularyHints(catalog);
 
   Future<void> _load() async {
     try {
@@ -126,7 +138,7 @@ class _VoicePurchaseDraftScreenState
       )..addListener(_onDraft);
       // Los nombres del catálogo orientan la segunda pasada local; no
       // restringen lo que se dicta ni convierten nada en esos nombres.
-      _session.setVocabularyHints(voiceVocabularyHints(catalog));
+      _session.setVocabularyHints(_hintsFor(catalog));
       setState(() {
         _catalog = catalog;
         _draft = draft;
@@ -585,6 +597,9 @@ class _VoicePurchaseDraftScreenState
             createInPicker: true,
           ),
           const SizedBox(height: 12),
+          // Experimento F09 (sólo diagnóstico y encendido): modelo del próximo
+          // turno y métricas sin texto. Fuera de él no ocupa espacio.
+          VoiceSingleTranscriberPanel(session: _session),
           VoiceListeningPanel(session: _session),
           const SizedBox(height: 12),
           if (_otherIntent != null)
@@ -957,7 +972,7 @@ class _VoicePurchaseDraftScreenState
     final current = _catalog;
     if (created == null || current == null || !mounted) return null;
     final next = put(current, created.$1);
-    _session.setVocabularyHints(voiceVocabularyHints(next));
+    _session.setVocabularyHints(_hintsFor(next));
     setState(() => _catalog = next);
     return created.$2;
   }

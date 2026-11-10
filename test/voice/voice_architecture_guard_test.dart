@@ -202,7 +202,8 @@ void main() {
     test('sólo los adaptadores conocen los canales de plataforma', () {
       for (final file in voiceFiles()) {
         if (file.path.endsWith('android_speech_transcription_adapter.dart') ||
-            file.path.endsWith('local_speech_transcription_adapter.dart')) {
+            file.path.endsWith('local_speech_transcription_adapter.dart') ||
+            file.path.endsWith('whole_turn_transcription_adapter.dart')) {
           continue;
         }
         expect(

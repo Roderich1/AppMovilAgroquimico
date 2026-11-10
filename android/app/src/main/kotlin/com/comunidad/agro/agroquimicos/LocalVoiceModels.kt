@@ -55,9 +55,40 @@ class LocalVoiceModels(private val context: Context) {
         return prepare(entry)
     }
 
-    /** Archivo del modelo Whisper, o `null` si este APK no lo trae. */
-    fun whisperOrNull(): File? {
-        val entry = manifest?.optJSONObject("whisper") ?: return null
+    /**
+     * Variantes de Whisper que trae el APK: la principal (`whisper`, la de la
+     * revisión) y las alternativas (`whisperAlternatives`, por variante), que
+     * `fetch_voice_models.sh both` empaqueta para el experimento de un solo
+     * transcriptor por turno. Vacía si el APK no trae Whisper.
+     */
+    val whisperVariants: List<String>
+        get() {
+            val out = mutableListOf<String>()
+            if (manifest?.optJSONObject("whisper") != null) out += whisperVariant ?: "base"
+            manifest?.optJSONObject("whisperAlternatives")?.let { alternatives ->
+                for (key in alternatives.keys()) if (key !in out) out += key
+            }
+            return out
+        }
+
+    /** Nombre del modelo de la variante [variant] (`null` = la principal), o `null`. */
+    fun whisperNameOf(variant: String?): String? =
+        whisperEntry(variant)?.optString("name")?.takeIf { it.isNotEmpty() }
+
+    private fun whisperEntry(variant: String?): JSONObject? {
+        val main = manifest?.optJSONObject("whisper")
+        if (variant == null) return main
+        if (main != null && variant == (whisperVariant ?: "base")) return main
+        return manifest?.optJSONObject("whisperAlternatives")?.optJSONObject(variant)
+    }
+
+    /**
+     * Archivo del modelo Whisper de la variante [variant] (`null` = la
+     * principal), o `null` si este APK no la trae. Lanza [ModelException] si la
+     * copia o la verificación fallan.
+     */
+    fun whisperOrNull(variant: String? = null): File? {
+        val entry = whisperEntry(variant) ?: return null
         return File(prepare(entry), entry.getString("file"))
     }
 

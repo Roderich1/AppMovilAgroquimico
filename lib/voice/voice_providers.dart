@@ -4,6 +4,8 @@ import 'port/android_speech_transcription_adapter.dart';
 import 'port/local_speech_transcription_adapter.dart';
 import 'port/review_selection.dart';
 import 'port/speech_transcription_port.dart';
+import 'port/voice_engine_diagnostics.dart';
+import 'port/whole_turn_transcription_adapter.dart';
 
 /// Cómo se construye el puerto de transcripción.
 ///
@@ -52,4 +54,17 @@ final speechPortFactoryProvider = Provider<SpeechPortFactory>((ref) {
     fieldFacts: fieldFacts,
     reviewTimeout: const Duration(milliseconds: voiceReviewTimeoutMs),
   );
+});
+
+/// Puerto de la pantalla donde puede correr el experimento F09 «un solo
+/// transcriptor por turno» (la compra por voz): el de siempre o, con el
+/// experimento encendido al abrir la pantalla, el puerto que transcribe todo el
+/// turno de una vez. Aplicación y planificación siguen con
+/// [speechPortFactoryProvider]: el experimento no las alcanza.
+final experimentSpeechPortFactoryProvider = Provider<SpeechPortFactory>((ref) {
+  final standard = ref.watch(speechPortFactoryProvider);
+  if (voiceEngine == 'android') return standard;
+  return () => VoiceExperiment.instance.singleTranscriberTurnActive
+      ? WholeTurnTranscriptionAdapter()
+      : standard();
 });

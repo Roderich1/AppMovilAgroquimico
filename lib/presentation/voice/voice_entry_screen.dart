@@ -10,6 +10,7 @@ import 'package:go_router/go_router.dart';
 import '../widgets/common.dart';
 import 'voice_evidence_consent_screen.dart' show voiceEvidenceConsentPath;
 import 'voice_evidence_hook.dart' show voiceEvidenceEnabled;
+import 'voice_turn_experiment.dart' show VoiceSingleTranscriberSwitch;
 
 /// Ruta de la entrada y de cada borrador. Viven dentro del shell, como el
 /// resto de subdestinos de Operaciones: se llega apilando y Atrás vuelve.
@@ -79,6 +80,8 @@ class VoiceEntryScreen extends StatelessWidget {
               trailing: const Icon(Icons.chevron_right),
               onTap: () => context.push(voiceEvidenceConsentPath),
             ),
+          // Sólo en la compilación de diagnóstico (experimento F09).
+          const VoiceSingleTranscriberSwitch(),
         ],
       ),
     );

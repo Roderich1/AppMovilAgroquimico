@@ -137,6 +137,11 @@ final class LocalSpeechTranscriptionAdapter implements SpeechTranscriptionPort {
   /// instancias: dos pantallas vivas a la vez no pueden repetir número.
   static int _lastGeneration = 0;
 
+  /// Siguiente número de turno, único en el proceso. Lo comparte el puerto
+  /// experimental de un solo transcriptor: los dos hablan con el mismo motor
+  /// nativo y sus eventos se distinguen sólo por este número.
+  static int nextGeneration() => ++_lastGeneration;
+
   final StreamController<TranscriptionEvent> _events =
       StreamController<TranscriptionEvent>.broadcast();
 
@@ -242,7 +247,7 @@ final class LocalSpeechTranscriptionAdapter implements SpeechTranscriptionPort {
       return;
     }
     _turnOpen = true;
-    final generation = _generation = ++_lastGeneration;
+    final generation = _generation = nextGeneration();
     _segments = 0;
     _resetPhrases();
     _deadlineHit = false;
@@ -256,14 +261,14 @@ final class LocalSpeechTranscriptionAdapter implements SpeechTranscriptionPort {
       if (!_turnOpen || _generation != generation) return;
       final reply = await _method.invokeMethod<String>('start', {
         'gen': generation,
-        'hints': _hintText(request.hints),
+        'hints': hintText(request.hints),
         'review': request.review && _capability.allowed,
         'reviewTimeoutMs': reviewTimeout.inMilliseconds,
         // Sólo diagnóstico: otras pistas para el mismo audio. Vacío fuera de
         // la compilación de diagnóstico o con el experimento apagado.
         'compare': [
           for (final e in VoiceExperiment.instance.activeComparisons.entries)
-            [e.key, _hintText(e.value)],
+            [e.key, hintText(e.value)],
         ],
       });
       // Habrá diálogo de permiso: se avisa ahora, antes de la pausa que
@@ -365,7 +370,10 @@ final class LocalSpeechTranscriptionAdapter implements SpeechTranscriptionPort {
 
   /// La pista que recibe la segunda pasada: nombres separados por comas, con
   /// tope de longitud (Whisper admite unos 220 símbolos de contexto).
-  static String _hintText(List<String> hints) {
+  /// Pista de vocabulario para el modelo de revisión: nombres separados por
+  /// coma, con tope de 600 caracteres. La comparte el puerto de un solo
+  /// transcriptor para que las dos rutas manden la misma pista.
+  static String hintText(List<String> hints) {
     final out = StringBuffer();
     for (final hint in hints.map((h) => h.trim()).where((h) => h.isNotEmpty)) {
       if (out.length + hint.length + 2 > 600) break;

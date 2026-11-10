@@ -156,6 +156,12 @@ enum TranscriptionEngineRoute {
 /// probaba. Se lee sin permisos y no implica acceso a red.
 enum AirplaneMode { on, off, unknown }
 
+/// `engineId` del puerto experimental «un solo transcriptor por turno» (F09,
+/// 2026-11-09): el audio de todo el turno se transcribe de una vez al
+/// terminar, sin segmentación previa. La interfaz lo usa para nombrar el botón
+/// («Terminar») y los estados; nada más depende de él.
+const singleTranscriberTurnEngineId = 'single-transcriber-turn';
+
 /// Un evento emitido por el adaptador durante un turno de escucha.
 sealed class TranscriptionEvent {
   const TranscriptionEvent();

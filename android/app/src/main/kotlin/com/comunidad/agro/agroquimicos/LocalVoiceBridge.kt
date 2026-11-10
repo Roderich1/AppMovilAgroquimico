@@ -44,7 +44,15 @@ class LocalVoiceBridge(
         val review: Boolean,
         val reviewTimeoutMs: Long,
         val compare: List<Pair<String, String>>,
-    )
+        val mode: String,
+        val variant: String?,
+        val turnMaxMs: Long,
+        val turnTimeoutMs: Long,
+    ) {
+        fun startOn(engine: LocalVoiceEngine) = engine.start(
+            gen, hints, review, reviewTimeoutMs, compare, mode, variant, turnMaxMs, turnTimeoutMs,
+        )
+    }
 
     init {
         method.setMethodCallHandler(this)
@@ -83,11 +91,22 @@ class LocalVoiceBridge(
                     val label = pair.getOrNull(0) as? String ?: return@mapNotNull null
                     label to (pair.getOrNull(1) as? String ?: "")
                 }
+                // Experimento F09: `whole` transcribe todo el turno de una vez
+                // con la variante pedida de Whisper; sin él, el modo por frases.
+                val mode = call.argument<String>("mode") ?: LocalVoiceEngine.MODE_PHRASES
+                val variant = call.argument<String>("variant")
+                val turnMaxMs = call.argument<Number>("turnMaxMs")?.toLong()
+                    ?: LocalVoiceEngine.DEFAULT_TURN_MAX_MS
+                val turnTimeoutMs = call.argument<Number>("turnTimeoutMs")?.toLong()
+                    ?: LocalVoiceEngine.DEFAULT_TURN_TIMEOUT_MS
+                val pending = PendingStart(
+                    gen, hints, review, reviewTimeoutMs, compare, mode, variant, turnMaxMs, turnTimeoutMs,
+                )
                 if (hasMicPermission()) {
-                    engine.start(gen, hints, review, reviewTimeoutMs, compare)
+                    pending.startOn(engine)
                     result.success(null)
                 } else {
-                    pendingStart = PendingStart(gen, hints, review, reviewTimeoutMs, compare)
+                    pendingStart = pending
                     // La respuesta dice YA que habrá diálogo: llega a Dart antes
                     // que la pausa que el propio diálogo provoca. Si Dart se
                     // enterara sólo por el evento, la pausa podría llegar antes,
@@ -144,7 +163,7 @@ class LocalVoiceBridge(
         val pending = pendingStart ?: return
         pendingStart = null
         if (granted) {
-            engine.start(pending.gen, pending.hints, pending.review, pending.reviewTimeoutMs, pending.compare)
+            pending.startOn(engine)
             return
         }
         val permanent = !activity.shouldShowRequestPermissionRationale(
@@ -221,6 +240,14 @@ class LocalVoiceBridge(
             mapOf(
                 "type" to "segment", "gen" to gen, "seq" to seq, "vosk" to vosk,
                 "review" to review, "reviewMs" to reviewMs,
+            ),
+        )
+
+    override fun onTurnText(gen: Int, text: String?, ms: Long, outcome: String, info: Map<String, Any?>) =
+        send(
+            mapOf(
+                "type" to "turnText", "gen" to gen, "text" to text, "ms" to ms,
+                "outcome" to outcome, "info" to info,
             ),
         )
 

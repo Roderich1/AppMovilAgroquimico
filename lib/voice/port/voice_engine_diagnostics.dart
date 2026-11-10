@@ -212,12 +212,98 @@ final class VoiceExperiment {
   Map<String, List<String>> get activeComparisons =>
       voiceDiagnosticsBuild && compareContexts ? comparisonHints : const {};
 
+  /// Experimento F09 (2026-11-09): **compra por voz con un solo transcriptor
+  /// por turno**. Vosk no segmenta ni decide; al terminar, el modelo de
+  /// revisión transcribe todo el audio del turno de una vez. Se elige antes de
+  /// abrir «Compra por voz»; aplicación y planificación no lo usan. [reset]
+  /// no lo toca: es una elección deliberada para la sesión de la app (se
+  /// pierde al cerrarla; nunca se guarda en disco).
+  bool singleTranscriberTurn = false;
+
+  bool get singleTranscriberTurnActive =>
+      (voiceDiagnosticsBuild || debugAllowOutsideDiagnostics) &&
+      singleTranscriberTurn;
+
+  /// Variante del modelo de revisión del próximo turno entero (`base` o
+  /// `small`). Un solo modelo por turno; nunca se combinan resultados.
+  String turnVariant = singleTranscriberVariants.first;
+
+  /// Variantes que se pueden elegir (las que empaqueta
+  /// `fetch_voice_models.sh both`).
+  static const singleTranscriberVariants = ['base', 'small'];
+
+  /// Métricas de los turnos enteros de esta sesión de la app: sólo números y
+  /// códigos, nunca texto. En memoria, con tope; se borran a mano o al cerrar.
+  final List<SingleTranscriberTurnMetric> turnMetrics = [];
+
+  static const maxTurnMetrics = 50;
+
+  void noteTurn(SingleTranscriberTurnMetric metric) {
+    turnMetrics.add(metric);
+    while (turnMetrics.length > maxTurnMetrics) {
+      turnMetrics.removeAt(0);
+    }
+  }
+
+  void clearTurnMetrics() => turnMetrics.clear();
+
   void reset() {
     compareContexts = false;
     policyB = false;
     debugAllowOutsideDiagnostics = false;
     comparisonHints = const {};
   }
+}
+
+/// Métrica de un turno entero (experimento de un solo transcriptor): qué
+/// modelo corrió, cómo terminó y cuánto tardó. Sin texto ni audio.
+final class SingleTranscriberTurnMetric {
+  const SingleTranscriberTurnMetric({
+    required this.turn,
+    required this.variant,
+    required this.model,
+    required this.outcome,
+    required this.hadText,
+    required this.audioMs,
+    required this.speechMs,
+    required this.speechDbfs,
+    required this.loadMs,
+    required this.inferenceMs,
+    required this.closedBy,
+  });
+
+  final int turn;
+
+  /// `base`, `small` o `-` si el motor no la informó.
+  final String variant;
+
+  /// Nombre del modelo que realmente cargó el motor (`whisper-small-q5_1`…).
+  final String model;
+
+  /// `ok`, `aborted`, `error`, `unavailable`.
+  final String outcome;
+
+  /// Hubo texto (no vacío). No dice si fue correcto.
+  final bool hadText;
+  final int audioMs;
+  final int speechMs;
+  final int? speechDbfs;
+  final int loadMs;
+  final int inferenceMs;
+
+  /// `stoppedByUser`, `maxDuration`, `error`.
+  final String closedBy;
+
+  /// Línea de registro con códigos y números; ningún dato dictado.
+  String get logLine =>
+      'voz turno: turno=$turn variante=${_safe(variant)} modelo=${_safe(model)} '
+      'resultado=${_safe(outcome)} texto=${hadText ? 'si' : 'no'} '
+      'audio=${audioMs}ms habla=${speechMs}ms '
+      'nivelHabla=${speechDbfs == null ? '-' : '${speechDbfs}dBFS'} '
+      'carga=${loadMs}ms inferencia=${inferenceMs}ms cierre=${_safe(closedBy)}';
+
+  static String _safe(String value) =>
+      RegExp(r'^[a-zA-Z0-9_.-]+$').hasMatch(value) ? value : '-';
 }
 
 /// Línea de diagnóstico de una transcripción alternativa: sólo códigos.
