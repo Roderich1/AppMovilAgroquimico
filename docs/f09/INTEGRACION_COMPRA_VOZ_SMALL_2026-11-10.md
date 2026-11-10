@@ -1,6 +1,6 @@
 # F09: integración de la compra por voz con Whisper small (candidata, 2026-11-10)
 
-Rama `feat/f09-compra-voz-small` (worktree `_wt/F09-COMPRA`), creada desde `c097234` (cierre del bloque experimental, rama `feat/f09-diagnostico-motores`). Sin push, sin PR, sin cambios en issues ni en el documento de grado. **La instalación de demostración no se reemplaza** en este paso.
+Rama `feat/f09-compra-voz-small` (worktree `_wt/F09-COMPRA`), creada desde `c097234` (cierre del bloque experimental, rama `feat/f09-diagnostico-motores`). Sin push, sin PR, sin cambios en issues ni en el documento de grado. La demostración `.f09` se actualizó el 2026-11-10 tras las comprobaciones de este informe (§7.5).
 
 Decisión del autor (2026-11-10): Whisper small con haz de 5 para la compra por voz, con revisión explícita antes del registro. Es una elección por precisión, no una superioridad demostrada.
 
@@ -218,7 +218,10 @@ Ida y vuelta **en `.f09c`** (nunca en `.f09`), con el mismo firmante y versionCo
 - **Presentación** (la que reemplazaría a `.f09`): compilación **sin** `AGRO_VOICE_DIAG`. Comprobado en `.f09c`: sin interruptor del experimento, sin controles sin efecto en la compra, 0 controles de diagnóstico en aplicación y planificación.
 - **Pruebas:** con `--dart-define=AGRO_VOICE_DIAG=true` siguen disponibles la tarjeta del turno entero (modelo y métricas sin texto) y los instrumentos de la ruta por frases; no se eliminó ninguno (pruebas de §5.1). No se compiló una APK de diagnóstico de esta rama en este bloque.
 
-### 7.5 Pasos para actualizar `.f09` (preparados, **no ejecutados**)
+### 7.5 Pasos para actualizar `.f09`
+
+**Ejecutados el 2026-11-10** con autorización de Roderich, desde `9d2fb1a`: `docs/evidence/F09_ACTUALIZACION_DEMO_COMPRA_VOZ_2026-11-10.md`.
+
 
 1. Acordar el momento con Roderich; `.f09` en una pantalla sin borrador. **No** desinstalar.
 2. Copia para inspección: `F09_SERIAL=<serie> bash tool/f09_emu/respaldo_pkg.sh com.comunidad.agro.agroquimicos.f09 <carpeta fuera del repositorio>` (debe terminar con «pasadas coincidentes» e integridad ok). Si Roderich lo quiere, además el respaldo de la app (F08).
