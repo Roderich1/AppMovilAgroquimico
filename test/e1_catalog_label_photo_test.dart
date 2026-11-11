@@ -4,6 +4,7 @@
 // Datos sintéticos; la cámara no se ejercita.
 import 'dart:io';
 
+import 'package:agroquimicos/presentation/widgets/identification_texts.dart';
 import 'package:agroquimicos/app.dart';
 import 'package:agroquimicos/data/agro_repository.dart';
 import 'package:agroquimicos/data/app_database.dart';
@@ -94,6 +95,9 @@ void main() {
     await tester.tap(find.text('Foto de la etiqueta'));
     await settle(tester);
     expect(find.textContaining('Sin foto.'), findsOneWidget);
+    // Limitación B (2026-11-11): la hoja dice que las fotos de etiqueta no
+    // entran en los respaldos.
+    expect(find.text(labelPhotosNotInBackups), findsOneWidget);
     expect(find.text('Tomar foto'), findsOneWidget);
     expect(find.text('Elegir de la galería'), findsOneWidget);
     expect(find.text('Quitar'), findsNothing);

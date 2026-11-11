@@ -19,6 +19,7 @@ import '../../guarded_restore.dart';
 import '../../operation_mode_controller.dart';
 import '../widgets/account_statement_view.dart';
 import '../widgets/common.dart';
+import '../widgets/identification_texts.dart' show labelPhotosNotInBackups;
 
 class SettlementsScreen extends ConsumerStatefulWidget {
   const SettlementsScreen({super.key});
@@ -430,7 +431,8 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
           : '${result.attachmentCount} fotografías de factura';
       showSuccess(
         context,
-        'Respaldo guardado en ${result.path} (base de datos y $photos).',
+        'Respaldo guardado en ${result.path} (base de datos y $photos). '
+        '$labelPhotosNotInBackups',
       );
       // Una discrepancia no puede quedarse en silencio: si una factura ya no
       // tiene su foto en el teléfono, el usuario tiene que enterarse ahora y
@@ -550,7 +552,7 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
               'fotografías de factura. Las fotografías actuales del teléfono '
               'se conservan.'
         : 'Contiene la base de datos y ${validation.attachmentCount} '
-              'fotografía(s) de factura.';
+              'fotografía(s) de factura. $labelPhotosNotInBackups';
 
     final confirmed = await confirmDestructiveAction(
       context,

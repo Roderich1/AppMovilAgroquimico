@@ -1,5 +1,13 @@
 import '../../data/sync/identification_request_store.dart';
 
+/// Alcance de los respaldos (F08) respecto de la foto de la etiqueta (E1,
+/// limitación B del 2026-11-11): el respaldo privado y la copia local llevan
+/// la base de datos y las fotos de factura, NO las fotos de etiqueta. Se dice
+/// en cada pantalla de respaldo y en la hoja de la foto; no se amplía F08.
+const String labelPhotosNotInBackups =
+    'Las fotos de etiqueta de los productos no se incluyen en los respaldos: '
+    'después de restaurar una copia habrá que volver a tomarlas.';
+
 /// Motivo legible de un código de rechazo o de fallo (E1 §4.1). Nunca
 /// muestra datos del cuerpo recibido.
 String identificationReason(String? code) => switch (code) {

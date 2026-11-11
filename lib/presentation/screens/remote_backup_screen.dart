@@ -14,6 +14,7 @@ import '../../services/backup/remote_backup_providers.dart';
 import '../../services/backup/remote_backup_service.dart';
 import '../../services/sync/sync_providers.dart';
 import '../widgets/common.dart';
+import '../widgets/identification_texts.dart' show labelPhotosNotInBackups;
 import 'backup_recovery_key_screen.dart';
 
 /// «Respaldo en la nube» (F08, MOB #35/#36): copia privada del agricultor en
@@ -161,11 +162,12 @@ class _RemoteBackupScreenState extends ConsumerState<RemoteBackupScreen> {
       context,
       title: 'Subir un respaldo nuevo',
       detail:
-          'Se genera un respaldo de todos los datos y fotografías de este '
-          'teléfono, se cifra aquí con su clave de recuperación y se guarda '
-          'como copia privada de su cuenta en el servidor del sindicato. El '
-          'servidor sólo recibe la copia cifrada: nadie más puede leerla, '
-          'tampoco la Directiva. No se publica ningún dato al sindicato.',
+          'Se genera un respaldo de todos los datos y de las fotografías de '
+          'factura de este teléfono, se cifra aquí con su clave de '
+          'recuperación y se guarda como copia privada de su cuenta en el '
+          'servidor del sindicato. El servidor sólo recibe la copia cifrada: '
+          'nadie más puede leerla, tampoco la Directiva. No se publica ningún '
+          'dato al sindicato.\n\n$labelPhotosNotInBackups',
       confirmLabel: 'Subir',
     );
     if (!confirmed || !mounted) return;
@@ -237,7 +239,8 @@ class _RemoteBackupScreenState extends ConsumerState<RemoteBackupScreen> {
           'Copia del ${_date(entry.createdAt)} (${_size(entry.sizeBytes)}), '
           '${prepared.unencrypted ? 'guardada SIN CIFRAR (formato anterior)' : 'descifrada y verificada'}.\n'
           'Contiene la base de datos y '
-          '${prepared.validation.attachmentCount} fotografía(s).\n'
+          '${prepared.validation.attachmentCount} fotografía(s) de factura. '
+          '$labelPhotosNotInBackups\n'
           '${prepared.ownership.message}\n\n'
           'TODOS los datos actuales se reemplazarán. Se guarda una copia de '
           'los datos actuales en este teléfono. Los envíos al sindicato que '

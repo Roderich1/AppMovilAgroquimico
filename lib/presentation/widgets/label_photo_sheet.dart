@@ -9,6 +9,7 @@ import '../../domain/sync/identification_view.dart';
 import '../../services/sync/sync_providers.dart'
     show identificationRequestStoreProvider;
 import 'common.dart';
+import 'identification_texts.dart' show labelPhotosNotInBackups;
 
 /// Elige una imagen con la cámara o la galería; null si se cancela. Las
 /// pruebas la sustituyen.
@@ -286,6 +287,11 @@ class _LabelPhotoSheetState extends ConsumerState<LabelPhotoSheet> {
                   ),
                 ),
               if (note != null) ...[const SizedBox(height: 8), Text(note)],
+              const SizedBox(height: 8),
+              Text(
+                labelPhotosNotInBackups,
+                style: Theme.of(context).textTheme.bodySmall,
+              ),
               const SizedBox(height: 12),
               Wrap(
                 spacing: 8,
