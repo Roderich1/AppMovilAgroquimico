@@ -4,9 +4,9 @@
 
 | Campo | Valor |
 |---|---|
-| Fecha real | 2026-11-11, entre las 19:00Z y las 21:15Z (UTC) |
+| Fecha real | 2026-11-11, entre las 19:00Z y las 22:05Z (UTC) |
 | Procedencia | **EMULADOR** Pixel_8 (`emulator-5554`), Android 16, API 36. **No es un teléfono físico.** |
-| Código | Mobile `7257816` (rama `feat/etapa1-productos-identificacion-foto`: UXJ + F09 formulario único con voz + etapa 1); desde la 32, con `bce8e59` (dos correcciones de etapa 1). Esas ramas **no** están publicadas: esta rama sólo contiene imágenes y este índice. |
+| Código | Mobile `7257816` (rama `feat/etapa1-productos-identificacion-foto`: UXJ + F09 formulario único con voz + etapa 1); desde la 32, con `bce8e59` (dos correcciones de etapa 1); 55–66 con `6bac5a3` (etapa 2, convocatorias, rama `feat/etapa2-convocatorias`). Esas ramas **no** están publicadas: esta rama sólo contiene imágenes y este índice. |
 | Paquete instalado | `com.comunidad.agro.agroquimicos.et1` («AC ET1»), `versionName` 1.0.0, `versionCode` 1, APK *profile* x86_64. La app normal y la DEMO no se tocaron. |
 | Pantalla | 1080 × 2400 px, densidad 420 dpi, escala de texto 1.0. Barra de estado del emulador en hora UTC. |
 | Central | Copia aislada de etapa 1 (PostgreSQL y API locales, accesibles por un túnel HTTPS temporal que sólo dejaba pasar `/api/v1/`). Ni la DEMO oficial ni datos reales. |
@@ -169,12 +169,28 @@
 | [<img src="48_necesidad_estado_envio.png" width="150" alt="Necesidad aceptada por el sindicato">](48_necesidad_estado_envio.png) | Necesidad aceptada por el sindicato | Declarar | `bce8e59` | Push real aceptado por la Central aislada. |
 | [<img src="49_consumo_para_el_sindicato.png" width="150" alt="Consumo para el sindicato (sin publicar)">](49_consumo_para_el_sindicato.png) | Consumo para el sindicato (sin publicar) | Sincronización → Consumo para el sindicato | `bce8e59` | No se publicó. |
 
+## Compras conjuntas
+
+| Captura | Pantalla | Cómo llegar | Código | Nota |
+|---|---|---|---|---|
+| [<img src="55_compras_conjuntas_lista.png" width="150" alt="Lista de convocatorias (nueva, abierta)">](55_compras_conjuntas_lista.png) | Lista de convocatorias (nueva, abierta) | Más → Compras conjuntas | `6bac5a3` | Mobile 6bac5a3 (etapa 2). |
+| [<img src="56_inicio_aviso_nueva_convocatoria.png" width="150" alt="Aviso en Inicio «Nueva convocatoria»">](56_inicio_aviso_nueva_convocatoria.png) | Aviso en Inicio «Nueva convocatoria» | Inicio tras actualizar | `6bac5a3` | Aviso dentro de la app, sin push. |
+| [<img src="57_convocatoria_detalle.png" width="150" alt="Detalle de la convocatoria">](57_convocatoria_detalle.png) | Detalle de la convocatoria | Tocar el aviso | `6bac5a3` | La necesidad declarada sólo como referencia. |
+| [<img src="58_participacion_cantidades.png" width="150" alt="Cantidades que solicita">](58_participacion_cantidades.png) | Cantidades que solicita | Participar (sin conexión) | `6bac5a3` |  |
+| [<img src="59_consentimiento_conv1.png" width="150" alt="Consentimiento CONV-1">](59_consentimiento_conv1.png) | Consentimiento CONV-1 | Continuar | `6bac5a3` | El botón se activa sólo al marcar «Entiendo y acepto». |
+| [<img src="60_participacion_pendiente_sin_conexion.png" width="150" alt="Participación pendiente de envío">](60_participacion_pendiente_sin_conexion.png) | Participación pendiente de envío | Confirmar sin conexión | `6bac5a3` |  |
+| [<img src="61_participacion_recibida.png" width="150" alt="Participación recibida">](61_participacion_recibida.png) | Participación recibida | Reconectar → Enviar ahora | `6bac5a3` |  |
+| [<img src="62_participacion_modificada.png" width="150" alt="Participación modificada y recibida">](62_participacion_modificada.png) | Participación modificada y recibida | Modificar → 12 L | `6bac5a3` |  |
+| [<img src="63_modificacion_pendiente_antes_del_plazo.png" width="150" alt="Lo aceptado y lo pendiente a la vez">](63_modificacion_pendiente_antes_del_plazo.png) | Lo aceptado y lo pendiente a la vez | Modificar sin conexión antes del plazo | `6bac5a3` |  |
+| [<img src="64_fuera_de_plazo.png" width="150" alt="Fuera de plazo">](64_fuera_de_plazo.png) | Fuera de plazo | Enviar 29 s después de la fecha límite del servidor | `6bac5a3` |  |
+| [<img src="65_lista_convocatoria_cerrada.png" width="150" alt="Lista con la convocatoria cerrada">](65_lista_convocatoria_cerrada.png) | Lista con la convocatoria cerrada | Actualizar tras el cierre automático | `6bac5a3` |  |
+| [<img src="66_participacion_en_consolidado.png" width="150" alt="Incluida en el consolidado al cierre">](66_participacion_en_consolidado.png) | Incluida en el consolidado al cierre | Abrir la convocatoria cerrada | `6bac5a3` |  |
+
 ## Pantallas pendientes y motivo
 
 - Campos completados por voz: requieren audio sintético autorizado o datos de prueba inyectados y señalados; no se hicieron.
 - Clave de recuperación del respaldo, PIN creado y subida o restauración de copias: se omitieron a propósito (pantallas con secretos o acciones no reversibles).
 - Mensaje tras exportar un respaldo local: la notificación desapareció antes de capturarla; su texto está cubierto por una prueba automatizada.
-- Compras conjuntas (convocatorias): se capturarán con la etapa 2.
 
 ## Diferencias con las capturas anteriores
 
