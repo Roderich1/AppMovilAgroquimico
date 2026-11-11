@@ -67,9 +67,11 @@ Mientras hay un dictado en curso o algo por elegir o revisar, el botón de avanc
 - `test/voice_draft/formulario_unico_accesos_test.dart`: accesos con panel y micrófono cerrado, botón del formulario, inventario propio y los casos del POCO P1–P4 dentro del formulario.
 - `test/voice_evidence/voice_evidence_wiring_test.dart`: evidencia con y sin consentimiento, portada al formulario.
 
+Suite completa sobre `496278c`: 2859 superadas, 3 omitidas, 0 fallidas (una ejecución). Frente a las 2940 de `025c2ef`: −125 pruebas de los 16 archivos que probaban las pantallas retiradas y «Usar la otra propuesta», +44 de los 5 archivos nuevos; la evidencia sigue con 4. Detalle por archivo en `docs/evidence/F09_ACTUALIZACION_DEMO_FORMULARIO_UNICO_2026-11-10.md` §2. No se añadieron pruebas para recuperar el número.
+
 ## 8. Limitaciones y pendientes
 
-- Sin comprobación en el teléfono hasta la APK candidata (§9 del informe de entrega).
+- En el teléfono: prueba manual exploratoria del autor sobre la candidata «AC F09 U» (`.f09c`, `d41586b`), sin guion ni mediciones registradas; después, `.f09` actualizada con el mismo código (`docs/evidence/F09_ACTUALIZACION_DEMO_FORMULARIO_UNICO_2026-11-10.md`). No es una evaluación de precisión.
 - `VoiceDraftGateway` (sus `confirm*`) y `VoiceDraftController` ya no los usa la app; se conservan porque los usan pruebas de dominio de los borradores de voz; retirarlos exige reescribirlas.
 - `lib/voice/ui/voice_capture_screen.dart` (`VoiceListeningPanel`, `VoiceCaptureScreen`) quedó sin uso en la app; el panel nuevo no ofrece el consentimiento del reconocedor del sistema (sólo aplica si el motor local no está disponible y se permite el del sistema). Pendiente de decisión.
 - La evidencia compara lo que propuso el último dictado, no las correcciones hechas en el formulario.
