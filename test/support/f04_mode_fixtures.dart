@@ -317,3 +317,25 @@ Future<void> downgradeToV14(String path) async {
   await db.execute('PRAGMA user_version = 14');
   await db.close();
 }
+
+/// Tablas que añadió v16 (E2).
+const jointPurchaseTablesV16 = {
+  'joint_purchase_calls',
+  'joint_purchase_participation_ops',
+};
+
+/// Quita todo lo que añadió v16 (E2): las dos tablas de compras conjuntas
+/// (sus índices caen con ellas).
+Future<void> dropJointPurchaseSchemaV16(DatabaseExecutor db) async {
+  for (final table in jointPurchaseTablesV16) {
+    await db.execute('DROP TABLE IF EXISTS $table');
+  }
+}
+
+/// Deja una base creada con la versión actual exactamente como una v15.
+Future<void> downgradeToV15(String path) async {
+  final db = await databaseFactoryFfi.openDatabase(path);
+  await dropJointPurchaseSchemaV16(db);
+  await db.execute('PRAGMA user_version = 15');
+  await db.close();
+}

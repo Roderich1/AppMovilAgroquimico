@@ -47,6 +47,13 @@ class MoreScreen extends ConsumerWidget {
             path: '/sindicato/vinculos',
             icon: Icons.link_outlined,
           ),
+          // E2: convocatorias de compra conjunta del sindicato.
+          (
+            title: 'Compras conjuntas',
+            subtitle: 'Convocatorias del sindicato y su participación',
+            path: '/compras-conjuntas',
+            icon: Icons.groups_outlined,
+          ),
           (
             title: 'Respaldo en la nube',
             subtitle: 'Copia privada y cifrada en el servidor',

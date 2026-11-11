@@ -335,4 +335,110 @@ void main() {
     );
     expect(await db.query('product_identification_requests'), isEmpty);
   });
+
+  // v16 (E2): convocatorias de compra conjunta y su cola propia. Aditiva:
+  // dos tablas vacías; ninguna otra fila ni columna cambia.
+  test('v15 → v16 conserva todas las filas y columnas y añade las dos tablas vacías', () async {
+    final path = await seededAt(8);
+    final current = openDb(path);
+    await current.database;
+    await current.close();
+    await downgradeToV15(path);
+
+    final legacy = await databaseFactoryFfi.openDatabase(path);
+    final before = await dumpTables(legacy);
+    final columnsBefore = await columnsOf(legacy);
+    await legacy.close();
+    for (final table in jointPurchaseTablesV16) {
+      expect(before.containsKey(table), isFalse, reason: table);
+    }
+    expect(before['purchases'], isNotEmpty);
+    expect(before['applications'], isNotEmpty);
+
+    final migrated = openDb(path);
+    final db = await migrated.database;
+    expect(
+      (await db.rawQuery('PRAGMA user_version')).single.values.single,
+      AppDatabase.schemaVersion,
+    );
+    for (final table in jointPurchaseTablesV16) {
+      expect(await db.query(table), isEmpty, reason: table);
+    }
+    final columnsAfter = await columnsOf(db);
+    for (final entry in columnsBefore.entries) {
+      expect(columnsAfter[entry.key], entry.value, reason: entry.key);
+    }
+    final after = await dumpTables(db, except: jointPurchaseTablesV16);
+    expect(after, before);
+  });
+
+  test('la migración a v16 es idempotente sobre una base ya migrada', () async {
+    final path = await tempDbPath('v16_twice');
+    final first = openDb(path);
+    await first.database;
+    await first.close();
+    // Migración interrumpida: una tabla creada, la otra no, user_version 15.
+    final raw = await databaseFactoryFfi.openDatabase(path);
+    await raw.execute('DROP TABLE joint_purchase_participation_ops');
+    await raw.execute('PRAGMA user_version = 15');
+    await raw.close();
+
+    final second = openDb(path);
+    final db = await second.database;
+    for (final table in jointPurchaseTablesV16) {
+      expect(await db.query(table), isEmpty, reason: table);
+    }
+    final indexes = await db.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type='index' "
+      "AND name LIKE 'idx_joint_purchase_%' ORDER BY name",
+    );
+    expect(indexes.map((row) => row['name']), [
+      'idx_joint_purchase_calls_unseen',
+      'idx_joint_purchase_ops_status',
+    ]);
+  });
+
+  test('v16: el motor rechaza estados fuera de la lista cerrada y secuencias repetidas', () async {
+    final database = openDb(inMemoryDatabasePath);
+    final db = await database.database;
+    Map<String, Object?> op(String id) => {
+      'operation_id': id,
+      'call_id': 'c',
+      'tenant_id': 't',
+      'member_id': 'm',
+      'sequence': 1,
+      'kind': 'CONFIRM',
+      'send_status': 'PENDING_SEND',
+      'created_at': 'x',
+      'updated_at': 'x',
+    };
+    await db.insert('joint_purchase_participation_ops', op('a'));
+    await expectLater(
+      db.insert('joint_purchase_participation_ops', op('b')),
+      throwsA(isA<DatabaseException>()),
+    );
+    await expectLater(
+      db.insert('joint_purchase_participation_ops', {
+        ...op('c'),
+        'sequence': 2,
+        'send_status': 'SENT',
+      }),
+      throwsA(isA<DatabaseException>()),
+    );
+    await expectLater(
+      db.insert('joint_purchase_calls', {
+        'call_id': 'c',
+        'tenant_id': 't',
+        'member_id': 'm',
+        'name': 'n',
+        'status': 'DRAFT',
+        'deadline_at': 'x',
+        'products_json': '[]',
+        'fetched_at': 'x',
+        'server_time_at_fetch': 'x',
+      }),
+      throwsA(isA<DatabaseException>()),
+    );
+    await database.close();
+  });
 }

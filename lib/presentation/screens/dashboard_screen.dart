@@ -16,7 +16,10 @@ import '../../services/auth/existing_session_providers.dart';
 import '../../services/auth/existing_session_startup.dart';
 import '../../services/auth/remote_session_coordinator.dart';
 import '../../services/auth/remote_session_providers.dart';
+import '../../services/sync/sync_providers.dart'
+    show jointPurchaseNoticeProvider;
 import '../widgets/common.dart';
+import '../widgets/joint_purchase_texts.dart' show jointPurchaseNoticeText;
 
 typedef _DashboardData = ({
   DashboardSummary summary,
@@ -118,6 +121,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
         // autorización y su confirmación.
         ..._sessionBlock(context, existingSession),
         const _InstallationAccessNotice(),
+        const _JointPurchaseNotice(),
         const SizedBox(height: 10),
         _PrimaryActions(
           onPurchase: _newPurchase,
@@ -828,6 +832,37 @@ class _InventoryCards extends StatelessWidget {
       ),
     ],
   );
+}
+
+/// E2-D15: «Nueva convocatoria: {nombre} · cierra el {fecha}» mientras haya
+/// una convocatoria abierta que no se abrió en este teléfono. Una sola
+/// consulta indexada; sin push y sin red. Tocarlo abre la convocatoria, que
+/// queda vista y el aviso desaparece.
+class _JointPurchaseNotice extends ConsumerWidget {
+  const _JointPurchaseNotice();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final notice = ref.watch(jointPurchaseNoticeProvider).value;
+    if (notice == null) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 8),
+      child: Card(
+        color: Theme.of(context).colorScheme.secondaryContainer,
+        child: ListTile(
+          key: const Key('joint-purchase-notice'),
+          leading: const Icon(Icons.campaign_outlined),
+          title: Text(jointPurchaseNoticeText(notice)),
+          trailing: const Icon(Icons.chevron_right),
+          onTap: () => context.push(
+            notice.total > 1
+                ? '/compras-conjuntas'
+                : '/compras-conjuntas/${notice.callId}',
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 /// Aviso de la política de activación (#76) cuando la instalación opera en

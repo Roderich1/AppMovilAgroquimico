@@ -15,6 +15,7 @@ class ApiEndpointConfig {
     '/api/v1/sync/v1/references',
     '/api/v1/me/backups',
     '/api/v1/catalog/identification-requests',
+    '/api/v1/me/joint-purchase-calls',
   };
 
   /// Consulta owner-scoped de una operación: sólo un UUID v4 en minúsculas.
@@ -33,6 +34,13 @@ class ApiEndpointConfig {
   /// `/photo`.
   static final _identificationPath = RegExp(
     r'^/api/v1/catalog/identification-requests/[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}(/photo)?$',
+  );
+
+  /// Participación propia en una convocatoria de compra conjunta (E2 §4.2):
+  /// el id de la convocatoria (UUID v4 en minúsculas) seguido de
+  /// `/participation` (PUT) o `/participation/withdraw` (POST).
+  static final _jointPurchasePath = RegExp(
+    r'^/api/v1/me/joint-purchase-calls/[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}/participation(/withdraw)?$',
   );
 
   /// Estimación del consumo (F12-EST-07-MOB, MOB #164; INT-09): las dos
@@ -68,6 +76,7 @@ class ApiEndpointConfig {
         !_operationPath.hasMatch(absolutePath) &&
         !_backupPath.hasMatch(absolutePath) &&
         !_identificationPath.hasMatch(absolutePath) &&
+        !_jointPurchasePath.hasMatch(absolutePath) &&
         queryKey == null) {
       throw const AuthApiException(AuthApiErrorKind.configuration);
     }

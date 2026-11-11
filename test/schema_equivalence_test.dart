@@ -293,6 +293,34 @@ void main() {
     expect(migrated.tables['product_identification_requests'], isNotNull);
   });
 
+  test('una base migrada desde V15 (sin compras conjuntas, E2) queda con el mismo esquema que una nueva', () async {
+    final directory = await Directory.systemTemp.createTemp('agro_schema_v15_');
+    addTearDown(() => directory.delete(recursive: true));
+    final path = p.join(directory.path, 'v15.db');
+    final created = AppDatabase(factory: databaseFactoryFfi, path: path);
+    await created.database;
+    await created.close();
+    final raw = await databaseFactoryFfi.openDatabase(path);
+    await raw.execute('DROP TABLE joint_purchase_calls');
+    await raw.execute('DROP TABLE joint_purchase_participation_ops');
+    await raw.execute('PRAGMA user_version = 15');
+    await raw.close();
+
+    final upgraded = AppDatabase(factory: databaseFactoryFfi, path: path);
+    addTearDown(upgraded.close);
+    final migrated = await SchemaSignature.read(await upgraded.database);
+    final problems = (await freshSchema()).diff(migrated);
+    expect(
+      problems,
+      isEmpty,
+      reason:
+          'El esquema migrado desde V15 difiere del creado desde cero:\n'
+          '${problems.join('\n')}',
+    );
+    expect(migrated.tables['joint_purchase_calls'], isNotNull);
+    expect(migrated.tables['joint_purchase_participation_ops'], isNotNull);
+  });
+
   test(
     'los índices de unicidad existen realmente como UNIQUE en base nueva',
     () async {

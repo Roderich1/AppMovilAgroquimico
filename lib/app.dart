@@ -30,6 +30,8 @@ import 'presentation/screens/farm_logbook_screen.dart';
 import 'presentation/screens/inventory_alerts_screen.dart';
 import 'presentation/screens/inventory_detail_screen.dart';
 import 'presentation/screens/inventory_screen.dart';
+import 'presentation/screens/joint_purchase_detail_screen.dart';
+import 'presentation/screens/joint_purchases_screen.dart';
 import 'presentation/screens/more_screen.dart';
 import 'presentation/screens/operation_mode_screen.dart';
 import 'presentation/screens/operations_screen.dart';
@@ -261,6 +263,17 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: '/sincronizacion/consumo',
             builder: (_, __) => const ConsumptionPublishScreen(),
+          ),
+          // E2: compras conjuntas, desde Operaciones › Más y el aviso de
+          // Inicio.
+          GoRoute(
+            path: '/compras-conjuntas',
+            builder: (_, __) => const JointPurchasesScreen(),
+          ),
+          GoRoute(
+            path: '/compras-conjuntas/:id',
+            builder: (_, state) =>
+                JointPurchaseDetailScreen(callId: state.pathParameters['id']!),
           ),
           GoRoute(
             path: '/respaldo-remoto',

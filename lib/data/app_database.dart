@@ -18,7 +18,7 @@ class AppDatabase {
   /// Toda base, creada desde cero o migrada desde cualquier versión anterior,
   /// debe terminar con el mismo esquema. `test/schema_equivalence_test.dart`
   /// lo verifica automáticamente.
-  static const int schemaVersion = 15;
+  static const int schemaVersion = 16;
 
   /// Primera versión con `owner_bindings` e `install_origin`: una base
   /// anterior es histórica y no declara titular.
@@ -49,6 +49,67 @@ class AppDatabase {
   /// solicitudes de identificación al sindicato (E1, contrato
   /// `E1_IDENTIFICACION_PRODUCTOS_CONTRATO.md` §5).
   static const int productIdentificationSinceVersion = 15;
+
+  /// Primera versión con las convocatorias de compra conjunta y la cola
+  /// propia de participación (E2, contrato
+  /// `E2_CONVOCATORIAS_COMPRA_CONJUNTA_CONTRATO.md` §5).
+  static const int jointPurchaseSinceVersion = 16;
+
+  /// v16 — convocatorias de compra conjunta (E2 §5). Dos tablas nuevas:
+  ///
+  /// - `joint_purchase_calls`: copia local de lo que el sindicato sirvió en
+  ///   `GET /me/joint-purchase-calls`, por titular (`tenant_id`,
+  ///   `member_id`). `server_participation_json` es la última participación
+  ///   **aceptada** por el servidor; `seen_at` sostiene el aviso «Nueva
+  ///   convocatoria» hasta abrirla (E2-D15).
+  /// - `joint_purchase_participation_ops`: cola propia de confirmaciones y
+  ///   retiros, **no** `sync_outbox` (E2 §1). Cada operación lleva su
+  ///   `operation_id` (UUID v4) y su `sequence` creciente por convocatoria y
+  ///   titular (E2-D10). Lo terminal y lo reintentable se distinguen por
+  ///   `send_status`, nunca por una fecha nula.
+  ///
+  /// Índices aditivos (no cambian el contrato de datos): el aviso de Inicio
+  /// lee una sola consulta indexada y el emisor busca lo pendiente por
+  /// estado.
+  static const List<String> jointPurchaseSchema = <String>[
+    '''CREATE TABLE IF NOT EXISTS joint_purchase_calls (
+        call_id TEXT PRIMARY KEY,
+        tenant_id TEXT NOT NULL,
+        member_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        campaign_ref TEXT,
+        campaign_name TEXT,
+        status TEXT NOT NULL CHECK (status IN ('OPEN','CLOSED','CANCELLED')),
+        opened_at TEXT,
+        deadline_at TEXT NOT NULL,
+        responsible_name TEXT,
+        products_json TEXT NOT NULL,
+        server_participation_json TEXT,
+        fetched_at TEXT NOT NULL,
+        server_time_at_fetch TEXT NOT NULL,
+        seen_at TEXT)''',
+    '''CREATE TABLE IF NOT EXISTS joint_purchase_participation_ops (
+        operation_id TEXT PRIMARY KEY,
+        call_id TEXT NOT NULL,
+        tenant_id TEXT NOT NULL,
+        member_id TEXT NOT NULL,
+        sequence INTEGER NOT NULL,
+        kind TEXT NOT NULL CHECK (kind IN ('CONFIRM','WITHDRAW')),
+        lines_json TEXT,
+        consent_version TEXT,
+        consent_accepted_at TEXT,
+        send_status TEXT NOT NULL CHECK (send_status IN ('PENDING_SEND','RECEIVED','REJECTED','OUT_OF_TIME','SUPERSEDED','AUTH_PAUSED')),
+        attempts INTEGER NOT NULL DEFAULT 0,
+        next_attempt_at TEXT,
+        last_code TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE (call_id, member_id, sequence))''',
+    'CREATE INDEX IF NOT EXISTS idx_joint_purchase_calls_unseen '
+        'ON joint_purchase_calls(tenant_id, member_id, status, seen_at, deadline_at)',
+    'CREATE INDEX IF NOT EXISTS idx_joint_purchase_ops_status '
+        'ON joint_purchase_participation_ops(tenant_id, member_id, send_status)',
+  ];
 
   /// v15 — columnas opcionales de la foto de la etiqueta (E1-D10). Todas
   /// admiten NULL: un producto sin foto no tiene ninguna. `photo_path` es
@@ -789,6 +850,7 @@ class AppDatabase {
     await _applyEstimationCopiesSchema(db);
     await _applyVoiceEvidenceSchema(db);
     await _applyProductIdentificationSchema(db);
+    await _applyJointPurchaseSchema(db);
     // Una base creada por esta versión nace bajo la política de activación.
     await db.insert('app_settings', {
       'key': installOriginKey,
@@ -957,6 +1019,19 @@ class AppDatabase {
     }
     if (oldVersion < 15) {
       await _applyProductIdentificationSchema(db);
+    }
+    if (oldVersion < 16) {
+      await _applyJointPurchaseSchema(db);
+    }
+  }
+
+  /// Versión 16 — **convocatorias de compra conjunta** (E2). Aditiva: dos
+  /// tablas nuevas y vacías con sus índices. No hace backfill ni toca
+  /// compras, aplicaciones, inventario, cuentas, necesidad declarada ni
+  /// `sync_outbox` (E2-D14). Idempotente: IF NOT EXISTS en todo.
+  Future<void> _applyJointPurchaseSchema(DatabaseExecutor db) async {
+    for (final statement in jointPurchaseSchema) {
+      await db.execute(statement);
     }
   }
 

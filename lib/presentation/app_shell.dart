@@ -50,6 +50,8 @@ class AppShell extends StatelessWidget {
     '/voz',
     // «Más»: las funciones poco frecuentes, agrupadas (piloto X01).
     '/mas',
+    // E2: «Compras conjuntas» se abre desde «Más».
+    '/compras-conjuntas',
   };
 
   /// Rutas de detalle que no son destinos propios: heredan el destino desde el
