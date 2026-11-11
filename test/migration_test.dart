@@ -368,7 +368,12 @@ void main() {
     for (final entry in columnsBefore.entries) {
       expect(columnsAfter[entry.key], entry.value, reason: entry.key);
     }
-    final after = await dumpTables(db, except: jointPurchaseTablesV16);
+    // Una v15 llega también a v17: su tabla nueva tampoco tiene filas.
+    expect(await db.query('joint_purchase_history_state'), isEmpty);
+    final after = await dumpTables(
+      db,
+      except: {...jointPurchaseTablesV16, ...jointPurchaseTablesV17},
+    );
     expect(after, before);
   });
 
@@ -437,6 +442,140 @@ void main() {
         'fetched_at': 'x',
         'server_time_at_fetch': 'x',
       }),
+      throwsA(isA<DatabaseException>()),
+    );
+    await database.close();
+  });
+
+  // v17 (E2 §10.1): fecha de término de las convocatorias y recuento de
+  // anteriores por titular. Aditiva: una columna que admite NULL y una tabla
+  // vacía; las filas de v16 (convocatorias y operaciones) quedan intactas.
+  test('v16 → v17 conserva convocatorias y operaciones, añade finished_at en NULL y la tabla vacía', () async {
+    final path = await seededAt(8);
+    final current = openDb(path);
+    await current.database;
+    await current.close();
+    await downgradeToV16(path);
+
+    final legacy = await databaseFactoryFfi.openDatabase(path);
+    await legacy.insert('joint_purchase_calls', {
+      'call_id': 'c-v16',
+      'tenant_id': memberA.tenantId,
+      'member_id': memberA.memberId,
+      'name': 'Convocatoria de v16',
+      'status': 'CLOSED',
+      'deadline_at': '2026-03-01T00:00:00.000Z',
+      'products_json': '[]',
+      'server_participation_json': '{"status":"ACTIVE"}',
+      'fetched_at': '2026-03-02T00:00:00.000Z',
+      'server_time_at_fetch': '2026-03-02T00:00:00.000Z',
+    });
+    await legacy.insert('joint_purchase_participation_ops', {
+      'operation_id': 'op-v16',
+      'call_id': 'c-v16',
+      'tenant_id': memberA.tenantId,
+      'member_id': memberA.memberId,
+      'sequence': 1,
+      'kind': 'CONFIRM',
+      'lines_json': '[]',
+      'consent_version': 'CONV-1',
+      'consent_accepted_at': '2026-02-20T00:00:00.000Z',
+      'send_status': 'PENDING_SEND',
+      'created_at': '2026-02-20T00:00:00.000Z',
+      'updated_at': '2026-02-20T00:00:00.000Z',
+    });
+    final before = await dumpTables(legacy);
+    final columnsBefore = await columnsOf(legacy);
+    await legacy.close();
+    for (final table in jointPurchaseTablesV17) {
+      expect(before.containsKey(table), isFalse, reason: table);
+    }
+    expect(
+      columnsBefore['joint_purchase_calls'],
+      isNot(contains('finished_at')),
+    );
+
+    final migrated = openDb(path);
+    final db = await migrated.database;
+    expect(
+      (await db.rawQuery('PRAGMA user_version')).single.values.single,
+      AppDatabase.schemaVersion,
+    );
+    for (final table in jointPurchaseTablesV17) {
+      expect(await db.query(table), isEmpty, reason: table);
+    }
+    final columnsAfter = await columnsOf(db);
+    for (final entry in columnsBefore.entries) {
+      expect(columnsAfter[entry.key], [
+        ...entry.value,
+        if (entry.key == 'joint_purchase_calls') ...jointPurchaseCallColumnsV17,
+      ], reason: entry.key);
+    }
+    final after = await dumpTables(db, except: jointPurchaseTablesV17);
+    expect(after.keys, before.keys);
+    for (final table in before.keys) {
+      expect(
+        [
+          for (final row in after[table]!)
+            {
+              for (final cell in row.entries)
+                if (table != 'joint_purchase_calls' ||
+                    !jointPurchaseCallColumnsV17.contains(cell.key))
+                  cell.key: cell.value,
+            },
+        ],
+        before[table],
+        reason: table,
+      );
+    }
+    final call = (await db.query('joint_purchase_calls')).single;
+    expect(call['finished_at'], isNull);
+    expect(
+      (await db.query('joint_purchase_participation_ops'))
+          .single['consent_version'],
+      'CONV-1',
+    );
+  });
+
+  test('la migración a v17 es idempotente sobre una base ya migrada', () async {
+    final path = await tempDbPath('v17_twice');
+    final first = openDb(path);
+    await first.database;
+    await first.close();
+    // Migración interrumpida: la columna añadida, la tabla no, user_version 16.
+    final raw = await databaseFactoryFfi.openDatabase(path);
+    await raw.execute('DROP TABLE joint_purchase_history_state');
+    await raw.execute('PRAGMA user_version = 16');
+    await raw.close();
+
+    final second = openDb(path);
+    final db = await second.database;
+    expect(
+      (await columnsOf(
+        db,
+      ))['joint_purchase_calls']!.where(jointPurchaseCallColumnsV17.contains),
+      jointPurchaseCallColumnsV17.toList(),
+    );
+    expect(await db.query('joint_purchase_history_state'), isEmpty);
+  });
+
+  test('v17: el motor rechaza un recuento negativo y un segundo recuento del mismo titular', () async {
+    final database = openDb(inMemoryDatabasePath);
+    final db = await database.database;
+    Map<String, Object?> state(int count) => {
+      'tenant_id': 't',
+      'member_id': 'm',
+      'older_count': count,
+      'server_time': 'x',
+      'updated_at': 'x',
+    };
+    await expectLater(
+      db.insert('joint_purchase_history_state', state(-1)),
+      throwsA(isA<DatabaseException>()),
+    );
+    await db.insert('joint_purchase_history_state', state(2));
+    await expectLater(
+      db.insert('joint_purchase_history_state', state(3)),
       throwsA(isA<DatabaseException>()),
     );
     await database.close();

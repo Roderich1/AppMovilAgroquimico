@@ -26,6 +26,8 @@ Map<String, Object?> callJson({
   Map<String, Object?>? participation,
   Map<String, Object?>? closing,
   bool withKilo = true,
+  String closedAt = '2026-11-20T22:00:00.000Z',
+  String cancelledAt = '2026-11-12T10:00:00.000Z',
   Map<String, Object?> extra = const {},
 }) => {
   'call_id': id,
@@ -34,8 +36,8 @@ Map<String, Object?> callJson({
   'campaign': {'campaign_ref': campaignRef, 'name': 'Campaña sindicato 2026'},
   'opened_at': '2026-11-10T12:00:00.000Z',
   'deadline_at': deadlineAt,
-  'closed_at': status == 'CLOSED' ? '2026-11-20T22:00:00.000Z' : null,
-  'cancelled_at': status == 'CANCELLED' ? '2026-11-12T10:00:00.000Z' : null,
+  'closed_at': status == 'CLOSED' ? closedAt : null,
+  'cancelled_at': status == 'CANCELLED' ? cancelledAt : null,
   'server_time': '2026-11-11T18:20:05.120Z',
   'accepts_operations': status == 'OPEN',
   'responsible': {'name': 'Responsable sintético'},
@@ -69,6 +71,7 @@ Map<String, Object?> participationJson({
   String lastOperationId = '6c1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d',
   String acceptedAt = '2026-11-11T18:21:00.000Z',
   bool withdrawn = false,
+  String consentVersion = jointPurchaseConsentVersion,
 }) => {
   'status': withdrawn ? 'WITHDRAWN' : 'ACTIVE',
   'lines': withdrawn
@@ -85,22 +88,72 @@ Map<String, Object?> participationJson({
   'last_operation_id': lastOperationId,
   'accepted_at': acceptedAt,
   'consent': {
-    'version': 'CONV-1',
+    'version': consentVersion,
     'accepted_at': '2026-11-11T18:20:00.000Z',
     'received_at': acceptedAt,
   },
 };
 
-/// Raíz de la lista (`contractVersion`, `server_time`, `consent`, `calls`).
-Map<String, Object?> listJson(List<Map<String, Object?>> calls) => {
+/// Raíz de la vista por defecto (`contractVersion`, `server_time`,
+/// `consent`, `history`, `calls`).
+Map<String, Object?> listJson(
+  List<Map<String, Object?>> calls, {
+  int olderCount = 0,
+  String serverTime = '2026-11-11T18:20:05.120Z',
+}) => {
   'contractVersion': 1,
-  'server_time': '2026-11-11T18:20:05.120Z',
+  'server_time': serverTime,
   'consent': {
     'version': jointPurchaseConsentVersion,
     'text': jointPurchaseConsentText,
   },
+  'history': {'older_count': olderCount},
   'calls': calls,
 };
+
+/// Una página de `GET /me/joint-purchase-calls/history` (E2 §10.1).
+Map<String, Object?> historyJson(
+  List<Map<String, Object?>> calls, {
+  String? nextCursor,
+}) => {
+  'contractVersion': 1,
+  'server_time': '2026-11-11T18:20:05.120Z',
+  'calls': calls,
+  'next_cursor': nextCursor,
+};
+
+/// Convocatoria terminada hace más de 180 días (respecto de los relojes de
+/// las pruebas, 2026-11-11) con participación propia, como la sirve el
+/// historial.
+Map<String, Object?> oldCallJson(
+  String id, {
+  String status = 'CLOSED',
+  String finishedAt = '2026-03-01T12:00:00.000Z',
+  Map<String, Object?>? participation,
+}) => callJson(
+  id: id,
+  name: 'Compra anterior $id',
+  status: status,
+  deadlineAt: '2026-02-28T22:00:00.000Z',
+  closedAt: finishedAt,
+  cancelledAt: finishedAt,
+  participation: participation ?? participationJson(),
+  closing: status == 'CLOSED'
+      ? {
+          'cutoff_at': '2026-02-28T22:00:00.000Z',
+          'closed_at': finishedAt,
+          'included': true,
+          'lines': [
+            {
+              'product_ref': litreRef,
+              'base_unit': 'ML',
+              'quantity_base': '25000',
+            },
+          ],
+        }
+      : null,
+  extra: const {'opened_at': '2026-02-01T12:00:00.000Z'},
+);
 
 http.Response jsonResponse(Object body, int status) => http.Response(
   jsonEncode(body),
@@ -108,12 +161,14 @@ http.Response jsonResponse(Object body, int status) => http.Response(
   headers: {'content-type': 'application/json; charset=utf-8'},
 );
 
-/// Guarda [calls] como si el sindicato los hubiera servido a [scope].
+/// Guarda [calls] como si el sindicato los hubiera servido a [scope] en la
+/// vista por defecto.
 Future<void> seedCalls(
   JointPurchaseStore store,
   OwnerScope scope,
-  List<Map<String, Object?>> calls,
-) => store.saveFetched(
+  List<Map<String, Object?>> calls, {
+  int olderCount = 0,
+}) => store.saveFetched(
   scope,
-  JointPurchaseCallView.listFromJson(listJson(calls)),
+  JointPurchaseCallList.fromJson(listJson(calls, olderCount: olderCount)),
 );

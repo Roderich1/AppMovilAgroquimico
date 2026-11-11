@@ -8,14 +8,37 @@ import 'dart:convert';
 
 import 'operation_id.dart';
 
-/// Versión del texto de consentimiento de la participación (E2-D9).
-const String jointPurchaseConsentVersion = 'CONV-1';
+/// Versión vigente del texto de consentimiento de la participación (E2-D9,
+/// §10.2). Las operaciones preparadas antes con `CONV-1` se envían tal como
+/// se guardaron: el servidor sigue aceptándolas (sólo las ve la persona
+/// responsable).
+const String jointPurchaseConsentVersion = 'CONV-2';
 
-/// Texto exacto `CONV-1` (E2-D9). Si el texto cambia, cambia la versión.
+/// Texto exacto `CONV-2` (E2 §10.2). Si el texto cambia, cambia la versión.
 const String jointPurchaseConsentText =
-    'El responsable de esta compra conjunta podrá ver tu nombre y las '
-    'cantidades que solicitas para coordinar la compra y la entrega. Esta '
-    'confirmación no genera una deuda.';
+    'La persona responsable de esta compra conjunta y quienes ella autorice '
+    'para coordinarla podrán ver tu nombre y las cantidades que solicitas, '
+    'para coordinar la compra y la entrega. Esta confirmación no genera una '
+    'deuda.';
+
+/// Versión anterior (E2-D9): sólo la llevan operaciones guardadas antes de
+/// actualizar la aplicación. Nunca se ofrece para una confirmación nueva.
+const String jointPurchaseLegacyConsentVersion = 'CONV-1';
+
+/// Filtro de presentación (E2 §10.1 a): una convocatoria terminada hace más
+/// de estos días se muestra en «Historial», no en la vista por defecto. No
+/// decide qué guarda el teléfono ni qué conserva el servidor.
+const int jointPurchaseRecentFinishedDays = 180;
+
+/// Tamaño de página por defecto de `GET /me/joint-purchase-calls/history`
+/// (E2 §10.1; el servidor admite 1..50).
+const int jointPurchaseHistoryPageSize = 20;
+
+/// Cursor opaco de la página de historial: sólo caracteres que viajan sin
+/// ambigüedad en una consulta (base64/base64url y similares).
+final RegExp jointPurchaseHistoryCursor = RegExp(
+  r'^[A-Za-z0-9._~+/=-]{1,1024}$',
+);
 
 /// La respuesta del sindicato no respeta la lista cerrada del contrato E2
 /// §4.2. Se rechaza entera.
@@ -252,6 +275,7 @@ class JointPurchaseCallView {
     required this.products,
     required this.participation,
     required this.closingIncluded,
+    this.finishedAt,
   });
 
   final String callId;
@@ -273,6 +297,13 @@ class JointPurchaseCallView {
 
   /// Sólo en `CLOSED`: si la propia participación entró al consolidado.
   final bool? closingIncluded;
+
+  /// Fecha de término según el sindicato: `closed_at` en `CLOSED`,
+  /// `cancelled_at` en `CANCELLED`; null en `OPEN` o si no la envió. Decide
+  /// sólo el filtro de presentación (E2 §10.1 a).
+  final String? finishedAt;
+
+  bool get isFinished => status != JointPurchaseCallStatus.open;
 
   /// Lo que el teléfono guarda como «lo aceptado»: en `CLOSED`, la
   /// participación tal como entró al consolidado, o nada si no fue incluida
@@ -320,8 +351,8 @@ class JointPurchaseCallView {
     final openedAt = _optionalInstant(json['opened_at']);
     // Abierta ⇒ con fecha de apertura (E2 §3).
     if (status == JointPurchaseCallStatus.open && openedAt == null) _invalid();
-    _optionalInstant(json['closed_at']);
-    _optionalInstant(json['cancelled_at']);
+    final closedAt = _optionalInstant(json['closed_at']);
+    final cancelledAt = _optionalInstant(json['cancelled_at']);
     final accepts = json['accepts_operations'];
     if (accepts is! bool) _invalid();
     if (accepts && status != JointPurchaseCallStatus.open) _invalid();
@@ -368,40 +399,138 @@ class JointPurchaseCallView {
       products: products,
       participation: participation,
       closingIncluded: included,
+      finishedAt: switch (status) {
+        JointPurchaseCallStatus.closed => closedAt,
+        JointPurchaseCallStatus.cancelled => cancelledAt,
+        _ => null,
+      },
     );
   }
+
+  /// La vista por defecto (`GET /me/joint-purchase-calls`), sólo las
+  /// convocatorias. Ver [JointPurchaseCallList.fromJson].
+  static List<JointPurchaseCallView> listFromJson(Object? raw) =>
+      JointPurchaseCallList.fromJson(raw).calls;
+
+  /// Convocatorias sin repetidas.
+  static List<JointPurchaseCallView> _calls(Object? raw) {
+    if (raw is! List<dynamic>) _invalid();
+    final parsed = [
+      for (final item in raw) JointPurchaseCallView.fromJson(item),
+    ];
+    if (parsed.map((c) => c.callId).toSet().length != parsed.length) {
+      _invalid();
+    }
+    return parsed;
+  }
+}
+
+/// Vista por defecto del agricultor (`GET /me/joint-purchase-calls`, E2
+/// §4.2 y §10.1): `{contractVersion: 1, server_time, consent: {version,
+/// text}, history: {older_count}, calls: [...]}`.
+class JointPurchaseCallList {
+  const JointPurchaseCallList({
+    required this.serverTime,
+    required this.olderCount,
+    required this.calls,
+  });
+
+  final String serverTime;
+
+  /// Convocatorias terminadas **anteriores** a la ventana de recientes en
+  /// las que el agricultor tiene participación (sólo un recuento propio).
+  final int olderCount;
+  final List<JointPurchaseCallView> calls;
 
   static const _rootKeys = {
     'contractVersion',
     'server_time',
     'consent',
+    'history',
     'calls',
   };
 
-  /// `{contractVersion: 1, server_time, consent: {version, text}, calls:
-  /// [...]}`, sin convocatorias repetidas. El consentimiento que anuncia el
-  /// servidor debe ser exactamente el `CONV-1` de este teléfono: si cambió,
-  /// la aplicación tiene que actualizarse antes de pedir uno nuevo.
-  static List<JointPurchaseCallView> listFromJson(Object? raw) {
+  /// Lista cerrada en la raíz (todas las claves obligatorias). El
+  /// consentimiento que anuncia el servidor debe ser exactamente el `CONV-2`
+  /// de este teléfono: si cambió, la aplicación tiene que actualizarse antes
+  /// de pedir uno nuevo (E2 §10.2).
+  factory JointPurchaseCallList.fromJson(Object? raw) {
     final json = _object(raw);
     _knownKeys(json, _rootKeys);
     if (json['contractVersion'] != 1) _invalid();
-    _instant(json['server_time']);
+    final serverTime = _instant(json['server_time']);
     final consent = _object(json['consent']);
     _knownKeys(consent, const {'version', 'text'});
     if (consent['version'] != jointPurchaseConsentVersion ||
         consent['text'] != jointPurchaseConsentText) {
       _invalid();
     }
-    final calls = json['calls'];
-    if (calls is! List<dynamic>) _invalid();
-    final parsed = [
-      for (final item in calls) JointPurchaseCallView.fromJson(item),
-    ];
-    if (parsed.map((c) => c.callId).toSet().length != parsed.length) {
+    final history = _object(json['history']);
+    _knownKeys(history, const {'older_count'});
+    final olderCount = history['older_count'];
+    if (olderCount is! int || olderCount < 0) _invalid();
+    return JointPurchaseCallList(
+      serverTime: serverTime,
+      olderCount: olderCount,
+      calls: JointPurchaseCallView._calls(json['calls']),
+    );
+  }
+}
+
+/// Una página de `GET /me/joint-purchase-calls/history` (E2 §10.1):
+/// `{contractVersion: 1, server_time, calls: [...], next_cursor}`. Con el
+/// mismo rigor que la vista por defecto y, además, sólo convocatorias
+/// terminadas (`CLOSED`/`CANCELLED`) con su fecha de término y con
+/// participación propia.
+class JointPurchaseHistoryPage {
+  const JointPurchaseHistoryPage({
+    required this.serverTime,
+    required this.calls,
+    required this.nextCursor,
+  });
+
+  final String serverTime;
+  final List<JointPurchaseCallView> calls;
+
+  /// Opaco; null si no hay más páginas.
+  final String? nextCursor;
+
+  static const _rootKeys = {
+    'contractVersion',
+    'server_time',
+    'calls',
+    'next_cursor',
+  };
+
+  /// [limit], si se da, es el pedido: una página más larga se rechaza.
+  factory JointPurchaseHistoryPage.fromJson(Object? raw, {int? limit}) {
+    final json = _object(raw);
+    _knownKeys(json, _rootKeys);
+    if (json['contractVersion'] != 1) _invalid();
+    final serverTime = _instant(json['server_time']);
+    final calls = JointPurchaseCallView._calls(json['calls']);
+    for (final call in calls) {
+      // El historial nunca incluye convocatorias abiertas, y sólo las
+      // terminadas con participación propia.
+      if (!call.isFinished ||
+          call.finishedAt == null ||
+          call.participation == null) {
+        _invalid();
+      }
+    }
+    if (limit != null && calls.length > limit) _invalid();
+    final cursor = json['next_cursor'];
+    if (cursor != null &&
+        (cursor is! String ||
+            !jointPurchaseHistoryCursor.hasMatch(cursor) ||
+            calls.isEmpty)) {
       _invalid();
     }
-    return parsed;
+    return JointPurchaseHistoryPage(
+      serverTime: serverTime,
+      calls: calls,
+      nextCursor: cursor as String?,
+    );
   }
 }
 

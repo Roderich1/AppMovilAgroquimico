@@ -46,6 +46,51 @@ class JointPurchaseRunReport {
       '$apiUnavailable)';
 }
 
+/// Resultado de pedir una página de «Historial» (E2 §10.1).
+enum JointPurchaseHistoryOutcome {
+  /// Página guardada en el teléfono.
+  saved,
+
+  /// Sin respuesta del sindicato (red o plazo).
+  offline,
+
+  /// 401/403: el acceso en memoria ya no sirve.
+  authFailed,
+
+  /// La cuenta en sesión no es la del titular: no se pidió nada.
+  ownerMismatch,
+
+  /// Sin dirección del sindicato configurada.
+  apiUnavailable,
+
+  /// `400 PAYLOAD_INVALID`: el sindicato no reconoce el cursor.
+  invalidCursor,
+
+  /// Otra respuesta, o una que no respeta el contrato: no se guarda nada.
+  unavailable,
+}
+
+class JointPurchaseHistoryResult {
+  const JointPurchaseHistoryResult(
+    this.outcome, {
+    this.saved = 0,
+    this.nextCursor,
+  });
+
+  final JointPurchaseHistoryOutcome outcome;
+
+  /// Convocatorias guardadas de esta página.
+  final int saved;
+
+  /// Para «Ver más»; null si no hay más páginas (o si no se guardó nada).
+  final String? nextCursor;
+
+  @override
+  String toString() =>
+      'JointPurchaseHistoryResult(${outcome.name}, saved: $saved, '
+      'more: ${nextCursor != null})';
+}
+
 /// Emisor de las participaciones en convocatorias (contrato E2 §4.2 y §5).
 ///
 /// Por convocatoria, sólo sale la operación pendiente más nueva (las
@@ -169,6 +214,80 @@ class JointPurchaseSender {
     return report;
   }
 
+  /// «Consultar historial» / «Ver más» (E2 §10.1): pide una página de
+  /// convocatorias terminadas anteriores con [access] y la guarda sin
+  /// borrar nada. Nunca envía operaciones ni pide si la cuenta en sesión no
+  /// es la del titular. Una respuesta que no respeta el contrato no guarda
+  /// nada de esa página.
+  Future<JointPurchaseHistoryResult> fetchHistory(
+    VerifiedAccess access, {
+    String? before,
+    int limit = jointPurchaseHistoryPageSize,
+  }) async {
+    final JointPurchaseApi api;
+    try {
+      api = _api();
+    } on AuthApiException {
+      return const JointPurchaseHistoryResult(
+        JointPurchaseHistoryOutcome.apiUnavailable,
+      );
+    }
+    final owner = await _owners.activeBinding();
+    if (owner == null || owner.scope != access.scope) {
+      return const JointPurchaseHistoryResult(
+        JointPurchaseHistoryOutcome.ownerMismatch,
+      );
+    }
+    // Un cursor que no tiene la forma de los que emite el sindicato no sale
+    // del teléfono.
+    if (before != null && !jointPurchaseHistoryCursor.hasMatch(before)) {
+      return const JointPurchaseHistoryResult(
+        JointPurchaseHistoryOutcome.invalidCursor,
+      );
+    }
+    final response = await api.history(
+      access.accessToken,
+      before: before,
+      limit: limit,
+    );
+    if (response.isAuth) {
+      return const JointPurchaseHistoryResult(
+        JointPurchaseHistoryOutcome.authFailed,
+      );
+    }
+    if (response.statusCode == null) {
+      return JointPurchaseHistoryResult(
+        response.transportCode == 'TRANSPORT'
+            ? JointPurchaseHistoryOutcome.unavailable
+            : JointPurchaseHistoryOutcome.offline,
+      );
+    }
+    if (response.statusCode == 400 && response.errorCode == 'PAYLOAD_INVALID') {
+      return const JointPurchaseHistoryResult(
+        JointPurchaseHistoryOutcome.invalidCursor,
+      );
+    }
+    if (!response.ok) {
+      return const JointPurchaseHistoryResult(
+        JointPurchaseHistoryOutcome.unavailable,
+      );
+    }
+    final JointPurchaseHistoryPage page;
+    try {
+      page = JointPurchaseHistoryPage.fromJson(response.body, limit: limit);
+    } on JointPurchaseFormatException {
+      return const JointPurchaseHistoryResult(
+        JointPurchaseHistoryOutcome.unavailable,
+      );
+    }
+    await _store.saveHistory(access.scope, page.calls);
+    return JointPurchaseHistoryResult(
+      JointPurchaseHistoryOutcome.saved,
+      saved: page.calls.length,
+      nextCursor: page.nextCursor,
+    );
+  }
+
   bool _due(String? at) =>
       at == null || !DateTime.parse(at).isAfter(_clock().toUtc());
 
@@ -286,14 +405,14 @@ class JointPurchaseSender {
       report.listUnavailable = true;
       return;
     }
-    final List<JointPurchaseCallView> calls;
+    final JointPurchaseCallList list;
     try {
-      calls = JointPurchaseCallView.listFromJson(response.body);
+      list = JointPurchaseCallList.fromJson(response.body);
     } on JointPurchaseFormatException {
       report.listUnavailable = true;
       return;
     }
-    await _store.saveFetched(access.scope, calls);
+    await _store.saveFetched(access.scope, list);
     _lastListedAt = _clock();
     report.listed = true;
   }

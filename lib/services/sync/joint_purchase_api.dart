@@ -5,6 +5,8 @@
 // cuerpos, cantidades ni credenciales.
 import 'dart:convert';
 
+import '../../domain/sync/joint_purchase_call_view.dart'
+    show jointPurchaseHistoryPageSize;
 import '../../domain/sync/sync_wire.dart' show parseRetryAfter;
 import '../auth/auth_api_exception.dart';
 import '../auth/auth_http_client.dart';
@@ -53,6 +55,8 @@ class JointPurchaseApi {
   static const basePath = '/api/v1/me/joint-purchase-calls';
   static final _errorCode = RegExp(r'^[A-Z][A-Z0-9_]{0,63}$');
 
+  static const historyPath = '$basePath/history';
+
   static String participationPath(String callId) =>
       '$basePath/$callId/participation';
   static String withdrawPath(String callId) =>
@@ -61,6 +65,20 @@ class JointPurchaseApi {
   /// `GET /me/joint-purchase-calls`.
   Future<JointPurchaseResponse> list(String accessToken) =>
       _call('GET', basePath, accessToken);
+
+  /// `GET /me/joint-purchase-calls/history?before=<cursor>&limit=<n>` (E2
+  /// §10.1): una página de convocatorias terminadas anteriores a la ventana
+  /// de recientes. Sin [before], la primera.
+  Future<JointPurchaseResponse> history(
+    String accessToken, {
+    String? before,
+    int limit = jointPurchaseHistoryPageSize,
+  }) => _call(
+    'GET',
+    historyPath,
+    accessToken,
+    query: {'before': ?before, 'limit': '$limit'},
+  );
 
   /// `PUT /me/joint-purchase-calls/{id}/participation`: `{operation_id,
   /// sequence, consent: {version, accepted_at}, lines: [{product_ref,
@@ -84,6 +102,7 @@ class JointPurchaseApi {
     String path,
     String accessToken, {
     Map<String, Object?>? body,
+    Map<String, String> query = const {},
   }) async {
     final AuthHttpResponse response;
     try {
@@ -92,6 +111,7 @@ class JointPurchaseApi {
         path,
         jsonBody: body,
         accessToken: accessToken,
+        query: query,
       );
     } on AuthApiException catch (error) {
       return JointPurchaseResponse(

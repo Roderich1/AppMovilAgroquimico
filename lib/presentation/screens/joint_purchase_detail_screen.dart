@@ -403,7 +403,7 @@ class _ParticipationQuantitiesDialogState
   );
 }
 
-/// Consentimiento `CONV-1` (E2-D9) con casilla obligatoria. Devuelve la
+/// Consentimiento vigente `CONV-2` (E2 §10.2) con casilla obligatoria. Devuelve la
 /// fecha de aceptación (del teléfono) o null si se cancela.
 class JointPurchaseConsentDialog extends StatefulWidget {
   const JointPurchaseConsentDialog({super.key});

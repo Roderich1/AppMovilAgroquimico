@@ -329,7 +329,30 @@ void main() {
       rejects({
         ...listJson([callJson()]),
         'consent': {'version': 'CONV-2', 'text': 'otro'},
-      }, 'consentimiento distinto del de este teléfono');
+      }, 'texto distinto del CONV-2 de este teléfono');
+      rejects({
+        ...listJson([callJson()]),
+        'consent': {
+          'version': 'CONV-1',
+          'text':
+              'El responsable de esta compra conjunta podrá ver tu nombre y '
+              'las cantidades que solicitas para coordinar la compra y la '
+              'entrega. Esta confirmación no genera una deuda.',
+        },
+      }, 'consentimiento anterior publicado como vigente');
+      rejects(Map.of(listJson([callJson()]))..remove('history'), 'sin history');
+      rejects({
+        ...listJson([callJson()]),
+        'history': {'older_count': 2, 'calls': <Object?>[]},
+      }, 'clave desconocida en history');
+      rejects({
+        ...listJson([callJson()]),
+        'history': {'older_count': -1},
+      }, 'older_count negativo');
+      rejects({
+        ...listJson([callJson()]),
+        'history': {'older_count': '2'},
+      }, 'older_count no entero');
       rejects(
         listJson([
           callJson(
@@ -343,6 +366,118 @@ void main() {
         ]),
         'consolidado en una convocatoria abierta',
       );
+    });
+
+    test(
+      'vista por defecto: CONV-2, history.older_count y fecha de término',
+      () {
+        final list = JointPurchaseCallList.fromJson(
+          listJson([
+            callJson(),
+            callJson(
+              id: otherCallId,
+              status: 'CANCELLED',
+              participation: participationJson(withdrawn: true),
+              cancelledAt: '2026-11-01T10:00:00-04:00',
+            ),
+          ], olderCount: 4),
+        );
+        expect(list.olderCount, 4);
+        expect(list.serverTime, '2026-11-11T18:20:05.120Z');
+        expect(list.calls[0].finishedAt, isNull);
+        expect(list.calls[1].finishedAt, '2026-11-01T14:00:00.000Z');
+        // Una participación aceptada antes con CONV-1 sigue siendo válida.
+        expect(
+          JointPurchaseCallList.fromJson(
+            listJson([
+              callJson(
+                participation: participationJson(consentVersion: 'CONV-1'),
+              ),
+            ]),
+          ).calls.single.participation!.consentVersion,
+          'CONV-1',
+        );
+      },
+    );
+
+    group('historial', () {
+      void rejectsPage(Object? json, String reason, {int? limit}) => expect(
+        () => JointPurchaseHistoryPage.fromJson(json, limit: limit),
+        throwsA(isA<JointPurchaseFormatException>()),
+        reason: reason,
+      );
+
+      test('acepta la página exacta con cursor opaco', () {
+        final page = JointPurchaseHistoryPage.fromJson(
+          historyJson([
+            oldCallJson(callId),
+            oldCallJson(otherCallId, status: 'CANCELLED'),
+          ], nextCursor: 'WyIyMDI2LTAzLTAxVDEyOjAwOjAwLjAwMFoiLCJ4Il0'),
+          limit: 2,
+        );
+        expect(page.calls.map((c) => c.callId), [callId, otherCallId]);
+        expect(page.calls.first.finishedAt, '2026-03-01T12:00:00.000Z');
+        expect(page.nextCursor, 'WyIyMDI2LTAzLTAxVDEyOjAwOjAwLjAwMFoiLCJ4Il0');
+        expect(
+          JointPurchaseHistoryPage.fromJson(historyJson(const [])).nextCursor,
+          isNull,
+        );
+      });
+
+      test('rechaza formas inválidas', () {
+        rejectsPage({
+          ...historyJson([oldCallJson(callId)]),
+          'older_count': 3,
+        }, 'clave desconocida en la raíz');
+        rejectsPage(
+          Map.of(historyJson([oldCallJson(callId)]))..remove('next_cursor'),
+          'sin next_cursor',
+        );
+        rejectsPage({
+          ...historyJson([oldCallJson(callId)]),
+          'contractVersion': 2,
+        }, 'contractVersion');
+        rejectsPage(historyJson([callJson()]), 'una abierta');
+        rejectsPage(
+          historyJson([
+            {...oldCallJson(callId), 'closed_at': null},
+          ]),
+          'terminada sin fecha de término',
+        );
+        rejectsPage(
+          historyJson([
+            {...oldCallJson(callId), 'participation': null},
+          ]),
+          'sin participación propia',
+        );
+        rejectsPage(
+          historyJson([
+            {...oldCallJson(callId), 'participants': <Object?>[]},
+          ]),
+          'clave desconocida en la convocatoria',
+        );
+        rejectsPage(
+          historyJson([oldCallJson(callId), oldCallJson(callId)]),
+          'repetida',
+        );
+        rejectsPage(
+          historyJson([oldCallJson(callId), oldCallJson(otherCallId)]),
+          'más que el límite pedido',
+          limit: 1,
+        );
+        rejectsPage(
+          historyJson([oldCallJson(callId)], nextCursor: 'con espacio'),
+          'cursor con caracteres no admitidos',
+        );
+        rejectsPage({
+          ...historyJson([oldCallJson(callId)]),
+          'next_cursor': 7,
+        }, 'cursor no textual');
+        rejectsPage(
+          historyJson(const [], nextCursor: 'abc'),
+          'cursor sin convocatorias',
+        );
+      });
     });
 
     test(

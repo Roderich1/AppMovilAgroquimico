@@ -18,7 +18,7 @@ class AppDatabase {
   /// Toda base, creada desde cero o migrada desde cualquier versión anterior,
   /// debe terminar con el mismo esquema. `test/schema_equivalence_test.dart`
   /// lo verifica automáticamente.
-  static const int schemaVersion = 16;
+  static const int schemaVersion = 17;
 
   /// Primera versión con `owner_bindings` e `install_origin`: una base
   /// anterior es histórica y no declara titular.
@@ -54,6 +54,34 @@ class AppDatabase {
   /// propia de participación (E2, contrato
   /// `E2_CONVOCATORIAS_COMPRA_CONJUNTA_CONTRATO.md` §5).
   static const int jointPurchaseSinceVersion = 16;
+
+  /// Primera versión con la fecha de término de las convocatorias y el
+  /// recuento de anteriores del sindicato por titular (E2 §10.1, historial).
+  static const int jointPurchaseHistorySinceVersion = 17;
+
+  /// v17 — columna opcional de `joint_purchase_calls` (E2 §10.1 a): la
+  /// fecha de término según el sindicato (`closed_at` o `cancelled_at`), en
+  /// UTC. Sólo decide el filtro de presentación (recientes / «Historial»);
+  /// NULL en una abierta o en una copia guardada por v16, que se muestra
+  /// como reciente hasta la próxima actualización.
+  static const Map<String, String> jointPurchaseHistoryColumns = {
+    'finished_at': 'TEXT',
+  };
+
+  /// v17 — `joint_purchase_history_state`: el `history.older_count` de la
+  /// última actualización de la vista por defecto, por titular, con la hora
+  /// del servidor de esa respuesta (para comparar con las anteriores
+  /// guardadas con el mismo corte). Un recuento de datos propios; nunca
+  /// borra ni oculta nada.
+  static const List<String> jointPurchaseHistorySchema = <String>[
+    '''CREATE TABLE IF NOT EXISTS joint_purchase_history_state (
+        tenant_id TEXT NOT NULL,
+        member_id TEXT NOT NULL,
+        older_count INTEGER NOT NULL CHECK (older_count >= 0),
+        server_time TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (tenant_id, member_id))''',
+  ];
 
   /// v16 — convocatorias de compra conjunta (E2 §5). Dos tablas nuevas:
   ///
@@ -851,6 +879,7 @@ class AppDatabase {
     await _applyVoiceEvidenceSchema(db);
     await _applyProductIdentificationSchema(db);
     await _applyJointPurchaseSchema(db);
+    await _applyJointPurchaseHistorySchema(db);
     // Una base creada por esta versión nace bajo la política de activación.
     await db.insert('app_settings', {
       'key': installOriginKey,
@@ -1022,6 +1051,32 @@ class AppDatabase {
     }
     if (oldVersion < 16) {
       await _applyJointPurchaseSchema(db);
+    }
+    if (oldVersion < 17) {
+      await _applyJointPurchaseHistorySchema(db);
+    }
+  }
+
+  /// Versión 17 — **historial de convocatorias** (E2 §10.1). Aditiva: una
+  /// columna que admite NULL en `joint_purchase_calls` y una tabla nueva y
+  /// vacía. No hace backfill ni borra nada. Idempotente: una columna que ya
+  /// existe no se vuelve a añadir y la tabla lleva IF NOT EXISTS.
+  Future<void> _applyJointPurchaseHistorySchema(DatabaseExecutor db) async {
+    final existing = (await db.rawQuery(
+      'PRAGMA table_info(joint_purchase_calls)',
+    )).map((row) => row['name'] as String).toSet();
+    // Como v15: una base parcial sin la tabla no se amplía.
+    if (existing.isNotEmpty) {
+      for (final column in jointPurchaseHistoryColumns.entries) {
+        if (existing.contains(column.key)) continue;
+        await db.execute(
+          'ALTER TABLE joint_purchase_calls ADD COLUMN '
+          '${column.key} ${column.value}',
+        );
+      }
+    }
+    for (final statement in jointPurchaseHistorySchema) {
+      await db.execute(statement);
     }
   }
 

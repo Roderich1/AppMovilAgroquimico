@@ -147,7 +147,7 @@ void main() {
       expect(body, {
         'operation_id': op.operationId,
         'sequence': 1,
-        'consent': {'version': 'CONV-1', 'accepted_at': now.toIso8601String()},
+        'consent': {'version': 'CONV-2', 'accepted_at': now.toIso8601String()},
         'lines': [
           {'product_ref': litreRef, 'quantity_base': '25000'},
           {'product_ref': kiloRef, 'quantity_base': '4500'},
@@ -551,4 +551,220 @@ void main() {
       }
     },
   );
+
+  // --- E2 §10.1 y §10.2: CONV-1 heredado e historial ----------------------
+
+  test('una confirmación guardada con CONV-1 antes de actualizar se envía como CONV-1', () async {
+    final db = await fixture.database.database;
+    const legacyId = '9a1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d';
+    await db.insert(JointPurchaseStore.opsTable, {
+      'operation_id': legacyId,
+      'call_id': callId,
+      'tenant_id': memberA.tenantId,
+      'member_id': memberA.memberId,
+      'sequence': 1,
+      'kind': 'CONFIRM',
+      'lines_json': jsonEncode([
+        {'product_ref': litreRef, 'quantity_base': '10000'},
+      ]),
+      'consent_version': 'CONV-1',
+      'consent_accepted_at': '2026-11-10T00:00:00.000Z',
+      'send_status': JointPurchaseOpStatus.pendingSend,
+      'attempts': 0,
+      'created_at': '2026-11-10T00:00:00.000Z',
+      'updated_at': '2026-11-10T00:00:00.000Z',
+    });
+    final report = await sender.run(access());
+    expect(report.received, 1);
+    final body = jsonDecode(requests.first.body) as Map<String, dynamic>;
+    expect(body['consent'], {
+      'version': 'CONV-1',
+      'accepted_at': '2026-11-10T00:00:00.000Z',
+    });
+    expect(
+      (await store.op(legacyId))!.sendStatus,
+      JointPurchaseOpStatus.received,
+    );
+    expect((await store.op(legacyId))!.consentVersion, 'CONV-1');
+  });
+
+  test('la lista guarda history.older_count del titular', () async {
+    respond = (_) => jsonResponse(listJson([callJson()], olderCount: 2), 200);
+    final report = await sender.run(access(), forceList: true);
+    expect(report.listed, isTrue);
+    final overview = await store.overviewForActiveOwner();
+    expect(overview.olderCount, 2);
+    expect(overview.missingOlder, 2);
+  });
+
+  const oldId = 'fb1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d';
+  const olderId = '0b1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d';
+  const cursor = 'WyIyMDI2LTAzLTAxVDEyOjAwOjAwLjAwMFoiLCJmYiJd';
+
+  test('historial paginado: primera página con cursor, «Ver más» con before; se guarda sin borrar nada', () async {
+    respond = (request) {
+      expect(request.method, 'GET');
+      expect(request.url.path, '$_base/history');
+      return request.url.queryParameters['before'] == null
+          ? jsonResponse(
+              historyJson([oldCallJson(oldId)], nextCursor: cursor),
+              200,
+            )
+          : jsonResponse(
+              historyJson([
+                oldCallJson(
+                  olderId,
+                  status: 'CANCELLED',
+                  finishedAt: '2026-01-15T12:00:00.000Z',
+                ),
+              ]),
+              200,
+            );
+    };
+    final first = await sender.fetchHistory(access());
+    expect(first.outcome, JointPurchaseHistoryOutcome.saved);
+    expect(first.saved, 1);
+    expect(first.nextCursor, cursor);
+    expect(requests.single.url.queryParameters, {'limit': '20'});
+    expect(requests.single.headers['authorization'], 'Bearer token-sintetico');
+
+    final second = await sender.fetchHistory(access(), before: cursor);
+    expect(second.outcome, JointPurchaseHistoryOutcome.saved);
+    expect(second.nextCursor, isNull);
+    expect(requests.last.url.queryParameters, {
+      'before': cursor,
+      'limit': '20',
+    });
+
+    final overview = await store.overviewForActiveOwner();
+    // La abierta de setUp sigue; las dos anteriores se añadieron.
+    expect(overview.recent.map((c) => c.callId), [callId]);
+    expect(overview.older.map((c) => c.callId), [oldId, olderId]);
+    // Pedir el historial no envía operaciones ni lee la lista.
+    expect(calls(), ['GET /history', 'GET /history']);
+  });
+
+  test('historial sin conexión, con error o con una respuesta inválida: no guarda nada', () async {
+    Future<JointPurchaseHistoryOutcome> outcome(
+      http.Response Function(http.Request) server, {
+      String? before,
+    }) async {
+      respond = server;
+      return (await sender.fetchHistory(access(), before: before)).outcome;
+    }
+
+    expect(
+      await outcome((_) => throw http.ClientException('sin red')),
+      JointPurchaseHistoryOutcome.offline,
+    );
+    expect(
+      await outcome((_) => jsonResponse({'errorCode': 'UNAVAILABLE'}, 503)),
+      JointPurchaseHistoryOutcome.unavailable,
+    );
+    expect(
+      await outcome(
+        (_) => jsonResponse({'errorCode': 'PAYLOAD_INVALID'}, 400),
+        before: cursor,
+      ),
+      JointPurchaseHistoryOutcome.invalidCursor,
+    );
+    expect(
+      await outcome((_) => jsonResponse({'errorCode': 'AUTH_REQUIRED'}, 401)),
+      JointPurchaseHistoryOutcome.authFailed,
+    );
+    // Una abierta en el historial: la página entera se rechaza.
+    expect(
+      await outcome(
+        (_) => jsonResponse(
+          historyJson([oldCallJson(oldId), callJson(id: otherCallId)]),
+          200,
+        ),
+      ),
+      JointPurchaseHistoryOutcome.unavailable,
+    );
+    // Más convocatorias que las pedidas.
+    expect(
+      await outcome(
+        (_) => jsonResponse(
+          historyJson([
+            for (var i = 0; i < 21; i++)
+              oldCallJson(
+                '${(i + 10).toRadixString(16).padLeft(2, '0')}1b2c3d-'
+                '4e5f-4a6b-8c7d-9e0f1a2b3c4d',
+              ),
+          ]),
+          200,
+        ),
+      ),
+      JointPurchaseHistoryOutcome.unavailable,
+    );
+    final requestsSoFar = requests.length;
+    // Un cursor que el sindicato no pudo emitir no sale del teléfono.
+    expect(
+      await outcome((_) => fail('no debe pedir'), before: 'a b'),
+      JointPurchaseHistoryOutcome.invalidCursor,
+    );
+    expect(requests.length, requestsSoFar);
+    expect(await store.call(oldId), isNull);
+    expect((await store.overviewForActiveOwner()).older, isEmpty);
+    expect(await store.call(callId), isNotNull);
+  });
+
+  test(
+    'historial: otra cuenta en sesión o sin servidor configurado no pide nada',
+    () async {
+      respond = (_) => fail('no debe pedir');
+      expect(
+        (await sender.fetchHistory(access(memberB))).outcome,
+        JointPurchaseHistoryOutcome.ownerMismatch,
+      );
+      final offline = JointPurchaseSender(
+        store: store,
+        owners: fixture.owners,
+        api: () => throw const AuthApiException(AuthApiErrorKind.configuration),
+      );
+      expect(
+        (await offline.fetchHistory(access())).outcome,
+        JointPurchaseHistoryOutcome.apiUnavailable,
+      );
+      expect(requests, isEmpty);
+    },
+  );
+
+  test('la ruta del historial sólo admite before y limit válidos', () {
+    expect(
+      config.endpoint('$_base/history', query: {'limit': '20'}).toString(),
+      'https://sindicato.example$_base/history?limit=20',
+    );
+    expect(
+      config
+          .endpoint('$_base/history', query: {'before': cursor, 'limit': '50'})
+          .queryParameters,
+      {'before': cursor, 'limit': '50'},
+    );
+    expect(config.endpoint('$_base/history').path, '$_base/history');
+    for (final bad in <Map<String, String>>[
+      {'limit': '0'},
+      {'limit': '51'},
+      {'limit': '020'},
+      {'before': 'a b'},
+      {'before': ''},
+      {'cursor': cursor},
+      {'limit': '20', 'member_id': 'x'},
+    ]) {
+      expect(
+        () => config.endpoint('$_base/history', query: bad),
+        throwsA(isA<AuthApiException>()),
+        reason: '$bad',
+      );
+    }
+    expect(
+      () => config.endpoint('$_base/history/x'),
+      throwsA(isA<AuthApiException>()),
+    );
+    expect(
+      () => config.endpoint(_base, query: {'limit': '20'}),
+      throwsA(isA<AuthApiException>()),
+    );
+  });
 }

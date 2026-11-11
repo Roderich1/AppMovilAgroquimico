@@ -427,6 +427,27 @@ class SyncController extends Notifier<SyncState> {
     return _jointPurchaseRun(access, includePaused: true, forceList: true);
   }
 
+  /// «Consultar historial» o «Ver más» de Compras conjuntas (E2 §10.1):
+  /// verifica el acceso si hace falta (lo pidió el agricultor) y guarda una
+  /// página de convocatorias anteriores. Sin conexión lanza
+  /// [SyncAccessUnavailable] o devuelve `offline`; nada se borra.
+  Future<JointPurchaseHistoryResult> jointPurchaseHistory({
+    String? before,
+  }) async {
+    final access = await ensureAccess();
+    try {
+      final result = await ref
+          .read(jointPurchaseSenderProvider)
+          .fetchHistory(access, before: before);
+      if (result.outcome == JointPurchaseHistoryOutcome.authFailed) {
+        ref.read(syncAccessHolderProvider).clear();
+      }
+      return result;
+    } finally {
+      if (ref.mounted) ref.read(jointPurchaseRevisionProvider.notifier).bump();
+    }
+  }
+
   /// Tras guardar una participación o un retiro en el teléfono: si hay
   /// acceso vigente, se intenta enviar ya; si no, queda pendiente. No
   /// verifica el acceso ni se espera.

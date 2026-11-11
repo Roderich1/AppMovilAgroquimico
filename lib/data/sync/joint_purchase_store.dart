@@ -154,6 +154,7 @@ class JointPurchaseCall {
     required this.serverTimeAtFetch,
     required this.seenAt,
     required this.latestOp,
+    this.finishedAt,
   });
 
   final String callId;
@@ -178,7 +179,20 @@ class JointPurchaseCall {
   /// La operación propia de mayor `sequence` (de cualquier estado), si hay.
   final JointPurchaseOp? latestOp;
 
+  /// Fecha de término según el sindicato (UTC), o null (abierta, o copia
+  /// anterior a v17 todavía sin actualizar).
+  final String? finishedAt;
+
   bool get isOpen => status == JointPurchaseCallStatus.open;
+
+  /// Terminada antes de [cutoff] según el sindicato: va a «Historial» (E2
+  /// §10.1 a). Sin fecha de término conocida se trata como reciente.
+  bool finishedBefore(DateTime cutoff) {
+    if (isOpen || finishedAt == null) return false;
+    final at = DateTime.tryParse(finishedAt!);
+    return at != null && at.isBefore(cutoff);
+  }
+
   bool get isNew => isOpen && seenAt == null;
 
   /// La participación que el sindicato tiene vigente (activa), si la hay.
@@ -216,7 +230,38 @@ class JointPurchaseCall {
     serverTimeAtFetch: row['server_time_at_fetch']! as String,
     seenAt: row['seen_at'] as String?,
     latestOp: latestOp,
+    finishedAt: row['finished_at'] as String?,
   );
+}
+
+/// Lo que muestra «Compras conjuntas» (E2 §10.1): la vista por defecto
+/// (abiertas y terminadas recientes) y las anteriores guardadas en el
+/// teléfono, con lo que el sindicato dijo que hay.
+class JointPurchaseOverview {
+  const JointPurchaseOverview({
+    required this.recent,
+    required this.older,
+    required this.olderCount,
+    required this.missingOlder,
+  });
+
+  /// Abiertas (por fecha límite) y terminadas en los últimos
+  /// [jointPurchaseRecentFinishedDays] días.
+  final List<JointPurchaseCall> recent;
+
+  /// Terminadas antes, guardadas en el teléfono: de la más reciente a la
+  /// más antigua.
+  final List<JointPurchaseCall> older;
+
+  /// `history.older_count` de la última actualización, o null si nunca se
+  /// actualizó con esta versión.
+  final int? olderCount;
+
+  /// Cuántas anteriores dice el sindicato que hay y no están en el teléfono
+  /// (nunca negativo).
+  final int missingOlder;
+
+  bool get isEmpty => recent.isEmpty && older.isEmpty;
 }
 
 /// Aviso de Inicio: la convocatoria abierta no vista que cierra antes y
@@ -259,6 +304,7 @@ class JointPurchaseStore {
 
   static const callsTable = 'joint_purchase_calls';
   static const opsTable = 'joint_purchase_participation_ops';
+  static const historyStateTable = 'joint_purchase_history_state';
 
   String _now() => _clock().toUtc().toIso8601String();
 
@@ -283,69 +329,105 @@ class JointPurchaseStore {
 
   // --- Lo que sirvió el sindicato ---------------------------------------
 
-  /// Guarda la lista completa que el sindicato sirvió a [scope]: reemplaza
-  /// cada convocatoria (conservando `seen_at` del mismo titular) y quita las
-  /// que ya no figuran **y** no tienen ninguna operación local. La
-  /// participación aceptada sólo avanza: una copia con `last_sequence` menor
-  /// que la guardada no la sustituye (E2-D10).
+  /// Guarda la vista por defecto que el sindicato sirvió a [scope] (E2
+  /// §10.1 b): reemplaza cada convocatoria (conservando `seen_at` del mismo
+  /// titular), guarda `history.older_count` y quita **sólo** las ausentes
+  /// que siguen abiertas en la copia local, sin participación propia
+  /// guardada y sin ninguna operación local (por ejemplo, una abierta que se
+  /// canceló sin que el agricultor participara). Una terminada nunca se
+  /// quita: el sindicato sólo sirve terminadas a quien tiene participación
+  /// (E2-R14), aunque no entrara al consolidado y no haya aquí copia de lo
+  /// aceptado; deja de llegar al salir de la ventana de recientes, no porque
+  /// deje de existir. La participación aceptada sólo avanza: una copia con
+  /// `last_sequence` menor que la guardada no la sustituye (E2-D10).
   Future<void> saveFetched(
     OwnerScope scope,
-    List<JointPurchaseCallView> calls,
+    JointPurchaseCallList list,
   ) => _write((txn) async {
     final now = _now();
-    for (final view in calls) {
-      final existing = await txn.query(
-        callsTable,
-        columns: [
-          'tenant_id',
-          'member_id',
-          'seen_at',
-          'server_participation_json',
-        ],
-        where: 'call_id=?',
-        whereArgs: [view.callId],
-      );
-      final sameOwner =
-          existing.isNotEmpty &&
-          existing.single['tenant_id'] == scope.tenantId &&
-          existing.single['member_id'] == scope.memberId;
-      var participation = view.acceptedForDisplay;
-      if (sameOwner && participation != null) {
-        final stored = JointPurchaseParticipation.decode(
-          existing.single['server_participation_json'] as String?,
-        );
-        if (stored != null &&
-            stored.lastSequence > participation.lastSequence) {
-          participation = stored;
-        }
-      }
-      await txn.insert(callsTable, {
-        'call_id': view.callId,
-        'tenant_id': scope.tenantId,
-        'member_id': scope.memberId,
-        'name': view.name,
-        'campaign_ref': view.campaignRef,
-        'campaign_name': view.campaignName,
-        'status': view.status,
-        'opened_at': view.openedAt,
-        'deadline_at': view.deadlineAt,
-        'responsible_name': view.responsibleName,
-        'products_json': JointPurchaseProduct.encodeList(view.products),
-        'server_participation_json': participation?.encode(),
-        'fetched_at': now,
-        'server_time_at_fetch': view.serverTime,
-        'seen_at': sameOwner ? existing.single['seen_at'] : null,
-      }, conflictAlgorithm: ConflictAlgorithm.replace);
+    for (final view in list.calls) {
+      await _upsert(txn, scope, view, now);
     }
-    final ids = [for (final view in calls) view.callId];
+    await txn.insert(historyStateTable, {
+      'tenant_id': scope.tenantId,
+      'member_id': scope.memberId,
+      'older_count': list.olderCount,
+      'server_time': list.serverTime,
+      'updated_at': now,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+    final ids = [for (final view in list.calls) view.callId];
     await txn.rawDelete(
       'DELETE FROM $callsTable WHERE tenant_id=? AND member_id=? '
+      "AND status = 'OPEN' AND server_participation_json IS NULL "
       '${ids.isEmpty ? '' : 'AND call_id NOT IN (${List.filled(ids.length, '?').join(',')}) '}'
       'AND NOT EXISTS (SELECT 1 FROM $opsTable o WHERE o.call_id = '
       '$callsTable.call_id AND o.member_id = $callsTable.member_id)',
       [scope.tenantId, scope.memberId, ...ids],
     );
   });
+
+  /// Guarda una página de «Historial» (`GET …/history`) para [scope]: inserta
+  /// o actualiza cada convocatoria como [saveFetched], **sin borrar nada**
+  /// (E2 §10.1 b).
+  Future<void> saveHistory(
+    OwnerScope scope,
+    List<JointPurchaseCallView> calls,
+  ) => _write((txn) async {
+    final now = _now();
+    for (final view in calls) {
+      await _upsert(txn, scope, view, now);
+    }
+  });
+
+  Future<void> _upsert(
+    Transaction txn,
+    OwnerScope scope,
+    JointPurchaseCallView view,
+    String now,
+  ) async {
+    final existing = await txn.query(
+      callsTable,
+      columns: [
+        'tenant_id',
+        'member_id',
+        'seen_at',
+        'server_participation_json',
+      ],
+      where: 'call_id=?',
+      whereArgs: [view.callId],
+    );
+    final sameOwner =
+        existing.isNotEmpty &&
+        existing.single['tenant_id'] == scope.tenantId &&
+        existing.single['member_id'] == scope.memberId;
+    var participation = view.acceptedForDisplay;
+    if (sameOwner && participation != null) {
+      final stored = JointPurchaseParticipation.decode(
+        existing.single['server_participation_json'] as String?,
+      );
+      if (stored != null && stored.lastSequence > participation.lastSequence) {
+        participation = stored;
+      }
+    }
+    await txn.insert(callsTable, {
+      'call_id': view.callId,
+      'tenant_id': scope.tenantId,
+      'member_id': scope.memberId,
+      'name': view.name,
+      'campaign_ref': view.campaignRef,
+      'campaign_name': view.campaignName,
+      'status': view.status,
+      'opened_at': view.openedAt,
+      'deadline_at': view.deadlineAt,
+      'responsible_name': view.responsibleName,
+      'products_json': JointPurchaseProduct.encodeList(view.products),
+      'server_participation_json': participation?.encode(),
+      'fetched_at': now,
+      'server_time_at_fetch': view.serverTime,
+      'seen_at': sameOwner ? existing.single['seen_at'] : null,
+      'finished_at': view.finishedAt,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
 
   // --- Lecturas ---------------------------------------------------------
 
@@ -384,6 +466,49 @@ class JointPurchaseStore {
       callId,
     ], rows.single['member_id']! as String);
     return JointPurchaseCall.fromRow(rows.single, latest[callId]);
+  }
+
+  /// «Compras conjuntas» del titular activo (E2 §10.1): las mismas dos
+  /// consultas de [callsForActiveOwner] y una más para el recuento del
+  /// sindicato. El corte de recientes es el reloj del teléfono (también sin
+  /// conexión); las que faltan se cuentan con el corte de la hora del
+  /// servidor de esa respuesta, como las contó él.
+  Future<JointPurchaseOverview> overviewForActiveOwner() async {
+    final calls = await callsForActiveOwner();
+    final db = await _database.database;
+    final state = await db.rawQuery(
+      'SELECT h.older_count, h.server_time FROM $historyStateTable h '
+      'JOIN owner_bindings o ON o.ended_at IS NULL '
+      'AND o.tenant_id = h.tenant_id AND o.member_id = h.member_id',
+    );
+    const window = Duration(days: jointPurchaseRecentFinishedDays);
+    final cutoff = _clock().toUtc().subtract(window);
+    final recent = <JointPurchaseCall>[];
+    final older = <JointPurchaseCall>[];
+    for (final call in calls) {
+      (call.finishedBefore(cutoff) ? older : recent).add(call);
+    }
+    older.sort((a, b) {
+      final byDate = b.finishedAt!.compareTo(a.finishedAt!);
+      return byDate != 0 ? byDate : a.callId.compareTo(b.callId);
+    });
+    int? olderCount;
+    var missing = 0;
+    if (state.isNotEmpty) {
+      olderCount = state.single['older_count']! as int;
+      final serverTime = DateTime.tryParse(
+        state.single['server_time']! as String,
+      );
+      final serverCutoff = (serverTime ?? _clock().toUtc()).subtract(window);
+      final stored = calls.where((c) => c.finishedBefore(serverCutoff)).length;
+      missing = max(0, olderCount - stored);
+    }
+    return JointPurchaseOverview(
+      recent: recent,
+      older: older,
+      olderCount: olderCount,
+      missingOlder: missing,
+    );
   }
 
   Future<Map<String, JointPurchaseOp>> _latestOps(
@@ -485,7 +610,8 @@ class JointPurchaseStore {
   // --- Preparar en el teléfono ------------------------------------------
 
   /// «Participar» o «Modificar»: guarda la confirmación con [lines]
-  /// (product_ref → cantidad base > 0) y el consentimiento `CONV-1` aceptado
+  /// (product_ref → cantidad base > 0) y el consentimiento vigente (`CONV-2`,
+  /// E2 §10.2) aceptado
   /// en [consentAcceptedAt]. Queda `PENDING_SEND`; la anterior pendiente de
   /// esta convocatoria pasa a `SUPERSEDED` en la misma transacción. Un
   /// segundo toque con el mismo contenido no crea otra operación.
@@ -587,9 +713,13 @@ class JointPurchaseStore {
     final existing = opRows.map(JointPurchaseOp.fromRow).toList();
     final pending = existing.where((op) => op.isAwaitingSend).toList();
     // Doble toque: lo mismo que ya está pendiente no crea otra operación.
+    // Una confirmación pendiente con otro consentimiento (CONV-1, guardada
+    // antes de actualizar) no es «lo mismo»: la nueva la sustituye.
     if (pending.isNotEmpty &&
         pending.first.kind == kind &&
-        _sameLines(pending.first.lines, ordered)) {
+        _sameLines(pending.first.lines, ordered) &&
+        (kind != JointPurchaseOpKind.confirm ||
+            pending.first.consentVersion == jointPurchaseConsentVersion)) {
       return pending.first.operationId;
     }
     final now = _now();

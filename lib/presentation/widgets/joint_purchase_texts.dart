@@ -3,6 +3,8 @@ import 'package:intl/intl.dart';
 import '../../data/sync/joint_purchase_store.dart';
 import '../../domain/money.dart' show formatQuantity;
 import '../../domain/sync/joint_purchase_call_view.dart';
+import '../../services/sync/joint_purchase_sender.dart'
+    show JointPurchaseHistoryOutcome, JointPurchaseHistoryResult;
 
 /// Instante del servidor (UTC) mostrado en la hora de este teléfono:
 /// `dd/MM/yyyy HH:mm`. Patrón numérico sin locale (como `formatDate`).
@@ -114,3 +116,52 @@ String? pendingText(JointPurchaseCall call) {
       ? 'Pendiente de envío: retiro de la participación'
       : 'Pendiente de envío: ${linesText(call, op.lines)}';
 }
+
+// --- Historial (E2 §10.1) ------------------------------------------------
+
+const jointPurchaseHistoryTitle = 'Historial';
+
+const jointPurchaseHistoryIntro =
+    'Convocatorias terminadas hace más de $jointPurchaseRecentFinishedDays '
+    'días. Las guardadas en este teléfono se ven también sin conexión.';
+
+const jointPurchaseHistoryEmpty =
+    'No hay convocatorias anteriores guardadas en este teléfono.';
+
+/// Texto exacto de E2 §10.1 cuando no se pudo consultar al sindicato.
+const jointPurchaseHistoryOfflineText =
+    'Sin conexión: las convocatorias anteriores que no están en este '
+    'teléfono se pueden consultar al conectarse.';
+
+const jointPurchaseHistoryEnd =
+    'No hay más convocatorias anteriores en el sindicato.';
+
+const jointPurchaseRecentEmpty =
+    'No hay convocatorias abiertas ni recientes en este teléfono. Pulse '
+    '«Actualizar» para consultar al sindicato.';
+
+/// «Hay N convocatorias anteriores que no están en este teléfono» (E2
+/// §10.1), con el `older_count` de la última actualización.
+String jointPurchaseMissingOlderText(int missing) => missing == 1
+    ? 'Hay 1 convocatoria anterior que no está en este teléfono.'
+    : 'Hay $missing convocatorias anteriores que no están en este teléfono.';
+
+/// Aviso tras «Consultar historial» o «Ver más», o null si todo fue bien.
+String? historyProblemText(JointPurchaseHistoryResult result) =>
+    switch (result.outcome) {
+      JointPurchaseHistoryOutcome.saved => null,
+      JointPurchaseHistoryOutcome.offline => jointPurchaseHistoryOfflineText,
+      JointPurchaseHistoryOutcome.authFailed =>
+        'El sindicato pidió verificar el acceso otra vez. Lo guardado en el '
+            'teléfono se conserva.',
+      JointPurchaseHistoryOutcome.ownerMismatch =>
+        'La cuenta en sesión no es la del titular: no se consultó nada.',
+      JointPurchaseHistoryOutcome.apiUnavailable =>
+        'Este teléfono no tiene configurado el servidor del sindicato.',
+      JointPurchaseHistoryOutcome.invalidCursor =>
+        'El sindicato no reconoció la página pedida. Pulse «Consultar '
+            'historial» para empezar de nuevo.',
+      JointPurchaseHistoryOutcome.unavailable =>
+        'No se pudo leer el historial del sindicato. Lo guardado en el '
+            'teléfono se conserva; inténtelo más tarde.',
+    };

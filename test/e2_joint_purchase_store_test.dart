@@ -80,13 +80,13 @@ void main() {
   );
 
   test(
-    'confirmar: PENDING_SEND con UUID v4, sequence 1, consentimiento CONV-1',
+    'confirmar: PENDING_SEND con UUID v4, sequence 1, consentimiento CONV-2',
     () async {
       final op = await confirm({litreRef: 25000, kiloRef: 4500});
       expect(uuidV4Lowercase.hasMatch(op.operationId), isTrue);
       expect(op.sequence, 1);
       expect(op.sendStatus, JointPurchaseOpStatus.pendingSend);
-      expect(op.consentVersion, 'CONV-1');
+      expect(op.consentVersion, 'CONV-2');
       expect(op.consentAcceptedAt, now.toIso8601String());
       expect(op.wireLines, [
         {'product_ref': litreRef, 'quantity_base': '25000'},
@@ -329,6 +329,238 @@ void main() {
         callId: otherCallId,
         lines: {litreRef: 1000},
         consentVersion: jointPurchaseConsentVersion,
+        consentAcceptedAt: now,
+      ),
+      throwsA(isA<BusinessRuleException>()),
+    );
+  });
+
+  // --- E2 §10.1 y §10.2: historial y consentimiento CONV-2 -----------------
+
+  const closedId = 'ab1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d';
+  const cancelledId = 'cb1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d';
+  const notIncludedId = 'db1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d';
+  const rejectedId = 'eb1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d';
+  const oldId = 'fb1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d';
+  const olderId = '0b1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d';
+
+  Future<void> insertOp(
+    String call,
+    String status, {
+    String operationId = '9e1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d',
+    String consentVersion = 'CONV-2',
+    String? lastCode,
+  }) async =>
+      (await fixture.database.database).insert(JointPurchaseStore.opsTable, {
+        'operation_id': operationId,
+        'call_id': call,
+        'tenant_id': memberA.tenantId,
+        'member_id': memberA.memberId,
+        'sequence': 1,
+        'kind': 'CONFIRM',
+        'lines_json': '[{"product_ref":"$litreRef","quantity_base":"1000"}]',
+        'consent_version': consentVersion,
+        'consent_accepted_at': '2026-11-10T00:00:00.000Z',
+        'send_status': status,
+        'attempts': 1,
+        'last_code': lastCode,
+        'created_at': '2026-11-10T00:00:00.000Z',
+        'updated_at': '2026-11-10T00:00:00.000Z',
+      });
+
+  List<JointPurchaseCallView> historyPage(List<Map<String, Object?>> calls) =>
+      JointPurchaseHistoryPage.fromJson(historyJson(calls)).calls;
+
+  Map<String, Object?> closing({required bool included}) => {
+    'cutoff_at': deadline,
+    'closed_at': deadline,
+    'included': included,
+    'lines': included
+        ? [
+            {
+              'product_ref': litreRef,
+              'base_unit': 'ML',
+              'quantity_base': '25000',
+            },
+          ]
+        : <Object?>[],
+  };
+
+  test('reemplazo de la vista por defecto (§10.1 b): conserva terminadas con participación y lo que tiene operaciones; descarta abiertas ajenas sin operaciones', () async {
+    await seedCalls(store, memberA, [
+      callJson(),
+      callJson(
+        id: closedId,
+        status: 'CLOSED',
+        participation: participationJson(),
+        closing: closing(included: true),
+      ),
+      callJson(
+        id: cancelledId,
+        status: 'CANCELLED',
+        participation: participationJson(withdrawn: true),
+      ),
+      // Cerrada sin entrar al consolidado: no hay copia de lo aceptado.
+      callJson(
+        id: notIncludedId,
+        status: 'CLOSED',
+        participation: participationJson(withdrawn: true),
+        closing: closing(included: false),
+      ),
+      callJson(id: rejectedId),
+      callJson(id: otherCallId, participation: participationJson()),
+    ]);
+    expect((await store.call(notIncludedId))!.serverParticipation, isNull);
+    await insertOp(
+      rejectedId,
+      JointPurchaseOpStatus.rejected,
+      lastCode: 'QUANTITY_INVALID',
+    );
+
+    // El sindicato ya no sirve ninguna (salieron de la ventana, o la
+    // abierta se canceló sin que el agricultor participara).
+    await seedCalls(store, memberA, const []);
+    final kept = (await store.callsForActiveOwner()).map((c) => c.callId);
+    expect(
+      kept,
+      unorderedEquals([
+        closedId,
+        cancelledId,
+        notIncludedId,
+        rejectedId,
+        otherCallId,
+      ]),
+    );
+    // La abierta sin participación ni operaciones es la única descartada.
+    expect(await store.call(callId), isNull);
+    // El rechazo sigue visible con su convocatoria.
+    final rejected = (await store.call(rejectedId))!;
+    expect(rejected.latestOp!.sendStatus, JointPurchaseOpStatus.rejected);
+    expect(rejected.latestOp!.lastCode, 'QUANTITY_INVALID');
+    // La participación aceptada guardada no se pierde.
+    expect((await store.call(closedId))!.serverParticipation!.lines, {
+      litreRef: 25000,
+    });
+  });
+
+  test('historial: se guarda sin borrar nada; filtro de presentación por fecha de término y recuento de anteriores', () async {
+    await seedCalls(store, memberA, [
+      callJson(),
+      callJson(
+        id: cancelledId,
+        status: 'CANCELLED',
+        participation: participationJson(withdrawn: true),
+        cancelledAt: '2026-11-01T10:00:00.000Z',
+      ),
+    ], olderCount: 3);
+    var overview = await store.overviewForActiveOwner();
+    expect(overview.recent.map((c) => c.callId), [callId, cancelledId]);
+    expect(overview.older, isEmpty);
+    expect(overview.olderCount, 3);
+    expect(overview.missingOlder, 3);
+
+    await store.saveHistory(
+      memberA,
+      historyPage([
+        oldCallJson(oldId, finishedAt: '2026-04-01T12:00:00.000Z'),
+        oldCallJson(
+          olderId,
+          status: 'CANCELLED',
+          finishedAt: '2026-02-01T12:00:00.000Z',
+        ),
+      ]),
+    );
+    overview = await store.overviewForActiveOwner();
+    // Lo que estaba no se tocó.
+    expect(overview.recent.map((c) => c.callId), [callId, cancelledId]);
+    // Anteriores: de la más reciente a la más antigua.
+    expect(overview.older.map((c) => c.callId), [oldId, olderId]);
+    expect(overview.older.first.finishedAt, '2026-04-01T12:00:00.000Z');
+    expect(overview.older.first.serverParticipation!.lines, {litreRef: 25000});
+    expect(overview.missingOlder, 1);
+
+    // La siguiente actualización de la vista por defecto no las borra.
+    await seedCalls(store, memberA, [callJson()], olderCount: 3);
+    overview = await store.overviewForActiveOwner();
+    expect(overview.older.map((c) => c.callId), [oldId, olderId]);
+    expect(overview.recent.map((c) => c.callId), [callId, cancelledId]);
+
+    // Con el paso del tiempo, una reciente pasa a «Historial» sólo en la
+    // presentación.
+    now = DateTime.utc(2027, 6, 1);
+    overview = await store.overviewForActiveOwner();
+    expect(overview.recent.map((c) => c.callId), [callId]);
+    expect(overview.older.map((c) => c.callId), [cancelledId, oldId, olderId]);
+  });
+
+  test('una convocatoria anterior conserva y muestra sus operaciones pendientes, rechazadas o fuera de plazo', () async {
+    await store.saveHistory(
+      memberA,
+      historyPage([oldCallJson(oldId), oldCallJson(olderId)]),
+    );
+    await insertOp(oldId, JointPurchaseOpStatus.pendingSend);
+    await insertOp(
+      olderId,
+      JointPurchaseOpStatus.outOfTime,
+      operationId: '9f1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d',
+      lastCode: JointPurchaseCodes.deadlinePassed,
+    );
+    await seedCalls(store, memberA, const []);
+    final older = (await store.overviewForActiveOwner()).older;
+    expect(older.map((c) => c.callId), unorderedEquals([oldId, olderId]));
+    final byId = {for (final call in older) call.callId: call};
+    expect(byId[oldId]!.pendingOp, isNotNull);
+    expect(
+      byId[olderId]!.latestOp!.sendStatus,
+      JointPurchaseOpStatus.outOfTime,
+    );
+    // Lo pendiente sigue en la cola del emisor.
+    expect(
+      (await store.sendable(memberA, includePaused: true)).single.callId,
+      oldId,
+    );
+  });
+
+  test(
+    'otro titular no ve el historial ni el recuento del titular activo',
+    () async {
+      await store.saveHistory(memberB, historyPage([oldCallJson(oldId)]));
+      await seedCalls(store, memberB, [
+        callJson(id: otherCallId),
+      ], olderCount: 9);
+      final overview = await store.overviewForActiveOwner();
+      expect(overview.recent.map((c) => c.callId), [callId]);
+      expect(overview.older, isEmpty);
+      // El recuento del titular activo (0, de setUp), no el de memberB.
+      expect(overview.olderCount, 0);
+      expect(overview.missingOlder, 0);
+      expect(await store.call(oldId), isNull);
+    },
+  );
+
+  test('CONV-1 pendiente de antes de actualizar: se conserva; confirmar lo mismo con CONV-2 la sustituye', () async {
+    await insertOp(
+      callId,
+      JointPurchaseOpStatus.pendingSend,
+      consentVersion: jointPurchaseLegacyConsentVersion,
+    );
+    final legacy = (await store.sendable(memberA, includePaused: false)).single;
+    expect(legacy.consentVersion, 'CONV-1');
+
+    final renewed = await confirm({litreRef: 1000});
+    expect(renewed.operationId, isNot(legacy.operationId));
+    expect(renewed.consentVersion, 'CONV-2');
+    expect(renewed.sequence, 2);
+    expect(
+      (await store.op(legacy.operationId))!.sendStatus,
+      JointPurchaseOpStatus.superseded,
+    );
+    // Con CONV-1 no se prepara nada nuevo.
+    await expectLater(
+      store.confirm(
+        callId: callId,
+        lines: {litreRef: 2000},
+        consentVersion: jointPurchaseLegacyConsentVersion,
         consentAcceptedAt: now,
       ),
       throwsA(isA<BusinessRuleException>()),

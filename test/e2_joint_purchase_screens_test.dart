@@ -1,16 +1,25 @@
-// Contrato E2 §5 en pantalla: el detalle exige el consentimiento CONV-1 con
+// Contrato E2 §5 en pantalla: el detalle exige el consentimiento CONV-2 con
 // casilla antes de guardar; lo guardado dice «Pendiente de envío» y nunca
 // «recibida» hasta que el servidor la acepta; el aviso de Inicio aparece
-// mientras la convocatoria abierta no se abrió y desaparece al abrirla. Sin
-// red; datos sintéticos.
+// mientras la convocatoria abierta no se abrió y desaparece al abrirla. La
+// lista separa las recientes del «Historial» (E2 §10.1), que se consulta por
+// páginas con conexión y avisa sin ella. Sin red real; datos sintéticos.
 import 'package:agroquimicos/app.dart';
 import 'package:agroquimicos/data/sync/joint_purchase_store.dart';
 import 'package:agroquimicos/domain/sync/joint_purchase_call_view.dart';
 import 'package:agroquimicos/presentation/screens/joint_purchase_detail_screen.dart';
+import 'package:agroquimicos/presentation/screens/joint_purchases_screen.dart';
+import 'package:agroquimicos/presentation/widgets/joint_purchase_texts.dart';
+import 'package:agroquimicos/services/auth/api_endpoint_config.dart';
+import 'package:agroquimicos/services/auth/auth_http_client.dart';
+import 'package:agroquimicos/services/sync/joint_purchase_api.dart';
+import 'package:agroquimicos/services/sync/sync_access.dart';
 import 'package:agroquimicos/services/sync/sync_providers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'support/e2_joint_purchase_fixtures.dart';
@@ -134,7 +143,7 @@ void main() {
 
       final ops = (await tester.runAsync(() => s.store.ops(callId)))!;
       expect(ops.single.lines, {litreRef: 25000});
-      expect(ops.single.consentVersion, 'CONV-1');
+      expect(ops.single.consentVersion, 'CONV-2');
       expect(find.text('Pendiente de envío'), findsOneWidget);
       expect(
         find.text('Pendiente de envío: 25 L de Herbicida central'),
@@ -218,6 +227,233 @@ void main() {
       expect(find.text('Compras conjuntas'), findsOneWidget);
       expect(
         find.text('Convocatorias del sindicato y su participación'),
+        findsOneWidget,
+      );
+    },
+  );
+
+  // --- E2 §10.1: historial en la misma pantalla ---------------------------
+
+  const oldId = 'fb1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d';
+  const olderId = '0b1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d';
+  const oldestId = '1b1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d';
+  const recentClosedId = 'ab1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d';
+  const cursor = 'WyIyMDI2LTAyLTAxVDEyOjAwOjAwLjAwMFoiLCIwYiJd';
+
+  /// Pantalla «Compras conjuntas» suelta, con acceso vigente de memberA y el
+  /// sindicato sintético [server]. Guardado: una abierta, una cerrada
+  /// reciente, una anterior con un rechazo, y `older_count` 3.
+  Future<({JointPurchaseStore store, List<http.Request> requests})> pumpList(
+    WidgetTester tester,
+    http.Response Function(http.Request) Function() server,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(420, 3200));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final fixture = (await tester.runAsync(
+      () => seedSyncFixture(path: inMemoryDatabasePath),
+    ))!;
+    final store = JointPurchaseStore(
+      fixture.database,
+      clock: () => DateTime.utc(2026, 11, 11, 18, 20),
+    );
+    await tester.runAsync(() async {
+      await seedCalls(store, memberA, [
+        callJson(),
+        callJson(
+          id: recentClosedId,
+          name: 'Compra cerrada reciente',
+          status: 'CLOSED',
+          participation: participationJson(),
+          closedAt: '2026-11-05T22:00:00.000Z',
+        ),
+      ], olderCount: 3);
+      await store.saveHistory(
+        memberA,
+        JointPurchaseHistoryPage.fromJson(
+          historyJson([oldCallJson(oldId, finishedAt: '2026-04-01T12:00:00Z')]),
+        ).calls,
+      );
+      await (await fixture.database.database).insert(
+        JointPurchaseStore.opsTable,
+        {
+          'operation_id': '9e1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d',
+          'call_id': oldId,
+          'tenant_id': memberA.tenantId,
+          'member_id': memberA.memberId,
+          'sequence': 2,
+          'kind': 'CONFIRM',
+          'lines_json': '[{"product_ref":"$litreRef","quantity_base":"1"}]',
+          'consent_version': 'CONV-1',
+          'consent_accepted_at': '2026-03-01T00:00:00.000Z',
+          'send_status': JointPurchaseOpStatus.rejected,
+          'attempts': 1,
+          'last_code': 'QUANTITY_INVALID',
+          'created_at': '2026-03-01T00:00:00.000Z',
+          'updated_at': '2026-03-01T00:00:00.000Z',
+        },
+      );
+    });
+    final requests = <http.Request>[];
+    final api = JointPurchaseApi(
+      json: AuthHttpClient(
+        config: ApiEndpointConfig(Uri.parse('https://sindicato.example')),
+        client: MockClient((request) async {
+          requests.add(request);
+          return server()(request);
+        }),
+      ),
+    );
+    final holder = SyncAccessHolder()
+      ..accept('token-sintetico', memberA.memberId, memberA.tenantId);
+    final container = ProviderContainer(
+      overrides: [
+        databaseProvider.overrideWithValue(fixture.database),
+        repositoryProvider.overrideWithValue(fixture.repo),
+        declaredNeedStoreProvider.overrideWithValue(fixture.needs),
+        centralBindingStoreProvider.overrideWithValue(fixture.bindings),
+        syncOutboxStoreProvider.overrideWithValue(fixture.outbox),
+        jointPurchaseStoreProvider.overrideWithValue(store),
+        jointPurchaseApiProvider.overrideWithValue(api),
+        syncAccessHolderProvider.overrideWithValue(holder),
+      ],
+    );
+    addTearDown(container.dispose);
+    await tester.pumpWidget(
+      UncontrolledProviderScope(
+        container: container,
+        child: const MaterialApp(home: Scaffold(body: JointPurchasesScreen())),
+      ),
+    );
+    await settle(tester);
+    return (store: store, requests: requests);
+  }
+
+  Finder inHistory(Finder finder) => find.descendant(
+    of: find.byKey(const Key('joint-history-section')),
+    matching: finder,
+  );
+
+  testWidgets(
+    'lista: abiertas y recientes arriba; anteriores en «Historial» con su rechazo y las que faltan',
+    (tester) async {
+      await pumpList(
+        tester,
+        () =>
+            (_) => fail('no debe pedir nada'),
+      );
+      expect(find.text('Compra conjunta de herbicida'), findsOneWidget);
+      expect(find.text('Compra cerrada reciente'), findsOneWidget);
+      expect(
+        inHistory(find.text('Compra conjunta de herbicida')),
+        findsNothing,
+      );
+      expect(inHistory(find.text('Compra cerrada reciente')), findsNothing);
+      expect(inHistory(find.text('Compra anterior $oldId')), findsOneWidget);
+      // El rechazo sigue visible con su convocatoria anterior.
+      expect(
+        inHistory(find.text('Rechazada: una cantidad no es válida')),
+        findsOneWidget,
+      );
+      expect(
+        find.text(
+          'Hay 2 convocatorias anteriores que no están en este teléfono.',
+        ),
+        findsOneWidget,
+      );
+      expect(find.byKey(const Key('joint-history-query')), findsOneWidget);
+      expect(find.byKey(const Key('joint-history-more')), findsNothing);
+    },
+  );
+
+  testWidgets(
+    '«Consultar historial» por páginas: «Ver más», error y fin, sin borrar nada',
+    (tester) async {
+      var step = 0;
+      final s = await pumpList(
+        tester,
+        () => (request) {
+          expect(request.url.path, '/api/v1/me/joint-purchase-calls/history');
+          return switch (step) {
+            0 => jsonResponse(
+              historyJson([
+                oldCallJson(olderId, finishedAt: '2026-02-01T12:00:00Z'),
+              ], nextCursor: cursor),
+              200,
+            ),
+            1 => jsonResponse({'errorCode': 'UNAVAILABLE'}, 503),
+            _ => jsonResponse(
+              historyJson([
+                oldCallJson(
+                  oldestId,
+                  status: 'CANCELLED',
+                  finishedAt: '2026-01-01T12:00:00Z',
+                ),
+              ]),
+              200,
+            ),
+          };
+        },
+      );
+
+      await tester.tap(find.byKey(const Key('joint-history-query')));
+      await settle(tester);
+      expect(s.requests.single.url.queryParameters, {'limit': '20'});
+      expect(inHistory(find.text('Compra anterior $olderId')), findsOneWidget);
+      expect(inHistory(find.text('Compra anterior $oldId')), findsOneWidget);
+      expect(
+        find.text('Hay 1 convocatoria anterior que no está en este teléfono.'),
+        findsOneWidget,
+      );
+      expect(find.byKey(const Key('joint-history-more')), findsOneWidget);
+
+      step = 1;
+      await tester.tap(find.byKey(const Key('joint-history-more')));
+      await settle(tester);
+      expect(s.requests.last.url.queryParameters['before'], cursor);
+      expect(
+        find.text(
+          'No se pudo leer el historial del sindicato. Lo guardado en el '
+          'teléfono se conserva; inténtelo más tarde.',
+        ),
+        findsOneWidget,
+      );
+      // El cursor se conserva para volver a intentarlo.
+      expect(find.byKey(const Key('joint-history-more')), findsOneWidget);
+
+      step = 2;
+      await tester.tap(find.byKey(const Key('joint-history-more')));
+      await settle(tester);
+      expect(s.requests.last.url.queryParameters['before'], cursor);
+      expect(inHistory(find.text('Compra anterior $oldestId')), findsOneWidget);
+      expect(find.byKey(const Key('joint-history-more')), findsNothing);
+      expect(find.byKey(const Key('joint-history-end')), findsOneWidget);
+      expect(find.byKey(const Key('joint-history-missing')), findsNothing);
+      // Lo de la vista por defecto sigue ahí.
+      expect(find.text('Compra conjunta de herbicida'), findsOneWidget);
+      expect(
+        (await tester.runAsync(() => s.store.overviewForActiveOwner()))!.older
+            .map((c) => c.callId),
+        [oldId, olderId, oldestId],
+      );
+    },
+  );
+
+  testWidgets(
+    '«Consultar historial» sin conexión: avisa y lo guardado se sigue viendo',
+    (tester) async {
+      await pumpList(
+        tester,
+        () =>
+            (_) => throw http.ClientException('sin red (prueba)'),
+      );
+      await tester.tap(find.byKey(const Key('joint-history-query')));
+      await settle(tester);
+      expect(find.text(jointPurchaseHistoryOfflineText), findsOneWidget);
+      expect(inHistory(find.text('Compra anterior $oldId')), findsOneWidget);
+      expect(
+        find.text(
+          'Hay 2 convocatorias anteriores que no están en este teléfono.',
+        ),
         findsOneWidget,
       );
     },
