@@ -500,13 +500,24 @@ class JointPurchaseHistoryPage {
     'server_time',
     'calls',
     'next_cursor',
+    'consent',
   };
 
   /// [limit], si se da, es el pedido: una página más larga se rechaza.
+  /// `consent`, si viene (el servidor lo envía como en la lista), debe ser
+  /// exactamente el vigente de este teléfono.
   factory JointPurchaseHistoryPage.fromJson(Object? raw, {int? limit}) {
     final json = _object(raw);
-    _knownKeys(json, _rootKeys);
+    _knownKeys(json, _rootKeys, optional: const {'consent'});
     if (json['contractVersion'] != 1) _invalid();
+    if (json.containsKey('consent')) {
+      final consent = _object(json['consent']);
+      _knownKeys(consent, const {'version', 'text'});
+      if (consent['version'] != jointPurchaseConsentVersion ||
+          consent['text'] != jointPurchaseConsentText) {
+        _invalid();
+      }
+    }
     final serverTime = _instant(json['server_time']);
     final calls = JointPurchaseCallView._calls(json['calls']);
     for (final call in calls) {

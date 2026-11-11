@@ -424,6 +424,29 @@ void main() {
         );
       });
 
+      test('acepta el consentimiento vigente en la raíz, como lo envía el servidor', () {
+        final page = JointPurchaseHistoryPage.fromJson({
+          ...historyJson([oldCallJson(callId)]),
+          'consent': {
+            'version': jointPurchaseConsentVersion,
+            'text': jointPurchaseConsentText,
+          },
+        });
+        expect(page.calls.single.callId, callId);
+        rejectsPage({
+          ...historyJson([oldCallJson(callId)]),
+          'consent': {'version': 'CONV-1', 'text': jointPurchaseConsentText},
+        }, 'consentimiento distinto del vigente');
+        rejectsPage({
+          ...historyJson([oldCallJson(callId)]),
+          'consent': {
+            'version': jointPurchaseConsentVersion,
+            'text': jointPurchaseConsentText,
+            'extra': 1,
+          },
+        }, 'clave desconocida en el consentimiento');
+      });
+
       test('rechaza formas inválidas', () {
         rejectsPage({
           ...historyJson([oldCallJson(callId)]),
