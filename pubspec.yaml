@@ -46,6 +46,9 @@ dependencies:
   http: ^1.6.0
   flutter_secure_storage: 11.2.0
   cryptography: 2.9.0
+  # E1-D10: foto de la etiqueta sin metadatos (Dart puro). Acotada a 4.9.x:
+  # la 4.11 ya no compila con archive 4.2.0, que usa el respaldo.
+  image: ">=4.9.2 <4.10.0"
 
 dev_dependencies:
   flutter_test:

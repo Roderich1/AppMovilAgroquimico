@@ -9,6 +9,7 @@ import '../../operation_mode_controller.dart';
 import '../widgets/campaign_actions.dart';
 import '../widgets/catalog_dialogs.dart';
 import '../widgets/common.dart';
+import '../widgets/label_photo_sheet.dart';
 
 class CatalogsScreen extends ConsumerStatefulWidget {
   const CatalogsScreen({super.key});
@@ -104,6 +105,17 @@ class _CatalogsScreenState extends ConsumerState<CatalogsScreen>
     } catch (error) {
       if (mounted) showError(context, error);
     }
+  }
+
+  /// «Foto de la etiqueta» (E1 §5.1). La hoja guarda por su cuenta; al
+  /// cerrarla se relee la lista.
+  Future<void> _labelPhoto(Map<String, Object?> row) async {
+    await showLabelPhotoSheet(
+      context,
+      productId: row['id']! as int,
+      productName: row['name'].toString(),
+    );
+    if (mounted) _refresh();
   }
 
   Future<void> _campaignAction(String action, Map<String, Object?> row) async {
@@ -260,8 +272,12 @@ class _CatalogsScreenState extends ConsumerState<CatalogsScreen>
                 return const Center(child: CircularProgressIndicator());
               final rows = snapshot.data![tabs.index].where((row) {
                 if (query.isEmpty) return true;
-                return row.values.any(
-                  (value) => matchesSearch(value.toString(), query),
+                // La ruta y la huella de la foto de la etiqueta no son
+                // texto que el agricultor busque.
+                return row.entries.any(
+                  (entry) =>
+                      !entry.key.startsWith('photo_') &&
+                      matchesSearch(entry.value.toString(), query),
                 );
               }).toList();
               if (rows.isEmpty)
@@ -292,7 +308,8 @@ class _CatalogsScreenState extends ConsumerState<CatalogsScreen>
                       ),
                       2 => (
                         row['name'].toString(),
-                        '${row['active_ingredient'] ?? 'Sin ingrediente'} · ${row['unit']}',
+                        '${row['active_ingredient'] ?? 'Sin ingrediente'} · ${row['unit']}'
+                            '${row['photo_path'] == null ? '' : ' · Con foto de la etiqueta'}',
                         Icons.science_outlined,
                       ),
                       3 => (
@@ -315,6 +332,8 @@ class _CatalogsScreenState extends ConsumerState<CatalogsScreen>
                             ? _campaignAction(value, row)
                             : value == 'edit'
                             ? _edit(row)
+                            : value == 'photo'
+                            ? _labelPhoto(row)
                             : _archive(row),
                         itemBuilder: (_) => tabs.index == 4
                             ? [
@@ -342,12 +361,19 @@ class _CatalogsScreenState extends ConsumerState<CatalogsScreen>
                                     child: Text('Cerrar'),
                                   ),
                               ]
-                            : const [
-                                PopupMenuItem(
+                            : [
+                                const PopupMenuItem(
                                   value: 'edit',
                                   child: Text('Editar'),
                                 ),
-                                PopupMenuItem(
+                                // E1: la foto de la etiqueta, sólo en
+                                // Productos.
+                                if (tabs.index == 2)
+                                  const PopupMenuItem(
+                                    value: 'photo',
+                                    child: Text('Foto de la etiqueta'),
+                                  ),
+                                const PopupMenuItem(
                                   value: 'archive',
                                   child: Text('Archivar'),
                                 ),

@@ -2,12 +2,13 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../app.dart' show databaseProvider;
+import '../../app.dart' show databaseProvider, repositoryProvider;
 import '../../data/farmer_operation_gate.dart';
 import '../../data/owner_binding_store.dart';
 import '../../data/sync/central_binding_store.dart';
 import '../../data/sync/consumption_publisher.dart';
 import '../../data/sync/declared_need_store.dart';
+import '../../data/sync/identification_request_store.dart';
 import '../../data/sync/sync_outbox_store.dart';
 import '../../domain/sync/central_references.dart';
 import '../../domain/sync/sync_wire.dart' show OperationView;
@@ -16,6 +17,8 @@ import '../auth/auth_api_exception.dart';
 import '../auth/first_activation_providers.dart';
 import '../auth/remote_session_coordinator.dart' show RemoteSessionPhase;
 import '../auth/remote_session_providers.dart';
+import 'identification_api.dart';
+import 'identification_request_sender.dart';
 import 'sync_access.dart';
 import 'sync_api.dart';
 import 'sync_worker.dart';
@@ -46,6 +49,36 @@ final syncApiProvider = Provider<SyncApi>((ref) {
   }
   return SyncApi(ref.watch(authHttpClientProvider));
 });
+
+/// Solicitudes de identificación de productos (E1). Canal propio, aparte
+/// de la outbox.
+final identificationRequestStoreProvider = Provider<IdentificationRequestStore>(
+  (ref) =>
+      IdentificationRequestStore(ref.watch(databaseProvider), gate: _gate(ref)),
+);
+
+/// Se construye sólo al enviar: sin URL configurada, falla cerrado.
+final identificationApiProvider = Provider<IdentificationApi>((ref) {
+  final config = ref.watch(apiEndpointConfigProvider);
+  if (config == null) {
+    throw const AuthApiException(AuthApiErrorKind.configuration);
+  }
+  return IdentificationApi(
+    json: ref.watch(authHttpClientProvider),
+    config: config,
+    client: ref.watch(authHttpTransportProvider),
+  );
+});
+
+final identificationRequestSenderProvider =
+    Provider<IdentificationRequestSender>(
+      (ref) => IdentificationRequestSender(
+        store: ref.watch(identificationRequestStoreProvider),
+        owners: OwnerBindingStore(ref.watch(databaseProvider)),
+        api: () => ref.read(identificationApiProvider),
+        photoOf: ref.watch(repositoryProvider).productPhoto,
+      ),
+    );
 
 final syncWorkerProvider = Provider<SyncWorker>(
   (ref) => SyncWorker(
@@ -162,6 +195,13 @@ class SyncController extends Notifier<SyncState> {
             ? null
             : blockerMessage(report.blocker!),
       );
+      // E1: junto con el ciclo del worker, las solicitudes de
+      // identificación, con su propio estado y sin tocar la outbox. Sólo con
+      // acceso vigente y sin reanudar lo pausado por autorización. No se
+      // espera: el resultado del worker y su estado no dependen de él.
+      if (ref.read(syncAccessHolderProvider).current != null) {
+        unawaited(_identificationCycle());
+      }
       return report;
     } on Object {
       state = state.copyWith(busy: false, message: null);
@@ -281,6 +321,42 @@ class SyncController extends Notifier<SyncState> {
     return access;
   }
 
+  /// «Enviar ahora» de una solicitud de identificación: verifica el acceso
+  /// si hace falta (lo pidió el agricultor), deja la solicitud lista para
+  /// enviarse ya y ejecuta un ciclo del emisor, que reanuda lo pausado por
+  /// autorización.
+  Future<IdentificationRunReport> sendIdentificationNow(
+    String requestId,
+  ) async {
+    await ref.read(identificationRequestStoreProvider).sendNow(requestId);
+    final access = await ensureAccess();
+    final report = await ref
+        .read(identificationRequestSenderProvider)
+        .run(access, includePaused: true);
+    if (report.authFailed) ref.read(syncAccessHolderProvider).clear();
+    return report;
+  }
+
+  /// Un ciclo del emisor de solicitudes de identificación (E1). Sin
+  /// [access], usa el vigente y, si no hay, no hace nada (ni red ni base).
+  /// Nunca lanza: lo pendiente queda para el próximo ciclo.
+  Future<IdentificationRunReport?> _identificationCycle({
+    VerifiedAccess? access,
+    bool includePaused = false,
+  }) async {
+    final current = access ?? ref.read(syncAccessHolderProvider).current;
+    if (current == null) return null;
+    try {
+      final report = await ref
+          .read(identificationRequestSenderProvider)
+          .run(current, includePaused: includePaused);
+      if (report.authFailed) ref.read(syncAccessHolderProvider).clear();
+      return report;
+    } on Object {
+      return null;
+    }
+  }
+
   /// Resultado y estado causal de una intención propia, para resolver un
   /// conflicto.
   Future<OperationView> operationView(String operationId) async {
@@ -308,6 +384,10 @@ class SyncController extends Notifier<SyncState> {
       await ref
           .read(centralBindingStoreProvider)
           .refreshFrom(references, access.scope.tenantId);
+      // E1: al actualizar las referencias se envían las solicitudes de
+      // identificación pendientes y se lee su estado. Un fallo aquí nunca
+      // impide usar las referencias.
+      await _identificationCycle(access: access, includePaused: true);
       return references;
     } on SyncQueryException catch (error) {
       if (error.authRequired || error.forbidden) {

@@ -14,6 +14,7 @@ class ApiEndpointConfig {
     '/api/v1/sync/v1/push',
     '/api/v1/sync/v1/references',
     '/api/v1/me/backups',
+    '/api/v1/catalog/identification-requests',
   };
 
   /// Consulta owner-scoped de una operación: sólo un UUID v4 en minúsculas.
@@ -25,6 +26,13 @@ class ApiEndpointConfig {
   /// minúsculas), opcionalmente seguido de `/content`.
   static final _backupPath = RegExp(
     r'^/api/v1/me/backups/[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}(/content)?$',
+  );
+
+  /// Solicitud de identificación propia (E1 §4.3): el `request_id` que
+  /// generó el teléfono (UUID v4 en minúsculas), opcionalmente seguido de
+  /// `/photo`.
+  static final _identificationPath = RegExp(
+    r'^/api/v1/catalog/identification-requests/[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}(/photo)?$',
   );
 
   /// Estimación del consumo (F12-EST-07-MOB, MOB #164; INT-09): las dos
@@ -59,6 +67,7 @@ class ApiEndpointConfig {
     if (!_allowedPaths.contains(absolutePath) &&
         !_operationPath.hasMatch(absolutePath) &&
         !_backupPath.hasMatch(absolutePath) &&
+        !_identificationPath.hasMatch(absolutePath) &&
         queryKey == null) {
       throw const AuthApiException(AuthApiErrorKind.configuration);
     }

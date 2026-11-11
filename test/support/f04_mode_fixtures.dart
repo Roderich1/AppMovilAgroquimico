@@ -292,3 +292,28 @@ Future<void> downgradeToV7(String path) async {
   await db.execute('PRAGMA user_version = 7');
   await db.close();
 }
+
+/// Columnas que añadió v15 (E1) a `products`.
+final productPhotoColumnsV15 = AppDatabase.productPhotoColumns.keys.toSet();
+
+/// Quita todo lo que añadió v15 (E1): la tabla de solicitudes de
+/// identificación y las columnas de la foto de la etiqueta.
+Future<void> dropProductIdentificationSchemaV15(DatabaseExecutor db) async {
+  await db.execute('DROP TABLE IF EXISTS product_identification_requests');
+  final existing = (await db.rawQuery('PRAGMA table_info(products)'))
+      .map((row) => row['name'])
+      .toSet();
+  for (final column in productPhotoColumnsV15) {
+    if (existing.contains(column)) {
+      await db.execute('ALTER TABLE products DROP COLUMN $column');
+    }
+  }
+}
+
+/// Deja una base creada con la versión actual exactamente como una v14.
+Future<void> downgradeToV14(String path) async {
+  final db = await databaseFactoryFfi.openDatabase(path);
+  await dropProductIdentificationSchemaV15(db);
+  await db.execute('PRAGMA user_version = 14');
+  await db.close();
+}

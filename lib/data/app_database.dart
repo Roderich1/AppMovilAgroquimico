@@ -18,7 +18,7 @@ class AppDatabase {
   /// Toda base, creada desde cero o migrada desde cualquier versión anterior,
   /// debe terminar con el mismo esquema. `test/schema_equivalence_test.dart`
   /// lo verifica automáticamente.
-  static const int schemaVersion = 14;
+  static const int schemaVersion = 15;
 
   /// Primera versión con `owner_bindings` e `install_origin`: una base
   /// anterior es histórica y no declara titular.
@@ -44,6 +44,56 @@ class AppDatabase {
   /// Primera versión con la evidencia de dictado con consentimiento
   /// (F09-VOZ-13, MOB #167).
   static const int voiceEvidenceSinceVersion = 14;
+
+  /// Primera versión con la foto de la etiqueta de los productos y las
+  /// solicitudes de identificación al sindicato (E1, contrato
+  /// `E1_IDENTIFICACION_PRODUCTOS_CONTRATO.md` §5).
+  static const int productIdentificationSinceVersion = 15;
+
+  /// v15 — columnas opcionales de la foto de la etiqueta (E1-D10). Todas
+  /// admiten NULL: un producto sin foto no tiene ninguna. `photo_path` es
+  /// **relativa** a la carpeta de documentos de la app
+  /// (`product_photos/<archivo>.jpg`).
+  static const Map<String, String> productPhotoColumns = {
+    'photo_path': 'TEXT',
+    'photo_sha256': 'TEXT',
+    'photo_updated_at': 'TEXT',
+  };
+
+  /// v15 — solicitudes de identificación de productos locales al sindicato
+  /// (E1-D3, E1-D11, E1-D12). Una por producto local, con su propio estado
+  /// de envío: **no** pasa por `sync_outbox` ni por Sync v1. Los `server_*`
+  /// son la última vista que devolvió el sindicato; nunca se vincula nada
+  /// automáticamente a partir de ellos (E1-D4).
+  static const List<String> productIdentificationSchema = <String>[
+    '''CREATE TABLE IF NOT EXISTS product_identification_requests (
+        request_id TEXT PRIMARY KEY,
+        product_id INTEGER NOT NULL UNIQUE REFERENCES products(id),
+        tenant_id TEXT NOT NULL,
+        sent_name TEXT NOT NULL,
+        sent_active_ingredient TEXT,
+        sent_unit TEXT NOT NULL CHECK (sent_unit IN ('L','KG')),
+        photo_consent_version TEXT,
+        photo_consent_at TEXT,
+        photo_sha256_consented TEXT,
+        send_status TEXT NOT NULL CHECK (send_status IN ('PENDING_SEND','RECEIVED','REJECTED','AUTH_PAUSED')),
+        send_attempts INTEGER NOT NULL DEFAULT 0,
+        next_attempt_at TEXT,
+        last_code TEXT,
+        photo_send_status TEXT NOT NULL CHECK (photo_send_status IN ('NONE','PENDING_SEND','SENT','FAILED','REMOVE_PENDING','REMOVED')),
+        photo_attempts INTEGER NOT NULL DEFAULT 0,
+        photo_next_attempt_at TEXT,
+        photo_last_code TEXT,
+        server_status TEXT CHECK (server_status IN ('PENDING','LINKED')),
+        server_product_ref TEXT,
+        server_product_name TEXT,
+        server_product_unit TEXT,
+        server_resolution TEXT,
+        server_note TEXT,
+        server_checked_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL)''',
+  ];
 
   /// v14 — evidencia de dictado para la evaluación de la voz (F09-VOZ-13,
   /// MOB #167; RU-12, CU-16, RNF-14; RF-41 y DAT-21 según #167, pendientes de
@@ -738,6 +788,7 @@ class AppDatabase {
     await _applyInventoryAlertsSchema(db);
     await _applyEstimationCopiesSchema(db);
     await _applyVoiceEvidenceSchema(db);
+    await _applyProductIdentificationSchema(db);
     // Una base creada por esta versión nace bajo la política de activación.
     await db.insert('app_settings', {
       'key': installOriginKey,
@@ -903,6 +954,32 @@ class AppDatabase {
     }
     if (oldVersion < 14) {
       await _applyVoiceEvidenceSchema(db);
+    }
+    if (oldVersion < 15) {
+      await _applyProductIdentificationSchema(db);
+    }
+  }
+
+  /// Versión 15 — **foto de la etiqueta y solicitudes de identificación**
+  /// (E1). Aditiva: tres columnas que admiten NULL en `products` y una tabla
+  /// nueva y vacía. No hace backfill ni toca compras, aplicaciones ni
+  /// inventario. Idempotente: una columna que ya existe no se vuelve a
+  /// añadir y la tabla lleva IF NOT EXISTS.
+  Future<void> _applyProductIdentificationSchema(DatabaseExecutor db) async {
+    final existing = (await db.rawQuery('PRAGMA table_info(products)'))
+        .map((row) => row['name'] as String)
+        .toSet();
+    // Como v12: una base parcial sin `products` no se amplía.
+    if (existing.isNotEmpty) {
+      for (final column in productPhotoColumns.entries) {
+        if (existing.contains(column.key)) continue;
+        await db.execute(
+          'ALTER TABLE products ADD COLUMN ${column.key} ${column.value}',
+        );
+      }
+    }
+    for (final statement in productIdentificationSchema) {
+      await db.execute(statement);
     }
   }
 

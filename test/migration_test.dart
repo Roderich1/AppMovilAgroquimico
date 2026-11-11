@@ -254,4 +254,85 @@ void main() {
       );
     },
   );
+
+  // v15 (E1): foto de la etiqueta en `products` y solicitudes de
+  // identificación. Aditiva: columnas que nacen NULL y una tabla vacía.
+  test('v14 → v15 conserva todas las filas, añade las columnas de foto en NULL y la tabla vacía', () async {
+    final path = await seededAt(8);
+    // Lleva la base sembrada a la versión actual y luego a v14 exacta.
+    final current = openDb(path);
+    await current.database;
+    await current.close();
+    await downgradeToV14(path);
+
+    final legacy = await databaseFactoryFfi.openDatabase(path);
+    final before = await dumpTables(legacy);
+    final columnsBefore = await columnsOf(legacy);
+    await legacy.close();
+    expect(before.containsKey('product_identification_requests'), isFalse);
+    expect(columnsBefore['products'], isNot(contains('photo_path')));
+    expect(before['purchases'], isNotEmpty);
+    expect(before['applications'], isNotEmpty);
+
+    final migrated = openDb(path);
+    final db = await migrated.database;
+    expect(
+      (await db.rawQuery('PRAGMA user_version')).single.values.single,
+      AppDatabase.schemaVersion,
+    );
+    expect(await db.query('product_identification_requests'), isEmpty);
+    final columnsAfter = await columnsOf(db);
+    for (final entry in columnsBefore.entries) {
+      expect(columnsAfter[entry.key], [
+        ...entry.value,
+        if (entry.key == 'products') ...productPhotoColumnsV15,
+      ], reason: entry.key);
+    }
+    final after = await dumpTables(
+      db,
+      except: {'product_identification_requests'},
+    );
+    expect(after.keys, before.keys);
+    for (final table in before.keys) {
+      expect(
+        [
+          for (final row in after[table]!)
+            {
+              for (final cell in row.entries)
+                if (table != 'products' ||
+                    !productPhotoColumnsV15.contains(cell.key))
+                  cell.key: cell.value,
+            },
+        ],
+        before[table],
+        reason: table,
+      );
+    }
+    for (final row in after['products']!) {
+      for (final column in productPhotoColumnsV15) {
+        expect(row[column], isNull, reason: column);
+      }
+    }
+  });
+
+  test('la migración a v15 es idempotente sobre una base ya migrada', () async {
+    final path = await tempDbPath('v15_twice');
+    final first = openDb(path);
+    await first.database;
+    await first.close();
+    // Simula una migración interrumpida tras añadir las columnas: la tabla
+    // falta y user_version sigue en 14.
+    final raw = await databaseFactoryFfi.openDatabase(path);
+    await raw.execute('DROP TABLE product_identification_requests');
+    await raw.execute('PRAGMA user_version = 14');
+    await raw.close();
+
+    final second = openDb(path);
+    final db = await second.database;
+    expect(
+      (await columnsOf(db))['products']!.where(productPhotoColumnsV15.contains),
+      productPhotoColumnsV15.toList(),
+    );
+    expect(await db.query('product_identification_requests'), isEmpty);
+  });
 }

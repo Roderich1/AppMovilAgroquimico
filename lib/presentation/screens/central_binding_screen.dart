@@ -3,14 +3,17 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app.dart';
 import '../../data/sync/central_binding_store.dart';
+import '../../data/sync/identification_request_store.dart';
 import '../../domain/campaign_calendar.dart';
 import '../../domain/sync/campaign_period_check.dart';
 import '../../domain/sync/central_references.dart';
+import '../../domain/sync/identification_view.dart';
 import '../../domain/sync/sync_types.dart';
 import '../../services/sync/sync_access.dart';
 import '../../services/sync/sync_api.dart';
 import '../../services/sync/sync_providers.dart';
 import '../widgets/common.dart';
+import '../widgets/identification_texts.dart';
 import '../widgets/sync_status_banner.dart' show syncSummaryProvider;
 
 class _LocalCatalog {
@@ -20,11 +23,15 @@ class _LocalCatalog {
     this.campaignBindings,
     this.productBindings,
     this.reviews,
+    this.requests,
   );
   final List<Map<String, Object?>> campaigns;
   final List<Map<String, Object?>> products;
   final Map<int, CampaignBinding> campaignBindings;
   final Map<int, ProductBinding> productBindings;
+
+  /// Solicitudes de identificación por producto local (E1).
+  final Map<int, IdentificationRequest> requests;
 
   /// Vínculos de campaña que requieren revisión por su período (D-F04-C2).
   final List<CampaignBindingReview> reviews;
@@ -63,9 +70,14 @@ class _CentralBindingScreenState extends ConsumerState<CentralBindingScreen> {
     final bindings = ref.read(centralBindingStoreProvider);
     final campaigns = await repository.campaigns();
     final campaignBindings = await bindings.campaignBindings();
+    // Los productos y sus solicitudes de identificación en una sola
+    // consulta, en lugar de `products()`: la pantalla no suma lecturas.
+    final products = await ref
+        .read(identificationRequestStoreProvider)
+        .productsWithRequests();
     return _LocalCatalog(
       campaigns,
-      await repository.products(),
+      [for (final item in products) item.product],
       {for (final b in campaignBindings) b.campaignId: b},
       {for (final b in await bindings.productBindings()) b.productId: b},
       await CentralBindingStore.reviewsFor(
@@ -76,6 +88,10 @@ class _CentralBindingScreenState extends ConsumerState<CentralBindingScreen> {
             row['id']! as int: CampaignPeriod.fromRow(row),
         },
       ),
+      {
+        for (final item in products)
+          if (item.request != null) item.request!.productId: item.request!,
+      },
     );
   }
 
@@ -340,6 +356,154 @@ class _CentralBindingScreenState extends ConsumerState<CentralBindingScreen> {
     _reloadLocal();
   }
 
+  /// E1: pide al sindicato que identifique un producto local sin vínculo.
+  /// El diálogo muestra exactamente lo que se enviará y, aparte, la casilla
+  /// del consentimiento de la foto (`FOTO-1`), sólo si hay foto.
+  Future<void> _requestIdentification(Map<String, Object?> product) async {
+    final name = (product['name']! as String).trim();
+    final ingredient = (product['active_ingredient'] as String?)?.trim();
+    final hasPhoto = product['photo_sha256'] != null;
+    var sharePhoto = false;
+    final confirmed =
+        await showDialog<bool>(
+          context: context,
+          builder: (dialogContext) => StatefulBuilder(
+            builder: (dialogContext, setDialogState) => AlertDialog(
+              title: const Text('Pedir identificación al sindicato'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Se enviará al sindicato sólo esto:'),
+                    const SizedBox(height: 8),
+                    Text('Nombre: $name'),
+                    Text(
+                      'Ingrediente activo: '
+                      '${(ingredient?.isEmpty ?? true) ? 'sin dato' : ingredient}',
+                    ),
+                    Text('Unidad: ${product['unit']}'),
+                    const SizedBox(height: 8),
+                    const Text(
+                      'No se envían compras, aplicaciones, cantidades ni '
+                      'existencias. El vínculo lo confirma usted después.',
+                    ),
+                    if (hasPhoto) ...[
+                      const SizedBox(height: 8),
+                      CheckboxListTile(
+                        key: const Key('identification-share-photo'),
+                        contentPadding: EdgeInsets.zero,
+                        controlAffinity: ListTileControlAffinity.leading,
+                        value: sharePhoto,
+                        onChanged: (value) => setDialogState(() {
+                          sharePhoto = value ?? false;
+                        }),
+                        title: const Text(
+                          'Compartir también la foto de la etiqueta',
+                        ),
+                        subtitle: Text(photoConsentText(name)),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext, false),
+                  child: const Text('Cancelar'),
+                ),
+                FilledButton(
+                  onPressed: () => Navigator.pop(dialogContext, true),
+                  child: const Text('Pedir identificación'),
+                ),
+              ],
+            ),
+          ),
+        ) ??
+        false;
+    if (!confirmed || !mounted) return;
+    try {
+      await ref
+          .read(identificationRequestStoreProvider)
+          .create(
+            productId: product['id']! as int,
+            sharePhoto: hasPhoto && sharePhoto,
+          );
+      if (mounted) {
+        showSuccess(
+          context,
+          'Solicitud guardada en el teléfono. Se enviará al sindicato.',
+        );
+      }
+    } on Object catch (error) {
+      if (mounted) showError(context, error);
+    }
+    _reloadLocal();
+  }
+
+  /// «Enviar ahora»: verifica el acceso si hace falta y envía.
+  Future<void> _sendIdentificationNow(IdentificationRequest request) async {
+    setState(() {
+      loading = true;
+    });
+    try {
+      final report = await ref
+          .read(syncControllerProvider.notifier)
+          .sendIdentificationNow(request.requestId);
+      if (mounted && report.authFailed) {
+        showError(
+          context,
+          'El sindicato pidió verificar el acceso otra vez. La solicitud '
+          'sigue guardada.',
+        );
+      } else if (mounted && report.ownerMismatch) {
+        showError(
+          context,
+          'La cuenta en sesión no es la del titular: no se envió nada.',
+        );
+      }
+    } on SyncAccessUnavailable catch (error) {
+      if (mounted) showError(context, error.message);
+    } on Object catch (error) {
+      if (mounted) showError(context, error);
+    } finally {
+      if (mounted) {
+        setState(() {
+          loading = false;
+        });
+      }
+    }
+    if (mounted) _reloadLocal();
+  }
+
+  /// E1-D4: el sindicato identificó el producto; el vínculo lo confirma el
+  /// agricultor con el flujo de siempre. Nunca se vincula solo.
+  Future<void> _bindIdentified(
+    Map<String, Object?> product,
+    IdentificationRequest request,
+  ) async {
+    final central = references?.product(request.serverProductRef!);
+    final tenant = _tenant;
+    if (central == null || tenant == null) {
+      showError(context, 'Actualice las referencias del sindicato.');
+      return;
+    }
+    if (!await _confirm(product['name']! as String, central.name)) return;
+    try {
+      await ref
+          .read(centralBindingStoreProvider)
+          .bindProduct(
+            productId: product['id']! as int,
+            central: central,
+            tenantId: tenant,
+          );
+      if (mounted) showSuccess(context, 'Producto vinculado.');
+    } on Object catch (error) {
+      if (mounted) showError(context, error);
+    }
+    _reloadLocal();
+  }
+
   Future<void> _unbind(String label, Future<void> Function() action) async {
     final confirmed = await confirmDestructiveAction(
       context,
@@ -521,19 +685,7 @@ class _CentralBindingScreenState extends ConsumerState<CentralBindingScreen> {
               child: Column(
                 children: [
                   for (final product in data.products)
-                    _row(
-                      label: '${product['name']} (${product['unit']})',
-                      binding: data.productBindings[product['id']],
-                      describe: (b) => _describeProduct(b, product),
-                      unboundDetail: _noCompatibleProduct(product),
-                      onBind: () => _bindProduct(product),
-                      onUnbind: () => _unbind(
-                        product['name']! as String,
-                        () => ref
-                            .read(centralBindingStoreProvider)
-                            .unbindProduct(product['id']! as int),
-                      ),
-                    ),
+                    _productRow(product, data),
                 ],
               ),
             ),
@@ -591,32 +743,104 @@ class _CentralBindingScreenState extends ConsumerState<CentralBindingScreen> {
     );
   }
 
-  Widget _row<B>({
-    required String label,
-    required B? binding,
-    required String Function(B binding) describe,
-    required VoidCallback onBind,
-    required VoidCallback onUnbind,
-    String? unboundDetail,
-  }) => ListTile(
-    title: Text(label),
-    subtitle: Text(
+  /// Fila de un producto: su vínculo y, si se pidió, la identificación al
+  /// sindicato (E1) con sus estados, la nota del sindicato y las acciones.
+  /// Sin solicitud, la fila es la de siempre.
+  Widget _productRow(Map<String, Object?> product, _LocalCatalog data) {
+    final id = product['id']! as int;
+    final binding = data.productBindings[id];
+    final request = data.requests[id];
+    final unboundDetail = binding == null
+        ? _noCompatibleProduct(product)
+        : null;
+    final linked = request == null ? null : identificationLinkedText(request);
+    final status = Text(
       binding == null
           ? 'Requiere vinculación'
                 '${unboundDetail == null ? '' : '\n$unboundDetail'}'
-          : describe(binding),
-    ),
-    trailing: PopupMenuButton<String>(
-      tooltip: 'Opciones de vínculo',
-      onSelected: (value) => value == 'bind' ? onBind() : onUnbind(),
-      itemBuilder: (_) => [
-        PopupMenuItem(
-          value: 'bind',
-          child: Text(binding == null ? 'Vincular…' : 'Corregir vínculo…'),
-        ),
-        if (binding != null)
-          const PopupMenuItem(value: 'unbind', child: Text('Quitar vínculo')),
-      ],
-    ),
-  );
+          : _describeProduct(binding, product),
+    );
+    return ListTile(
+      key: Key('product-binding-$id'),
+      title: Text('${product['name']} (${product['unit']})'),
+      subtitle: request == null
+          ? status
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                status,
+                const SizedBox(height: 4),
+                Wrap(
+                  spacing: 6,
+                  runSpacing: 4,
+                  children: [
+                    for (final text in identificationChips(request))
+                      Chip(
+                        label: Text(text),
+                        visualDensity: VisualDensity.compact,
+                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      ),
+                  ],
+                ),
+                if (request.sendStatus == IdentificationSendStatus.authPaused)
+                  const Text(
+                    'Envío pausado: el sindicato pidió verificar el acceso. '
+                    'Pulse «Enviar ahora».',
+                  ),
+                if (request.serverNote != null)
+                  Text('Nota del sindicato: ${request.serverNote}'),
+                if (linked != null) Text(linked),
+                if (request.photoSendStatus == IdentificationPhotoStatus.sent &&
+                    product['photo_sha256'] != request.photoSha256Consented)
+                  const Text(
+                    'El sindicato conserva la foto anterior; la actual está '
+                    'sólo en este teléfono.',
+                  ),
+                Wrap(
+                  spacing: 8,
+                  children: [
+                    if (identificationCanSendNow(request))
+                      TextButton.icon(
+                        onPressed: loading
+                            ? null
+                            : () => _sendIdentificationNow(request),
+                        icon: const Icon(Icons.send_outlined),
+                        label: const Text('Enviar ahora'),
+                      ),
+                    if (linked != null && binding == null)
+                      FilledButton.tonal(
+                        onPressed: () => _bindIdentified(product, request),
+                        child: const Text('Vincular'),
+                      ),
+                  ],
+                ),
+              ],
+            ),
+      isThreeLine: request != null,
+      trailing: PopupMenuButton<String>(
+        tooltip: 'Opciones de vínculo',
+        onSelected: (value) => switch (value) {
+          'bind' => _bindProduct(product),
+          'identify' => _requestIdentification(product),
+          _ => _unbind(
+            product['name']! as String,
+            () => ref.read(centralBindingStoreProvider).unbindProduct(id),
+          ),
+        },
+        itemBuilder: (_) => [
+          PopupMenuItem(
+            value: 'bind',
+            child: Text(binding == null ? 'Vincular…' : 'Corregir vínculo…'),
+          ),
+          if (binding == null && request == null)
+            const PopupMenuItem(
+              value: 'identify',
+              child: Text('Pedir identificación al sindicato'),
+            ),
+          if (binding != null)
+            const PopupMenuItem(value: 'unbind', child: Text('Quitar vínculo')),
+        ],
+      ),
+    );
+  }
 }

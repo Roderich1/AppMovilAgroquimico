@@ -4,7 +4,7 @@ import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart'
     show Database, DatabaseException, DatabaseExecutor, Sqflite, Transaction;
 
-import 'package:flutter/foundation.dart' show visibleForTesting;
+import 'package:flutter/foundation.dart' show compute, visibleForTesting;
 
 import '../domain/account_ledger.dart';
 import '../domain/account_texts.dart' show AccountPaymentResult;
@@ -24,7 +24,9 @@ import 'app_log.dart';
 import 'farmer_operation_gate.dart';
 import 'invoice_storage.dart';
 import 'operation_mode_store.dart';
+import 'product_photo_storage.dart';
 import 'sync/central_binding_store.dart' show CentralBindingStore;
+import 'sync/identification_request_store.dart' show IdentificationRequestStore;
 
 /// Resultado de corregir vencimiento o número de lote (F04-AV): cuántos
 /// lotes cambiaron y cuántos de la línea quedaron sin tocar por no tener la
@@ -261,9 +263,14 @@ class AgroRepository {
     this.appDatabase, {
     FarmerOperationGate gate = const FarmerOperationGate.unrestricted(),
     LocalOwnerCredential? Function()? ownerCredential,
+    @visibleForTesting Future<Directory> Function()? productPhotoDocuments,
   }) : _gate = gate,
-       _ownerCredential = ownerCredential ?? _noCredential;
+       _ownerCredential = ownerCredential ?? _noCredential,
+       _productPhotoDocuments = productPhotoDocuments;
   final AppDatabase appDatabase;
+
+  /// Carpeta de documentos para las fotos de producto; sólo pruebas.
+  final Future<Directory> Function()? _productPhotoDocuments;
   final FarmerOperationGate _gate;
   final LocalOwnerCredential? Function() _ownerCredential;
 
@@ -4467,6 +4474,148 @@ class AgroRepository {
       receivedMinor: received,
       stockBase: stock,
     );
+  }
+
+  /// Foto de la etiqueta de [productId] (E1-D10), o null si no tiene.
+  /// [ProductPhoto.exists] es falso si la base la registra pero el archivo
+  /// ya no está en el teléfono.
+  Future<ProductPhoto?> productPhoto(int productId) async {
+    final rows = await (await _db).query(
+      'products',
+      columns: ['photo_path', 'photo_sha256', 'photo_updated_at'],
+      where: 'id=?',
+      whereArgs: [productId],
+    );
+    if (rows.isEmpty) return null;
+    final relative = rows.single['photo_path'] as String?;
+    final sha = rows.single['photo_sha256'] as String?;
+    if (relative == null || sha == null) return null;
+    final file = productPhotoFile(await _photoDocuments(), relative);
+    if (file == null) return null;
+    return ProductPhoto(
+      productId: productId,
+      relativePath: relative,
+      file: file,
+      sha256: sha,
+      updatedAt: rows.single['photo_updated_at'] as String?,
+      exists: await file.exists(),
+    );
+  }
+
+  /// Guarda como foto de la etiqueta de [productId] la imagen de
+  /// [sourcePath], ya procesada: orientación aplicada, lado mayor ≤ 1600 px y
+  /// JPEG sin metadatos. Reemplazar borra el archivo anterior.
+  ///
+  /// Si el producto tiene una solicitud de identificación con la foto
+  /// compartida, [shareWithUnion] decide en la misma transacción si la nueva
+  /// también se envía (consentimiento `FOTO-1` nuevo) o se queda sólo en el
+  /// teléfono; null equivale a no enviarla: un consentimiento nunca se
+  /// amplía en silencio (E1-D11).
+  Future<ProductPhoto> setProductPhoto(
+    int productId,
+    String sourcePath, {
+    bool? shareWithUnion,
+  }) async {
+    final ProcessedLabelPhoto processed;
+    try {
+      processed = await compute(
+        processLabelPhoto,
+        await File(sourcePath).readAsBytes(),
+      );
+    } on LabelPhotoFormatException catch (error) {
+      throw BusinessRuleException(error.toString());
+    } on FileSystemException {
+      throw BusinessRuleException(
+        'No se pudo leer la foto elegida. Inténtelo otra vez.',
+      );
+    }
+    final documents = await _photoDocuments();
+    final relative = productPhotoRelativePath(productId, processed.sha256);
+    final target = productPhotoFile(documents, relative)!;
+    String? previous;
+    var wroteFile = false;
+    try {
+      await _write((txn, _) async {
+        final rows = await txn.query(
+          'products',
+          columns: ['photo_path'],
+          where: 'id=?',
+          whereArgs: [productId],
+        );
+        if (rows.isEmpty) throw BusinessRuleException('El producto no existe.');
+        previous = rows.single['photo_path'] as String?;
+        await target.parent.create(recursive: true);
+        await target.writeAsBytes(processed.bytes, flush: true);
+        wroteFile = true;
+        final now = _date(DateTime.now());
+        await txn.update(
+          'products',
+          {
+            'photo_path': relative,
+            'photo_sha256': processed.sha256,
+            'photo_updated_at': now,
+          },
+          where: 'id=?',
+          whereArgs: [productId],
+        );
+        await IdentificationRequestStore.onPhotoReplaced(
+          txn,
+          productId,
+          newSha: processed.sha256,
+          share: shareWithUnion,
+          now: now,
+        );
+      });
+    } on Object {
+      // Nada quedó registrado: el archivo nuevo sobra, salvo que sea el
+      // mismo que ya estaba guardado.
+      if (wroteFile && previous != relative) await _deleteQuietly(target);
+      rethrow;
+    }
+    if (previous != null && previous != relative) {
+      final old = productPhotoFile(documents, previous);
+      if (old != null) await _deleteQuietly(old);
+    }
+    return (await productPhoto(productId))!;
+  }
+
+  /// Quita la foto de la etiqueta de [productId]: borra el archivo y deja
+  /// las columnas en NULL. Si la foto se había compartido con el sindicato,
+  /// su retiro queda pendiente de envío (`REMOVE_PENDING`), en la misma
+  /// transacción.
+  Future<void> removeProductPhoto(int productId) async {
+    String? previous;
+    await _write((txn, _) async {
+      final rows = await txn.query(
+        'products',
+        columns: ['photo_path'],
+        where: 'id=?',
+        whereArgs: [productId],
+      );
+      if (rows.isEmpty) throw BusinessRuleException('El producto no existe.');
+      previous = rows.single['photo_path'] as String?;
+      final now = _date(DateTime.now());
+      await txn.update(
+        'products',
+        {'photo_path': null, 'photo_sha256': null, 'photo_updated_at': null},
+        where: 'id=?',
+        whereArgs: [productId],
+      );
+      await IdentificationRequestStore.onPhotoRemoved(txn, productId, now: now);
+    });
+    final file = productPhotoFile(await _photoDocuments(), previous);
+    if (file != null) await _deleteQuietly(file);
+  }
+
+  Future<Directory> _photoDocuments() =>
+      _productPhotoDocuments?.call() ?? resolveDocumentsDirectory();
+
+  static Future<void> _deleteQuietly(File file) async {
+    try {
+      if (await file.exists()) await file.delete();
+    } on FileSystemException {
+      // Limpieza: no cambia el resultado.
+    }
   }
 
   /// Sólo copia un archivo: basta la compuerta, no hay contexto de modalidad.
