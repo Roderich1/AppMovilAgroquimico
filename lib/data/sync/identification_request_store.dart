@@ -423,11 +423,18 @@ class IdentificationRequestStore {
         IdentificationSendStatus.authPaused,
       ],
     );
+    // Una foto FAILED con fecha de reintento queda vencida AHORA, nunca sin
+    // fecha: `photo_next_attempt_at` NULL en FAILED significa fallo
+    // definitivo (sin reintento) y la sacaría de la cola (corrección del
+    // 2026-11-11, recorrido en emulador).
     await txn.rawUpdate(
-      'UPDATE $table SET photo_next_attempt_at=NULL, updated_at=? '
+      'UPDATE $table SET photo_next_attempt_at='
+      'CASE WHEN photo_send_status=? THEN ? ELSE NULL END, updated_at=? '
       'WHERE request_id=? AND (photo_send_status IN (?,?) OR '
       '(photo_send_status=? AND photo_next_attempt_at IS NOT NULL))',
       [
+        IdentificationPhotoStatus.failed,
+        _clock().toUtc().toIso8601String(),
         now,
         requestId,
         IdentificationPhotoStatus.pendingSend,
