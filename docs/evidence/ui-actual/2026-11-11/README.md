@@ -4,9 +4,9 @@
 
 | Campo | Valor |
 |---|---|
-| Fecha real | 2026-11-11, entre las 19:00Z y las 20:20Z (UTC) |
+| Fecha real | 2026-11-11, entre las 19:00Z y las 21:15Z (UTC) |
 | Procedencia | **EMULADOR** Pixel_8 (`emulator-5554`), Android 16, API 36. **No es un teléfono físico.** |
-| Código | Mobile `7257816` (rama `feat/etapa1-productos-identificacion-foto`: UXJ + F09 formulario único con voz + etapa 1); la última captura con `bce8e59` (dos correcciones de etapa 1). Esas ramas **no** están publicadas: esta rama sólo contiene imágenes y este índice. |
+| Código | Mobile `7257816` (rama `feat/etapa1-productos-identificacion-foto`: UXJ + F09 formulario único con voz + etapa 1); desde la 32, con `bce8e59` (dos correcciones de etapa 1). Esas ramas **no** están publicadas: esta rama sólo contiene imágenes y este índice. |
 | Paquete instalado | `com.comunidad.agro.agroquimicos.et1` («AC ET1»), `versionName` 1.0.0, `versionCode` 1, APK *profile* x86_64. La app normal y la DEMO no se tocaron. |
 | Pantalla | 1080 × 2400 px, densidad 420 dpi, escala de texto 1.0. Barra de estado del emulador en hora UTC. |
 | Central | Copia aislada de etapa 1 (PostgreSQL y API locales, accesibles por un túnel HTTPS temporal que sólo dejaba pasar `/api/v1/`). Ni la DEMO oficial ni datos reales. |
@@ -19,6 +19,10 @@
 |---|---|---|---|---|
 | [<img src="00_acceso_titular.png" width="150" alt="Titular de los datos y modalidad de inventario (primera activación)">](00_acceso_titular.png) | Titular de los datos y modalidad de inventario (primera activación) | Activar en línea → cuenta sintética → Titular de los datos | `7257816` |  |
 | [<img src="31_volver_a_autenticar.png" width="150" alt="Volver a autenticar">](31_volver_a_autenticar.png) | Volver a autenticar | Inicio → «Volver a autenticar» (sesión vencida tras cerrar la app) | `7257816` | Correo sintético; contraseña oculta. |
+| [<img src="50_modo_de_uso.png" width="150" alt="Modo de uso">](50_modo_de_uso.png) | Modo de uso | Más → Modo de uso | `bce8e59` | No se cambió. |
+| [<img src="51_pin_del_titular.png" width="150" alt="PIN del titular (sin crear)">](51_pin_del_titular.png) | PIN del titular (sin crear) | Más → PIN del titular | `bce8e59` | No se creó PIN. |
+| [<img src="52_respaldo_en_la_nube.png" width="150" alt="Respaldo en la nube">](52_respaldo_en_la_nube.png) | Respaldo en la nube | Más → Respaldo en la nube | `bce8e59` | No se creó clave ni se subió nada. |
+| [<img src="53_copias_de_seguridad_menu.png" width="150" alt="Menú de copias de seguridad">](53_copias_de_seguridad_menu.png) | Menú de copias de seguridad | Cuentas → carpeta | `bce8e59` |  |
 
 ## Inicio
 
@@ -127,6 +131,10 @@
 | [<img src="25_foto_etiqueta_vacia.png" width="150" alt="Hoja «Foto de la etiqueta» sin foto">](25_foto_etiqueta_vacia.png) | Hoja «Foto de la etiqueta» sin foto | ⋮ → Foto de la etiqueta | `7257816` |  |
 | [<img src="26_foto_etiqueta_guardada_sin_conexion.png" width="150" alt="Foto guardada en el teléfono, sin conexión">](26_foto_etiqueta_guardada_sin_conexion.png) | Foto guardada en el teléfono, sin conexión | Elegir de la galería → etiqueta sintética | `7257816` | Imagen de una etiqueta inventada («ABONO FOLIAR CASERO, etiqueta sintética»). |
 | [<img src="32_foto_etiqueta_con_aviso_respaldo.png" width="150" alt="Hoja de la foto con el aviso de respaldo">](32_foto_etiqueta_con_aviso_respaldo.png) | Hoja de la foto con el aviso de respaldo | ⋮ → Foto de la etiqueta | `bce8e59` | Incluye el aviso nuevo: las fotos de etiqueta no entran en los respaldos. |
+| [<img src="33_reemplazo_pide_autorizacion_nueva.png" width="150" alt="Reemplazar: pregunta si se envía la foto nueva">](33_reemplazo_pide_autorizacion_nueva.png) | Reemplazar: pregunta si se envía la foto nueva | Foto de la etiqueta → Reemplazar → galería | `bce8e59` | Autorización nueva y aparte para la foto nueva. |
+| [<img src="34_foto_reemplazada_autorizada.png" width="150" alt="Foto reemplazada, pendiente de envío">](34_foto_reemplazada_autorizada.png) | Foto reemplazada, pendiente de envío | Elegir «Enviar al sindicato» | `bce8e59` |  |
+| [<img src="40_quitar_foto_confirmacion.png" width="150" alt="Quitar la foto (confirmación)">](40_quitar_foto_confirmacion.png) | Quitar la foto (confirmación) | Foto de la etiqueta → Quitar | `bce8e59` |  |
+| [<img src="41_foto_quitada_hoja.png" width="150" alt="Sin foto; retiro pendiente de envío">](41_foto_quitada_hoja.png) | Sin foto; retiro pendiente de envío | Quitar | `bce8e59` | La hoja no se refresca sola tras el envío en segundo plano. |
 
 ## Vínculos e identificación
 
@@ -136,6 +144,11 @@
 | [<img src="27b_vinculos_opciones_producto_local.png" width="150" alt="Opciones de un producto sin vínculo">](27b_vinculos_opciones_producto_local.png) | Opciones de un producto sin vínculo | Vínculos → ⋮ del producto local | `7257816` |  |
 | [<img src="28_solicitud_identificacion_dialogo.png" width="150" alt="Diálogo «Pedir identificación al sindicato»">](28_solicitud_identificacion_dialogo.png) | Diálogo «Pedir identificación al sindicato» | ⋮ → Pedir identificación | `7257816` | Muestra exactamente lo que se envía. |
 | [<img src="28b_solicitud_con_foto_autorizada.png" width="150" alt="Diálogo con la foto autorizada (casilla FOTO-1 marcada)">](28b_solicitud_con_foto_autorizada.png) | Diálogo con la foto autorizada (casilla FOTO-1 marcada) | Marcar «Compartir también la foto» | `7257816` |  |
+| [<img src="37_identificado_por_el_sindicato.png" width="150" alt="Identificado por el sindicato, botón Vincular">](37_identificado_por_el_sindicato.png) | Identificado por el sindicato, botón Vincular | La Directiva creó el producto colectivo en la Web → Actualizar | `bce8e59` |  |
+| [<img src="38_confirmar_vinculo.png" width="150" alt="Confirmar vínculo (diálogo existente)">](38_confirmar_vinculo.png) | Confirmar vínculo (diálogo existente) | Vincular | `bce8e59` | Nunca se vincula automáticamente. |
+| [<img src="39_vinculo_confirmado.png" width="150" alt="Producto local vinculado y vigente">](39_vinculo_confirmado.png) | Producto local vinculado y vigente | Confirmar | `bce8e59` | Compras, aplicaciones e inventario sin cambios (huella antes/después). |
+| [<img src="42_foto_retirada_vinculos.png" width="150" alt="Foto retirada">](42_foto_retirada_vinculos.png) | Foto retirada | Vínculos tras el envío del retiro | `bce8e59` |  |
+| [<img src="43_solicitud_sin_compartir_foto.png" width="150" alt="Pedir identificación sin compartir la foto">](43_solicitud_sin_compartir_foto.png) | Pedir identificación sin compartir la foto | Producto con foto → casilla sin marcar | `bce8e59` |  |
 
 ## Publicación y estados de envío
 
@@ -145,13 +158,23 @@
 | [<img src="29b_solicitud_pendiente_tras_reabrir.png" width="150" alt="Mismo estado tras cerrar y reabrir la app">](29b_solicitud_pendiente_tras_reabrir.png) | Mismo estado tras cerrar y reabrir la app | Forzar cierre → abrir → Vínculos | `7257816` |  |
 | [<img src="29c_enviar_ahora_sin_conexion.png" width="150" alt="«Enviar ahora» sin conexión: sigue pendiente">](29c_enviar_ahora_sin_conexion.png) | «Enviar ahora» sin conexión: sigue pendiente | Vínculos → Enviar ahora | `7257816` | No se muestra éxito sin respuesta del servidor. |
 | [<img src="30_datos_recibidos_foto_fallida.png" width="150" alt="Datos recibidos por el sindicato con la foto fallida">](30_datos_recibidos_foto_fallida.png) | Datos recibidos por el sindicato con la foto fallida | Enviar ahora con un 503 inyectado sólo en la subida de la foto | `7257816` | Muestra un defecto real (texto de fallo definitivo ante un 503 transitorio), corregido después en 8a45484. |
+| [<img src="35_foto_fallo_reintentable.png" width="150" alt="Foto no enviada (se reintentará)">](35_foto_fallo_reintentable.png) | Foto no enviada (se reintentará) | Enviar con un 503 inyectado en la subida de la foto | `bce8e59` | Tras la corrección 8a45484: sigue reintentable aun con doble toque. |
+| [<img src="36_recibida_foto_enviada.png" width="150" alt="Recibida, esperando identificación, foto enviada">](36_recibida_foto_enviada.png) | Recibida, esperando identificación, foto enviada | Sin fallo inyectado → Enviar ahora | `bce8e59` |  |
+| [<img src="44_solicitud_sin_foto_recibida.png" width="150" alt="Solicitud recibida sin foto">](44_solicitud_sin_foto_recibida.png) | Solicitud recibida sin foto | Pedir identificación → Enviar ahora | `bce8e59` | El servidor la guarda sin foto ni consentimiento. |
+| [<img src="45_sincronizacion.png" width="150" alt="Sincronización">](45_sincronizacion.png) | Sincronización | Inicio → Enviar al sindicato | `bce8e59` |  |
+| [<img src="45b_sincronizacion_con_envio.png" width="150" alt="Sincronización tras publicar">](45b_sincronizacion_con_envio.png) | Sincronización tras publicar | Volver de Necesidades | `bce8e59` |  |
+| [<img src="46_necesidades_declaradas.png" width="150" alt="Necesidad declarada (vacía)">](46_necesidades_declaradas.png) | Necesidad declarada (vacía) | Sincronización → Necesidades declaradas | `bce8e59` |  |
+| [<img src="47_declarar_necesidad.png" width="150" alt="Declarar necesidad">](47_declarar_necesidad.png) | Declarar necesidad | Declarar → producto recién vinculado, 20 L | `bce8e59` |  |
+| [<img src="47b_confirmar_declaracion.png" width="150" alt="Confirmar declaración">](47b_confirmar_declaracion.png) | Confirmar declaración | Continuar | `bce8e59` |  |
+| [<img src="48_necesidad_estado_envio.png" width="150" alt="Necesidad aceptada por el sindicato">](48_necesidad_estado_envio.png) | Necesidad aceptada por el sindicato | Declarar | `bce8e59` | Push real aceptado por la Central aislada. |
+| [<img src="49_consumo_para_el_sindicato.png" width="150" alt="Consumo para el sindicato (sin publicar)">](49_consumo_para_el_sindicato.png) | Consumo para el sindicato (sin publicar) | Sincronización → Consumo para el sindicato | `bce8e59` | No se publicó. |
 
 ## Pantallas pendientes y motivo
 
-- Publicación al sindicato (necesidad declarada y consumo) y sus estados de envío: el emulador quedó saturado durante la sesión por compilaciones en el mismo equipo; se añadirán en una segunda entrega a esta rama.
-- Modo de uso, PIN del titular y Respaldo en la nube: misma causa; sólo se capturarán vistas, sin crear PIN ni subir o restaurar copias.
-- Foto enviada, vínculo identificado y confirmación del vínculo (cierre de la etapa 1): pendientes del mismo recorrido.
 - Campos completados por voz: requieren audio sintético autorizado o datos de prueba inyectados y señalados; no se hicieron.
+- Clave de recuperación del respaldo, PIN creado y subida o restauración de copias: se omitieron a propósito (pantallas con secretos o acciones no reversibles).
+- Mensaje tras exportar un respaldo local: la notificación desapareció antes de capturarla; su texto está cubierto por una prueba automatizada.
+- Compras conjuntas (convocatorias): se capturarán con la etapa 2.
 
 ## Diferencias con las capturas anteriores
 
