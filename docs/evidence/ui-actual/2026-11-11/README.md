@@ -1,0 +1,161 @@
+# Capturas actuales de la aplicación móvil — 2026-11-11
+
+**Conjunto vigente** para Claude Design. No reemplaza las evidencias anteriores (`docs/evidence/img/ux_c1/`, `docs/evidence/img/ux_f12/`, `docs/evidence/oe3_device*/`), que siguen describiendo sus fechas.
+
+| Campo | Valor |
+|---|---|
+| Fecha real | 2026-11-11, entre las 19:00Z y las 20:20Z (UTC) |
+| Procedencia | **EMULADOR** Pixel_8 (`emulator-5554`), Android 16, API 36. **No es un teléfono físico.** |
+| Código | Mobile `7257816` (rama `feat/etapa1-productos-identificacion-foto`: UXJ + F09 formulario único con voz + etapa 1); la última captura con `bce8e59` (dos correcciones de etapa 1). Esas ramas **no** están publicadas: esta rama sólo contiene imágenes y este índice. |
+| Paquete instalado | `com.comunidad.agro.agroquimicos.et1` («AC ET1»), `versionName` 1.0.0, `versionCode` 1, APK *profile* x86_64. La app normal y la DEMO no se tocaron. |
+| Pantalla | 1080 × 2400 px, densidad 420 dpi, escala de texto 1.0. Barra de estado del emulador en hora UTC. |
+| Central | Copia aislada de etapa 1 (PostgreSQL y API locales, accesibles por un túnel HTTPS temporal que sólo dejaba pasar `/api/v1/`). Ni la DEMO oficial ni datos reales. |
+| Datos | Exclusivamente sintéticos: cuenta `agricultor15.demo@example.test` (Central sembrada con la herramienta «rica»); en el teléfono, titular «Rosa Vargas sintetica» y la siembra local DEMO (Beto Mamani (DEMO), Carmen Choque (DEMO, tercera), Agroinsumos DEMO (sintético), Chaco Norte/Río DEMO, campaña Invierno 2026 (DEMO), Herbicida/Fungicida/Insecticida DEMO, tres compras, dos aplicaciones). Producto local «Abono foliar casero» con una etiqueta inventada creada para esta prueba. |
+| Voz | Las tres pantallas de voz muestran el panel **en reposo** («Listo para dictar»). No se grabó audio, no se usó audio sintético ni se inyectaron transcripciones: **no** son una evaluación de precisión ni muestran campos completados por voz. |
+
+## Acceso y ajustes
+
+| Captura | Pantalla | Cómo llegar | Código | Nota |
+|---|---|---|---|---|
+| [<img src="00_acceso_titular.png" width="150" alt="Titular de los datos y modalidad de inventario (primera activación)">](00_acceso_titular.png) | Titular de los datos y modalidad de inventario (primera activación) | Activar en línea → cuenta sintética → Titular de los datos | `7257816` |  |
+| [<img src="31_volver_a_autenticar.png" width="150" alt="Volver a autenticar">](31_volver_a_autenticar.png) | Volver a autenticar | Inicio → «Volver a autenticar» (sesión vencida tras cerrar la app) | `7257816` | Correo sintético; contraseña oculta. |
+
+## Inicio
+
+| Captura | Pantalla | Cómo llegar | Código | Nota |
+|---|---|---|---|---|
+| [<img src="01_inicio.png" width="150" alt="Inicio (resumen y accesos)">](01_inicio.png) | Inicio (resumen y accesos) | Pestaña Inicio | `7257816` |  |
+| [<img src="01b_inicio_inventario_proyectado.png" width="150" alt="Inicio desplazado: inventario proyectado">](01b_inicio_inventario_proyectado.png) | Inicio desplazado: inventario proyectado | Pestaña Inicio → desplazar | `7257816` |  |
+
+## Operaciones
+
+| Captura | Pantalla | Cómo llegar | Código | Nota |
+|---|---|---|---|---|
+| [<img src="02_operaciones.png" width="150" alt="Operaciones">](02_operaciones.png) | Operaciones | Pestaña Operaciones | `7257816` |  |
+| [<img src="02b_operaciones_registrar.png" width="150" alt="Menú «Registrar operación»">](02b_operaciones_registrar.png) | Menú «Registrar operación» | Operaciones → botón «Registrar operación» | `7257816` |  |
+| [<img src="03_mas_menu_opciones.png" width="150" alt="Más (menú de opciones)">](03_mas_menu_opciones.png) | Más (menú de opciones) | Operaciones → Más | `7257816` |  |
+| [<img src="03b_mas_menu_opciones_abajo.png" width="150" alt="Más, parte inferior (Registrar por voz, Licencias)">](03b_mas_menu_opciones_abajo.png) | Más, parte inferior (Registrar por voz, Licencias) | Operaciones → Más → desplazar | `7257816` |  |
+
+## Campañas y reportes
+
+| Captura | Pantalla | Cómo llegar | Código | Nota |
+|---|---|---|---|---|
+| [<img src="04_campanas.png" width="150" alt="Campañas">](04_campanas.png) | Campañas | Operaciones → Campañas | `7257816` |  |
+| [<img src="05_reportes.png" width="150" alt="Reportes">](05_reportes.png) | Reportes | Operaciones → Reportes | `7257816` |  |
+
+## Compras
+
+| Captura | Pantalla | Cómo llegar | Código | Nota |
+|---|---|---|---|---|
+| [<img src="06_compras_lista.png" width="150" alt="Lista de compras">](06_compras_lista.png) | Lista de compras | Operaciones → Compras | `7257816` |  |
+| [<img src="06b_compras_menu_fila.png" width="150" alt="Menú de una compra (pago, reversión)">](06b_compras_menu_fila.png) | Menú de una compra (pago, reversión) | Compras → ⋮ de una fila | `7257816` |  |
+| [<img src="07_compra_detalle.png" width="150" alt="Detalle de compra">](07_compra_detalle.png) | Detalle de compra | Compras → DEMO-002 | `7257816` |  |
+| [<img src="07b_compra_detalle_abajo.png" width="150" alt="Detalle de compra, parte inferior">](07b_compra_detalle_abajo.png) | Detalle de compra, parte inferior | Detalle → desplazar | `7257816` |  |
+| [<img src="08_compra_formulario_paso1.png" width="150" alt="Nueva compra, paso 1 (formulario único)">](08_compra_formulario_paso1.png) | Nueva compra, paso 1 (formulario único) | Compras → Nueva compra | `7257816` |  |
+| [<img src="08b_compra_selector_producto.png" width="150" alt="Selector de producto">](08b_compra_selector_producto.png) | Selector de producto | Nueva compra → Producto | `7257816` |  |
+| [<img src="08c_compra_formulario_completo.png" width="150" alt="Nueva compra, paso 1 completo">](08c_compra_formulario_completo.png) | Nueva compra, paso 1 completo | Nueva compra → producto, cantidad, precio, persona | `7257816` | No se confirmó: los datos no cambian. |
+| [<img src="08d_compra_paso2_revision.png" width="150" alt="Nueva compra, paso 2 (revisión y pago)">](08d_compra_paso2_revision.png) | Nueva compra, paso 2 (revisión y pago) | Nueva compra → Continuar | `7257816` |  |
+| [<img src="08e_compra_descartar_cambios.png" width="150" alt="Diálogo «¿Descartar cambios?»">](08e_compra_descartar_cambios.png) | Diálogo «¿Descartar cambios?» | Nueva compra → Atrás | `7257816` |  |
+
+## Voz integrada
+
+| Captura | Pantalla | Cómo llegar | Código | Nota |
+|---|---|---|---|---|
+| [<img src="09_voz_compra_panel_listo.png" width="150" alt="Compra con el panel de voz abierto">](09_voz_compra_panel_listo.png) | Compra con el panel de voz abierto | Nueva compra → «Completar por voz» | `7257816` | Formulario con controles de voz en reposo («Listo para dictar»). Sin audio: no se grabó ni se dictó nada. |
+| [<img src="12_voz_aplicacion_panel_listo.png" width="150" alt="Aplicación con el panel de voz abierto">](12_voz_aplicacion_panel_listo.png) | Aplicación con el panel de voz abierto | Nueva aplicación → «Completar por voz» | `7257816` | Formulario con controles de voz en reposo («Listo para dictar»). Sin audio: no se grabó ni se dictó nada. |
+| [<img src="15_voz_plan_panel_listo.png" width="150" alt="Planificación con el panel de voz abierto">](15_voz_plan_panel_listo.png) | Planificación con el panel de voz abierto | Nuevo plan → «Completar por voz» | `7257816` | Formulario con controles de voz en reposo («Listo para dictar»). Sin audio: no se grabó ni se dictó nada. |
+| [<img src="16_registrar_por_voz.png" width="150" alt="Registrar por voz (entrada desde Más)">](16_registrar_por_voz.png) | Registrar por voz (entrada desde Más) | Operaciones → Más → Registrar por voz | `7257816` |  |
+
+## Aplicaciones
+
+| Captura | Pantalla | Cómo llegar | Código | Nota |
+|---|---|---|---|---|
+| [<img src="10_aplicaciones_lista.png" width="150" alt="Lista de aplicaciones">](10_aplicaciones_lista.png) | Lista de aplicaciones | Operaciones → Aplicaciones | `7257816` |  |
+| [<img src="11_aplicacion_formulario.png" width="150" alt="Nueva aplicación, paso 1 vacío">](11_aplicacion_formulario.png) | Nueva aplicación, paso 1 vacío | Aplicaciones → Registrar | `7257816` |  |
+| [<img src="11c_aplicacion_selector_chaco.png" width="150" alt="Selector de chaco">](11c_aplicacion_selector_chaco.png) | Selector de chaco | Nueva aplicación → Chaco | `7257816` |  |
+| [<img src="11b_aplicacion_formulario_paso1.png" width="150" alt="Nueva aplicación, paso 1 completo">](11b_aplicacion_formulario_paso1.png) | Nueva aplicación, paso 1 completo | Persona y chaco elegidos | `7257816` |  |
+| [<img src="11c2_aplicacion_agregar_producto.png" width="150" alt="Agregar producto a la mezcla">](11c2_aplicacion_agregar_producto.png) | Agregar producto a la mezcla | Paso 2 → Agregar producto | `7257816` |  |
+| [<img src="11d_aplicacion_formulario_paso2.png" width="150" alt="Nueva aplicación, paso 2 (productos y cantidades)">](11d_aplicacion_formulario_paso2.png) | Nueva aplicación, paso 2 (productos y cantidades) | Paso 2 con un producto | `7257816` |  |
+| [<img src="11e_aplicacion_paso3_revision.png" width="150" alt="Nueva aplicación, paso 3 (resumen y confirmación)">](11e_aplicacion_paso3_revision.png) | Nueva aplicación, paso 3 (resumen y confirmación) | Paso 3 | `7257816` | No se confirmó. |
+
+## Planificación
+
+| Captura | Pantalla | Cómo llegar | Código | Nota |
+|---|---|---|---|---|
+| [<img src="13_planificacion_lista.png" width="150" alt="Lista de planes (un plan sintético desplegado)">](13_planificacion_lista.png) | Lista de planes (un plan sintético desplegado) | Operaciones → Planificación | `7257816` | El plan se creó en esta sesión con el formulario. |
+| [<img src="14_plan_formulario.png" width="150" alt="Nueva planificación vacía">](14_plan_formulario.png) | Nueva planificación vacía | Planificación → Nuevo plan | `7257816` |  |
+| [<img src="14b_plan_formulario_completo.png" width="150" alt="Nueva planificación completa">](14b_plan_formulario_completo.png) | Nueva planificación completa | Chaco, área, producto y dosis | `7257816` |  |
+
+## Inventario
+
+| Captura | Pantalla | Cómo llegar | Código | Nota |
+|---|---|---|---|---|
+| [<img src="17_inventario.png" width="150" alt="Inventario">](17_inventario.png) | Inventario | Pestaña Inventario | `7257816` |  |
+| [<img src="18_inventario_detalle.png" width="150" alt="Detalle de producto en inventario">](18_inventario_detalle.png) | Detalle de producto en inventario | Inventario → Fungicida DEMO | `7257816` |  |
+| [<img src="18b_inventario_detalle_abajo.png" width="150" alt="Detalle de inventario, distribución por persona">](18b_inventario_detalle_abajo.png) | Detalle de inventario, distribución por persona | Detalle → desplazar | `7257816` |  |
+| [<img src="19_inventario_avisos.png" width="150" alt="Avisos de inventario">](19_inventario_avisos.png) | Avisos de inventario | Inventario → Avisos de inventario | `7257816` |  |
+| [<img src="19b_inventario_avisos_abajo.png" width="150" alt="Avisos de inventario, parte inferior">](19b_inventario_avisos_abajo.png) | Avisos de inventario, parte inferior | Avisos → desplazar | `7257816` |  |
+| [<img src="20_estimacion_consumo.png" width="150" alt="Estimación del consumo (sin copia descargada)">](20_estimacion_consumo.png) | Estimación del consumo (sin copia descargada) | Inventario → Estimación del consumo | `7257816` | No se consultó en línea. |
+
+## Personas, chacos y cuentas
+
+| Captura | Pantalla | Cómo llegar | Código | Nota |
+|---|---|---|---|---|
+| [<img src="21_personas.png" width="150" alt="Personas">](21_personas.png) | Personas | Pestaña Personas | `7257816` |  |
+| [<img src="21b_persona_detalle_titular.png" width="150" alt="Detalle de la titular">](21b_persona_detalle_titular.png) | Detalle de la titular | Personas → Rosa Vargas | `7257816` |  |
+| [<img src="21c_persona_chacos.png" width="150" alt="Chacos de una persona">](21c_persona_chacos.png) | Chacos de una persona | Personas → Beto → Chacos | `7257816` |  |
+| [<img src="22_cuentas.png" width="150" alt="Liquidación y cuentas">](22_cuentas.png) | Liquidación y cuentas | Pestaña Cuentas | `7257816` |  |
+| [<img src="22b_cuenta_detalle.png" width="150" alt="Cuenta de una persona">](22b_cuenta_detalle.png) | Cuenta de una persona | Cuentas → Beto Mamani | `7257816` |  |
+
+## Catálogos
+
+| Captura | Pantalla | Cómo llegar | Código | Nota |
+|---|---|---|---|---|
+| [<img src="23_catalogos_personas.png" width="150" alt="Catálogos: personas">](23_catalogos_personas.png) | Catálogos: personas | Más → Administrar datos | `7257816` |  |
+| [<img src="23b_catalogos_chacos.png" width="150" alt="Catálogos: chacos">](23b_catalogos_chacos.png) | Catálogos: chacos | Administrar datos → Chacos | `7257816` |  |
+| [<img src="23c_catalogos_productos.png" width="150" alt="Catálogos: productos">](23c_catalogos_productos.png) | Catálogos: productos | Administrar datos → Productos | `7257816` |  |
+| [<img src="23d_catalogos_proveedores.png" width="150" alt="Catálogos: proveedores">](23d_catalogos_proveedores.png) | Catálogos: proveedores | Administrar datos → Proveedores | `7257816` |  |
+| [<img src="23e_catalogos_campanas.png" width="150" alt="Catálogos: campañas">](23e_catalogos_campanas.png) | Catálogos: campañas | Administrar datos → Campañas | `7257816` |  |
+| [<img src="23f_catalogos_productos_con_foto.png" width="150" alt="Productos con «Con foto de la etiqueta»">](23f_catalogos_productos_con_foto.png) | Productos con «Con foto de la etiqueta» | Administrar datos → Productos | `7257816` |  |
+
+## Foto de etiqueta
+
+| Captura | Pantalla | Cómo llegar | Código | Nota |
+|---|---|---|---|---|
+| [<img src="24_producto_local_nuevo_sin_conexion.png" width="150" alt="Nuevo producto local sin conexión">](24_producto_local_nuevo_sin_conexion.png) | Nuevo producto local sin conexión | Productos → Agregar producto (Wi‑Fi y datos apagados) | `7257816` | El teclado del emulador alteró el texto escrito por ADB; luego se corrigió el nombre. |
+| [<img src="24b_producto_menu_fila.png" width="150" alt="Menú del producto (Editar, Foto de la etiqueta, Archivar)">](24b_producto_menu_fila.png) | Menú del producto (Editar, Foto de la etiqueta, Archivar) | Productos → ⋮ | `7257816` |  |
+| [<img src="25_foto_etiqueta_vacia.png" width="150" alt="Hoja «Foto de la etiqueta» sin foto">](25_foto_etiqueta_vacia.png) | Hoja «Foto de la etiqueta» sin foto | ⋮ → Foto de la etiqueta | `7257816` |  |
+| [<img src="26_foto_etiqueta_guardada_sin_conexion.png" width="150" alt="Foto guardada en el teléfono, sin conexión">](26_foto_etiqueta_guardada_sin_conexion.png) | Foto guardada en el teléfono, sin conexión | Elegir de la galería → etiqueta sintética | `7257816` | Imagen de una etiqueta inventada («ABONO FOLIAR CASERO, etiqueta sintética»). |
+| [<img src="32_foto_etiqueta_con_aviso_respaldo.png" width="150" alt="Hoja de la foto con el aviso de respaldo">](32_foto_etiqueta_con_aviso_respaldo.png) | Hoja de la foto con el aviso de respaldo | ⋮ → Foto de la etiqueta | `bce8e59` | Incluye el aviso nuevo: las fotos de etiqueta no entran en los respaldos. |
+
+## Vínculos e identificación
+
+| Captura | Pantalla | Cómo llegar | Código | Nota |
+|---|---|---|---|---|
+| [<img src="27_vinculos_sin_conexion.png" width="150" alt="Vincular con el sindicato (sin conexión)">](27_vinculos_sin_conexion.png) | Vincular con el sindicato (sin conexión) | Más → Vínculos con el sindicato | `7257816` |  |
+| [<img src="27b_vinculos_opciones_producto_local.png" width="150" alt="Opciones de un producto sin vínculo">](27b_vinculos_opciones_producto_local.png) | Opciones de un producto sin vínculo | Vínculos → ⋮ del producto local | `7257816` |  |
+| [<img src="28_solicitud_identificacion_dialogo.png" width="150" alt="Diálogo «Pedir identificación al sindicato»">](28_solicitud_identificacion_dialogo.png) | Diálogo «Pedir identificación al sindicato» | ⋮ → Pedir identificación | `7257816` | Muestra exactamente lo que se envía. |
+| [<img src="28b_solicitud_con_foto_autorizada.png" width="150" alt="Diálogo con la foto autorizada (casilla FOTO-1 marcada)">](28b_solicitud_con_foto_autorizada.png) | Diálogo con la foto autorizada (casilla FOTO-1 marcada) | Marcar «Compartir también la foto» | `7257816` |  |
+
+## Publicación y estados de envío
+
+| Captura | Pantalla | Cómo llegar | Código | Nota |
+|---|---|---|---|---|
+| [<img src="29_solicitud_pendiente_de_envio.png" width="150" alt="Solicitud «Pendiente de envío» y «Foto pendiente de envío»">](29_solicitud_pendiente_de_envio.png) | Solicitud «Pendiente de envío» y «Foto pendiente de envío» | Pedir identificación sin conexión | `7257816` |  |
+| [<img src="29b_solicitud_pendiente_tras_reabrir.png" width="150" alt="Mismo estado tras cerrar y reabrir la app">](29b_solicitud_pendiente_tras_reabrir.png) | Mismo estado tras cerrar y reabrir la app | Forzar cierre → abrir → Vínculos | `7257816` |  |
+| [<img src="29c_enviar_ahora_sin_conexion.png" width="150" alt="«Enviar ahora» sin conexión: sigue pendiente">](29c_enviar_ahora_sin_conexion.png) | «Enviar ahora» sin conexión: sigue pendiente | Vínculos → Enviar ahora | `7257816` | No se muestra éxito sin respuesta del servidor. |
+| [<img src="30_datos_recibidos_foto_fallida.png" width="150" alt="Datos recibidos por el sindicato con la foto fallida">](30_datos_recibidos_foto_fallida.png) | Datos recibidos por el sindicato con la foto fallida | Enviar ahora con un 503 inyectado sólo en la subida de la foto | `7257816` | Muestra un defecto real (texto de fallo definitivo ante un 503 transitorio), corregido después en 8a45484. |
+
+## Pantallas pendientes y motivo
+
+- Publicación al sindicato (necesidad declarada y consumo) y sus estados de envío: el emulador quedó saturado durante la sesión por compilaciones en el mismo equipo; se añadirán en una segunda entrega a esta rama.
+- Modo de uso, PIN del titular y Respaldo en la nube: misma causa; sólo se capturarán vistas, sin crear PIN ni subir o restaurar copias.
+- Foto enviada, vínculo identificado y confirmación del vínculo (cierre de la etapa 1): pendientes del mismo recorrido.
+- Campos completados por voz: requieren audio sintético autorizado o datos de prueba inyectados y señalados; no se hicieron.
+
+## Diferencias con las capturas anteriores
+
+- `ux_c1` y `ux_f12` (2026-10-30) y `oe3_device*` (2026-11-03) son de `main` o anteriores: no tienen el **formulario único** de compra, aplicación y planificación (pasos, resumen «Lo que se va a guardar», diálogo de descarte) ni los controles **«Completar por voz»** ni la entrada **«Registrar por voz»**.
+- Nuevas en este conjunto: **foto de la etiqueta** del producto, **solicitud de identificación** al sindicato con su autorización aparte para la foto, y los **estados de envío** («Pendiente de envío», «Foto pendiente de envío», «Recibida por el sindicato», «Esperando identificación»).
+- Muestran también **avisos de inventario** (vencidos, vencen hoy, próximos, bajos) y la **estimación del consumo** sin copia descargada.
+- Observación para el diseño: en las subpantallas de Más (p. ej. Vínculos) la barra inferior resalta «Inicio» aunque se llegó desde Operaciones.
