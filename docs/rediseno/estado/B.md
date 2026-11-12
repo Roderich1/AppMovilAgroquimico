@@ -1,7 +1,7 @@
 # Estado de la sesión B
 
 - Dueño del worktree: proyectoagro-a8 desde 2026-11-12 07:09
-- Base incorporada: B1 (`0a2e321`, fusión `20ed54a`)
+- Base incorporada: integración `af04f7e` (incluye B2 `794a44b`; fusión `3957e41`)
 - Mapa de pantallas, rutas y accesos: `docs/rediseno/estado/B_MAPA.md`
 
 ## Entregas listas
@@ -9,7 +9,8 @@
 | n | SHA | Pantallas / rutas | Pruebas corridas | Capturas | Diferencias con la lámina |
 |---|---|---|---|---|---|
 | 1 | `8e97b78` (código: `950ce19`, `e79d422`, `032a100`) — integrada, revisión B-1 | Inicio `/` (1.2), Almacén `/inventario` (1.4), resumen de avisos del Almacén | ver «Entrega 1» | `docs/evidence/rediseno-movil/2026-11-12/sesion-b/entrega-1/` | ver «Entrega 1» |
-| 2 | el commit que añade esta fila (código: `b2997b1`) | Actividad `/operaciones` (1.3) | ver «Entrega 2» | `docs/evidence/rediseno-movil/2026-11-12/sesion-b/entrega-2/` | ver «Entrega 2» |
+| 2 | `eb7807e` (código: `b2997b1`) — integrada en `af04f7e` | Actividad `/operaciones` (1.3) | ver «Entrega 2» | `docs/evidence/rediseno-movil/2026-11-12/sesion-b/entrega-2/` | ver «Entrega 2» |
+| 3 | el commit que añade esta fila (código: `f112d0e`, `ba8d8df` y la corrección del total) | Lista de compras `/compras`, detalle `/compras/detalle/:id` (2.8) | ver «Entrega 3» | `docs/evidence/rediseno-movil/2026-11-12/sesion-b/entrega-3/` | ver «Entrega 3» |
 
 ### Entrega 1 — Inicio y Almacén
 
@@ -82,9 +83,26 @@
 - `uxj_a_navegacion`: (a) Campañas desde Inicio (pestaña 0) y Reportes desde Actividad (pestaña 1), Atrás vuelve a su pestaña; (d) y (e) **reescritas**: la cuadrícula de 7 tarjetas ya no existe; ahora (d) el «+» no tapa los botones ni los filtros de Actividad y (e) Actividad muestra los filtros y Reportes, y no Más ni Campañas.
 - `f10_x01_inicio_mas`: «Actividad: lo diario y Reportes; Más desde Inicio».
 
+### Entrega 3 — Compras y detalle de compra
+
+**Detalle (2.8).** Cabecera oscura: «Compra · fecha · factura», proveedor, total (tachado si se revirtió), estado («Confirmada»/«Revertida»), barra de lo pagado, «Pagado X» y «Falta Y» (o «Pagada») y **«Registrar pago al proveedor»** mientras quede saldo (mismo diálogo que la lista: paga el titular, máximo = saldo, medio y fecha visibles). Menú: «Revertir compra» (motivo y PIN del titular, RF-13). Debajo: productos (precio, subtotal, para quién y cómo se cobra, vencimiento, lote, «Corregir vencimiento o lote», «Ver correcciones»), pagos al proveedor (con los revertidos) y «Datos de la compra» (factura, fecha, campaña, total, pagado, tipo de cambio, notas, reversión y auditoría, «Ver foto de la factura»). Mismos textos que pide `ux_c1_detalle_compra` (sin `FittedBox`, sin encoger la escala). El total elige el tamaño de cifra que entra en una línea con la letra del teléfono.
+**Lista.** Filas con proveedor y factura, fecha, campaña, productos, total y estado del pago («Sin pagar», «Pagó X · falta Y», «Pagada», «Revertida» con su auditoría); filtro por campaña, búsqueda, «Nueva compra» y menú («Ver factura», «Registrar pago», «Revertir compra») sin cambios.
+**Código.** Pago al proveedor y reversión trasladados sin cambios a `widgets/rdm_b_purchase_actions.dart` (lista y detalle). `RdmBackButton` en `rdm_b_ui.dart` (escucha al router, como `PageFrame`). La pastilla de filtro elegida se desplaza hasta verse entera (sólo su fila).
+
+**Diferencias con la lámina**
+| Lámina | App | Motivo |
+|---|---|---|
+| Producto: «Para Rosa · vence …» y subtotal a la derecha | precio, subtotal, destinatarios con su cobro, vencimiento, lote y correcciones | Conserva lo que UX-C1 exige y las correcciones RF-42. |
+| Pago: «02/11 · Transferencia / Pagó Rosa» con importe a la derecha | una línea por pago (texto de UX-C1), revertidos en gris | Prueba de UX-C1. |
+| Sin «Datos de la compra» | sección al final | Campaña, tipo de cambio, notas, auditoría y foto de la factura. |
+| Sin estado | «Confirmada»/«Revertida» con texto | El estado no se dice sólo con color. |
+
+**Pruebas corridas** (en verde): `ux_c1_detalle_compra`, `ux_c1_correcciones`, `rec_008_invoice_viewer`, `rec_050_reversal_rules`, `e2_joint_purchase_screens`, `error_states`, `f04_admin_owner_restore_ui`, `e12_pending_operation_return`, `f04_av_inventory_alerts_ui`, `f04_effective_date_form`, `f10_x01_pago_datos`, `f10_x01_pago_revision`, `hierarchical_navigation`, `navigation`, `purchases_access`, `ui_polish`, `uxj_a_navegacion`.
+**Pruebas adaptadas:** `rec_008_invoice_viewer` y `ux_c1_correcciones` (A2) buscan la fila de la compra por su clave `purchase-card-<id>` en vez de una `Card`.
+
 ## En curso
 
-- Siguiente (tras incorporar B2): lista de Compras y detalle (2.8), Transferencias y nueva transferencia (5.4), Producto (4.1), Avisos (4.2), Estimación (4.3).
+- Siguiente: Transferencias y nueva transferencia (5.4), Producto (4.1), Avisos (4.2), Estimación (4.3).
 - Cedido a la sesión A el 2026-11-12 (propuesta del orquestador): Personas, Persona, Cuenta, Pago, Propios, Costos por chaco y Bitácora (`persons_screen`, `person_detail_screen`, `settlements_screen`, `account_statement_view`, `farm_logbook_screen`). B no los tocó.
 
 ## Solicitudes al orquestador
