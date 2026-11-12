@@ -18,7 +18,7 @@ class AppDatabase {
   /// Toda base, creada desde cero o migrada desde cualquier versión anterior,
   /// debe terminar con el mismo esquema. `test/schema_equivalence_test.dart`
   /// lo verifica automáticamente.
-  static const int schemaVersion = 17;
+  static const int schemaVersion = 18;
 
   /// Primera versión con `owner_bindings` e `install_origin`: una base
   /// anterior es histórica y no declara titular.
@@ -59,6 +59,10 @@ class AppDatabase {
   /// recuento de anteriores del sindicato por titular (E2 §10.1, historial).
   static const int jointPurchaseHistorySinceVersion = 17;
 
+  /// Primera versión con la cola propia de decisiones sobre el
+  /// consentimiento de las convocatorias (E2 §10.6, P-C).
+  static const int jointPurchaseConsentSinceVersion = 18;
+
   /// v17 — columna opcional de `joint_purchase_calls` (E2 §10.1 a): la
   /// fecha de término según el sindicato (`closed_at` o `cancelled_at`), en
   /// UTC. Sólo decide el filtro de presentación (recientes / «Historial»);
@@ -81,6 +85,34 @@ class AppDatabase {
         server_time TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         PRIMARY KEY (tenant_id, member_id))''',
+  ];
+
+  /// v18 — `joint_purchase_consent_ops` (E2 §10.6, P-C): cola propia de las
+  /// decisiones sobre quién ve el nombre y las cantidades del agricultor
+  /// («ampliar» = `COLLABORATORS`, «reducir» = `RESPONSIBLE_ONLY`). Separada
+  /// de la de cantidades: una cantidad nunca cambia el consentimiento, y cada
+  /// decisión lleva su `operation_id`, su versión del texto y su `sequence`
+  /// propia por convocatoria y titular. Tabla nueva y vacía; no toca nada
+  /// existente.
+  static const List<String> jointPurchaseConsentSchema = <String>[
+    '''CREATE TABLE IF NOT EXISTS joint_purchase_consent_ops (
+        operation_id TEXT PRIMARY KEY,
+        call_id TEXT NOT NULL,
+        tenant_id TEXT NOT NULL,
+        member_id TEXT NOT NULL,
+        sequence INTEGER NOT NULL CHECK (sequence >= 1),
+        scope TEXT NOT NULL CHECK (scope IN ('RESPONSIBLE_ONLY','COLLABORATORS')),
+        consent_version TEXT NOT NULL,
+        decided_at TEXT NOT NULL,
+        send_status TEXT NOT NULL CHECK (send_status IN ('PENDING_SEND','RECEIVED','REJECTED','OUT_OF_TIME','SUPERSEDED','AUTH_PAUSED')),
+        attempts INTEGER NOT NULL DEFAULT 0,
+        next_attempt_at TEXT,
+        last_code TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE (call_id, member_id, sequence))''',
+    'CREATE INDEX IF NOT EXISTS idx_joint_purchase_consent_ops_status '
+        'ON joint_purchase_consent_ops(tenant_id, member_id, send_status)',
   ];
 
   /// v16 — convocatorias de compra conjunta (E2 §5). Dos tablas nuevas:
@@ -880,6 +912,7 @@ class AppDatabase {
     await _applyProductIdentificationSchema(db);
     await _applyJointPurchaseSchema(db);
     await _applyJointPurchaseHistorySchema(db);
+    await _applyJointPurchaseConsentSchema(db);
     // Una base creada por esta versión nace bajo la política de activación.
     await db.insert('app_settings', {
       'key': installOriginKey,
@@ -1054,6 +1087,19 @@ class AppDatabase {
     }
     if (oldVersion < 17) {
       await _applyJointPurchaseHistorySchema(db);
+    }
+    if (oldVersion < 18) {
+      await _applyJointPurchaseConsentSchema(db);
+    }
+  }
+
+  /// Versión 18 — **decisiones sobre el consentimiento** de las
+  /// convocatorias (E2 §10.6). Aditiva: una tabla nueva y vacía con su
+  /// índice. No hace backfill ni toca las operaciones de cantidades ni la
+  /// copia local de las convocatorias. Idempotente: IF NOT EXISTS en todo.
+  Future<void> _applyJointPurchaseConsentSchema(DatabaseExecutor db) async {
+    for (final statement in jointPurchaseConsentSchema) {
+      await db.execute(statement);
     }
   }
 

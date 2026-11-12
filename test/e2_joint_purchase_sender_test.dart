@@ -64,8 +64,40 @@ void main() {
     final opId = body['operation_id'] as String;
     final replay = seenOps[opId];
     if (replay != null) return replay;
-    final last = accepted[id]?['last_sequence'] as int? ?? 0;
     final sequence = body['sequence'] as int;
+    // E2 §10.6: decisión sobre el consentimiento, con orden propio.
+    if (path.endsWith('/consent')) {
+      final current = accepted[id];
+      if (current == null) {
+        return jsonResponse({'errorCode': 'PARTICIPATION_REQUIRED'}, 409);
+      }
+      final scopeSequence =
+          (current['consent_scope'] as Map?)?['sequence'] as int? ?? 0;
+      if (sequence <= scopeSequence) {
+        return jsonResponse({
+          'errorCode': 'STALE_SEQUENCE',
+          'participation': current,
+        }, 409);
+      }
+      final consent = body['consent'] as Map<String, dynamic>;
+      accepted[id] = {
+        ...current,
+        'consent_scope': {
+          'scope': body['scope'],
+          'version': consent['version'],
+          'decided_at': consent['decided_at'],
+          'received_at': now.toIso8601String(),
+          'sequence': sequence,
+        },
+      };
+      final response = jsonResponse({
+        'outcome': 'ACCEPTED',
+        'participation': accepted[id],
+      }, 200);
+      seenOps[opId] = response;
+      return response;
+    }
+    final last = accepted[id]?['last_sequence'] as int? ?? 0;
     if (sequence <= last) {
       return jsonResponse({
         'errorCode': 'STALE_SEQUENCE',
@@ -73,6 +105,7 @@ void main() {
       }, 409);
     }
     final withdraw = path.endsWith('/withdraw');
+    final keptScope = accepted[id]?['consent_scope'];
     accepted[id] = participationJson(
       lastSequence: sequence,
       withdrawn: withdraw,
@@ -85,6 +118,10 @@ void main() {
                 ),
             },
     );
+    // Las cantidades nunca cambian el alcance (E2 §10.6).
+    if (keptScope != null) {
+      accepted[id] = {...accepted[id]!, 'consent_scope': keptScope};
+    }
     final response = jsonResponse({
       'outcome': 'ACCEPTED',
       'participation': accepted[id],
@@ -147,13 +184,16 @@ void main() {
       expect(body, {
         'operation_id': op.operationId,
         'sequence': 1,
-        'consent': {'version': 'CONV-2', 'accepted_at': now.toIso8601String()},
+        'consent': {'version': 'CONV-3', 'accepted_at': now.toIso8601String()},
         'lines': [
           {'product_ref': litreRef, 'quantity_base': '25000'},
           {'product_ref': kiloRef, 'quantity_base': '4500'},
         ],
       });
       expect(requests.first.headers['authorization'], 'Bearer token-sintetico');
+      // N7: cada petición dice qué contrato lee el teléfono.
+      expect(requests.first.headers['x-joint-purchase-contract'], '2');
+      expect(requests.last.headers['x-joint-purchase-contract'], '2');
       final stored = (await store.op(op.operationId))!;
       expect(stored.sendStatus, JointPurchaseOpStatus.received);
       final call = (await store.call(callId))!;
@@ -766,5 +806,183 @@ void main() {
       () => config.endpoint(_base, query: {'limit': '20'}),
       throwsA(isA<AuthApiException>()),
     );
+  });
+
+  // --- E2 §10.6 (P-C) y N7 ---------------------------------------------
+
+  test('P-C: modificar no lleva consentimiento; la decisión va aparte, después de las cantidades', () async {
+    await confirm({litreRef: 25000});
+    await sender.run(access());
+    // Modificar con una participación ya en el sindicato: sin consentimiento.
+    final modified = await store.confirm(
+      callId: callId,
+      lines: {litreRef: 30000},
+      consentVersion: jointPurchaseConsentVersion,
+      consentAcceptedAt: now,
+    );
+    expect(modified.consentVersion, isNull);
+    final widen = (await store.decideConsent(
+      callId: callId,
+      scope: JointPurchaseConsentScope.collaborators,
+      decidedAt: now,
+    ))!;
+    requests.clear();
+    final report = await sender.run(access());
+    expect(report.received, 2);
+    expect(calls(), [
+      'PUT /$callId/participation',
+      'POST /$callId/participation/consent',
+      'GET ',
+    ]);
+    expect(
+      (jsonDecode(requests.first.body) as Map).containsKey('consent'),
+      isFalse,
+    );
+    expect(jsonDecode(requests[1].body), {
+      'operation_id': widen.operationId,
+      'sequence': 1,
+      'scope': 'COLLABORATORS',
+      'consent': {'version': 'CONV-3', 'decided_at': now.toIso8601String()},
+    });
+    expect(requests[1].headers['x-joint-purchase-contract'], '2');
+    final call = (await store.call(callId))!;
+    expect(call.serverParticipation!.consentScope, 'COLLABORATORS');
+    expect(call.serverParticipation!.lines, {litreRef: 30000});
+    expect(call.pendingConsentOp, isNull);
+    expect(call.latestConsentOp!.sendStatus, JointPurchaseOpStatus.received);
+  });
+
+  test('P-C: sin conexión la decisión queda pendiente y no se da por aplicada', () async {
+    await confirm({litreRef: 25000});
+    await sender.run(access());
+    await store.decideConsent(
+      callId: callId,
+      scope: JointPurchaseConsentScope.collaborators,
+      decidedAt: now,
+    );
+    await sender.run(access());
+    final reduce = (await store.decideConsent(
+      callId: callId,
+      scope: JointPurchaseConsentScope.responsibleOnly,
+      decidedAt: now,
+    ))!;
+    respond = (_) => throw http.ClientException('sin red');
+    final report = await sender.run(access(), forceList: true);
+    expect(report.retried, 1);
+    expect(report.listProblem, JointPurchaseListProblem.offline);
+    final call = (await store.call(callId))!;
+    // Lo vigente sigue siendo lo que el sindicato aceptó.
+    expect(call.serverParticipation!.consentScope, 'COLLABORATORS');
+    expect(call.pendingConsentOp!.operationId, reduce.operationId);
+    // Con red, el mismo operation_id y la misma sequence.
+    respond = central;
+    now = now.add(const Duration(hours: 1));
+    requests.clear();
+    await sender.run(access());
+    expect(jsonDecode(requests.first.body)['operation_id'], reduce.operationId);
+    expect(jsonDecode(requests.first.body)['sequence'], 2);
+    expect(
+      (await store.call(callId))!.serverParticipation!.consentScope,
+      'RESPONSIBLE_ONLY',
+    );
+  });
+
+  test('P-C: la primera participación aún sin aceptar: la decisión espera (PARTICIPATION_REQUIRED se reintenta)', () async {
+    await confirm({litreRef: 25000});
+    await store.decideConsent(
+      callId: callId,
+      scope: JointPurchaseConsentScope.collaborators,
+      decidedAt: now,
+    );
+    var failConfirm = true;
+    respond = (request) {
+      if (failConfirm && request.method == 'PUT') {
+        return jsonResponse({'errorCode': 'TEMPORARILY_UNAVAILABLE'}, 503);
+      }
+      return central(request);
+    };
+    await sender.run(access());
+    final pending = (await store.consentOps(callId)).single;
+    expect(pending.sendStatus, JointPurchaseOpStatus.pendingSend);
+    expect(pending.lastCode, 'PARTICIPATION_REQUIRED');
+    failConfirm = false;
+    now = now.add(const Duration(hours: 1));
+    await sender.run(access());
+    expect(
+      (await store.call(callId))!.serverParticipation!.consentScope,
+      'COLLABORATORS',
+    );
+  });
+
+  test('P-C: una decisión atrasada no revierte la posterior (STALE_SEQUENCE adopta la vigente)', () async {
+    await confirm({litreRef: 25000});
+    await sender.run(access());
+    final widen = (await store.decideConsent(
+      callId: callId,
+      scope: JointPurchaseConsentScope.collaborators,
+      decidedAt: now,
+    ))!;
+    // Otro teléfono del mismo titular ya decidió reducir con orden 3.
+    accepted[callId] = {
+      ...accepted[callId]!,
+      'consent_scope': {
+        'scope': 'RESPONSIBLE_ONLY',
+        'version': 'CONV-3',
+        'decided_at': now.toIso8601String(),
+        'received_at': now.toIso8601String(),
+        'sequence': 3,
+      },
+    };
+    final report = await sender.run(access());
+    expect(report.superseded, 1);
+    expect(
+      (await store.consentOp(widen.operationId))!.sendStatus,
+      JointPurchaseOpStatus.superseded,
+    );
+    final call = (await store.call(callId))!;
+    expect(call.serverParticipation!.consentScope, 'RESPONSIBLE_ONLY');
+    expect(call.serverParticipation!.consentScopeSequence, 3);
+  });
+
+  test('P-C: una respuesta de cantidades con un alcance más viejo no pisa la decisión aplicada', () async {
+    await confirm({litreRef: 25000});
+    await sender.run(access());
+    await store.decideConsent(
+      callId: callId,
+      scope: JointPurchaseConsentScope.collaborators,
+      decidedAt: now,
+    );
+    await sender.run(access());
+    final modified = await store.confirm(callId: callId, lines: {litreRef: 40000});
+    // El servidor responde con cantidades nuevas pero un alcance anterior.
+    respond = (request) => jsonResponse({
+      'outcome': 'ACCEPTED',
+      'participation': participationJson(
+        lastSequence: modified.sequence,
+        lines: {litreRef: 40000},
+      ),
+    }, 200);
+    await sender.run(access());
+    final call = (await store.call(callId))!;
+    expect(call.serverParticipation!.lines, {litreRef: 40000});
+    expect(call.serverParticipation!.consentScope, 'COLLABORATORS');
+  });
+
+  test('N7: incompatibilidad de versión, sin conexión y fallo temporal se distinguen', () async {
+    respond = (_) => jsonResponse({
+      ...listJson(const []),
+      'contractVersion': 1,
+      'consent': {'version': 'CONV-1', 'text': 'texto anterior'},
+    }, 200);
+    var report = await sender.run(access(), forceList: true);
+    expect(report.listProblem, JointPurchaseListProblem.incompatibleVersion);
+    respond = (_) => jsonResponse(listJson(const []), 503);
+    report = await sender.run(access(), forceList: true);
+    expect(report.listProblem, JointPurchaseListProblem.temporary);
+    respond = (_) => throw http.ClientException('sin red');
+    report = await sender.run(access(), forceList: true);
+    expect(report.listProblem, JointPurchaseListProblem.offline);
+    // Nada de lo guardado se borró.
+    expect(await store.call(callId), isNotNull);
   });
 }

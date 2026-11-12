@@ -399,6 +399,8 @@ void main() {
     );
     expect(indexes.map((row) => row['name']), [
       'idx_joint_purchase_calls_unseen',
+      // v18 (E2 §10.6): la cola de decisiones sobre el consentimiento.
+      'idx_joint_purchase_consent_ops_status',
       'idx_joint_purchase_ops_status',
     ]);
   });
@@ -535,6 +537,61 @@ void main() {
           .single['consent_version'],
       'CONV-1',
     );
+  });
+
+  test('v17 → v18 conserva convocatorias, participaciones y operaciones pendientes; añade la cola de decisiones vacía', () async {
+    final path = await seededAt(8);
+    final current = openDb(path);
+    await current.database;
+    await current.close();
+
+    final legacy = await databaseFactoryFfi.openDatabase(path);
+    await legacy.execute('DROP TABLE joint_purchase_consent_ops');
+    await legacy.execute('PRAGMA user_version = 17');
+    // Una participación aceptada guardada antes de §10.6 (sin consent_scope)
+    // y una confirmación pendiente de envío preparada con CONV-2.
+    await legacy.insert('joint_purchase_calls', {
+      'call_id': 'c-v17',
+      'tenant_id': memberA.tenantId,
+      'member_id': memberA.memberId,
+      'name': 'Convocatoria de v17',
+      'status': 'OPEN',
+      'deadline_at': '2026-12-01T00:00:00.000Z',
+      'products_json': '[]',
+      'server_participation_json':
+          '{"status":"ACTIVE","consent":{"version":"CONV-2"}}',
+      'fetched_at': '2026-11-11T00:00:00.000Z',
+      'server_time_at_fetch': '2026-11-11T00:00:00.000Z',
+      'finished_at': null,
+    });
+    await legacy.insert('joint_purchase_participation_ops', {
+      'operation_id': 'op-v17',
+      'call_id': 'c-v17',
+      'tenant_id': memberA.tenantId,
+      'member_id': memberA.memberId,
+      'sequence': 2,
+      'kind': 'CONFIRM',
+      'lines_json': '[]',
+      'consent_version': 'CONV-2',
+      'consent_accepted_at': '2026-11-11T00:00:00.000Z',
+      'send_status': 'PENDING_SEND',
+      'created_at': '2026-11-11T00:00:00.000Z',
+      'updated_at': '2026-11-11T00:00:00.000Z',
+    });
+    final before = await dumpTables(legacy);
+    await legacy.close();
+    expect(before.containsKey('joint_purchase_consent_ops'), isFalse);
+
+    final migrated = openDb(path);
+    final db = await migrated.database;
+    expect(
+      (await db.rawQuery('PRAGMA user_version')).single.values.single,
+      AppDatabase.schemaVersion,
+    );
+    expect(await db.query('joint_purchase_consent_ops'), isEmpty);
+    final after = await dumpTables(db, except: {'joint_purchase_consent_ops'});
+    // Nada cambia: ni la copia de la participación ni lo pendiente de envío.
+    expect(after, before);
   });
 
   test('la migración a v17 es idempotente sobre una base ya migrada', () async {

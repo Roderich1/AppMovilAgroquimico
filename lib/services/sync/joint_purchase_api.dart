@@ -6,7 +6,10 @@
 import 'dart:convert';
 
 import '../../domain/sync/joint_purchase_call_view.dart'
-    show jointPurchaseHistoryPageSize;
+    show
+        jointPurchaseContractHeader,
+        jointPurchaseContractVersion,
+        jointPurchaseHistoryPageSize;
 import '../../domain/sync/sync_wire.dart' show parseRetryAfter;
 import '../auth/auth_api_exception.dart';
 import '../auth/auth_http_client.dart';
@@ -61,6 +64,8 @@ class JointPurchaseApi {
       '$basePath/$callId/participation';
   static String withdrawPath(String callId) =>
       '$basePath/$callId/participation/withdraw';
+  static String consentPath(String callId) =>
+      '$basePath/$callId/participation/consent';
 
   /// `GET /me/joint-purchase-calls`.
   Future<JointPurchaseResponse> list(String accessToken) =>
@@ -97,6 +102,14 @@ class JointPurchaseApi {
     String accessToken,
   ) => _call('POST', withdrawPath(callId), accessToken, body: body);
 
+  /// `POST /me/joint-purchase-calls/{id}/participation/consent` (E2 §10.6):
+  /// `{operation_id, sequence, scope, consent: {version, decided_at}}`.
+  Future<JointPurchaseResponse> decideConsent(
+    String callId,
+    Map<String, Object?> body,
+    String accessToken,
+  ) => _call('POST', consentPath(callId), accessToken, body: body);
+
   Future<JointPurchaseResponse> _call(
     String method,
     String path,
@@ -112,6 +125,9 @@ class JointPurchaseApi {
         jsonBody: body,
         accessToken: accessToken,
         query: query,
+        // N7: el teléfono dice qué contrato lee; sin esto el sindicato
+        // responde con la forma de las versiones anteriores.
+        headers: {jointPurchaseContractHeader: '$jointPurchaseContractVersion'},
       );
     } on AuthApiException catch (error) {
       return JointPurchaseResponse(

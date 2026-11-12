@@ -143,7 +143,7 @@ void main() {
 
       final ops = (await tester.runAsync(() => s.store.ops(callId)))!;
       expect(ops.single.lines, {litreRef: 25000});
-      expect(ops.single.consentVersion, 'CONV-2');
+      expect(ops.single.consentVersion, 'CONV-3');
       expect(find.text('Pendiente de envío'), findsOneWidget);
       expect(
         find.text('Pendiente de envío: 25 L de Herbicida central'),
@@ -174,31 +174,53 @@ void main() {
     },
   );
 
-  // E2 §10.2/§10.3 (verificación de CONV-2): el agricultor sabe, por función,
-  // quién ve su nombre y sus cantidades según el consentimiento aceptado.
+  // E2 §10.3/§10.6: el agricultor sabe, por función, quién ve su nombre y sus
+  // cantidades según el alcance APLICADO en el sindicato.
+  const onlyResponsible =
+      'Sólo la persona responsable (Responsable sintético) puede ver su '
+      'nombre y sus cantidades.';
+  const withCollaborators =
+      'Pueden ver su nombre y sus cantidades la persona responsable '
+      '(Responsable sintético) y las personas de la Directiva o la '
+      'Administración que ella autorice para esta convocatoria, porque usted '
+      'lo autorizó.';
   for (final (label, participation, expected) in [
     (
       'sin participación: lo que regiría al participar',
       null,
-      'Si participa, podrán ver su nombre y sus cantidades la persona '
-          'responsable (Responsable sintético) y las personas de la Directiva '
-          'o la Administración que ella autorice para esta convocatoria.',
+      'Si participa, sólo la persona responsable (Responsable sintético) '
+          'podrá ver su nombre y sus cantidades. Después podrá autorizar, si '
+          'quiere, también a las personas de la Directiva o la Administración '
+          'que ella autorice para esta convocatoria.',
     ),
     (
-      'aceptada con CONV-2: responsable y autorizados',
+      'aceptada con CONV-3: sólo la persona responsable',
       participationJson(),
-      'Pueden ver su nombre y sus cantidades la persona responsable '
-          '(Responsable sintético) y las personas de la Directiva o la '
-          'Administración que ella autorice para esta convocatoria.',
+      onlyResponsible,
+    ),
+    (
+      'ampliada con una decisión aparte: responsable y autorizados',
+      participationJson(consentScope: 'COLLABORATORS', consentScopeSequence: 1),
+      withCollaborators,
+    ),
+    (
+      'aceptada con CONV-2 (antes de §10.6): responsable y autorizados',
+      participationJson(consentVersion: 'CONV-2'),
+      withCollaborators,
     ),
     (
       'aceptada con CONV-1: sólo la persona responsable, sin retroactividad',
       participationJson(consentVersion: jointPurchaseLegacyConsentVersion),
-      'Con el consentimiento que usted aceptó antes, sólo la persona '
-          'responsable (Responsable sintético) puede ver su nombre y sus '
-          'cantidades. Si modifica su participación, se le pedirá el '
-          'consentimiento vigente, que incluye a las personas de la Directiva '
-          'o la Administración que ella autorice para esta convocatoria.',
+      onlyResponsible,
+    ),
+    (
+      'reducida después de ampliar: sólo la persona responsable',
+      participationJson(
+        consentVersion: 'CONV-2',
+        consentScope: 'RESPONSIBLE_ONLY',
+        consentScopeSequence: 2,
+      ),
+      onlyResponsible,
     ),
   ]) {
     testWidgets('quién ve sus datos: $label', (tester) async {
@@ -230,7 +252,8 @@ void main() {
       find.text('Convocatoria cerrada: ya no admite cambios.'),
       findsOneWidget,
     );
-    // CONV-2 (E2 §10.2): la coordinación ya no es sólo «el responsable».
+    // E2 §10.2: la coordinación ya no es sólo «el responsable» (quién ve los
+    // datos lo dice otro texto, según la autorización del agricultor).
     expect(
       tester.widget<Text>(find.byKey(const Key('joint-not-a-debt'))).data,
       'Participar no es una compra ni genera una deuda: la persona '
@@ -507,4 +530,135 @@ void main() {
       );
     },
   );
+
+  // --- E2 §10.6 (P-C): autorización aparte de las cantidades ---------------
+
+  testWidgets(
+    'P-C: modificar no pide consentimiento; ampliar con casilla sin marcar queda «pendiente», no aplicada',
+    (tester) async {
+      final s = await pumpDetail(tester);
+      await tester.runAsync(
+        () => seedCalls(s.store, memberA, [
+          callJson(participation: participationJson()),
+        ]),
+      );
+      s.c.read(jointPurchaseRevisionProvider.notifier).bump();
+      await settle(tester);
+      // Modificar: sin diálogo de consentimiento; la autorización no cambia.
+      await enterQuantities(tester);
+      expect(find.text(jointPurchaseConsentText), findsNothing);
+      final ops = (await tester.runAsync(() => s.store.ops(callId)))!;
+      expect(ops.single.consentVersion, isNull);
+
+      // Ampliar: diálogo con el texto vigente y una casilla SIN marcar.
+      expect(find.byKey(const Key('joint-consent-reduce')), findsNothing);
+      await tester.tap(find.byKey(const Key('joint-consent-widen')));
+      await settle(tester, rounds: 2);
+      expect(find.text(jointPurchaseConsentText), findsOneWidget);
+      expect(
+        tester.widget<CheckboxListTile>(find.byKey(const Key('joint-widen-check'))).value,
+        isFalse,
+      );
+      expect(
+        tester.widget<FilledButton>(find.byKey(const Key('joint-widen-confirm'))).onPressed,
+        isNull,
+      );
+      await tester.tap(find.byKey(const Key('joint-widen-check')));
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('joint-widen-confirm')));
+      await settle(tester);
+
+      final decisions = (await tester.runAsync(() => s.store.consentOps(callId)))!;
+      expect(decisions.single.scope, 'COLLABORATORS');
+      expect(decisions.single.consentVersion, 'CONV-3');
+      expect(decisions.single.sendStatus, 'PENDING_SEND');
+      // Lo vigente sigue siendo lo aplicado en el sindicato.
+      expect(
+        tester.widget<Text>(find.byKey(const Key('joint-who-can-see'))).data,
+        'Sólo la persona responsable (Responsable sintético) puede ver su '
+        'nombre y sus cantidades.',
+      );
+      expect(
+        tester.widget<Text>(find.byKey(const Key('joint-consent-pending'))).data,
+        jointPurchaseConsentPendingText(decisions.single),
+      );
+      expect(find.text('Enviar ahora'), findsOneWidget);
+      // Ahora la acción ofrecida es la contraria.
+      expect(find.byKey(const Key('joint-consent-reduce')), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'P-C: reducir pendiente de envío no se anuncia como efectiva; aplicada, se dice',
+    (tester) async {
+      final s = await pumpDetail(tester);
+      await tester.runAsync(
+        () => seedCalls(s.store, memberA, [
+          callJson(
+            participation: participationJson(
+              consentScope: 'COLLABORATORS',
+              consentScopeSequence: 1,
+            ),
+          ),
+        ]),
+      );
+      s.c.read(jointPurchaseRevisionProvider.notifier).bump();
+      await settle(tester);
+      await tester.tap(find.byKey(const Key('joint-consent-reduce')));
+      await settle(tester, rounds: 2);
+      await tester.tap(find.text('Reducir'));
+      await settle(tester);
+      final pending = (await tester.runAsync(() => s.store.consentOps(callId)))!.single;
+      expect(pending.scope, 'RESPONSIBLE_ONLY');
+      expect(pending.sequence, 2);
+      expect(
+        tester.widget<Text>(find.byKey(const Key('joint-consent-pending'))).data,
+        contains('la reducción no está aplicada'),
+      );
+      expect(
+        tester.widget<Text>(find.byKey(const Key('joint-who-can-see'))).data,
+        contains('porque usted lo autorizó'),
+      );
+
+      // El sindicato la acepta (como haría el emisor).
+      await tester.runAsync(
+        () => s.store.markConsentReceived(
+          pending,
+          JointPurchaseParticipation.fromJson(
+            participationJson(
+              consentScope: 'RESPONSIBLE_ONLY',
+              consentScopeSequence: 2,
+            ),
+          ),
+        ),
+      );
+      s.c.read(jointPurchaseRevisionProvider.notifier).bump();
+      await settle(tester);
+      expect(find.byKey(const Key('joint-consent-pending')), findsNothing);
+      expect(
+        tester.widget<Text>(find.byKey(const Key('joint-who-can-see'))).data,
+        'Sólo la persona responsable (Responsable sintético) puede ver su '
+        'nombre y sus cantidades.',
+      );
+      expect(
+        tester.widget<Text>(find.byKey(const Key('joint-consent-result'))).data,
+        contains('aplicada en el sindicato'),
+      );
+    },
+  );
+
+  testWidgets('P-C: en una convocatoria cancelada no se amplía', (tester) async {
+    final s = await pumpDetail(tester);
+    await tester.runAsync(
+      () => seedCalls(s.store, memberA, [
+        callJson(status: 'CANCELLED', participation: participationJson()),
+      ]),
+    );
+    s.c.read(jointPurchaseRevisionProvider.notifier).bump();
+    await settle(tester);
+    expect(
+      tester.widget<ButtonStyleButton>(find.byKey(const Key('joint-consent-widen'))).onPressed,
+      isNull,
+    );
+  });
 }

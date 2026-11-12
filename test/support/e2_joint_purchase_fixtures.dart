@@ -72,6 +72,10 @@ Map<String, Object?> participationJson({
   String acceptedAt = '2026-11-11T18:21:00.000Z',
   bool withdrawn = false,
   String consentVersion = jointPurchaseConsentVersion,
+  // E2 §10.6: el alcance vigente que envía el contrato 2; null = una copia
+  // anterior a §10.6 (el teléfono lo deduce del texto aceptado).
+  String? consentScope,
+  int consentScopeSequence = 0,
 }) => {
   'status': withdrawn ? 'WITHDRAWN' : 'ACTIVE',
   'lines': withdrawn
@@ -92,6 +96,14 @@ Map<String, Object?> participationJson({
     'accepted_at': '2026-11-11T18:20:00.000Z',
     'received_at': acceptedAt,
   },
+  if (consentScope != null)
+    'consent_scope': {
+      'scope': consentScope,
+      'version': jointPurchaseConsentVersion,
+      'decided_at': '2026-11-12T10:00:00.000Z',
+      'received_at': '2026-11-12T10:00:05.000Z',
+      'sequence': consentScopeSequence,
+    },
 };
 
 /// Raíz de la vista por defecto (`contractVersion`, `server_time`,
@@ -101,7 +113,7 @@ Map<String, Object?> listJson(
   int olderCount = 0,
   String serverTime = '2026-11-11T18:20:05.120Z',
 }) => {
-  'contractVersion': 1,
+  'contractVersion': jointPurchaseContractVersion,
   'server_time': serverTime,
   'consent': {
     'version': jointPurchaseConsentVersion,
@@ -116,7 +128,7 @@ Map<String, Object?> historyJson(
   List<Map<String, Object?>> calls, {
   String? nextCursor,
 }) => {
-  'contractVersion': 1,
+  'contractVersion': jointPurchaseContractVersion,
   'server_time': '2026-11-11T18:20:05.120Z',
   'calls': calls,
   'next_cursor': nextCursor,
