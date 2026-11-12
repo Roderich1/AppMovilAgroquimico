@@ -75,7 +75,9 @@ Future<void> _buy(
         quantityBase: quantity,
         currency: CurrencyCode.bob,
         originalUnitPriceMinor: 12000,
-        allocations: [AllocationDraft(personId: person, quantityBase: quantity)],
+        allocations: [
+          AllocationDraft(personId: person, quantityBase: quantity),
+        ],
       ),
     ],
   ),
@@ -111,6 +113,14 @@ void main() {
     (w) => w is AdaptiveEntityPicker<Row> && w.label == label,
   );
   Future<void> choose(WidgetTester tester, String label, String name) async {
+    // Con la letra grande puede no estar construido todavía: desplazar.
+    if (picker(label).evaluate().isEmpty) {
+      await tester.scrollUntilVisible(
+        picker(label),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+    }
     final w = tester.widget<AdaptiveEntityPicker<Row>>(picker(label));
     w.onChanged(w.items.firstWhere((i) => w.labelOf(i) == name));
     await settle(tester);
@@ -178,7 +188,16 @@ void main() {
       ],
     );
     c.read(routerProvider).push(route);
-    await waitFor(tester, find.byKey(const Key('application-step')));
+    await waitFor(
+      tester,
+      find.byKey(
+        Key(
+          route.startsWith('/planificacion')
+              ? 'plan-header'
+              : 'application-step',
+        ),
+      ),
+    );
     await settle(tester);
   }
 
@@ -287,5 +306,53 @@ void main() {
     await shot(tester, '3.1p_paso1_desde_plan');
     await tapKey(tester, 'application-continue');
     await shot(tester, '3.2p_paso2_desde_plan');
+  });
+
+  testWidgets('plan: recorrido de capturas', (tester) async {
+    final s = await setUp(tester, 'rdm-a-plan-nuevo', const []);
+    await open(tester, s.database, s.port, '/planificacion/nueva');
+    await shot(tester, '3.5_plan_vacio');
+    await tapKey(tester, 'plan-completar-voz');
+    await shot(tester, '3.6_plan_panel_voz');
+    await tapKey(tester, 'voz-panel-cerrar');
+    await choose(tester, 'Chaco', 'Chaco hermana');
+    await choose(tester, 'Agregar producto', 'Herbicida selectivo');
+    await tester.tap(find.byTooltip('Agregar al plan'));
+    await settle(tester);
+    await choose(tester, 'Agregar producto', 'Insecticida');
+    await tester.tap(find.byTooltip('Agregar al plan'));
+    await settle(tester);
+    final doses = find.byWidgetPredicate(
+      (w) =>
+          w is TextField && (w.decoration?.labelText ?? '').startsWith('Dosis'),
+    );
+    await tester.enterText(doses.at(0), '2');
+    await tester.enterText(doses.at(1), '1');
+    await settle(tester);
+    await shot(tester, '3.5b_plan_lleno');
+  });
+
+  testWidgets('plan: voz (dictado sintético) y conflicto de chaco', (
+    tester,
+  ) async {
+    const full =
+        'planificar el chaco titular con dos litros por hectárea de Glifosato';
+    final s = await setUp(tester, 'rdm-a-plan-voz', const [
+      FakeTurn(segment: full, endsOnStop: true),
+      FakeTurn(segment: full, endsOnStop: true),
+    ]);
+    await open(tester, s.database, s.port, '/planificacion/nueva');
+    await tapKey(tester, 'plan-completar-voz');
+    await tapKey(tester, 'voz-hablar');
+    await tapKey(tester, 'voz-terminar');
+    await settle(tester);
+    await shot(tester, '3.6s_plan_tras_dictar_sintetico');
+    await tapKey(tester, 'voz-deshacer');
+    await choose(tester, 'Chaco', 'Chaco hermana');
+    await tapKey(tester, 'form-dictar');
+    await tapKey(tester, 'voz-hablar');
+    await tapKey(tester, 'voz-terminar');
+    await settle(tester);
+    await shot(tester, '3.6c_plan_conflicto_sintetico');
   });
 }
