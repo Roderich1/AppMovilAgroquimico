@@ -17,8 +17,8 @@ Una sesión por worktree. Nadie edita el worktree de otra. Si un worktree ya tie
 | Sesión | Alcance | Rama | Worktree | Láminas |
 |---|---|---|---|---|
 | **Orquestador** | integración, compartidos, navegación, acceso, ajustes, respaldos, reportes, confirmaciones, compra | `feat/rediseno-movil` | `_wt/RDM-MOB` | Registrar, Ajustes, Datos, Campanas, PeriodoHistorico, Reportes, Pin, Respaldo, ModoUso, Tardias, TardiaRegistrar, Activar, Reautenticar, Recuperar, Titular, Revertir, RevertirMotivo, Descartar, Compra* |
-| **A** | aplicación y planificación, con su voz | `feat/rediseno-movil-a` | `_wt/RDM-A` | Aplicacion1–3, VozAplicacion, Plan, VozPlan (estados de voz de referencia: VozEscuchando, VozProcesando, VozListo, VozRevisar) |
-| **B** | Inicio, Actividad, Almacén, Personas, con detalles y cuentas | `feat/rediseno-movil-b` | `_wt/RDM-B` | Main (Inicio), Actividad, CompraDetalle, Almacen, Producto, Avisos, Estimacion, Personas, Persona, Cuenta, Pago, Transferencia, Propios, CostosChaco, Bitacora |
+| **A** | aplicación y planificación, con su voz; desde el 2026-11-12 también Personas y cuentas | `feat/rediseno-movil-a` | `_wt/RDM-A` | Aplicacion1–3, VozAplicacion, Plan, VozPlan (estados de voz de referencia: VozEscuchando, VozProcesando, VozListo, VozRevisar) |
+| **B** | Inicio, Actividad, Almacén (Personas pasó a A) | `feat/rediseno-movil-b` | `_wt/RDM-B` | Main (Inicio), Actividad, CompraDetalle, Almacen, Producto, Avisos, Estimacion, Personas, Persona, Cuenta, Pago, Transferencia, Propios, CostosChaco, Bitacora |
 | **C** | Sindicato, convocatorias, vínculos, identificación con foto | `feat/rediseno-movil-c` | `_wt/RDM-C` | Sindicato, Convocatorias, Convocatoria, Participar, Necesidad, Consumo, Vinculos, Identificacion, Etiqueta |
 
 ## Archivos asignados
@@ -27,7 +27,9 @@ Rutas bajo `lib/presentation/`. Una sesión sólo edita los suyos y las pruebas 
 
 **A:** `screens/application_form_screen.dart`, `screens/application_form_voice.dart`, `screens/applications_screen.dart`, `screens/plan_form_screen.dart`, `screens/plan_form_voice.dart`, `screens/planning_screen.dart`, `widgets/application_expiry_notice.dart`.
 
-**B:** `screens/dashboard_screen.dart`, `screens/operations_screen.dart`, `screens/purchases_screen.dart`, `screens/purchase_detail_screen.dart`, `screens/inventory_screen.dart`, `screens/inventory_detail_screen.dart`, `screens/inventory_alerts_screen.dart`, `screens/estimation_screen.dart`, `screens/persons_screen.dart`, `screens/person_detail_screen.dart`, `screens/settlements_screen.dart`, `screens/transfers_screen.dart`, `screens/transfer_form_screen.dart`, `screens/farm_logbook_screen.dart`, `widgets/account_statement_view.dart`.
+**B:** `screens/dashboard_screen.dart`, `screens/operations_screen.dart`, `screens/purchases_screen.dart`, `screens/purchase_detail_screen.dart`, `screens/inventory_screen.dart`, `screens/inventory_detail_screen.dart`, `screens/inventory_alerts_screen.dart`, `screens/estimation_screen.dart`, `screens/transfers_screen.dart`, `screens/transfer_form_screen.dart`, `widgets/rdm_b_ui.dart`.
+
+**A (reasignado por acuerdo con B, 2026-11-12, grupo Personas):** `screens/persons_screen.dart`, `screens/person_detail_screen.dart`, `screens/settlements_screen.dart`, `widgets/account_statement_view.dart`, `screens/farm_logbook_screen.dart` (láminas Personas, Persona, Cuenta, Pago, Propios, CostosChaco, Bitacora). A puede usar `widgets/rdm_b_ui.dart` y `test/support_rdm/b_seed.dart` sin editarlos.
 
 **C:** `screens/union_screen.dart` (esqueleto del orquestador; el contenido es de C), `screens/joint_purchases_screen.dart`, `screens/joint_purchase_detail_screen.dart`, `screens/declared_needs_screen.dart`, `screens/consumption_publish_screen.dart`, `screens/central_binding_screen.dart`, `screens/sync_status_screen.dart`, `widgets/label_photo_sheet.dart`. Textos funcionales `widgets/joint_purchase_texts.dart` e `widgets/identification_texts.dart`: **sólo lectura** (son textos de consentimiento y permisos vigentes; no se reescriben desde el prototipo).
 
