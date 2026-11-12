@@ -96,6 +96,19 @@ void main() {
       '${scale == 1.0 ? '' : '_x${scale.toString().replaceAll('.', '')}'}'
       '${width == 390 ? '' : '_w${width.round()}'}';
 
+  /// Una prueba de capturas con las sombras reales (las pruebas las
+  /// desactivan por omisión; sin ellas el botón flotante sale con borde
+  /// negro). Se restablecen al terminar, como en `capturas_arnes_test.dart`.
+  void shotsTest(String name, Future<void> Function(WidgetTester) body) =>
+      testWidgets(name, (tester) async {
+        debugDisableShadows = false;
+        try {
+          await body(tester);
+        } finally {
+          debugDisableShadows = true;
+        }
+      });
+
   Future<void> shot(WidgetTester tester, String name) async {
     await settle(tester);
     // La vista entera (también las hojas modales y los diálogos), no sólo la
@@ -205,7 +218,7 @@ void main() {
     await settle(tester);
   }
 
-  testWidgets('aplicación: recorrido de capturas', (tester) async {
+  shotsTest('aplicación: recorrido de capturas', (tester) async {
     final s = await setUp(tester, 'rdm-a-aplicacion', const []);
     await open(tester, s.database, s.port, '/aplicaciones/nueva');
 
@@ -261,7 +274,7 @@ void main() {
     await shot(tester, '3.3b_paso3_ayuda_costo');
   });
 
-  testWidgets('aplicación: voz (dictado sintético) y conflicto de chaco', (
+  shotsTest('aplicación: voz (dictado sintético) y conflicto de chaco', (
     tester,
   ) async {
     const full =
@@ -289,7 +302,7 @@ void main() {
     await shot(tester, '3.1c_conflicto_chaco_sintetico');
   });
 
-  testWidgets('aplicación desde un plan: persona y chaco fijos, sin voz', (
+  shotsTest('aplicación desde un plan: persona y chaco fijos, sin voz', (
     tester,
   ) async {
     final s = await setUp(tester, 'rdm-a-plan', const []);
@@ -312,7 +325,7 @@ void main() {
     await shot(tester, '3.2p_paso2_desde_plan');
   });
 
-  testWidgets('plan: recorrido de capturas', (tester) async {
+  shotsTest('plan: recorrido de capturas', (tester) async {
     final s = await setUp(tester, 'rdm-a-plan-nuevo', const []);
     await open(tester, s.database, s.port, '/planificacion/nueva');
     await shot(tester, '3.5_plan_vacio');
@@ -336,7 +349,7 @@ void main() {
     await shot(tester, '3.5b_plan_lleno');
   });
 
-  testWidgets('plan: voz (dictado sintético) y conflicto de chaco', (
+  shotsTest('plan: voz (dictado sintético) y conflicto de chaco', (
     tester,
   ) async {
     const full =
@@ -360,7 +373,7 @@ void main() {
     await shot(tester, '3.6c_plan_conflicto_sintetico');
   });
 
-  testWidgets('listas: aplicaciones y planificación', (tester) async {
+  shotsTest('listas: aplicaciones y planificación', (tester) async {
     final s = await setUp(tester, 'rdm-a-listas', const []);
     final h = s.h;
     await tester.runAsync(() async {
@@ -416,7 +429,7 @@ void main() {
     await shot(tester, '3.8b_lista_planes_con_aplicados');
   });
 
-  testWidgets('personas: bitácora del chaco', (tester) async {
+  shotsTest('personas: bitácora del chaco', (tester) async {
     final s = await setUp(tester, 'rdm-a-bitacora', const []);
     final h = s.h;
     await tester.runAsync(() async {
@@ -452,7 +465,7 @@ void main() {
     await shot(tester, '5.7b_bitacora_detalle');
   });
 
-  testWidgets('personas: detalle de persona', (tester) async {
+  shotsTest('personas: detalle de persona', (tester) async {
     final s = await setUp(tester, 'rdm-a-persona', const []);
     final h = s.h;
     await tester.runAsync(
@@ -484,5 +497,92 @@ void main() {
     await waitFor(tester, find.byType(ChoiceChip));
     await settle(tester);
     await shot(tester, '5.2c_persona_titular');
+  });
+
+  shotsTest('personas: cuentas, pago, estado de cuenta y propios', (
+    tester,
+  ) async {
+    final s = await setUp(tester, 'rdm-a-cuentas', const []);
+    final h = s.h;
+    await tester.runAsync(() async {
+      await h.repo.confirmApplication(
+        ApplicationDraft(
+          personId: h.relative,
+          farmId: h.relativeFarm,
+          campaignId: h.campaign,
+          appliedAt: DateTime.now(),
+          lines: [
+            ApplicationLineDraft(productId: h.product, quantityBase: 2000),
+          ],
+        ),
+      );
+      await h.repo.confirmApplication(
+        ApplicationDraft(
+          personId: h.titular,
+          farmId: h.titularFarm,
+          campaignId: h.campaign,
+          appliedAt: DateTime.now(),
+          lines: [
+            ApplicationLineDraft(productId: h.product, quantityBase: 1000),
+          ],
+        ),
+      );
+    });
+    final c = await pumpModeApp(tester, s.database);
+    c.read(routerProvider).go('/liquidacion');
+    await waitFor(tester, find.byKey(const Key('own-consumption-card')));
+    await settle(tester);
+    await shot(tester, '5.3_cuentas');
+    final hermana = find.ancestor(
+      of: find.text('Hermana'),
+      matching: find.byType(Card),
+    );
+    final pay = find.descendant(
+      of: hermana,
+      matching: find.widgetWithText(FilledButton, 'Registrar pago'),
+    );
+    await tester.ensureVisible(pay);
+    await tester.pump();
+    await tester.tap(pay);
+    await settle(tester);
+    await shot(tester, '5.4_pago');
+    await tester.tap(find.byKey(const Key('payment-all')));
+    await settle(tester);
+    await tester.enterText(find.byKey(const Key('payment-amount')), '100');
+    await settle(tester);
+    await shot(tester, '5.4b_pago_importe');
+    await tester.tap(find.byKey(const Key('payment-cancel')));
+    await settle(tester);
+    final menu = find.descendant(
+      of: hermana,
+      matching: find.byType(PopupMenuButton<String>),
+    );
+    await tester.ensureVisible(menu);
+    await tester.pump();
+    await tester.tap(menu);
+    await settle(tester);
+    await tester.tap(find.text('Ver detalle cronológico'));
+    await settle(tester);
+    await shot(tester, '5.5_cuenta');
+    await tester.tap(find.text('Cerrar'));
+    await settle(tester);
+    await tester.drag(find.byType(Scrollable).first, const Offset(0, 3000));
+    await settle(tester);
+    final ownMenu = find.descendant(
+      of: find.byKey(const Key('own-consumption-card')),
+      matching: find.byType(PopupMenuButton<String>),
+    );
+    await tester.ensureVisible(ownMenu);
+    await tester.pump();
+    await tester.tap(ownMenu);
+    await settle(tester);
+    await tester.tap(find.text('Ver movimientos propios'));
+    await settle(tester);
+    await shot(tester, '5.6_propios');
+    await tester.tap(find.text('Cerrar'));
+    await settle(tester);
+    await tester.drag(find.byType(Scrollable).first, const Offset(0, -3000));
+    await settle(tester);
+    await shot(tester, '5.3b_cuentas_costos');
   });
 }
