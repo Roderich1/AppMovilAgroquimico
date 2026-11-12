@@ -11,7 +11,7 @@
 | 2 | `1c7ff89` (serie `ede5ffc`, `b7298a6`, `1c7ff89`) | `/planificacion/nueva`: «¿Qué piensa aplicar?», chaco y área, tarjetas de producto con dosis, «Necesita» y cobertura; panel de voz anclado, aviso tras dictar, conflicto de chaco y área | ver «Entrega 2 · pruebas» | mismo arnés (`3.5*`, `3.6*`) | ver «Entrega 2 · diferencias» |
 | 3 | `55bbbf0` (serie `0f082b6`, `26ed816`, `97aa823`, `55bbbf0`) | Revisión A-1 (puntos 1 y 2) en `/aplicaciones/nueva` y `/planificacion/nueva`; listas `/aplicaciones` y `/planificacion` (punto 3) | ver «Entrega 3 · pruebas» | arnés con la vista entera; `3.7*`, `3.8*`; lado a lado en `build/rediseno_lado_a_lado/` | ver «Entrega 3 · diferencias» |
 | 4–5 | `9d41017` (serie `1001218`, `ec5f7e8`, `0ef45e7`, `a6de432`, `cd2fb23`, `9d41017`) | Pruebas del arreglo de «Deshacer» de B2; `/chacos/:id` (Bitácora); `/personas/:id` (Persona) | ver «Entregas 4 y 5 · pruebas» | `5.7*`, `5.2*` | ver «Entregas 4 y 5 · diferencias» |
-| 6–7 | ver «Entregas 6 y 7» (serie `27417ab`, `4a078b6`, merge `7b79f05`, `db4e3f9`, `64d6800`, `d72d82c` y este estado) | `/liquidacion` (Cuentas), hoja Pago, estado de cuenta y movimientos propios a pantalla completa, `/personas`, «Registrar pago» en `/personas/:id` | ver «Entregas 6 y 7 · pruebas» | `5.1*`, `5.3*`–`5.6*` | ver «Entregas 6 y 7 · diferencias» |
+| 6–7 | `e274f8d` (serie `27417ab`, `4a078b6`, merge `7b79f05`, `db4e3f9`, `64d6800`, `d72d82c`, `e274f8d`) | `/liquidacion` (Cuentas), hoja Pago, estado de cuenta y movimientos propios a pantalla completa, `/personas`, «Registrar pago» en `/personas/:id` | ver «Entregas 6 y 7 · pruebas» | `5.1*`, `5.3*`–`5.6*` | ver «Entregas 6 y 7 · diferencias» |
 
 ## Entrega 1 · aplicación (2026-11-12)
 
