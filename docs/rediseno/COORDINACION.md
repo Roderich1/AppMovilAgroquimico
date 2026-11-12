@@ -87,6 +87,10 @@ Pruebas: cada sesión adapta las pruebas que rompan sus propios cambios (cambia 
 ## Hallazgos fuera de alcance
 ```
 
+## Estado al cierre (2026-11-12)
+
+Las sesiones A, B y C terminaron su alcance y quedan **en espera** sin tocar sus worktrees. Integración en `feat/rediseno-movil` (`6b397c9` verificado: suite 3044/3/0, APK instalada en `emulator-5556`). Pendientes y decisiones del autor: `REDISENO_MOVIL_CONTINUIDAD.md`, «Pendientes concretos».
+
 ## Bases publicadas
 
 | Base | SHA | Contenido |
