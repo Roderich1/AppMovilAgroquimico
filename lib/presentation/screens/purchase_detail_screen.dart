@@ -359,39 +359,49 @@ class _DetailHero extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 4),
-                Text.rich(
-                  TextSpan(
-                    children: [
+                LayoutBuilder(
+                  builder: (context, constraints) {
+                    // El total entero en una línea: se elige el tamaño de
+                    // la cifra que cabe con la letra del teléfono (sin
+                    // FittedBox ni cambiar la escala, UX-C1); si ni el
+                    // menor cabe, la unidad baja de línea.
+                    TextStyle number(double size) => TextStyle(
+                      fontFamily: AgroFonts.display,
+                      fontSize: size,
+                      height: 1.1,
+                      fontWeight: FontWeight.w800,
+                      color: reversed ? AgroColors.onInkMuted : AgroColors.lime,
+                      decoration: reversed ? TextDecoration.lineThrough : null,
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                    );
+                    var size = 44.0;
+                    for (final candidate in const [44.0, 36.0, 30.0, 24.0]) {
+                      size = candidate;
+                      final width =
+                          measureText(context, split.number, number(size)) +
+                          measureText(
+                            context,
+                            ' ${split.unit}',
+                            number(size / 2),
+                          );
+                      if (width <= constraints.maxWidth) break;
+                    }
+                    return Text.rich(
                       TextSpan(
-                        text: split.number,
-                        style: TextStyle(
-                          fontFamily: AgroFonts.display,
-                          fontSize: 44,
-                          height: 1.1,
-                          fontWeight: FontWeight.w800,
-                          color: reversed
-                              ? AgroColors.onInkMuted
-                              : AgroColors.lime,
-                          decoration: reversed
-                              ? TextDecoration.lineThrough
-                              : null,
-                          fontFeatures: const [FontFeature.tabularFigures()],
-                        ),
+                        children: [
+                          TextSpan(text: split.number, style: number(size)),
+                          TextSpan(
+                            text: ' ${split.unit}',
+                            style: number(size / 2).copyWith(
+                              fontWeight: FontWeight.w700,
+                              decoration: TextDecoration.none,
+                            ),
+                          ),
+                        ],
                       ),
-                      TextSpan(
-                        text: ' ${split.unit}',
-                        style: TextStyle(
-                          fontFamily: AgroFonts.display,
-                          fontSize: 22,
-                          fontWeight: FontWeight.w700,
-                          color: reversed
-                              ? AgroColors.onInkMuted
-                              : AgroColors.lime,
-                        ),
-                      ),
-                    ],
-                  ),
-                  key: const Key('purchase-detail-total'),
+                      key: const Key('purchase-detail-total'),
+                    );
+                  },
                 ),
                 const SizedBox(height: 10),
                 StatusBadge(
