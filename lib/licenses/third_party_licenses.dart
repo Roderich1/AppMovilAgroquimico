@@ -143,6 +143,26 @@ const thirdPartyNotices = <ThirdPartyNotice>[
         'ggml-small-q5_1.bin, con la misma licencia.',
     assets: ['assets/licenses/whisper_model/LICENSE'],
   ),
+  // Rediseño móvil (2026-11-12): tipografías de la interfaz, dentro de la APK
+  // en assets/fonts/. Son instancias estáticas (pesos fijos) de las fuentes
+  // variables de google/fonts; el procedimiento está en assets/licenses/
+  // README.md. Ninguna declara «Reserved Font Name».
+  ThirdPartyNotice(
+    package: 'DM Sans (tipografía)',
+    note:
+        'Tipografía del texto de la interfaz: DMSans-400, -500 y -700.ttf, '
+        'instancias estáticas de la fuente variable de google/fonts. SIL Open '
+        'Font License 1.1.',
+    assets: ['assets/licenses/fonts/dm_sans/OFL.txt'],
+  ),
+  ThirdPartyNotice(
+    package: 'Bricolage Grotesque (tipografía)',
+    note:
+        'Tipografía de títulos y cifras: BricolageGrotesque-700 y -800.ttf, '
+        'instancias estáticas de la fuente variable de google/fonts. SIL Open '
+        'Font License 1.1.',
+    assets: ['assets/licenses/fonts/bricolage_grotesque/OFL.txt'],
+  ),
   ThirdPartyNotice(
     package: 'integration_test, plugin de Flutter 3.47.2 $_viaIntegrationTest',
     note:

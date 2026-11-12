@@ -14,6 +14,7 @@ import 'operation_mode_controller.dart';
 import 'services/auth/local_owner_credential_providers.dart';
 import 'domain/reports/report_composer.dart';
 import 'presentation/app_shell.dart';
+import 'presentation/theme/agro_theme.dart';
 import 'presentation/screens/access_status_screen.dart';
 import 'presentation/screens/applications_screen.dart';
 import 'presentation/screens/application_form_screen.dart';
@@ -386,28 +387,9 @@ class AgroApp extends ConsumerWidget {
       GlobalWidgetsLocalizations.delegate,
       GlobalCupertinoLocalizations.delegate,
     ],
-    theme: ThemeData(
-      colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF35693E)),
-      scaffoldBackgroundColor: const Color(0xFFF7F7F1),
-      useMaterial3: true,
-      visualDensity: VisualDensity.compact,
-      cardTheme: const CardThemeData(elevation: 0, margin: EdgeInsets.zero),
-      listTileTheme: const ListTileThemeData(dense: true),
-      inputDecorationTheme: const InputDecorationTheme(
-        border: OutlineInputBorder(),
-        filled: true,
-        fillColor: Colors.white,
-      ),
-      snackBarTheme: const SnackBarThemeData(
-        behavior: SnackBarBehavior.floating,
-      ),
-      pageTransitionsTheme: const PageTransitionsTheme(
-        builders: {
-          TargetPlatform.android: FadeForwardsPageTransitionsBuilder(),
-          TargetPlatform.iOS: FadeForwardsPageTransitionsBuilder(),
-        },
-      ),
-    ),
+    // Rediseño móvil (2026-11-12): paleta, tipografías y componentes del
+    // prototipo. Sólo presentación.
+    theme: buildAgroTheme(),
     routerConfig: ref.watch(routerProvider),
   );
 }

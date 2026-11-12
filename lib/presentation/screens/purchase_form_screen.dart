@@ -14,7 +14,9 @@ import '../../domain/money.dart';
 import '../../domain/operation_mode.dart';
 import '../../domain/person_roles.dart';
 import '../../operation_mode_controller.dart';
+import '../theme/agro_theme.dart';
 import '../widgets/adaptive_entity_picker.dart';
+import '../widgets/agro_ui.dart';
 import '../widgets/catalog_dialogs.dart';
 import '../widgets/common.dart';
 import '../widgets/provider_payment_fields.dart';
@@ -206,6 +208,20 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen>
   late final _voiceTarget = _PurchaseVoice(this);
   bool showVoice = false;
 
+  /// Rediseño: aviso oscuro con el resultado del último dictado, cuando el
+  /// panel ya se cerró solo; y cuántos dictados terminados se vieron.
+  bool _voiceBanner = false;
+  int _seenCompletions = 0;
+
+  /// Línea abierta en la hoja «Producto n»; nula sin hoja.
+  int? editingLineId;
+
+  /// Línea del primer problema de validación (para abrir su hoja) y el
+  /// mensaje, que se muestra dentro de la hoja: una barra flotante tapaba
+  /// sus botones.
+  int? _problemLineId;
+  String? _lineProblem;
+
   /// Lo que propuso el último dictado y si la compra se guardó (evidencia,
   /// sólo con consentimiento).
   VoicePurchaseDraft? _lastVoiceDraft;
@@ -274,11 +290,26 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen>
     if (catalog != null) {
       voice!.session.setVocabularyHints(voicePurchaseTurnHints(catalog));
     }
-    setState(() => showVoice = true);
+    FocusManager.instance.primaryFocus?.unfocus();
+    setState(() {
+      showVoice = true;
+      _voiceBanner = false;
+      editingLineId = null;
+    });
   }
 
+  /// Al terminar un dictado el panel se cierra y su resultado queda en el
+  /// aviso de arriba; lo dictado ya está en el formulario.
   void _onVoice() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    final v = voice;
+    setState(() {
+      if (v != null && v.completions != _seenCompletions) {
+        _seenCompletions = v.completions;
+        showVoice = false;
+        _voiceBanner = true;
+      }
+    });
   }
 
   void _voiceApplied(VoicePurchaseDraft shadow, String text) {
@@ -531,10 +562,15 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen>
       line.clearErrors();
     }
     final problem = _firstProblem();
-    // Repinta: muestra los errores de campo recién fijados o los borra.
-    setState(() {});
+    // Repinta: muestra los errores de campo recién fijados o los borra. Si
+    // el problema está en un producto, abre su hoja para verlo en el campo.
+    final line = problem == null ? null : _problemLineId;
+    setState(() {
+      _lineProblem = line == null ? null : problem;
+      if (line != null) editingLineId = line;
+    });
     if (problem != null) {
-      showError(context, problem);
+      if (line == null) showError(context, problem);
       return false;
     }
     return true;
@@ -543,10 +579,12 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen>
   /// Primer problema del paso 1, en el orden en que se lee el formulario.
   /// Fija `*Error` en el campo cuyo texto no se puede interpretar.
   String? _firstProblem() {
-    if (supplierId == null) return 'Elige el proveedor.';
-    if (lines.isEmpty) return 'Agrega al menos un producto.';
+    _problemLineId = null;
+    if (supplierId == null) return 'Elija el proveedor.';
+    if (lines.isEmpty) return 'Añada al menos un producto.';
     for (var index = 0; index < lines.length; index++) {
       final line = lines[index];
+      _problemLineId = line.id;
       if (line.productId == null) {
         return 'Elija el producto de la línea ${index + 1}.';
       }
@@ -643,6 +681,7 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen>
           }
       }
     }
+    _problemLineId = null;
     return null;
   }
 
@@ -697,7 +736,7 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen>
     }
     final paid = paidInFull;
     if (paid == null) {
-      showError(context, 'Indica si ya pagaste al proveedor.');
+      showError(context, 'Indique si ya pagó al proveedor.');
       return;
     }
     if (paid && ownerPersonId == null) {
@@ -810,11 +849,29 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen>
     }
   }
 
+  // --- Presentación (rediseño 2026-11-12) -----------------------------------
+  //
+  // Paso 1 «¿Qué compró?»: proveedor y fecha en filas, cada producto como una
+  // tarjeta resumen y la hoja «Producto n» para editarlo. La hoja vive en la
+  // misma página y edita la misma línea del borrador: cerrarla no descarta
+  // nada. Paso 2 «Revise y confirme»: lo que se va a guardar, «¿Ya pagó al
+  // proveedor?» y, plegados, factura, notas y campaña.
+
   @override
   Widget build(BuildContext context) => PopScope(
-    canPop: !dirty && !saving && step == _PurchaseStep.items,
+    canPop:
+        !dirty &&
+        !saving &&
+        step == _PurchaseStep.items &&
+        editingLineId == null,
     onPopInvokedWithResult: (didPop, _) {
       if (didPop || saving) return;
+      // Con la hoja de un producto abierta, Atrás la cierra; lo escrito ya
+      // está en el borrador.
+      if (editingLineId != null) {
+        _closeLine();
+        return;
+      }
       // Desde la revisión, Atrás vuelve al paso 1 sin perder nada.
       if (step == _PurchaseStep.review) {
         _backToItems();
@@ -823,292 +880,1099 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen>
       }
     },
     child: Scaffold(
-      appBar: AppBar(
-        title: const Text('Nueva compra'),
-        actions: [
-          // F09 (formulario único): la voz completa ESTE formulario; no
-          // abre otra pantalla ni descarta nada.
-          IconButton(
-            key: const Key('form-dictar'),
-            tooltip: showVoice
-                ? 'Ocultar el panel de voz'
-                : 'Completar por voz',
-            icon: Icon(showVoice ? Icons.mic : Icons.mic_none_outlined),
-            onPressed: saving || step != _PurchaseStep.items
-                ? null
-                : showVoice
-                ? (voice?.busy ?? false)
-                      ? null
-                      : () => setState(() => showVoice = false)
-                : _openVoice,
-          ),
-        ],
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back),
-          onPressed: saving
-              ? null
-              : step == _PurchaseStep.review
-              ? _backToItems
-              : _close,
-        ),
-      ),
-      // **#97 — la acción fuera de la barra superior.** Abajo y fija, como en
-      // Aplicación y Planificación, el título cabe entero y la acción sigue
-      // siempre visible y con su texto.
-      bottomNavigationBar: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: FutureBuilder<_PurchaseCatalogs>(
-            future: catalogs,
-            builder: (context, snapshot) {
-              final voiceBlock = voice?.blocksSave ?? false;
-              final blocked =
-                  saving ||
-                  voiceBlock ||
-                  !snapshot.hasData ||
-                  modeChangedSince(
-                    loadedMode,
-                    ref.watch(operationModeProvider),
-                  );
-              if (step == _PurchaseStep.items) {
-                return Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    if (voiceBlock)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 6),
-                        child: Text(
-                          voice!.saveBlockReason!,
-                          key: const Key('voz-bloqueo-guardar'),
-                          textAlign: TextAlign.center,
-                        ),
-                      ),
-                    FilledButton.icon(
-                      key: const Key('purchase-continue'),
-                      onPressed: blocked ? null : _goToReview,
-                      icon: const Icon(Icons.arrow_forward),
-                      label: const Text('Continuar'),
-                    ),
-                  ],
-                );
-              }
-              return Row(
+      bottomNavigationBar: _bottomBar(),
+      body: SafeArea(
+        child: FutureBuilder<_PurchaseCatalogs>(
+          future: catalogs,
+          builder: (context, snapshot) {
+            final header = Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+              child: _header(),
+            );
+            // Sin esta rama, un fallo al cargar los catálogos dejaba el
+            // formulario girando indefinidamente, sin explicación ni salida.
+            if (snapshot.hasError) {
+              return Column(
                 children: [
-                  OutlinedButton.icon(
-                    key: const Key('purchase-back'),
-                    onPressed: saving ? null : _backToItems,
-                    icon: const Icon(Icons.arrow_back),
-                    label: const Text('Atrás'),
-                  ),
-                  const SizedBox(width: 12),
+                  header,
                   Expanded(
-                    child: FilledButton.icon(
-                      key: const Key('purchase-confirm'),
-                      onPressed: blocked
-                          ? null
-                          : () => _confirm(snapshot.data!),
-                      icon: saving
-                          ? const SizedBox.square(
-                              dimension: 16,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.check),
-                      label: Text(saving ? 'Guardando…' : 'Confirmar compra'),
+                    child: EmptyState(
+                      icon: Icons.error_outline,
+                      message: friendlyError(snapshot.error!),
                     ),
                   ),
                 ],
               );
-            },
-          ),
-        ),
-      ),
-      body: FutureBuilder<_PurchaseCatalogs>(
-        future: catalogs,
-        builder: (context, snapshot) {
-          // Sin esta rama, un fallo al cargar los catálogos dejaba el
-          // formulario girando indefinidamente, sin explicación ni salida.
-          if (snapshot.hasError)
-            return EmptyState(
-              icon: Icons.error_outline,
-              message: friendlyError(snapshot.error!),
-            );
-          if (!snapshot.hasData)
-            return const Center(child: CircularProgressIndicator());
-          final data = snapshot.data!;
-          final modeChanged = modeChangedSince(
-            loadedMode,
-            ref.watch(operationModeProvider),
-          );
-          return SafeArea(
-            child: ListView(
-              // Este formulario está fuera del `ShellRoute` y no hereda su
-              // `SafeArea` (UIBUG-064); la barra inferior ya reserva su alto.
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-              children: [
-                if (modeChanged) ...[
-                  const ModeChangedNotice(),
-                  const SizedBox(height: 12),
+            }
+            if (!snapshot.hasData) {
+              return Column(
+                children: [
+                  header,
+                  const Expanded(
+                    child: Center(child: CircularProgressIndicator()),
+                  ),
                 ],
-                _StepHeader(
-                  key: const Key('purchase-step'),
-                  step: step == _PurchaseStep.items ? 1 : 2,
-                  total: 2,
-                  title: step == _PurchaseStep.items
-                      ? 'Proveedor y productos'
-                      : 'Revisión y pago',
+              );
+            }
+            final data = snapshot.data!;
+            final modeChanged = modeChangedSince(
+              loadedMode,
+              ref.watch(operationModeProvider),
+            );
+            final editing = _editingLine;
+            // Con la hoja abierta, la página queda fuera de escena (como el
+            // velo del prototipo) pero viva: al cerrar la hoja vuelve igual,
+            // con su desplazamiento.
+            return Stack(
+              children: [
+                Offstage(
+                  offstage: editing != null && step == _PurchaseStep.items,
+                  child: Column(
+                    children: [
+                      header,
+                      Expanded(
+                        child: ListView(
+                          key: const Key('purchase-scroll'),
+                          padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+                          children: [
+                            if (modeChanged) ...[
+                              const ModeChangedNotice(),
+                              const SizedBox(height: 12),
+                            ],
+                            if (step == _PurchaseStep.items)
+                              ..._itemsStep(context, data)
+                            else
+                              ..._reviewStep(context, data),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-                const SizedBox(height: 12),
-                if (step == _PurchaseStep.items)
-                  ..._itemsStep(context, data)
-                else
-                  ..._reviewStep(context, data),
+                if (editing != null && step == _PurchaseStep.items)
+                  _lineSheet(context, data, editing),
               ],
-            ),
-          );
-        },
+            );
+          },
+        ),
       ),
     ),
   );
+
+  _PurchaseLineEditor? get _editingLine =>
+      lines.where((line) => line.id == editingLineId).firstOrNull;
+
+  /// Volver, «Paso n de 2», el acceso a la voz y la barra de pasos.
+  Widget _header() {
+    final review = step == _PurchaseStep.review;
+    final busy = voice?.busy ?? false;
+    return Column(
+      children: [
+        FlowTopBar(
+          backKey: Key(review ? 'purchase-back' : 'purchase-close'),
+          backTooltip: review ? 'Volver al paso 1' : 'Volver',
+          onBack: saving
+              ? null
+              : review
+              ? _backToItems
+              : _close,
+          label: 'Paso ${review ? 2 : 1} de 2',
+          labelKey: const Key('purchase-step'),
+          // F09 (formulario único): la voz completa ESTE formulario; no abre
+          // otra pantalla ni descarta nada. Desde la revisión vuelve al paso
+          // 1 con el panel abierto.
+          trailing: CircleIconButton(
+            key: const Key('form-dictar'),
+            icon: showVoice && !review ? Icons.mic : Icons.mic_none_outlined,
+            tooltip: showVoice && !review
+                ? 'Ocultar el panel de voz'
+                : 'Completar por voz',
+            onPressed: saving
+                ? null
+                : review
+                ? () {
+                    _backToItems();
+                    _openVoice();
+                  }
+                : showVoice
+                ? busy
+                      ? null
+                      : () => setState(() => showVoice = false)
+                : _openVoice,
+          ),
+        ),
+        const SizedBox(height: 12),
+        StepProgress(step: review ? 2 : 1, total: 2),
+      ],
+    );
+  }
+
+  /// Panel inferior: total y «Continuar», «Confirmar compra» o el panel de
+  /// voz. Con la hoja de un producto abierta no hay panel: la hoja tiene sus
+  /// propios botones.
+  Widget? _bottomBar() {
+    final items = step == _PurchaseStep.items;
+    if (items && editingLineId != null) return null;
+    if (items && showVoice && voice != null) {
+      return VoiceFormPanel(
+        dictation: voice!,
+        docked: true,
+        example:
+            '«Doce litros de herbicida a ciento dieciocho, de Agroinsumos, '
+            'para Rosa»',
+        onClose: () => setState(() => showVoice = false),
+        // Sólo en la compilación de diagnóstico: modelo del próximo turno y
+        // métricas sin texto.
+        diagnostics: voiceDiagnosticsBuild
+            ? VoiceSingleTranscriberPanel(session: voice!.session)
+            : null,
+      );
+    }
+    return FutureBuilder<_PurchaseCatalogs>(
+      future: catalogs,
+      builder: (context, snapshot) {
+        final voiceBlock = voice?.blocksSave ?? false;
+        final blocked =
+            saving ||
+            voiceBlock ||
+            !snapshot.hasData ||
+            modeChangedSince(loadedMode, ref.watch(operationModeProvider));
+        if (items) {
+          return BottomPanel(
+            children: [
+              if (voiceBlock)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Row(
+                    children: [
+                      const Icon(
+                        Icons.rule,
+                        size: 18,
+                        color: AgroColors.caution,
+                      ),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          voice!.saveBlockReason!,
+                          key: const Key('voz-bloqueo-guardar'),
+                          style: AgroText.detail.copyWith(
+                            color: AgroColors.warnInk,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              _itemsTotal(),
+              const SizedBox(height: 12),
+              PrimaryActionButton(
+                key: const Key('purchase-continue'),
+                label: 'Continuar',
+                onPressed: blocked ? null : _goToReview,
+              ),
+            ],
+          );
+        }
+        return BottomPanel(
+          children: [
+            PrimaryActionButton(
+              key: const Key('purchase-confirm'),
+              label: saving ? 'Guardando…' : 'Confirmar compra',
+              icon: Icons.check,
+              iconFirst: true,
+              busy: saving,
+              onPressed: blocked ? null : () => _confirm(snapshot.data!),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  /// Total del paso 1. Mientras falte un dato de algún producto no se
+  /// muestra un total que no lo es.
+  Widget _itemsTotal() {
+    const key = Key('purchase-items-total');
+    final filled = lines.where((line) => !_isBlank(line)).toList();
+    if (filled.isEmpty) {
+      return const TotalLine(
+        label: 'Total',
+        amount: '—',
+        muted: true,
+        amountKey: key,
+      );
+    }
+    final missing = filled.any((line) => line.priceMinor <= 0)
+        ? 'un precio'
+        : filled.any((line) => line.quantityBase <= 0)
+        ? 'una cantidad'
+        : filled.any(
+            (line) =>
+                line.currency == CurrencyCode.usd &&
+                (line.exchangeRateScaled ?? 0) <= 0,
+          )
+        ? 'un tipo de cambio'
+        : null;
+    if (missing != null) {
+      return TotalLine(
+        label: 'Total · falta $missing',
+        amount: '—',
+        muted: true,
+        amountKey: key,
+      );
+    }
+    return TotalLine(
+      label:
+          'Total · ${filled.length} '
+          '${filled.length == 1 ? 'producto' : 'productos'}',
+      amount: formatBob(totalBob),
+      amountKey: key,
+    );
+  }
+
+  /// «Hoy, 12/11/2026» o la fecha a secas.
+  static String _dayLabel(String day) => day == localDay(DateTime.now())
+      ? 'Hoy, ${formatDate(day)}'
+      : formatDate(day);
 
   String? _ownerName(_PurchaseCatalogs data) => data.people
       .where((row) => row['id'] == ownerPersonId)
       .firstOrNull?['name']
       ?.toString();
 
+  /// Una línea sin ningún dato: ni producto, ni cantidad, ni precio, ni
+  /// destinatario, ni lote.
+  bool _isBlank(_PurchaseLineEditor line) =>
+      line.productId == null &&
+      line.quantity.text.trim().isEmpty &&
+      line.price.text.trim().isEmpty &&
+      line.fx.text.trim().isEmpty &&
+      line.currency == CurrencyCode.bob &&
+      line.allocationMode == null &&
+      line.expiryDay == null &&
+      line.lotNumber.text.trim().isEmpty &&
+      !(voice?.touchesLine(line.id) ?? false);
+
+  void _openLine(int id) {
+    FocusManager.instance.primaryFocus?.unfocus();
+    setState(() {
+      editingLineId = id;
+      _lineProblem = null;
+    });
+  }
+
+  void _closeLine() {
+    FocusManager.instance.primaryFocus?.unfocus();
+    setState(() {
+      editingLineId = null;
+      _lineProblem = null;
+    });
+  }
+
+  /// «Añadir producto»: abre la única línea si todavía está vacía; si no,
+  /// añade una línea y la abre.
+  void _addLine() {
+    if (lines.length == 1 && _isBlank(lines.single)) {
+      _openLine(lines.single.id);
+      return;
+    }
+    _appendLine();
+  }
+
+  /// «Listo y añadir otro» y «Añadir otro producto».
+  void _appendLine() {
+    FocusManager.instance.primaryFocus?.unfocus();
+    final line = _newLine();
+    setState(() {
+      lines.add(line);
+      dirty = true;
+      editingLineId = line.id;
+      _lineProblem = null;
+    });
+  }
+
+  void _removeLine(_PurchaseLineEditor line) {
+    FocusManager.instance.primaryFocus?.unfocus();
+    lines.remove(line);
+    voice?.lineRemoved(line.id);
+    setState(() {
+      dirty = true;
+      editingLineId = null;
+    });
+    // Sus campos siguen montados hasta el próximo fotograma.
+    WidgetsBinding.instance.addPostFrameCallback((_) => line.dispose());
+  }
+
   List<Widget> _itemsStep(BuildContext context, _PurchaseCatalogs data) {
-    final ownerName = _ownerName(data);
     final supplierName = data.suppliers
         .where((row) => row['id'] == supplierId)
         .firstOrNull?['name']
         ?.toString();
+    final onlyBlank = lines.length == 1 && _isBlank(lines.single);
+    final filled = lines.where((line) => !_isBlank(line)).length;
     return [
-      if (showVoice && voice != null) ...[
-        VoiceFormPanel(
+      Semantics(
+        header: true,
+        child: const Text('¿Qué compró?', style: AgroText.h1),
+      ),
+      const SizedBox(height: 12),
+      if (voice != null && _voiceBanner && !showVoice) ...[
+        VoiceResultBanner(
           dictation: voice!,
-          engineHint:
-              'Diga la compra completa —producto, cantidad, precio y '
-              'proveedor— y pulse «Terminar». Lo reconocido aparece en los '
-              'campos; nada se guarda solo.',
-          onClose: () => setState(() => showVoice = false),
-          // Sólo en la compilación de diagnóstico: modelo del próximo turno
-          // y métricas sin texto.
-          diagnostics: voiceDiagnosticsBuild
-              ? VoiceSingleTranscriberPanel(session: voice!.session)
-              : null,
+          onDictateMore: saving ? null : _openVoice,
+          onDismiss: () => setState(() => _voiceBanner = false),
         ),
         const SizedBox(height: 12),
-      ] else ...[
+      ] else if (!showVoice) ...[
         Align(
           alignment: Alignment.centerLeft,
-          child: OutlinedButton.icon(
+          child: PillButton(
             key: const Key('compra-completar-voz'),
+            icon: Icons.mic_none_outlined,
+            label: 'Completar por voz',
             onPressed: saving ? null : _openVoice,
-            icon: const Icon(Icons.mic_none_outlined),
-            label: const Text('Completar por voz'),
           ),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 12),
       ],
-      _dropdown(
-        'Proveedor',
-        data.suppliers,
-        supplierId,
-        onCreate: _createSupplier,
-        (value) {
-          // El único proveedor se deja elegido como valor de referencia; eso no
-          // es un cambio de la persona, así que Atrás no debe preguntar
-          // «¿Descartar cambios?» (B-07).
-          final autoSelected =
-              supplierId == null &&
-              data.suppliers.length == 1 &&
-              value == data.suppliers.single['id'];
-          setState(() {
-            supplierId = value;
-            if (!autoSelected) dirty = true;
-          });
-          voice?.reconcile(_voiceTarget.snapshot());
-        },
+      AgroGroup(
+        children: [
+          AdaptiveEntityPicker<Map<String, Object?>>(
+            key: const Key('purchase-supplier'),
+            rowStyle: true,
+            label: 'Proveedor',
+            items: data.suppliers,
+            value: data.suppliers
+                .where((row) => row['id'] == supplierId)
+                .firstOrNull,
+            labelOf: (row) => row['name']! as String,
+            createLabel: 'Crear proveedor',
+            onCreate: _createSupplier,
+            badge: VoiceMarkBadge(
+              dictation: voice,
+              slot: const SlotRef.header('supplier'),
+              current: supplierId,
+            ),
+            onChanged: (row) {
+              final value = row?['id'] as int?;
+              // El único proveedor se deja elegido como valor de referencia;
+              // eso no es un cambio de la persona, así que Atrás no debe
+              // preguntar «¿Descartar cambios?» (B-07).
+              final autoSelected =
+                  supplierId == null &&
+                  data.suppliers.length == 1 &&
+                  value == data.suppliers.single['id'];
+              setState(() {
+                supplierId = value;
+                if (!autoSelected) dirty = true;
+              });
+              voice?.reconcile(_voiceTarget.snapshot());
+            },
+          ),
+          ValueRow(
+            key: const Key('purchase-date'),
+            label: 'Fecha de la compra',
+            value: _dayLabel(effectiveDay),
+            onTap: saving ? null : _pickDate,
+          ),
+        ],
       ),
       VoiceSlotMark(
         dictation: voice,
         slot: const SlotRef.header('supplier'),
         current: supplierId,
         currentDisplay: supplierName,
-      ),
-      const SizedBox(height: 10),
-      ListTile(
-        key: const Key('purchase-date'),
-        contentPadding: EdgeInsets.zero,
-        leading: const Icon(Icons.event_outlined),
-        title: const Text('Fecha de la compra'),
-        subtitle: Text(
-          '${formatDate(effectiveDay)}'
-          '${effectiveDay == localDay(DateTime.now()) ? ' (hoy)' : ''}',
-        ),
-        trailing: const Text('Cambiar'),
-        onTap: saving ? null : _pickDate,
-      ),
-      const SizedBox(height: 12),
-      // Título y acción en un `Wrap`, no en una fila: con la fuente al 130 %
-      // en 360 dp el título se partía en «Producto / s (1)» (#129).
-      // «Añadir otro producto» agrega una **línea** a la compra; «Crear
-      // producto», en el selector de cada línea, da de alta un producto del
-      // catálogo. Antes las dos acciones se llamaban casi igual
-      // («Agregar producto»/«Crear producto») (2026-11-05).
-      SectionHeading(
-        title: 'Productos (${lines.length})',
-        action: FilledButton.tonalIcon(
-          key: const Key('purchase-add-line'),
-          onPressed: () {
-            setState(() {
-              lines.add(_newLine());
-              dirty = true;
-            });
-          },
-          icon: const Icon(Icons.add),
-          label: const Text('Añadir otro producto'),
-        ),
+        showMark: false,
       ),
       const SizedBox(height: 8),
-      for (var index = 0; index < lines.length; index++)
-        Padding(
-          padding: const EdgeInsets.only(bottom: 10),
-          child: _LineCard(
-            key: ObjectKey(lines[index]),
-            index: index,
-            line: lines[index],
-            products: data.products,
-            people: data.people,
-            ownerPersonId: ownerPersonId,
-            personalOwnerName: personalOwnerId == null
-                ? null
-                : ownerName ?? 'Titular',
-            usedProductIds: {
-              for (final other in lines)
-                if (!identical(other, lines[index]) && other.productId != null)
-                  other.productId!,
+      SectionHeader(
+        title: 'Productos de esta compra',
+        trailing: filled == 0 ? null : '$filled',
+      ),
+      const SizedBox(height: 10),
+      if (!onlyBlank)
+        for (var index = 0; index < lines.length; index++)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: _lineCard(index, data),
+          ),
+      // «Añadir otro producto» agrega una **línea** a la compra; «Crear
+      // producto», en el selector de cada línea, da de alta un producto del
+      // catálogo (2026-11-05).
+      DashedAddButton(
+        key: const Key('purchase-add-line'),
+        label: onlyBlank ? 'Añadir producto' : 'Añadir otro producto',
+        onPressed: saving ? null : _addLine,
+      ),
+    ];
+  }
+
+  Map<String, Object?>? _productOf(_PurchaseCatalogs data, int? id) =>
+      data.products.where((row) => row['id'] == id).firstOrNull;
+
+  String _personName(_PurchaseCatalogs data, int? id) =>
+      data.people
+          .where((person) => person['id'] == id)
+          .firstOrNull?['name']
+          ?.toString() ??
+      '';
+
+  /// Precio de la línea en su moneda («118,00 Bs», «16,00 US$»).
+  static String _priceText(_PurchaseLineEditor line) =>
+      line.currency == CurrencyCode.usd
+      ? formatUsd(line.priceMinor)
+      : formatBob(line.priceMinor);
+
+  /// Cómo va el destinatario de esta línea (UIBUG-039, pilotos X01/X02).
+  ///
+  /// Una línea vacía no se declara terminada: sólo cuando existen todos sus
+  /// datos obligatorios. En compartido lo primero es la decisión explícita
+  /// de destinatario; sin ella, «Pendiente de destinatario». La regla
+  /// contable no cambia —la valida igual `_validateItems`—; cambia lo que la
+  /// tarjeta declara.
+  String _allocationStatus(_PurchaseLineEditor line, _PurchaseCatalogs data) {
+    final unit = _productOf(data, line.productId)?['unit']?.toString() ?? '';
+    if (personalOwnerId != null) {
+      return line.quantityBase <= 0
+          ? 'Pendiente de cantidad'
+          : 'Para el titular';
+    }
+    switch (line.allocationMode) {
+      case null:
+        return 'Pendiente de destinatario';
+      case _AllocationMode.single:
+        if (line.singlePersonId == null) return 'Pendiente de destinatario';
+        if (line.quantityBase <= 0) return 'Pendiente de cantidad';
+        return 'Para: ${_personName(data, line.singlePersonId)}';
+      case _AllocationMode.split:
+        if (line.quantityBase <= 0) return 'Pendiente de cantidad';
+        if (line.allocations.any((allocation) => allocation.personId == null)) {
+          return 'Pendiente de persona';
+        }
+        final pending = line.quantityBase - line.assignedBase;
+        if (pending > 0) {
+          return 'Pendiente ${formatQuantity(pending, unit)}';
+        }
+        if (pending < 0) {
+          return 'Excede en ${formatQuantity(-pending, unit)}';
+        }
+        return 'Repartida: ${line.allocations.map((a) => '${_personName(data, a.personId)} ${formatQuantity(tryParseBase(a.quantity.text) ?? 0, unit)}').join(' · ')}';
+    }
+  }
+
+  static const _voiceLineFields = [
+    'product',
+    'quantity',
+    'price',
+    'currency',
+    'fx',
+    'recipient',
+  ];
+
+  /// Tarjeta resumen de una línea en el paso 1. Lo que la voz dejó por
+  /// elegir o revisar se resuelve aquí mismo; «Escribir otro valor» abre la
+  /// hoja del producto.
+  Widget _lineCard(int index, _PurchaseCatalogs data) {
+    final line = lines[index];
+    final product = _productOf(data, line.productId);
+    final unit = product?['unit']?.toString() ?? '';
+    final shared = personalOwnerId == null;
+    final fields = line.voiceFields(shared);
+    final v = voice;
+    final pending =
+        v != null &&
+        _voiceLineFields.any((field) {
+          final slot = SlotRef.line(line.id, field);
+          return v.choiceFor(slot) != null || v.reviewFor(slot) != null;
+        });
+    final byVoice =
+        v != null &&
+        fields.entries.any(
+          (e) => v.markFor(SlotRef.line(line.id, e.key), e.value) != null,
+        );
+    final amounts = [
+      if (line.quantityBase > 0) formatQuantity(line.quantityBase, unit),
+      if (line.priceMinor > 0) _priceText(line),
+    ].join(' × ');
+    final subtitle = [
+      if (amounts.isNotEmpty) amounts,
+      _allocationStatus(line, data),
+    ].join(' · ');
+    final complete =
+        line.quantityBase > 0 &&
+        line.priceMinor > 0 &&
+        (line.currency == CurrencyCode.bob ||
+            (line.exchangeRateScaled ?? 0) > 0);
+    return ItemCard(
+      key: Key('purchase-line-$index'),
+      title: product?['name']?.toString() ?? 'Producto ${index + 1}',
+      subtitle: product == null
+          ? 'Falta elegir el producto · $subtitle'
+          : subtitle,
+      amount: complete ? formatBob(line.subtotalBob) : null,
+      attention: pending,
+      semanticsHint: 'Abrir para editar',
+      badge: byVoice && !pending
+          ? const StatusBadge(label: 'Por voz', tone: BadgeTone.voice)
+          : null,
+      onTap: saving ? null : () => _openLine(line.id),
+      footer: [
+        ..._missing(line, fields),
+        for (final field in _voiceLineFields)
+          VoiceSlotMark(
+            dictation: v,
+            slot: SlotRef.line(line.id, field),
+            current: fields[field],
+            currentDisplay: switch (field) {
+              'product' => product?['name']?.toString(),
+              'recipient' =>
+                line.singlePersonId == null
+                    ? null
+                    : _personName(data, line.singlePersonId),
+              'currency' => line.currency.name.toUpperCase(),
+              'price' => line.price.text,
+              'fx' => line.fx.text,
+              _ => null,
             },
-            onChanged: _markDirty,
-            onCreateProduct: _createProduct,
-            onCreatePerson: _canCreatePeople ? _createPerson : null,
-            voice: voice,
-            shared: personalOwnerId == null,
-            onRemove: lines.length == 1
-                ? null
-                : () {
-                    final removed = lines.removeAt(index);
-                    voice?.lineRemoved(removed.id);
-                    removed.dispose();
-                    setState(() => dirty = true);
-                  },
+            showMark: false,
+            writeOtherLabel: field == 'product' || field == 'recipient'
+                ? 'Elegir otro'
+                : 'Escribir otro valor',
+            onWriteOther: saving ? null : () => _openLine(line.id),
+          ),
+      ],
+    );
+  }
+
+  /// «Falta» de los datos obligatorios en una línea que tocó la voz.
+  List<Widget> _missing(_PurchaseLineEditor line, Map<String, Object?> f) {
+    final v = voice;
+    if (v == null || !v.touchesLine(line.id)) return const [];
+    return [
+      if (f['product'] == null) const VoiceMissingMark(label: 'producto'),
+      if (f['quantity'] == null) const VoiceMissingMark(label: 'cantidad'),
+      if (f['price'] == null) const VoiceMissingMark(label: 'precio'),
+    ];
+  }
+
+  /// Hoja «Producto n»: edita la línea en el borrador.
+  Widget _lineSheet(
+    BuildContext context,
+    _PurchaseCatalogs data,
+    _PurchaseLineEditor line,
+  ) {
+    final index = lines.indexOf(line);
+    return InPageSheet(
+      key: Key('purchase-line-sheet-$index'),
+      title: 'Producto ${index + 1}',
+      closeKey: const Key('purchase-line-close'),
+      onClose: _closeLine,
+      actions: [
+        SecondaryActionButton(
+          key: const Key('purchase-line-next'),
+          label: 'Añadir otro',
+          icon: Icons.add,
+          onPressed: saving ? null : _appendLine,
+        ),
+        PrimaryActionButton(
+          key: const Key('purchase-line-done'),
+          label: 'Listo',
+          icon: Icons.check,
+          iconFirst: true,
+          onPressed: _closeLine,
+        ),
+      ],
+      children: _lineEditor(context, data, line, index),
+    );
+  }
+
+  /// Marca de voz de un campo de la hoja. El producto ya lleva «Por voz» en
+  /// su fila ([showMark] falso); en la hoja el campo está a la vista, así que
+  /// no hace falta «Escribir otro valor»: se escribe en él.
+  Widget _lineMark(
+    _PurchaseLineEditor line,
+    String field, {
+    String? currentDisplay,
+    bool showMark = true,
+  }) => VoiceSlotMark(
+    dictation: voice,
+    slot: SlotRef.line(line.id, field),
+    current: line.voiceFields(personalOwnerId == null)[field],
+    currentDisplay: currentDisplay,
+    showMark: showMark,
+  );
+
+  /// Rótulo secundario de una persona: el titular se dice «Titular»; los
+  /// demás, su rol («Familiar», «Tercero»). Nunca «Titular · Familiar».
+  String _personRole(Map<String, Object?> person) =>
+      ownerPersonId != null && person['id'] == ownerPersonId
+      ? 'Titular'
+      : personRoleLabel(person['role']);
+
+  List<Widget> _lineEditor(
+    BuildContext context,
+    _PurchaseCatalogs data,
+    _PurchaseLineEditor line,
+    int index,
+  ) {
+    final product = _productOf(data, line.productId);
+    final unit = product?['unit']?.toString() ?? '';
+    final hasProduct = unit.isNotEmpty;
+    final usd = line.currency == CurrencyCode.usd;
+    final usedProductIds = {
+      for (final other in lines)
+        if (!identical(other, line) && other.productId != null)
+          other.productId!,
+    };
+    const suffixStyle = TextStyle(
+      fontSize: 16,
+      fontWeight: FontWeight.w700,
+      color: AgroColors.muted,
+    );
+    final quantity = TextField(
+      key: Key('purchase-quantity-$index'),
+      controller: line.quantity,
+      onChanged: (_) {
+        line.quantityError = null;
+        _markDirty();
+      },
+      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+      style: AgroText.input,
+      // "Cantidad comprada" y no "Cantidad" a secas: en «Repartir entre
+      // varias» cada parte tiene su propio campo de cantidad (UIBUG-038).
+      decoration: InputDecoration(
+        labelText: 'Cantidad comprada',
+        floatingLabelBehavior: FloatingLabelBehavior.always,
+        suffixText: unit.isEmpty ? null : unit,
+        suffixStyle: suffixStyle,
+        errorText: line.quantityError,
+        errorMaxLines: 4,
+      ),
+    );
+    final price = TextField(
+      key: Key('purchase-price-$index'),
+      controller: line.price,
+      onChanged: (_) {
+        line.priceError = null;
+        _markDirty();
+      },
+      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+      style: AgroText.input,
+      // Sin producto elegido no hay unidad: «Precio por unidad» (UIBUG-037).
+      decoration: InputDecoration(
+        labelText: hasProduct ? 'Precio por $unit' : 'Precio por unidad',
+        floatingLabelBehavior: FloatingLabelBehavior.always,
+        suffixText: usd ? 'USD' : 'Bs',
+        suffixStyle: suffixStyle,
+        errorText: line.priceError,
+        errorMaxLines: 4,
+      ),
+    );
+    return [
+      if (_lineProblem != null) ...[
+        Semantics(
+          liveRegion: true,
+          child: NoticeBox(
+            key: const Key('purchase-line-problem'),
+            tone: NoticeTone.danger,
+            text: _lineProblem!,
           ),
         ),
+        const SizedBox(height: 12),
+      ],
+      Align(
+        alignment: Alignment.centerLeft,
+        child: PillButton(
+          key: const Key('purchase-line-voz'),
+          icon: Icons.mic_none_outlined,
+          label: 'Completar por voz',
+          onPressed: saving
+              ? null
+              : () {
+                  _closeLine();
+                  _openVoice();
+                },
+        ),
+      ),
+      const SizedBox(height: 12),
+      AgroGroup(
+        children: [
+          AdaptiveEntityPicker<Map<String, Object?>>(
+            rowStyle: true,
+            label: 'Producto',
+            items: data.products
+                .where(
+                  (row) =>
+                      !usedProductIds.contains(row['id']) ||
+                      row['id'] == line.productId,
+                )
+                .toList(),
+            value: product,
+            labelOf: (row) => row['name']! as String,
+            secondaryOf: (row) => row['unit']! as String,
+            // Piloto X02: el último producto del catálogo entraba solo en la
+            // última línea. El producto entra sólo al elegirlo (B-08).
+            autoSelectSingle: false,
+            badge: VoiceMarkBadge(
+              dictation: voice,
+              slot: SlotRef.line(line.id, 'product'),
+              current: line.productId,
+            ),
+            onChanged: (row) {
+              line.productId = row?['id'] as int?;
+              _markDirty();
+            },
+            createLabel: 'Crear producto',
+            onCreate: _createProduct,
+          ),
+        ],
+      ),
+      _lineMark(
+        line,
+        'product',
+        currentDisplay: product?['name']?.toString(),
+        showMark: false,
+      ),
+      const SizedBox(height: 12),
+      // Lado a lado si caben con la letra actual; si no, uno debajo del otro
+      // (UIBUG-040).
+      LayoutBuilder(
+        builder: (context, constraints) {
+          final scale = MediaQuery.textScalerOf(context).scale(1);
+          if (constraints.maxWidth >= 2 * 150 * scale + 10) {
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(child: quantity),
+                const SizedBox(width: 10),
+                Expanded(child: price),
+              ],
+            );
+          }
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [quantity, const SizedBox(height: 10), price],
+          );
+        },
+      ),
+      _lineMark(line, 'quantity'),
+      _lineMark(line, 'price', currentDisplay: line.price.text),
+      const SizedBox(height: 12),
+      Wrap(
+        alignment: WrapAlignment.spaceBetween,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        spacing: 12,
+        runSpacing: 8,
+        children: [
+          SizedBox(
+            width: 168,
+            child: SegmentToggle<CurrencyCode>(
+              key: Key('purchase-currency-$index'),
+              semanticLabel: 'Moneda',
+              height: 44,
+              options: [
+                ToggleOption(
+                  CurrencyCode.bob,
+                  'BOB',
+                  key: Key('purchase-currency-bob-$index'),
+                ),
+                ToggleOption(
+                  CurrencyCode.usd,
+                  'USD',
+                  key: Key('purchase-currency-usd-$index'),
+                ),
+              ],
+              selected: line.currency,
+              onChanged: (value) {
+                if (value == line.currency) return;
+                line.currency = value;
+                _markDirty();
+              },
+            ),
+          ),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              const Text('Subtotal', style: AgroText.detail),
+              Text(
+                formatBob(line.subtotalBob),
+                key: Key('purchase-line-subtotal-$index'),
+                style: AgroText.total.copyWith(fontSize: 24, height: 30 / 24),
+              ),
+            ],
+          ),
+        ],
+      ),
+      _lineMark(
+        line,
+        'currency',
+        currentDisplay: line.currency.name.toUpperCase(),
+      ),
+      if (usd) ...[
+        const SizedBox(height: 12),
+        TextField(
+          controller: line.fx,
+          onChanged: (_) {
+            line.fxError = null;
+            _markDirty();
+          },
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          decoration: InputDecoration(
+            labelText: 'TC Bs/USD',
+            floatingLabelBehavior: FloatingLabelBehavior.always,
+            errorText: line.fxError,
+            errorMaxLines: 4,
+          ),
+        ),
+        _lineMark(line, 'fx', currentDisplay: line.fx.text),
+        if (hasProduct)
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Text(
+              'Costo en bolivianos: ${formatBob(line.unitBob)}/$unit',
+              style: AgroText.detail,
+            ),
+          ),
+      ],
+      ..._missing(line, line.voiceFields(personalOwnerId == null)),
+      const SizedBox(height: 16),
+      // En propio la línea entera es del titular: no hay reparto (#26).
+      if (personalOwnerId != null)
+        NoticeBox(
+          key: Key('purchase-personal-allocation-$index'),
+          icon: Icons.person_outline,
+          text:
+              'Para el titular: '
+              '${_ownerName(data) ?? 'Titular'}',
+        )
+      else ...[
+        ..._recipientSection(data, line, index, unit),
+        _lineMark(
+          line,
+          'recipient',
+          currentDisplay: line.singlePersonId == null
+              ? null
+              : _personName(data, line.singlePersonId),
+        ),
+      ],
+      const SizedBox(height: 12),
+      AgroGroup(
+        children: [
+          _LotDataSection(index: index, line: line, onChanged: _markDirty),
+        ],
+      ),
+      if (lines.length > 1) ...[
+        const SizedBox(height: 8),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: TextButton.icon(
+            key: Key('purchase-line-remove-$index'),
+            onPressed: saving ? null : () => _removeLine(line),
+            style: TextButton.styleFrom(foregroundColor: AgroColors.danger),
+            icon: const Icon(Icons.delete_outline),
+            label: const Text('Quitar este producto'),
+          ),
+        ),
+      ],
+    ];
+  }
+
+  /// «¿Para quién es?» en compartido: dos opciones explícitas, ninguna
+  /// marcada por defecto. El destinatario de las existencias no es el
+  /// pagador (que siempre es el titular, en el paso 2).
+  List<Widget> _recipientSection(
+    _PurchaseCatalogs data,
+    _PurchaseLineEditor line,
+    int index,
+    String unit,
+  ) {
+    final people = data.people;
+    final canCreate = _canCreatePeople;
+    return [
+      const Text('¿Para quién es?', style: AgroText.question),
+      const SizedBox(height: 8),
+      SegmentToggle<_AllocationMode>(
+        key: Key('purchase-alloc-mode-$index'),
+        semanticLabel: 'Para quién es',
+        options: [
+          ToggleOption(
+            _AllocationMode.single,
+            'Una persona',
+            key: Key('purchase-alloc-single-$index'),
+          ),
+          ToggleOption(
+            _AllocationMode.split,
+            'Repartir entre varias',
+            key: Key('purchase-alloc-split-$index'),
+          ),
+        ],
+        selected: line.allocationMode,
+        onChanged: (mode) {
+          // Volver a tocar la opción activa no borra nada.
+          if (mode == line.allocationMode) return;
+          if (mode == _AllocationMode.single) {
+            line.allocationMode = _AllocationMode.single;
+            // Cambiar de opción limpia la anterior: las filas del reparto no
+            // se arrastran. Sus controladores se liberan después del
+            // fotograma, cuando los campos que los usaban ya no existen.
+            final discarded = List.of(line.allocations);
+            line.allocations.clear();
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              for (final allocation in discarded) {
+                allocation.dispose();
+              }
+            });
+          } else {
+            line.allocationMode = _AllocationMode.split;
+            // La persona única no se arrastra a una fila del reparto.
+            line.singlePersonId = null;
+            // Repartir es entre dos o más: dos filas vacías para empezar,
+            // sin ninguna persona prellenada.
+            while (line.allocations.length < 2) {
+              line.allocations.add(_AllocationEditor());
+            }
+          }
+          _markDirty();
+        },
+      ),
+      const SizedBox(height: 10),
+      switch (line.allocationMode) {
+        null => Text(
+          'Elija una opción para indicar a quién va este producto.',
+          key: Key('purchase-alloc-pending-$index'),
+          style: AgroText.detail,
+        ),
+        // Un destinatario: selector sin valor por defecto ni autoselección;
+        // la cantidad asignada se deriva de «Cantidad comprada».
+        _AllocationMode.single => AgroGroup(
+          children: [
+            AdaptiveEntityPicker<Map<String, Object?>>(
+              rowStyle: true,
+              label: 'Persona',
+              displayLabel: line.quantityBase > 0
+                  ? 'Recibe toda la cantidad: '
+                        '${formatQuantity(line.quantityBase, unit)}'
+                  : 'Persona que recibe',
+              displayLabelKey: Key('purchase-alloc-derived-$index'),
+              items: people,
+              value: people
+                  .where((person) => person['id'] == line.singlePersonId)
+                  .firstOrNull,
+              labelOf: (person) => person['name']! as String,
+              secondaryOf: _personRole,
+              autoSelectSingle: false,
+              onChanged: (person) {
+                line.singlePersonId = person?['id'] as int?;
+                _markDirty();
+              },
+              createLabel: canCreate ? 'Agregar persona' : null,
+              onCreate: canCreate ? _createPerson : null,
+            ),
+          ],
+        ),
+        // Reparto por filas: persona y cantidad por fila; las partes suman
+        // la cantidad comprada (lo valida igual `_validateItems`).
+        _AllocationMode.split => Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            for (var i = 0; i < line.allocations.length; i++)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: _AllocationRow(
+                  onRemove: line.allocations.length > 2
+                      ? () {
+                          final removed = line.allocations.removeAt(i);
+                          WidgetsBinding.instance.addPostFrameCallback(
+                            (_) => removed.dispose(),
+                          );
+                          _markDirty();
+                        }
+                      : null,
+                  children: [
+                    Expanded(
+                      flex: 3,
+                      child: AgroGroup(
+                        children: [
+                          AdaptiveEntityPicker<Map<String, Object?>>(
+                            rowStyle: true,
+                            label: 'Persona',
+                            items: people,
+                            value: people
+                                .where(
+                                  (person) =>
+                                      person['id'] ==
+                                      line.allocations[i].personId,
+                                )
+                                .firstOrNull,
+                            labelOf: (person) => person['name']! as String,
+                            secondaryOf: _personRole,
+                            autoSelectSingle: false,
+                            onChanged: (person) {
+                              line.allocations[i].personId =
+                                  person?['id'] as int?;
+                              _markDirty();
+                            },
+                            createLabel: canCreate ? 'Agregar persona' : null,
+                            onCreate: canCreate ? _createPerson : null,
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      flex: 2,
+                      child: TextField(
+                        controller: line.allocations[i].quantity,
+                        onChanged: (_) {
+                          line.allocations[i].quantityError = null;
+                          _markDirty();
+                        },
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        // El campo dice qué es; la unidad acompaña como
+                        // sufijo cuando se conoce (UIBUG-038).
+                        decoration: InputDecoration(
+                          labelText: 'Cantidad',
+                          floatingLabelBehavior: FloatingLabelBehavior.always,
+                          suffixText: unit.isEmpty ? null : unit,
+                          errorText: line.allocations[i].quantityError,
+                          errorMaxLines: 4,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            Wrap(
+              alignment: WrapAlignment.spaceBetween,
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: 8,
+              children: [
+                Text(
+                  _allocationStatus(line, data),
+                  key: Key('purchase-alloc-status-$index'),
+                  style: AgroText.detail.copyWith(fontWeight: FontWeight.w700),
+                ),
+                TextButton.icon(
+                  key: Key('purchase-alloc-add-$index'),
+                  onPressed: () {
+                    line.allocations.add(_AllocationEditor());
+                    _markDirty();
+                  },
+                  icon: const Icon(Icons.add),
+                  label: const Text('Añadir persona'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      },
     ];
   }
 
   List<Widget> _reviewStep(BuildContext context, _PurchaseCatalogs data) {
-    final theme = Theme.of(context);
     final ownerName = _ownerName(data) ?? 'Titular';
     final supplierName =
         data.suppliers
@@ -1116,232 +1980,287 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen>
             .firstOrNull?['name']
             ?.toString() ??
         '';
-    String personName(int? id) =>
-        data.people
-            .where((row) => row['id'] == id)
-            .firstOrNull?['name']
-            ?.toString() ??
-        '';
+    String personName(int? id) => _personName(data, id);
     String productName(int? id) =>
-        data.products
-            .where((row) => row['id'] == id)
-            .firstOrNull?['name']
-            ?.toString() ??
-        '';
+        _productOf(data, id)?['name']?.toString() ?? '';
     String productUnit(int? id) =>
-        data.products
-            .where((row) => row['id'] == id)
-            .firstOrNull?['unit']
-            ?.toString() ??
-        '';
+        _productOf(data, id)?['unit']?.toString() ?? '';
     return [
-      _Section(
+      Semantics(
+        header: true,
+        child: const Text('Revise y confirme', style: AgroText.h1),
+      ),
+      const SizedBox(height: 12),
+      // Por producto: nombre, cantidad, destinatario y subtotal, a la vista
+      // antes de confirmar (pilotos X01/X02).
+      Container(
         key: const Key('purchase-review'),
-        title: 'Lo que se va a guardar',
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            _reviewRow(Icons.storefront_outlined, 'Proveedor', supplierName),
-            _reviewRow(
-              Icons.event_outlined,
-              'Fecha',
-              '${formatDate(effectiveDay)}'
-                  '${effectiveDay == localDay(DateTime.now()) ? ' (hoy)' : ''}',
-            ),
-            const Divider(height: 20),
-            // Por producto: nombre, cantidad, subtotal y destinatario, en una
-            // sola línea legible antes de confirmar (pilotos X01/X02).
-            for (var index = 0; index < lines.length; index++) ...[
-              Text(
-                '${productName(lines[index].productId)} · '
-                '${formatQuantity(lines[index].quantityBase, productUnit(lines[index].productId))} · '
-                '${formatBob(lines[index].subtotalBob)} · '
-                '${_recipientSummary(lines[index], personName, productUnit(lines[index].productId), ownerName)}',
-                key: Key('purchase-review-line-$index'),
-                style: const TextStyle(fontWeight: FontWeight.w700),
-              ),
-              if (lines[index].expiryDay != null ||
-                  lines[index].lotNumberValue != null)
-                Text(
-                  _lotDataSummary(lines[index]),
-                  key: Key('purchase-review-lot-$index'),
-                ),
-              const SizedBox(height: 8),
-            ],
-            const Divider(height: 20),
-            Row(
-              children: [
-                const Expanded(
-                  child: Text(
-                    'TOTAL COMPRA',
-                    style: TextStyle(fontWeight: FontWeight.w700),
-                  ),
-                ),
-                Text(
-                  formatBob(totalBob),
-                  key: const Key('purchase-total'),
-                  style: theme.textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.w800,
-                  ),
-                ),
-              ],
-            ),
-          ],
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+        decoration: BoxDecoration(
+          color: AgroColors.surface,
+          borderRadius: BorderRadius.circular(20),
         ),
-      ),
-      const SizedBox(height: 12),
-      // El total se dice una sola vez, arriba («TOTAL COMPRA»); aquí sólo la
-      // decisión de pago (2026-11-05). «Sí, pagué todo» paga ese total.
-      _Section(
-        key: const Key('purchase-paid-question'),
-        title: '¿Ya pagaste al proveedor?',
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // Sin respuesta por defecto: la persona elige. `SegmentedButton`
-            // admite la selección vacía y muestra la elegida.
-            SegmentedButton<bool>(
-              key: const Key('purchase-paid-choice'),
-              emptySelectionAllowed: true,
-              showSelectedIcon: true,
-              expandedInsets: EdgeInsets.zero,
-              segments: const [
-                ButtonSegment(
-                  value: true,
-                  icon: Icon(Icons.payments_outlined),
-                  label: Text('Sí, pagué todo', key: Key('purchase-paid-yes')),
+            Wrap(
+              alignment: WrapAlignment.spaceBetween,
+              spacing: 12,
+              children: [
+                Text(
+                  supplierName,
+                  key: const Key('purchase-review-supplier'),
+                  style: AgroText.value,
                 ),
-                ButtonSegment(
-                  value: false,
-                  icon: Icon(Icons.schedule_outlined),
-                  label: Text('No, todavía no', key: Key('purchase-paid-no')),
+                Text(
+                  _dayLabel(effectiveDay),
+                  key: const Key('purchase-review-date'),
+                  style: AgroText.detail,
                 ),
               ],
-              selected: {?paidInFull},
-              onSelectionChanged: saving
-                  ? null
-                  : (selection) => setState(() {
-                      paidInFull = selection.isEmpty ? null : selection.single;
-                      dirty = true;
-                    }),
             ),
-            const SizedBox(height: 10),
-            switch (paidInFull) {
-              // El pagador no se edita: es el titular del vínculo real. El
-              // medio y la fecha sí se ven y se corrigen: no se guardan
-              // valores que la persona no haya visto.
-              true => Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    key: const Key('purchase-payer-owner'),
-                    children: [
-                      Icon(
-                        Icons.check_circle_outline,
-                        color: theme.colorScheme.primary,
+            const Divider(height: 24),
+            for (var index = 0; index < lines.length; index++)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 10),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            '${productName(lines[index].productId)} · '
+                            '${formatQuantity(lines[index].quantityBase, productUnit(lines[index].productId))}',
+                            key: Key('purchase-review-line-$index'),
+                            style: const TextStyle(
+                              fontSize: 16,
+                              height: 22 / 16,
+                              fontWeight: FontWeight.w700,
+                              color: AgroColors.ink,
+                            ),
+                          ),
+                          Text(
+                            _recipientSummary(
+                              lines[index],
+                              personName,
+                              productUnit(lines[index].productId),
+                              ownerName,
+                            ),
+                            key: Key('purchase-review-recipient-$index'),
+                            style: AgroText.detail,
+                          ),
+                          if (lines[index].expiryDay != null ||
+                              lines[index].lotNumberValue != null)
+                            Text(
+                              _lotDataSummary(lines[index]),
+                              key: Key('purchase-review-lot-$index'),
+                              style: AgroText.detail,
+                            ),
+                        ],
                       ),
-                      const SizedBox(width: 8),
-                      // Antes de guardar no hay ningún pago registrado: se
-                      // dice quién paga, como en el pago posterior (E-16).
-                      Expanded(child: Text('Paga el titular: $ownerName')),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  ProviderPaymentFields(
-                    method: paymentMethod,
-                    onMethodChanged: (value) => setState(() {
-                      paymentMethod = value;
-                      dirty = true;
-                    }),
-                    day: effectivePaymentDay,
-                    dayHint: effectivePaymentDay == localDay(DateTime.now())
-                        ? ' (hoy)'
-                        : paymentDay == null
-                        ? ' (el día de la compra)'
-                        : '',
-                    onDayChanged: (value) => setState(() {
-                      paymentDay = value;
-                      dirty = true;
-                    }),
-                    enabled: !saving,
-                  ),
-                ],
+                    ),
+                    const SizedBox(width: 10),
+                    Text(
+                      formatBob(lines[index].subtotalBob),
+                      key: Key('purchase-review-subtotal-$index'),
+                      style: AgroText.amount,
+                    ),
+                  ],
+                ),
               ),
-              false => const Text(
-                'La compra queda sin pago. Puedes anotarlo después en '
-                'Operaciones, Compras.',
-                key: Key('purchase-no-payment'),
-              ),
-              null => Text(
-                'Elige una opción para poder confirmar.',
-                key: const Key('purchase-paid-pending'),
-                style: TextStyle(color: theme.colorScheme.outline),
-              ),
-            },
+            const Divider(height: 14),
+            TotalLine(
+              label:
+                  'Total · ${lines.length} '
+                  '${lines.length == 1 ? 'producto' : 'productos'}',
+              amount: formatBob(totalBob),
+              amountKey: const Key('purchase-total'),
+            ),
           ],
         ),
       ),
+      const SizedBox(height: 20),
+      // El total se dice una sola vez, arriba; aquí sólo la decisión de pago
+      // (2026-11-05). «Sí, pagué todo» paga ese total.
+      Semantics(
+        header: true,
+        child: const Text(
+          '¿Ya pagó al proveedor?',
+          key: Key('purchase-paid-question'),
+          style: AgroText.h2,
+        ),
+      ),
+      const SizedBox(height: 10),
+      // Sin respuesta por defecto: la persona elige.
+      ChoiceCards<bool>(
+        key: const Key('purchase-paid-choice'),
+        semanticLabel: 'Pago al proveedor',
+        options: const [
+          ChoiceCardOption(
+            true,
+            'Sí, pagué todo',
+            Icons.payments_outlined,
+            key: Key('purchase-paid-yes'),
+          ),
+          ChoiceCardOption(
+            false,
+            'Todavía no',
+            Icons.schedule_outlined,
+            key: Key('purchase-paid-no'),
+          ),
+        ],
+        selected: paidInFull,
+        onChanged: saving
+            ? null
+            : (value) => setState(() {
+                paidInFull = value;
+                dirty = true;
+              }),
+      ),
       const SizedBox(height: 12),
-      Card(
-        child: ExpansionTile(
-          key: const Key('purchase-details'),
-          title: const Text('Factura, notas y campaña (opcional)'),
-          childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+      switch (paidInFull) {
+        // El pagador no se edita: es el titular del vínculo real. El medio y
+        // la fecha sí se ven y se corrigen: no se guardan valores que la
+        // persona no haya visto.
+        true => Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            TextField(
-              controller: invoiceNumber,
-              onChanged: (_) => _markDirty(),
-              decoration: const InputDecoration(labelText: 'N.º de factura'),
-            ),
-            const SizedBox(height: 10),
             Row(
+              key: const Key('purchase-payer-owner'),
               children: [
-                OutlinedButton.icon(
-                  onPressed: () => _pickImage(ImageSource.camera),
-                  icon: const Icon(Icons.photo_camera_outlined),
-                  label: const Text('Cámara'),
-                ),
+                const Icon(Icons.check_circle_outline, color: AgroColors.link),
                 const SizedBox(width: 8),
-                OutlinedButton.icon(
-                  onPressed: () => _pickImage(ImageSource.gallery),
-                  icon: const Icon(Icons.photo_library_outlined),
-                  label: const Text('Galería'),
-                ),
-                if (invoiceImage != null) ...[
-                  const SizedBox(width: 10),
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
-                    child: Image.file(
-                      File(invoiceImage!.path),
-                      width: 48,
-                      height: 48,
-                      fit: BoxFit.cover,
+                // Antes de guardar no hay ningún pago registrado: se dice
+                // quién paga, como en el pago posterior (E-16).
+                Expanded(
+                  child: Text(
+                    'Paga el titular: $ownerName',
+                    style: AgroText.question.copyWith(
+                      fontWeight: FontWeight.w500,
                     ),
                   ),
-                ],
+                ),
               ],
             ),
-            const SizedBox(height: 10),
-            TextField(
-              controller: notes,
-              onChanged: (_) => _markDirty(),
-              maxLines: 2,
-              decoration: const InputDecoration(labelText: 'Notas'),
-            ),
-            const SizedBox(height: 10),
-            _dropdown(
-              'Campaña',
-              data.campaigns.where((row) => row['status'] == 'ACTIVE').toList(),
-              campaignId,
-              (value) {
-                setState(() {
-                  campaignId = value;
-                  dirty = true;
-                });
-              },
+            const SizedBox(height: 12),
+            ProviderPaymentFields(
+              method: paymentMethod,
+              onMethodChanged: (value) => setState(() {
+                paymentMethod = value;
+                dirty = true;
+              }),
+              day: effectivePaymentDay,
+              dayHint: effectivePaymentDay == localDay(DateTime.now())
+                  ? ' (hoy)'
+                  : paymentDay == null
+                  ? ' (el día de la compra)'
+                  : '',
+              onDayChanged: (value) => setState(() {
+                paymentDay = value;
+                dirty = true;
+              }),
+              enabled: !saving,
             ),
           ],
         ),
+        false => const NoticeBox(
+          key: Key('purchase-no-payment'),
+          icon: Icons.schedule_outlined,
+          text:
+              'La compra queda sin pago. Puede anotarlo después en '
+              'Operaciones, Compras.',
+        ),
+        null => const Text(
+          'Elija una opción para poder confirmar.',
+          key: Key('purchase-paid-pending'),
+          style: AgroText.detail,
+        ),
+      },
+      const SizedBox(height: 16),
+      AgroGroup(
+        children: [
+          Theme(
+            data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+            child: ExpansionTile(
+              key: const Key('purchase-details'),
+              tilePadding: const EdgeInsets.fromLTRB(16, 4, 10, 4),
+              shape: const Border(),
+              collapsedShape: const Border(),
+              iconColor: AgroColors.ink,
+              collapsedIconColor: AgroColors.muted,
+              title: const Text(
+                'Factura, notas y campaña (opcional)',
+                style: TextStyle(
+                  fontSize: 15,
+                  height: 20 / 15,
+                  fontWeight: FontWeight.w500,
+                  color: AgroColors.ink,
+                ),
+              ),
+              childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+              children: [
+                TextField(
+                  controller: invoiceNumber,
+                  onChanged: (_) => _markDirty(),
+                  decoration: const InputDecoration(
+                    labelText: 'N.º de factura',
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    OutlinedButton.icon(
+                      onPressed: () => _pickImage(ImageSource.camera),
+                      icon: const Icon(Icons.photo_camera_outlined),
+                      label: const Text('Cámara'),
+                    ),
+                    OutlinedButton.icon(
+                      onPressed: () => _pickImage(ImageSource.gallery),
+                      icon: const Icon(Icons.photo_library_outlined),
+                      label: const Text('Galería'),
+                    ),
+                    if (invoiceImage != null)
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(8),
+                        child: Image.file(
+                          File(invoiceImage!.path),
+                          width: 48,
+                          height: 48,
+                          fit: BoxFit.cover,
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: notes,
+                  onChanged: (_) => _markDirty(),
+                  maxLines: 2,
+                  decoration: const InputDecoration(labelText: 'Notas'),
+                ),
+                const SizedBox(height: 10),
+                _dropdown(
+                  'Campaña',
+                  data.campaigns
+                      .where((row) => row['status'] == 'ACTIVE')
+                      .toList(),
+                  campaignId,
+                  (value) {
+                    setState(() {
+                      campaignId = value;
+                      dirty = true;
+                    });
+                  },
+                ),
+              ],
+            ),
+          ),
+        ],
       ),
     ];
   }
@@ -1363,24 +2282,6 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen>
     };
   }
 
-  Widget _reviewRow(IconData icon, String label, String value) => Padding(
-    padding: const EdgeInsets.only(bottom: 6),
-    child: Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Icon(icon, size: 20),
-        const SizedBox(width: 8),
-        Text('$label: '),
-        Expanded(
-          child: Text(
-            value,
-            style: const TextStyle(fontWeight: FontWeight.w700),
-          ),
-        ),
-      ],
-    ),
-  );
-
   Widget _dropdown(
     String label,
     List<Map<String, Object?>> rows,
@@ -1401,84 +2302,6 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen>
   }
 }
 
-/// «Paso n de m · título», en una línea que crece con la fuente.
-class _StepHeader extends StatelessWidget {
-  const _StepHeader({
-    super.key,
-    required this.step,
-    required this.total,
-    required this.title,
-  });
-  final int step;
-  final int total;
-  final String title;
-
-  @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-    decoration: BoxDecoration(
-      color: Theme.of(context).colorScheme.primaryContainer,
-      borderRadius: BorderRadius.circular(12),
-    ),
-    child: Text(
-      'Paso $step de $total · $title',
-      style: const TextStyle(fontWeight: FontWeight.w800),
-    ),
-  );
-}
-
-class _Section extends StatelessWidget {
-  const _Section({super.key, required this.title, required this.child});
-  final String title;
-  final Widget child;
-  @override
-  Widget build(BuildContext context) => Card(
-    child: Padding(
-      padding: const EdgeInsets.all(14),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            title,
-            style: Theme.of(context).textTheme.titleMedium
-                ?.copyWith(fontWeight: FontWeight.w700),
-          ),
-          const SizedBox(height: 12),
-          child,
-        ],
-      ),
-    ),
-  );
-}
-
-/// Dos campos lado a lado si caben; apilados si no (UIBUG-040).
-///
-/// El umbral es el ancho por debajo del cual media fila deja de bastar para el
-/// contenido real del formulario: un nombre de proveedor o de campaña del
-/// dataset, o una etiqueta como "Cantidad comprada". Comprimir dos campos hasta
-/// que su texto se recorta es peor que apilarlos.
-class _ResponsivePair extends StatelessWidget {
-  const _ResponsivePair({required this.first, required this.second});
-
-  final Widget first;
-  final Widget second;
-
-  static const double minWidth = 420;
-
-  @override
-  Widget build(BuildContext context) => LayoutBuilder(
-    builder: (context, constraints) => constraints.maxWidth < minWidth
-        ? Column(children: [first, const SizedBox(height: 10), second])
-        : Row(
-            children: [
-              Expanded(child: first),
-              const SizedBox(width: 10),
-              Expanded(child: second),
-            ],
-          ),
-  );
-}
-
 /// Vencimiento y número de lote de una línea, en palabras.
 String _lotDataSummary(_PurchaseLineEditor line) {
   final expiry = line.expiryDay == null
@@ -1490,13 +2313,13 @@ String _lotDataSummary(_PurchaseLineEditor line) {
   return '$expiry · $lot';
 }
 
-/// Vencimiento y número de lote de la línea (F04-AV, RF-42). Opcionales y
-/// plegados: una compra sin estos datos se registra igual que antes.
 /// Contador del número de lote en caracteres Unicode, como los cuenta el
 /// repositorio.
 String lotNumberCounter(String text) =>
     '${text.trim().runes.length}/${AgroRepository.maxLotNumberLength}';
 
+/// Vencimiento y número de lote de la línea (F04-AV, RF-42). Opcionales y
+/// plegados: una compra sin estos datos se registra igual que antes.
 class _LotDataSection extends StatelessWidget {
   const _LotDataSection({
     required this.index,
@@ -1526,569 +2349,75 @@ class _LotDataSection extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) => ExpansionTile(
-    key: Key('purchase-lot-data-$index'),
-    tilePadding: EdgeInsets.zero,
-    childrenPadding: const EdgeInsets.only(bottom: 8),
-    title: const Text('Vencimiento y número de lote (opcional)'),
-    subtitle: Text(
-      line.expiryDay == null && line.lotNumberValue == null
-          ? 'Sin datos: el lote quedará «sin fecha registrada».'
-          : _lotDataSummary(line),
-    ),
-    children: [
-      Row(
-        children: [
-          Expanded(
-            child: OutlinedButton.icon(
-              key: Key('purchase-expiry-$index'),
-              onPressed: () => _pickExpiry(context),
-              icon: const Icon(Icons.event_outlined),
-              label: Text(
-                line.expiryDay == null
-                    ? 'Elegir fecha de vencimiento'
-                    : 'Vence el ${displayDay(line.expiryDay!)}',
-              ),
-            ),
-          ),
-          if (line.expiryDay != null)
-            IconButton(
-              key: Key('purchase-expiry-clear-$index'),
-              tooltip: 'Quitar la fecha de vencimiento',
-              onPressed: () {
-                line.expiryDay = null;
-                onChanged();
-              },
-              icon: const Icon(Icons.close),
-            ),
-        ],
-      ),
-      const SizedBox(height: 10),
-      // Sin maxLength: lo pegado no se recorta; el exceso se señala y
-      // bloquea la revisión (decisión del autor del 2026-11-01).
-      TextField(
-        key: Key('purchase-lot-number-$index'),
-        controller: line.lotNumber,
-        onChanged: (_) => onChanged(),
-        decoration: InputDecoration(
-          labelText: 'Número de lote (opcional)',
-          helperText: 'Como figura en el envase.',
-          counterText: lotNumberCounter(line.lotNumber.text),
-          errorText: AgroRepository.lotNumberLengthError(line.lotNumber.text),
-          errorMaxLines: 3,
+  Widget build(BuildContext context) => Theme(
+    data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+    child: ExpansionTile(
+      key: Key('purchase-lot-data-$index'),
+      tilePadding: const EdgeInsets.fromLTRB(16, 2, 10, 2),
+      shape: const Border(),
+      collapsedShape: const Border(),
+      iconColor: AgroColors.ink,
+      collapsedIconColor: AgroColors.muted,
+      childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
+      title: const Text(
+        'Vencimiento y lote (opcional)',
+        style: TextStyle(
+          fontSize: 15,
+          height: 20 / 15,
+          fontWeight: FontWeight.w500,
+          color: AgroColors.ink,
         ),
       ),
-    ],
-  );
-}
-
-class _LineCard extends StatelessWidget {
-  const _LineCard({
-    super.key,
-    required this.index,
-    required this.line,
-    required this.products,
-    required this.people,
-    required this.usedProductIds,
-    required this.onChanged,
-    this.ownerPersonId,
-    this.onRemove,
-    this.personalOwnerName,
-    this.onCreateProduct,
-    this.onCreatePerson,
-    this.voice,
-    this.shared = true,
-  });
-  final int index;
-  final _PurchaseLineEditor line;
-
-  /// Dictado del formulario (marcas «Por voz», «Revisar», «Elegir»).
-  final VoiceFormDictation<dynamic>? voice;
-  final bool shared;
-
-  Widget _mark(String field, {String? currentDisplay}) => VoiceSlotMark(
-    dictation: voice,
-    slot: SlotRef.line(line.id, field),
-    current: line.voiceFields(shared)[field],
-    currentDisplay: currentDisplay,
-  );
-
-  /// «Falta» de los datos obligatorios en una línea que tocó la voz.
-  List<Widget> _missing() {
-    final v = voice;
-    if (v == null || !v.touchesLine(line.id)) return const [];
-    final f = line.voiceFields(shared);
-    return [
-      if (f['product'] == null) const VoiceMissingMark(label: 'producto'),
-      if (f['quantity'] == null) const VoiceMissingMark(label: 'cantidad'),
-      if (f['price'] == null) const VoiceMissingMark(label: 'precio'),
-    ];
-  }
-
-  final List<Map<String, Object?>> products, people;
-
-  /// Titular vigente (de `owner_bindings`), para rotularlo «Titular» en la
-  /// lista de personas en vez de con su rol privado (E-14).
-  final int? ownerPersonId;
-
-  /// En inventario propio, el titular que recibe la línea entera (#26).
-  final String? personalOwnerName;
-  final Set<int> usedProductIds;
-  final VoidCallback onChanged;
-  final VoidCallback? onRemove;
-
-  /// «Crear producto» en el selector; lo creado queda elegido en esta línea.
-  final Future<Map<String, Object?>?> Function()? onCreateProduct;
-
-  /// «Agregar persona» en los selectores de persona del reparto; nulo si
-  /// las reglas vigentes no permiten crear personas (inventario propio).
-  final Future<Map<String, Object?>?> Function()? onCreatePerson;
-
-  Map<String, Object?>? get selectedProduct {
-    for (final product in products) {
-      if (product['id'] == line.productId) return product;
-    }
-    return null;
-  }
-
-  String _personName(int? id) =>
-      people
-          .where((person) => person['id'] == id)
-          .firstOrNull?['name']
-          ?.toString() ??
-      '';
-
-  /// Rótulo secundario de una persona: el titular se dice «Titular»; los
-  /// demás, su rol («Familiar», «Tercero»). Nunca «Titular · Familiar».
-  String _personRole(Map<String, Object?> person) =>
-      ownerPersonId != null && person['id'] == ownerPersonId
-      ? 'Titular'
-      : personRoleLabel(person['role']);
-
-  /// Cómo va el destinatario de esta línea (UIBUG-039, pilotos X01/X02).
-  ///
-  /// Una línea vacía no se declara terminada: sólo cuando existen todos sus
-  /// datos obligatorios. En compartido lo primero es la decisión explícita
-  /// de destinatario; sin ella, «Pendiente de destinatario». La regla
-  /// contable no cambia —la valida igual `_validateItems`—; cambia lo que la
-  /// tarjeta declara.
-  String get _allocationStatus {
-    if (personalOwnerName != null) {
-      return line.quantityBase <= 0
-          ? 'Pendiente de cantidad'
-          : 'Para el titular';
-    }
-    switch (line.allocationMode) {
-      case null:
-        return 'Pendiente de destinatario';
-      case _AllocationMode.single:
-        if (line.singlePersonId == null) return 'Pendiente de destinatario';
-        if (line.quantityBase <= 0) return 'Pendiente de cantidad';
-        return 'Para: ${_personName(line.singlePersonId)}';
-      case _AllocationMode.split:
-        if (line.quantityBase <= 0) return 'Pendiente de cantidad';
-        if (line.allocations.any((allocation) => allocation.personId == null)) {
-          return 'Pendiente de persona';
-        }
-        final pending = line.quantityBase - line.assignedBase;
-        if (pending > 0) {
-          return 'Pendiente ${formatQuantity(pending, _unit)}';
-        }
-        if (pending < 0) {
-          return 'Excede en ${formatQuantity(-pending, _unit)}';
-        }
-        return 'Repartida: ${line.allocations.map((a) => '${_personName(a.personId)} ${formatQuantity(tryParseBase(a.quantity.text) ?? 0, _unit)}').join(' · ')}';
-    }
-  }
-
-  String get _unit => selectedProduct?['unit']?.toString() ?? '';
-
-  @override
-  Widget build(BuildContext context) {
-    final unit = _unit;
-    final hasProduct = unit.isNotEmpty;
-    return Card(
-      child: ExpansionTile(
-        initiallyExpanded: true,
-        leading: CircleAvatar(child: Text('${index + 1}')),
-        title: Text(
-          selectedProduct?['name']?.toString() ?? 'Seleccione producto',
-        ),
-        subtitle: Text(
-          '${formatQuantity(line.quantityBase, unit)} · '
-          '${formatBob(line.subtotalBob)} · $_allocationStatus',
-        ),
-        trailing: onRemove == null
-            ? null
-            : IconButton(
-                tooltip: 'Quitar producto',
-                onPressed: onRemove,
-                icon: const Icon(Icons.delete_outline),
-              ),
-        // El relleno superior era 0, así que la etiqueta flotante del primer
-        // campo ("Producto") se dibujaba encima de la cabecera de la tarjeta y
-        // aparecía recortada (UIBUG-041). Se corrige en el contenedor —la
-        // causa— y no desplazando ese texto en concreto: cualquier campo que
-        // llegue a ser el primero hereda el arreglo.
-        childrenPadding: const EdgeInsets.fromLTRB(14, 8, 14, 14),
-        children: [
-          AdaptiveEntityPicker<Map<String, Object?>>(
-            label: 'Producto',
-            items: products
-                .where(
-                  (product) =>
-                      !usedProductIds.contains(product['id']) ||
-                      product['id'] == line.productId,
-                )
-                .toList(),
-            value: selectedProduct,
-            labelOf: (product) => product['name']! as String,
-            secondaryOf: (product) => product['unit']! as String,
-            // Piloto X02: el último producto del catálogo entraba solo en la
-            // última línea. El producto entra sólo al elegirlo, aunque quede
-            // uno (B-08).
-            autoSelectSingle: false,
-            onChanged: (product) {
-              line.productId = product?['id'] as int?;
-              onChanged();
-            },
-            createLabel: onCreateProduct == null ? null : 'Crear producto',
-            onCreate: onCreateProduct,
-          ),
-          _mark(
-            'product',
-            currentDisplay: selectedProduct?['name']?.toString(),
-          ),
-          const SizedBox(height: 10),
-          // Apilados en ancho de móvil: media fila recortaba la etiqueta a
-          // "Cantidad compr…" (UIBUG-040).
-          _ResponsivePair(
-            first: TextField(
-              controller: line.quantity,
-              onChanged: (_) {
-                line.quantityError = null;
-                onChanged();
-              },
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
-              ),
-              // "Cantidad comprada" y no "Cantidad" a secas: la tarjeta
-              // tiene un segundo campo de cantidad por cada asignación, y
-              // dos etiquetas idénticas en la misma tarjeta obligarían a
-              // deducir cuál es cuál (UIBUG-038).
-              decoration: InputDecoration(
-                labelText: 'Cantidad comprada',
-                suffixText: unit.isEmpty ? null : unit,
-                errorText: line.quantityError,
-                errorMaxLines: 4,
-              ),
-            ),
-            second: DropdownButtonFormField<CurrencyCode>(
-              // La clave sigue al valor: si la voz cambia la moneda, el
-              // selector la muestra (su `initialValue` sólo cuenta al crearlo).
-              key: ValueKey(
-                'purchase-currency-${line.id}-${line.currency.name}',
-              ),
-              initialValue: line.currency,
-              decoration: const InputDecoration(labelText: 'Moneda'),
-              items: const [
-                DropdownMenuItem(value: CurrencyCode.bob, child: Text('BOB')),
-                DropdownMenuItem(value: CurrencyCode.usd, child: Text('USD')),
-              ],
-              onChanged: (value) {
-                line.currency = value!;
-                onChanged();
-              },
-            ),
-          ),
-          _mark('quantity'),
-          _mark('currency', currentDisplay: line.currency.name.toUpperCase()),
-          const SizedBox(height: 10),
-          Row(
-            children: [
-              Expanded(
-                child: TextField(
-                  controller: line.price,
-                  onChanged: (_) {
-                    line.priceError = null;
-                    onChanged();
-                  },
-                  keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true,
-                  ),
-                  // Sin producto elegido la etiqueta terminaba en una barra
-                  // huérfana: "Precio BOB/" (UIBUG-037). Mientras no haya
-                  // unidad se dice en palabras; en cuanto la hay se vuelve a
-                  // la forma corta "Precio BOB/L".
-                  decoration: InputDecoration(
-                    labelText: hasProduct
-                        ? 'Precio ${line.currency == CurrencyCode.usd ? 'USD' : 'BOB'}/$unit'
-                        : 'Precio por unidad',
-                    errorText: line.priceError,
-                    errorMaxLines: 4,
-                  ),
+      // Sin datos no hay subtítulo: el lote se guarda «sin fecha
+      // registrada», como siempre.
+      subtitle: line.expiryDay == null && line.lotNumberValue == null
+          ? null
+          : Text(_lotDataSummary(line), style: AgroText.detail),
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                key: Key('purchase-expiry-$index'),
+                onPressed: () => _pickExpiry(context),
+                style: OutlinedButton.styleFrom(minimumSize: const Size(0, 48)),
+                icon: const Icon(Icons.event_outlined),
+                label: Text(
+                  line.expiryDay == null
+                      ? 'Elegir fecha de vencimiento'
+                      : 'Vence el ${displayDay(line.expiryDay!)}',
                 ),
               ),
-              if (line.currency == CurrencyCode.usd) ...[
-                const SizedBox(width: 8),
-                Expanded(
-                  child: TextField(
-                    controller: line.fx,
-                    onChanged: (_) {
-                      line.fxError = null;
-                      onChanged();
-                    },
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
-                    ),
-                    decoration: InputDecoration(
-                      labelText: 'TC Bs/USD',
-                      errorText: line.fxError,
-                      errorMaxLines: 4,
-                    ),
-                  ),
-                ),
-              ],
-            ],
-          ),
-          _mark('price', currentDisplay: line.price.text),
-          _mark('fx', currentDisplay: line.fx.text),
-          ..._missing(),
-          const SizedBox(height: 8),
-          Align(
-            alignment: Alignment.centerRight,
-            // "Costo 0,00 Bs /" sin unidad tampoco significaba nada
-            // (UIBUG-037): hasta elegir producto sólo se muestra el subtotal.
-            child: Text(
-              hasProduct
-                  ? 'Costo ${formatBob(line.unitBob)}/$unit · Subtotal ${formatBob(line.subtotalBob)}'
-                  : 'Subtotal ${formatBob(line.subtotalBob)}',
-              style: const TextStyle(fontWeight: FontWeight.w700),
             ),
-          ),
-          const SizedBox(height: 4),
-          _LotDataSection(index: index, line: line, onChanged: onChanged),
-          const Divider(height: 24),
-          // En propio la línea entera es del titular: no hay reparto (#26).
-          if (personalOwnerName != null)
-            Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                'Para el titular: $personalOwnerName',
-                key: Key('purchase-personal-allocation-$index'),
+            if (line.expiryDay != null)
+              IconButton(
+                key: Key('purchase-expiry-clear-$index'),
+                tooltip: 'Quitar la fecha de vencimiento',
+                onPressed: () {
+                  line.expiryDay = null;
+                  onChanged();
+                },
+                icon: const Icon(Icons.close),
               ),
-            )
-          else ...[
-            ..._recipientSection(context, unit),
-            _mark(
-              'recipient',
-              currentDisplay: line.singlePersonId == null
-                  ? null
-                  : _personName(line.singlePersonId),
-            ),
           ],
-        ],
-      ),
-    );
-  }
-
-  /// «¿Para quién es?» en compartido: dos opciones explícitas, ninguna
-  /// marcada por defecto. El destinatario de las existencias no es el
-  /// pagador (que siempre es el titular, en el paso 2).
-  List<Widget> _recipientSection(BuildContext context, String unit) {
-    final theme = Theme.of(context);
-    return [
-      const Text(
-        '¿Para quién es?',
-        style: TextStyle(fontWeight: FontWeight.w700),
-      ),
-      const SizedBox(height: 6),
-      // Chips en `Wrap`: con fuente ampliada pasan a otra línea en vez de
-      // recortarse (como «¿Cómo pagaste?»).
-      Wrap(
-        key: Key('purchase-alloc-mode-$index'),
-        spacing: 8,
-        runSpacing: 4,
-        children: [
-          ChoiceChip(
-            key: Key('purchase-alloc-single-$index'),
-            label: const Text('Toda para una persona'),
-            selected: line.allocationMode == _AllocationMode.single,
-            onSelected: (selected) {
-              // Volver a tocar la opción activa no borra nada.
-              if (!selected || line.allocationMode == _AllocationMode.single) {
-                return;
-              }
-              line.allocationMode = _AllocationMode.single;
-              // Cambiar de opción limpia la anterior: las filas del reparto
-              // no se arrastran. Sus controladores se liberan después del
-              // fotograma, cuando los campos que los usaban ya no existen.
-              final discarded = List.of(line.allocations);
-              line.allocations.clear();
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                for (final allocation in discarded) {
-                  allocation.dispose();
-                }
-              });
-              onChanged();
-            },
-          ),
-          ChoiceChip(
-            key: Key('purchase-alloc-split-$index'),
-            label: const Text('Repartir entre varias'),
-            selected: line.allocationMode == _AllocationMode.split,
-            onSelected: (selected) {
-              if (!selected || line.allocationMode == _AllocationMode.split) {
-                return;
-              }
-              line.allocationMode = _AllocationMode.split;
-              // La persona única no se arrastra a una fila del reparto.
-              line.singlePersonId = null;
-              // Repartir es entre dos o más: dos filas vacías para empezar,
-              // sin ninguna persona prellenada.
-              while (line.allocations.length < 2) {
-                line.allocations.add(_AllocationEditor());
-              }
-              onChanged();
-            },
-          ),
-        ],
-      ),
-      const SizedBox(height: 8),
-      switch (line.allocationMode) {
-        null => Text(
-          'Elija una opción para indicar a quién va este producto.',
-          key: Key('purchase-alloc-pending-$index'),
-          style: TextStyle(color: theme.colorScheme.outline),
         ),
-        _AllocationMode.single => _singleRecipient(theme, unit),
-        _AllocationMode.split => _splitRecipients(unit),
-      },
-    ];
-  }
-
-  /// Un destinatario: selector sin valor por defecto ni autoselección; la
-  /// cantidad asignada se deriva de «Cantidad comprada», no se teclea.
-  Widget _singleRecipient(ThemeData theme, String unit) => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      AdaptiveEntityPicker<Map<String, Object?>>(
-        label: 'Persona',
-        items: people,
-        value: people
-            .where((person) => person['id'] == line.singlePersonId)
-            .firstOrNull,
-        labelOf: (person) => person['name']! as String,
-        secondaryOf: _personRole,
-        autoSelectSingle: false,
-        onChanged: (person) {
-          line.singlePersonId = person?['id'] as int?;
-          onChanged();
-        },
-        createLabel: onCreatePerson == null ? null : 'Agregar persona',
-        onCreate: onCreatePerson,
-      ),
-      if (line.singlePersonId != null) ...[
-        const SizedBox(height: 6),
-        Text(
-          'Recibe toda la cantidad comprada: '
-          '${formatQuantity(line.quantityBase, unit)}.',
-          key: Key('purchase-alloc-derived-$index'),
-          style: theme.textTheme.bodySmall,
+        const SizedBox(height: 10),
+        // Sin maxLength: lo pegado no se recorta; el exceso se señala y
+        // bloquea la revisión (decisión del autor del 2026-11-01).
+        TextField(
+          key: Key('purchase-lot-number-$index'),
+          controller: line.lotNumber,
+          onChanged: (_) => onChanged(),
+          decoration: InputDecoration(
+            labelText: 'Número de lote (opcional)',
+            helperText: 'Como figura en el envase.',
+            counterText: lotNumberCounter(line.lotNumber.text),
+            errorText: AgroRepository.lotNumberLengthError(line.lotNumber.text),
+            errorMaxLines: 3,
+          ),
         ),
       ],
-    ],
-  );
-
-  /// Reparto por filas: persona y cantidad por fila; las partes suman la
-  /// cantidad comprada (lo valida igual `_validateItems`).
-  Widget _splitRecipients(String unit) => Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      Align(
-        alignment: Alignment.centerRight,
-        child: TextButton.icon(
-          onPressed: () {
-            line.allocations.add(_AllocationEditor());
-            onChanged();
-          },
-          icon: const Icon(Icons.add),
-          label: const Text('Persona'),
-        ),
-      ),
-      for (
-        var allocationIndex = 0;
-        allocationIndex < line.allocations.length;
-        allocationIndex++
-      )
-        Padding(
-          padding: const EdgeInsets.only(bottom: 8),
-          // **#97.** Persona y cantidad compartían una fila 3:2 y, con la
-          // fuente al 130 %, el nombre se truncaba («Titular F1…»). Si
-          // no caben con holgura, la persona va arriba a todo el ancho.
-          child: _AllocationRow(
-            onRemove: line.allocations.length > 2
-                ? () {
-                    line.allocations.removeAt(allocationIndex).dispose();
-                    onChanged();
-                  }
-                : null,
-            children: [
-              Expanded(
-                flex: 3,
-                child: AdaptiveEntityPicker<Map<String, Object?>>(
-                  label: 'Persona',
-                  items: people,
-                  value: people
-                      .where(
-                        (person) =>
-                            person['id'] ==
-                            line.allocations[allocationIndex].personId,
-                      )
-                      .firstOrNull,
-                  labelOf: (person) => person['name']! as String,
-                  secondaryOf: _personRole,
-                  autoSelectSingle: false,
-                  onChanged: (person) {
-                    line.allocations[allocationIndex].personId =
-                        person?['id'] as int?;
-                    onChanged();
-                  },
-                  createLabel: onCreatePerson == null
-                      ? null
-                      : 'Agregar persona',
-                  onCreate: onCreatePerson,
-                ),
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                flex: 2,
-                child: TextField(
-                  controller: line.allocations[allocationIndex].quantity,
-                  onChanged: (_) {
-                    line.allocations[allocationIndex].quantityError = null;
-                    onChanged();
-                  },
-                  keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true,
-                  ),
-                  // La etiqueta era la unidad a secas, y sin producto
-                  // elegido quedaba vacía: un recuadro sin nombre junto a
-                  // un selector de persona (UIBUG-038). Ahora el campo
-                  // dice qué es, y la unidad acompaña como sufijo cuando
-                  // se conoce.
-                  decoration: InputDecoration(
-                    labelText: 'Cantidad',
-                    suffixText: unit.isEmpty ? null : unit,
-                    errorText: line.allocations[allocationIndex].quantityError,
-                    errorMaxLines: 4,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ),
-    ],
+    ),
   );
 }
 

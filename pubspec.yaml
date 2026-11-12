@@ -99,6 +99,26 @@ flutter:
     - assets/licenses/integration_test/javax_inject/
     - assets/licenses/integration_test/animal_sniffer/
     - assets/licenses/whisper_model/
+    - assets/licenses/fonts/dm_sans/
+    - assets/licenses/fonts/bricolage_grotesque/
+
+  # Rediseño móvil (2026-11-12): tipografías de la interfaz, empaquetadas
+  # (sin descarga en tiempo de ejecución). Licencia OFL en Más › Licencias.
+  fonts:
+    - family: DM Sans
+      fonts:
+        - asset: assets/fonts/DMSans-400.ttf
+          weight: 400
+        - asset: assets/fonts/DMSans-500.ttf
+          weight: 500
+        - asset: assets/fonts/DMSans-700.ttf
+          weight: 700
+    - family: Bricolage Grotesque
+      fonts:
+        - asset: assets/fonts/BricolageGrotesque-700.ttf
+          weight: 700
+        - asset: assets/fonts/BricolageGrotesque-800.ttf
+          weight: 800
 
   # To add assets to your application, add an assets section, like this:
   # assets:

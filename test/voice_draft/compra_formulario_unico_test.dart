@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import '../support/f04_mode_ui_harness.dart';
+import '../support/purchase_form_driver.dart';
 import '../voice/support/fake_speech_transcription_port.dart';
 
 typedef Row = Map<String, Object?>;
@@ -59,6 +60,7 @@ void main() {
   }
 
   Future<void> tapKey(WidgetTester tester, String key) async {
+    await preparePurchaseKey(tester, key);
     await tester.ensureVisible(find.byKey(Key(key)));
     await tester.pump();
     await tester.tap(find.byKey(Key(key)));
@@ -69,11 +71,27 @@ void main() {
     (w) => w is AdaptiveEntityPicker<Row> && w.label == label,
   );
 
-  String? picked(WidgetTester tester, String label, [int at = 0]) => tester
-      .widgetList<AdaptiveEntityPicker<Row>>(picker(label))
-      .elementAt(at)
-      .value?['name']
-      ?.toString();
+  /// Rediseño: «Proveedor» está en la página; el resto, en la hoja del
+  /// producto [at].
+  Future<void> show(WidgetTester tester, String label, int at) async {
+    if (label == 'Proveedor') {
+      await closePurchaseLine(tester);
+    } else {
+      await openPurchaseLine(tester, at);
+    }
+  }
+
+  Future<String?> picked(
+    WidgetTester tester,
+    String label, [
+    int at = 0,
+  ]) async {
+    await show(tester, label, at);
+    return tester
+        .widget<AdaptiveEntityPicker<Row>>(picker(label))
+        .value?['name']
+        ?.toString();
+  }
 
   Future<void> choose(
     WidgetTester tester,
@@ -81,9 +99,8 @@ void main() {
     String name, [
     int at = 0,
   ]) async {
-    final w = tester
-        .widgetList<AdaptiveEntityPicker<Row>>(picker(label))
-        .elementAt(at);
+    await show(tester, label, at);
+    final w = tester.widget<AdaptiveEntityPicker<Row>>(picker(label));
     w.onChanged(w.items.firstWhere((i) => w.labelOf(i) == name));
     await settle(tester);
   }
@@ -92,14 +109,49 @@ void main() {
     (w) => w is TextField && w.decoration?.labelText == label,
   );
 
-  String text(WidgetTester tester, String label, [int at = 0]) =>
-      tester.widgetList<TextField>(field(label)).elementAt(at).controller!.text;
+  Future<String> text(WidgetTester tester, String label, [int at = 0]) async {
+    await show(tester, label, at);
+    return tester.widget<TextField>(field(label)).controller!.text;
+  }
 
-  bool continueEnabled(WidgetTester tester) =>
-      tester
-          .widget<ButtonStyleButton>(find.byKey(const Key('purchase-continue')))
-          .onPressed !=
-      null;
+  Future<void> enter(
+    WidgetTester tester,
+    String label,
+    String value, [
+    int at = 0,
+  ]) async {
+    await show(tester, label, at);
+    await tester.enterText(field(label), value);
+    await settle(tester);
+  }
+
+  /// «Continuar» está en el panel de abajo, con la hoja y el panel de voz
+  /// cerrados.
+  Future<bool> continueEnabled(WidgetTester tester) async {
+    await closePurchaseLine(tester);
+    return tester
+            .widget<ButtonStyleButton>(
+              find.descendant(
+                of: find.byKey(const Key('purchase-continue')),
+                matching: find.byWidgetPredicate((w) => w is ButtonStyleButton),
+                matchRoot: true,
+              ),
+            )
+            .onPressed !=
+        null;
+  }
+
+  /// Líneas de la compra (tarjetas del paso 1).
+  int lineCount() => find
+      .byWidgetPredicate(
+        (w) =>
+            w.key is ValueKey<String> &&
+            RegExp(r'^purchase-line-\d+$')
+                .hasMatch((w.key! as ValueKey<String>).value),
+        skipOffstage: false,
+      )
+      .evaluate()
+      .length;
 
   Future<int> count(WidgetTester tester, AppDatabase db, String table) async =>
       (await tester.runAsync(() async => (await db.database).query(table)))!
@@ -112,8 +164,12 @@ void main() {
     await settle(tester);
   }
 
-  String panelMessage(WidgetTester tester) =>
-      tester.widget<Text>(find.byKey(const Key('voz-panel-mensaje'))).data!;
+  Future<String> panelMessage(WidgetTester tester) async {
+    await closePurchaseLine(tester);
+    return tester
+        .widget<Text>(find.byKey(const Key('voz-panel-mensaje')))
+        .data!;
+  }
 
   testWidgets('registro completamente manual con el panel abierto: un solo '
       'registro, sin pasar por la voz', (tester) async {
@@ -123,11 +179,15 @@ void main() {
     expect(port.startRequests, isEmpty, reason: 'el micrófono no se abre solo');
     await choose(tester, 'Proveedor', 'Proveedor');
     await choose(tester, 'Producto', 'Glifosato');
-    await tester.enterText(field('Cantidad comprada'), '2');
-    await tester.enterText(field('Precio BOB/L'), '45');
+    await enter(tester, 'Cantidad comprada', '2');
+    await enter(tester, 'Precio por L', '45');
     await settle(tester);
     await tapKey(tester, 'purchase-alloc-single-0');
     await choose(tester, 'Persona', 'Hermana');
+    // Rediseño: el panel de voz ocupa el lugar de «Continuar» (como en el
+    // prototipo); se cierra con su ✕ y el borrador sigue igual.
+    expect(find.byKey(const Key('purchase-continue')), findsNothing);
+    await tapKey(tester, 'voz-panel-cerrar');
     await tapKey(tester, 'purchase-continue');
     await tester.tap(find.byKey(const Key('purchase-paid-no')));
     await settle(tester);
@@ -149,18 +209,15 @@ void main() {
     ]);
     await tapKey(tester, 'compra-completar-voz');
     await dictate(tester);
-    expect(picked(tester, 'Proveedor'), 'Agro Norte');
-    expect(picked(tester, 'Producto'), 'Glifosato');
-    expect(text(tester, 'Cantidad comprada'), '10');
-    expect(text(tester, 'Precio BOB/L'), '50');
-    expect(
-      find.text('Productos (1)'),
-      findsOneWidget,
-      reason: 'usa la línea inicial',
-    );
+    expect(await picked(tester, 'Proveedor'), 'Agro Norte');
+    expect(await picked(tester, 'Producto'), 'Glifosato');
+    expect(await text(tester, 'Cantidad comprada'), '10');
+    expect(await text(tester, 'Precio por L'), '50');
+    expect(lineCount(), 1, reason: 'usa la línea inicial');
+    await closePurchaseLine(tester);
     expect(find.byKey(const Key('voz-marca-supplier')), findsOneWidget);
     expect(find.text('Por voz'), findsWidgets);
-    expect(continueEnabled(tester), isTrue);
+    expect(await continueEnabled(tester), isTrue);
     expect(await count(tester, w.database, 'purchases'), 0);
     await tapKey(tester, 'purchase-continue');
     await tester.tap(find.byKey(const Key('purchase-paid-no')));
@@ -191,10 +248,10 @@ void main() {
     await choose(tester, 'Producto', 'Glifosato');
     await tapKey(tester, 'compra-completar-voz');
     await dictate(tester);
-    expect(find.text('Productos (1)'), findsOneWidget);
-    expect(picked(tester, 'Producto'), 'Glifosato');
-    expect(text(tester, 'Cantidad comprada'), '10');
-    expect(text(tester, 'Precio BOB/L'), '50');
+    expect(lineCount(), 1);
+    expect(await picked(tester, 'Producto'), 'Glifosato');
+    expect(await text(tester, 'Cantidad comprada'), '10');
+    expect(await text(tester, 'Precio por L'), '50');
     expect(find.byKey(const Key('voz-marca-quantity@1')), findsOneWidget);
     expect(
       find.byKey(const Key('voz-marca-product@1')),
@@ -214,7 +271,8 @@ void main() {
     await choose(tester, 'Producto', 'Glifosato');
     await tapKey(tester, 'compra-completar-voz');
     await dictate(tester);
-    expect(text(tester, 'Cantidad comprada'), '');
+    expect(await text(tester, 'Cantidad comprada'), '');
+    await closePurchaseLine(tester);
     expect(find.byKey(const Key('voz-panel-aviso-0')), findsOneWidget);
   });
 
@@ -226,15 +284,15 @@ void main() {
     await choose(tester, 'Proveedor', 'Proveedor');
     await tapKey(tester, 'compra-completar-voz');
     await dictate(tester);
-    expect(picked(tester, 'Proveedor'), 'Proveedor');
+    expect(await picked(tester, 'Proveedor'), 'Proveedor');
     expect(find.byKey(const Key('voz-elegir-supplier')), findsOneWidget);
-    expect(continueEnabled(tester), isFalse);
+    expect(await continueEnabled(tester), isFalse);
     expect(find.byKey(const Key('voz-bloqueo-guardar')), findsOneWidget);
     await tapKey(tester, 'voz-usar-supplier');
-    expect(picked(tester, 'Proveedor'), 'Agro Norte');
+    expect(await picked(tester, 'Proveedor'), 'Agro Norte');
     expect(find.byKey(const Key('voz-elegir-supplier')), findsNothing);
     expect(find.text('Confirmado'), findsOneWidget);
-    expect(continueEnabled(tester), isTrue);
+    expect(await continueEnabled(tester), isTrue);
   });
 
   testWidgets('edición manual mientras se procesa: el resultado tardío no '
@@ -248,11 +306,11 @@ void main() {
     await choose(tester, 'Proveedor', 'Proveedor');
     await tester.pump(const Duration(seconds: 3));
     await settle(tester);
-    expect(picked(tester, 'Proveedor'), 'Proveedor');
+    expect(await picked(tester, 'Proveedor'), 'Proveedor');
     expect(find.byKey(const Key('voz-elegir-supplier')), findsNothing);
-    expect(panelMessage(tester), contains('Se conservó lo que editó'));
+    expect(await panelMessage(tester), contains('Se conservó lo que editó'));
     // Lo demás del dictado sí se incorporó.
-    expect(text(tester, 'Cantidad comprada'), '10');
+    expect(await text(tester, 'Cantidad comprada'), '10');
   });
 
   testWidgets('producto repetido: no se suma ni se fusiona; la línea nueva '
@@ -261,17 +319,25 @@ void main() {
       const FakeTurn(segment: full, endsOnStop: true),
     ]);
     await choose(tester, 'Producto', 'Glifosato');
-    await tester.enterText(field('Cantidad comprada'), '3');
-    await tester.enterText(field('Precio BOB/L'), '40');
+    await enter(tester, 'Cantidad comprada', '3');
+    await enter(tester, 'Precio por L', '40');
     await settle(tester);
     await tapKey(tester, 'compra-completar-voz');
     await dictate(tester);
-    expect(find.text('Productos (2)'), findsOneWidget);
-    expect(text(tester, 'Cantidad comprada'), '3', reason: 'línea 1 intacta');
-    expect(text(tester, 'Cantidad comprada', 1), '10');
-    expect(picked(tester, 'Producto', 1), isNull);
+    expect(lineCount(), 2);
+    expect(
+      await text(tester, 'Cantidad comprada'),
+      '3',
+      reason: 'línea 1 intacta',
+    );
+    expect(await text(tester, 'Cantidad comprada', 1), '10');
+    expect(await picked(tester, 'Producto', 1), isNull);
     expect(find.byKey(const Key('voz-revisar-product@2')), findsOneWidget);
-    expect(continueEnabled(tester), isFalse);
+    // En la tarjeta de la línea 2 también, con «Elegir otro» para escribirlo.
+    await closePurchaseLine(tester);
+    expect(find.byKey(const Key('voz-revisar-product@2')), findsOneWidget);
+    expect(find.byKey(const Key('voz-escribir-product@2')), findsOneWidget);
+    expect(await continueEnabled(tester), isFalse);
   });
 
   testWidgets('deshacer el último dictado no pierde una edición posterior', (
@@ -282,16 +348,23 @@ void main() {
     ]);
     await tapKey(tester, 'compra-completar-voz');
     await dictate(tester);
-    expect(picked(tester, 'Proveedor'), 'Agro Norte');
-    await tester.enterText(field('Cantidad comprada'), '12');
+    expect(await picked(tester, 'Proveedor'), 'Agro Norte');
+    await enter(tester, 'Cantidad comprada', '12');
     await settle(tester);
     await tapKey(tester, 'voz-deshacer');
-    expect(picked(tester, 'Proveedor'), isNull);
-    expect(picked(tester, 'Producto'), isNull);
+    expect(await picked(tester, 'Proveedor'), isNull);
+    expect(await picked(tester, 'Producto'), isNull);
     // Sin producto, el campo vuelve a llamarse «Precio por unidad».
-    expect(text(tester, 'Precio por unidad'), '');
-    expect(text(tester, 'Cantidad comprada'), '12', reason: 'editada después');
-    expect(panelMessage(tester), contains('Se conservó lo que editó después'));
+    expect(await text(tester, 'Precio por unidad'), '');
+    expect(
+      await text(tester, 'Cantidad comprada'),
+      '12',
+      reason: 'editada después',
+    );
+    expect(
+      await panelMessage(tester),
+      contains('Se conservó lo que editó después'),
+    );
     expect(find.byKey(const Key('voz-deshacer')), findsNothing);
   });
 
@@ -307,10 +380,14 @@ void main() {
     await tapKey(tester, 'voz-cancelar-dictado');
     await tester.pump(const Duration(seconds: 3));
     await settle(tester);
-    expect(picked(tester, 'Proveedor'), isNull);
-    expect(picked(tester, 'Producto'), 'Glifosato', reason: 'lo manual sigue');
-    expect(text(tester, 'Cantidad comprada'), '');
-    expect(panelMessage(tester), contains('cancelado'));
+    expect(await picked(tester, 'Proveedor'), isNull);
+    expect(
+      await picked(tester, 'Producto'),
+      'Glifosato',
+      reason: 'lo manual sigue',
+    );
+    expect(await text(tester, 'Cantidad comprada'), '');
+    expect(await panelMessage(tester), contains('cancelado'));
   });
 
   testWidgets('ambiguo: precio sin «el litro» → revisar; «Total de la línea» '
@@ -323,15 +400,19 @@ void main() {
     ]);
     await tapKey(tester, 'compra-completar-voz');
     await dictate(tester);
-    expect(text(tester, 'Cantidad comprada'), '10');
-    expect(text(tester, 'Precio BOB/L'), '');
+    expect(await text(tester, 'Cantidad comprada'), '10');
+    expect(await text(tester, 'Precio por L'), '');
     expect(find.byKey(const Key('voz-revisar-price@1')), findsOneWidget);
     expect(find.text('Falta: precio'), findsOneWidget);
-    expect(continueEnabled(tester), isFalse);
+    // Además de las opciones del intérprete, se puede escribir otro valor:
+    // lleva a la hoja del producto, con el campo a la vista.
+    await closePurchaseLine(tester);
+    expect(find.byKey(const Key('voz-escribir-price@1')), findsOneWidget);
+    expect(await continueEnabled(tester), isFalse);
     await tapKey(tester, 'voz-opcion-price@1-1'); // «Total de la línea»
-    expect(text(tester, 'Precio BOB/L'), '5');
+    expect(await text(tester, 'Precio por L'), '5');
     expect(find.text('Confirmado'), findsOneWidget);
-    expect(continueEnabled(tester), isTrue);
+    expect(await continueEnabled(tester), isTrue);
   });
 
   testWidgets('negación: el dictado no cambia el formulario', (tester) async {
@@ -340,9 +421,9 @@ void main() {
     ]);
     await tapKey(tester, 'compra-completar-voz');
     await dictate(tester);
-    expect(picked(tester, 'Producto'), isNull);
-    expect(text(tester, 'Cantidad comprada'), '');
-    expect(panelMessage(tester), contains('No cambió el formulario'));
+    expect(await picked(tester, 'Producto'), isNull);
+    expect(await text(tester, 'Cantidad comprada'), '');
+    expect(await panelMessage(tester), contains('No cambió el formulario'));
     expect(find.byKey(const Key('voz-deshacer')), findsNothing);
   });
 
@@ -357,11 +438,7 @@ void main() {
     await settle(tester);
     expect(port.microphoneOpen, isTrue);
     // Atrás del formulario (sin cambios: no pregunta).
-    final back = find.descendant(
-      of: find.byType(AppBar).last,
-      matching: find.byIcon(Icons.arrow_back),
-    );
-    await tester.tap(back);
+    await tester.tap(find.byKey(const Key('purchase-close')));
     await tester.pump();
     // La transición de salida de la ruta.
     await tester.pump(const Duration(milliseconds: 500));

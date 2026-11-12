@@ -21,6 +21,8 @@ const _components = [
   'ggml',
   'Modelo de voz Vosk vosk-model-small-es-0.42',
   'Modelo de voz Whisper (OpenAI), formato ggml',
+  'DM Sans (tipografía)',
+  'Bricolage Grotesque (tipografía)',
 ];
 
 /// Lo que el plugin integration_test mete en las compilaciones no release.
