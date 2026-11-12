@@ -105,8 +105,9 @@ PY
     echo "APK $PKG · Mobile $(git rev-parse HEAD)$dirty · SHA-256 $(sha256sum "$RUN/apk/agrocuentas$SUFFIX-profile-x64.apk" | awk '{print $1}')" ;;
   install-app)
     apk="$RUN/apk/agrocuentas$SUFFIX-profile-x64.apk"; [ -f "$apk" ] || { echo "falta la APK: 'rdm_env.sh build-app'"; exit 1; }
-    MSYS_NO_PATHCONV=1 adb -s "$SERIAL" install -r "$(cygpath -w "$apk")" | tail -1
-    echo "instalado $PKG en $SERIAL" ;;
+    out=$(MSYS_NO_PATHCONV=1 adb -s "$SERIAL" install -r "$(cygpath -w "$apk")" 2>&1 | tr -d '')
+    echo "$out" | tail -1
+    echo "$out" | grep -qx "Success" && echo "instalado $PKG en $SERIAL" || { echo "NO instalado"; exit 1; } ;;
   status)
     echo "contenedor: $(docker ps --filter name="^${PG}$" --format '{{.Status}}' | head -1)"
     echo "API $API: $(health)"
