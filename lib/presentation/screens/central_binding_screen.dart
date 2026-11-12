@@ -7,13 +7,15 @@ import '../../data/sync/identification_request_store.dart';
 import '../../domain/campaign_calendar.dart';
 import '../../domain/sync/campaign_period_check.dart';
 import '../../domain/sync/central_references.dart';
-import '../../domain/sync/identification_view.dart';
 import '../../domain/sync/sync_types.dart';
 import '../../services/sync/sync_access.dart';
 import '../../services/sync/sync_api.dart';
 import '../../services/sync/sync_providers.dart';
+import '../widgets/agro_ui.dart';
 import '../widgets/common.dart';
 import '../widgets/identification_texts.dart';
+import '../widgets/rdm_c_identification.dart';
+import '../widgets/rdm_c_page.dart';
 import '../widgets/sync_status_banner.dart' show syncSummaryProvider;
 
 class _LocalCatalog {
@@ -58,6 +60,7 @@ class _CentralBindingScreenState extends ConsumerState<CentralBindingScreen> {
   CentralReferences? references;
   String? loadProblem;
   bool loading = false;
+  _BindingTab tab = _BindingTab.products;
 
   @override
   void initState() {
@@ -360,74 +363,21 @@ class _CentralBindingScreenState extends ConsumerState<CentralBindingScreen> {
   /// El diálogo muestra exactamente lo que se enviará y, aparte, la casilla
   /// del consentimiento de la foto (`FOTO-1`), sólo si hay foto.
   Future<void> _requestIdentification(Map<String, Object?> product) async {
-    final name = (product['name']! as String).trim();
-    final ingredient = (product['active_ingredient'] as String?)?.trim();
     final hasPhoto = product['photo_sha256'] != null;
-    var sharePhoto = false;
-    final confirmed =
-        await showDialog<bool>(
-          context: context,
-          builder: (dialogContext) => StatefulBuilder(
-            builder: (dialogContext, setDialogState) => AlertDialog(
-              title: const Text('Pedir identificación al sindicato'),
-              content: SingleChildScrollView(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text('Se enviará al sindicato sólo esto:'),
-                    const SizedBox(height: 8),
-                    Text('Nombre: $name'),
-                    Text(
-                      'Ingrediente activo: '
-                      '${(ingredient?.isEmpty ?? true) ? 'sin dato' : ingredient}',
-                    ),
-                    Text('Unidad: ${product['unit']}'),
-                    const SizedBox(height: 8),
-                    const Text(
-                      'No se envían compras, aplicaciones, cantidades ni '
-                      'existencias. El vínculo lo confirma usted después.',
-                    ),
-                    if (hasPhoto) ...[
-                      const SizedBox(height: 8),
-                      CheckboxListTile(
-                        key: const Key('identification-share-photo'),
-                        contentPadding: EdgeInsets.zero,
-                        controlAffinity: ListTileControlAffinity.leading,
-                        value: sharePhoto,
-                        onChanged: (value) => setDialogState(() {
-                          sharePhoto = value ?? false;
-                        }),
-                        title: const Text(
-                          'Compartir también la foto de la etiqueta',
-                        ),
-                        subtitle: Text(photoConsentText(name)),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(dialogContext, false),
-                  child: const Text('Cancelar'),
-                ),
-                FilledButton(
-                  onPressed: () => Navigator.pop(dialogContext, true),
-                  child: const Text('Pedir identificación'),
-                ),
-              ],
-            ),
-          ),
-        ) ??
-        false;
-    if (!confirmed || !mounted) return;
+    final answer = await showIdentificationRequestSheet(context, (
+      productId: product['id']! as int,
+      name: (product['name']! as String).trim(),
+      ingredient: (product['active_ingredient'] as String?)?.trim(),
+      unit: product['unit']! as String,
+      hasPhoto: hasPhoto,
+    ));
+    if (answer == null || !mounted) return;
     try {
       await ref
           .read(identificationRequestStoreProvider)
           .create(
             productId: product['id']! as int,
-            sharePhoto: hasPhoto && sharePhoto,
+            sharePhoto: hasPhoto && answer.sharePhoto,
           );
       if (mounted) {
         showSuccess(
@@ -605,18 +555,18 @@ class _CentralBindingScreenState extends ConsumerState<CentralBindingScreen> {
       ? 'Unidad distinta: no se convierte'
       : null;
 
+  void _showCampaigns() => setState(() => tab = _BindingTab.campaigns);
+
   @override
-  Widget build(BuildContext context) => PageFrame(
-    title: 'Vincular con el sindicato',
+  Widget build(BuildContext context) => RdmCPage(
+    title: 'Productos y campañas',
     // Texto inicial corto (pedido del autor del 2026-11-05): lo que ayuda a
     // resolver un problema está en la fila afectada y en los diálogos.
     subtitle: 'Elija el equivalente del sindicato.',
-    // Etiqueta corta: en una cabecera de móvil un botón ancho deja sin
-    // espacio al título y al subtítulo.
-    action: FilledButton.tonalIcon(
+    action: RdmCHeaderAction(
+      icon: Icons.sync,
+      label: 'Actualizar',
       onPressed: loading ? null : _loadReferences,
-      icon: const Icon(Icons.cloud_download_outlined),
-      label: const Text('Actualizar'),
     ),
     child: FutureBuilder<_LocalCatalog>(
       future: local,
@@ -634,61 +584,85 @@ class _CentralBindingScreenState extends ConsumerState<CentralBindingScreen> {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            if (loading) const LinearProgressIndicator(),
-            if (loadProblem != null)
-              Card(
-                child: ListTile(
-                  leading: const Icon(Icons.cloud_off_outlined),
-                  title: Text(loadProblem!),
-                ),
+            if (loading) ...[
+              const LinearProgressIndicator(),
+              const SizedBox(height: 8),
+            ],
+            if (loadProblem != null) ...[
+              NoticeBox(
+                text: loadProblem!,
+                tone: NoticeTone.warning,
+                icon: Icons.cloud_off_outlined,
               ),
-            if (references == null && loadProblem == null)
-              const Card(
-                child: ListTile(
-                  leading: Icon(Icons.info_outline),
-                  title: Text(
-                    'Pulse «Actualizar» para ver las opciones del sindicato.',
-                  ),
-                ),
+              const SizedBox(height: 12),
+            ],
+            if (references == null && loadProblem == null) ...[
+              const NoticeBox(
+                text: 'Pulse «Actualizar» para ver las opciones del sindicato.',
               ),
+              const SizedBox(height: 12),
+            ],
             // Aviso breve; el detalle (los dos períodos, los aportes y qué
             // hacer) va en la fila de cada campaña afectada.
             if (data.reviews.isNotEmpty) ...[
-              const SizedBox(height: 12),
-              Card(
+              NoticeBox(
                 key: const Key('period-review'),
-                color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                child: ListTile(
-                  leading: const Icon(Icons.event_busy_outlined),
-                  title: const Text('Requiere revisión: período de campaña'),
-                  subtitle: Text(
+                tone: NoticeTone.warning,
+                icon: Icons.event_busy_outlined,
+                text:
+                    'Requiere revisión: período de campaña. '
                     '${data.reviews.map((review) => review.local.name).join(', ')}: '
                     'no se envían totales nuevos; lo aceptado se conserva y '
                     'lo que espera en la cola no se borra.',
-                  ),
-                ),
+                action: tab == _BindingTab.campaigns
+                    ? null
+                    : TextButton(
+                        onPressed: _showCampaigns,
+                        child: const Text('Ver campañas'),
+                      ),
               ),
+              const SizedBox(height: 12),
             ],
-            const SizedBox(height: 12),
-            Text('Campañas', style: Theme.of(context).textTheme.titleMedium),
-            Card(
-              child: Column(
-                children: [
-                  for (final campaign in data.campaigns)
-                    _campaignRow(campaign, data),
-                ],
-              ),
+            RdmCToggle<_BindingTab>(
+              semanticLabel: 'Mostrar productos o campañas',
+              selected: tab,
+              onChanged: (value) => setState(() => tab = value),
+              options: [
+                ToggleOption(
+                  _BindingTab.products,
+                  'Productos · ${data.products.length}',
+                  key: const Key('binding-tab-products'),
+                ),
+                ToggleOption(
+                  _BindingTab.campaigns,
+                  'Campañas · ${data.campaigns.length}',
+                  key: const Key('binding-tab-campaigns'),
+                ),
+              ],
             ),
             const SizedBox(height: 12),
-            Text('Productos', style: Theme.of(context).textTheme.titleMedium),
-            Card(
-              child: Column(
-                children: [
-                  for (final product in data.products)
-                    _productRow(product, data),
-                ],
-              ),
-            ),
+            if (tab == _BindingTab.products)
+              data.products.isEmpty
+                  ? const RdmCEmpty(
+                      message: 'Todavía no hay productos en este teléfono.',
+                    )
+                  : AgroGroup(
+                      children: [
+                        for (final product in data.products)
+                          _productRow(product, data),
+                      ],
+                    )
+            else
+              data.campaigns.isEmpty
+                  ? const RdmCEmpty(
+                      message: 'Todavía no hay campañas en este teléfono.',
+                    )
+                  : AgroGroup(
+                      children: [
+                        for (final campaign in data.campaigns)
+                          _campaignRow(campaign, data),
+                      ],
+                    ),
           ],
         );
       },
@@ -703,19 +677,15 @@ class _CentralBindingScreenState extends ConsumerState<CentralBindingScreen> {
         .firstOrNull;
     final canSetEnd = local.status == 'ACTIVE' || local.status == 'PLANNED';
     final unboundDetail = binding == null ? _noCompatibleCampaign(local) : null;
-    return ListTile(
+    final status = binding == null
+        ? 'Requiere vinculación'
+              '${unboundDetail == null ? '' : '\n$unboundDetail'}'
+        : _describeCampaign(binding, local, review);
+    return RdmCRow(
       key: Key('campaign-binding-${local.id}'),
-      title: Text('${local.name} (${local.describe})'),
-      subtitle: Text(
-        binding == null
-            ? 'Requiere vinculación'
-                  '${unboundDetail == null ? '' : '\n$unboundDetail'}'
-            : _describeCampaign(binding, local, review),
-      ),
-      isThreeLine:
-          (binding != null && (!binding.isValid || review != null)) ||
-          unboundDetail != null,
-      trailing: PopupMenuButton<String>(
+      title: '${local.name} (${local.describe})',
+      detail: status,
+      trailing: RdmCOptionsMenu(
         tooltip: 'Opciones de vínculo',
         onSelected: (value) => switch (value) {
           'bind' => _bindCampaign(campaign),
@@ -726,7 +696,7 @@ class _CentralBindingScreenState extends ConsumerState<CentralBindingScreen> {
                 ref.read(centralBindingStoreProvider).unbindCampaign(local.id),
           ),
         },
-        itemBuilder: (_) => [
+        items: [
           PopupMenuItem(
             value: 'bind',
             child: Text(binding == null ? 'Vincular…' : 'Corregir vínculo…'),
@@ -754,70 +724,53 @@ class _CentralBindingScreenState extends ConsumerState<CentralBindingScreen> {
         ? _noCompatibleProduct(product)
         : null;
     final linked = request == null ? null : identificationLinkedText(request);
-    final status = Text(
-      binding == null
-          ? 'Requiere vinculación'
-                '${unboundDetail == null ? '' : '\n$unboundDetail'}'
-          : _describeProduct(binding, product),
-    );
-    return ListTile(
+    final status = binding == null
+        ? 'Requiere vinculación'
+              '${unboundDetail == null ? '' : '\n$unboundDetail'}'
+        : _describeProduct(binding, product);
+    return RdmCRow(
       key: Key('product-binding-$id'),
-      title: Text('${product['name']} (${product['unit']})'),
-      subtitle: request == null
-          ? status
-          : Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                status,
-                const SizedBox(height: 4),
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 4,
-                  children: [
-                    for (final text in identificationChips(request))
-                      Chip(
-                        label: Text(text),
-                        visualDensity: VisualDensity.compact,
-                        materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                      ),
-                  ],
-                ),
-                if (request.sendStatus == IdentificationSendStatus.authPaused)
-                  const Text(
-                    'Envío pausado: el sindicato pidió verificar el acceso. '
+      title: '${product['name']} (${product['unit']})',
+      detail: status,
+      badges: request == null
+          ? const []
+          : [
+              for (final text in identificationChips(request))
+                StatusBadge(label: text, tone: identificationChipTone(text)),
+            ],
+      notes: request == null
+          ? const []
+          : [
+              if (request.sendStatus == IdentificationSendStatus.authPaused)
+                'Envío pausado: el sindicato pidió verificar el acceso. '
                     'Pulse «Enviar ahora».',
-                  ),
-                if (request.serverNote != null)
-                  Text('Nota del sindicato: ${request.serverNote}'),
-                if (linked != null) Text(linked),
-                if (request.photoSendStatus == IdentificationPhotoStatus.sent &&
-                    product['photo_sha256'] != request.photoSha256Consented)
-                  const Text(
-                    'El sindicato conserva la foto anterior; la actual está '
+              if (request.serverNote != null)
+                'Nota del sindicato: ${request.serverNote}',
+              ?linked,
+              if (request.photoSendStatus == IdentificationPhotoStatus.sent &&
+                  product['photo_sha256'] != request.photoSha256Consented)
+                'El sindicato conserva la foto anterior; la actual está '
                     'sólo en este teléfono.',
-                  ),
-                Wrap(
-                  spacing: 8,
-                  children: [
-                    if (identificationCanSendNow(request))
-                      TextButton.icon(
-                        onPressed: loading
-                            ? null
-                            : () => _sendIdentificationNow(request),
-                        icon: const Icon(Icons.send_outlined),
-                        label: const Text('Enviar ahora'),
-                      ),
-                    if (linked != null && binding == null)
-                      FilledButton.tonal(
-                        onPressed: () => _bindIdentified(product, request),
-                        child: const Text('Vincular'),
-                      ),
-                  ],
+            ],
+      actions: request == null
+          ? const []
+          : [
+              if (identificationCanSendNow(request))
+                TextButton.icon(
+                  onPressed: loading
+                      ? null
+                      : () => _sendIdentificationNow(request),
+                  icon: const Icon(Icons.send_outlined),
+                  label: const Text('Enviar ahora'),
                 ),
-              ],
-            ),
-      isThreeLine: request != null,
-      trailing: PopupMenuButton<String>(
+              // E1-D4: el vínculo lo confirma el agricultor.
+              if (linked != null && binding == null)
+                FilledButton.tonal(
+                  onPressed: () => _bindIdentified(product, request),
+                  child: const Text('Vincular'),
+                ),
+            ],
+      trailing: RdmCOptionsMenu(
         tooltip: 'Opciones de vínculo',
         onSelected: (value) => switch (value) {
           'bind' => _bindProduct(product),
@@ -827,7 +780,7 @@ class _CentralBindingScreenState extends ConsumerState<CentralBindingScreen> {
             () => ref.read(centralBindingStoreProvider).unbindProduct(id),
           ),
         },
-        itemBuilder: (_) => [
+        items: [
           PopupMenuItem(
             value: 'bind',
             child: Text(binding == null ? 'Vincular…' : 'Corregir vínculo…'),
@@ -844,3 +797,5 @@ class _CentralBindingScreenState extends ConsumerState<CentralBindingScreen> {
     );
   }
 }
+
+enum _BindingTab { products, campaigns }

@@ -73,6 +73,9 @@ void main() {
       ),
     );
     await settle(tester);
+    // Rediseño (sesión C): las campañas están en su pestaña.
+    await tester.tap(find.byKey(const Key('binding-tab-campaigns')));
+    await settle(tester);
     return fixture;
   }
 
