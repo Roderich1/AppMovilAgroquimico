@@ -18,9 +18,10 @@ set -uo pipefail
 ROOT=/c/Users/MSI/Documents/ProyectoDeGrado/ProyectoAgro
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MOB=$(cd "$here/../.." && pwd)
-# Back CONGELADO propio (worktree detached _wt/RDM-BE en 5b394f2, contrato
-# de convocatorias 2 + migración P-C, que corresponde a la rama F integrada
-# en el rediseño). Desde el 2026-11-12 ya no se usa _wt/ET2-BE, que cambia
+# Back CONGELADO propio (worktree detached _wt/RDM-BE): 5b394f2 (contrato de
+# convocatorias 2 + P-C) hasta la noche del 2026-11-12; desde entonces 49ed870
+# (P-A, contrato 3, migración 20261112180000_e2_pa_responsible_substitution),
+# que corresponde a la rama F integrada en el rediseño (91f2e73). Desde el 2026-11-12 ya no se usa _wt/ET2-BE, que cambia
 # con el trabajo de otra sesión. Sólo se ejecuta su dist.
 BE=$ROOT/_wt/RDM-BE/Back
 CENTRAL=$ROOT/_wt/DEMO-BE/tool/demo/demo-central.cjs

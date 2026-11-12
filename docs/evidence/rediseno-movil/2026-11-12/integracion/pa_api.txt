@@ -1,0 +1,41 @@
+Recorrido P-A conectado — salidas de la API real (entorno aislado del rediseño: API 3370, base agro_demo
+del contenedor agro_rdm_pg, Back _wt/RDM-BE en 49ed870). Datos sintéticos. Sin contraseñas ni tokens.
+Órdenes: tool/etapa3/pa_walk.cjs de la rama F (8cc8c4f, sin modificar) y tool/rediseno/pa_rdm.cjs,
+ejecutadas desde _wt/RDM-BE/Back con DEMO_API=http://127.0.0.1:3370/api/v1 y el contenedor 15436.
+
+# Preparación (pa_walk setup): convocatoria con responsable «Responsable PA (sintética)»,
+# delegaciones Administración DEMO (PARTICIPANTS) y Directiva DEMO (MANAGE),
+# participaciones de agricultor1 (contrato 3) y agricultor2 (contrato 2).
+{"call":"0e8918ab","products":["Abono NPK 15-15-15 DEMO","Azufre mojable DEMO"],"responsible_version":1}
+# El teléfono (agricultor15, app 91f2e73) participa con 10 KG → ACTIVE, RESPONSIBLE_ONLY, authorized_version 1.
+# Segunda convocatoria para (f), responsable «Responsable PA 2»; el teléfono participa con 4 L y se cierra:
+{"created":"5f6ead20","products":["Coadyuvante DEMO"]}
+{"close":200,"error":null,"status":"CLOSED"}
+consolidado (vista de la responsable 2): huella e3212a908fd8fa88, huella_lineas f9e9c5db08eaa17c, 1 línea, 1 participante, 0 pendientes de autorizar, cutoff/closed 2026-11-12T17:58:21.390Z
+
+# Permiso «Sustituir responsable» concedido por la ADMINISTRADOR a Directiva DEMO; responsable inhabilitada.
+{"grant":"directiva","status":200,"error":null}
+{"deactivate":"resp","status":200,"eligible_now":false}
+
+# (b) Autosustitución: Directiva DEMO se nombra a sí misma.
+{"by":"directiva","successor":"directiva","status":422,"error":"SUCCESSOR_NOT_ELIGIBLE","version_before":1,"version_after":1}
+# (a) Sustitución por la persona autorizada.
+{"by":"directiva","successor":"suc","status":200,"error":null,"version_before":1,"version_after":2,"responsible_after":"Sucesora PA (sintética)","call_status":"OPEN"}
+
+# (c) Delegaciones suspendidas (pa_walk state):
+access_events: GRANTED:PARTICIPANTS, GRANTED:MANAGE, SUSPENDED:PARTICIPANTS, SUSPENDED:MANAGE
+changes: [{version 2, status_then OPEN, suspended 2}]; delegaciones de Administración DEMO y Directiva DEMO siguen en versión 1
+# (d) Lo que ve la sucesora (pa_walk view suc):
+{"is_responsible":true,"can_manage":true,"pending_authorization_count":3,"pending_delegation_reviews":2,"participants":{"count":0,"pending":3,"hidden":0}}
+
+# (e) En el teléfono: Modificar 10 → 12 KG (sin autorizar):
+participación del teléfono: RESPONSIBLE_ONLY, authorized_version 1; líneas 8000, 12000, 12000 (la del teléfono pasó a 12000)
+# En el teléfono: «Revisar autorización» → primera casilla → «Autorizar»:
+participación del teléfono: RESPONSIBLE_ONLY, authorized_version 2; líneas 8000, 12000, 12000 (sin cambio de cantidades)
+
+# (f) Convocatoria cerrada: responsable 2 inhabilitada, sustitución, autorización desde el teléfono.
+{"deactivate":"resp2","status":200,"eligible_now":false}
+{"by":"directiva","successor":"suc","status":200,"error":null,"version_before":1,"version_after":2,"responsible_after":"Sucesora PA (sintética)","call_status":"CLOSED"}
+consolidado tras sustituir (vista de la sucesora, participación pendiente): huella e6713886c867adf2, huella_lineas 483217581f16294e, 1 pendiente de autorizar
+base: JointPurchaseCall CLOSED, closedAt 2026-11-12 17:58:21.39, responsibleVersion 2; JointPurchaseCallClosingLine totalQuantityBase 4000, participantCount 1
+tras autorizar en el teléfono: participación RESPONSIBLE_ONLY, consentResponsibleVersion 2; consolidado huella e3212a908fd8fa88, huella_lineas f9e9c5db08eaa17c (idénticas al cierre), 0 pendientes; sigue CLOSED con el mismo closedAt

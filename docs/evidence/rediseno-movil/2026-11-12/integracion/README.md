@@ -62,9 +62,32 @@ Abrir el túnel HTTPS temporal (`rdm_env.sh tunnel`) fue **denegado** por los pe
 
 **Sincronización, separada:** (1) persistencia local: verificada arriba; (2) publicación autorizada: `sync_outbox` siguió vacío durante todo el recorrido, porque compras, transferencias, aplicaciones y pagos privados no se envían al sindicato y no se publicó consumo; (3) recepción del servidor: no verificable sin túnel.
 
-## P-A integrada en la rama (`91f2e73`), no en la APK instalada
+## Tercer recorrido: candidata `91f2e73` con P-A, conectada (`g01`–`g11`, noche del 2026-11-12)
 
-La APK de la revisión (`d6c4c4d`) **no** incluye P-A. En la rama, P-A se ve en el arnés: `pa_6.2e_responsable_cambio.png` (aviso «La persona responsable … cambió» con «Revisar autorización») y `pa_6.2f_autorizar.png` (diálogo con el texto vigente de la rama F y dos casillas sin marcar). Para recorrerla en el emulador hacen falta el túnel y `_wt/RDM-BE` en `49ed870` (contrato 3).
+Autorizado por el autor el 2026-11-12 (actualizar la candidata conservando datos, túnel temporal, cerrar el `Pixel_8` bloqueado).
+
+**Antes de instalar.** Entre `91f2e73` y `9717983` sólo cambia documentación (5 archivos en `docs/`). Instalada: `.rdm` «AC RDM» en `emulator-5556`, APK `d6c4c4d` (SHA-256 `392f2f1e…91d7`), conservada como `agrocuentas.rdm-d6c4c4d-profile-x64.apk`. Copia de **inspección** de la base (sólo lectura, `run-as`; no es un respaldo restaurable probado): esquema 18, persons 2, farms 2, purchases 1, application_plans 2, applications 1, transfers 1, inventory_lots 2, inventory_movements 4, account_transactions 2, payment_allocations 1, sync_outbox 0.
+
+**Back aislado.** `_wt/RDM-BE` pasó de `5b394f2` a `49ed870` (P-A): volcado previo `agro_demo_antes_49ed870.dump` (en la carpeta del entorno, no versionado); `prisma generate` y `nest build` con la API parada; la migración `20261112180000_e2_pa_responsible_substitution` se aplicó (23 migraciones, ninguna fallida); conteos iguales (17 usuarios, 12 campañas, 11 productos, 0 convocatorias); API 3370 health 200.
+
+**APK instalada.** Compilada con el árbol en `91f2e73` (limpio, el commit de la suite 3055/3/0), origen = túnel temporal (no se publica). SHA-256 **`6e82fd2b969caa66360ffad0f85a4256275dc3d9aa4824807e61b1c2dbeeda88`**, igual en el archivo compilado y en el `base.apk` del dispositivo; `lastUpdateTime=2026-11-12 17:53:29` (`firstInstallTime` 13:11:32: misma instalación, actualizada). Conservada como `agrocuentas.rdm-91f2e73-profile-x64.apk`. El texto del commit no es legible dentro de `libapp.so` (AOT); la procedencia se apoya en el árbol al compilar y el SHA-256.
+
+**Migración y datos.** Tras abrir: esquema **19** (columnas `responsible_version` y `authorize_responsible`), todos los conteos iguales a la copia previa; Inicio sin pedir activación; Actividad y Almacén con los mismos datos. «Volver a autenticar» con la cuenta sintética (contraseña de un solo uso tecleada por `rdm_env.sh credential`, sin capturas ni volcados mientras estaba en pantalla): correcto.
+
+**P-A, lista del autor** (salidas de la API en `pa_api.txt`):
+
+| | Resultado |
+|---|---|
+| a. Sustitución por persona autorizada | 200, versión 1 → 2, «Sucesora PA», sigue OPEN |
+| b. Autosustitución | 422 `SUCCESSOR_NOT_ELIGIBLE`, versión sigue en 1 |
+| c. Delegaciones suspendidas | eventos `SUSPENDED:PARTICIPANTS` y `SUSPENDED:MANAGE`; la sucesora tiene 2 delegaciones por revisar |
+| d. Datos restringidos hasta autorizar | la sucesora ve 0 participantes y 3 pendientes; el teléfono muestra «La persona responsable … cambió» y «Revisar autorización» (`g05`) |
+| e. Autorizar ≠ cantidades | Modificar 10 → 12 KG no autoriza (versión autorizada 1, la tarjeta sigue: `g06`); autorizar (`g07`) deja 12 KG y pasa a versión 2; «Su última decisión … está aplicada en el sindicato» (`g08`) |
+| f. Convocatoria cerrada | sustitución con la convocatoria CLOSED; autorizar desde el teléfono (`g09`, `g10`) no la reabre; consolidado guardado 4 L / 1 participante; respuesta del consolidado idéntica a la del cierre (huellas `e3212a90…`, `f9e9c5db…`) |
+
+La app anterior (contrato 2, punto g) la recorre la sesión F en su entorno.
+
+**Defecto hallado:** en Convocatorias y su detalle, el «+ Registrar» del shell tapaba «Continuar» de la hoja de cantidades (`g02`). Corregido en la rama (`9264191`, regresión en `oe3_fab_sincronizacion_test.dart`); **no** está en la APK instalada.
 
 ## No verificado aquí (declarado)
 
