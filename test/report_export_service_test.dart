@@ -114,6 +114,18 @@ void main() {
     _ => request(kind, format),
   };
 
+  test('estado de cuenta de una persona con nombre largo: el archivo conserva la fecha', () async {
+    final long = await repo.addPerson(
+      name: 'Ana María Quispe Mamani de la Comunidad San Isidro (sintética)',
+      role: PersonRole.family,
+    );
+    final stored = await service.export(
+      request(ReportKind.accountStatement, ReportFormat.xlsx, personId: long),
+    );
+    expect(stored.fileName, endsWith('-2026-09-06.xlsx'));
+    expect(stored.fileName, contains('Ana Maria Quispe'));
+  });
+
   group('exportación de los cinco reportes', () {
     for (final kind in ReportKind.values) {
       for (final format in ReportFormat.values) {

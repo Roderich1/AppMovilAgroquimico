@@ -174,6 +174,23 @@ class LocalReportStorage implements ReportStorage {
   }
 }
 
+const _plainLetter = {
+  'á': 'a',
+  'é': 'e',
+  'í': 'i',
+  'ó': 'o',
+  'ú': 'u',
+  'ü': 'u',
+  'ñ': 'n',
+  'Á': 'A',
+  'É': 'E',
+  'Í': 'I',
+  'Ó': 'O',
+  'Ú': 'U',
+  'Ü': 'U',
+  'Ñ': 'N',
+};
+
 /// Nombre de archivo seguro a partir de un texto cualquiera.
 ///
 /// Un nombre de campaña o de persona puede traer barras, dos puntos o
@@ -183,7 +200,10 @@ class LocalReportStorage implements ReportStorage {
 String sanitizeFileName(String value) {
   final buffer = StringBuffer();
   for (final rune in value.runes) {
-    final char = String.fromCharCode(rune);
+    // Las vocales con tilde y la eñe se escriben con su letra base (revisión
+    // en Excel del 2026-11-12: «María» salía como «Mar-a»).
+    final raw = String.fromCharCode(rune);
+    final char = _plainLetter[raw] ?? raw;
     if (RegExp(r'[A-Za-z0-9 _-]').hasMatch(char)) {
       buffer.write(char);
     } else {
