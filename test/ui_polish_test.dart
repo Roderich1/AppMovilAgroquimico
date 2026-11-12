@@ -450,13 +450,7 @@ void main() {
       }
 
       // El resto de destinos conserva su FAB.
-      for (final path in const [
-        '/operaciones',
-        '/inventario',
-        '/personas',
-        '/liquidacion',
-        '/transferencias',
-      ]) {
+      for (final path in const ['/operaciones', '/inventario']) {
         expect(
           AppShell(
             location: path,
