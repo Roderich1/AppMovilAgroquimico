@@ -1,7 +1,7 @@
 # Estado de la sesión B
 
 - Dueño del worktree: proyectoagro-a8 desde 2026-11-12 07:09
-- Base incorporada: integración `0757033` (incluye B2 y las entregas 1–3)
+- Base incorporada: integración `24dfbd1` (incluye las entregas 1–4; fusión `bf0468f`)
 - Mapa de pantallas, rutas y accesos: `docs/rediseno/estado/B_MAPA.md`
 
 ## Entregas listas
@@ -11,7 +11,8 @@
 | 1 | `8e97b78` (código: `950ce19`, `e79d422`, `032a100`) — integrada, revisión B-1 | Inicio `/` (1.2), Almacén `/inventario` (1.4), resumen de avisos del Almacén | ver «Entrega 1» | `docs/evidence/rediseno-movil/2026-11-12/sesion-b/entrega-1/` | ver «Entrega 1» |
 | 2 | `eb7807e` (código: `b2997b1`) — integrada en `af04f7e` | Actividad `/operaciones` (1.3) | ver «Entrega 2» | `docs/evidence/rediseno-movil/2026-11-12/sesion-b/entrega-2/` | ver «Entrega 2» |
 | 3 | `56c0080` (código: `f112d0e`, `ba8d8df`, `b58b2b2`) — integrada en `0757033` | Lista de compras `/compras`, detalle `/compras/detalle/:id` (2.8) | ver «Entrega 3» | `docs/evidence/rediseno-movil/2026-11-12/sesion-b/entrega-3/` | ver «Entrega 3» |
-| 4 | el commit que añade esta fila (código: `0fd83f4`) | Transferencias `/transferencias`, nueva `/transferencias/nueva` (5.4) | ver «Entrega 4» | `docs/evidence/rediseno-movil/2026-11-12/sesion-b/entrega-4/` | ver «Entrega 4» |
+| 4 | `f41c7fb` (código: `0fd83f4`) — integrada en `24dfbd1` | Transferencias `/transferencias`, nueva `/transferencias/nueva` (5.4) | ver «Entrega 4» | `docs/evidence/rediseno-movil/2026-11-12/sesion-b/entrega-4/` | ver «Entrega 4» |
+| 5 | el commit que añade esta fila (código: `773f4c4`, `dd3f2e9`) | Producto `/inventario/:id` (4.1), Avisos `/inventario/avisos` (4.2), Estimación `/inventario/estimacion` (4.3) | ver «Entrega 5» | `docs/evidence/rediseno-movil/2026-11-12/sesion-b/entrega-5/` | ver «Entrega 5» |
 
 ### Entrega 1 — Inicio y Almacén
 
@@ -109,20 +110,42 @@
 **Diferencias con la lámina**
 | Lámina | App | Motivo |
 |---|---|---|
-| «Entrega» / «Recibe» | «Persona origen» / «Persona destino» | Rótulos que usan las pruebas de D-07, OE3 y F04; cambiarlos es una decisión de texto, no visual. |
+| «Entrega» / «Recibe» | «Persona origen» / «Persona destino» | **Diferencia aceptada por el orquestador** (2026-11-12): rótulos claros que leen las pruebas de D-07, OE3 y F04. |
 | Botón de intercambio entre origen y destino | no está | No existe la función; sería nueva. |
-| «Revisar entrega →» | «Revisar y confirmar» | Texto vigente que leen las pruebas. |
+| «Revisar entrega →» | «Revisar y confirmar» | **Diferencia aceptada por el orquestador.** |
 | Orden origen → productos → destino (antes) | origen y destino arriba, productos debajo | Como la lámina. |
 
 **Pruebas corridas** (en verde): `f10_d07_transferencia_sin_deuda`, `oe3_transfer_decimal`, `responsive_v5`, `ui_polish`, `f04_admin_owner_restore_ui`, `personal_mode_flows`, `ux_c1_correcciones`, `rec_050_reversal_rules`, `e12_pending_operation_return`.
 **Pruebas adaptadas:** `ux_c1_correcciones` (A3) mide el ancho contra el grupo `transfers-group` en vez de una `Card`; `f10_d07` (treinta líneas) vuelve al selector de destino con `ensureVisible` antes de elegirlo (ahora está arriba).
 
+### Entrega 5 — Producto, Avisos y Estimación
+
+**Producto (4.1).** Cabecera oscura: nombre, **físico** en grande; comprado neto, consumido neto, **«Previsto en planes»** (antes «Reservado por planes»: no aparta producto), **«Quedarán»** (físico − previsto, en rojo si es negativo; mismo cálculo que antes) y valor; etiquetas «Lote vencido», «Vence hoy», «Por vencer» según los lotes con existencia y el plazo del producto (`classifyExpiry`, sin escribir nada). «i» abre las explicaciones que eran párrafos permanentes (mismo texto, más una línea sobre «Previsto en planes»). Debajo: «Quién lo tiene» (asignación neta y consumido neto), avisos del producto con «Configurar avisos» (mismos textos y PIN), movimientos con «Ver más», lotes y valor plegados.
+**Avisos (4.2).** Cabecera con «i» y «Volver a calcular». Títulos que dicen qué cuentan: «Lotes vencidos (n)», «Lotes que vencen hoy (n)» (tarjeta ámbar), «Lotes próximos a vencer (n)», «Lotes sin fecha de vencimiento (n)»; existencia baja en total y por responsable separadas (decisión del 2026-11-01). Las explicaciones de cada sección y «Se calculan en este teléfono…» pasan al diálogo «i». Filas, claves, aviso de fecha atrasada y productos sin nivel mínimo sin cambios.
+**Estimación (4.3).** Cabecera y tarjetas del rediseño; textos, claves y alcance de cada cifra (F12) sin cambios.
+**Código común.** `RdmScrollPage` pone cabecera y contenido en un solo bloque (con letra grande el contenido existe aunque la cabecera ocupe la pantalla). `LinkRow` deja que su dato de la derecha parta línea (al hacerlo afloraba un desborde de 20 px a 200 % y 360 dp; también la usan pantallas de C, cuyas pruebas pasan). `ScreenTitleBar(compact: true)` para pantallas apiladas.
+
+**Diferencias con la lámina**
+| Lámina | App | Motivo |
+|---|---|---|
+| Producto: pestañas «Quién lo tiene · Movimientos · Lotes» | secciones seguidas | Conserva todo a la vista y lo que leen las pruebas sin pasos nuevos. |
+| Producto: «Recibió 2 L de Rosa» | «Asignación neta X · consumido neto Y» | Texto fijado por REC-046/051; los pases están en «Movimientos». |
+| Producto: «Foto de la etiqueta · Agregar» | no está | Es de la sesión C (identificación y fotos); no hay hoy un acceso desde aquí. Solicitud 4. |
+| Avisos: «Vencido · 1» con filas resumidas | «Lotes vencidos (1)» con la fila completa (fecha, cantidad, responsable, plazo) | Aclara que cuenta lotes; las filas y textos de F04-AV se conservan. |
+| Avisos: «Queda poco» y «Sin fecha» plegados | secciones abiertas | Pruebas de F04-AV y CU-22. |
+| Estimación: tarjeta oscura «Todavía no hay una estimación descargada» | tarjetas existentes | Textos y alcance de F12; se cambió sólo el aspecto. |
+
+**Pruebas corridas** (en verde): `f04_av_inventory_alerts_ui`, `f12_est_07_estimation_ui`, `rec_046_051_net_figures`, `fix_inventario_movimientos`, `f10_d07_transferencia_sin_deuda`, `ui_polish`, `set_state_contract`, `f10_compat_129_presentacion`, `uxj_a_navegacion`, `consumption_publish_screen`, `declared_need`, `rdm_c_union_screen`, y la repetición de las de las entregas 1–3 (`d04`, `e15`, sesión, navegación, compras).
+**Pruebas adaptadas:** `rec_046_051` (cifras por clave `metric-<rótulo>`, el físico como número y unidad; explicaciones dentro de «i»); `fix_inventario_movimientos` («Previsto en planes» y «Quedarán», como pide COORDINACION); `f10_d07` (la explicación de movimientos, dentro de «i»); `f04_av` (títulos «Lotes …»; la explicación del plazo inicial, dentro de «i»).
+
 ## En curso
 
-- Siguiente: Producto (4.1), Avisos (4.2), Estimación (4.3).
+- Alcance de B terminado (entregas 1–5). Queda atender revisiones.
 - Cedido a la sesión A el 2026-11-12 (propuesta del orquestador): Personas, Persona, Cuenta, Pago, Propios, Costos por chaco y Bitácora (`persons_screen`, `person_detail_screen`, `settlements_screen`, `account_statement_view`, `farm_logbook_screen`). B no los tocó.
 
 ## Solicitudes al orquestador
+
+4. «Foto de la etiqueta» en el detalle de producto (lámina 4.1): si la sesión C expone un punto de entrada (hoja o ruta) para ver o agregar la foto de un producto, lo añado como fila en «Avisos de este producto». No bloquea.
 
 3. `/transferencias` tiene «Nueva» y además el «+ Registrar» flotante del shell; como hiciste con `/compras`, quizá sobre aquí. No bloquea.
 

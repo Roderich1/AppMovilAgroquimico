@@ -110,9 +110,14 @@ class ScreenTitleBar extends StatelessWidget {
     this.actions = const [],
     this.leading,
     this.subtitle,
+    this.compact = false,
   });
 
   final String title;
+
+  /// Título de 26 px para pantallas apiladas («Avisos de inventario»); las
+  /// principales usan 32.
+  final bool compact;
   final List<Widget> actions;
   final Widget? leading;
 
@@ -147,10 +152,10 @@ class ScreenTitleBar extends StatelessWidget {
                 child: Text(
                   title,
                   key: const Key('page-frame-title'),
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontFamily: AgroFonts.display,
-                    fontSize: 32,
-                    height: 38 / 32,
+                    fontSize: compact ? 26 : 32,
+                    height: compact ? 32 / 26 : 38 / 32,
                     fontWeight: FontWeight.w800,
                     letterSpacing: -0.5,
                     color: AgroColors.ink,
@@ -251,7 +256,12 @@ class LinkRow extends StatelessWidget {
                 ],
               ),
             ),
-            if (trailing != null) ...[const SizedBox(width: 8), trailing!],
+            // Flexible: con letra grande el dato de la derecha se acomoda
+            // (parte línea) en vez de desbordar la fila.
+            if (trailing != null) ...[
+              const SizedBox(width: 8),
+              Flexible(child: trailing!),
+            ],
             if (onTap != null)
               const Padding(
                 padding: EdgeInsets.only(left: 4),
@@ -449,14 +459,22 @@ class RdmScrollPage extends StatelessWidget {
       // contenido quepa en la pantalla.
       physics: const AlwaysScrollableScrollPhysics(),
       slivers: [
-        if (header != null) SliverToBoxAdapter(child: header),
-        SliverPadding(
-          padding: padding.copyWith(bottom: bottom),
-          sliver: SliverToBoxAdapter(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: children,
-            ),
+        // Cabecera y contenido en un solo bloque: con letra grande la
+        // cabecera puede ocupar la pantalla, y el contenido sigue existiendo
+        // (para la accesibilidad y las pruebas) aunque esté debajo.
+        SliverToBoxAdapter(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (header != null) header!,
+              Padding(
+                padding: padding.copyWith(bottom: bottom),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: children,
+                ),
+              ),
+            ],
           ),
         ),
       ],

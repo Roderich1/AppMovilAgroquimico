@@ -11,6 +11,9 @@ import '../../domain/operation_mode.dart';
 import '../../operation_mode_controller.dart';
 import '../../services/auth/local_owner_credential.dart'
     show AuthorizationPurpose;
+import '../theme/agro_theme.dart';
+import '../widgets/agro_ui.dart';
+import '../widgets/rdm_b_ui.dart';
 import '../widgets/common.dart';
 import 'owner_credential_screen.dart' show requestOwnerAuthorization;
 
@@ -117,210 +120,357 @@ class _InventoryDetailScreenState extends ConsumerState<InventoryDetailScreen> {
     movements = _loadMovements();
   });
 
+  /// Lo que antes eran párrafos permanentes: se abren con «i» en la
+  /// cabecera, con los mismos textos.
+  Future<void> _showInfo() => showDialog<void>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      key: const Key('inventory-info-dialog'),
+      title: const Text('Qué significan estas cifras'),
+      content: const SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Cuánto hay, de qué compras viene y en qué se usó. El '
+              'inventario continúa entre campañas.',
+            ),
+            SizedBox(height: 10),
+            Text(
+              'Neto: no cuenta lo revertido. Comprado neto menos consumido '
+              'neto es el físico.',
+            ),
+            SizedBox(height: 10),
+            Text(
+              'Previsto en planes: lo que piden los planes pendientes de la '
+              'campaña activa. No aparta producto; «Quedarán» es el físico '
+              'menos lo previsto y puede ser negativo.',
+            ),
+            SizedBox(height: 10),
+            Text(
+              'Asignación neta: lo comprado para esta persona, más lo que '
+              'recibió y menos lo que entregó por transferencias. No cuenta lo '
+              'revertido. Restando lo consumido queda su físico.',
+            ),
+            SizedBox(height: 10),
+            Text(
+              'Lo que explica el saldo: compras, aplicaciones, pases '
+              '(entregas sin deuda) y reversiones, del más reciente al más '
+              'antiguo.',
+            ),
+          ],
+        ),
+      ),
+      actions: [
+        FilledButton(
+          onPressed: () => Navigator.of(dialogContext).pop(),
+          child: const Text('Cerrar'),
+        ),
+      ],
+    ),
+  );
+
   @override
   Widget build(BuildContext context) => FutureBuilder<_InventoryDetail>(
     future: detail,
     builder: (context, snapshot) {
-      if (snapshot.hasError)
-        return PageFrame(
-          title: 'Inventario',
-          child: EmptyState(
-            icon: Icons.error_outline,
-            message: friendlyError(snapshot.error!),
-          ),
+      if (snapshot.hasError) {
+        return RdmScrollPage(
+          children: [
+            const ScreenTitleBar(title: 'Producto', leading: RdmBackButton()),
+            EmptyState(
+              icon: Icons.error_outline,
+              message: friendlyError(snapshot.error!),
+            ),
+          ],
         );
-      if (!snapshot.hasData)
+      }
+      if (!snapshot.hasData) {
         return const Center(child: CircularProgressIndicator());
+      }
       final data = snapshot.data!;
       final h = data.header;
       final unit = h['unit'] as String;
       final physical = h['physical_base'] as int;
       final committed = h['committed_base'] as int;
-      final theme = Theme.of(context);
-      return PageFrame(
-        title: h['product_name'] as String,
-        subtitle: 'Cuánto hay, de qué compras viene y en qué se usó. El inventario continúa entre campañas.',
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            LayoutBuilder(
-              builder: (context, constraints) {
-                final width = constraints.maxWidth >= 700
-                    ? (constraints.maxWidth - 16) / 3
-                    : (constraints.maxWidth - 8) / 2;
-                return Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    _Metric(
-                      width: width,
-                      label: 'Comprado neto',
-                      value: formatQuantity(h['purchased_base'] as int, unit),
-                    ),
-                    _Metric(
-                      width: width,
-                      label: 'Consumido neto',
-                      value: formatQuantity(h['consumed_base'] as int, unit),
-                    ),
-                    _Metric(
-                      width: width,
-                      label: 'Físico',
-                      value: formatQuantity(physical, unit),
-                    ),
-                    _Metric(
-                      width: width,
-                      label: 'Reservado por planes',
-                      value: formatQuantity(committed, unit),
-                    ),
-                    _Metric(
-                      width: width,
-                      label: 'Quedará libre',
-                      value: formatQuantity(physical - committed, unit),
-                    ),
-                  ],
-                );
-              },
+      // Vencimiento de los lotes con existencia, con el plazo del producto
+      // (RN-31): sólo para las etiquetas de la cabecera.
+      final today = localDay(DateTime.now());
+      final lead =
+          data.alertSettings.leadDays ?? AppDatabase.defaultAlertLeadDays;
+      final statuses = [
+        for (final lot in data.lots)
+          if ((lot['available_base'] as int) > 0)
+            classifyExpiry(
+              expiryDay: lot['expiry_date'] as String?,
+              today: today,
+              leadDays: lead,
             ),
-            const SizedBox(height: 8),
-            Text(
-              'Neto: no cuenta lo revertido. Comprado neto menos consumido '
-              'neto es el físico.',
-              style: theme.textTheme.bodySmall,
-            ),
-            const SizedBox(height: 12),
-            _AlertSettingsCard(
-              settings: data.alertSettings,
-              onConfigure: () => _configureAlerts(data.alertSettings),
-              // Sin modalidad conocida se presenta la compartida, la de
-              // defecto (operation_mode_controller.dart).
-              shared:
-                  ref.watch(operationModeProvider) != OperationMode.personal,
-            ),
-            const SizedBox(height: 20),
-            Text(
-              'Distribución por persona',
-              style: theme.textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'Asignación neta: lo comprado para esta persona, más lo que '
-              'recibió y menos lo que entregó por transferencias. No cuenta lo '
-              'revertido. Restando lo consumido queda su físico.',
-              style: theme.textTheme.bodySmall,
-            ),
-            const SizedBox(height: 8),
-            Card(
-              child: Column(
+      ];
+      final stock = splitQuantity(physical, unit);
+      return RdmScrollPage(
+        header: Container(
+          decoration: const BoxDecoration(
+            color: AgroColors.ink,
+            borderRadius: BorderRadius.vertical(bottom: Radius.circular(28)),
+          ),
+          padding: const EdgeInsets.fromLTRB(20, 12, 12, 20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
                 children: [
-                  for (final row in data.distribution)
-                    ListTile(
-                      title: Text(row['person_name'] as String),
-                      subtitle: Text(
-                        'Asignación neta ${formatQuantity(row['assigned_base'] as int, unit)} · consumido neto ${formatQuantity(row['consumed_base'] as int, unit)}',
-                      ),
-                      trailing: Text(
-                        formatQuantity(row['available_base'] as int, unit),
-                      ),
+                  const RdmBackButton(
+                    background: AgroColors.inkSoft,
+                    foreground: AgroColors.onInk,
+                  ),
+                  Expanded(
+                    child: Wrap(
+                      alignment: WrapAlignment.end,
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: [
+                        if (statuses.contains(ExpiryStatus.expired))
+                          const StatusBadge(
+                            label: 'Lote vencido',
+                            tone: BadgeTone.missing,
+                          ),
+                        if (statuses.contains(ExpiryStatus.today))
+                          const StatusBadge(
+                            label: 'Vence hoy',
+                            tone: BadgeTone.review,
+                          ),
+                        if (statuses.contains(ExpiryStatus.near))
+                          const StatusBadge(
+                            label: 'Por vencer',
+                            tone: BadgeTone.review,
+                          ),
+                      ],
                     ),
+                  ),
+                  const SizedBox(width: 8),
+                  CircleIconButton(
+                    key: const Key('inventory-info'),
+                    icon: Icons.info_outline,
+                    tooltip: 'Qué significan estas cifras',
+                    onPressed: _showInfo,
+                    background: AgroColors.inkSoft,
+                    foreground: AgroColors.onInk,
+                  ),
                 ],
               ),
-            ),
-            const SizedBox(height: 20),
-            Text(
-              'Movimientos',
-              key: const Key('inventory-movements-title'),
-              style: theme.textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              'Lo que explica el saldo: compras, aplicaciones, pases '
-              '(entregas sin deuda) y reversiones, del más reciente al más '
-              'antiguo.',
-              style: theme.textTheme.bodySmall,
-            ),
-            const SizedBox(height: 8),
-            FutureBuilder<List<Map<String, Object?>>>(
-              future: movements,
-              builder: (context, snapshot) {
-                if (snapshot.hasError)
-                  return EmptyState(
-                    icon: Icons.error_outline,
-                    message: friendlyError(snapshot.error!),
-                  );
-                if (!snapshot.hasData)
-                  return const Center(
-                    child: Padding(
-                      padding: EdgeInsets.all(16),
-                      child: CircularProgressIndicator(),
-                    ),
-                  );
-                final rows = snapshot.data!;
-                if (rows.isEmpty)
-                  return const EmptyState(
-                    icon: Icons.history_outlined,
-                    message: 'Todavía no hay movimientos de este producto.',
-                  );
-                final hasMore = rows.length > movementsLimit;
-                return Card(
-                  key: const Key('inventory-movements'),
-                  child: Column(
-                    children: [
-                      for (final row in rows.take(movementsLimit))
-                        _MovementTile(row: row, unit: unit),
-                      if (hasMore)
-                        TextButton.icon(
-                          key: const Key('inventory-movements-more'),
-                          onPressed: _showMore,
-                          icon: const Icon(Icons.expand_more),
-                          label: const Text('Ver más'),
+              const SizedBox(height: 10),
+              Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Semantics(
+                      header: true,
+                      child: Text(
+                        h['product_name'] as String,
+                        style: const TextStyle(
+                          fontFamily: AgroFonts.display,
+                          fontSize: 20,
+                          height: 26 / 20,
+                          fontWeight: FontWeight.w700,
+                          color: Colors.white,
                         ),
-                    ],
-                  ),
-                );
-              },
-            ),
-            const SizedBox(height: 20),
-            // Detalle técnico, plegado: lotes vigentes y valor físico.
-            Card(
-              child: ExpansionTile(
-                key: const Key('inventory-lots'),
-                title: const Text('Lotes disponibles y valor físico'),
-                subtitle: Text(
-                  'Valor físico: ${formatBob(h['value_bob_minor'] as int)}',
-                ),
-                children: [
-                  for (final lot in data.lots)
-                    ExpansionTile(
-                      title: Text(
-                        '${lot['owner_name']} · ${formatQuantity(lot['available_base'] as int, unit)}',
                       ),
-                      subtitle: Text(
-                        '${lot['supplier_name']} · ${lot['campaign_name']} · '
-                        '${lotExpiryText(lot['expiry_date'] as String?)}',
-                      ),
+                    ),
+                    _Metric(
+                      label: 'Físico',
+                      value: formatQuantity(physical, unit),
+                      big: stock,
+                    ),
+                    const SizedBox(height: 14),
+                    const Divider(
+                      height: 1,
+                      thickness: 1,
+                      color: AgroColors.inkSoft,
+                    ),
+                    const SizedBox(height: 14),
+                    Wrap(
+                      spacing: 18,
+                      runSpacing: 12,
                       children: [
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                          child: Align(
-                            alignment: Alignment.centerLeft,
-                            child: Text(
-                              'Lote #${lot['lot_id']} · '
-                              '${lot['lot_number'] == null ? 'sin número de lote' : 'número de lote ${lot['lot_number']}'} · '
-                              'costo ${formatBob(lot['unit_cost'] as int)}/$unit · origen ${lot['parent_lot_id'] == null ? 'compra' : 'transferencia del lote #${lot['parent_lot_id']}'}',
-                            ),
+                        _Metric(
+                          label: 'Comprado neto',
+                          value: formatQuantity(
+                            h['purchased_base'] as int,
+                            unit,
                           ),
+                        ),
+                        _Metric(
+                          label: 'Consumido neto',
+                          value: formatQuantity(
+                            h['consumed_base'] as int,
+                            unit,
+                          ),
+                        ),
+                        _Metric(
+                          label: 'Previsto en planes',
+                          value: formatQuantity(committed, unit),
+                        ),
+                        _Metric(
+                          label: 'Quedarán',
+                          value: formatQuantity(physical - committed, unit),
+                          warn: physical - committed < 0,
+                        ),
+                        _Metric(
+                          label: 'Valor',
+                          value: formatBob(h['value_bob_minor'] as int),
                         ),
                       ],
                     ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        children: [
+          const Padding(
+            padding: EdgeInsets.fromLTRB(4, 0, 4, 8),
+            child: Text('Quién lo tiene', style: AgroText.h2),
+          ),
+          AgroGroup(
+            key: const Key('inventory-distribution'),
+            children: [
+              for (final row in data.distribution)
+                // Material propio: el grupo blanco tiene color de fondo.
+                _onWhite(
+                  ListTile(
+                    title: Text(
+                      row['person_name'] as String,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                        color: AgroColors.ink,
+                      ),
+                    ),
+                    subtitle: Text(
+                      'Asignación neta ${formatQuantity(row['assigned_base'] as int, unit)} · consumido neto ${formatQuantity(row['consumed_base'] as int, unit)}',
+                      style: AgroText.detail,
+                    ),
+                    trailing: Text(
+                      formatQuantity(row['available_base'] as int, unit),
+                      style: AgroText.amount,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          _AlertSettingsCard(
+            settings: data.alertSettings,
+            onConfigure: () => _configureAlerts(data.alertSettings),
+            // Sin modalidad conocida se presenta la compartida, la de
+            // defecto (operation_mode_controller.dart).
+            shared: ref.watch(operationModeProvider) != OperationMode.personal,
+          ),
+          const SizedBox(height: 18),
+          const Padding(
+            padding: EdgeInsets.fromLTRB(4, 0, 4, 8),
+            child: Text(
+              'Movimientos',
+              key: Key('inventory-movements-title'),
+              style: AgroText.h2,
+            ),
+          ),
+          FutureBuilder<List<Map<String, Object?>>>(
+            future: movements,
+            builder: (context, snapshot) {
+              if (snapshot.hasError) {
+                return EmptyState(
+                  icon: Icons.error_outline,
+                  message: friendlyError(snapshot.error!),
+                );
+              }
+              if (!snapshot.hasData) {
+                return const Center(
+                  child: Padding(
+                    padding: EdgeInsets.all(16),
+                    child: CircularProgressIndicator(),
+                  ),
+                );
+              }
+              final rows = snapshot.data!;
+              if (rows.isEmpty) {
+                return const EmptyState(
+                  icon: Icons.history_outlined,
+                  message: 'Todavía no hay movimientos de este producto.',
+                );
+              }
+              final hasMore = rows.length > movementsLimit;
+              return AgroGroup(
+                key: const Key('inventory-movements'),
+                children: [
+                  for (final row in rows.take(movementsLimit))
+                    _MovementTile(row: row, unit: unit),
+                  if (hasMore)
+                    TextButton.icon(
+                      key: const Key('inventory-movements-more'),
+                      onPressed: _showMore,
+                      icon: const Icon(Icons.expand_more),
+                      label: const Text('Ver más'),
+                    ),
                 ],
+              );
+            },
+          ),
+          const SizedBox(height: 18),
+          // Detalle técnico, plegado: lotes vigentes y valor físico.
+          Container(
+            decoration: BoxDecoration(
+              color: AgroColors.surface,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: Theme(
+              data: Theme.of(context)
+                  .copyWith(dividerColor: Colors.transparent),
+              child: _onWhite(
+                ExpansionTile(
+                  key: const Key('inventory-lots'),
+                  title: const Text(
+                    'Lotes disponibles y valor físico',
+                    style: TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  subtitle: Text(
+                    'Valor físico: ${formatBob(h['value_bob_minor'] as int)}',
+                  ),
+                  children: [
+                    for (final lot in data.lots)
+                      ExpansionTile(
+                        title: Text(
+                          '${lot['owner_name']} · ${formatQuantity(lot['available_base'] as int, unit)}',
+                        ),
+                        subtitle: Text(
+                          '${lot['supplier_name']} · ${lot['campaign_name']} · '
+                          '${lotExpiryText(lot['expiry_date'] as String?)}',
+                        ),
+                        children: [
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                            child: Align(
+                              alignment: Alignment.centerLeft,
+                              child: Text(
+                                'Lote #${lot['lot_id']} · '
+                                '${lot['lot_number'] == null ? 'sin número de lote' : 'número de lote ${lot['lot_number']}'} · '
+                                'costo ${formatBob(lot['unit_cost'] as int)}/$unit · origen ${lot['parent_lot_id'] == null ? 'compra' : 'transferencia del lote #${lot['parent_lot_id']}'}',
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                  ],
+                ),
               ),
             ),
-          ],
-        ),
+          ),
+        ],
       );
     },
   );
@@ -352,17 +502,32 @@ class _AlertSettingsCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final min = settings.minStockBase;
-    return Card(
+    return Container(
       key: const Key('inventory-alert-settings'),
+      decoration: BoxDecoration(
+        color: AgroColors.surface,
+        borderRadius: BorderRadius.circular(20),
+      ),
       child: Padding(
         padding: const EdgeInsets.fromLTRB(16, 12, 8, 12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'Avisos de este producto',
-              style: Theme.of(context).textTheme.titleMedium
-                  ?.copyWith(fontWeight: FontWeight.w700),
+            const Row(
+              children: [
+                Icon(Icons.notifications_outlined, color: AgroColors.ink),
+                SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    'Avisos de este producto',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      color: AgroColors.ink,
+                    ),
+                  ),
+                ),
+              ],
             ),
             const SizedBox(height: 4),
             Text(
@@ -603,53 +768,78 @@ class _MovementTile extends StatelessWidget {
     final quantity = row['quantity_signed'] as int;
     final supplier = row['supplier_name'];
     final note = _accountNote;
-    return ListTile(
-      leading: Icon(_icon),
-      title: Text(_label),
-      subtitle: Text(
-        '${formatDate(row['movement_date'])} · ${row['owner_name']}'
-        '${supplier == null ? '' : ' · $supplier'}'
-        '${note == null ? '' : ' · $note'}',
-      ),
-      trailing: Text(
-        '${quantity < 0 ? '-' : '+'}${formatQuantity(quantity.abs(), unit)}',
-        style: TextStyle(
-          fontWeight: FontWeight.w700,
-          color: quantity < 0 ? Theme.of(context).colorScheme.error : null,
+    return _onWhite(
+      ListTile(
+        leading: IconCircle(icon: _icon),
+        title: Text(_label),
+        subtitle: Text(
+          '${formatDate(row['movement_date'])} · ${row['owner_name']}'
+          '${supplier == null ? '' : ' · $supplier'}'
+          '${note == null ? '' : ' · $note'}',
+        ),
+        trailing: Text(
+          '${quantity < 0 ? '-' : '+'}${formatQuantity(quantity.abs(), unit)}',
+          style: TextStyle(
+            fontWeight: FontWeight.w700,
+            color: quantity < 0 ? Theme.of(context).colorScheme.error : null,
+          ),
         ),
       ),
     );
   }
 }
 
+/// Una cifra de la cabecera del producto con su rótulo. [big] dibuja la
+/// existencia grande («10 L»).
 class _Metric extends StatelessWidget {
   const _Metric({
-    required this.width,
     required this.label,
     required this.value,
+    this.big,
+    this.warn = false,
   });
-  final double width;
   final String label;
   final String value;
+  final ({String number, String unit})? big;
+  final bool warn;
+
   @override
-  Widget build(BuildContext context) => SizedBox(
-    width: width,
-    child: Card(
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(label, style: Theme.of(context).textTheme.bodySmall),
-            const SizedBox(height: 4),
-            Text(
-              value,
-              style: Theme.of(context).textTheme.titleMedium
-                  ?.copyWith(fontWeight: FontWeight.w800),
-            ),
-          ],
+  Widget build(BuildContext context) => Semantics(
+    label: '$label: $value',
+    excludeSemantics: true,
+    child: Column(
+      key: Key('metric-$label'),
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(fontSize: 12, color: AgroColors.onInkMuted),
         ),
-      ),
+        if (big != null)
+          BigFigure(
+            number: big!.number,
+            unit: big!.unit,
+            size: 64,
+            color: AgroColors.lime,
+          )
+        else
+          Text(
+            value,
+            style: TextStyle(
+              fontSize: 15,
+              height: 22 / 15,
+              fontWeight: FontWeight.w700,
+              color: warn ? const Color(0xFFFFB4AB) : Colors.white,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
+          ),
+      ],
     ),
   );
 }
+
+/// Una fila con tinta propia dentro de un grupo blanco (el contenedor con
+/// color taparía la tinta del ListTile).
+Widget _onWhite(Widget child) =>
+    Material(type: MaterialType.transparency, child: child);

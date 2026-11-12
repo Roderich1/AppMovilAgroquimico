@@ -509,6 +509,9 @@ void main() {
       }
       // Las compras y su proveedor siguen igual.
       expect(subtitles, contains('Compra | 05/01/2026 · Ana · Agro Sur'));
+      // Rediseño B: la explicación se abre con «i» en la cabecera.
+      await tester.tap(find.byKey(const Key('inventory-info')));
+      await settle(tester);
       expect(
         find.text(
           'Lo que explica el saldo: compras, aplicaciones, pases (entregas '

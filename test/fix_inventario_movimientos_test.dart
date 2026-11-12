@@ -241,8 +241,10 @@ void main() {
       expect((tiles[1].trailing! as Text).data, '+10 L');
       expect(find.byKey(const Key('inventory-movements-more')), findsNothing);
 
-      expect(find.text('Reservado por planes'), findsOneWidget);
-      expect(find.text('Quedará libre'), findsOneWidget);
+      // Rediseño B (COORDINACION): no es una reserva real.
+      expect(find.text('Previsto en planes'), findsOneWidget);
+      expect(find.text('Quedarán'), findsOneWidget);
+      expect(find.text('Reservado por planes'), findsNothing);
       expect(find.text('Comprometido'), findsNothing);
       expect(find.text('Libre proyectado'), findsNothing);
       // Plegado: el lote no se ve hasta desplegar.
