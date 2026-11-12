@@ -116,6 +116,7 @@ Pruebas: cada sesión adapta las pruebas que rompan sus propios cambios (cambia 
 | 2026-11-12 | C | `8918b2c` (entrega 4: convocatorias, convocatoria, participar; C-2) | ver `git log --merges` | `revisiones/C-2.md` | implementado · probado automáticamente · no recorrido · no revisado por el usuario. **C completo** (9 láminas + Sincronización). |
 | 2026-11-12 | A | `e4af5de` (entregas 4–5: bitácora, persona; pruebas del arreglo de Deshacer) | `bbf25d0` | — (sin correcciones; nota de cabecera a 200 %) | implementado · probado automáticamente · no recorrido · no revisado por el usuario |
 | 2026-11-12 | B | `eb7807e` (entrega 2: Actividad) | tras `bbf25d0` (+ 2 pruebas adaptadas en integración) | — | implementado · probado automáticamente · no recorrido · no revisado por el usuario |
+| 2026-11-12 | B | `56c0080` (entrega 3: lista y detalle de compra) | merge tras `a33f40d` (+ `/compras` sin flotante) | — | implementado · probado automáticamente · no recorrido · no revisado por el usuario |
 | 2026-11-12 | B | `8e97b78` (entrega 1: Inicio y Almacén) | merge tras `6f08f9c` | `revisiones/B-1.md` | implementado · probado automáticamente · no recorrido · no revisado por el usuario |
 
 Estados posibles de una pantalla: implementado · probado automáticamente · recorrido en emulador · revisado por el usuario. Sólo el autor marca «revisado por el usuario».
