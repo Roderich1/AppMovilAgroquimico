@@ -4,7 +4,7 @@ import 'package:agroquimicos/data/app_database.dart';
 import 'package:agroquimicos/domain/models.dart';
 import 'package:agroquimicos/presentation/app_shell.dart';
 import 'package:agroquimicos/presentation/screens/catalogs_screen.dart';
-import 'package:agroquimicos/presentation/screens/dashboard_screen.dart';
+import 'package:agroquimicos/presentation/screens/inventory_screen.dart';
 import 'package:agroquimicos/presentation/screens/purchase_form_screen.dart';
 import 'package:agroquimicos/presentation/screens/transfer_form_screen.dart';
 import 'package:agroquimicos/presentation/widgets/adaptive_entity_picker.dart';
@@ -119,48 +119,59 @@ void main() {
     return repo;
   }
 
+  // Rediseño B (2026-11-12): Inicio ya no lista el inventario; la lista con
+  // sus cifras está en Almacén. Se comprueba allí lo mismo: ninguna tabla que
+  // obligue a desplazarse en horizontal y cada producto con su nombre junto a
+  // sus cifras rotuladas. En pantalla ancha Almacén usa las mismas filas (no
+  // hay tabla ancha que conservar).
   group('UIBUG-023 · identidad del producto sin scroll horizontal', () {
+    Finder horizontal() => find.byWidgetPredicate(
+      (widget) =>
+          widget is SingleChildScrollView &&
+          widget.scrollDirection == Axis.horizontal,
+    );
+
     testWidgets('en ancho de móvil no hay tabla desplazable en horizontal', (
       tester,
     ) async {
       await resize(tester, pixel8Portrait);
-      await pump(tester, const DashboardScreen(), withStock: true);
+      await pump(tester, const InventoryScreen(), withStock: true);
 
       // La tabla obligaba a arrastrar en horizontal, y al hacerlo la columna
       // "Producto" abandonaba la pantalla.
       expect(find.byType(DataTable), findsNothing);
-
-      final horizontal = find.byWidgetPredicate(
-        (widget) =>
-            widget is SingleChildScrollView &&
-            widget.scrollDirection == Axis.horizontal,
-      );
-      expect(horizontal, findsNothing);
+      expect(horizontal(), findsNothing);
     });
 
     testWidgets('cada fila muestra el nombre junto a sus cifras etiquetadas', (
       tester,
     ) async {
       await resize(tester, pixel8Portrait);
-      await pump(tester, const DashboardScreen(), withStock: true);
+      await pump(tester, const InventoryScreen(), withStock: true);
 
-      expect(find.text('Glifosato 48 SL'), findsWidgets);
-      // Las cifras dejan de ser columnas anónimas: cada una lleva su rótulo
-      // en la propia fila.
-      for (final label in const [
-        'Físico',
-        'Comprometido',
-        'Proyección',
-        'Valor',
-      ]) {
-        expect(find.text(label), findsWidgets, reason: label);
+      final row = find.ancestor(
+        of: find.text('Glifosato 48 SL'),
+        matching: find.byType(InkWell),
+      );
+      expect(row, findsWidgets);
+      // Las cifras no son columnas anónimas: cada una lleva su rótulo en la
+      // propia fila.
+      for (final label in const ['Existencia', 'Valor']) {
+        expect(
+          find.descendant(of: row.first, matching: find.textContaining(label)),
+          findsWidgets,
+          reason: label,
+        );
       }
     });
 
-    testWidgets('en pantalla ancha se conserva la tabla', (tester) async {
+    testWidgets('en pantalla ancha tampoco hay desplazamiento horizontal', (
+      tester,
+    ) async {
       await resize(tester, const Size(1200, 2400));
-      await pump(tester, const DashboardScreen(), withStock: true);
-      expect(find.byType(DataTable), findsOneWidget);
+      await pump(tester, const InventoryScreen(), withStock: true);
+      expect(find.text('Glifosato 48 SL'), findsOneWidget);
+      expect(horizontal(), findsNothing);
     });
   });
 

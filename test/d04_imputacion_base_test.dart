@@ -419,23 +419,18 @@ void main() {
         await w.pay(w.familiar, 10000, date: at(10, 20));
       });
       await pump(tester, w, const DashboardScreen());
-      final familias = find
-          .ancestor(
-            of: find.text('Familias por cobrar'),
-            matching: find.byType(Card),
-          )
-          .first;
+      // Rediseño B: «Por cobrar» va en la cabecera de Inicio; el grupo de
+      // las familias se nombra con su importe y lo que queda a su favor va
+      // aparte, sin restarlo.
+      final familias = find.byKey(const Key('home-receivable-family'));
       expect(
-        find.descendant(of: familias, matching: find.text(formatBob(0))),
-        findsWidgets,
+        tester.widget<Text>(familias).data,
+        'Familias ${formatBob(0)}',
         reason: 'por cobrar = max(0, saldo neto)',
       );
       expect(
-        find.descendant(
-          of: familias,
-          matching: find.text('A favor de familias: ${bs(1900)}'),
-        ),
-        findsOneWidget,
+        tester.widget<Text>(find.byKey(const Key('home-credit-family'))).data,
+        'A favor de familias: ${bs(1900)}',
       );
     });
   });

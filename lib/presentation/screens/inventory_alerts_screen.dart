@@ -395,25 +395,37 @@ class _LowStockTile extends StatelessWidget {
   }
 }
 
-/// Resumen corto para la entrada del inventario.
-String inventoryAlertsSummary(InventoryAlerts alerts) {
+/// «1 lote vencido», «2 lotes vencidos».
+String alertCount(int n, String one, String many) =>
+    '$n ${n == 1 ? one : many}';
+
+/// Resumen de la entrada «Todos los avisos» del Almacén.
+///
+/// Rediseño B (2026-11-12): los vencidos, los que vencen hoy y los productos
+/// bajos en el total van en las tres fichas de arriba; aquí va el resto,
+/// diciendo qué cuenta cada cifra: **lotes** con cantidad remanente en los
+/// vencimientos y **existencias** (un producto de una persona) en la baja por
+/// responsable. Total y responsables siguen separados (decisión del
+/// 2026-11-01). Con [all] incluye también lo de las fichas.
+String inventoryAlertsSummary(InventoryAlerts alerts, {bool all = false}) {
   final lowTotal = alerts.lowStock.where((a) => a.line.isTotal).length;
   final lowPerson = alerts.lowStock.length - lowTotal;
   final parts = [
-    if (alerts.expired.isNotEmpty)
-      '${alerts.expired.length} '
-          '${alerts.expired.length == 1 ? 'vencido' : 'vencidos'}',
-    if (alerts.dueToday.isNotEmpty)
-      '${alerts.dueToday.length} '
-          '${alerts.dueToday.length == 1 ? 'vence' : 'vencen'} hoy',
-    if (alerts.near.isNotEmpty) '${alerts.near.length} por vencer',
-    // Total y responsables por separado (decisión del 2026-11-01).
-    if (lowTotal > 0)
-      '$lowTotal ${lowTotal == 1 ? 'bajo' : 'bajos'} en el total',
+    if (all && alerts.expired.isNotEmpty)
+      alertCount(alerts.expired.length, 'lote vencido', 'lotes vencidos'),
+    if (all && alerts.dueToday.isNotEmpty)
+      alertCount(alerts.dueToday.length, 'lote vence hoy', 'lotes vencen hoy'),
+    if (alerts.near.isNotEmpty)
+      alertCount(alerts.near.length, 'lote por vencer', 'lotes por vencer'),
+    if (all && lowTotal > 0)
+      '${alertCount(lowTotal, 'producto bajo', 'productos bajos')} en el total',
     if (lowPerson > 0)
-      '$lowPerson ${lowPerson == 1 ? 'bajo' : 'bajos'} por responsable',
+      '${alertCount(lowPerson, 'existencia baja', 'existencias bajas')} '
+          'por responsable',
     if (alerts.unknownDate.isNotEmpty)
-      '${alerts.unknownDate.length} sin fecha registrada',
+      '${alertCount(alerts.unknownDate.length, 'lote', 'lotes')} '
+          'sin fecha registrada',
   ];
-  return parts.isEmpty ? 'Sin avisos' : parts.join(' · ');
+  if (parts.isNotEmpty) return parts.join(' · ');
+  return all ? 'Sin avisos' : 'Sin otros avisos';
 }

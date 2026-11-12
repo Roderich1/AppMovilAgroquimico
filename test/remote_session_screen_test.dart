@@ -244,6 +244,9 @@ void main() {
     await _settleDashboard(tester);
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('verify-online-access')), findsOneWidget);
+    // Rediseño B: el estado de rutina de la sesión va al final de Inicio.
+    await tester.ensureVisible(find.byKey(const Key('verify-online-access')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('verify-online-access')));
     await tester.pumpAndSettle();
     expect(
