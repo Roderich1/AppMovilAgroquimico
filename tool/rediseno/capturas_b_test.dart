@@ -100,6 +100,18 @@ void main() {
     await shot(tester, '${name}_fin');
   }
 
+  /// Prueba del arnés con sombras reales (revisión B-1): sin esto el
+  /// flotante sale con un borde negro que la app no tiene.
+  void shadowTest(String name, Future<void> Function(WidgetTester) body) =>
+      testWidgets(name, (tester) async {
+        debugDisableShadows = false;
+        try {
+          await body(tester);
+        } finally {
+          debugDisableShadows = true;
+        }
+      });
+
   Future<void> setView(WidgetTester tester) async {
     await tester.runAsync(_loadFonts);
     tester.view.physicalSize = Size(width * 2, 844 * 2);
@@ -125,13 +137,13 @@ void main() {
     await settle(tester);
   }
 
-  testWidgets('inicio', (tester) async {
+  shadowTest('inicio', (tester) async {
     final r = await seeded(tester, 'rdm-b-inicio');
     await go(tester, r.c, '/');
     await shotWithEnd(tester, 'B_1.2_inicio');
   });
 
-  testWidgets('inicio propio', (tester) async {
+  shadowTest('inicio propio', (tester) async {
     await setView(tester);
     final s = await activatedHousehold(tester, 'rdm-b-inicio-propio');
     await tester.runAsync(() => s.household.buy(s.household.titular, 3000));
@@ -141,11 +153,13 @@ void main() {
     await shotWithEnd(tester, 'B_1.2_inicio_propio');
   });
 
-  testWidgets('almacen', (tester) async {
+  shadowTest('almacen', (tester) async {
     final r = await seeded(tester, 'rdm-b-almacen');
     await go(tester, r.c, '/inventario');
     await shotWithEnd(tester, 'B_1.4_almacen');
-    tester.state<ScrollableState>(find.byType(Scrollable).first).position
+    tester
+        .state<ScrollableState>(find.byType(Scrollable).first)
+        .position
         .jumpTo(0);
     await tester.pump();
     await tester.tap(find.byKey(const Key('inventory-search-toggle')));
@@ -154,7 +168,7 @@ void main() {
     await shot(tester, 'B_1.4_almacen_busqueda_vacia');
   });
 
-  testWidgets('almacen vacio', (tester) async {
+  shadowTest('almacen vacio', (tester) async {
     await setView(tester);
     final s = await activatedHousehold(tester, 'rdm-b-almacen-vacio');
     final c = await pumpModeApp(tester, s.database);
@@ -162,7 +176,47 @@ void main() {
     await shot(tester, 'B_1.4_almacen_vacio');
   });
 
-  testWidgets('inicio vacio', (tester) async {
+  Future<void> top(WidgetTester tester) async {
+    tester
+        .state<ScrollableState>(find.byType(Scrollable).first)
+        .position
+        .jumpTo(0);
+    await tester.pump();
+  }
+
+  Future<void> tapKey(WidgetTester tester, String key) async {
+    await tester.ensureVisible(find.byKey(Key(key)));
+    await tester.pump();
+    await tester.tap(find.byKey(Key(key)));
+    await settle(tester);
+  }
+
+  shadowTest('actividad', (tester) async {
+    final r = await seeded(tester, 'rdm-b-actividad');
+    await go(tester, r.c, '/operaciones');
+    await shotWithEnd(tester, 'B_1.3_actividad');
+    await top(tester);
+    await tapKey(tester, 'activity-filter-purchases');
+    await shot(tester, 'B_1.3_actividad_compras');
+    await top(tester);
+    await tapKey(tester, 'activity-filter-plans');
+    await shot(tester, 'B_1.3_actividad_planes');
+    await top(tester);
+    await tapKey(tester, 'activity-filter-all');
+    await tapKey(tester, 'activity-search-toggle');
+    await tester.enterText(find.byKey(const Key('activity-search')), 'zzz');
+    await shot(tester, 'B_1.3_actividad_busqueda_vacia');
+  });
+
+  shadowTest('actividad vacia', (tester) async {
+    await setView(tester);
+    final s = await activatedHousehold(tester, 'rdm-b-actividad-vacia');
+    final c = await pumpModeApp(tester, s.database);
+    await go(tester, c, '/operaciones');
+    await shot(tester, 'B_1.3_actividad_vacia');
+  });
+
+  shadowTest('inicio vacio', (tester) async {
     await setView(tester);
     final s = await activatedHousehold(tester, 'rdm-b-inicio-vacio');
     final c = await pumpModeApp(tester, s.database);

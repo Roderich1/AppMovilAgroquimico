@@ -1,19 +1,19 @@
 // Bloque A de la presentación para el jurado (2026-11-05): textos, el «+» y
 // la navegación.
-//   (a) Campañas y Reportes, abiertos desde Operaciones, marcan Operaciones
-//       en la barra inferior y Atrás vuelve a Operaciones.
+//   (a) Campañas (desde Inicio) y Reportes (desde Actividad) marcan su
+//       pestaña en la barra inferior y Atrás vuelve a ella (rediseño B).
 //   (b) «Ir a campañas» (aplicación sin campaña activa) llega a Campañas.
 //   (c) El panel del «+» pone primero Compra, Aplicación y Planificación;
 //       Pago y Transferencia después. En 360×800 con letra al 100 y al
 //       200 % todas las filas se ven enteras y miden al menos 48 de alto.
-//   (d) En el ancho del POCO (393×873) el «+» no tapa ninguna tarjeta de
-//       Operaciones sin desplazar.
-//   (e) Operaciones: tarjetas con icono y nombre; sólo Campañas añade la
-//       campaña actual.
+//   (d) En el ancho del POCO (393×873) el «+» no tapa los botones ni los
+//       filtros de Actividad sin desplazar (rediseño B).
+//   (e) Actividad: filtros con nombre y Reportes; Más y Campañas, en Inicio.
 //   (f) Al volver de un formulario, la pantalla de debajo no conserva una
 //       flecha «Volver» que no lleva a ningún sitio.
 import 'package:agroquimicos/app.dart';
 import 'package:agroquimicos/presentation/screens/applications_screen.dart';
+import 'package:agroquimicos/presentation/screens/dashboard_screen.dart';
 import 'package:agroquimicos/presentation/screens/campaigns_screen.dart';
 import 'package:agroquimicos/presentation/screens/operations_screen.dart';
 import 'package:agroquimicos/presentation/screens/reports_screen.dart';
@@ -41,36 +41,34 @@ void main() {
     addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
   }
 
-  for (final (title, screen) in [
-    ('Campañas', CampaignsScreen),
-    ('Reportes', ReportsScreen),
+  // Rediseño B (2026-11-12): Campañas es un ajuste y se abre desde la
+  // campaña de la cabecera de Inicio (B1); Reportes sigue en Actividad, como
+  // botón de la cabecera. Cada uno marca su pestaña y Atrás vuelve a ella.
+  for (final (title, screen, origin, tab, key) in [
+    ('Campañas', CampaignsScreen, '/', 0, 'home-active-campaign'),
+    ('Reportes', ReportsScreen, '/operaciones', 1, 'activity-reports'),
   ]) {
-    testWidgets('(a) $title desde Operaciones: barra en Operaciones y Atrás '
+    testWidgets('(a) $title desde su pestaña: barra en su pestaña y Atrás '
         'vuelve', (tester) async {
       phone(tester, const Size(393, 873));
       final s = await activatedHousehold(tester, 'uxj-a-$title');
       final c = await pumpModeApp(tester, s.database);
-      c.read(routerProvider).go('/operaciones');
+      c.read(routerProvider).go(origin);
       await settle(tester);
-      await tester.tap(
-        find.descendant(
-          of: find.byType(OperationsScreen),
-          matching: find.text(title),
-        ),
-      );
+      await tester.tap(find.byKey(Key(key)));
       await settle(tester);
       expect(find.byType(screen), findsOneWidget);
-      // Rediseño (2026-11-12): Campañas es un ajuste y cuelga de Inicio;
-      // Reportes sigue en Actividad. Atrás vuelve igual a Actividad.
-      final tab = screen == CampaignsScreen ? 0 : 1;
       expect(selectedTab(tester), tab, reason: 'pestaña de $title');
 
       // Atrás del sistema, como en el teléfono.
       await tester.binding.handlePopRoute();
       await settle(tester);
       expect(find.byType(screen), findsNothing);
-      expect(find.byType(OperationsScreen), findsOneWidget);
-      expect(selectedTab(tester), 1);
+      expect(
+        find.byType(tab == 0 ? DashboardScreen : OperationsScreen),
+        findsOneWidget,
+      );
+      expect(selectedTab(tester), tab);
       expect(tester.takeException(), isNull);
     });
   }
@@ -167,43 +165,58 @@ void main() {
     });
   }
 
-  testWidgets('(d) en el ancho del POCO el «+» no tapa ninguna tarjeta de '
-      'Operaciones', (tester) async {
+  testWidgets('(d) en el ancho del POCO el «+» no tapa los botones ni los '
+      'filtros de Actividad', (tester) async {
     phone(tester, const Size(393, 873));
     final s = await activatedHousehold(tester, 'uxj-a-poco');
     final c = await pumpModeApp(tester, s.database);
     c.read(routerProvider).go('/operaciones');
     await settle(tester);
     final fab = tester.getRect(find.byKey(_fab));
-    final cards = find.descendant(
-      of: find.byType(OperationsScreen),
-      matching: find.byType(Card),
-    );
-    expect(cards, findsNWidgets(7));
-    for (final card in cards.evaluate()) {
-      final rect = tester.getRect(find.byWidget(card.widget));
-      expect(rect.overlaps(fab), isFalse, reason: 'tarjeta $rect, «+» $fab');
+    // Rediseño B: Actividad ya no es una cuadrícula de tarjetas; lo que se
+    // toca sin desplazar son los botones de la cabecera y los filtros.
+    final controls = [
+      find.byKey(const Key('activity-search-toggle')),
+      find.byKey(const Key('activity-reports')),
+      for (final f in ['all', 'purchases', 'applications', 'plans'])
+        find.byKey(Key('activity-filter-$f')),
+    ];
+    for (final control in controls) {
+      final rect = tester.getRect(control);
+      expect(rect.overlaps(fab), isFalse, reason: '$control $rect, «+» $fab');
     }
   });
 
-  testWidgets('(e) Operaciones: icono y nombre; sólo Campañas añade la '
-      'campaña actual', (tester) async {
+  testWidgets('(e) Actividad: filtros con nombre, Reportes en la cabecera; '
+      'Más y Campañas están en Inicio', (tester) async {
     phone(tester, const Size(393, 873));
     final s = await activatedHousehold(tester, 'uxj-a-tarjetas');
     final c = await pumpModeApp(tester, s.database);
     c.read(routerProvider).go('/operaciones');
     await settle(tester);
-    final tiles = tester
-        .widgetList<ListTile>(
-          find.descendant(
-            of: find.byType(OperationsScreen),
-            matching: find.byType(ListTile),
-          ),
-        )
-        .toList();
-    expect(tiles, hasLength(7));
-    expect(tiles.where((t) => t.subtitle != null), hasLength(1));
-    expect(find.text('Actual: Campaña 1'), findsOneWidget);
+    final activity = find.byType(OperationsScreen);
+    for (final label in [
+      'Todo',
+      'Compras',
+      'Aplicaciones',
+      'Planes',
+      'Transferencias',
+    ]) {
+      expect(
+        find.descendant(of: activity, matching: find.text(label)),
+        findsOneWidget,
+        reason: label,
+      );
+    }
+    expect(find.byTooltip('Reportes'), findsOneWidget);
+    expect(
+      find.descendant(of: activity, matching: find.text('Más')),
+      findsNothing,
+    );
+    expect(
+      find.descendant(of: activity, matching: find.text('Campañas')),
+      findsNothing,
+    );
     expect(find.text('Facturas y pagos al proveedor'), findsNothing);
   });
 
