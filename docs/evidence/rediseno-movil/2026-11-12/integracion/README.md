@@ -14,6 +14,9 @@
 | Análisis | `flutter analyze` | sin avisos |
 | Suite completa sobre `e6d72b3` | `flutter test --concurrency=4` | 3042 pasan, 3 omitidas, 0 fallan (05:35) |
 | Suite completa sobre `6b397c9` | `flutter test --concurrency=4` | **3044 pasan, 3 omitidas, 0 fallan** (06:34) |
+| Focalizadas sobre `d6c4c4d` (Actividad, Almacén, «+ Registrar»; 19 archivos) | `flutter test --concurrency=4 …` | 159 pasan, 0 fallan |
+| Focalizadas de P-A tras fusionar (`91f2e73`) | e2_*, migration, rec_039, reportes | 177 pasan, 0 fallan |
+| Suite completa sobre `91f2e73` (con P-A, esquema v19) | `flutter test --concurrency=4` | **3055 pasan, 3 omitidas, 0 fallan** (07:08) |
 | Pruebas focalizadas tras cada fusión | ver `COORDINACION.md` | verdes |
 
 ## APK
@@ -58,6 +61,10 @@ Lecturas de la base antes y después de cada operación (copia de sólo lectura 
 Abrir el túnel HTTPS temporal (`rdm_env.sh tunnel`) fue **denegado** por los permisos de esta sesión (exposición externa). La app sólo acepta un origen HTTPS compilado, así que sin túnel no se pudo recorrer en el teléfono: participación en convocatorias y sus estados de envío con servidor, publicación de consumo y necesidad, vínculos, reautenticación. Esas funciones tienen cobertura automática y capturas del arnés; el recorrido queda pendiente de que el autor abra el túnel o autorice abrirlo.
 
 **Sincronización, separada:** (1) persistencia local: verificada arriba; (2) publicación autorizada: `sync_outbox` siguió vacío durante todo el recorrido, porque compras, transferencias, aplicaciones y pagos privados no se envían al sindicato y no se publicó consumo; (3) recepción del servidor: no verificable sin túnel.
+
+## P-A integrada en la rama (`91f2e73`), no en la APK instalada
+
+La APK de la revisión (`d6c4c4d`) **no** incluye P-A. En la rama, P-A se ve en el arnés: `pa_6.2e_responsable_cambio.png` (aviso «La persona responsable … cambió» con «Revisar autorización») y `pa_6.2f_autorizar.png` (diálogo con el texto vigente de la rama F y dos casillas sin marcar). Para recorrerla en el emulador hacen falta el túnel y `_wt/RDM-BE` en `49ed870` (contrato 3).
 
 ## No verificado aquí (declarado)
 

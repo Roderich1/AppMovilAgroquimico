@@ -93,9 +93,9 @@ Worktree temporal `_wt/RDM-BASE` (detached en `01b2576`): sólo para comparar co
 9. `RdmCPage`/`RdmAListPage`/`ScreenTitleBar` hacen lo mismo: unificarlas en `agro_ui.dart` cuando no haya sesiones trabajando (limpieza, sin cambio visual).
 10. La lámina «Nuevo período histórico» corresponde a la función de **Operaciones tardías** (botón «Período histórico»), no a Campañas: se dejó con su diálogo vigente.
 
-11. **P-A** (sustitución de responsable de convocatoria): no integrada; la sesión F la implementa (ver `COORDINACION.md`).
+11. **P-A** integrada en la rama (`91f2e73`, suite 3055/3/0) pero **no** en la APK instalada (`d6c4c4d`). Antes de recorrerla: `_wt/RDM-BE` a `49ed870` (contrato 3), túnel, recompilar. Ver `COORDINACION.md`.
 12. PDF «Estado de cuenta»: columnas truncadas con «…» en A4 vertical (maquetación anterior al rediseño; no se tocó).
 
 ## Siguiente acción concreta
 
-Esperar la revisión del autor sobre la candidata integrada (`d6c4c4d` en `emulator-5556`, «AC RDM»). Si el autor abre o autoriza el túnel: recorrer convocatorias (participar, estados de envío), vínculos y publicación de consumo, y volver a autenticar. Cuando la sesión F entregue P-A: integrarla según `COORDINACION.md`. Sus correcciones se reparten por `COORDINACION.md` (las sesiones A, B y C están en espera, sin tocar sus worktrees). Para reabrir el entorno: `RDM_SERIAL=emulator-5556`, `rdm_env.sh up` (Back congelado `_wt/RDM-BE`), `rdm_env.sh tunnel` (necesita permiso), recompilar desde el mismo SHA con `build-app` e `install-app`.
+Esperar la revisión del autor sobre la candidata integrada (`d6c4c4d` en `emulator-5556`, «AC RDM»). Si el autor abre o autoriza el túnel: recorrer convocatorias (participar, estados de envío), vínculos y publicación de consumo, y volver a autenticar. P-A ya está en la rama: decidir con el autor si la candidata a revisar pasa a `91f2e73` (requiere Back `49ed870` para convocatorias). Sus correcciones se reparten por `COORDINACION.md` (las sesiones A, B y C están en espera, sin tocar sus worktrees). Para reabrir el entorno: `RDM_SERIAL=emulator-5556`, `rdm_env.sh up` (Back congelado `_wt/RDM-BE`), `rdm_env.sh tunnel` (necesita permiso), recompilar desde el mismo SHA con `build-app` e `install-app`.
