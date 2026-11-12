@@ -178,7 +178,11 @@ class AppShell extends StatefulWidget {
       location.startsWith('/compras/detalle/') ||
       // Detalle de un producto (lámina «Producto», sin flotante): el botón
       // tapaba sus movimientos.
-      location.startsWith('/inventario/');
+      location.startsWith('/inventario/') ||
+      // Convocatorias y su detalle (láminas 6.1–6.3, sin flotante): en el
+      // emulador tapaba «Continuar» de la hoja de cantidades (2026-11-12).
+      location == '/compras-conjuntas' ||
+      location.startsWith('/compras-conjuntas/');
 
   int get selectedIndex =>
       destinations.indexWhere((item) => item.path == sectionOf(location));

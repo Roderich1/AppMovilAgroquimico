@@ -111,6 +111,11 @@ void main() {
         // tarjeta (láminas sin flotante).
         '/personas',
         '/liquidacion',
+        // Rediseño (recorrido del 2026-11-12): en Convocatorias y su detalle
+        // el botón tapaba «Continuar» de la hoja de cantidades (láminas 6.1–6.3
+        // sin flotante).
+        '/compras-conjuntas',
+        '/compras-conjuntas/0e8918ab-0000-4000-8000-000000000000',
       ]) {
         expect(
           AppShell(location: path, child: const SizedBox()).hidesGlobalFab,
@@ -118,10 +123,7 @@ void main() {
           reason: path,
         );
       }
-      for (final path in const [
-        '/operaciones',
-        '/inventario',
-      ]) {
+      for (final path in const ['/operaciones', '/inventario']) {
         expect(
           AppShell(location: path, child: const SizedBox()).hidesGlobalFab,
           isFalse,
