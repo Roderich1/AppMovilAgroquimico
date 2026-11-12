@@ -6,6 +6,7 @@ import '../../services/auth/existing_session_providers.dart';
 import '../../services/auth/existing_session_startup.dart';
 import '../../services/auth/remote_session_coordinator.dart';
 import '../../services/auth/remote_session_providers.dart';
+import '../widgets/agro_ui.dart';
 
 /// Explicit reauthentication of the existing local binding, never activation.
 class ReauthenticationScreen extends ConsumerStatefulWidget {
@@ -58,7 +59,7 @@ class _ReauthenticationScreenState
         local == ExistingSessionStartupState.localSessionExpired;
     final remote = ref.watch(remoteSessionProvider);
     return Scaffold(
-      appBar: AppBar(title: const Text('Volver a autenticar')),
+      appBar: const AgroAppBar(title: 'Volver a autenticar'),
       body: SafeArea(
         child: Center(
           child: ConstrainedBox(

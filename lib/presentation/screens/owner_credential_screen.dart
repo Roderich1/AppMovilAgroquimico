@@ -8,6 +8,7 @@ import '../../installation_access.dart';
 import '../../services/auth/first_activation_providers.dart';
 import '../../services/auth/local_owner_credential.dart';
 import '../../services/auth/local_owner_credential_providers.dart';
+import '../widgets/agro_ui.dart';
 import '../widgets/common.dart';
 
 /// Textos del enrolamiento dentro de la activación (F03 §4 bis.2).
@@ -303,7 +304,7 @@ class _OwnerCredentialScreenState extends ConsumerState<OwnerCredentialScreen> {
         if (!didPop) _leave();
       },
       child: Scaffold(
-        appBar: AppBar(title: const Text('PIN del titular')),
+        appBar: const AgroAppBar(title: 'PIN del titular'),
         body: SafeArea(
           child: ListView(
             padding: const EdgeInsets.all(24),
@@ -396,7 +397,7 @@ class _OwnerCredentialScreenState extends ConsumerState<OwnerCredentialScreen> {
         if (!didPop) _leaveActivation();
       },
       child: Scaffold(
-        appBar: AppBar(title: const Text('PIN del titular')),
+        appBar: const AgroAppBar(title: 'PIN del titular'),
         body: SafeArea(
           child: ListView(
             padding: const EdgeInsets.all(24),

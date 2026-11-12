@@ -290,6 +290,10 @@ ThemeData buildAgroTheme() {
     ),
     filledButtonTheme: FilledButtonThemeData(
       style: FilledButton.styleFrom(
+        // Al menos 48 px de alto aunque el tema sea compacto: es la
+        // superficie táctil mínima (rediseño).
+        visualDensity: VisualDensity.standard,
+        minimumSize: const Size(64, 48),
         backgroundColor: AgroColors.ink,
         foregroundColor: Colors.white,
         textStyle: const TextStyle(
@@ -302,6 +306,10 @@ ThemeData buildAgroTheme() {
     ),
     outlinedButtonTheme: OutlinedButtonThemeData(
       style: OutlinedButton.styleFrom(
+        // Al menos 48 px de alto aunque el tema sea compacto: es la
+        // superficie táctil mínima (rediseño).
+        visualDensity: VisualDensity.standard,
+        minimumSize: const Size(64, 48),
         foregroundColor: AgroColors.ink,
         side: const BorderSide(color: AgroColors.ink, width: 1.5),
         textStyle: const TextStyle(
@@ -357,9 +365,28 @@ ThemeData buildAgroTheme() {
         borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
       ),
     ),
-    dialogTheme: const DialogThemeData(
-      backgroundColor: AgroColors.surface,
+    // Confirmaciones (láminas «Revertir», «Descartar»): fondo claro de las
+    // hojas, esquinas de 28 y título con la letra de los títulos. Siguen
+    // siendo diálogos (foco, semántica y pruebas intactos).
+    dialogTheme: DialogThemeData(
+      backgroundColor: AgroColors.canvas,
       surfaceTintColor: Colors.transparent,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.all(Radius.circular(28)),
+      ),
+      titleTextStyle: const TextStyle(
+        fontFamily: AgroFonts.display,
+        fontSize: 22,
+        height: 28 / 22,
+        fontWeight: FontWeight.w800,
+        color: AgroColors.ink,
+      ),
+      contentTextStyle: text.bodyMedium?.copyWith(
+        fontSize: 15,
+        height: 22 / 15,
+        color: AgroColors.ink,
+      ),
+      iconColor: AgroColors.danger,
     ),
     dividerTheme: const DividerThemeData(color: AgroColors.line),
     snackBarTheme: const SnackBarThemeData(behavior: SnackBarBehavior.floating),

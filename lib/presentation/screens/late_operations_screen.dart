@@ -5,6 +5,7 @@ import '../../app.dart' show repositoryProvider;
 import '../../data/agro_repository.dart';
 import '../../services/auth/local_owner_credential.dart';
 import '../../domain/money.dart' show formatDate;
+import '../widgets/agro_ui.dart';
 import '../widgets/common.dart';
 import '../widgets/owner_reversal_flow.dart' show lateDraftStillPending;
 import 'owner_credential_screen.dart';
@@ -270,7 +271,7 @@ class _LateOperationsScreenState extends ConsumerState<LateOperationsScreen> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('Operaciones tardías')),
+    appBar: const AgroAppBar(title: 'Operaciones tardías'),
     floatingActionButton: FloatingActionButton.extended(
       key: const Key('late-historical-period'),
       onPressed: _historicalPeriod,

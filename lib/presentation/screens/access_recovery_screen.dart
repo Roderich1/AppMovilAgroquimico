@@ -6,6 +6,7 @@ import '../../installation_access.dart';
 import '../../services/auth/access_recovery.dart';
 import '../../services/auth/existing_session_providers.dart';
 import '../../services/auth/first_activation_coordinator.dart';
+import '../widgets/agro_ui.dart';
 
 /// F03 «Recuperar acceso» (docs/architecture/F03_RECUPERACION_IDENTIDAD_LOCAL.md
 /// §2). La acción depende del estado: entrar como el titular, rehacer sólo la
@@ -145,7 +146,7 @@ class _AccessRecoveryScreenState extends ConsumerState<AccessRecoveryScreen> {
         mode == AccessRecoveryMode.signInAsOwner ||
         mode == AccessRecoveryMode.rebuildSessionOnly;
     return Scaffold(
-      appBar: AppBar(title: const Text('Recuperar acceso')),
+      appBar: const AgroAppBar(title: 'Recuperar acceso'),
       body: SafeArea(
         child: Center(
           child: ConstrainedBox(
