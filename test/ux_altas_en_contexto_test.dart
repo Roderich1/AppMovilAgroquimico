@@ -345,7 +345,7 @@ void main() {
     );
 
     expect(pickerAt(tester, 'Chaco').value?['name'], 'Chaco Loma UX');
-    expect(fieldText(tester, 'Área planificada (ha)'), '2,5');
+    expect(fieldText(tester, 'Área planificada'), '2,5');
 
     await openCreate(tester, 'Agregar producto', 'Crear producto');
     await tester.enterText(field('Producto'), 'Cipermetrina UX');

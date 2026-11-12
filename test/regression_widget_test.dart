@@ -68,7 +68,7 @@ void main() {
     final areaField = find.byWidgetPredicate(
       (widget) =>
           widget is TextField &&
-          widget.decoration?.labelText == 'Área planificada (ha)',
+          widget.decoration?.labelText == 'Área planificada',
     );
     expect(areaField, findsOneWidget);
     final field = tester.widget<TextField>(areaField);

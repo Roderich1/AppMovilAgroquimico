@@ -670,7 +670,7 @@ void main() {
     await waitUntil(
       tester,
       'el plan',
-      () => find.text('Nueva planificación').evaluate().isEmpty,
+      () => find.byKey(const Key('plan-header')).evaluate().isEmpty,
     );
     final plans = await rows(tester, s.database, 'application_plans');
     expect(plans, hasLength(1));
