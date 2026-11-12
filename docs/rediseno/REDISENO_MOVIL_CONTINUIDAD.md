@@ -11,6 +11,14 @@ Leer esto y comprobar Git (`git -C _wt/RDM-MOB log --oneline -5`, `git status`) 
 - **Prototipo:** artefacto `https://claude.ai/artifact/CddqjNWu6qNar1Xb8HZgvi` (lienzo de diseño, 56 láminas + «Hoy»). Copia de trabajo de las láminas en el scratchpad de la sesión (no versionada).
 - **Inventario prototipo ↔ Flutter:** `docs/rediseno/INVENTARIO_PROTOTIPO_FLUTTER.md`.
 
+## Organización desde el 2026-11-12 (orquestador + sesiones A, B, C)
+
+Desde la tarde del 2026-11-12 el trabajo se reparte entre el **orquestador** (este worktree, `feat/rediseno-movil` = rama de integración) y tres sesiones implementadoras en worktrees propios (`_wt/RDM-A`, `_wt/RDM-B`, `_wt/RDM-C`). Todo lo de coordinación (asignaciones, archivos reservados, bases publicadas, entregas integradas, mecanismo de entrega) está en **`docs/rediseno/COORDINACION.md`**; el estado de cada sesión, en `docs/rediseno/estado/<X>.md` (en su rama y, tras integrar, aquí); las revisiones del orquestador, en `docs/rediseno/revisiones/`. Una rama funcional externa (sesión F, `_wt/ET2-MOB`) aportó Excel y el consentimiento separado (integrada en B2).
+
+Herramientas comunes, no versionadas: `ProyectoAgro/_artefactos/rediseno/` (láminas `.dc.html`, `render_laminas.sh`, `side_by_side.py`, `venv` con Pillow).
+
+Worktree temporal `_wt/RDM-BASE` (detached en `01b2576`): sólo para comparar con la base; se puede quitar con `git worktree remove` cuando no haga falta.
+
 ## Bloques
 
 | Bloque | Estado | Notas |
