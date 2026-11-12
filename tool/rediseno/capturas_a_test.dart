@@ -415,4 +415,40 @@ void main() {
     await settle(tester);
     await shot(tester, '3.8b_lista_planes_con_aplicados');
   });
+
+  testWidgets('personas: bitácora del chaco', (tester) async {
+    final s = await setUp(tester, 'rdm-a-bitacora', const []);
+    final h = s.h;
+    await tester.runAsync(() async {
+      for (final quantity in [1500, 2000]) {
+        await h.repo.confirmApplication(
+          ApplicationDraft(
+            personId: h.relative,
+            farmId: h.relativeFarm,
+            campaignId: h.campaign,
+            appliedAt: DateTime.now(),
+            lines: [
+              ApplicationLineDraft(
+                productId: h.product,
+                quantityBase: quantity,
+                treatedAreaM2: 5000,
+                doseBasePerHa: 3000,
+                theoreticalQuantityBase: 1500,
+              ),
+            ],
+          ),
+        );
+      }
+    });
+    final c = await pumpModeApp(tester, s.database);
+    c.read(routerProvider).go('/personas');
+    await settle(tester);
+    c.read(routerProvider).push('/chacos/${h.relativeFarm}');
+    await waitFor(tester, find.byType(ExpansionTile));
+    await settle(tester);
+    await shot(tester, '5.7_bitacora');
+    await tester.tap(find.byType(ExpansionTile).first);
+    await settle(tester);
+    await shot(tester, '5.7b_bitacora_detalle');
+  });
 }
