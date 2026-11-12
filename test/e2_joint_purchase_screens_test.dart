@@ -268,7 +268,8 @@ void main() {
   });
 
   testWidgets(
-    'Inicio: aviso «Nueva convocatoria» hasta abrirla; Más tiene la entrada',
+    'Inicio: aviso «Nueva convocatoria» hasta abrirla; Sindicato tiene la '
+    'entrada',
     (tester) async {
       await tester.binding.setSurfaceSize(const Size(800, 2400));
       addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -294,13 +295,10 @@ void main() {
       expect(find.textContaining('Nueva convocatoria'), findsNothing);
       expect(offline.requests, 0);
 
-      c.read(routerProvider).go('/mas');
+      // Rediseño (2026-11-12): la entrada vive en la pestaña Sindicato.
+      c.read(routerProvider).go('/sindicato');
       await ui.settle(tester);
-      expect(find.text('Compras conjuntas'), findsOneWidget);
-      expect(
-        find.text('Convocatorias del sindicato y su participación'),
-        findsOneWidget,
-      );
+      expect(find.byKey(const Key('union-joint-purchases')), findsOneWidget);
     },
   );
 
@@ -556,11 +554,17 @@ void main() {
       await settle(tester, rounds: 2);
       expect(find.text(jointPurchaseConsentText), findsOneWidget);
       expect(
-        tester.widget<CheckboxListTile>(find.byKey(const Key('joint-widen-check'))).value,
+        tester
+            .widget<CheckboxListTile>(
+              find.byKey(const Key('joint-widen-check')),
+            )
+            .value,
         isFalse,
       );
       expect(
-        tester.widget<FilledButton>(find.byKey(const Key('joint-widen-confirm'))).onPressed,
+        tester
+            .widget<FilledButton>(find.byKey(const Key('joint-widen-confirm')))
+            .onPressed,
         isNull,
       );
       await tester.tap(find.byKey(const Key('joint-widen-check')));
@@ -568,7 +572,9 @@ void main() {
       await tester.tap(find.byKey(const Key('joint-widen-confirm')));
       await settle(tester);
 
-      final decisions = (await tester.runAsync(() => s.store.consentOps(callId)))!;
+      final decisions = (await tester.runAsync(
+        () => s.store.consentOps(callId),
+      ))!;
       expect(decisions.single.scope, 'COLLABORATORS');
       expect(decisions.single.consentVersion, 'CONV-3');
       expect(decisions.single.sendStatus, 'PENDING_SEND');
@@ -579,7 +585,9 @@ void main() {
         'nombre y sus cantidades.',
       );
       expect(
-        tester.widget<Text>(find.byKey(const Key('joint-consent-pending'))).data,
+        tester
+            .widget<Text>(find.byKey(const Key('joint-consent-pending')))
+            .data,
         jointPurchaseConsentPendingText(decisions.single),
       );
       expect(find.text('Enviar ahora'), findsOneWidget);
@@ -608,11 +616,14 @@ void main() {
       await settle(tester, rounds: 2);
       await tester.tap(find.text('Reducir'));
       await settle(tester);
-      final pending = (await tester.runAsync(() => s.store.consentOps(callId)))!.single;
+      final pending = (await tester.runAsync(() => s.store.consentOps(callId)))!
+          .single;
       expect(pending.scope, 'RESPONSIBLE_ONLY');
       expect(pending.sequence, 2);
       expect(
-        tester.widget<Text>(find.byKey(const Key('joint-consent-pending'))).data,
+        tester
+            .widget<Text>(find.byKey(const Key('joint-consent-pending')))
+            .data,
         contains('la reducción no está aplicada'),
       );
       expect(
@@ -647,7 +658,9 @@ void main() {
     },
   );
 
-  testWidgets('P-C: en una convocatoria cancelada no se amplía', (tester) async {
+  testWidgets('P-C: en una convocatoria cancelada no se amplía', (
+    tester,
+  ) async {
     final s = await pumpDetail(tester);
     await tester.runAsync(
       () => seedCalls(s.store, memberA, [
@@ -657,7 +670,11 @@ void main() {
     s.c.read(jointPurchaseRevisionProvider.notifier).bump();
     await settle(tester);
     expect(
-      tester.widget<ButtonStyleButton>(find.byKey(const Key('joint-consent-widen'))).onPressed,
+      tester
+          .widget<ButtonStyleButton>(
+            find.byKey(const Key('joint-consent-widen')),
+          )
+          .onPressed,
       isNull,
     );
   });

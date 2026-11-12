@@ -197,6 +197,7 @@ class JointPurchaseParticipation {
   final int lastSequence;
   final String lastOperationId;
   final String acceptedAt;
+
   /// Texto aceptado al participar por primera vez (nunca se reescribe).
   final String consentVersion;
   final String consentAcceptedAt;

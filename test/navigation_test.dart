@@ -184,7 +184,7 @@ void main() {
     // B1: Más cuelga de Inicio (engranaje de la cabecera).
     await tester.tap(find.byKey(const Key('home-settings')));
     await settle(tester);
-    await tester.tap(find.text('Administrar datos'));
+    await tester.tap(find.text('Personas, chacos, productos y proveedores'));
     await settle(tester);
     // Se navega a /compras mediante el router, sin depender de la UI de
     // catálogos, para aislar la ruta bajo prueba.

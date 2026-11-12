@@ -156,6 +156,10 @@ class AppShell extends StatefulWidget {
     // registro: dos «Registrar» iguales competirían (sesión A).
     '/aplicaciones',
     '/planificacion',
+    // Ajustes y Respaldos son consultas y ajustes: no inician operaciones
+    // (láminas «Ajustes» y «Respaldos», sin botón flotante).
+    '/mas',
+    '/respaldo-remoto',
   };
 
   /// Si esta ruta oculta el FAB global. El detalle de compra es de sólo

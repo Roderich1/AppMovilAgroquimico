@@ -852,40 +852,46 @@ void main() {
     expect(call.latestConsentOp!.sendStatus, JointPurchaseOpStatus.received);
   });
 
-  test('P-C: sin conexión la decisión queda pendiente y no se da por aplicada', () async {
-    await confirm({litreRef: 25000});
-    await sender.run(access());
-    await store.decideConsent(
-      callId: callId,
-      scope: JointPurchaseConsentScope.collaborators,
-      decidedAt: now,
-    );
-    await sender.run(access());
-    final reduce = (await store.decideConsent(
-      callId: callId,
-      scope: JointPurchaseConsentScope.responsibleOnly,
-      decidedAt: now,
-    ))!;
-    respond = (_) => throw http.ClientException('sin red');
-    final report = await sender.run(access(), forceList: true);
-    expect(report.retried, 1);
-    expect(report.listProblem, JointPurchaseListProblem.offline);
-    final call = (await store.call(callId))!;
-    // Lo vigente sigue siendo lo que el sindicato aceptó.
-    expect(call.serverParticipation!.consentScope, 'COLLABORATORS');
-    expect(call.pendingConsentOp!.operationId, reduce.operationId);
-    // Con red, el mismo operation_id y la misma sequence.
-    respond = central;
-    now = now.add(const Duration(hours: 1));
-    requests.clear();
-    await sender.run(access());
-    expect(jsonDecode(requests.first.body)['operation_id'], reduce.operationId);
-    expect(jsonDecode(requests.first.body)['sequence'], 2);
-    expect(
-      (await store.call(callId))!.serverParticipation!.consentScope,
-      'RESPONSIBLE_ONLY',
-    );
-  });
+  test(
+    'P-C: sin conexión la decisión queda pendiente y no se da por aplicada',
+    () async {
+      await confirm({litreRef: 25000});
+      await sender.run(access());
+      await store.decideConsent(
+        callId: callId,
+        scope: JointPurchaseConsentScope.collaborators,
+        decidedAt: now,
+      );
+      await sender.run(access());
+      final reduce = (await store.decideConsent(
+        callId: callId,
+        scope: JointPurchaseConsentScope.responsibleOnly,
+        decidedAt: now,
+      ))!;
+      respond = (_) => throw http.ClientException('sin red');
+      final report = await sender.run(access(), forceList: true);
+      expect(report.retried, 1);
+      expect(report.listProblem, JointPurchaseListProblem.offline);
+      final call = (await store.call(callId))!;
+      // Lo vigente sigue siendo lo que el sindicato aceptó.
+      expect(call.serverParticipation!.consentScope, 'COLLABORATORS');
+      expect(call.pendingConsentOp!.operationId, reduce.operationId);
+      // Con red, el mismo operation_id y la misma sequence.
+      respond = central;
+      now = now.add(const Duration(hours: 1));
+      requests.clear();
+      await sender.run(access());
+      expect(
+        jsonDecode(requests.first.body)['operation_id'],
+        reduce.operationId,
+      );
+      expect(jsonDecode(requests.first.body)['sequence'], 2);
+      expect(
+        (await store.call(callId))!.serverParticipation!.consentScope,
+        'RESPONSIBLE_ONLY',
+      );
+    },
+  );
 
   test('P-C: la primera participación aún sin aceptar: la decisión espera (PARTICIPATION_REQUIRED se reintenta)', () async {
     await confirm({litreRef: 25000});
@@ -953,7 +959,10 @@ void main() {
       decidedAt: now,
     );
     await sender.run(access());
-    final modified = await store.confirm(callId: callId, lines: {litreRef: 40000});
+    final modified = await store.confirm(
+      callId: callId,
+      lines: {litreRef: 40000},
+    );
     // El servidor responde con cantidades nuevas pero un alcance anterior.
     respond = (request) => jsonResponse({
       'outcome': 'ACCEPTED',
