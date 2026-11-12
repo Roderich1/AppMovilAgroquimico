@@ -8,6 +8,7 @@
 | n | SHA | Pantallas / rutas | Pruebas corridas | Capturas | Diferencias con la lámina |
 |---|---|---|---|---|---|
 | 1 | `65e48f8` (serie `be78956`, `76b7afd`, `65e48f8`) | `/aplicaciones/nueva`: paso 1 «¿Dónde aplicó?», paso 2 «¿Qué aplicó?» con hoja de producto y «Dosis y costo», paso 3 «Revise y confirme»; panel de voz anclado, aviso tras dictar, revisión de chaco de otra persona; aplicación desde un plan | ver «Entrega 1 · pruebas» | `flutter test tool/rediseno/capturas_a_test.dart` (100 %, `RDM_TEXT_SCALE=1.3`/`2.0`, `RDM_WIDTH=360`) → `build/rediseno_capturas_a/` (no versionado) | ver «Entrega 1 · diferencias» |
+| 2 | ver «Entrega 2» (serie `ede5ffc`, `b7298a6` y este estado) | `/planificacion/nueva`: «¿Qué piensa aplicar?», chaco y área, tarjetas de producto con dosis, «Necesita» y cobertura; panel de voz anclado, aviso tras dictar, conflicto de chaco y área | ver «Entrega 2 · pruebas» | mismo arnés (`3.5*`, `3.6*`) | ver «Entrega 2 · diferencias» |
 
 ## Entrega 1 · aplicación (2026-11-12)
 
@@ -44,11 +45,44 @@ Archivos: `lib/presentation/screens/application_form_screen.dart` (sólo present
 | Título «Nueva aplicación» (barra antigua) | Sin título; «Paso n de 3» | Igual que la compra del bloque 1. |
 | — | Textos en «usted» («Elija», «Escriba», «Pidió … Baje …») | Coherencia con la compra. |
 
+## Entrega 2 · plan (2026-11-12)
+
+Archivos: `lib/presentation/screens/plan_form_screen.dart` (sólo presentación; validación, guardado con `addPlanMulti` y voz sin cambios: guardar un plan no descuenta inventario ni genera cargos) y `tool/rediseno/capturas_a_test.dart`.
+
+### Pruebas
+
+- `flutter analyze` de la pantalla, la parte de voz y el arnés: sin avisos.
+- Verdes (`--concurrency=2`): `voice_draft/plan_formulario_unico` (incluye «guardar no toca inventario ni cuentas»), `voice_draft/formulario_unico_accesos`, `uxj_b_altas_vencimiento`, `ux_altas_en_contexto`, `regression_widget`, `responsive_v5`, `personal_mode_flows`, `plan_lifecycle_ui`.
+- Adaptadas: «Área planificada (ha)» → «Área planificada» con sufijo «ha»; la espera tras guardar usa la clave `plan-header`.
+- Capturas: 100 %, 130 %, 200 % y 360 dp sin desbordes.
+
+### Recorrido para revisarlo
+
+1. Registrar › Planificar (o Planificación › Nuevo plan). «Completar por voz» abre el panel abajo; ✕ lo cierra.
+2. Chaco: debajo dice su responsable («… · se compara con sus existencias»). El área se precarga del chaco.
+3. «Agregar producto» → elegir → «+» (Agregar al plan). En cada tarjeta: dosis, «Necesita» (área × dosis) y «Cubierto · hay …» o «Falta comprar … · hay …»; sin dosis, «Escriba la dosis». La papelera quita la línea.
+4. «Guardar plan» crea el plan una sola vez; no cambia existencias ni cuentas.
+5. Voz: el dictado cierra el panel y deja el aviso «Dictar más / Deshacer último dictado»; con otro chaco ya elegido, chaco y área quedan en «Elegir» y bloquean «Guardar plan».
+
+### Diferencias con la lámina (Plan, VozPlan)
+
+| Lámina | App | Motivo |
+|---|---|---|
+| «Chaco Norte · Rosa Vargas» en la fila | Nombre del chaco en la fila y debajo «<responsable> · se compara con sus existencias» | El valor de la fila es el nombre (el selector lo usa); la segunda línea dice de quién son las existencias que cubren el plan. |
+| Área en la misma tarjeta, a la derecha | Campo grande aparte, como en la aplicación | Mismo campo en los dos formularios; cabe a 200 %. |
+| «Añadir otro producto» punteado | Selector «Agregar producto» + botón «+» (Agregar al plan) | Recorrido vigente de dos actos explícitos (sin autoselección, 2026-11-05); «Crear producto» sigue en el selector. |
+| Dosis «2 L/ha» en un recuadro pequeño | Campo «Dosis (L/ha)» ancho con cifra grande | Rótulo vigente y espacio para decimales a 200 %. |
+| «Productos» | «Productos (n)» | Cuenta visible. |
+| Etiqueta «Cubierto · hay 8 L» | Igual; además «Falta comprar … · hay …» (ámbar) y «Escriba la dosis» (gris) | Estados que la lámina no dibuja; el texto, no sólo el color, dice el estado. |
+| Sin título de barra | «Nuevo plan · <campaña>» y el micrófono | Conserva `form-dictar`. |
+
 ## En curso
 
-- Planificación: «Nuevo plan» + voz (láminas Plan y VozPlan).
+- Listas `/aplicaciones` y `/planificacion` (sin lámina propia): pendiente de saber si se rediseñan aquí o las sustituye Actividad (sesión B).
 
 ## Solicitudes al orquestador
+
+- No bloqueante: `BadgeTone` no tiene un tono «correcto/cubierto»; uso `BadgeTone.voice` (mismo lima que la lámina) para «Cubierto». Un `BadgeTone.ok` lo dejaría claro.
 
 - No bloqueante: `ValueRow` no tiene línea secundaria; la de «Persona» va como texto propio dentro del grupo (`application-person-hint`). Si sirve a otras sesiones, un `hint:` en `ValueRow`/`AdaptiveEntityPicker(rowStyle:)`.
 - No bloqueante: `side_by_side.py` falla con `python -I` (no encuentra PIL); comparé lámina y captura por separado.
