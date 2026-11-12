@@ -17,8 +17,13 @@ import '../../domain/reports/report_composer.dart';
 import '../../domain/restore_ownership.dart';
 import '../../guarded_restore.dart';
 import '../../operation_mode_controller.dart';
+import '../theme/agro_theme.dart';
 import '../widgets/account_statement_view.dart';
+import '../widgets/agro_ui.dart';
 import '../widgets/common.dart';
+import '../widgets/rdm_a_payment.dart';
+import '../widgets/rdm_a_people.dart';
+import '../widgets/rdm_b_ui.dart' show BigFigure, RdmScrollPage, splitBob;
 import '../widgets/identification_texts.dart' show labelPhotosNotInBackups;
 
 class SettlementsScreen extends ConsumerStatefulWidget {
@@ -107,14 +112,12 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
     // el TextField seguía montado y volvía a suscribirse a un controlador ya
     // liberado (UIBUG-005).
     final selected = _selectedPeriod(campaigns);
-    final result = await showDialog<int?>(
-      context: context,
-      builder: (_) => _RecordPaymentDialog(
-        personName: person.name,
-        registration: registrationText(selected, DateTime.now()),
-        netMinor: person.account.netMinor,
-        ownRecord: ownRecord,
-      ),
+    final result = await showAccountPaymentSheet(
+      context,
+      personName: person.name,
+      registration: registrationText(selected, DateTime.now()),
+      netMinor: person.account.netMinor,
+      ownRecord: ownRecord,
     );
     if (result == null || !mounted) return;
     try {
@@ -149,13 +152,6 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
     return null;
   }
 
-  /// Margen de los diálogos de estado de cuenta: 16 px a los lados en vez
-  /// de los 40 por defecto, para que en teléfono el cronológico tenga ancho.
-  static const _statementInsets = EdgeInsets.symmetric(
-    horizontal: 16,
-    vertical: 24,
-  );
-
   Future<void> _statement(AccountSummary person) async {
     final statement = await ref
         .read(repositoryProvider)
@@ -163,22 +159,10 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
     if (!mounted) return;
     await showDialog<void>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text('Estado de cuenta · ${person.name}'),
-        // Menos margen lateral en teléfono: el cronológico necesita el ancho
-        // (F-1, 2026-10-30).
-        insetPadding: _statementInsets,
-        content: SizedBox(
-          width: 620,
-          height: 420,
-          child: AccountStatementView(statement: statement),
-        ),
-        actions: [
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Cerrar'),
-          ),
-        ],
+      builder: (dialogContext) => _FullScreenSheet(
+        overline: 'Cuenta',
+        title: 'Estado de cuenta · ${person.name}',
+        child: AccountStatementView(statement: statement),
       ),
     );
   }
@@ -191,20 +175,10 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
     if (!mounted) return;
     await showDialog<void>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: Text('Movimientos propios · $name'),
-        insetPadding: _statementInsets,
-        content: SizedBox(
-          width: 620,
-          height: 420,
-          child: OwnMovementsView(statement: statement),
-        ),
-        actions: [
-          FilledButton(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: const Text('Cerrar'),
-          ),
-        ],
+      builder: (dialogContext) => _FullScreenSheet(
+        overline: 'Titular · no es deuda',
+        title: 'Movimientos propios · $name',
+        child: OwnMovementsView(statement: statement),
       ),
     );
   }
@@ -222,52 +196,71 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
       ownerId,
       campaignId: selectedCampaignId,
     );
-    final theme = Theme.of(context);
     final summary = AccountSummary(
       account: ledger.account(ownerId),
       campaignId: selectedCampaignId,
+    );
+    const onInk = TextStyle(
+      fontSize: 14,
+      height: 20 / 14,
+      color: AgroColors.onInk,
     );
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Card(
         key: const Key('own-consumption-card'),
+        color: AgroColors.ink,
         child: Padding(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.fromLTRB(20, 16, 8, 18),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const CircleAvatar(child: Icon(Icons.agriculture_outlined)),
-              const SizedBox(width: 14),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    const StatusBadge(label: 'No es deuda', tone: BadgeTone.ok),
+                    const SizedBox(height: 8),
                     Text(
                       ownCardTitle,
-                      style: theme.textTheme.titleMedium?.copyWith(
+                      style: const TextStyle(
+                        fontFamily: AgroFonts.display,
+                        fontSize: 20,
+                        height: 26 / 20,
                         fontWeight: FontWeight.w700,
+                        color: Colors.white,
                       ),
                     ),
-                    Text(person.name, style: theme.textTheme.bodyMedium),
-                    const SizedBox(height: 4),
+                    Text(
+                      person.name,
+                      style: onInk.copyWith(color: AgroColors.onInkMuted),
+                    ),
+                    const SizedBox(height: 8),
                     Text(
                       ownConsumptionLine(
                         consumption,
                         campaignName: _campaignName(campaigns),
                       ),
-                      style: const TextStyle(fontWeight: FontWeight.w700),
+                      style: onInk.copyWith(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.white,
+                      ),
                     ),
-                    Text(ownApplicationsLine(consumption)),
+                    Text(ownApplicationsLine(consumption), style: onInk),
                     Text(
                       ownRecordsLine(
                         ledger.ownAccount(ownerId),
                         period: _selectedPeriod(campaigns),
                       ),
+                      style: onInk,
                     ),
                   ],
                 ),
               ),
               PopupMenuButton<String>(
+                tooltip: 'Opciones de lo propio',
+                iconColor: AgroColors.onInk,
                 onSelected: (value) {
                   switch (value) {
                     case 'detail':
@@ -340,81 +333,81 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
     final caption = filtered
         ? pendingCaption(campaignName ?? 'campaña')
         : netCaptionAll;
+    // En inventario propio sólo el titular registra pagos (#26).
+    final canPay = !personal || row.personId == ownerPersonId;
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Card(
         child: Padding(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.fromLTRB(16, 14, 8, 10),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // El nombre ocupa su propia fila, entero, con el menú al lado:
-              // antes compartía el ancho con la columna del importe y se
-              // recortaba con puntos suspensivos («Don Carlos Gutiérrez
-              // Villarr…», hallazgo F-2 del 2026-10-30; antes UIBUG-020 y
-              // UIBUG-017 lo partían por carácter al 130 %).
+              // El nombre ocupa su propia fila, entero, con el menú al lado
+              // (F-2 del 2026-10-30; antes UIBUG-020 y UIBUG-017).
               Row(
                 children: [
-                  CircleAvatar(
-                    child: Text(
-                      row.name.isEmpty
-                          ? '?'
-                          : row.name.characters.first.toUpperCase(),
-                    ),
-                  ),
-                  const SizedBox(width: 14),
-                  Expanded(
-                    child: Text(
-                      row.name,
-                      style: Theme.of(context).textTheme.titleMedium
-                          ?.copyWith(fontWeight: FontWeight.w700),
-                    ),
-                  ),
+                  Expanded(child: Text(row.name, style: AgroText.value)),
                   PopupMenuButton<String>(
+                    tooltip: 'Más opciones de ${row.name}',
                     onSelected: (value) {
                       switch (value) {
                         case 'detail':
                           _statement(row);
-                        case 'export':
-                          _exportStatement(row);
                         default:
-                          _record(row, campaigns: campaigns);
+                          _exportStatement(row);
                       }
                     },
-                    itemBuilder: (_) => [
-                      const PopupMenuItem(
+                    itemBuilder: (_) => const [
+                      PopupMenuItem(
                         value: 'detail',
                         child: Text('Ver detalle cronológico'),
                       ),
                       // El estado de cuenta se exporta desde donde se consulta.
-                      const PopupMenuItem(
+                      PopupMenuItem(
                         value: 'export',
                         child: Text('Exportar estado de cuenta'),
                       ),
-                      // En inventario propio sólo el titular registra pagos (#26).
-                      if (!personal || row.personId == ownerPersonId)
-                        const PopupMenuItem(
-                          value: 'pay',
-                          child: Text('Registrar pago'),
-                        )
-                      else
-                        const PopupMenuItem(
-                          enabled: false,
-                          child: Text(
-                            'Inventario propio: pagos sólo del titular',
-                          ),
-                        ),
                     ],
                   ),
                 ],
               ),
-              const SizedBox(height: 8),
-              _AccountFigures(
-                lines: lines,
-                caption: caption,
-                amount: formatBob(amount),
-                positive: amount > 0,
+              Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: _AccountFigures(
+                  lines: lines,
+                  caption: caption,
+                  amount: amount,
+                ),
               ),
+              const SizedBox(height: 10),
+              if (canPay)
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: FilledButton(
+                    key: Key('account-pay-${row.personId}'),
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size(0, 44),
+                      padding: const EdgeInsets.symmetric(horizontal: 18),
+                      textStyle: const TextStyle(
+                        fontFamily: AgroFonts.body,
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    onPressed: () => _record(row, campaigns: campaigns),
+                    child: const Text('Registrar pago'),
+                  ),
+                )
+              else
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 4),
+                  child: Text(
+                    'Inventario propio: pagos sólo del titular',
+                    key: Key('account-pay-blocked-${row.personId}'),
+                    style: AgroText.detail,
+                  ),
+                ),
             ],
           ),
         ),
@@ -608,370 +601,318 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
     return _page(context);
   }
 
-  Widget _page(BuildContext context) => PageFrame(
-    title: 'Liquidación y cuentas',
-    subtitle: 'Cargos, pagos, adelantos y saldos sin borrar el historial.',
-    action: PopupMenuButton<String>(
-      tooltip: 'Copias de seguridad',
-      // Carpeta, no nube (UIBUG-049): el menú es del respaldo local. La copia
-      // en el servidor (F08) es una entrada aparte y explícita del menú.
-      icon: const Icon(Icons.folder_outlined),
-      onSelected: (value) => switch (value) {
-        'export' => _backup(),
-        'remote' => context.push('/respaldo-remoto'),
-        _ => _restore(),
-      },
-      itemBuilder: (_) => const [
-        PopupMenuItem(
-          value: 'export',
-          child: ListTile(
-            leading: Icon(Icons.save_alt_outlined),
-            title: Text('Exportar respaldo'),
-          ),
-        ),
-        PopupMenuItem(
-          value: 'restore',
-          child: ListTile(
-            leading: Icon(Icons.restore_outlined),
-            title: Text('Restaurar respaldo'),
-          ),
-        ),
-        // Copia privada en el servidor: acción explícita, no sincronización.
-        PopupMenuItem(
-          value: 'remote',
-          child: ListTile(
-            leading: Icon(Icons.cloud_outlined),
-            title: Text('Respaldo en la nube'),
+  Widget _page(BuildContext context) => RdmScrollPage(
+    header: RdmAHero(
+      overline: 'Cuentas',
+      title: 'Liquidación y cuentas',
+      subtitle: 'Cargos, pagos, adelantos y saldos sin borrar el historial.',
+      actions: [
+        Material(
+          color: AgroColors.inkSoft,
+          shape: const CircleBorder(),
+          child: PopupMenuButton<String>(
+            tooltip: 'Copias de seguridad',
+            // Carpeta, no nube (UIBUG-049): el menú es del respaldo local. La
+            // copia en el servidor (F08) es una entrada aparte y explícita.
+            icon: const Icon(Icons.folder_outlined, color: AgroColors.onInk),
+            onSelected: (value) => switch (value) {
+              'export' => _backup(),
+              'remote' => context.push('/respaldo-remoto'),
+              _ => _restore(),
+            },
+            itemBuilder: (_) => const [
+              PopupMenuItem(
+                value: 'export',
+                child: ListTile(
+                  leading: Icon(Icons.save_alt_outlined),
+                  title: Text('Exportar respaldo'),
+                ),
+              ),
+              PopupMenuItem(
+                value: 'restore',
+                child: ListTile(
+                  leading: Icon(Icons.restore_outlined),
+                  title: Text('Restaurar respaldo'),
+                ),
+              ),
+              // Copia privada en el servidor: acción explícita, no
+              // sincronización.
+              PopupMenuItem(
+                value: 'remote',
+                child: ListTile(
+                  leading: Icon(Icons.cloud_outlined),
+                  title: Text('Respaldo en la nube'),
+                ),
+              ),
+            ],
           ),
         ),
       ],
     ),
-    child: FutureBuilder(
-      future: data,
-      builder: (context, snapshot) {
-        // El error se comprueba ANTES que los datos: si no, un fallo se
-        // presenta como "cargando" y la pantalla gira indefinidamente.
-        if (snapshot.hasError)
-          return EmptyState(
-            icon: Icons.error_outline,
-            message: friendlyError(snapshot.error!),
-          );
-        if (!snapshot.hasData)
-          return const Center(child: CircularProgressIndicator());
-        final (ledger, farmCosts, productCosts, campaigns) = snapshot.data!;
-        final settlements = ledger.summaries(campaignId: selectedCampaignId);
-        final ownerId = ledger.ownerPersonId;
-        final personal =
-            ref.watch(operationModeProvider) == OperationMode.personal;
-        final visibleSettlements = settlements.where((row) {
-          return personQuery.isEmpty || matchesSearch(row.name, personQuery);
-        }).toList();
-        if (settlements.isEmpty && ownerId == null)
-          return const Card(
-            child: EmptyState(
-              icon: Icons.account_balance_wallet_outlined,
-              message:
-                  'Registra familiares o terceros para ver su liquidación.',
-            ),
-          );
-        return Column(
-          children: [
-            DropdownButtonFormField<int?>(
-              initialValue: selectedCampaignId,
-              // Ocupa el ancho del campo y parte el nombre si no cabe: sin
-              // esto se desbordaba 77 px a 360 dp con letra ×1,3 (2026-10-30).
-              isExpanded: true,
-              decoration: const InputDecoration(
-                labelText: 'Filtrar por campaña',
+    children: [
+      FutureBuilder(
+        future: data,
+        builder: (context, snapshot) {
+          // El error se comprueba ANTES que los datos: si no, un fallo se
+          // presenta como "cargando" y la pantalla gira indefinidamente.
+          if (snapshot.hasError) {
+            return EmptyState(
+              icon: Icons.error_outline,
+              message: friendlyError(snapshot.error!),
+            );
+          }
+          if (!snapshot.hasData) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          final (ledger, farmCosts, productCosts, campaigns) = snapshot.data!;
+          final settlements = ledger.summaries(campaignId: selectedCampaignId);
+          final ownerId = ledger.ownerPersonId;
+          final personal =
+              ref.watch(operationModeProvider) == OperationMode.personal;
+          final visibleSettlements = settlements.where((row) {
+            return personQuery.isEmpty || matchesSearch(row.name, personQuery);
+          }).toList();
+          if (settlements.isEmpty && ownerId == null) {
+            return const Card(
+              child: EmptyState(
+                icon: Icons.account_balance_wallet_outlined,
+                message:
+                    'Registra familiares o terceros para ver su liquidación.',
               ),
-              items: [
-                const DropdownMenuItem<int?>(
-                  value: null,
-                  child: Text('Todas las campañas'),
+            );
+          }
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              DropdownButtonFormField<int?>(
+                initialValue: selectedCampaignId,
+                // Ocupa el ancho del campo y parte el nombre si no cabe: sin
+                // esto se desbordaba 77 px a 360 dp con letra ×1,3
+                // (2026-10-30).
+                isExpanded: true,
+                decoration: const InputDecoration(
+                  labelText: 'Filtrar por campaña',
                 ),
-                for (final campaign in campaigns)
-                  DropdownMenuItem<int?>(
-                    value: campaign.id,
-                    child: Text(campaign.name),
+                items: [
+                  const DropdownMenuItem<int?>(
+                    value: null,
+                    child: Text('Todas las campañas'),
                   ),
-              ],
-              onChanged: (value) {
-                selectedCampaignId = value;
-                _refresh();
-              },
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              onChanged: (value) => setState(() {
-                personQuery = value.trim().toLowerCase();
-              }),
-              decoration: const InputDecoration(
-                prefixIcon: Icon(Icons.search),
-                labelText: 'Buscar persona',
-                isDense: true,
-              ),
-            ),
-            const SizedBox(height: 12),
-            if (ownerId != null) _ownCard(context, ledger, ownerId, campaigns),
-            if (settlements.isEmpty)
-              Card(
-                child: EmptyState(
-                  icon: Icons.account_balance_wallet_outlined,
-                  message: personal
-                      ? 'En inventario propio no hay cuentas por cobrar.'
-                      : 'Registra familiares o terceros para ver su '
-                            'liquidación.',
-                ),
-              ),
-            for (final row in visibleSettlements)
-              _accountCard(context, row, campaigns, personal),
-            const SizedBox(height: 20),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                'Costo por chaco y hectárea',
-                style: Theme.of(context).textTheme.titleLarge
-                    ?.copyWith(fontWeight: FontWeight.w700),
-              ),
-            ),
-            const SizedBox(height: 10),
-            Card(
-              child: Column(
-                children: [
-                  for (final row in farmCosts)
-                    ListTile(
-                      leading: const Icon(Icons.landscape_outlined),
-                      title: Text(row.farmName),
-                      subtitle: Text(
-                        '${row.ownerName} · ${formatHectares(row.areaM2)} · '
-                        'Total ${formatBob(row.totalCostBobMinor)}',
-                      ),
-                      trailing: Text(
-                        row.costPerHectareMinor == null
-                            ? 'sin superficie'
-                            : '${formatBob(row.costPerHectareMinor!)}/ha',
-                        style: const TextStyle(fontWeight: FontWeight.w700),
-                      ),
+                  for (final campaign in campaigns)
+                    DropdownMenuItem<int?>(
+                      value: campaign.id,
+                      child: Text(campaign.name),
                     ),
                 ],
+                onChanged: (value) {
+                  selectedCampaignId = value;
+                  _refresh();
+                },
               ),
-            ),
-            const SizedBox(height: 20),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                'Costo consumido por producto',
-                style: Theme.of(context).textTheme.titleLarge
-                    ?.copyWith(fontWeight: FontWeight.w700),
+              const SizedBox(height: 12),
+              TextField(
+                onChanged: (value) => setState(() {
+                  personQuery = value.trim().toLowerCase();
+                }),
+                decoration: const InputDecoration(
+                  prefixIcon: Icon(Icons.search),
+                  labelText: 'Buscar persona',
+                  isDense: true,
+                ),
               ),
-            ),
-            const SizedBox(height: 10),
-            Card(
-              child: Column(
+              const SizedBox(height: 16),
+              if (ownerId != null)
+                _ownCard(context, ledger, ownerId, campaigns),
+              if (settlements.isEmpty)
+                Card(
+                  child: EmptyState(
+                    icon: Icons.account_balance_wallet_outlined,
+                    message: personal
+                        ? 'En inventario propio no hay cuentas por cobrar.'
+                        : 'Registra familiares o terceros para ver su '
+                              'liquidación.',
+                  ),
+                ),
+              for (final row in visibleSettlements)
+                _accountCard(context, row, campaigns, personal),
+              const SizedBox(height: 12),
+              const Text('Costo por chaco y hectárea', style: AgroText.h2),
+              const SizedBox(height: 10),
+              for (final row in farmCosts) _FarmCostCard(row: row),
+              const SizedBox(height: 12),
+              const Text('Costo consumido por producto', style: AgroText.h2),
+              const SizedBox(height: 10),
+              AgroGroup(
                 children: [
                   for (final row in productCosts)
-                    ListTile(
-                      leading: const Icon(Icons.science_outlined),
-                      title: Text(row.productName),
-                      subtitle: Text(
-                        formatQuantity(row.quantityBase, row.unit),
-                      ),
-                      trailing: Text(
-                        formatBob(row.totalCostBobMinor),
-                        style: const TextStyle(fontWeight: FontWeight.w700),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+                      child: AmountAside(
+                        amount: formatBob(row.totalCostBobMinor),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(row.productName, style: AgroText.value),
+                            Text(
+                              formatQuantity(row.quantityBase, row.unit),
+                              style: AgroText.detail,
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                 ],
               ),
-            ),
-          ],
-        );
-      },
-    ),
+            ],
+          );
+        },
+      ),
+    ],
   );
 }
 
-/// Diálogo de registro de pago (un adelanto es un pago sin deuda: queda a
-/// favor).
-///
-/// Es un [StatefulWidget] con ownership claro de su [TextEditingController],
-/// como los diálogos de `catalogs_screen.dart` y `_PaymentDialog` de
-/// `purchases_screen.dart`, que ya seguían el patrón correcto.
-///
-/// Corrige a la vez:
-///  * **UIBUG-005** — el controlador se liberaba antes de que el diálogo
-///    terminara de cerrarse.
-///  * **UIBUG-012** — no se decía a quién se pagaba ni sobre qué campaña.
-///  * **UIBUG-065** — un importe no interpretable valía 0 y el usuario recibía
-///    el engañoso *"El importe debe ser mayor a cero"*.
-///  * **UIBUG-003** — el importe se interpretaba con convenio inglés.
-///  * **A4 (2026-10-30)** — el ejemplo «1.500,25» del campo parecía un
-///    importe ya escrito: el campo empieza vacío, con etiqueta y moneda.
-///
-/// D-04 (§2.4): la campaña es sólo la de registro y el saldo de referencia es
-/// el neto de todas las campañas, no el de la campaña filtrada.
-class _RecordPaymentDialog extends StatefulWidget {
-  const _RecordPaymentDialog({
-    required this.personName,
-    required this.registration,
-    required this.netMinor,
-    this.ownRecord = false,
-  });
-
-  final String personName;
-  final String registration;
-  final int netMinor;
-
-  /// E-15: pago propio del titular. No hay saldo que cobrar (criterio Q-2).
-  final bool ownRecord;
-
-  @override
-  State<_RecordPaymentDialog> createState() => _RecordPaymentDialogState();
-}
-
-class _RecordPaymentDialogState extends State<_RecordPaymentDialog> {
-  final _amount = TextEditingController();
-  String? _error;
-
-  @override
-  void dispose() {
-    _amount.dispose();
-    super.dispose();
-  }
-
-  void _submit() {
-    final parsed = parseNumericInput(_amount.text);
-    switch (parsed.status) {
-      case NumericInputStatus.empty:
-        setState(() => _error = 'Escriba el importe.');
-      case NumericInputStatus.ambiguous:
-      case NumericInputStatus.malformed:
-        // El mensaje describe el problema real y cómo escribirlo bien, en vez
-        // de convertir la cadena en 0 y culpar al importe (UIBUG-065).
-        setState(() => _error = parsed.message);
-      case NumericInputStatus.valid:
-        final minor = (parsed.value! * 100).round();
-        if (minor <= 0) {
-          setState(() => _error = 'El importe debe ser mayor a cero.');
-          return;
-        }
-        Navigator.pop(context, minor);
-    }
-  }
+/// Costo de un chaco (lámina Costos por chaco): el costo por hectárea en
+/// grande y el total, con su responsable y superficie.
+class _FarmCostCard extends StatelessWidget {
+  const _FarmCostCard({required this.row});
+  final FarmCostRead row;
 
   @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      // Con el teclado abierto y la letra ampliada el contenido no cabía y se
-      // desbordaba (238 px a ×1,3 en 360×640); ahora se desplaza y los botones
-      // quedan a la vista (2026-10-30).
-      scrollable: true,
-      title: const Text('Registrar pago'),
-      content: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Contexto de la operación: sin esto es fácil abrir el menú
-          // equivocado en una lista larga y cobrar a quien no era (UIBUG-012).
-          Text(
-            widget.personName,
-            style: Theme.of(context).textTheme.titleMedium
-                ?.copyWith(fontWeight: FontWeight.w700),
+    final perHectare = row.costPerHectareMinor;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Card(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(row.farmName, style: AgroText.value),
+              Text(
+                '${row.ownerName} · ${formatHectares(row.areaM2)}',
+                style: AgroText.detail,
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                alignment: WrapAlignment.spaceBetween,
+                crossAxisAlignment: WrapCrossAlignment.end,
+                spacing: 12,
+                runSpacing: 4,
+                children: [
+                  perHectare == null
+                      ? const Text('sin superficie', style: AgroText.detail)
+                      : BigFigure(
+                          number: splitBob(perHectare).number,
+                          unit: 'Bs por ha',
+                          size: 28,
+                        ),
+                  Text(
+                    'Total ${formatBob(row.totalCostBobMinor)}',
+                    style: const TextStyle(
+                      fontSize: 15,
+                      height: 22 / 15,
+                      fontWeight: FontWeight.w700,
+                      color: AgroColors.ink,
+                    ),
+                  ),
+                ],
+              ),
+            ],
           ),
-          const SizedBox(height: 2),
-          Text(
-            widget.registration,
-            style: Theme.of(context).textTheme.bodySmall,
-          ),
-          const SizedBox(height: 2),
-          Text(
-            widget.ownRecord
-                ? ownPaymentDialogText
-                : dialogNetText(widget.netMinor),
-            style: Theme.of(context).textTheme.bodySmall,
-          ),
-          const SizedBox(height: 2),
-          // El pago propio no se aplica a ninguna deuda: sin la línea FIFO.
-          if (!widget.ownRecord) ...[
-            Text(dialogFifoText, style: Theme.of(context).textTheme.bodySmall),
-            Text(
-              dialogCreditText,
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          ],
-          const SizedBox(height: 14),
-          TextField(
-            controller: _amount,
-            autofocus: true,
-            keyboardType: const TextInputType.numberWithOptions(decimal: true),
-            onChanged: (_) {
-              if (_error != null) setState(() => _error = null);
-            },
-            onSubmitted: (_) => _submit(),
-            decoration: InputDecoration(
-              labelText: 'Importe del pago',
-              suffixText: 'Bs',
-              errorText: _error,
-              // Un mensaje de formato ocupa varias líneas.
-              errorMaxLines: 4,
-            ),
-          ),
-        ],
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Cancelar'),
         ),
-        FilledButton(onPressed: _submit, child: const Text('Registrar')),
-      ],
+      ),
     );
   }
 }
 
+/// Estado de cuenta o movimientos propios a pantalla completa (láminas
+/// Cuenta y Propios), con «Cerrar» arriba. Es un diálogo: no cambia la
+/// navegación y se cierra como antes.
+class _FullScreenSheet extends StatelessWidget {
+  const _FullScreenSheet({
+    required this.overline,
+    required this.title,
+    required this.child,
+  });
+
+  final String overline;
+  final String title;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => Dialog.fullscreen(
+    backgroundColor: AgroColors.canvas,
+    child: SafeArea(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(child: Text(overline, style: AgroText.detail)),
+                    TextButton.icon(
+                      style: TextButton.styleFrom(
+                        foregroundColor: AgroColors.ink,
+                        minimumSize: const Size(0, 44),
+                      ),
+                      onPressed: () => Navigator.of(context).pop(),
+                      icon: const Icon(Icons.close),
+                      label: const Text('Cerrar'),
+                    ),
+                  ],
+                ),
+                Semantics(header: true, child: Text(title, style: AgroText.h2)),
+              ],
+            ),
+          ),
+          Expanded(child: child),
+        ],
+      ),
+    ),
+  );
+}
+
 /// Cifras de la tarjeta de persona: las líneas contables y el importe con su
-/// rótulo. Con sitio (≥ [wideWidth]) van lado a lado, como antes; en teléfono
-/// el importe pasa debajo de las líneas, a lo ancho, para que ni el nombre ni
-/// el importe compitan por columnas estrechas (F-2, 2026-10-30). El importe
-/// sigue la escala del sistema: no se reduce (antes un `FittedBox` lo
-/// encogía) ni se recorta.
+/// rótulo. Con sitio (≥ [wideWidth]) van lado a lado; en teléfono el importe
+/// pasa debajo de las líneas, a lo ancho, para que ni el nombre ni el importe
+/// compitan por columnas estrechas (F-2, 2026-10-30). El rótulo dice qué es
+/// la cifra; el color no es lo único que lo dice.
 class _AccountFigures extends StatelessWidget {
   const _AccountFigures({
     required this.lines,
     required this.caption,
     required this.amount,
-    required this.positive,
   });
 
   static const double wideWidth = 420;
 
   final List<String> lines;
   final String caption;
-  final String amount;
-  final bool positive;
+  final int amount;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     // Sin recorte: son cifras contables, no un subtítulo decorativo.
     final detail = Column(
       crossAxisAlignment: CrossAxisAlignment.start,
-      children: [for (final line in lines) Text(line)],
+      children: [for (final line in lines) Text(line, style: AgroText.detail)],
     );
     final figure = Column(
       crossAxisAlignment: CrossAxisAlignment.end,
       children: [
+        Text(caption, style: AgroText.label, textAlign: TextAlign.end),
         Text(
-          caption,
-          style: theme.textTheme.bodySmall,
+          formatBob(amount),
           textAlign: TextAlign.end,
-        ),
-        Text(
-          amount,
-          textAlign: TextAlign.end,
-          style: theme.textTheme.titleLarge?.copyWith(
+          style: AgroText.amount.copyWith(
+            fontSize: 24,
+            height: 30 / 24,
             fontWeight: FontWeight.w800,
-            color: positive ? Colors.orange.shade800 : Colors.green.shade700,
           ),
         ),
       ],

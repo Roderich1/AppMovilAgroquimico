@@ -150,8 +150,16 @@ Future<void> _pumpHome(
   await _settle(tester);
 }
 
-Finder _inDialog(Finder matching) =>
-    find.descendant(of: find.byType(AlertDialog), matching: matching);
+Finder _inDialog(Finder matching) => find.descendant(
+  of: find.byKey(const Key('payment-sheet')),
+  matching: matching,
+);
+
+/// «Registrar pago» es un botón visible de la tarjeta (rediseño).
+Finder _payIn(Finder card) => find.descendant(
+  of: card,
+  matching: find.widgetWithText(FilledButton, 'Registrar pago'),
+);
 
 void main() {
   sqfliteFfiInit();
@@ -189,11 +197,16 @@ void main() {
         matching: find.byType(Card),
       );
       final own = find.byKey(const Key('own-consumption-card'));
-      for (final card in [person, own]) {
-        final labels = await menuOf(tester, card);
-        expect(labels, contains('Registrar pago'));
-        expect(labels, isNot(contains('Registrar adelanto')));
-      }
+      // Rediseño: en la tarjeta de una persona «Registrar pago» es un botón
+      // visible; el titular lo conserva en su menú (Q-2).
+      expect(_payIn(person), findsOneWidget);
+      expect(
+        await menuOf(tester, person),
+        isNot(contains('Registrar adelanto')),
+      );
+      final labels = await menuOf(tester, own);
+      expect(labels, contains('Registrar pago'));
+      expect(labels, isNot(contains('Registrar adelanto')));
     });
 
     testWidgets('registrar desde Cuentas escribe un PAYMENT, y un adelanto '
@@ -222,9 +235,9 @@ void main() {
         matching: find.byType(PopupMenuButton<String>),
       );
       await tester.ensureVisible(menu);
-      await tester.tap(menu);
-      await _settle(tester, rounds: 2);
-      await tester.tap(find.text('Registrar pago'));
+      await tester.ensureVisible(_payIn(card));
+      await tester.pump();
+      await tester.tap(_payIn(card));
       await _settle(tester, rounds: 2);
       await tester.enterText(_inDialog(find.byType(TextField)), '20');
       await tester.tap(_inDialog(find.text('Registrar')));
@@ -330,9 +343,9 @@ void main() {
         matching: find.byType(PopupMenuButton<String>),
       );
       await tester.ensureVisible(menu);
-      await tester.tap(menu);
-      await _settle(tester, rounds: 2);
-      await tester.tap(find.text('Registrar pago'));
+      await tester.ensureVisible(_payIn(card));
+      await tester.pump();
+      await tester.tap(_payIn(card));
       await _settle(tester, rounds: 2);
 
       final field = tester.widget<TextField>(_inDialog(find.byType(TextField)));
@@ -346,7 +359,7 @@ void main() {
       await tester.enterText(_inDialog(find.byType(TextField)), '1,500');
       await tester.tap(_inDialog(find.text('Registrar')));
       await _settle(tester, rounds: 2);
-      expect(find.byType(AlertDialog), findsOneWidget);
+      expect(find.byKey(const Key('payment-sheet')), findsOneWidget);
       final rows = (await tester.runAsync(
         () => world.db.query('account_transactions'),
       ))!;
@@ -383,9 +396,9 @@ void main() {
           scrollable: find.byType(Scrollable).first,
         );
         await _settle(tester, rounds: 1);
-        await tester.tap(menu);
-        await _settle(tester, rounds: 2);
-        await tester.tap(find.text('Registrar pago'));
+        await tester.ensureVisible(_payIn(card));
+        await tester.pump();
+        await tester.tap(_payIn(card));
         await _settle(tester, rounds: 2);
 
         // Teclado numérico abierto: 300 dp de la parte inferior.
