@@ -453,12 +453,14 @@ class _NeedCard extends StatelessWidget {
                       if (need.needsResolution)
                         TextButton(
                           onPressed: onResolve,
-                          child: const Text('Resolver conflicto…'),
+                          child: const Text('Resolver conflicto'),
                         ),
                       TextButton(
                         onPressed: onEdit,
                         child: Text(
-                          active ? 'Cambiar cantidad…' : 'Declarar de nuevo…',
+                          // Sin «…»: en la tarjeta parecía un rótulo recortado
+                          // (revisión C-2).
+                          active ? 'Cambiar cantidad' : 'Declarar de nuevo',
                         ),
                       ),
                       TextButton(
