@@ -1,7 +1,7 @@
 # Estado de la sesión B
 
 - Dueño del worktree: proyectoagro-a8 desde 2026-11-12 07:09
-- Base incorporada: integración `af04f7e` (incluye B2 `794a44b`; fusión `3957e41`)
+- Base incorporada: integración `0757033` (incluye B2 y las entregas 1–3)
 - Mapa de pantallas, rutas y accesos: `docs/rediseno/estado/B_MAPA.md`
 
 ## Entregas listas
@@ -10,7 +10,8 @@
 |---|---|---|---|---|---|
 | 1 | `8e97b78` (código: `950ce19`, `e79d422`, `032a100`) — integrada, revisión B-1 | Inicio `/` (1.2), Almacén `/inventario` (1.4), resumen de avisos del Almacén | ver «Entrega 1» | `docs/evidence/rediseno-movil/2026-11-12/sesion-b/entrega-1/` | ver «Entrega 1» |
 | 2 | `eb7807e` (código: `b2997b1`) — integrada en `af04f7e` | Actividad `/operaciones` (1.3) | ver «Entrega 2» | `docs/evidence/rediseno-movil/2026-11-12/sesion-b/entrega-2/` | ver «Entrega 2» |
-| 3 | el commit que añade esta fila (código: `f112d0e`, `ba8d8df` y la corrección del total) | Lista de compras `/compras`, detalle `/compras/detalle/:id` (2.8) | ver «Entrega 3» | `docs/evidence/rediseno-movil/2026-11-12/sesion-b/entrega-3/` | ver «Entrega 3» |
+| 3 | `56c0080` (código: `f112d0e`, `ba8d8df`, `b58b2b2`) — integrada en `0757033` | Lista de compras `/compras`, detalle `/compras/detalle/:id` (2.8) | ver «Entrega 3» | `docs/evidence/rediseno-movil/2026-11-12/sesion-b/entrega-3/` | ver «Entrega 3» |
+| 4 | el commit que añade esta fila (código: `0fd83f4`) | Transferencias `/transferencias`, nueva `/transferencias/nueva` (5.4) | ver «Entrega 4» | `docs/evidence/rediseno-movil/2026-11-12/sesion-b/entrega-4/` | ver «Entrega 4» |
 
 ### Entrega 1 — Inicio y Almacén
 
@@ -100,12 +101,30 @@
 **Pruebas corridas** (en verde): `ux_c1_detalle_compra`, `ux_c1_correcciones`, `rec_008_invoice_viewer`, `rec_050_reversal_rules`, `e2_joint_purchase_screens`, `error_states`, `f04_admin_owner_restore_ui`, `e12_pending_operation_return`, `f04_av_inventory_alerts_ui`, `f04_effective_date_form`, `f10_x01_pago_datos`, `f10_x01_pago_revision`, `hierarchical_navigation`, `navigation`, `purchases_access`, `ui_polish`, `uxj_a_navegacion`.
 **Pruebas adaptadas:** `rec_008_invoice_viewer` y `ux_c1_correcciones` (A2) buscan la fila de la compra por su clave `purchase-card-<id>` en vez de una `Card`.
 
+### Entrega 4 — Transferencias
+
+**Lista.** Filas en un grupo blanco: de → a, fecha y productos con «Entrega sin deuda» (texto de D-07), desplegable con productos, lotes y «costo de referencia» (no es precio), «Revertir» (motivo y PIN del titular) y, en las revertidas, «Revertida» con su auditoría. El párrafo de D-07 («Entregas de producto… sólo de referencia.») se conserva como aviso breve: lo exige `f10_d07`.
+**Nueva transferencia (5.4).** `FlowTopBar` «Nueva transferencia», «¿Quién entrega a quién?» con «Persona origen» y «Persona destino» como filas (`AdaptiveEntityPicker(rowStyle: true)`; el destino pide elegir antes quién entrega), aviso «Una transferencia no genera deuda entre las personas.», «¿Qué entrega?» con «<persona> tiene X disponibles · n lote(s) · costo de referencia …» y la cantidad por producto, «Revisar y confirmar» abajo. Validaciones, confirmación con el aviso sin deuda, «¿Descartar cambios?», decimales y modo propio sin cambios.
+
+**Diferencias con la lámina**
+| Lámina | App | Motivo |
+|---|---|---|
+| «Entrega» / «Recibe» | «Persona origen» / «Persona destino» | Rótulos que usan las pruebas de D-07, OE3 y F04; cambiarlos es una decisión de texto, no visual. |
+| Botón de intercambio entre origen y destino | no está | No existe la función; sería nueva. |
+| «Revisar entrega →» | «Revisar y confirmar» | Texto vigente que leen las pruebas. |
+| Orden origen → productos → destino (antes) | origen y destino arriba, productos debajo | Como la lámina. |
+
+**Pruebas corridas** (en verde): `f10_d07_transferencia_sin_deuda`, `oe3_transfer_decimal`, `responsive_v5`, `ui_polish`, `f04_admin_owner_restore_ui`, `personal_mode_flows`, `ux_c1_correcciones`, `rec_050_reversal_rules`, `e12_pending_operation_return`.
+**Pruebas adaptadas:** `ux_c1_correcciones` (A3) mide el ancho contra el grupo `transfers-group` en vez de una `Card`; `f10_d07` (treinta líneas) vuelve al selector de destino con `ensureVisible` antes de elegirlo (ahora está arriba).
+
 ## En curso
 
-- Siguiente: Transferencias y nueva transferencia (5.4), Producto (4.1), Avisos (4.2), Estimación (4.3).
+- Siguiente: Producto (4.1), Avisos (4.2), Estimación (4.3).
 - Cedido a la sesión A el 2026-11-12 (propuesta del orquestador): Personas, Persona, Cuenta, Pago, Propios, Costos por chaco y Bitácora (`persons_screen`, `person_detail_screen`, `settlements_screen`, `account_statement_view`, `farm_logbook_screen`). B no los tocó.
 
 ## Solicitudes al orquestador
+
+3. `/transferencias` tiene «Nueva» y además el «+ Registrar» flotante del shell; como hiciste con `/compras`, quizá sobre aquí. No bloquea.
 
 1. `ActionTile`: ¿un tono `surface` (blanco, texto verde oscuro) para el segundo acceso de Inicio, como la lámina? Hoy uso `ActionTileTone.ink`. No bloquea.
 2. Botón flotante del shell en Almacén: tapa la cifra de la tarjeta que pasa por detrás mientras se desplaza (al final no tapa nada: `ContentInsets` funciona). Si se quiere evitar, sería en `app_shell.dart` (p. ej. el «Registrar» extendido de la lámina, más bajo). No bloquea.
