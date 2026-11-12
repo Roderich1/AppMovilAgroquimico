@@ -1,7 +1,7 @@
 # Estado de la sesión B
 
-- Dueño del worktree: (libre: la sesión que lo tome escribe aquí su nombre, fecha y hora)
-- Base incorporada: B0
+- Dueño del worktree: proyectoagro-a8 desde 2026-11-12 (hora local de la sesión)
+- Base incorporada: B0 (33e581f)
 
 ## Entregas listas
 
@@ -9,6 +9,8 @@
 |---|---|---|---|---|---|
 
 ## En curso
+
+- Inventario de pantallas B y mapa de rutas (`docs/rediseno/sesiones_b/MAPA_B.md`).
 
 ## Solicitudes al orquestador
 
