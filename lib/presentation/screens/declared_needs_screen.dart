@@ -9,7 +9,10 @@ import '../../domain/money.dart';
 import '../../domain/numeric_input.dart';
 import '../../domain/sync/sync_types.dart';
 import '../../services/sync/sync_providers.dart';
+import '../theme/agro_theme.dart';
+import '../widgets/agro_ui.dart';
 import '../widgets/common.dart';
+import '../widgets/rdm_c_page.dart';
 import '../widgets/sync_status_banner.dart';
 
 /// Necesidad declarada al sindicato (F06-COLL-04, F06 §3): lo que el
@@ -302,13 +305,20 @@ class _DeclaredNeedsScreenState extends ConsumerState<DeclaredNeedsScreen> {
     return _page(ref.watch(syncControllerProvider));
   }
 
-  Widget _page(SyncState sync) => PageFrame(
+  Widget _page(SyncState sync) => RdmCPage(
     title: 'Necesidad declarada',
     subtitle:
         'Lo que usted solicita al sindicato para una campaña. No cambia su '
         'inventario.',
+    // En la cabecera y no flotante: el «Nuevo» global ya flota abajo.
     action: FilledButton.icon(
+      key: const Key('needs-declare'),
       onPressed: _declare,
+      style: FilledButton.styleFrom(
+        backgroundColor: AgroColors.lime,
+        foregroundColor: AgroColors.ink,
+        minimumSize: const Size(0, 44),
+      ),
       icon: const Icon(Icons.add),
       label: const Text('Declarar'),
     ),
@@ -334,76 +344,145 @@ class _DeclaredNeedsScreenState extends ConsumerState<DeclaredNeedsScreen> {
                 busy: sync.busy,
                 onSyncNow: _syncNow,
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 12),
             ],
-            Align(
-              alignment: Alignment.centerLeft,
-              child: TextButton.icon(
-                onPressed: () => context.push('/sindicato/vinculos'),
-                icon: const Icon(Icons.link),
-                label: const Text('Vincular con el sindicato'),
-              ),
-            ),
             if (list.isEmpty)
-              const EmptyState(
+              const RdmCEmpty(
                 icon: Icons.playlist_add,
                 message: 'Todavía no declaró ninguna necesidad.',
               )
             else
-              Card(
-                child: Column(
-                  children: [
-                    for (final need in list)
-                      ListTile(
-                        title: Text(
-                          '${need.productName} · ${need.campaignName}',
-                        ),
-                        subtitle: Text(
-                          '${need.status == DeclaredNeedStatus.active ? formatQuantity(need.quantityBase!, need.baseUnit.majorUnit) : 'Anulada'}'
-                          ' · ${_syncLabel(need)}',
-                        ),
-                        trailing: PopupMenuButton<String>(
-                          tooltip: 'Opciones de la necesidad',
-                          onSelected: (value) => switch (value) {
-                            'edit' => _edit(need),
-                            'withdraw' => _withdraw(need),
-                            'resolve' => _resolve(need),
-                            _ => _history(need),
-                          },
-                          itemBuilder: (_) => [
-                            if (need.needsResolution)
-                              const PopupMenuItem(
-                                value: 'resolve',
-                                child: Text('Resolver conflicto…'),
-                              ),
-                            PopupMenuItem(
-                              value: 'edit',
-                              child: Text(
-                                need.status == DeclaredNeedStatus.active
-                                    ? 'Cambiar cantidad…'
-                                    : 'Declarar de nuevo…',
-                              ),
-                            ),
-                            if (need.status == DeclaredNeedStatus.active)
-                              const PopupMenuItem(
-                                value: 'withdraw',
-                                child: Text('Anular'),
-                              ),
-                            const PopupMenuItem(
-                              value: 'history',
-                              child: Text('Historial'),
-                            ),
-                          ],
-                        ),
-                      ),
-                  ],
+              for (final need in list) ...[
+                _NeedCard(
+                  key: Key('need-${need.id}'),
+                  need: need,
+                  syncLabel: _syncLabel(need),
+                  onEdit: () => _edit(need),
+                  onHistory: () => _history(need),
+                  onWithdraw: () => _withdraw(need),
+                  onResolve: () => _resolve(need),
                 ),
-              ),
+                const SizedBox(height: 10),
+              ],
+            const SizedBox(height: 2),
+            RdmCLinkRow(
+              key: const Key('needs-open-bindings'),
+              text:
+                  'Sólo puede declarar productos vinculados con el '
+                  'sindicato.',
+              semanticsHint: 'Abre Productos y campañas',
+              onTap: () => context.push('/sindicato/vinculos'),
+            ),
           ],
         );
       },
     ),
   );
+}
+
+/// Una necesidad: producto, campaña, cantidad grande, estado del envío en
+/// palabras y sus acciones. Un conflicto sin decidir se muestra como acción,
+/// no escondido en el menú.
+class _NeedCard extends StatelessWidget {
+  const _NeedCard({
+    super.key,
+    required this.need,
+    required this.syncLabel,
+    required this.onEdit,
+    required this.onHistory,
+    required this.onWithdraw,
+    required this.onResolve,
+  });
+
+  final DeclaredNeed need;
+  final String syncLabel;
+  final VoidCallback onEdit;
+  final VoidCallback onHistory;
+  final VoidCallback onWithdraw;
+  final VoidCallback onResolve;
+
+  @override
+  Widget build(BuildContext context) {
+    final active = need.status == DeclaredNeedStatus.active;
+    return Material(
+      color: AgroColors.surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+        side: need.needsResolution
+            ? const BorderSide(color: AgroColors.caution, width: 2)
+            : BorderSide.none,
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 14, 6, 6),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.only(right: 10),
+              child: AmountAside(
+                amount: active
+                    ? formatQuantity(
+                        need.quantityBase!,
+                        need.baseUnit.majorUnit,
+                      )
+                    : null,
+                amountStyle: AgroText.total,
+                amountKey: Key('need-amount-${need.id}'),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(need.productName, style: AgroText.value),
+                    Text(need.campaignName, style: AgroText.detail),
+                    if (!active) Text('Anulada', style: AgroText.question),
+                    const SizedBox(height: 8),
+                    StatusBadge(
+                      label: syncLabel,
+                      tone: rdmCOutboxTone(need.syncStatus),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                Expanded(
+                  child: Wrap(
+                    spacing: 4,
+                    children: [
+                      if (need.needsResolution)
+                        TextButton(
+                          onPressed: onResolve,
+                          child: const Text('Resolver conflicto…'),
+                        ),
+                      TextButton(
+                        onPressed: onEdit,
+                        child: Text(
+                          active ? 'Cambiar cantidad…' : 'Declarar de nuevo…',
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: onHistory,
+                        child: const Text('Historial'),
+                      ),
+                    ],
+                  ),
+                ),
+                if (active)
+                  RdmCOptionsMenu(
+                    tooltip: 'Opciones de la necesidad',
+                    onSelected: (_) => onWithdraw(),
+                    items: const [
+                      PopupMenuItem(value: 'withdraw', child: Text('Anular')),
+                    ],
+                  ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _DeclarationDraft {

@@ -15,7 +15,10 @@ import '../../domain/sync/sync_types.dart'
         syncCodeExplanation,
         syncCodeFamily;
 import '../../services/sync/sync_providers.dart';
+import '../theme/agro_theme.dart';
+import '../widgets/agro_ui.dart';
 import '../widgets/common.dart';
+import '../widgets/rdm_c_page.dart';
 import '../widgets/sync_status_banner.dart';
 
 /// Publicación explícita del consumo al sindicato (MOB #33): la vista previa
@@ -170,7 +173,7 @@ class _ConsumptionPublishScreenState
       }
     });
     final sync = ref.watch(syncControllerProvider);
-    return PageFrame(
+    return RdmCPage(
       title: 'Consumo para el sindicato',
       subtitle:
           'Totales de sus aplicaciones confirmadas y no revertidas, por campaña '
@@ -179,8 +182,9 @@ class _ConsumptionPublishScreenState
         future: preview,
         builder: (context, snapshot) {
           if (snapshot.hasError) {
-            return Text(
-              snapshot.error is ConsumptionPublishException
+            return NoticeBox(
+              tone: NoticeTone.warning,
+              text: snapshot.error is ConsumptionPublishException
                   ? (snapshot.error! as ConsumptionPublishException).message
                   : 'No se pudo preparar la vista previa.',
             );
@@ -190,7 +194,7 @@ class _ConsumptionPublishScreenState
           }
           final data = snapshot.data!;
           return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               // C-02: por qué el worker no envía, con la acción pertinente.
               if (sync.message != null) ...[
@@ -199,54 +203,59 @@ class _ConsumptionPublishScreenState
                   busy: sync.busy,
                   onSyncNow: _syncNow,
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 12),
               ],
-              FilledButton.icon(
-                key: const Key('publish-consumption'),
-                onPressed: data.hasChanges ? () => _publish(data) : null,
-                icon: const Icon(Icons.cloud_upload_outlined),
-                label: const Text('Publicar consumo al sindicato'),
-              ),
-              const SizedBox(height: 12),
               if (data.rows.isEmpty)
-                const Text(
-                  'No hay consumo propio en campañas y productos vinculados.',
+                const RdmCEmpty(
+                  icon: Icons.water_drop_outlined,
+                  message:
+                      'No hay consumo propio en campañas y productos '
+                      'vinculados.',
                 ),
-              for (final row in data.rows)
-                Card(
+              for (final row in data.rows) ...[
+                _ConsumptionCard(
                   key: Key(
                     'consumption-${row.target.campaignRef}-${row.target.productRef}',
                   ),
-                  child: ListTile(
-                    // Decorativo: la palabra del estado está en el texto.
-                    leading: Icon(_stateIcon(row.sendState)),
-                    title: Text('${row.productName} · ${row.campaignName}'),
-                    subtitle: Text(
-                      '${_total(row)} · ${_stateWord(row.sendState)}\n'
+                  title: row.productName,
+                  campaign: row.campaignName,
+                  amount: _total(row),
+                  state: _stateWord(row.sendState),
+                  tone: _stateTone(row.sendState),
+                  detail:
                       '${_changeLabel(row)}'
                       '${row.blockedDetail == null ? '' : '\n${row.blockedDetail}'}',
-                    ),
-                    isThreeLine: true,
-                    trailing: row.change == ConsumptionChange.conflict
-                        ? TextButton(
-                            onPressed: () => _resolve(row),
-                            child: const Text('Enviar mi total actual'),
-                          )
-                        : row.canWithdraw
-                        ? TextButton(
-                            key: Key('withdraw-${row.target.productRef}'),
-                            onPressed: () => _withdraw(row),
-                            child: const Text('Retirar del sindicato'),
-                          )
-                        : null,
-                  ),
+                  action: row.change == ConsumptionChange.conflict
+                      ? TextButton(
+                          onPressed: () => _resolve(row),
+                          child: const Text('Enviar mi total actual'),
+                        )
+                      : row.canWithdraw
+                      ? TextButton(
+                          key: Key('withdraw-${row.target.productRef}'),
+                          onPressed: () => _withdraw(row),
+                          child: const Text('Retirar del sindicato'),
+                        )
+                      : null,
                 ),
+                const SizedBox(height: 10),
+              ],
               ..._exclusions(data),
-              const SizedBox(height: 8),
-              TextButton.icon(
-                onPressed: () => context.push('/sindicato/vinculos'),
-                icon: const Icon(Icons.link),
-                label: const Text('Vincular con el sindicato'),
+              const SizedBox(height: 12),
+              // Publicar es siempre una acción expresa (F04 §2.4); sólo se
+              // habilita si algún total cambió.
+              PrimaryActionButton(
+                key: const Key('publish-consumption'),
+                label: 'Publicar consumo al sindicato',
+                icon: Icons.arrow_upward,
+                iconFirst: true,
+                onPressed: data.hasChanges ? () => _publish(data) : null,
+              ),
+              const SizedBox(height: 12),
+              RdmCLinkRow(
+                text: 'Vincular con el sindicato',
+                semanticsHint: 'Abre Productos y campañas',
+                onTap: () => context.push('/sindicato/vinculos'),
               ),
             ],
           );
@@ -255,6 +264,12 @@ class _ConsumptionPublishScreenState
     );
   }
 
+  static BadgeTone _stateTone(ConsumptionSendState state) => switch (state) {
+    ConsumptionSendState.pending => BadgeTone.review,
+    ConsumptionSendState.sent => BadgeTone.ok,
+    ConsumptionSendState.attention => BadgeTone.missing,
+  };
+
   /// Las tres palabras de estado (pedido del autor del 2026-11-05). La
   /// publicación sigue siendo expresa: «Pendiente» incluye lo que espera a
   /// que usted pulse «Publicar».
@@ -262,12 +277,6 @@ class _ConsumptionPublishScreenState
     ConsumptionSendState.pending => 'Pendiente',
     ConsumptionSendState.sent => 'Enviado',
     ConsumptionSendState.attention => 'Requiere atención',
-  };
-
-  static IconData _stateIcon(ConsumptionSendState state) => switch (state) {
-    ConsumptionSendState.pending => Icons.schedule,
-    ConsumptionSendState.sent => Icons.cloud_done_outlined,
-    ConsumptionSendState.attention => Icons.error_outline,
   };
 
   /// Frase con punto final (las explicaciones por familia no lo llevan).
@@ -346,9 +355,31 @@ class _ConsumptionPublishScreenState
     ];
     if (notes.isEmpty) return const [];
     return [
-      const SizedBox(height: 8),
-      Text('No se publica', style: Theme.of(context).textTheme.titleSmall),
-      for (final note in notes) Text('• $note'),
+      Container(
+        key: const Key('consumption-exclusions'),
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+        decoration: BoxDecoration(
+          color: AgroColors.track,
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Semantics(
+              header: true,
+              child: const Text('No se publica', style: AgroText.question),
+            ),
+            for (final note in notes)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  '• $note',
+                  style: AgroText.detail.copyWith(color: AgroColors.ink),
+                ),
+              ),
+          ],
+        ),
+      ),
     ];
   }
 
@@ -362,4 +393,58 @@ class _ConsumptionPublishScreenState
     ConsumptionExclusion.overflow => 'el total supera el máximo admitido',
     ConsumptionExclusion.notOwner || ConsumptionExclusion.reversed => '',
   };
+}
+
+/// Un total por campaña y producto: nombre, campaña, cantidad grande, la
+/// palabra del estado y, debajo, qué pasaría al publicar.
+class _ConsumptionCard extends StatelessWidget {
+  const _ConsumptionCard({
+    super.key,
+    required this.title,
+    required this.campaign,
+    required this.amount,
+    required this.state,
+    required this.tone,
+    required this.detail,
+    required this.action,
+  });
+
+  final String title;
+  final String campaign;
+  final String amount;
+  final String state;
+  final BadgeTone tone;
+  final String detail;
+  final Widget? action;
+
+  @override
+  Widget build(BuildContext context) => Material(
+    color: AgroColors.surface,
+    borderRadius: BorderRadius.circular(20),
+    child: Padding(
+      padding: EdgeInsets.fromLTRB(16, 14, 16, action == null ? 14 : 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          AmountAside(
+            amount: amount,
+            amountStyle: AgroText.total,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: AgroText.value),
+                Text(campaign, style: AgroText.detail),
+                const SizedBox(height: 8),
+                StatusBadge(label: state, tone: tone),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(detail, style: AgroText.detail.copyWith(color: AgroColors.ink)),
+          if (action != null)
+            Align(alignment: Alignment.centerLeft, child: action),
+        ],
+      ),
+    ),
+  );
 }

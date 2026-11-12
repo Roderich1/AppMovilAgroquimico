@@ -281,8 +281,14 @@ String? refreshProblem(JointPurchaseRunReport report) {
     return 'Este teléfono no tiene configurado el servidor del sindicato.';
   }
   if (report.listUnavailable) {
-    return 'No se pudo leer la lista del sindicato. Lo guardado en el '
-        'teléfono se conserva; inténtelo más tarde.';
+    // N7: incompatibilidad de versión, falta de conexión y fallo temporal
+    // se dicen distinto.
+    return switch (report.listProblem) {
+      JointPurchaseListProblem.incompatibleVersion =>
+        jointPurchaseIncompatibleText,
+      JointPurchaseListProblem.offline => jointPurchaseListOfflineText,
+      _ => jointPurchaseListTemporaryText,
+    };
   }
   if (report.retried > 0) {
     return 'No se pudo confirmar un envío. Se reintentará con el mismo '

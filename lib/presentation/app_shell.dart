@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show ScrollDirection;
 import 'package:flutter_riverpod/flutter_riverpod.dart'
     show UncontrolledProviderScope;
 import 'package:go_router/go_router.dart';
@@ -9,7 +10,7 @@ import 'widgets/common.dart';
 import 'widgets/register_sheet.dart';
 import 'widgets/sync_status_banner.dart';
 
-class AppShell extends StatelessWidget {
+class AppShell extends StatefulWidget {
   const AppShell({
     super.key,
     required this.location,
@@ -193,127 +194,7 @@ class AppShell extends StatelessWidget {
   static const double fabReserve = 88;
 
   @override
-  Widget build(BuildContext context) {
-    final wide = MediaQuery.sizeOf(context).width >= 900;
-    final keyboardOpen = MediaQuery.viewInsetsOf(context).bottom > 0;
-    // El FAB desaparece con el teclado abierto (UIBUG-009) y en las rutas que
-    // ya tienen su propia acción primaria (UIBUG-047).
-    final showFab = !keyboardOpen && !hidesGlobalFab;
-    final body = SafeArea(
-      child: ContentInsets(
-        // Sin FAB no hay nada que esquivar: reservar su alto dejaría un hueco
-        // muerto al final de la página.
-        bottomReserve: showFab ? fabReserve : 0,
-        // Indicador de sincronización (RF-18). Sólo con estado de la app
-        // disponible; sin nada pendiente deja el contenido intacto.
-        child:
-            context
-                    .findAncestorWidgetOfExactType<
-                      UncontrolledProviderScope
-                    >() ==
-                null
-            ? child
-            : SyncAwareBody(child: child),
-      ),
-    );
-    if (wide) {
-      return _withBackPolicy(
-        context,
-        Scaffold(
-          floatingActionButton: showFab ? _newButton(context) : null,
-          body: Row(
-            children: [
-              // **UIBUG-068 — el rail tiene que poder desplazarse.**
-              // `NavigationRail` reparte su alto entre los destinos y no se
-              // desplaza por su cuenta. En horizontal el alto útil son 1080 px,
-              // y con la fuente al 130 % los cinco destinos con etiqueta ya no
-              // caben: `RenderFlex overflowed by 90 pixels` y "Personas" y
-              // "Cuentas" quedaban inalcanzables.
-              //
-              // Se resuelve dejándolo desplazar en vez de acotar la escala del
-              // texto: en horizontal sobra sitio para desplazarse, así que las
-              // etiquetas pueden seguir creciendo. (La barra inferior, con solo
-              // ~90 px de alto, sí mantiene su compromiso de escala.)
-              LayoutBuilder(
-                builder: (context, constraints) => SingleChildScrollView(
-                  child: ConstrainedBox(
-                    constraints: BoxConstraints(
-                      minHeight: constraints.maxHeight,
-                    ),
-                    child: IntrinsicHeight(
-                      child: NavigationRail(
-                        extended: MediaQuery.sizeOf(context).width >= 1150,
-                        // Sin esto, entre 900 y 1150 px (el Pixel 8 apaisado
-                        // da ~914) los destinos se mostraban SOLO con iconos,
-                        // sin etiqueta (UIBUG-063).
-                        labelType: MediaQuery.sizeOf(context).width >= 1150
-                            ? null
-                            : NavigationRailLabelType.all,
-                        selectedIndex: selectedIndex,
-                        onDestinationSelected: (index) =>
-                            context.go(destinations[index].path),
-                        leading: const Padding(
-                          padding: EdgeInsets.symmetric(vertical: 20),
-                          child: CircleAvatar(
-                            radius: 24,
-                            child: Icon(Icons.eco_outlined),
-                          ),
-                        ),
-                        destinations: [
-                          for (final item in destinations)
-                            NavigationRailDestination(
-                              icon: Icon(item.icon),
-                              selectedIcon: Icon(item.selectedIcon),
-                              label: Text(item.label),
-                            ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-              const VerticalDivider(width: 1),
-              Expanded(child: body),
-            ],
-          ),
-        ),
-      );
-    }
-    return _withBackPolicy(
-      context,
-      Scaffold(
-        body: body,
-        // Con el teclado abierto el FAB tapaba el campo activo (UIBUG-009).
-        floatingActionButton: showFab ? _newButton(context) : null,
-        // **Etiquetas de la barra ajustadas al ancho de su destino.** Con
-        // cinco destinos, «Operaciones» no cabía en una línea y se partía en
-        // «Operacion / es» (UIBUG-017, POCO por encima del 100 %) y en
-        // «Operacione / s» (#129, HONOR de 360 dp incluso al 100 %). Antes se
-        // fijaba la escala de la barra al 100 %, lo que no bastaba en 360 dp.
-        // Ahora las etiquetas siguen la escala del sistema (hasta el 130 %
-        // que `NavigationBar` admite) y sólo se reducen lo justo para que la
-        // más larga quepa en una línea en el ancho real de su destino, medida
-        // con la fuente del dispositivo. No se acorta el nombre de ninguna
-        // sección y cada destino conserva su icono.
-        bottomNavigationBar: LayoutBuilder(
-          builder: (context, constraints) => NavigationBar(
-            labelTextStyle: _fittedLabelStyle(context, constraints.maxWidth),
-            selectedIndex: selectedIndex,
-            onDestinationSelected: (index) =>
-                context.go(destinations[index].path),
-            destinations: [
-              for (final item in destinations)
-                NavigationDestination(
-                  icon: Icon(item.icon),
-                  selectedIcon: Icon(item.selectedIcon),
-                  label: item.label,
-                ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
+  State<AppShell> createState() => _AppShellState();
 
   /// Margen a cada lado de la etiqueta dentro de su destino.
   static const double _labelMargin = 4;
@@ -359,13 +240,167 @@ class AppShell extends StatelessWidget {
       ),
     );
   }
+}
 
-  /// Aplica la política de Atrás de [backFallback] (UIBUG-004B).
+class _AppShellState extends State<AppShell> {
+  /// «+ Registrar» se recoge a «+» mientras se desplaza hacia abajo (no tapa
+  /// las cifras de la derecha) y vuelve a extenderse al subir o al cambiar
+  /// de pantalla (sesión B, 2026-11-12).
+  bool _fabExtended = true;
+
+  @override
+  void didUpdateWidget(AppShell oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.location != widget.location) _fabExtended = true;
+  }
+
+  bool _onScroll(UserScrollNotification n) {
+    final extended = switch (n.direction) {
+      ScrollDirection.reverse => false,
+      ScrollDirection.forward => true,
+      ScrollDirection.idle => _fabExtended,
+    };
+    if (n.metrics.axis == Axis.vertical && extended != _fabExtended) {
+      setState(() => _fabExtended = extended);
+    }
+    return false;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final wide = MediaQuery.sizeOf(context).width >= 900;
+    final keyboardOpen = MediaQuery.viewInsetsOf(context).bottom > 0;
+    // El FAB desaparece con el teclado abierto (UIBUG-009) y en las rutas que
+    // ya tienen su propia acción primaria (UIBUG-047).
+    final showFab = !keyboardOpen && !widget.hidesGlobalFab;
+    final body = NotificationListener<UserScrollNotification>(
+      onNotification: _onScroll,
+      child: SafeArea(
+        child: ContentInsets(
+          // Sin FAB no hay nada que esquivar: reservar su alto dejaría un hueco
+          // muerto al final de la página.
+          bottomReserve: showFab ? AppShell.fabReserve : 0,
+          // Indicador de sincronización (RF-18). Sólo con estado de la app
+          // disponible; sin nada pendiente deja el contenido intacto.
+          child:
+              context
+                      .findAncestorWidgetOfExactType<
+                        UncontrolledProviderScope
+                      >() ==
+                  null
+              ? widget.child
+              : SyncAwareBody(child: widget.child),
+        ),
+      ),
+    );
+    if (wide) {
+      return _withBackPolicy(
+        context,
+        Scaffold(
+          floatingActionButton: showFab ? _newButton(context) : null,
+          body: Row(
+            children: [
+              // **UIBUG-068 — el rail tiene que poder desplazarse.**
+              // `NavigationRail` reparte su alto entre los destinos y no se
+              // desplaza por su cuenta. En horizontal el alto útil son 1080 px,
+              // y con la fuente al 130 % los cinco destinos con etiqueta ya no
+              // caben: `RenderFlex overflowed by 90 pixels` y "Personas" y
+              // "Cuentas" quedaban inalcanzables.
+              //
+              // Se resuelve dejándolo desplazar en vez de acotar la escala del
+              // texto: en horizontal sobra sitio para desplazarse, así que las
+              // etiquetas pueden seguir creciendo. (La barra inferior, con solo
+              // ~90 px de alto, sí mantiene su compromiso de escala.)
+              LayoutBuilder(
+                builder: (context, constraints) => SingleChildScrollView(
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(
+                      minHeight: constraints.maxHeight,
+                    ),
+                    child: IntrinsicHeight(
+                      child: NavigationRail(
+                        extended: MediaQuery.sizeOf(context).width >= 1150,
+                        // Sin esto, entre 900 y 1150 px (el Pixel 8 apaisado
+                        // da ~914) los destinos se mostraban SOLO con iconos,
+                        // sin etiqueta (UIBUG-063).
+                        labelType: MediaQuery.sizeOf(context).width >= 1150
+                            ? null
+                            : NavigationRailLabelType.all,
+                        selectedIndex: widget.selectedIndex,
+                        onDestinationSelected: (index) =>
+                            context.go(AppShell.destinations[index].path),
+                        leading: const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 20),
+                          child: CircleAvatar(
+                            radius: 24,
+                            child: Icon(Icons.eco_outlined),
+                          ),
+                        ),
+                        destinations: [
+                          for (final item in AppShell.destinations)
+                            NavigationRailDestination(
+                              icon: Icon(item.icon),
+                              selectedIcon: Icon(item.selectedIcon),
+                              label: Text(item.label),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              const VerticalDivider(width: 1),
+              Expanded(child: body),
+            ],
+          ),
+        ),
+      );
+    }
+    return _withBackPolicy(
+      context,
+      Scaffold(
+        body: body,
+        // Con el teclado abierto el FAB tapaba el campo activo (UIBUG-009).
+        floatingActionButton: showFab ? _newButton(context) : null,
+        // **Etiquetas de la barra ajustadas al ancho de su destino.** Con
+        // cinco destinos, «Operaciones» no cabía en una línea y se partía en
+        // «Operacion / es» (UIBUG-017, POCO por encima del 100 %) y en
+        // «Operacione / s» (#129, HONOR de 360 dp incluso al 100 %). Antes se
+        // fijaba la escala de la barra al 100 %, lo que no bastaba en 360 dp.
+        // Ahora las etiquetas siguen la escala del sistema (hasta el 130 %
+        // que `NavigationBar` admite) y sólo se reducen lo justo para que la
+        // más larga quepa en una línea en el ancho real de su destino, medida
+        // con la fuente del dispositivo. No se acorta el nombre de ninguna
+        // sección y cada destino conserva su icono.
+        bottomNavigationBar: LayoutBuilder(
+          builder: (context, constraints) => NavigationBar(
+            labelTextStyle: AppShell._fittedLabelStyle(
+              context,
+              constraints.maxWidth,
+            ),
+            selectedIndex: widget.selectedIndex,
+            onDestinationSelected: (index) =>
+                context.go(AppShell.destinations[index].path),
+            destinations: [
+              for (final item in AppShell.destinations)
+                NavigationDestination(
+                  icon: Icon(item.icon),
+                  selectedIcon: Icon(item.selectedIcon),
+                  label: item.label,
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Aplica la política de Atrás de [widget.backFallback] (UIBUG-004B).
   ///
   /// Sólo actúa cuando no hay nada que desapilar: si se llegó apilando, el
   /// `Navigator` desapila normalmente y este `PopScope` no interviene.
   Widget _withBackPolicy(BuildContext context, Widget scaffold) {
-    final fallback = backFallback;
+    final fallback = widget.backFallback;
     return PopScope(
       canPop: fallback == null,
       onPopInvokedWithResult: (didPop, _) {
@@ -383,12 +418,21 @@ class AppShell extends StatelessWidget {
   /// Sin `Hero`: ningún formulario tiene un «+» al que animarlo, y al
   /// ocultarse y volver con el teclado durante una transición coincidían dos
   /// con la etiqueta por defecto (aserción de depuración, 2026-11-05).
-  Widget _newButton(BuildContext context) => FloatingActionButton.extended(
-    key: const Key('shell-registrar'),
-    heroTag: null,
-    onPressed: () =>
-        showRegisterSheet(context, transfersEnabled: transfersEnabled),
-    icon: const Icon(Icons.add),
-    label: const Text('Registrar'),
+  Widget _newButton(BuildContext context) => Semantics(
+    // Recogido sigue llamándose «Registrar».
+    label: _fabExtended ? null : 'Registrar',
+    child: FloatingActionButton.extended(
+      key: const Key('shell-registrar'),
+      heroTag: null,
+      isExtended: _fabExtended,
+      extendedIconLabelSpacing: _fabExtended ? 8 : 0,
+      extendedPadding: _fabExtended
+          ? null
+          : const EdgeInsets.symmetric(horizontal: 16),
+      onPressed: () =>
+          showRegisterSheet(context, transfersEnabled: widget.transfersEnabled),
+      icon: const Icon(Icons.add),
+      label: const Text('Registrar'),
+    ),
   );
 }

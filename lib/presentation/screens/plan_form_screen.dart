@@ -462,45 +462,30 @@ class _PlanFormScreenState extends ConsumerState<PlanFormScreen>
                       ..._voiceEntry(),
                       AgroGroup(
                         children: [
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.stretch,
-                            children: [
-                              AdaptiveEntityPicker<Map<String, Object?>>(
-                                rowStyle: true,
-                                label: 'Chaco',
-                                items: d.farms,
-                                value: farm,
-                                labelOf: (f) => f['name'] as String,
-                                secondaryOf: (f) =>
-                                    '${f['owner_name']} · '
-                                    '${formatHectares(f['area_m2'] as int)}',
-                                onChanged: selectFarm,
-                                createLabel: 'Crear chaco',
-                                onCreate: _createFarm,
-                                badge: VoiceMarkBadge(
-                                  dictation: voice,
-                                  slot: const SlotRef.header('farm'),
-                                  current: farmId,
-                                ),
-                              ),
-                              // Lo que falta se calcula con las existencias
-                              // del responsable del chaco.
-                              if (farm != null)
-                                Padding(
-                                  padding: const EdgeInsets.fromLTRB(
-                                    16,
-                                    0,
-                                    16,
-                                    10,
-                                  ),
-                                  child: Text(
-                                    '${farm['owner_name']} · se compara con '
-                                    'sus existencias',
-                                    key: const Key('plan-farm-owner'),
-                                    style: AgroText.detail,
-                                  ),
-                                ),
-                            ],
+                          // Lo que falta se calcula con las existencias del
+                          // responsable del chaco.
+                          AdaptiveEntityPicker<Map<String, Object?>>(
+                            rowStyle: true,
+                            label: 'Chaco',
+                            hint: farm == null
+                                ? null
+                                : '${farm['owner_name']} · se compara con '
+                                      'sus existencias',
+                            hintKey: const Key('plan-farm-owner'),
+                            items: d.farms,
+                            value: farm,
+                            labelOf: (f) => f['name'] as String,
+                            secondaryOf: (f) =>
+                                '${f['owner_name']} · '
+                                '${formatHectares(f['area_m2'] as int)}',
+                            onChanged: selectFarm,
+                            createLabel: 'Crear chaco',
+                            onCreate: _createFarm,
+                            badge: VoiceMarkBadge(
+                              dictation: voice,
+                              slot: const SlotRef.header('farm'),
+                              current: farmId,
+                            ),
                           ),
                         ],
                       ),
@@ -754,7 +739,7 @@ class _PlanFormScreenState extends ConsumerState<PlanFormScreen>
     final (String badge, BadgeTone tone) = need <= 0
         ? ('Escriba la dosis', BadgeTone.neutral)
         : missing == 0
-        ? ('Cubierto · hay ${formatQuantity(stock, unit!)}', BadgeTone.voice)
+        ? ('Cubierto · hay ${formatQuantity(stock, unit!)}', BadgeTone.ok)
         : (
             'Falta comprar ${formatQuantity(missing, unit!)} · '
                 'hay ${formatQuantity(stock, unit)}',

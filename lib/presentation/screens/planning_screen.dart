@@ -4,7 +4,10 @@ import 'package:go_router/go_router.dart';
 
 import '../../app.dart';
 import '../../domain/money.dart';
+import '../theme/agro_theme.dart';
+import '../widgets/agro_ui.dart';
 import '../widgets/common.dart';
+import '../widgets/rdm_a_list.dart';
 
 class PlanningScreen extends ConsumerStatefulWidget {
   const PlanningScreen({super.key});
@@ -63,21 +66,23 @@ class _PlanningScreenState extends ConsumerState<PlanningScreen> {
   }
 
   @override
-  Widget build(BuildContext context) => PageFrame(
+  Widget build(BuildContext context) => RdmAListPage(
     title: 'Planificación',
-    action: FilledButton.icon(
+    // Desde B1 no hay «+ Registrar» flotante aquí: el botón dice qué crea.
+    action: RdmARegisterButton(
+      key: const Key('planning-new'),
+      label: 'Nuevo plan',
       onPressed: add,
-      icon: const Icon(Icons.add),
-      label: const Text('Nuevo plan'),
     ),
     child: FutureBuilder<List<Map<String, Object?>>>(
       future: future,
       builder: (context, s) {
-        if (s.hasError)
+        if (s.hasError) {
           return EmptyState(
             icon: Icons.error_outline,
             message: friendlyError(s.error!),
           );
+        }
         if (!s.hasData) return const Center(child: CircularProgressIndicator());
         final groups = <int, List<Map<String, Object?>>>{};
         for (final row in s.data!) {
@@ -95,18 +100,21 @@ class _PlanningScreenState extends ConsumerState<PlanningScreen> {
             row['campaign_id'] as int: row['campaign_name'] as String,
         };
         return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             // La necesidad declarada al sindicato es otra cosa que un plan
             // (F06 §3): una intención expresa, no un cálculo de dosis.
-            Align(
-              alignment: Alignment.centerLeft,
-              child: TextButton.icon(
-                key: const Key('open-declared-needs'),
-                onPressed: () => context.push('/planificacion/necesidades'),
-                icon: const Icon(Icons.playlist_add_check),
-                label: const Text('Necesidad declarada al sindicato'),
-              ),
+            AgroGroup(
+              children: [
+                ValueRow(
+                  key: const Key('open-declared-needs'),
+                  label: 'Para el sindicato',
+                  value: 'Necesidad declarada',
+                  onTap: () => context.push('/planificacion/necesidades'),
+                ),
+              ],
             ),
+            const SizedBox(height: 16),
             DropdownButtonFormField<int?>(
               initialValue: campaignFilter,
               decoration: const InputDecoration(labelText: 'Campaña'),
@@ -128,109 +136,137 @@ class _PlanningScreenState extends ConsumerState<PlanningScreen> {
                   showApplied = value;
                   refresh();
                 },
-                avatar: const Icon(Icons.history, size: 18),
+                // Elegido lleva la marca (no sólo el color) en vez del icono.
+                avatar: showApplied
+                    ? null
+                    : const Icon(Icons.history, size: 18),
                 label: const Text('Mostrar planes aplicados'),
               ),
             ),
             const SizedBox(height: 12),
             if (visible.isEmpty)
-              EmptyState(
+              RdmAEmpty(
                 icon: Icons.event_note_outlined,
                 message: showApplied
                     ? 'No hay planes registrados.'
                     : 'No hay planes pendientes.',
               )
             else
-              Card(
-                child: ListView.separated(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  itemCount: visible.length,
-                  separatorBuilder: (_, _) => const Divider(height: 1),
-                  itemBuilder: (context, index) {
-                    final rows = visible[index].value;
-                    final first = rows.first;
-                    final applied = first['plan_status'] == 'APPLIED';
-                    return ExpansionTile(
-                      title: Text(
-                        '${first['farm_name']} · ${first['owner_name']}',
-                        style: const TextStyle(fontWeight: FontWeight.w700),
-                      ),
-                      subtitle: Text(
-                        '${first['campaign_name']} · ${rows.length} producto(s) · '
-                        '${applied ? 'aplicado' : 'pendiente'}',
-                      ),
-                      // Un plan consumido se marca en la propia fila: no hace
-                      // falta desplegarla para saber que ya no está en juego.
-                      trailing: applied
-                          ? const Chip(
-                              visualDensity: VisualDensity.compact,
-                              label: Text('Aplicado'),
-                            )
-                          : null,
-                      // El chevron del `ExpansionTile` estaba ocupado por el
-                      // botón "Aplicar", así que nada indicaba que la fila se
-                      // desplegara (UIBUG-046). Ahora el botón va dentro y el
-                      // indicador de expansión vuelve a verse.
-                      children: [
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                          child: Align(
-                            alignment: Alignment.centerLeft,
-                            // Un plan aplicado no ofrece la acción: no es que
-                            // se intente y falle, es que ya no procede
-                            // (UIBUG-045). El repositorio la rechaza además
-                            // por su cuenta.
-                            child: applied
-                                ? Text(
-                                    'Ya aplicado. Para repetir la aplicación, '
-                                    'cree un plan nuevo.',
-                                    style: TextStyle(
-                                      color: Theme.of(context)
-                                          .colorScheme
-                                          .outline,
-                                    ),
-                                  )
-                                : FilledButton.tonalIcon(
-                                    // Al volver del formulario hay que
-                                    // recargar: el plan acaba de consumirse y
-                                    // una lista sin refrescar seguiría
-                                    // ofreciendo "Aplicar" sobre algo ya
-                                    // aplicado. El repositorio lo rechazaría,
-                                    // pero el usuario vería un error en vez de
-                                    // una lista al día.
-                                    onPressed: () =>
-                                        applyPlan(first['plan_id']! as int),
-                                    icon: const Icon(
-                                      Icons.agriculture_outlined,
-                                    ),
-                                    label: const Text('Aplicar este plan'),
-                                  ),
-                          ),
-                        ),
-                        for (final row in rows)
-                          ListTile(
-                            dense: true,
-                            title: Text(row['product_name'] as String),
-                            subtitle: Text(
-                              'Área ${formatHectares(row['area_m2'] as int)} · dosis '
-                              '${formatQuantity(row['dose_base_per_ha'] as int, row['unit'] as String)}/ha',
-                            ),
-                            trailing: Text(
-                              formatQuantity(
-                                row['required_quantity_base'] as int,
-                                row['unit'] as String,
-                              ),
-                            ),
-                          ),
-                      ],
-                    );
-                  },
+              for (final entry in visible)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 10),
+                  child: _PlanCard(
+                    key: Key('plan-${entry.key}'),
+                    rows: entry.value,
+                    onApply: () => applyPlan(entry.key),
+                  ),
                 ),
-              ),
           ],
         );
       },
     ),
   );
+}
+
+/// Un plan: chaco y responsable, campaña, productos y si está pendiente o
+/// aplicado. Se despliega para ver cada producto con su dosis y cantidad y,
+/// si sigue pendiente, «Aplicar este plan».
+class _PlanCard extends StatelessWidget {
+  const _PlanCard({super.key, required this.rows, required this.onApply});
+
+  final List<Map<String, Object?>> rows;
+  final VoidCallback onApply;
+
+  @override
+  Widget build(BuildContext context) {
+    final first = rows.first;
+    final applied = first['plan_status'] == 'APPLIED';
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: Theme(
+        // Sin las líneas que ExpansionTile dibuja al abrirse.
+        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+        child: ExpansionTile(
+          tilePadding: const EdgeInsets.fromLTRB(16, 6, 12, 6),
+          iconColor: AgroColors.ink,
+          collapsedIconColor: AgroColors.muted,
+          title: Text(
+            '${first['farm_name']} · ${first['owner_name']}',
+            style: AgroText.value,
+          ),
+          // El estado va en palabras y en la etiqueta; el indicador de
+          // expansión queda libre (UIBUG-046).
+          subtitle: Padding(
+            padding: const EdgeInsets.only(top: 2),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${first['campaign_name']} · ${rdmAProducts(rows.length)}',
+                  style: AgroText.detail,
+                ),
+                const SizedBox(height: 6),
+                // Un plan consumido se marca en la propia fila: no hace falta
+                // desplegarla para saber que ya no está en juego.
+                StatusBadge(
+                  label: applied ? 'Aplicado' : 'Pendiente',
+                  tone: applied ? BadgeTone.neutral : BadgeTone.ok,
+                ),
+              ],
+            ),
+          ),
+          childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+          children: [
+            for (final row in rows)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 6),
+                child: AmountAside(
+                  amount: formatQuantity(
+                    row['required_quantity_base'] as int,
+                    row['unit'] as String,
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        row['product_name'] as String,
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          color: AgroColors.ink,
+                        ),
+                      ),
+                      Text(
+                        'Área ${formatHectares(row['area_m2'] as int)} · '
+                        'dosis ${formatQuantity(row['dose_base_per_ha'] as int, row['unit'] as String)}/ha',
+                        style: AgroText.detail,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            const SizedBox(height: 8),
+            // Un plan aplicado no ofrece la acción: no es que se intente y
+            // falle, es que ya no procede (UIBUG-045). El repositorio la
+            // rechaza además por su cuenta.
+            if (applied)
+              const Text(
+                'Ya aplicado. Para repetir la aplicación, cree un plan nuevo.',
+                style: AgroText.detail,
+              )
+            else
+              // Al volver del formulario hay que recargar: el plan acaba de
+              // consumirse y una lista sin refrescar seguiría ofreciendo
+              // «Aplicar» sobre algo ya aplicado.
+              PrimaryActionButton(
+                label: 'Aplicar este plan',
+                icon: Icons.spa_outlined,
+                iconFirst: true,
+                onPressed: onApply,
+              ),
+          ],
+        ),
+      ),
+    );
+  }
 }

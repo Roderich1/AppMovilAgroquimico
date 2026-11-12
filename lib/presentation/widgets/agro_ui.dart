@@ -633,7 +633,9 @@ class DashedPanel extends StatelessWidget {
 }
 
 /// Tono de una [ActionTile].
-enum ActionTileTone { lime, ink }
+/// `surface`: blanco con el icono en verde oscuro (la segunda acción de
+/// Inicio, como en la lámina; pedido por la sesión B).
+enum ActionTileTone { lime, ink, surface }
 
 /// Botón grande de acción principal (lámina «Inicio» y «Registrar»): icono en
 /// un círculo arriba y el nombre de la acción abajo, en lima o en verde
@@ -672,9 +674,26 @@ class ActionTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final lime = tone == ActionTileTone.lime;
-    final background = lime ? AgroColors.lime : AgroColors.ink;
-    final foreground = lime ? AgroColors.ink : AgroColors.onInk;
+    final (background, foreground, circle, glyph) = switch (tone) {
+      ActionTileTone.lime => (
+        AgroColors.lime,
+        AgroColors.ink,
+        AgroColors.ink,
+        AgroColors.lime,
+      ),
+      ActionTileTone.ink => (
+        AgroColors.ink,
+        AgroColors.onInk,
+        AgroColors.lime,
+        AgroColors.ink,
+      ),
+      ActionTileTone.surface => (
+        AgroColors.surface,
+        AgroColors.ink,
+        AgroColors.ink,
+        AgroColors.lime,
+      ),
+    };
     return Semantics(
       button: true,
       label: label,
@@ -687,13 +706,10 @@ class ActionTile extends StatelessWidget {
           onTap: onTap,
           child: Builder(
             builder: (context) {
-              final circle = CircleAvatar(
+              final badge = CircleAvatar(
                 radius: 22,
-                backgroundColor: lime ? AgroColors.ink : AgroColors.lime,
-                child: Icon(
-                  icon,
-                  color: lime ? AgroColors.lime : AgroColors.ink,
-                ),
+                backgroundColor: circle,
+                child: Icon(icon, color: glyph),
               );
               final text = Text(
                 label,
@@ -715,7 +731,7 @@ class ActionTile extends StatelessWidget {
                     ),
                     child: Row(
                       children: [
-                        circle,
+                        badge,
                         const SizedBox(width: 16),
                         Expanded(child: text),
                       ],
@@ -730,7 +746,7 @@ class ActionTile extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [circle, const SizedBox(height: 16), text],
+                    children: [badge, const SizedBox(height: 16), text],
                   ),
                 ),
               );
@@ -1038,7 +1054,10 @@ class SegmentToggle<T> extends StatelessWidget {
     );
   }
 
+  // Con la familia de la app: sin ella se medía con la fuente por defecto
+  // del motor y el selector se apilaba aunque cupiera (sesión C).
   static const _labelStyle = TextStyle(
+    fontFamily: AgroFonts.body,
     fontSize: 14,
     fontWeight: FontWeight.w700,
   );

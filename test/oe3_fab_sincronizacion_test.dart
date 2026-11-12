@@ -411,6 +411,31 @@ void main() {
       }
     }
 
+    testWidgets('«Registrar» se recoge a «+» al bajar y vuelve al subir; '
+        'recogido sigue llamándose «Registrar»', (tester) async {
+      configure(tester, _screens.first, 1);
+      final semantics = tester.ensureSemantics();
+      await tester.pumpWidget(
+        app(AppShell(location: '/operaciones', child: longPage())),
+      );
+      await tester.pumpAndSettle();
+      bool extended() => tester
+          .widget<FloatingActionButton>(find.byType(FloatingActionButton))
+          .isExtended;
+      expect(extended(), isTrue);
+      await tester.drag(find.byType(Scrollable).first, const Offset(0, -300));
+      await tester.pumpAndSettle();
+      expect(extended(), isFalse);
+      expect(
+        find.semantics.byPredicate((node) => node.label == _fabName),
+        findsOne,
+      );
+      await tester.drag(find.byType(Scrollable).first, const Offset(0, 200));
+      await tester.pumpAndSettle();
+      expect(extended(), isTrue);
+      semantics.dispose();
+    });
+
     testWidgets('app real: «Registrar» de Actividad abre la hoja y «Compra» '
         'lleva al formulario, como antes', (tester) async {
       final s = await harness.activatedHousehold(tester, 'fab-compra');

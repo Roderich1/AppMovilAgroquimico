@@ -9,7 +9,7 @@ Estados: `PROPOSED`, `ANALYZED`, `APPROVED`, `IN_PROGRESS`, `VERIFIED`, `DEFERRE
 | EVO-002 | Registrar/recordar último backup | EVOLUTION-1 | DEFERRED | P3 | L | Depende de política de recordatorio |
 | EVO-003 | Diagnóstico local exportable | EVOLUTION-1 | DEFERRED | P3 | L | Redactar datos sensibles |
 | EVO-004 | Modelos tipados de lectura | EVOLUTION-2 | VERIFIED | P1 | M | Diez consultas tipadas; SQL sin cambios; CI y Pixel 8 verdes |
-| EVO-005 | Exportación CSV | EVOLUTION-2 | VERIFIED | P1 | M | Dart puro; propietario comprobó el resultado |
+| EVO-005 | Exportación CSV | EVOLUTION-2 | VERIFIED | P1 | M | Dart puro; propietario comprobó el resultado. 2026-11-12: el usuario ya no puede generar CSV; la salida tabular es Excel (`.xlsx`), verificada sólo en pruebas de host |
 | EVO-006 | Exportación PDF | EVOLUTION-2 | VERIFIED | P1 | M | Escritor propio por ADR-001; Android y propietario verificados |
 | EVO-007 | Duplicar plan como borrador | Futuro | PROPOSED | P3 | M | Nunca reactivar plan original |
 | EVO-008 | Frontera única FIFO | Deuda | PROPOSED | P2 | H | Blocking sólo para nuevo consumidor FIFO |

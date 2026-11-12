@@ -224,7 +224,16 @@ class _PurchaseVoice implements VoiceFormTarget<VoicePurchaseDraft> {
       final price = _price(line, unit);
       if (price != null) fields['price'] = price;
       final currency = line.currency;
-      if (currency.value != null && line.price.value != null) {
+      // Con el precio por revisar, «bolivianos» no cambia nada (es la moneda
+      // de toda línea nueva): proponerla dejaba un cambio de moneda que el
+      // formulario no muestra y que «Deshacer» anunciaba como editado a mano
+      // (2026-11-12). En dólares sí se propone: es un dato.
+      final priceInReview = price == null || price.review != null;
+      final defaultCurrency =
+          currency.isResolved && currency.value == CurrencyCode.bob;
+      if (currency.value != null &&
+          line.price.value != null &&
+          !(priceInReview && defaultCurrency)) {
         fields['currency'] = currency.isResolved
             ? ProposedValue(
                 currency.value,
@@ -544,8 +553,12 @@ extension on _PurchaseLineEditor {
       'quantity': canon(quantity.text, tryParseBase),
       'price': price,
       // La moneda viene puesta (BOB) en toda línea nueva: sólo cuenta como
-      // dato cuando hay precio.
-      'currency': price == null ? null : currency,
+      // dato cuando hay precio o cuando es otra (dólares elegidos a mano o
+      // dictados con el precio por revisar). Así lo que puso la voz coincide
+      // con lo que se ve y «Deshacer» puede devolverla (2026-11-12).
+      'currency': price == null && currency == CurrencyCode.bob
+          ? null
+          : currency,
       'fx': currency == CurrencyCode.usd
           ? canon(fx.text, (t) {
               final v = tryParseDecimal(t);

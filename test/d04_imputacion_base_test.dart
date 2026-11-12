@@ -5,9 +5,10 @@
 // Este archivo sólo usa API que ya existía en `ed9c55c`: imputaciones
 // guardadas, `dashboard()`, `campaignCloseSummary()`, la exportación por el
 // servicio y los textos de Cuentas e Inicio. Así compila sobre la base y falla
-// allí por aserción, con las cifras «hoy» del documento.
+// allí por aserción, con las cifras «hoy» del documento. (2026-11-12: la
+// exportación tabular pasó de CSV a Excel; esa prueba ya no compila sobre
+// `ed9c55c`.)
 
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:agroquimicos/app.dart';
@@ -15,9 +16,9 @@ import 'package:agroquimicos/domain/money.dart';
 import 'package:agroquimicos/domain/reports/report_composer.dart';
 import 'package:agroquimicos/presentation/screens/dashboard_screen.dart';
 import 'package:agroquimicos/presentation/screens/settlements_screen.dart';
-import 'package:agroquimicos/services/reports/csv_report_generator.dart';
 import 'package:agroquimicos/services/reports/report_export_service.dart';
 import 'package:agroquimicos/services/reports/report_storage.dart';
+import 'package:agroquimicos/services/reports/xlsx_report_generator.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -25,6 +26,7 @@ import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'support/d04_world.dart';
+import 'support/xlsx_reader.dart';
 
 void main() {
   sqfliteFfiInit();
@@ -229,21 +231,24 @@ void main() {
       final table = await service.compose(
         ReportRequest(
           kind: ReportKind.accountStatement,
-          format: ReportFormat.csv,
+          format: ReportFormat.xlsx,
           campaignId: w.invierno,
           personId: w.familiar,
         ),
       );
-      final csv = utf8.decode(const CsvReportGenerator().generate(table));
-      expect(csv, contains('Saldo al inicio del período (Bs);81,00'));
-      expect(csv, contains('Saldo a hoy (Bs);71,00'));
+      // Desde el 2026-11-12 la salida tabular es Excel: registros del libro en
+      // la forma `;` del antiguo CSV, con los números en celdas numéricas.
+      final records = xlsxRecords(const XlsxReportGenerator().generate(table));
+      final text = records.join('\n');
+      expect(records, contains('Saldo al inicio del período (Bs);81,00'));
+      expect(records, contains('Saldo a hoy (Bs);71,00'));
       expect(
-        csv,
+        records,
         contains('Deuda pendiente por origen · Invierno 2026 (Bs);40,00'),
       );
-      expect(csv, contains('Saldo neto · todas las campañas (Bs);71,00'));
-      expect(csv, contains('Imputado: Verano 2026 ${bs(5000)}'));
-      expect(csv, isNot(contains('Saldo final')));
+      expect(records, contains('Saldo neto · todas las campañas (Bs);71,00'));
+      expect(text, contains('Imputado: Verano 2026 ${bs(5000)}'));
+      expect(text, isNot(contains('Saldo final')));
     });
   });
 

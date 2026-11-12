@@ -101,7 +101,9 @@ void main() {
       await tester.tap(find.widgetWithText(FilledButton, 'Declarar').last);
       await settle(tester);
 
-      expect(find.text('Herbicida local · Campaña local 2026'), findsOneWidget);
+      // Rediseño (sesión C): producto y campaña en líneas separadas.
+      expect(find.text('Herbicida local'), findsOneWidget);
+      expect(find.text('Campaña local 2026'), findsOneWidget);
       // C-01: el aviso distingue «guardada en el teléfono» de «aceptada».
       expect(
         find.text(
@@ -110,10 +112,9 @@ void main() {
         ),
         findsOneWidget,
       );
-      expect(
-        find.textContaining('25 L · Guardada, pendiente de envío'),
-        findsOneWidget,
-      );
+      // Rediseño (sesión C): la cantidad grande y el estado en su etiqueta.
+      expect(find.text('25 L'), findsOneWidget);
+      expect(find.text('Guardada, pendiente de envío'), findsOneWidget);
       final rows = (await tester.runAsync(fixture.outboxEntries))!;
       expect(rows.single.quantityBase, '25000');
       expect(rows.single.status, OutboxStatus.pending);
@@ -172,10 +173,9 @@ void main() {
         }
       });
       await settle(tester);
-      expect(
-        find.textContaining('25 L · Guardada, pendiente de envío'),
-        findsOneWidget,
-      );
+      // Rediseño (sesión C): la cantidad grande y el estado en su etiqueta.
+      expect(find.text('25 L'), findsOneWidget);
+      expect(find.text('Guardada, pendiente de envío'), findsOneWidget);
       // C-02: la pantalla donde se declaró dice por qué no salió y ofrece
       // la acción (la verificación sigue siendo explícita).
       expect(
@@ -197,9 +197,10 @@ void main() {
 
       final rows = (await tester.runAsync(fixture.outboxEntries))!;
       expect(rows.single.status, OutboxStatus.acked);
+      expect(find.text('25 L'), findsOneWidget);
       expect(
-        find.textContaining(
-          '25 L · Aceptada por el sindicato: ${formatDate(rows.single.ackedAt)}',
+        find.text(
+          'Aceptada por el sindicato: ${formatDate(rows.single.ackedAt)}',
         ),
         findsOneWidget,
       );

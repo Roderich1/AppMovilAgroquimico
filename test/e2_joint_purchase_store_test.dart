@@ -80,13 +80,13 @@ void main() {
   );
 
   test(
-    'confirmar: PENDING_SEND con UUID v4, sequence 1, consentimiento CONV-2',
+    'confirmar: PENDING_SEND con UUID v4, sequence 1, consentimiento CONV-3',
     () async {
       final op = await confirm({litreRef: 25000, kiloRef: 4500});
       expect(uuidV4Lowercase.hasMatch(op.operationId), isTrue);
       expect(op.sequence, 1);
       expect(op.sendStatus, JointPurchaseOpStatus.pendingSend);
-      expect(op.consentVersion, 'CONV-2');
+      expect(op.consentVersion, 'CONV-3');
       expect(op.consentAcceptedAt, now.toIso8601String());
       expect(op.wireLines, [
         {'product_ref': litreRef, 'quantity_base': '25000'},
@@ -538,7 +538,7 @@ void main() {
     },
   );
 
-  test('CONV-1 pendiente de antes de actualizar: se conserva; confirmar lo mismo con CONV-2 la sustituye', () async {
+  test('CONV-1 pendiente de antes de actualizar: se conserva; confirmar lo mismo con CONV-3 la sustituye', () async {
     await insertOp(
       callId,
       JointPurchaseOpStatus.pendingSend,
@@ -549,7 +549,7 @@ void main() {
 
     final renewed = await confirm({litreRef: 1000});
     expect(renewed.operationId, isNot(legacy.operationId));
-    expect(renewed.consentVersion, 'CONV-2');
+    expect(renewed.consentVersion, 'CONV-3');
     expect(renewed.sequence, 2);
     expect(
       (await store.op(legacy.operationId))!.sendStatus,
@@ -562,6 +562,114 @@ void main() {
         lines: {litreRef: 2000},
         consentVersion: jointPurchaseLegacyConsentVersion,
         consentAcceptedAt: now,
+      ),
+      throwsA(isA<BusinessRuleException>()),
+    );
+  });
+
+  // --- E2 §10.6 (P-C) --------------------------------------------------------
+
+  test('P-C: sin participación no hay decisión; la primera confirmación exige el consentimiento', () async {
+    await expectLater(
+      store.decideConsent(
+        callId: callId,
+        scope: JointPurchaseConsentScope.collaborators,
+        decidedAt: now,
+      ),
+      throwsA(isA<BusinessRuleException>()),
+    );
+    await expectLater(
+      store.confirm(callId: callId, lines: {litreRef: 1000}),
+      throwsA(isA<BusinessRuleException>()),
+    );
+    expect(await store.ops(callId), isEmpty);
+    // Con la primera confirmación pendiente ya se puede decidir.
+    await confirm({litreRef: 1000});
+    final widen = await store.decideConsent(
+      callId: callId,
+      scope: JointPurchaseConsentScope.collaborators,
+      decidedAt: now,
+    );
+    expect(widen!.sequence, 1);
+  });
+
+  test('P-C: con participación en el sindicato, modificar no lleva consentimiento y la decisión tiene su orden', () async {
+    await seedCalls(store, memberA, [
+      callJson(
+        participation: participationJson(
+          consentScope: 'COLLABORATORS',
+          consentScopeSequence: 4,
+        ),
+      ),
+    ]);
+    final modified = await confirm({litreRef: 2000});
+    expect(modified.consentVersion, isNull);
+    expect(modified.consentAcceptedAt, isNull);
+
+    // Lo que ya rige no se envía otra vez.
+    expect(
+      await store.decideConsent(
+        callId: callId,
+        scope: JointPurchaseConsentScope.collaborators,
+        decidedAt: now,
+      ),
+      isNull,
+    );
+    final reduce = (await store.decideConsent(
+      callId: callId,
+      scope: JointPurchaseConsentScope.responsibleOnly,
+      decidedAt: now,
+    ))!;
+    expect(reduce.sequence, 5);
+    expect(reduce.consentVersion, jointPurchaseConsentVersion);
+    // Doble toque: la misma decisión pendiente.
+    final again = await store.decideConsent(
+      callId: callId,
+      scope: JointPurchaseConsentScope.responsibleOnly,
+      decidedAt: now,
+    );
+    expect(again!.operationId, reduce.operationId);
+    // Volver a lo que rige deja sin efecto la pendiente y no envía nada.
+    expect(
+      await store.decideConsent(
+        callId: callId,
+        scope: JointPurchaseConsentScope.collaborators,
+        decidedAt: now,
+      ),
+      isNull,
+    );
+    expect(
+      (await store.consentOp(reduce.operationId))!.sendStatus,
+      JointPurchaseOpStatus.superseded,
+    );
+    // Las cantidades pendientes siguen intactas.
+    expect((await store.op(modified.operationId))!.sendStatus, JointPurchaseOpStatus.pendingSend);
+  });
+
+  test('P-C: en una convocatoria cancelada se reduce pero no se amplía', () async {
+    await seedCalls(store, memberA, [
+      callJson(
+        status: 'CANCELLED',
+        participation: participationJson(
+          consentScope: 'COLLABORATORS',
+          consentScopeSequence: 1,
+        ),
+      ),
+    ]);
+    final reduce = await store.decideConsent(
+      callId: callId,
+      scope: JointPurchaseConsentScope.responsibleOnly,
+      decidedAt: now,
+    );
+    expect(reduce, isNotNull);
+    await seedCalls(store, memberA, [
+      callJson(status: 'CANCELLED', participation: participationJson()),
+    ]);
+    await expectLater(
+      store.decideConsent(
+        callId: callId,
+        scope: JointPurchaseConsentScope.collaborators,
+        decidedAt: now,
       ),
       throwsA(isA<BusinessRuleException>()),
     );

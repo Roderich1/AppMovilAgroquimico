@@ -8,121 +8,58 @@ library;
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../domain/sync/sync_types.dart' show OutboxStatus;
 import '../theme/agro_theme.dart';
 import 'agro_ui.dart';
 import 'common.dart' show ContentInsets, measureText;
 
-/// Escala de la letra para los títulos grandes (30 y 26 px): sigue la del
-/// teléfono hasta 1,4×. Con más, una palabra larga («Sincronización»,
-/// «identificación») ya no cabe en 360 dp y se partiría por dentro; el texto
-/// del contenido sigue la escala completa.
-TextScaler rdmCTitleScaler(BuildContext context) =>
-    MediaQuery.textScalerOf(context).clamp(maxScaleFactor: 1.4);
+/// Escala de la letra para un título grande (30 o 26 px) en [maxWidth]:
+/// sigue la del teléfono hasta 1,4× y, si aun así la palabra más larga
+/// («Sincronización», «identificación») no cabe entera en la línea, baja
+/// sólo lo necesario para que no se parta por dentro. El texto del
+/// contenido sigue la escala completa del teléfono.
+TextScaler rdmCTitleScaler(
+  BuildContext context,
+  String title,
+  TextStyle style,
+  double maxWidth,
+) {
+  final phone = MediaQuery.textScalerOf(context).clamp(maxScaleFactor: 1.4);
+  if (!maxWidth.isFinite) return phone;
+  var longest = 0.0;
+  for (final word in title.split(RegExp(r'\s+'))) {
+    if (word.isEmpty) continue;
+    final width = measureText(
+      context,
+      word,
+      style,
+      textScaler: TextScaler.noScaling,
+    );
+    if (width > longest) longest = width;
+  }
+  if (longest == 0) return phone;
+  final fit = (maxWidth - 1) / longest;
+  final current = phone.scale(1);
+  return fit >= current ? phone : TextScaler.linear(fit);
+}
 
-/// [SegmentToggle] que, si con la letra actual algún rótulo no cabe en su
-/// mitad sin partir una palabra, apila las opciones una debajo de otra con
-/// el mismo aspecto (elegida en verde oscuro, negrita y marca).
-class RdmCToggle<T> extends StatelessWidget {
-  const RdmCToggle({
-    super.key,
-    required this.options,
-    required this.selected,
-    required this.onChanged,
-    this.semanticLabel,
-  });
-
-  final List<ToggleOption<T>> options;
-  final T? selected;
-  final ValueChanged<T> onChanged;
-  final String? semanticLabel;
-
-  static const _style = TextStyle(fontSize: 14, fontWeight: FontWeight.w700);
+/// Título grande que nunca parte una palabra por dentro (ver
+/// [rdmCTitleScaler]).
+class RdmCTitle extends StatelessWidget {
+  const RdmCTitle(this.title, {super.key, required this.style, this.textKey});
+  final String title;
+  final TextStyle style;
+  final Key? textKey;
 
   @override
   Widget build(BuildContext context) => LayoutBuilder(
-    builder: (context, constraints) {
-      // 8 de la pista, 4 entre opciones, 16 de relleno y 20 de la marca.
-      final segment =
-          (constraints.maxWidth - 8 - 4 * (options.length - 1)) /
-              options.length -
-          36;
-      final fits = options.every(
-        (option) => measureText(context, option.label, _style) <= segment,
-      );
-      if (fits) {
-        return SegmentToggle<T>(
-          options: options,
-          selected: selected,
-          onChanged: onChanged,
-          semanticLabel: semanticLabel,
-        );
-      }
-      return Semantics(
-        label: semanticLabel,
-        container: true,
-        child: Container(
-          padding: const EdgeInsets.all(4),
-          decoration: BoxDecoration(
-            color: AgroColors.track,
-            borderRadius: BorderRadius.circular(24),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              for (var i = 0; i < options.length; i++) ...[
-                if (i > 0) const SizedBox(height: 4),
-                _stacked(options[i]),
-              ],
-            ],
-          ),
-        ),
-      );
-    },
+    builder: (context, constraints) => Text(
+      title,
+      key: textKey,
+      style: style,
+      textScaler: rdmCTitleScaler(context, title, style, constraints.maxWidth),
+    ),
   );
-
-  Widget _stacked(ToggleOption<T> option) {
-    final on = option.value == selected;
-    return Semantics(
-      key: option.key,
-      button: true,
-      selected: on,
-      inMutuallyExclusiveGroup: true,
-      label: option.label,
-      excludeSemantics: true,
-      child: Material(
-        color: on ? AgroColors.ink : Colors.transparent,
-        shape: const StadiumBorder(),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: () => onChanged(option.value),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                if (on) ...[
-                  const Icon(Icons.check, size: 16, color: AgroColors.lime),
-                  const SizedBox(width: 4),
-                ],
-                Flexible(
-                  child: Text(
-                    option.label,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 14,
-                      height: 18 / 14,
-                      fontWeight: on ? FontWeight.w700 : FontWeight.w500,
-                      color: on ? Colors.white : AgroColors.ink,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
 }
 
 /// Página de consulta con la cabecera del prototipo: «Volver» redondo a la
@@ -211,11 +148,10 @@ class RdmCPage extends StatelessWidget {
                     ),
                   Semantics(
                     header: true,
-                    child: Text(
+                    child: RdmCTitle(
                       title,
-                      key: const Key('page-frame-title'),
+                      textKey: const Key('page-frame-title'),
                       style: AgroText.h1,
-                      textScaler: rdmCTitleScaler(context),
                     ),
                   ),
                   if (subtitle != null) ...[
@@ -428,11 +364,7 @@ class RdmCSheetBody extends StatelessWidget {
                     Semantics(
                       header: true,
                       namesRoute: true,
-                      child: Text(
-                        title,
-                        style: AgroText.sheetTitle,
-                        textScaler: rdmCTitleScaler(context),
-                      ),
+                      child: RdmCTitle(title, style: AgroText.sheetTitle),
                     ),
                     if (subtitle != null)
                       Text(subtitle!, style: AgroText.detail),
@@ -542,6 +474,68 @@ class RdmCInfoRow extends StatelessWidget {
           style: AgroText.value.copyWith(fontSize: 16),
         ),
       ],
+    ),
+  );
+}
+
+/// Tono de la etiqueta del estado de un envío al sindicato. La palabra la
+/// pone la pantalla (`outboxStatusPhrase`…); el tono sólo la acompaña:
+/// aceptado → verde; en camino o pausado → ámbar; conflicto o rechazo →
+/// rojo; sin envío o descartado → gris.
+BadgeTone rdmCOutboxTone(OutboxStatus? status) => switch (status) {
+  OutboxStatus.acked => BadgeTone.ok,
+  OutboxStatus.conflict ||
+  OutboxStatus.rejected ||
+  OutboxStatus.failed => BadgeTone.missing,
+  null || OutboxStatus.discarded => BadgeTone.neutral,
+  _ => BadgeTone.review,
+};
+
+/// Fila gris que lleva a otra pantalla: una frase y la flecha.
+class RdmCLinkRow extends StatelessWidget {
+  const RdmCLinkRow({
+    super.key,
+    required this.text,
+    required this.onTap,
+    this.semanticsHint,
+  });
+
+  final String text;
+  final VoidCallback onTap;
+  final String? semanticsHint;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    button: true,
+    hint: semanticsHint,
+    child: Material(
+      color: AgroColors.track,
+      borderRadius: BorderRadius.circular(20),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 56),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 10, 12),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    text,
+                    style: const TextStyle(
+                      fontSize: 15,
+                      height: 20 / 15,
+                      color: AgroColors.ink,
+                    ),
+                  ),
+                ),
+                const Icon(Icons.chevron_right, color: AgroColors.muted),
+              ],
+            ),
+          ),
+        ),
+      ),
     ),
   );
 }

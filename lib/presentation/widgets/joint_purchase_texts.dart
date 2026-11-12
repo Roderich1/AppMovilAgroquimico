@@ -161,17 +161,84 @@ String? historyProblemText(JointPurchaseHistoryResult result) =>
       JointPurchaseHistoryOutcome.invalidCursor =>
         'El sindicato no reconoció la página pedida. Pulse «Consultar '
             'historial» para empezar de nuevo.',
+      JointPurchaseHistoryOutcome.incompatibleVersion =>
+        jointPurchaseIncompatibleText,
       JointPurchaseHistoryOutcome.unavailable =>
         'No se pudo leer el historial del sindicato. Lo guardado en el '
             'teléfono se conserva; inténtelo más tarde.',
     };
 
-/// E2 §10.2 y §10.3: quién puede ver, por función, el nombre y las
-/// cantidades del agricultor en esta convocatoria, según el consentimiento
-/// que el sindicato tiene aceptado para su participación. Con `CONV-1` sólo
-/// la persona responsable (no se extiende hacia atrás); con `CONV-2`, también
-/// quienes ella autorice. Sin participación aceptada, lo que regiría si
-/// participa ahora (el consentimiento vigente).
+// --- N7: por qué no se pudo leer (E2 §10.6) ---------------------------------
+
+/// El sindicato usa otra versión: no es un fallo de conexión ni temporal.
+const jointPurchaseIncompatibleText =
+    'Esta versión de la aplicación ya no puede leer las compras conjuntas '
+    'del sindicato. Actualice la aplicación. Lo guardado en el teléfono, '
+    'incluido lo pendiente de envío, se conserva.';
+
+const jointPurchaseListOfflineText =
+    'Sin conexión: no se pudo consultar al sindicato. Lo guardado en el '
+    'teléfono se conserva y lo pendiente se enviará al conectarse.';
+
+const jointPurchaseListTemporaryText =
+    'El sindicato no respondió correctamente. Lo guardado en el teléfono se '
+    'conserva; inténtelo más tarde.';
+
+// --- Autorización (E2 §10.6, P-C) -------------------------------------------
+
+/// Título de la acción que amplía quién ve los datos.
+const jointPurchaseWidenLabel =
+    'Autorizar también a la Directiva o la '
+    'Administración';
+
+/// Título de la acción que reduce a sólo la persona responsable.
+const jointPurchaseReduceLabel = 'Reducir a sólo la persona responsable';
+
+/// Casilla de la ampliación: nunca marcada de antemano.
+const jointPurchaseWidenCheck =
+    'Autorizo que también vean mi nombre y mis cantidades las personas de la '
+    'Directiva o la Administración que la persona responsable autorice para '
+    'esta convocatoria.';
+
+const jointPurchaseReduceDetail =
+    'Sólo la persona responsable podrá ver su nombre y sus cantidades. Las '
+    'personas que ella autorizó dejarán de verlos cuando el sindicato reciba '
+    'esta decisión; lo que ya hayan visto no se puede retirar. Sus cantidades '
+    'no cambian.';
+
+/// Lo que dice el detalle de una decisión preparada que todavía no llegó:
+/// nunca se anuncia como aplicada.
+String jointPurchaseConsentPendingText(JointPurchaseConsentOp op) =>
+    op.isWidening
+    ? 'Pendiente de envío: autorizar también a la Directiva o la '
+          'Administración. Hasta que el sindicato la reciba, rige lo anterior.'
+    : 'Pendiente de envío: reducir a sólo la persona responsable. Hasta que '
+          'el sindicato la reciba, la reducción no está aplicada y rige lo '
+          'anterior.';
+
+/// Resultado de la última decisión enviada, o null si no hay nada que decir.
+String? jointPurchaseConsentResultText(JointPurchaseCall call) {
+  final op = call.latestConsentOp;
+  if (op == null || op.isAwaitingSend) return null;
+  return switch (op.sendStatus) {
+    JointPurchaseOpStatus.received =>
+      'Su última decisión sobre quién ve sus datos está aplicada en el '
+          'sindicato.',
+    JointPurchaseOpStatus.rejected =>
+      'El sindicato no aplicó su última decisión sobre quién ve sus datos '
+          '(${op.lastCode ?? 'sin código'}). Rige lo que se indica arriba.',
+    JointPurchaseOpStatus.superseded when op.lastCode != null =>
+      'Una decisión suya posterior ya estaba aplicada en el sindicato; la '
+          'anterior quedó sin efecto.',
+    _ => null,
+  };
+}
+
+/// E2 §10.3 y §10.6: quién puede ver, por función, el nombre y las
+/// cantidades del agricultor en esta convocatoria, según el alcance que el
+/// sindicato tiene **aplicado** (nunca lo que sólo está pendiente en el
+/// teléfono). Sin participación en el sindicato, lo que regiría al
+/// participar: sólo la persona responsable, con la opción de ampliar después.
 String jointPurchaseWhoCanSeeText(JointPurchaseCall call) {
   final responsible = call.responsibleName == null
       ? 'la persona responsable'
@@ -179,15 +246,15 @@ String jointPurchaseWhoCanSeeText(JointPurchaseCall call) {
   const authorized =
       'las personas de la Directiva o la Administración que ella autorice '
       'para esta convocatoria';
-  final accepted = call.acceptedActive;
-  if (accepted == null) {
-    return 'Si participa, podrán ver su nombre y sus cantidades '
-        '$responsible y $authorized.';
+  final server = call.serverParticipation;
+  if (server == null) {
+    return 'Si participa, sólo $responsible podrá ver su nombre y sus '
+        'cantidades. Después podrá autorizar, si quiere, también a '
+        '$authorized.';
   }
-  if (accepted.consentVersion == jointPurchaseLegacyConsentVersion) {
-    return 'Con el consentimiento que usted aceptó antes, sólo $responsible '
-        'puede ver su nombre y sus cantidades. Si modifica su participación, '
-        'se le pedirá el consentimiento vigente, que incluye a $authorized.';
+  if (server.coversCollaborators) {
+    return 'Pueden ver su nombre y sus cantidades $responsible y '
+        '$authorized, porque usted lo autorizó.';
   }
-  return 'Pueden ver su nombre y sus cantidades $responsible y $authorized.';
+  return 'Sólo $responsible puede ver su nombre y sus cantidades.';
 }

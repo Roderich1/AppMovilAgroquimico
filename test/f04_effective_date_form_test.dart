@@ -457,7 +457,7 @@ void main() {
       final c = await pumpModeApp(tester, h.database);
       c.read(routerProvider).go('/aplicaciones');
       await settle(tester);
-      await tester.tap(textOutsideShellFab('Registrar'));
+      await tester.tap(textOutsideShellFab('Registrar aplicación'));
       await waitFor(tester, picker('Chaco'));
       await settle(tester);
       final choice = pastDayChoice(DateTime.now());
@@ -477,10 +477,7 @@ void main() {
       for (var i = 0; i < 3; i++) {
         await tester.pump(const Duration(seconds: 5));
         await settle(tester);
-        expect(
-          find.textContaining('Aplicación multiproducto confirmada'),
-          findsNothing,
-        );
+        expect(find.textContaining('Aplicación registrada'), findsNothing);
       }
       expect(await rows(tester, h.database, 'applications'), before);
       expect(

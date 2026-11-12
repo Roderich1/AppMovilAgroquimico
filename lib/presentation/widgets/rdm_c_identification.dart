@@ -28,7 +28,7 @@ BadgeTone identificationChipTone(String chip) {
     return BadgeTone.review;
   }
   if (chip == 'Foto retirada') return BadgeTone.neutral;
-  return BadgeTone.voice;
+  return BadgeTone.ok;
 }
 
 /// Lo que la hoja muestra antes de pedir la identificación: exactamente lo

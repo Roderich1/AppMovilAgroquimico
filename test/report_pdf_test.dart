@@ -3,10 +3,12 @@ import 'dart:convert';
 import 'package:agroquimicos/domain/read_models.dart';
 import 'package:agroquimicos/domain/reports/report_composer.dart';
 import 'package:agroquimicos/domain/reports/report_table.dart';
-import 'package:agroquimicos/services/reports/csv_report_generator.dart';
 import 'package:agroquimicos/services/reports/pdf_report_generator.dart';
 import 'package:agroquimicos/services/reports/pdf_writer.dart';
+import 'package:agroquimicos/services/reports/xlsx_report_generator.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+import 'support/xlsx_reader.dart';
 
 /// Generador PDF (EVO-006).
 ///
@@ -14,7 +16,7 @@ import 'package:flutter_test/flutter_test.dart';
 /// de verdad qué dice, en vez de conformarse con que "pesa algo".
 void main() {
   const pdf = PdfReportGenerator();
-  const csv = CsvReportGenerator();
+  const xlsx = XlsxReportGenerator();
   const composer = ReportComposer();
   final now = DateTime.utc(2026, 9, 6, 15, 30);
 
@@ -249,26 +251,27 @@ void main() {
     });
   });
 
-  group('equivalencia entre CSV y PDF', () {
+  group('equivalencia entre Excel y PDF', () {
     /// Los dos formatos salen del mismo [ReportTable]; la única diferencia
-    /// permitida es el separador de miles, que el CSV no lleva para que una
-    /// hoja de cálculo pueda tipar la columna.
+    /// permitida es el separador de miles, que el Excel no guarda en el valor
+    /// (lo pone el formato de la celda) para que la columna sea numérica.
+    /// Hasta el 2026-11-12 la comparación era con el CSV.
     void expectSameValues(ReportTable table) {
       final pdfContent = read(table);
-      final csvContent = utf8.decode(
-        csv.generate(table).sublist(utf8Bom.length),
-      );
+      // Registros del libro con los números en es-BO (coma decimal), que es
+      // como los escribía el CSV.
+      final xlsxContent = xlsxRecords(xlsx.generate(table)).join('\n');
       for (final row in table.rows) {
         for (final cell in row) {
           if (cell is ReportBlank) continue;
           expect(
             cell.csvText,
             cell.displayText.replaceAll(groupSeparator, ''),
-            reason: 'CSV y PDF deben representar el mismo número',
+            reason: 'Excel y PDF deben representar el mismo número',
           );
           if (cell.isNumeric) {
             expect(pdfContent, contains('(${cell.displayText})'));
-            expect(csvContent, contains(cell.csvText));
+            expect(xlsxContent, contains(cell.csvText));
           }
         }
       }

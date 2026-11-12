@@ -13,7 +13,7 @@ Readiness: `STABLE`, `IMPROVABLE`, `APPROVED`, `DEFERRED`, `OUT`.
 | Cuentas, pagos y reversiones | Liquidar sin borrar historia | STABLE | — | Crítico | Núcleo protegido |
 | Backup DB + fotos | Recuperar el conjunto operativo | STABLE | — | Alto | Servicio aislado |
 | Modelos tipados de lectura | Contratos compilables para UI/reportes | APPROVED | `EVO-004` | Medio | Adopción consulta a consulta |
-| Exportación CSV | Intercambio tabular exacto | APPROVED | `EVO-005` | Medio | Compositor + generador |
+| Exportación Excel (antes CSV) | Intercambio tabular exacto | APPROVED | `EVO-005` | Medio | Compositor + generador; CSV sustituido por `.xlsx` el 2026-11-12 |
 | Exportación PDF | Visualización, archivo e impresión | APPROVED | `EVO-006` | Medio | Compositor + generador |
 | Voz: captura/transcripción/preview | Entrada continua reemplazable | APPROVED | `EVO-009` | Alto | Subsistema Voice |
 | Voz: intención y drafts tipados | Interpretar sin ejecutar dominio | APPROVED | `EVO-010` | Alto | Puertos + validadores |

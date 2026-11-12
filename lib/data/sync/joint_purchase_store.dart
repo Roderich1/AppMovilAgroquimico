@@ -135,6 +135,76 @@ class JointPurchaseOp {
   }
 }
 
+/// E2 §10.6 (P-C): una decisión sobre quién ve el nombre y las cantidades,
+/// preparada en el teléfono. Cola propia, separada de las cantidades.
+class JointPurchaseConsentOp {
+  const JointPurchaseConsentOp({
+    required this.operationId,
+    required this.callId,
+    required this.tenantId,
+    required this.memberId,
+    required this.sequence,
+    required this.scope,
+    required this.consentVersion,
+    required this.decidedAt,
+    required this.sendStatus,
+    required this.attempts,
+    required this.nextAttemptAt,
+    required this.lastCode,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+
+  final String operationId;
+  final String callId;
+  final String tenantId;
+  final String memberId;
+
+  /// Orden propio de las decisiones de esta convocatoria y titular.
+  final int sequence;
+
+  /// `COLLABORATORS` (ampliar) o `RESPONSIBLE_ONLY` (reducir).
+  final String scope;
+  final String consentVersion;
+  final String decidedAt;
+  final String sendStatus;
+  final int attempts;
+  final String? nextAttemptAt;
+  final String? lastCode;
+  final String createdAt;
+  final String updatedAt;
+
+  OwnerScope get owner => OwnerScope(memberId: memberId, tenantId: tenantId);
+  bool get isAwaitingSend =>
+      JointPurchaseOpStatus.awaiting.contains(sendStatus);
+  bool get isWidening => scope == JointPurchaseConsentScope.collaborators;
+
+  Map<String, Object?> get wireBody => {
+    'operation_id': operationId,
+    'sequence': sequence,
+    'scope': scope,
+    'consent': {'version': consentVersion, 'decided_at': decidedAt},
+  };
+
+  static JointPurchaseConsentOp fromRow(Map<String, Object?> row) =>
+      JointPurchaseConsentOp(
+        operationId: row['operation_id']! as String,
+        callId: row['call_id']! as String,
+        tenantId: row['tenant_id']! as String,
+        memberId: row['member_id']! as String,
+        sequence: row['sequence']! as int,
+        scope: row['scope']! as String,
+        consentVersion: row['consent_version']! as String,
+        decidedAt: row['decided_at']! as String,
+        sendStatus: row['send_status']! as String,
+        attempts: row['attempts']! as int,
+        nextAttemptAt: row['next_attempt_at'] as String?,
+        lastCode: row['last_code'] as String?,
+        createdAt: row['created_at']! as String,
+        updatedAt: row['updated_at']! as String,
+      );
+}
+
 /// Copia local de una convocatoria con su última operación propia.
 class JointPurchaseCall {
   const JointPurchaseCall({
@@ -155,6 +225,7 @@ class JointPurchaseCall {
     required this.seenAt,
     required this.latestOp,
     this.finishedAt,
+    this.latestConsentOp,
   });
 
   final String callId;
@@ -178,6 +249,15 @@ class JointPurchaseCall {
 
   /// La operación propia de mayor `sequence` (de cualquier estado), si hay.
   final JointPurchaseOp? latestOp;
+
+  /// E2 §10.6: la última decisión sobre el consentimiento preparada en el
+  /// teléfono (de cualquier estado). Sólo la carga el detalle ([call]).
+  final JointPurchaseConsentOp? latestConsentOp;
+
+  /// Una decisión sobre el consentimiento que todavía no llegó: lo vigente
+  /// sigue siendo lo que dice [serverParticipation].
+  JointPurchaseConsentOp? get pendingConsentOp =>
+      latestConsentOp?.isAwaitingSend == true ? latestConsentOp : null;
 
   /// Fecha de término según el sindicato (UTC), o null (abierta, o copia
   /// anterior a v17 todavía sin actualizar).
@@ -208,8 +288,9 @@ class JointPurchaseCall {
 
   static JointPurchaseCall fromRow(
     Map<String, Object?> row,
-    JointPurchaseOp? latestOp,
-  ) => JointPurchaseCall(
+    JointPurchaseOp? latestOp, {
+    JointPurchaseConsentOp? latestConsentOp,
+  }) => JointPurchaseCall(
     callId: row['call_id']! as String,
     tenantId: row['tenant_id']! as String,
     memberId: row['member_id']! as String,
@@ -231,6 +312,7 @@ class JointPurchaseCall {
     seenAt: row['seen_at'] as String?,
     latestOp: latestOp,
     finishedAt: row['finished_at'] as String?,
+    latestConsentOp: latestConsentOp,
   );
 }
 
@@ -305,6 +387,7 @@ class JointPurchaseStore {
   static const callsTable = 'joint_purchase_calls';
   static const opsTable = 'joint_purchase_participation_ops';
   static const historyStateTable = 'joint_purchase_history_state';
+  static const consentOpsTable = 'joint_purchase_consent_ops';
 
   String _now() => _clock().toUtc().toIso8601String();
 
@@ -405,9 +488,7 @@ class JointPurchaseStore {
       final stored = JointPurchaseParticipation.decode(
         existing.single['server_participation_json'] as String?,
       );
-      if (stored != null && stored.lastSequence > participation.lastSequence) {
-        participation = stored;
-      }
+      if (stored != null) participation = _merge(stored, participation);
     }
     await txn.insert(callsTable, {
       'call_id': view.callId,
@@ -462,10 +543,22 @@ class JointPurchaseStore {
       [callId],
     );
     if (rows.isEmpty) return null;
-    final latest = await _latestOps(db, [
-      callId,
-    ], rows.single['member_id']! as String);
-    return JointPurchaseCall.fromRow(rows.single, latest[callId]);
+    final memberId = rows.single['member_id']! as String;
+    final latest = await _latestOps(db, [callId], memberId);
+    final consent = await db.query(
+      consentOpsTable,
+      where: 'call_id=? AND member_id=?',
+      whereArgs: [callId, memberId],
+      orderBy: 'sequence DESC',
+      limit: 1,
+    );
+    return JointPurchaseCall.fromRow(
+      rows.single,
+      latest[callId],
+      latestConsentOp: consent.isEmpty
+          ? null
+          : JointPurchaseConsentOp.fromRow(consent.single),
+    );
   }
 
   /// «Compras conjuntas» del titular activo (E2 §10.1): las mismas dos
@@ -610,18 +703,23 @@ class JointPurchaseStore {
   // --- Preparar en el teléfono ------------------------------------------
 
   /// «Participar» o «Modificar»: guarda la confirmación con [lines]
-  /// (product_ref → cantidad base > 0) y el consentimiento vigente (`CONV-2`,
-  /// E2 §10.2) aceptado
-  /// en [consentAcceptedAt]. Queda `PENDING_SEND`; la anterior pendiente de
-  /// esta convocatoria pasa a `SUPERSEDED` en la misma transacción. Un
-  /// segundo toque con el mismo contenido no crea otra operación.
+  /// (product_ref → cantidad base > 0). Queda `PENDING_SEND`; la anterior
+  /// pendiente de esta convocatoria pasa a `SUPERSEDED` en la misma
+  /// transacción. Un segundo toque con el mismo contenido no crea otra
+  /// operación.
+  ///
+  /// E2 §10.6: el consentimiento ([consentVersion] aceptado en
+  /// [consentAcceptedAt]) sólo se pide y se envía cuando el sindicato todavía
+  /// no tiene participación de este titular. Modificar cantidades conserva lo
+  /// aceptado: no lleva consentimiento y nunca lo amplía ni lo reduce.
   Future<JointPurchaseOp> confirm({
     required String callId,
     required Map<String, int> lines,
-    required String consentVersion,
-    required DateTime consentAcceptedAt,
+    String? consentVersion,
+    DateTime? consentAcceptedAt,
   }) async {
-    if (consentVersion != jointPurchaseConsentVersion) {
+    if (consentVersion != null &&
+        consentVersion != jointPurchaseConsentVersion) {
       throw JointPurchaseException(
         'Debe aceptar el texto de consentimiento vigente para participar.',
       );
@@ -632,11 +730,18 @@ class JointPurchaseStore {
         callId,
         JointPurchaseOpKind.confirm,
         lines: lines,
-        consentAcceptedAt: consentAcceptedAt.toUtc().toIso8601String(),
+        consentAcceptedAt: consentVersion == null
+            ? null
+            : consentAcceptedAt?.toUtc().toIso8601String(),
       ),
     );
     return (await op(id!))!;
   }
+
+  /// Si [callId] necesita el consentimiento al confirmar: el sindicato no
+  /// tiene todavía una participación de este titular.
+  Future<bool> needsConsent(String callId) async =>
+      (await call(callId))?.serverParticipation == null;
 
   /// «Retirar participación». Si el sindicato nunca pudo recibir nada de
   /// esta convocatoria, sólo deja sin efecto lo pendiente y devuelve null;
@@ -678,6 +783,16 @@ class JointPurchaseStore {
         'sindicato.',
       );
     }
+    // E2 §10.6: sin participación en el sindicato, la confirmación lleva el
+    // consentimiento aceptado; con ella, nunca.
+    final carriesConsent =
+        kind == JointPurchaseOpKind.confirm &&
+        call.serverParticipation == null;
+    if (carriesConsent && consentAcceptedAt == null) {
+      throw JointPurchaseException(
+        'Debe aceptar el texto de consentimiento vigente para participar.',
+      );
+    }
     if (kind == JointPurchaseOpKind.confirm) {
       if (lines.isEmpty) {
         throw JointPurchaseException(
@@ -713,12 +828,12 @@ class JointPurchaseStore {
     final existing = opRows.map(JointPurchaseOp.fromRow).toList();
     final pending = existing.where((op) => op.isAwaitingSend).toList();
     // Doble toque: lo mismo que ya está pendiente no crea otra operación.
-    // Una confirmación pendiente con otro consentimiento (CONV-1, guardada
-    // antes de actualizar) no es «lo mismo»: la nueva la sustituye.
+    // Una confirmación pendiente con otro consentimiento (guardada antes de
+    // actualizar) no es «lo mismo»: la nueva la sustituye.
     if (pending.isNotEmpty &&
         pending.first.kind == kind &&
         _sameLines(pending.first.lines, ordered) &&
-        (kind != JointPurchaseOpKind.confirm ||
+        (!carriesConsent ||
             pending.first.consentVersion == jointPurchaseConsentVersion)) {
       return pending.first.operationId;
     }
@@ -778,12 +893,8 @@ class JointPurchaseStore {
                 {'product_ref': entry.key, 'quantity_base': '${entry.value}'},
             ])
           : null,
-      'consent_version': kind == JointPurchaseOpKind.confirm
-          ? jointPurchaseConsentVersion
-          : null,
-      'consent_accepted_at': kind == JointPurchaseOpKind.confirm
-          ? consentAcceptedAt
-          : null,
+      'consent_version': carriesConsent ? jointPurchaseConsentVersion : null,
+      'consent_accepted_at': carriesConsent ? consentAcceptedAt : null,
       'send_status': JointPurchaseOpStatus.pendingSend,
       'attempts': 0,
       'created_at': now,
@@ -795,6 +906,252 @@ class JointPurchaseStore {
   static bool _sameLines(Map<String, int> a, Map<String, int> b) =>
       a.length == b.length &&
       a.entries.every((entry) => b[entry.key] == entry.value);
+
+  // --- Decisiones sobre el consentimiento (E2 §10.6, P-C) ----------------
+
+  /// «Autorizar también…» ([scope] = `COLLABORATORS`) o «Reducir a sólo la
+  /// persona responsable» (`RESPONSIBLE_ONLY`), con el texto vigente
+  /// mostrado en [decidedAt]. Queda `PENDING_SEND` en su propia cola, con su
+  /// propio orden; hasta que el sindicato la acepte, lo vigente sigue siendo
+  /// lo que él dijo. Una decisión pendiente anterior de esta convocatoria
+  /// queda `SUPERSEDED`; repetir la misma pendiente no crea otra. Devuelve
+  /// null si [scope] ya es lo vigente en el sindicato: no se envía nada (y
+  /// una decisión contraria pendiente queda sin efecto).
+  Future<JointPurchaseConsentOp?> decideConsent({
+    required String callId,
+    required String scope,
+    required DateTime decidedAt,
+  }) async {
+    if (!JointPurchaseConsentScope.all.contains(scope)) {
+      throw JointPurchaseException('Decisión no reconocida.');
+    }
+    final id = await _write((txn) async {
+      final owner = await _activeOwner(txn);
+      if (owner == null) {
+        throw JointPurchaseException(
+          'Elija primero el titular de estos datos.',
+        );
+      }
+      final rows = await txn.query(
+        callsTable,
+        where: 'call_id=? AND tenant_id=? AND member_id=?',
+        whereArgs: [callId, owner.tenantId, owner.memberId],
+      );
+      if (rows.isEmpty) {
+        throw JointPurchaseException(
+          'La convocatoria no está en este teléfono para el titular actual.',
+        );
+      }
+      final call = JointPurchaseCall.fromRow(rows.single, null);
+      final server = call.serverParticipation;
+      final quantityOps = (await txn.query(
+        opsTable,
+        where: 'call_id=? AND member_id=?',
+        whereArgs: [callId, owner.memberId],
+      )).map(JointPurchaseOp.fromRow);
+      final firstPending = quantityOps.any(
+        (op) => op.kind == JointPurchaseOpKind.confirm && op.isAwaitingSend,
+      );
+      if (server == null && !firstPending) {
+        throw JointPurchaseException(
+          'Primero participe en la convocatoria: la autorización se decide '
+          'sobre una participación.',
+        );
+      }
+      if (scope == JointPurchaseConsentScope.collaborators &&
+          call.status == JointPurchaseCallStatus.cancelled) {
+        throw JointPurchaseException(
+          'La convocatoria está cancelada: no se amplía la autorización.',
+        );
+      }
+      final existing = (await txn.query(
+        consentOpsTable,
+        where: 'call_id=? AND member_id=?',
+        whereArgs: [callId, owner.memberId],
+        orderBy: 'sequence DESC',
+      )).map(JointPurchaseConsentOp.fromRow).toList();
+      final pending = existing.where((op) => op.isAwaitingSend).toList();
+      if (pending.isNotEmpty && pending.first.scope == scope) {
+        return pending.first.operationId;
+      }
+      final now = _now();
+      await txn.rawUpdate(
+        'UPDATE $consentOpsTable SET send_status=?, next_attempt_at=NULL, '
+        'updated_at=? WHERE call_id=? AND member_id=? AND send_status IN (?,?)',
+        [
+          JointPurchaseOpStatus.superseded,
+          now,
+          callId,
+          owner.memberId,
+          JointPurchaseOpStatus.pendingSend,
+          JointPurchaseOpStatus.authPaused,
+        ],
+      );
+      // Lo mismo que ya rige en el sindicato no se vuelve a enviar (si había
+      // otra decisión pendiente, sólo queda sin efecto).
+      if (server?.consentScope == scope) return null;
+      final sequence =
+          max(
+            existing.isEmpty ? 0 : existing.first.sequence,
+            server?.consentScopeSequence ?? 0,
+          ) +
+          1;
+      final operationId = newOperationId(_random);
+      await txn.insert(consentOpsTable, {
+        'operation_id': operationId,
+        'call_id': callId,
+        'tenant_id': owner.tenantId,
+        'member_id': owner.memberId,
+        'sequence': sequence,
+        'scope': scope,
+        'consent_version': jointPurchaseConsentVersion,
+        'decided_at': decidedAt.toUtc().toIso8601String(),
+        'send_status': JointPurchaseOpStatus.pendingSend,
+        'attempts': 0,
+        'created_at': now,
+        'updated_at': now,
+      });
+      return operationId;
+    });
+    return id == null ? null : consentOp(id);
+  }
+
+  Future<JointPurchaseConsentOp?> consentOp(String operationId) async {
+    final rows = await (await _database.database).query(
+      consentOpsTable,
+      where: 'operation_id=?',
+      whereArgs: [operationId],
+    );
+    return rows.isEmpty ? null : JointPurchaseConsentOp.fromRow(rows.single);
+  }
+
+  /// Todas las decisiones de una convocatoria (pruebas y diagnóstico).
+  Future<List<JointPurchaseConsentOp>> consentOps(String callId) async =>
+      (await (await _database.database).query(
+        consentOpsTable,
+        where: 'call_id=?',
+        whereArgs: [callId],
+        orderBy: 'sequence',
+      )).map(JointPurchaseConsentOp.fromRow).toList();
+
+  /// Decisiones que hay que enviar por [scope]: por convocatoria, la
+  /// pendiente más nueva, en orden de `sequence`.
+  Future<List<JointPurchaseConsentOp>> sendableConsent(
+    OwnerScope scope, {
+    required bool includePaused,
+  }) async {
+    final rows = await (await _database.database).query(
+      consentOpsTable,
+      where:
+          'tenant_id=? AND member_id=? AND (send_status=? OR '
+          '(send_status=? AND ?=1))',
+      whereArgs: [
+        scope.tenantId,
+        scope.memberId,
+        JointPurchaseOpStatus.pendingSend,
+        JointPurchaseOpStatus.authPaused,
+        includePaused ? 1 : 0,
+      ],
+      orderBy: 'call_id, sequence DESC',
+    );
+    final newest = <String, JointPurchaseConsentOp>{};
+    for (final op in rows.map(JointPurchaseConsentOp.fromRow)) {
+      newest.putIfAbsent(op.callId, () => op);
+    }
+    return newest.values.toList()
+      ..sort((a, b) => a.sequence.compareTo(b.sequence));
+  }
+
+  /// El sindicato aceptó la decisión: se adopta la participación devuelta
+  /// (su alcance sólo avanza; sus cantidades, también).
+  Future<void> markConsentReceived(
+    JointPurchaseConsentOp op,
+    JointPurchaseParticipation? participation,
+  ) => _write((txn) async {
+    if (!await _transitionConsent(txn, op, JointPurchaseOpStatus.received)) {
+      return;
+    }
+    if (participation != null) {
+      await _adoptFor(txn, op.callId, op.memberId, participation);
+    }
+  });
+
+  /// `STALE_SEQUENCE`: una decisión posterior ya rige; se adopta la vigente.
+  Future<void> markConsentStale(
+    JointPurchaseConsentOp op,
+    JointPurchaseParticipation? participation,
+  ) => _write((txn) async {
+    if (!await _transitionConsent(
+      txn,
+      op,
+      JointPurchaseOpStatus.superseded,
+      code: JointPurchaseCodes.staleSequence,
+    )) {
+      return;
+    }
+    if (participation != null) {
+      await _adoptFor(txn, op.callId, op.memberId, participation);
+    }
+  });
+
+  Future<void> markConsentRejected(JointPurchaseConsentOp op, String code) =>
+      _write(
+        (txn) => _transitionConsent(
+          txn,
+          op,
+          JointPurchaseOpStatus.rejected,
+          code: code,
+        ),
+      );
+
+  Future<void> markConsentAuthPaused(JointPurchaseConsentOp op, String code) =>
+      _write(
+        (txn) => _transitionConsent(
+          txn,
+          op,
+          JointPurchaseOpStatus.authPaused,
+          code: code,
+        ),
+      );
+
+  /// Fallo transitorio (o la participación aún no llegó al sindicato):
+  /// sigue `PENDING_SEND` con el mismo `operation_id`, `sequence` y contenido.
+  Future<void> scheduleConsentRetry(
+    JointPurchaseConsentOp op,
+    String code,
+    DateTime retryAt,
+  ) => _write(
+    (txn) => _transitionConsent(
+      txn,
+      op,
+      JointPurchaseOpStatus.pendingSend,
+      code: code,
+      nextAttemptAt: retryAt.toUtc().toIso8601String(),
+    ),
+  );
+
+  Future<bool> _transitionConsent(
+    Transaction txn,
+    JointPurchaseConsentOp op,
+    String status, {
+    String? code,
+    String? nextAttemptAt,
+  }) async =>
+      await txn.rawUpdate(
+        'UPDATE $consentOpsTable SET send_status=?, last_code=?, '
+        'next_attempt_at=?, attempts=attempts+1, updated_at=? '
+        'WHERE operation_id=? AND send_status IN (?,?)',
+        [
+          status,
+          code,
+          nextAttemptAt,
+          _now(),
+          op.operationId,
+          JointPurchaseOpStatus.pendingSend,
+          JointPurchaseOpStatus.authPaused,
+        ],
+      ) >
+      0;
 
   // --- Cola del emisor --------------------------------------------------
 
@@ -852,18 +1209,20 @@ class JointPurchaseStore {
   /// reintento (con fecha de ahora, no nula).
   Future<void> sendNow(String callId) => _write((txn) async {
     final now = _now();
-    await txn.rawUpdate(
-      'UPDATE $opsTable SET send_status=?, next_attempt_at=?, updated_at=? '
-      'WHERE call_id=? AND send_status IN (?,?)',
-      [
-        JointPurchaseOpStatus.pendingSend,
-        now,
-        now,
-        callId,
-        JointPurchaseOpStatus.pendingSend,
-        JointPurchaseOpStatus.authPaused,
-      ],
-    );
+    for (final table in [opsTable, consentOpsTable]) {
+      await txn.rawUpdate(
+        'UPDATE $table SET send_status=?, next_attempt_at=?, updated_at=? '
+        'WHERE call_id=? AND send_status IN (?,?)',
+        [
+          JointPurchaseOpStatus.pendingSend,
+          now,
+          now,
+          callId,
+          JointPurchaseOpStatus.pendingSend,
+          JointPurchaseOpStatus.authPaused,
+        ],
+      );
+    }
   });
 
   // --- Transiciones (sólo desde PENDING_SEND o AUTH_PAUSED) -------------
@@ -995,12 +1354,65 @@ class JointPurchaseStore {
       rows.single['server_participation_json'] as String?,
     );
     final incoming = participation?.lastSequence ?? sequenceIfNull ?? 0;
-    if (stored != null && stored.lastSequence > incoming) return;
+    if (stored != null && stored.lastSequence > incoming) {
+      // Cantidades más nuevas guardadas; el alcance, el más nuevo de los dos.
+      if (participation != null) {
+        await _adoptFor(txn, op.callId, op.memberId, participation);
+      }
+      return;
+    }
     await txn.update(
       callsTable,
-      {'server_participation_json': participation?.encode()},
+      {
+        'server_participation_json': participation == null
+            ? null
+            : (stored == null ? participation : _merge(stored, participation))
+                  .encode(),
+      },
       where: 'call_id=? AND member_id=?',
       whereArgs: [op.callId, op.memberId],
     );
+  }
+
+  /// Guarda lo más nuevo de [incoming] y lo guardado: las cantidades por
+  /// `last_sequence` y el alcance del consentimiento por su propio orden
+  /// (E2 §10.6). Una respuesta atrasada nunca restaura ni una cantidad ni
+  /// una autorización anteriores.
+  Future<void> _adoptFor(
+    Transaction txn,
+    String callId,
+    String memberId,
+    JointPurchaseParticipation incoming,
+  ) async {
+    final rows = await txn.query(
+      callsTable,
+      columns: ['server_participation_json'],
+      where: 'call_id=? AND member_id=?',
+      whereArgs: [callId, memberId],
+    );
+    if (rows.isEmpty) return;
+    final stored = JointPurchaseParticipation.decode(
+      rows.single['server_participation_json'] as String?,
+    );
+    final merged = stored == null ? incoming : _merge(stored, incoming);
+    await txn.update(
+      callsTable,
+      {'server_participation_json': merged.encode()},
+      where: 'call_id=? AND member_id=?',
+      whereArgs: [callId, memberId],
+    );
+  }
+
+  static JointPurchaseParticipation _merge(
+    JointPurchaseParticipation stored,
+    JointPurchaseParticipation incoming,
+  ) {
+    final base = stored.lastSequence > incoming.lastSequence
+        ? stored
+        : incoming;
+    final scope = stored.consentScopeSequence > incoming.consentScopeSequence
+        ? stored
+        : incoming;
+    return identical(base, scope) ? base : base.withScopeOf(scope);
   }
 }

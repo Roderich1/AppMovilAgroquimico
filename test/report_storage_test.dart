@@ -24,22 +24,27 @@ void main() {
 
   Uint8List bytes(String value) => Uint8List.fromList(value.codeUnits);
 
-  Future<StoredReport> save(String base, [String extension = 'csv']) => storage
+  Future<StoredReport> save(String base, [String extension = 'xlsx']) => storage
       .save(baseName: base, extension: extension, bytes: bytes('contenido'));
 
   group('escritura', () {
     test('crea la carpeta y guarda el archivo con su extensión', () async {
       final stored = await save('inventario-2026-09-06');
-      expect(stored.fileName, 'inventario-2026-09-06.csv');
+      expect(stored.fileName, 'inventario-2026-09-06.xlsx');
       expect(await File(stored.path).exists(), isTrue);
       expect(await File(stored.path).readAsString(), 'contenido');
       expect(stored.byteCount, 9);
       expect(p.basename(stored.directory), 'reportes');
     });
 
-    test('acepta pdf y csv, y rechaza cualquier otra extensión', () async {
+    test('acepta pdf y xlsx, y rechaza cualquier otra extensión', () async {
       expect((await save('x', 'pdf')).fileName, endsWith('.pdf'));
-      expect((await save('y', 'CSV')).fileName, endsWith('.csv'));
+      expect((await save('y', 'XLSX')).fileName, endsWith('.xlsx'));
+      // 2026-11-12: la aplicación ya no genera CSV de reportes.
+      await expectLater(
+        save('z', 'csv'),
+        throwsA(isA<ReportStorageException>()),
+      );
       await expectLater(
         save('z', 'db'),
         throwsA(isA<ReportStorageException>()),
@@ -62,24 +67,40 @@ void main() {
 
   group('colisiones', () {
     test('no sobrescribe: numera el segundo y el tercero', () async {
-      expect((await save('informe')).fileName, 'informe.csv');
-      expect((await save('informe')).fileName, 'informe (2).csv');
-      expect((await save('informe')).fileName, 'informe (3).csv');
+      expect((await save('informe')).fileName, 'informe.xlsx');
+      expect((await save('informe')).fileName, 'informe (2).xlsx');
+      expect((await save('informe')).fileName, 'informe (3).xlsx');
     });
 
     test('el archivo original conserva su contenido', () async {
       final first = await save('informe');
       await storage.save(
         baseName: 'informe',
-        extension: 'csv',
+        extension: 'xlsx',
         bytes: bytes('otro'),
       );
       expect(await File(first.path).readAsString(), 'contenido');
     });
 
     test('cada extensión tiene su propia secuencia', () async {
-      expect((await save('informe', 'csv')).fileName, 'informe.csv');
+      expect((await save('informe', 'xlsx')).fileName, 'informe.xlsx');
       expect((await save('informe', 'pdf')).fileName, 'informe.pdf');
+    });
+
+    test('un .csv guardado por una versión anterior queda intacto', () async {
+      // Compatibilidad (2026-11-12): los CSV que ya están en el teléfono no se
+      // borran, no se renombran y no se sobrescriben al exportar a Excel.
+      final directory = await Directory(p.join(root.path, 'reportes'))
+          .create(recursive: true);
+      final old = File(p.join(directory.path, 'inventario-2026-09-06.csv'));
+      await old.writeAsString('Inventario;Glifosato');
+      final stored = await save('inventario-2026-09-06');
+      expect(stored.fileName, 'inventario-2026-09-06.xlsx');
+      expect(await old.readAsString(), 'Inventario;Glifosato');
+      expect(directory.listSync().map((e) => p.basename(e.path)).toSet(), {
+        'inventario-2026-09-06.csv',
+        'inventario-2026-09-06.xlsx',
+      });
     });
 
     test('esquiva un temporal de otra exportación en curso', () async {
@@ -88,10 +109,10 @@ void main() {
       await File(
         p.join(
           directory.path,
-          'informe.csv${LocalReportStorage.temporarySuffix}',
+          'informe.xlsx${LocalReportStorage.temporarySuffix}',
         ),
       ).writeAsString('a medias');
-      expect((await save('informe')).fileName, 'informe (2).csv');
+      expect((await save('informe')).fileName, 'informe (2).xlsx');
     });
   });
 
@@ -101,12 +122,12 @@ void main() {
       // sin tener que simular un disco lleno.
       final directory = await Directory(p.join(root.path, 'reportes'))
           .create(recursive: true);
-      await Directory(p.join(directory.path, 'bloqueado.csv')).create();
+      await Directory(p.join(directory.path, 'bloqueado.xlsx')).create();
 
       await expectLater(
         storage.save(
           baseName: 'bloqueado',
-          extension: 'csv',
+          extension: 'xlsx',
           bytes: bytes('contenido'),
         ),
         throwsA(isA<ReportStorageException>()),
@@ -129,7 +150,7 @@ void main() {
       await expectLater(
         blocked.save(
           baseName: 'x',
-          extension: 'csv',
+          extension: 'xlsx',
           bytes: bytes('contenido'),
         ),
         throwsA(isA<ReportStorageException>()),

@@ -88,7 +88,7 @@ void main() {
     await tester.tap(
       find.descendant(
         of: find.byType(ApplicationsScreen),
-        matching: find.text('Registrar'),
+        matching: find.text('Registrar aplicación'),
       ),
     );
     await settle(tester);

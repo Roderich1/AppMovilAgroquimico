@@ -40,6 +40,21 @@ reportes profesionales offline en CSV/PDF sin consultar SQLite desde generadores
 - Generador CSV puro e independiente de SQLite, widgets y filesystem.
 - UTF-8 con BOM, separador `;`, CRLF, escaping y neutralización de fórmulas.
 
+> **Nota del 2026-11-12 (sustitución por Excel).** Por decisión del autor («Excel como única
+> opción de exportación para el usuario»), la pantalla de reportes ya no ofrece CSV: ofrece
+> **Excel** (`.xlsx`, MIME `application/vnd.openxmlformats-officedocument.spreadsheetml.sheet`)
+> y **PDF**. El generador `csv_report_generator.dart` se retiró; lo sustituye
+> `lib/services/reports/xlsx_report_generator.dart`, Dart puro sobre `package:archive` (ya
+> presente), que recibe el mismo `ReportTable`. Equivalencias con los requisitos de arriba:
+> REQ-001 (mismo modelo neutral) se mantiene; REQ-002 pasa a «libro SpreadsheetML de una hoja,
+> UTF-8, XML escapado», con los mismos registros y columnas que el CSV, cabecera con autofiltro
+> e inmovilizada; REQ-003 se mantiene (el valor numérico se escribe desde los enteros, sin
+> `double`); REQ-004 se mantiene; REQ-005 pasa a «todo texto es celda `inlineStr`, nunca
+> fórmula», sin apóstrofo añadido (el dato no se altera) y con estilo `quotePrefix` cuando
+> empieza por un disparador; REQ-006 se mantiene. Los `.csv` generados antes siguen en la
+> carpeta `reportes`: la aplicación no los borra ni los sobrescribe. Pruebas:
+> `test/report_xlsx_test.dart` (sustituye a `report_csv_test.dart`).
+
 ### EVO-006 — PDF
 
 - Generación A4 multipágina desde el mismo modelo neutral.

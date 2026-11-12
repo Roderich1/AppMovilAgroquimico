@@ -368,6 +368,53 @@ void main() {
     expect(find.byKey(const Key('voz-deshacer')), findsNothing);
   });
 
+  // Regresión (2026-11-12, rediseño bloque 1): con el precio por revisar,
+  // «Deshacer último dictado» decía «Se conservó lo que editó después (línea
+  // 1: moneda)» sin que nadie tocara la moneda, la tarjeta seguía «Por voz» y
+  // la revisión del precio de ese dictado seguía pendiente.
+  testWidgets('deshacer con el precio por revisar: no inventa una edición, '
+      'quita las marcas y la revisión de ese dictado', (tester) async {
+    await open(tester, 'u-deshacer-revision', [
+      const FakeTurn(
+        segment: 'compra de diez litros de Glifosato a 50 bolivianos',
+        endsOnStop: true,
+      ),
+    ]);
+    await tapKey(tester, 'compra-completar-voz');
+    await dictate(tester);
+    expect(await text(tester, 'Cantidad comprada'), '10');
+    await closePurchaseLine(tester);
+    expect(find.byKey(const Key('voz-revisar-price@1')), findsOneWidget);
+    await tapKey(tester, 'voz-deshacer');
+    expect(await panelMessage(tester), 'Se deshizo el último dictado.');
+    expect(await picked(tester, 'Producto'), isNull);
+    expect(await text(tester, 'Cantidad comprada'), '');
+    expect(await text(tester, 'Precio por unidad'), '');
+    await closePurchaseLine(tester);
+    expect(find.text('Por voz'), findsNothing);
+    expect(find.byKey(const Key('voz-revisar-price@1')), findsNothing);
+    expect(find.text('Falta: precio'), findsNothing);
+  });
+
+  testWidgets('deshacer un dictado en dólares con el precio por revisar '
+      'devuelve la moneda a bolivianos', (tester) async {
+    await open(tester, 'u-deshacer-usd', [
+      const FakeTurn(
+        segment: 'compra de diez litros de Glifosato a 50 dólares',
+        endsOnStop: true,
+      ),
+    ]);
+    await tapKey(tester, 'compra-completar-voz');
+    await dictate(tester);
+    await openPurchaseLine(tester);
+    expect(segmentSelected(tester, 'purchase-currency-usd-0'), isTrue);
+    await tapKey(tester, 'voz-deshacer');
+    expect(await panelMessage(tester), 'Se deshizo el último dictado.');
+    await openPurchaseLine(tester);
+    expect(segmentSelected(tester, 'purchase-currency-bob-0'), isTrue);
+    expect(await text(tester, 'Cantidad comprada'), '');
+  });
+
   testWidgets('cancelar el dictado conserva el formulario; el resultado '
       'tardío del turno cancelado no lo cambia', (tester) async {
     await open(tester, 'u-cancelar', [
