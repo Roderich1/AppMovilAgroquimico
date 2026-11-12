@@ -11,7 +11,9 @@ import '../../domain/money.dart';
 import '../../domain/operation_mode.dart';
 import '../../domain/person_roles.dart';
 import '../../operation_mode_controller.dart';
+import '../theme/agro_theme.dart';
 import '../widgets/adaptive_entity_picker.dart';
+import '../widgets/agro_ui.dart';
 import '../widgets/application_expiry_notice.dart';
 import '../widgets/catalog_dialogs.dart';
 import '../widgets/common.dart';
@@ -86,6 +88,11 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen>
   VoiceFormDictation<VoiceApplicationDraft>? voice;
   late final _voiceTarget = _ApplicationVoice(this);
   bool showVoice = false;
+
+  /// Aviso del último dictado arriba del paso (el panel se cierra solo al
+  /// terminar un dictado; lo dictado ya está en el formulario).
+  bool _voiceBanner = false;
+  int _seenCompletions = 0;
   VoiceApplicationDraft? _lastVoiceDraft;
   bool _voiceSaved = false;
   bool _voiceFailed = false;
@@ -151,14 +158,28 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen>
         () => observeVoiceSession(voice!.session.snapshot),
       );
     }
-    setState(() => showVoice = true);
+    FocusManager.instance.primaryFocus?.unfocus();
+    setState(() {
+      showVoice = true;
+      _voiceBanner = false;
+    });
     _voiceTarget.loadCatalog().then((_) {
       if (mounted) setState(() {});
     });
   }
 
+  /// Al terminar un dictado el panel se cierra y su resultado queda en el
+  /// aviso de arriba del paso.
   void _onVoice() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    final v = voice;
+    setState(() {
+      if (v != null && v.completions != _seenCompletions) {
+        _seenCompletions = v.completions;
+        showVoice = false;
+        _voiceBanner = true;
+      }
+    });
   }
 
   void _voiceApplied(VoiceApplicationDraft shadow, String text) {
@@ -684,7 +705,7 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen>
   String? _validateArea() {
     final parsed = parseNumericInput(area.text);
     if (parsed.status == NumericInputStatus.empty) {
-      return 'Escribe el área tratada en hectáreas.';
+      return 'Escriba el área tratada en hectáreas.';
     }
     if (!parsed.isValid) return parsed.message;
     if (parsed.value! <= 0) return 'El área tratada debe ser mayor que cero.';
@@ -748,8 +769,8 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen>
           showError(
             context,
             personalMode
-                ? 'Elige el chaco donde aplicaste.'
-                : 'Elige la persona y el chaco donde aplicó.',
+                ? 'Elija el chaco donde aplicó.'
+                : 'Elija la persona y el chaco donde aplicó.',
           );
           return;
         }
@@ -761,13 +782,13 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen>
         setState(() => step = _ApplicationStep.products);
       case _ApplicationStep.products:
         if (lines.isEmpty) {
-          showError(context, 'Agrega al menos un producto a la mezcla.');
+          showError(context, 'Agregue al menos un producto a la mezcla.');
           return;
         }
         if (lines.any((l) => l.product['product_id'] == null)) {
           showError(
             context,
-            'Elige el producto de cada línea (toca «Editar») o quita la línea.',
+            'Elija el producto de cada línea (toque «Editar») o quite la línea.',
           );
           return;
         }
@@ -828,11 +849,11 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen>
     // Un segundo toque antes de redibujar no debe intentar otra escritura.
     if (saving) return;
     if (personId == null || farmId == null || lines.isEmpty) {
-      showError(context, 'Elige persona, chaco y al menos un producto.');
+      showError(context, 'Elija persona, chaco y al menos un producto.');
       return;
     }
     if (lines.any((l) => l.product['product_id'] == null)) {
-      showError(context, 'Elige el producto de cada línea o quita la línea.');
+      showError(context, 'Elija el producto de cada línea o quite la línea.');
       return;
     }
     final drafts = <ApplicationLineDraft>[];
@@ -842,7 +863,7 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen>
       if (real <= 0) {
         showError(
           context,
-          'Escribe la cantidad usada de ${line.product['product_name']}.',
+          'Escriba la cantidad usada de ${line.product['product_name']}.',
         );
         return;
       }
@@ -851,8 +872,8 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen>
         showError(
           context,
           'No alcanza el ${line.product['product_name']}: hay '
-          '${formatQuantity(stock, line.unit)} y escribiste '
-          '${formatQuantity(real, line.unit)}. Baja la cantidad o registra '
+          '${formatQuantity(stock, line.unit)} y escribió '
+          '${formatQuantity(real, line.unit)}. Baje la cantidad o registre '
           'primero la compra.',
         );
         return;
@@ -936,172 +957,204 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen>
       if (!didPop && !saving) _back();
     },
     child: Scaffold(
-      appBar: AppBar(
-        title: const Text('Nueva aplicación'),
-        actions: [
-          // F09 (formulario único): la voz completa ESTE formulario. Con un
-          // plan, persona, chaco y productos vienen del plan.
-          IconButton(
-            key: const Key('form-dictar'),
-            tooltip: showVoice
-                ? 'Ocultar el panel de voz'
-                : 'Completar por voz',
-            icon: Icon(showVoice ? Icons.mic : Icons.mic_none_outlined),
-            onPressed:
-                saving ||
-                    widget.planId != null ||
-                    step == _ApplicationStep.review
-                ? null
-                : showVoice
-                ? (voice?.busy ?? false)
-                      ? null
-                      : () => setState(() => showVoice = false)
-                : _openVoice,
-          ),
-        ],
-        leading: IconButton(
-          onPressed: saving ? null : _back,
-          icon: const Icon(Icons.arrow_back),
-        ),
-      ),
-      bottomNavigationBar: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: FutureBuilder<_ApplicationCatalogs>(
-            future: catalogs,
-            builder: (context, snapshot) {
-              final voiceBlock = voice?.blocksSave ?? false;
-              final blocked =
-                  saving ||
-                  voiceBlock ||
-                  !snapshot.hasData ||
-                  modeChangedSince(
-                    loadedMode,
-                    ref.watch(operationModeProvider),
-                  );
-              final reason = voiceBlock
-                  ? Padding(
-                      padding: const EdgeInsets.only(bottom: 6),
-                      child: Text(
-                        voice!.saveBlockReason!,
-                        key: const Key('voz-bloqueo-guardar'),
-                        textAlign: TextAlign.center,
-                      ),
-                    )
-                  : null;
-              if (step == _ApplicationStep.who) {
-                return Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    ?reason,
-                    FilledButton.icon(
-                      key: const Key('application-continue'),
-                      onPressed: blocked ? null : _continue,
-                      icon: const Icon(Icons.arrow_forward),
-                      label: const Text('Continuar'),
-                    ),
-                  ],
-                );
-              }
-              final row = Row(
+      bottomNavigationBar: _bottomBar(),
+      body: SafeArea(
+        child: FutureBuilder<_ApplicationCatalogs>(
+          future: catalogs,
+          builder: (context, snapshot) {
+            final header = Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+              child: _header(snapshot.data?.campaign['name']?.toString()),
+            );
+            if (snapshot.hasError) {
+              return Column(
                 children: [
-                  OutlinedButton.icon(
-                    key: const Key('application-back'),
-                    onPressed: saving ? null : _back,
-                    icon: const Icon(Icons.arrow_back),
-                    label: const Text('Atrás'),
-                  ),
-                  const SizedBox(width: 12),
+                  header,
                   Expanded(
-                    child: step == _ApplicationStep.products
-                        ? FilledButton.icon(
-                            key: const Key('application-continue'),
-                            onPressed: blocked ? null : _continue,
-                            icon: const Icon(Icons.arrow_forward),
-                            label: const Text('Continuar'),
-                          )
-                        : FilledButton.icon(
-                            key: const Key('application-confirm'),
-                            onPressed: blocked
-                                ? null
-                                : () => submit(snapshot.data!),
-                            icon: const Icon(Icons.check),
-                            label: Text(
-                              saving ? 'Guardando…' : 'Confirmar aplicación',
-                            ),
-                          ),
+                    child: EmptyState(
+                      icon: Icons.error_outline,
+                      message: friendlyError(snapshot.error!),
+                    ),
                   ),
                 ],
               );
-              return reason == null
-                  ? row
-                  : Column(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [reason, row],
-                    );
-            },
-          ),
-        ),
-      ),
-      body: FutureBuilder<_ApplicationCatalogs>(
-        future: catalogs,
-        builder: (context, snapshot) {
-          if (snapshot.hasError)
-            return EmptyState(
-              icon: Icons.error_outline,
-              message: friendlyError(snapshot.error!),
-            );
-          if (!snapshot.hasData)
-            return const Center(child: CircularProgressIndicator());
-          final data = snapshot.data!;
-          _latestCatalogs = data;
-          return SafeArea(
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-              children: [
-                if (modeChangedSince(
-                  loadedMode,
-                  ref.watch(operationModeProvider),
-                )) ...[
-                  const ModeChangedNotice(),
-                  const SizedBox(height: 12),
+            }
+            if (!snapshot.hasData) {
+              return Column(
+                children: [
+                  header,
+                  const Expanded(
+                    child: Center(child: CircularProgressIndicator()),
+                  ),
                 ],
-                _StepHeader(
-                  key: const Key('application-step'),
-                  step: switch (step) {
-                    _ApplicationStep.who => 1,
-                    _ApplicationStep.products => 2,
-                    _ApplicationStep.review => 3,
-                  },
-                  total: 3,
-                  title: switch (step) {
-                    _ApplicationStep.who => 'Persona y chaco',
-                    _ApplicationStep.products => 'Productos y cantidades',
-                    _ApplicationStep.review => 'Resumen y confirmación',
-                  },
-                  campaign: data.campaign['name'] as String,
+              );
+            }
+            final data = snapshot.data!;
+            _latestCatalogs = data;
+            return Column(
+              children: [
+                header,
+                Expanded(
+                  child: ListView(
+                    key: const Key('application-scroll'),
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                    children: [
+                      if (modeChangedSince(
+                        loadedMode,
+                        ref.watch(operationModeProvider),
+                      )) ...[
+                        const ModeChangedNotice(),
+                        const SizedBox(height: 12),
+                      ],
+                      ...switch (step) {
+                        _ApplicationStep.who => _whoStep(context, data),
+                        _ApplicationStep.products => _productsStep(
+                          context,
+                          data,
+                        ),
+                        _ApplicationStep.review => _reviewStep(context, data),
+                      },
+                    ],
+                  ),
                 ),
-                const SizedBox(height: 12),
-                ...switch (step) {
-                  _ApplicationStep.who => [
-                    ..._voiceEntry(),
-                    ..._whoStep(context, data),
-                  ],
-                  _ApplicationStep.products => [
-                    ..._voiceEntry(),
-                    ..._productsStep(context),
-                  ],
-                  _ApplicationStep.review => _reviewStep(context, data),
-                },
               ],
-            ),
-          );
-        },
+            );
+          },
+        ),
       ),
     ),
   );
+
+  int get _stepNumber => switch (step) {
+    _ApplicationStep.who => 1,
+    _ApplicationStep.products => 2,
+    _ApplicationStep.review => 3,
+  };
+
+  /// La voz completa los pasos 1 y 2 de una aplicación sin plan. Con un plan,
+  /// persona, chaco y productos vienen del plan; en el resumen no se dicta.
+  bool get _voiceStep =>
+      widget.planId == null && step != _ApplicationStep.review;
+
+  /// Volver, «Paso n de 3», el acceso a la voz y la barra de pasos.
+  Widget _header(String? campaign) {
+    final first = step == _ApplicationStep.who;
+    final busy = voice?.busy ?? false;
+    return Column(
+      children: [
+        FlowTopBar(
+          backKey: Key(first ? 'application-close' : 'application-back'),
+          backTooltip: first ? 'Volver' : 'Volver al paso ${_stepNumber - 1}',
+          onBack: saving ? null : _back,
+          label: first && campaign != null
+              ? 'Paso 1 de 3 · $campaign'
+              : 'Paso $_stepNumber de 3',
+          labelKey: const Key('application-step'),
+          // F09 (formulario único): la voz completa ESTE formulario.
+          trailing: _voiceStep
+              ? CircleIconButton(
+                  key: const Key('form-dictar'),
+                  icon: showVoice ? Icons.mic : Icons.mic_none_outlined,
+                  tooltip: showVoice
+                      ? 'Ocultar el panel de voz'
+                      : 'Completar por voz',
+                  onPressed: saving
+                      ? null
+                      : showVoice
+                      ? busy
+                            ? null
+                            : () => setState(() => showVoice = false)
+                      : _openVoice,
+                )
+              : null,
+        ),
+        const SizedBox(height: 12),
+        StepProgress(step: _stepNumber, total: 3),
+      ],
+    );
+  }
+
+  /// Panel inferior: «Continuar», «Confirmar aplicación» o el panel de voz,
+  /// que ocupa su lugar mientras está abierto (se cierra con ✕ o solo, al
+  /// terminar un dictado).
+  Widget _bottomBar() {
+    if (_voiceStep && showVoice && voice != null) {
+      return VoiceFormPanel(
+        dictation: voice!,
+        docked: true,
+        example: '«En el chaco Norte, tres hectáreas, dos litros de herbicida»',
+        engineHint:
+            'Hable por frases cortas y pulse «Terminar» al acabar. Lo dictado '
+            'aparece en los pasos 1 y 2.',
+        onClose: () => setState(() => showVoice = false),
+        // Sólo en la compilación de diagnóstico: política B, comparar pistas
+        // y lo que propuso cada motor (ruta por frases).
+        diagnostics: voiceDiagnosticsBuild && _voiceTarget.catalog != null
+            ? Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const VoicePolicyBSwitch(),
+                  VoiceContextExperimentSwitch(
+                    domainHints: () =>
+                        voiceDomainContextHints(_voiceTarget.catalog!),
+                  ),
+                  VoiceProposalsButton(describe: (_) => const []),
+                ],
+              )
+            : null,
+      );
+    }
+    return FutureBuilder<_ApplicationCatalogs>(
+      future: catalogs,
+      builder: (context, snapshot) {
+        final voiceBlock = voice?.blocksSave ?? false;
+        final blocked =
+            saving ||
+            voiceBlock ||
+            !snapshot.hasData ||
+            modeChangedSince(loadedMode, ref.watch(operationModeProvider));
+        return BottomPanel(
+          children: [
+            if (voiceBlock)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Row(
+                  children: [
+                    const Icon(Icons.rule, size: 18, color: AgroColors.caution),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        voice!.saveBlockReason!,
+                        key: const Key('voz-bloqueo-guardar'),
+                        style: AgroText.detail.copyWith(
+                          color: AgroColors.warnInk,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            if (step == _ApplicationStep.review)
+              PrimaryActionButton(
+                key: const Key('application-confirm'),
+                label: saving ? 'Guardando…' : 'Confirmar aplicación',
+                icon: Icons.check,
+                iconFirst: true,
+                busy: saving,
+                onPressed: blocked ? null : () => submit(snapshot.data!),
+              )
+            else
+              PrimaryActionButton(
+                key: const Key('application-continue'),
+                label: 'Continuar',
+                onPressed: blocked ? null : _continue,
+              ),
+          ],
+        );
+      },
+    );
+  }
 
   Map<String, Object?>? _person(_ApplicationCatalogs data) =>
       data.people.where((p) => p['id'] == personId).firstOrNull;
@@ -1109,34 +1162,22 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen>
   Map<String, Object?>? _farm(_ApplicationCatalogs data) =>
       data.farms.where((f) => f['id'] == farmId).firstOrNull;
 
-  /// Panel «Completar por voz» (pasos 1 y 2), o el botón que lo abre. Sin
-  /// él con un plan: persona, chaco y productos vienen del plan.
+  /// «Hoy, 12/11/2026» o la fecha a secas.
+  static String _dayLabel(String day) => day == localDay(DateTime.now())
+      ? 'Hoy, ${formatDate(day)}'
+      : formatDate(day);
+
+  /// Pasos 1 y 2: el aviso del último dictado o el botón que abre el panel.
+  /// Con el panel abierto no se muestra nada aquí (el panel va abajo). Con
+  /// un plan no hay voz.
   List<Widget> _voiceEntry() {
-    if (widget.planId != null) return const [];
-    if (showVoice && voice != null) {
+    if (!_voiceStep || showVoice) return const [];
+    if (voice != null && _voiceBanner) {
       return [
-        VoiceFormPanel(
+        VoiceResultBanner(
           dictation: voice!,
-          engineHint:
-              'Hable por frases cortas: el chaco, el área y cuánto usó de cada '
-              'producto. Pulse «Terminar» al acabar. Lo dictado aparece en '
-              'los pasos 1 y 2; nada se guarda solo.',
-          onClose: () => setState(() => showVoice = false),
-          // Sólo en la compilación de diagnóstico: política B, comparar
-          // pistas y lo que propuso cada motor (ruta por frases).
-          diagnostics: voiceDiagnosticsBuild && _voiceTarget.catalog != null
-              ? Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    const VoicePolicyBSwitch(),
-                    VoiceContextExperimentSwitch(
-                      domainHints: () =>
-                          voiceDomainContextHints(_voiceTarget.catalog!),
-                    ),
-                    VoiceProposalsButton(describe: (_) => const []),
-                  ],
-                )
-              : null,
+          onDictateMore: saving ? null : _openVoice,
+          onDismiss: () => setState(() => _voiceBanner = false),
         ),
         const SizedBox(height: 12),
       ];
@@ -1144,16 +1185,26 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen>
     return [
       Align(
         alignment: Alignment.centerLeft,
-        child: OutlinedButton.icon(
+        child: PillButton(
           key: const Key('aplicacion-completar-voz'),
+          icon: Icons.mic_none_outlined,
+          label: 'Completar por voz',
           onPressed: saving ? null : _openVoice,
-          icon: const Icon(Icons.mic_none_outlined),
-          label: const Text('Completar por voz'),
         ),
       ),
-      const SizedBox(height: 8),
+      const SizedBox(height: 12),
     ];
   }
+
+  /// Fila de sólo lectura (persona y chaco de un plan, el titular en
+  /// propio): sin flecha, porque no se elige.
+  static Widget _fixedRow(Key key, String label, String value) => ValueRow(
+    key: key,
+    label: label,
+    value: value,
+    onTap: null,
+    trailing: const SizedBox.shrink(),
+  );
 
   List<Widget> _whoStep(BuildContext context, _ApplicationCatalogs data) {
     final person = _person(data);
@@ -1162,81 +1213,110 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen>
         .toList();
     final farm = _farm(data);
     return [
-      ListTile(
-        key: const Key('application-date'),
-        contentPadding: EdgeInsets.zero,
-        leading: const Icon(Icons.event_outlined),
-        title: const Text('Fecha de la aplicación'),
-        subtitle: Text(
-          '${formatDate(effectiveDay)}'
-          '${effectiveDay == localDay(DateTime.now()) ? ' (hoy)' : ''}',
-        ),
-        trailing: const Text('Cambiar'),
-        onTap: saving ? null : _pickDate,
+      Semantics(
+        header: true,
+        child: const Text('¿Dónde aplicó?', style: AgroText.h1),
       ),
       const SizedBox(height: 12),
-      // Con un plan, persona y chaco son los del plan: se muestran, no se
-      // eligen. Antes cambiar de persona vaciaba las cantidades previstas y el
-      // chaco, pero la aplicación seguía vinculada al plan (revisión cruzada
-      // X01); el área exacta del plan tampoco debe sobrescribirse.
-      if (widget.planId != null) ...[
-        InputDecorator(
-          key: const Key('application-plan-person'),
-          decoration: const InputDecoration(labelText: 'Persona del plan'),
-          child: Text(person?['name']?.toString() ?? ''),
-        ),
-        const SizedBox(height: 12),
-        InputDecorator(
-          key: const Key('application-plan-farm'),
-          decoration: const InputDecoration(labelText: 'Chaco del plan'),
-          child: Text(farm?['name']?.toString() ?? ''),
-        ),
-      ] else if (personalMode)
-        InputDecorator(
-          key: const Key('application-personal-owner'),
-          decoration: const InputDecoration(labelText: 'Aplica el titular'),
-          child: Text(person?['name']?.toString() ?? ''),
-        )
-      else
-        // En compartido se elige para quién se registra.
-        AdaptiveEntityPicker<Map<String, Object?>>(
-          label: 'Persona',
-          items: data.people,
-          value: person,
-          labelOf: (p) => p['name'] as String,
-          secondaryOf: (p) => personRoleLabel(p['role']),
-          onChanged: selectPerson,
-          // Sólo en compartido (aquí nunca es propio ni de un plan), con la
-          // regla de Catálogos; la vuelve a comprobar el alta.
-          createLabel: 'Agregar persona',
-          onCreate: _createPerson,
-        ),
+      ..._voiceEntry(),
+      AgroGroup(
+        children: [
+          // Con un plan, persona y chaco son los del plan: se muestran, no se
+          // eligen. Antes cambiar de persona vaciaba las cantidades previstas
+          // y el chaco, pero la aplicación seguía vinculada al plan (revisión
+          // cruzada X01); el área exacta del plan tampoco debe sobrescribirse.
+          if (widget.planId != null) ...[
+            _fixedRow(
+              const Key('application-plan-person'),
+              'Persona del plan',
+              person?['name']?.toString() ?? '',
+            ),
+            _fixedRow(
+              const Key('application-plan-farm'),
+              'Chaco del plan',
+              farm?['name']?.toString() ?? '',
+            ),
+          ] else if (personalMode)
+            _fixedRow(
+              const Key('application-personal-owner'),
+              'Aplica el titular',
+              person?['name']?.toString() ?? '',
+            )
+          else
+            // En compartido se elige a la persona responsable del chaco: se
+            // usan sus existencias y se le aplica su forma de cobro (no se
+            // registra a quien hizo el trabajo). Rótulo vigente «Persona».
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                AdaptiveEntityPicker<Map<String, Object?>>(
+                  rowStyle: true,
+                  label: 'Persona',
+                  items: data.people,
+                  value: person,
+                  labelOf: (p) => p['name'] as String,
+                  secondaryOf: (p) => personRoleLabel(p['role']),
+                  onChanged: selectPerson,
+                  // Sólo en compartido (aquí nunca es propio ni de un plan),
+                  // con la regla de Catálogos; la vuelve a comprobar el alta.
+                  createLabel: 'Agregar persona',
+                  onCreate: _createPerson,
+                ),
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(16, 0, 16, 10),
+                  child: Text(
+                    'Responsable del chaco · se usan sus productos',
+                    key: Key('application-person-hint'),
+                    style: AgroText.detail,
+                  ),
+                ),
+              ],
+            ),
+          if (widget.planId == null)
+            AdaptiveEntityPicker<Map<String, Object?>>(
+              rowStyle: true,
+              label: 'Chaco',
+              items: farms,
+              value: farm,
+              labelOf: (f) => f['name'] as String,
+              secondaryOf: (f) => formatHectares(f['area_m2'] as int),
+              placeholder: personId == null
+                  ? 'Elija primero la persona'
+                  : 'Elegir',
+              onChanged: (f) async {
+                await selectFarm(f);
+                voice?.reconcile(_voiceTarget.snapshot());
+              },
+              enabled: personId != null,
+              createLabel: 'Crear chaco',
+              onCreate: _createFarm,
+              badge: VoiceMarkBadge(
+                dictation: voice,
+                slot: const SlotRef.header('farm'),
+                current: farmId,
+              ),
+            ),
+          ValueRow(
+            key: const Key('application-date'),
+            label: 'Fecha',
+            value: _dayLabel(effectiveDay),
+            onTap: saving ? null : _pickDate,
+          ),
+        ],
+      ),
       if (widget.planId == null) ...[
-        const SizedBox(height: 12),
-        AdaptiveEntityPicker<Map<String, Object?>>(
-          label: 'Chaco',
-          items: farms,
-          value: farm,
-          labelOf: (f) => f['name'] as String,
-          secondaryOf: (f) => formatHectares(f['area_m2'] as int),
-          onChanged: (f) async {
-            await selectFarm(f);
-            voice?.reconcile(_voiceTarget.snapshot());
-          },
-          enabled: personId != null,
-          createLabel: 'Crear chaco',
-          onCreate: _createFarm,
-        ),
         VoiceSlotMark(
           dictation: voice,
           slot: const SlotRef.header('farm'),
           current: farmId,
           currentDisplay: farm?['name']?.toString(),
+          showMark: false,
         ),
         VoiceSlotMark(
           dictation: voice,
           slot: const SlotRef.header('plan'),
           current: null,
+          showMark: false,
         ),
       ],
       const SizedBox(height: 12),
@@ -1251,9 +1331,21 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen>
           voice?.reconcile(_voiceTarget.snapshot());
         },
         keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        style: AgroText.input,
         decoration: InputDecoration(
-          labelText: 'Área tratada (ha)',
-          helperText: 'Se toma del chaco; puedes cambiarla.',
+          labelText: 'Área tratada',
+          floatingLabelBehavior: FloatingLabelBehavior.always,
+          suffixText: 'ha',
+          suffixStyle: const TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w700,
+            color: AgroColors.muted,
+          ),
+          helperText: farm == null
+              ? 'Se toma del chaco; puede cambiarla.'
+              : 'El chaco tiene ${formatHectares(farm['area_m2'] as int)}; '
+                    'puede cambiarla.',
+          helperMaxLines: 2,
           errorText: areaError,
           errorMaxLines: 3,
         ),
@@ -1264,30 +1356,44 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen>
         current: _ApplicationVoice._areaCanon(area.text),
         currentDisplay: area.text,
       ),
-      if (lines.isNotEmpty && (voice?.busy == false) && showVoice)
+      if (lines.isNotEmpty && voice != null && !voice!.busy)
         Padding(
-          padding: const EdgeInsets.only(top: 8),
+          padding: const EdgeInsets.only(top: 10),
           child: Text(
             'Productos en la mezcla: ${lines.length} (paso 2).',
             key: const Key('aplicacion-lineas-paso2'),
+            style: AgroText.detail,
           ),
         ),
     ];
   }
 
-  List<Widget> _productsStep(BuildContext context) {
-    final theme = Theme.of(context);
+  List<Widget> _productsStep(BuildContext context, _ApplicationCatalogs data) {
     final addable = _addable;
+    final person = _person(data);
+    final farm = _farm(data);
+    final summary = [
+      if (farm != null) farm['name'].toString(),
+      if (_areaM2 > 0) formatHectares(_areaM2),
+      if (person != null) person['name'].toString(),
+    ].join(' · ');
     return [
+      Semantics(
+        header: true,
+        child: const Text('¿Qué aplicó?', style: AgroText.h1),
+      ),
+      if (summary.isNotEmpty)
+        Text(
+          summary,
+          key: const Key('application-products-context'),
+          style: AgroText.detail,
+        ),
+      const SizedBox(height: 12),
+      ..._voiceEntry(),
       Row(
         children: [
           Expanded(
-            child: Text(
-              'Productos (${lines.length})',
-              style: theme.textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.w800,
-              ),
-            ),
+            child: Text('Productos (${lines.length})', style: AgroText.h2),
           ),
           if (loadingStock)
             const SizedBox.square(
@@ -1296,37 +1402,17 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen>
             ),
         ],
       ),
-      const SizedBox(height: 8),
-      // Una sola acción agrega, y abre un recorrido con confirmación.
-      FilledButton.tonalIcon(
-        key: const Key('application-add-product'),
-        onPressed: saving || loadingStock || addable.isEmpty
-            ? null
-            : _addProduct,
-        icon: const Icon(Icons.add),
-        label: const Text('Agregar producto'),
-      ),
-      const SizedBox(height: 8),
-      if (stocks.isEmpty && !loadingStock)
-        const EmptyState(
+      const SizedBox(height: 10),
+      if (stocks.isEmpty && !loadingStock) ...[
+        NoticeBox(
+          key: const Key('application-no-stock'),
           icon: Icons.inventory_2_outlined,
-          message:
-              'Esta persona no tiene productos en existencia. Registra '
-              'primero la compra.',
-        )
-      else if (lines.isEmpty)
-        const EmptyState(
-          icon: Icons.science_outlined,
-          message: 'Toca «Agregar producto» para armar la mezcla.',
-        )
-      else if (addable.isEmpty)
-        Padding(
-          padding: const EdgeInsets.only(bottom: 8),
-          child: Text(
-            'Todos los productos en existencia ya están en la mezcla.',
-            style: theme.textTheme.bodySmall,
-          ),
+          text:
+              '${personalMode ? 'El titular' : 'Esta persona'} no tiene '
+              'productos en existencia. Registre primero la compra.',
         ),
+        const SizedBox(height: 10),
+      ],
       for (final line in lines)
         _LineCard(
           key: ObjectKey(line),
@@ -1336,8 +1422,27 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen>
           doseError: doseError(line),
           onEdit: saving ? null : () => _editLine(line),
           onRemove: saving ? null : () => _removeLine(line),
+          onToggleDetail: () =>
+              setState(() => line.showDetail = !line.showDetail),
           onDoseChanged: () => setState(() => dirty = true),
         ),
+      // Una sola acción agrega, y abre un recorrido con confirmación.
+      DashedAddButton(
+        key: const Key('application-add-product'),
+        label: lines.isEmpty ? 'Añadir producto' : 'Añadir otro producto',
+        onPressed: saving || loadingStock || addable.isEmpty
+            ? null
+            : _addProduct,
+      ),
+      if (addable.isEmpty && lines.isNotEmpty && stocks.isNotEmpty)
+        const Padding(
+          padding: EdgeInsets.only(top: 8),
+          child: Text(
+            'Todos los productos en existencia ya están en la mezcla.',
+            style: AgroText.detail,
+          ),
+        ),
+      const SizedBox(height: 12),
       if (!loadingStock) ..._withoutStock(context),
     ];
   }
@@ -1346,7 +1451,6 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen>
   /// tiene existencias de él (antes sólo faltaba en la lista, sin decir
   /// por qué). Con «Registrar compra» se compra sin perder la aplicación.
   List<Widget> _withoutStock(BuildContext context) {
-    final theme = Theme.of(context);
     final data = _latestCatalogs;
     final inStock = {for (final row in stocks) row['product_id']};
     final missing = [
@@ -1357,39 +1461,29 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen>
     final who = personalMode
         ? 'el titular'
         : person?['name']?.toString() ?? 'esta persona';
-    return [
-      if (missing.isNotEmpty)
-        Padding(
-          padding: const EdgeInsets.only(top: 4, bottom: 4),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Icon(
-                Icons.info_outline,
-                size: 20,
-                color: theme.colorScheme.outline,
-              ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  'Sin existencias de $who: ${missing.join(', ')}. '
-                  '${missing.length == 1 ? 'No aparece' : 'No aparecen'} en '
-                  '«Agregar producto» hasta que se registre una compra para '
-                  '$who.',
-                  key: const Key('application-without-stock'),
-                ),
-              ),
-            ],
-          ),
-        ),
-      Align(
+    final register = TextButton.icon(
+      key: const Key('application-register-purchase'),
+      style: TextButton.styleFrom(
+        foregroundColor: AgroColors.link,
+        padding: EdgeInsets.zero,
+        minimumSize: const Size(0, 44),
         alignment: Alignment.centerLeft,
-        child: TextButton.icon(
-          key: const Key('application-register-purchase'),
-          onPressed: saving ? null : _registerPurchase,
-          icon: const Icon(Icons.shopping_cart_outlined),
-          label: const Text('Registrar compra'),
-        ),
+      ),
+      onPressed: saving ? null : _registerPurchase,
+      icon: const Icon(Icons.shopping_cart_outlined),
+      label: const Text('Registrar compra'),
+    );
+    if (missing.isEmpty) {
+      return [Align(alignment: Alignment.centerLeft, child: register)];
+    }
+    return [
+      _KeyedNotice(
+        textKey: const Key('application-without-stock'),
+        text:
+            'Sin existencias de $who: ${missing.join(', ')}. '
+            '${missing.length == 1 ? 'No aparece' : 'No aparecen'} en '
+            '«Añadir producto» hasta que se registre una compra para $who.',
+        action: register,
       ),
     ];
   }
@@ -1422,11 +1516,16 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen>
   }
 
   List<Widget> _reviewStep(BuildContext context, _ApplicationCatalogs data) {
-    final theme = Theme.of(context);
     final person = _person(data);
     final farm = _farm(data);
     final totalCost = lines.fold<int>(0, (sum, line) => sum + line.cost);
+    const divider = Divider(height: 1, color: AgroColors.line);
     return [
+      Semantics(
+        header: true,
+        child: const Text('Revise y confirme', style: AgroText.h1),
+      ),
+      const SizedBox(height: 12),
       // Aviso de lote vencido, antes del resumen: se ve antes de confirmar.
       if (loadingPreview)
         const Padding(
@@ -1457,77 +1556,84 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen>
       Card(
         key: const Key('application-review'),
         child: Padding(
-          padding: const EdgeInsets.all(14),
+          padding: const EdgeInsets.all(16),
           child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text(
-                'Lo que se va a guardar',
-                style: theme.textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w700,
-                ),
+                '${farm?['name'] ?? ''} · ${formatHectares(_areaM2)} tratadas',
+                key: const Key('application-review-farm'),
+                style: AgroText.value,
+              ),
+              Text(
+                '${personalMode ? 'Aplica el titular: ' : ''}'
+                '${person?['name'] ?? ''} · ${_dayLabel(effectiveDay)}',
+                key: const Key('application-review-person'),
+                style: AgroText.detail,
               ),
               const SizedBox(height: 12),
-              _reviewRow(
-                Icons.person_outline,
-                personalMode ? 'Aplica el titular' : 'Persona',
-                person?['name']?.toString() ?? '',
-              ),
-              _reviewRow(
-                Icons.landscape_outlined,
-                'Chaco',
-                '${farm?['name'] ?? ''} · ${formatHectares(_areaM2)} tratadas',
-              ),
-              _reviewRow(
-                Icons.event_outlined,
-                'Fecha',
-                '${formatDate(effectiveDay)}'
-                    '${effectiveDay == localDay(DateTime.now()) ? ' (hoy)' : ''}',
-              ),
-              const Divider(height: 20),
+              divider,
+              const SizedBox(height: 8),
               for (final line in lines)
                 Padding(
-                  padding: const EdgeInsets.only(bottom: 6),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          '${line.product['product_name']} · '
-                          '${formatQuantity(line.quantityBase, line.unit)}',
-                          style: const TextStyle(fontWeight: FontWeight.w700),
-                        ),
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  child: AmountAside(
+                    amount: formatBob(line.cost),
+                    amountKey: Key('application-review-cost-${line.keyId}'),
+                    amountStyle: AgroText.amount.copyWith(fontSize: 16),
+                    child: Text(
+                      '${line.product['product_name']} · '
+                      '${formatQuantity(line.quantityBase, line.unit)}',
+                      style: const TextStyle(
+                        fontSize: 16,
+                        height: 22 / 16,
+                        fontWeight: FontWeight.w500,
+                        color: AgroColors.ink,
                       ),
-                      Text(
-                        formatBob(line.cost),
-                        key: Key('application-review-cost-${line.keyId}'),
-                      ),
-                    ],
+                    ),
                   ),
                 ),
-              const Divider(height: 20),
+              const SizedBox(height: 8),
+              divider,
+              const SizedBox(height: 4),
               // Lo que cuesta y lo que se cobra son dos cosas (B-06): el
               // costo sale de las compras que se irán usando; el cargo, de la
               // política de la persona. Se muestran por separado. Cómo se
               // calcula el costo va en una ayuda breve que se abre a pedido
               // (2026-11-05), para que el resumen se lea de un vistazo.
-              Row(
+              Wrap(
+                alignment: WrapAlignment.spaceBetween,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: 8,
                 children: [
-                  Expanded(
-                    child: Text(
-                      'Costo total estimado: ${formatBob(totalCost)}',
-                      key: const Key('application-review-cost'),
-                      style: const TextStyle(fontWeight: FontWeight.w700),
-                    ),
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text(
+                        'Costo estimado',
+                        style: TextStyle(
+                          fontSize: 15,
+                          height: 20 / 15,
+                          color: AgroColors.muted,
+                        ),
+                      ),
+                      IconButton(
+                        key: const Key('application-cost-help'),
+                        tooltip: '¿Cómo se calcula el costo?',
+                        isSelected: showCostHelp,
+                        color: AgroColors.muted,
+                        icon: const Icon(Icons.help_outline),
+                        selectedIcon: const Icon(Icons.help),
+                        onPressed: () => setState(() {
+                          showCostHelp = !showCostHelp;
+                        }),
+                      ),
+                    ],
                   ),
-                  IconButton(
-                    key: const Key('application-cost-help'),
-                    tooltip: '¿Cómo se calcula el costo?',
-                    isSelected: showCostHelp,
-                    icon: const Icon(Icons.help_outline),
-                    selectedIcon: const Icon(Icons.help),
-                    onPressed: () => setState(() {
-                      showCostHelp = !showCostHelp;
-                    }),
+                  Text(
+                    formatBob(totalCost),
+                    key: const Key('application-review-cost'),
+                    style: AgroText.total,
                   ),
                 ],
               ),
@@ -1540,85 +1646,91 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen>
                   'una compra no alcanza, se sigue con la siguiente. Es una '
                   'estimación: el costo final se fija al confirmar.',
                   key: const Key('application-cost-help-text'),
-                  style: theme.textTheme.bodySmall,
+                  style: AgroText.detail,
                 ),
-              const SizedBox(height: 8),
-              Text(
-                _chargeText(person, totalCost),
-                key: const Key('application-review-charge'),
-                style: const TextStyle(fontWeight: FontWeight.w700),
-              ),
             ],
           ),
         ),
       ),
       const SizedBox(height: 12),
+      _KeyedNotice(
+        textKey: const Key('application-review-charge'),
+        text: _chargeText(person, totalCost),
+      ),
+      const SizedBox(height: 12),
       Card(
-        child: ExpansionTile(
-          key: const Key('application-notes'),
-          title: const Text('Notas (opcional)'),
-          childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
-          children: [
-            TextField(
-              controller: notes,
-              onChanged: (_) => dirty = true,
-              maxLines: 3,
-              decoration: const InputDecoration(labelText: 'Notas'),
+        clipBehavior: Clip.antiAlias,
+        child: Theme(
+          // Sin las líneas que ExpansionTile dibuja al abrirse.
+          data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+          child: ExpansionTile(
+            key: const Key('application-notes'),
+            title: const Text(
+              'Notas (opcional)',
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w500,
+                color: AgroColors.ink,
+              ),
             ),
-          ],
+            iconColor: AgroColors.ink,
+            collapsedIconColor: AgroColors.muted,
+            childrenPadding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            children: [
+              TextField(
+                controller: notes,
+                onChanged: (_) => dirty = true,
+                maxLines: 3,
+                decoration: const InputDecoration(labelText: 'Notas'),
+              ),
+            ],
+          ),
         ),
       ),
     ];
   }
-
-  Widget _reviewRow(IconData icon, String label, String value) => Padding(
-    padding: const EdgeInsets.only(bottom: 6),
-    child: Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Icon(icon, size: 20),
-        const SizedBox(width: 8),
-        Text('$label: '),
-        Expanded(
-          child: Text(
-            value,
-            style: const TextStyle(fontWeight: FontWeight.w700),
-          ),
-        ),
-      ],
-    ),
-  );
 }
 
-/// «Paso n de m · título» con la campaña activa.
-class _StepHeader extends StatelessWidget {
-  const _StepHeader({
-    super.key,
-    required this.step,
-    required this.total,
-    required this.title,
-    required this.campaign,
-  });
-  final int step;
-  final int total;
-  final String title;
-  final String campaign;
+/// Aviso informativo con su texto identificable (las pruebas y la
+/// accesibilidad leen el texto por su clave), con el estilo de [NoticeBox].
+class _KeyedNotice extends StatelessWidget {
+  const _KeyedNotice({required this.textKey, required this.text, this.action});
+  final Key textKey;
+  final String text;
+  final Widget? action;
 
   @override
   Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+    padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
     decoration: BoxDecoration(
-      color: Theme.of(context).colorScheme.primaryContainer,
-      borderRadius: BorderRadius.circular(12),
+      color: AgroColors.chip,
+      borderRadius: BorderRadius.circular(20),
     ),
-    child: Column(
+    child: Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(
-          'Paso $step de $total · $title',
-          style: const TextStyle(fontWeight: FontWeight.w800),
+        const Padding(
+          padding: EdgeInsets.only(top: 1),
+          child: Icon(Icons.info_outline, size: 20, color: AgroColors.ink),
         ),
-        Text('Campaña activa · $campaign'),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                text,
+                key: textKey,
+                style: const TextStyle(
+                  fontSize: 14,
+                  height: 20 / 14,
+                  color: AgroColors.ink,
+                ),
+              ),
+              ?action,
+            ],
+          ),
+        ),
       ],
     ),
   );
@@ -1650,6 +1762,9 @@ class _ApplicationLineEditor {
   int quantityBase;
   final dose = TextEditingController();
   int cost = 0;
+
+  /// «Dosis y costo» abierto en la tarjeta (sólo presentación).
+  bool showDetail = false;
   String get unit => product['unit'] as String;
   int get available => product['available_base'] as int;
   void dispose() {
@@ -1717,20 +1832,20 @@ class _ProductSheetState extends State<_ProductSheet> {
     final typed = tryParseBase(quantity.text) ?? 0;
     if (available == null || typed <= available) return null;
     final unit = product!['unit'] as String;
-    return 'Pediste ${formatQuantity(typed, unit)} y hay '
-        '${formatQuantity(available, unit)}. Baja la cantidad o registra '
+    return 'Pidió ${formatQuantity(typed, unit)} y hay '
+        '${formatQuantity(available, unit)}. Baje la cantidad o registre '
         'primero la compra.';
   }
 
   void _confirm() {
     final chosen = product;
     if (chosen == null) {
-      setState(() => error = 'Elige el producto.');
+      setState(() => error = 'Elija el producto.');
       return;
     }
     final base = tryParseBase(quantity.text) ?? 0;
     if (base <= 0) {
-      setState(() => error = 'Escribe la cantidad que usaste, mayor que cero.');
+      setState(() => error = 'Escriba la cantidad que usó, mayor que cero.');
       return;
     }
     // Nada entra en la mezcla por encima de lo disponible.
@@ -1740,7 +1855,6 @@ class _ProductSheetState extends State<_ProductSheet> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final unit = product?['unit']?.toString();
     final available = product?['available_base'] as int?;
     final insufficient = _insufficient;
@@ -1754,85 +1868,94 @@ class _ProductSheetState extends State<_ProductSheet> {
           16,
           16 + MediaQuery.viewInsetsOf(context).bottom,
         ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              editing ? 'Cambiar producto' : 'Agregar producto',
-              style: theme.textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.w800,
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                editing ? 'Cambiar producto' : 'Agregar producto',
+                style: AgroText.sheetTitle,
               ),
-            ),
-            const SizedBox(height: 12),
-            // Sin autoselección: elegir es un acto explícito aunque quede
-            // una sola opción (piloto X01).
-            AdaptiveEntityPicker<Map<String, Object?>>(
-              label: 'Producto',
-              items: widget.options,
-              value: product,
-              labelOf: (p) => p['product_name'] as String,
-              secondaryOf: (p) =>
-                  'Disponible ${formatQuantity(p['available_base'] as int, p['unit'] as String)}',
-              onChanged: (p) => setState(() {
-                product = p;
-                error = null;
-              }),
-              autoSelectSingle: false,
-              allowClear: false,
-            ),
-            const SizedBox(height: 12),
-            TextField(
-              key: const Key('application-line-quantity'),
-              controller: quantity,
-              autofocus: product != null,
-              onChanged: (_) => setState(() => error = null),
-              keyboardType: const TextInputType.numberWithOptions(
-                decimal: true,
-              ),
-              decoration: InputDecoration(
-                labelText: unit == null
-                    ? 'Cantidad usada'
-                    : 'Cantidad usada ($unit)',
-                helperText: available == null
-                    ? 'Primero elige el producto.'
-                    : 'Hay ${formatQuantity(available, unit!)}.',
-                // Disponible y pedido, con unidades, como error del propio
-                // campo; el botón de abajo queda deshabilitado a la vez.
-                errorText: error ?? insufficient,
-                errorMaxLines: 3,
-              ),
-            ),
-            const SizedBox(height: 16),
-            Row(
-              children: [
-                TextButton(
-                  key: const Key('application-line-cancel'),
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text('Cancelar'),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: FilledButton.icon(
-                    key: const Key('application-line-add'),
-                    onPressed: insufficient == null ? _confirm : null,
-                    icon: Icon(editing ? Icons.check : Icons.add),
-                    label: Text(
-                      editing ? 'Guardar cambios' : 'Agregar a la mezcla',
-                    ),
+              const SizedBox(height: 12),
+              // Sin autoselección: elegir es un acto explícito aunque quede
+              // una sola opción (piloto X01).
+              AgroGroup(
+                children: [
+                  AdaptiveEntityPicker<Map<String, Object?>>(
+                    rowStyle: true,
+                    label: 'Producto',
+                    items: widget.options,
+                    value: product,
+                    labelOf: (p) => p['product_name'] as String,
+                    secondaryOf: (p) =>
+                        'Disponible ${formatQuantity(p['available_base'] as int, p['unit'] as String)}',
+                    onChanged: (p) => setState(() {
+                      product = p;
+                      error = null;
+                    }),
+                    autoSelectSingle: false,
+                    allowClear: false,
                   ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              TextField(
+                key: const Key('application-line-quantity'),
+                controller: quantity,
+                autofocus: product != null,
+                onChanged: (_) => setState(() => error = null),
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
                 ),
-              ],
-            ),
-          ],
+                style: AgroText.input,
+                decoration: InputDecoration(
+                  labelText: 'Cantidad usada',
+                  floatingLabelBehavior: FloatingLabelBehavior.always,
+                  suffixText: unit,
+                  suffixStyle: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: AgroColors.muted,
+                  ),
+                  helperText: available == null
+                      ? 'Primero elija el producto.'
+                      : 'Hay ${formatQuantity(available, unit!)}.',
+                  // Disponible y pedido, con unidades, como error del propio
+                  // campo; el botón de abajo queda deshabilitado a la vez.
+                  errorText: error ?? insufficient,
+                  errorMaxLines: 3,
+                ),
+              ),
+              const SizedBox(height: 16),
+              PrimaryActionButton(
+                key: const Key('application-line-add'),
+                onPressed: insufficient == null ? _confirm : null,
+                icon: editing ? Icons.check : Icons.add,
+                iconFirst: true,
+                label: editing ? 'Guardar cambios' : 'Agregar a la mezcla',
+              ),
+              const SizedBox(height: 4),
+              TextButton(
+                key: const Key('application-line-cancel'),
+                style: TextButton.styleFrom(
+                  foregroundColor: AgroColors.ink,
+                  minimumSize: const Size.fromHeight(48),
+                ),
+                onPressed: () => Navigator.pop(context),
+                child: const Text('Cancelar'),
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 }
 
-/// Tarjeta de un producto de la mezcla: producto, cantidad y unidad a la
-/// vista, con «Editar» y «Quitar»; dosis, teórico y costo en el detalle.
+/// Tarjeta de un producto de la mezcla: producto, lo que hay y lo que
+/// quedará, y la cantidad usada en grande; «Editar», «Dosis y costo» y
+/// quitar. La dosis, el teórico y el costo estimado se abren a pedido.
 class _LineCard extends StatelessWidget {
   const _LineCard({
     super.key,
@@ -1841,6 +1964,7 @@ class _LineCard extends StatelessWidget {
     required this.doseError,
     required this.onEdit,
     required this.onRemove,
+    required this.onToggleDetail,
     required this.onDoseChanged,
     this.voice,
   });
@@ -1854,41 +1978,82 @@ class _LineCard extends StatelessWidget {
   final String? doseError;
   final VoidCallback? onEdit;
   final VoidCallback? onRemove;
+  final VoidCallback onToggleDetail;
   final VoidCallback onDoseChanged;
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final missing = line.quantityBase - line.available;
     final name = line.product['product_name'] as String;
+    final open = line.showDetail;
+    final linkStyle = TextButton.styleFrom(
+      foregroundColor: AgroColors.link,
+      minimumSize: const Size(0, 44),
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      textStyle: const TextStyle(
+        fontFamily: AgroFonts.body,
+        fontSize: 14,
+        fontWeight: FontWeight.w700,
+      ),
+    );
     return Card(
       key: Key('application-line-${line.keyId}'),
-      margin: const EdgeInsets.only(bottom: 8),
+      margin: const EdgeInsets.only(bottom: 10),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(14, 12, 14, 4),
+        padding: const EdgeInsets.fromLTRB(16, 14, 8, 4),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Text(name, style: const TextStyle(fontWeight: FontWeight.w700)),
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: AmountAside(
+                amount: formatQuantity(line.quantityBase, line.unit),
+                amountKey: Key('application-line-quantity-${line.keyId}'),
+                amountStyle: AgroText.input.copyWith(
+                  fontSize: 32,
+                  height: 38 / 32,
+                ),
+                minTextWidth: 140,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(name, style: AgroText.value),
+                    Text(
+                      missing > 0
+                          ? 'Hay ${formatQuantity(line.available, line.unit)}: '
+                                'faltan ${formatQuantity(missing, line.unit)}'
+                          : 'Hay ${formatQuantity(line.available, line.unit)} '
+                                '· quedarán '
+                                '${formatQuantity(-missing, line.unit)}',
+                      // Una proyección negativa se pintaba en color normal,
+                      // mientras `/inventario` sí resalta en rojo las
+                      // negativas (UIBUG-044). Además del color, dice
+                      // «faltan».
+                      style: missing > 0
+                          ? AgroText.detail.copyWith(
+                              color: AgroColors.danger,
+                              fontWeight: FontWeight.w700,
+                            )
+                          : AgroText.detail,
+                    ),
+                  ],
+                ),
+              ),
+            ),
             VoiceSlotMark(
               dictation: voice,
               slot: SlotRef.line(line.id, 'product'),
               current: line.product['product_id'],
               currentDisplay: name,
-            ),
-            const SizedBox(height: 4),
-            Text(
-              formatQuantity(line.quantityBase, line.unit),
-              key: Key('application-line-quantity-${line.keyId}'),
-              style: theme.textTheme.titleLarge?.copyWith(
-                fontWeight: FontWeight.w800,
-              ),
+              writeOtherLabel: 'Elegir otro',
+              onWriteOther: onEdit,
             ),
             VoiceSlotMark(
               dictation: voice,
               slot: SlotRef.line(line.id, 'quantity'),
               current: line.quantityBase > 0 ? line.quantityBase : null,
               currentDisplay: formatQuantity(line.quantityBase, line.unit),
+              onWriteOther: onEdit,
             ),
             if (voice?.touchesLine(line.id) ?? false) ...[
               if (line.product['product_id'] == null)
@@ -1896,75 +2061,82 @@ class _LineCard extends StatelessWidget {
               if (line.quantityBase <= 0)
                 const VoiceMissingMark(label: 'cantidad usada'),
             ],
-            Text(
-              missing > 0
-                  ? 'Hay ${formatQuantity(line.available, line.unit)}: faltan '
-                        '${formatQuantity(missing, line.unit)}'
-                  : 'Hay ${formatQuantity(line.available, line.unit)} · quedarán '
-                        '${formatQuantity(-missing, line.unit)}',
-              // Una proyección negativa se pintaba en color normal, mientras
-              // `/inventario` sí resalta en rojo las negativas (UIBUG-044).
-              style: missing > 0
-                  ? TextStyle(
-                      color: theme.colorScheme.error,
-                      fontWeight: FontWeight.w700,
-                    )
-                  : theme.textTheme.bodySmall,
-            ),
-            Wrap(
-              spacing: 4,
+            Row(
               children: [
-                TextButton.icon(
-                  key: Key('application-line-edit-${line.keyId}'),
-                  onPressed: onEdit,
-                  icon: const Icon(Icons.edit_outlined),
-                  label: const Text('Editar'),
+                Expanded(
+                  child: Wrap(
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      TextButton.icon(
+                        key: Key('application-line-edit-${line.keyId}'),
+                        style: linkStyle.copyWith(
+                          padding: const WidgetStatePropertyAll(
+                            EdgeInsets.only(right: 8),
+                          ),
+                        ),
+                        onPressed: onEdit,
+                        icon: const Icon(Icons.edit_outlined, size: 18),
+                        label: const Text('Editar'),
+                      ),
+                      TextButton.icon(
+                        key: Key('application-line-detail-${line.keyId}'),
+                        style: linkStyle,
+                        onPressed: onToggleDetail,
+                        icon: Icon(
+                          open ? Icons.expand_less : Icons.expand_more,
+                          size: 18,
+                        ),
+                        label: Text(
+                          'Dosis y costo',
+                          semanticsLabel: open
+                              ? 'Dosis y costo, abierto'
+                              : 'Dosis y costo, cerrado',
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-                TextButton.icon(
+                IconButton(
                   key: Key('application-line-remove-${line.keyId}'),
+                  tooltip: 'Quitar $name',
+                  color: AgroColors.muted,
                   onPressed: onRemove,
-                  icon: const Icon(Icons.close),
-                  label: const Text('Quitar'),
+                  icon: const Icon(Icons.delete_outline),
                 ),
               ],
             ),
-            ExpansionTile(
-              key: Key('application-line-detail-${line.keyId}'),
-              tilePadding: EdgeInsets.zero,
-              childrenPadding: const EdgeInsets.only(bottom: 12),
-              title: Text(
-                'Detalle: dosis y costo',
-                style: theme.textTheme.bodyMedium,
+            if (open)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(0, 4, 8, 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    TextField(
+                      controller: line.dose,
+                      onChanged: (_) => onDoseChanged(),
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      decoration: InputDecoration(
+                        labelText: 'Dosis (${line.unit}/ha)',
+                        helperText: 'Opcional.',
+                        errorText: doseError,
+                        errorMaxLines: 3,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      theoretical == null
+                          ? 'Sin dosis no se calcula el teórico · '
+                                'Costo estimado: ${formatBob(line.cost)}'
+                          : 'Teórico por dosis y área: '
+                                '${formatQuantity(theoretical!, line.unit)} · '
+                                'Costo estimado: ${formatBob(line.cost)}',
+                      style: AgroText.detail,
+                    ),
+                  ],
+                ),
               ),
-              children: [
-                TextField(
-                  controller: line.dose,
-                  onChanged: (_) => onDoseChanged(),
-                  keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true,
-                  ),
-                  decoration: InputDecoration(
-                    labelText: 'Dosis (${line.unit}/ha)',
-                    helperText: 'Opcional.',
-                    errorText: doseError,
-                    errorMaxLines: 3,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: Text(
-                    theoretical == null
-                        ? 'Sin dosis no se calcula el teórico · '
-                              'Costo estimado: ${formatBob(line.cost)}'
-                        : 'Teórico por dosis y área: '
-                              '${formatQuantity(theoretical!, line.unit)} · '
-                              'Costo estimado: ${formatBob(line.cost)}',
-                    style: theme.textTheme.bodySmall,
-                  ),
-                ),
-              ],
-            ),
           ],
         ),
       ),

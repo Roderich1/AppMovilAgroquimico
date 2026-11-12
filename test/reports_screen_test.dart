@@ -429,9 +429,10 @@ void main() {
           child: const AgroApp(),
         ),
       );
-      await waitFor(tester, find.text('Operaciones').first);
+      // Rediseño (2026-11-12): la pestaña «Operaciones» se llama «Actividad».
+      await waitFor(tester, find.text('Actividad').first);
 
-      await tester.tap(find.text('Operaciones').first);
+      await tester.tap(find.text('Actividad').first);
       // Reportes tiene acceso propio en Operaciones (2026-11-05); antes
       // vivía en «Más» (piloto X01).
       await waitFor(tester, find.text('Reportes'));

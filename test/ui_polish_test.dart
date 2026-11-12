@@ -421,12 +421,23 @@ void main() {
         isTrue,
       );
 
+      // Aplicaciones y Planificación tienen su propio botón de registro
+      // (rediseño, 2026-11-12): tampoco hay FAB.
+      for (final path in const ['/aplicaciones', '/planificacion']) {
+        expect(
+          AppShell(
+            location: path,
+            child: const SizedBox.shrink(),
+          ).hidesGlobalFab,
+          isTrue,
+          reason: path,
+        );
+      }
+
       // El resto de destinos conserva su FAB.
       for (final path in const [
         '/operaciones',
-        '/planificacion',
         '/compras',
-        '/aplicaciones',
         '/inventario',
         '/personas',
         '/liquidacion',

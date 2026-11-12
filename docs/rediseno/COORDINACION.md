@@ -89,11 +89,13 @@ Pruebas: cada sesión adapta las pruebas que rompan sus propios cambios (cambia 
 
 | Base | SHA | Contenido |
 |---|---|---|
-| B0 | (el commit de este documento) | bloque 1 + coordinación + esqueleto Sindicato |
+| B0 | `33e581f` | bloque 1 + coordinación + esqueleto Sindicato |
+| B1 | `475494b` | barra Inicio · Actividad · Almacén · Personas · Sindicato, hoja «Registrar», ruta `/sindicato`; `SegmentToggle` que se apila, `ValueRow`/`AdaptiveEntityPicker(rowStyle:)` con `hint:`, `BadgeTone.ok`, `ActionTile`, `DashedPanel`; sin espaciado extra de letras; sin «+ Registrar» en Necesidad, Consumo, Vínculos, Aplicaciones y Planificación; entregas A1, A2 y C1 integradas. Arnés: `shot()` captura la vista entera (hojas y flotante) con sombras reales: copiarlo. |
 
 ## Dependencias y bloqueos
 
-- Barra nueva (Inicio · Actividad · Almacén · Personas · Sindicato) y hoja «Registrar»: orquestador, en B1. Hasta entonces B y C rediseñan sus pantallas con la barra vieja; `/liquidacion` (Cuentas) dejará de ser pestaña y se abrirá desde Personas (B decide el acceso dentro de Personas; la ruta se conserva).
+- Barra nueva y hoja «Registrar»: **hechas en B1**. Cuentas (`/liquidacion`) ya no es pestaña: cuelga de Personas (B pone el acceso dentro de Personas; la ruta se conserva). Más (`/mas`), Catálogos y Campañas cuelgan de Inicio: **B** pone en Inicio el acceso a Ajustes (`/mas`, engranaje de la lámina) y a Campañas (selector de campaña de la lámina) antes de quitar esas tarjetas de Actividad.
+- Listas `/aplicaciones` y `/planificacion`: las rediseña **A** con el lenguaje del bloque 1 (sin lámina propia); Actividad (B) enlaza a ellas o filtra, sin duplicar sus funciones (registrar, aplicar un plan, revertir).
 - Exportación Excel: espera el SHA de la sesión F (reportes, orquestador).
 - **C no reescribe `joint_purchase_detail_screen.dart` ni `joint_purchases_screen.dart`** hasta que la rama de la sesión F esté integrada y publicada como base nueva (acciones de consentimiento, estados y mensajes nuevos). Mientras tanto C hace Sindicato, Necesidad, Consumo, Vínculos, Identificación, Etiqueta y sincronización.
 - Componentes compartidos nuevos: por solicitud.
@@ -102,6 +104,8 @@ Pruebas: cada sesión adapta las pruebas que rompan sus propios cambios (cambia 
 
 | Fecha | Sesión | SHA de la entrega | Fusión en integración | Revisión | Estado |
 |---|---|---|---|---|---|
-| — | — | — | — | — | — |
+| 2026-11-12 | A | `14f2792` (entrega 1: `/aplicaciones/nueva`) | `a2c3eae` | `revisiones/A-1.md` | implementado · probado automáticamente (focalizadas tras fusionar) · **no** recorrido en emulador · no revisado por el usuario |
+| 2026-11-12 | C | `dfc1967` (entrega 1: vínculos, identificación, etiqueta) | `665833f` | `revisiones/C-1.md` | implementado · probado automáticamente · no recorrido · no revisado por el usuario |
+| 2026-11-12 | A | `41f7e03` (entrega 2: `/planificacion/nueva`) | `475494b` | `revisiones/A-1.md` | implementado · probado automáticamente · no recorrido · no revisado por el usuario |
 
 Estados posibles de una pantalla: implementado · probado automáticamente · recorrido en emulador · revisado por el usuario. Sólo el autor marca «revisado por el usuario».

@@ -40,14 +40,15 @@ void main() {
     await settle(tester);
   }
 
-  test('el shell: /mas es hija de Operaciones y Inicio no tiene FAB', () {
+  // Rediseño (2026-11-12): «Más» son los ajustes y cuelga de Inicio.
+  test('el shell: /mas es hija de Inicio y Inicio no tiene FAB', () {
     expect(
       const AppShell(location: '/mas', child: SizedBox()).selectedIndex,
-      1,
+      0,
     );
     expect(
       const AppShell(location: '/mas', child: SizedBox()).backFallback,
-      '/operaciones',
+      '/',
     );
     expect(
       const AppShell(location: '/', child: SizedBox()).hidesGlobalFab,
@@ -93,8 +94,8 @@ void main() {
     // Registrar aplicación abre su formulario.
     await tapKey(tester, 'home-registrar-aplicacion');
     await waitFor(tester, picker('Chaco'));
-    expect(find.text('Nueva aplicación'), findsOneWidget);
-    expect(find.text('Paso 1 de 3 · Persona y chaco'), findsOneWidget);
+    expect(find.byKey(const Key('application-step')), findsOneWidget);
+    expect(find.text('¿Dónde aplicó?'), findsOneWidget);
     c.read(routerProvider).pop();
     await settle(tester);
 

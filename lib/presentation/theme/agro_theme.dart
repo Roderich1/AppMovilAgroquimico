@@ -207,7 +207,27 @@ ThemeData buildAgroTheme() {
     useMaterial3: true,
     fontFamily: AgroFonts.body,
   );
-  final text = base.textTheme;
+  // DM Sans ya viene espaciada: el espaciado extra de Material 3 (hasta
+  // 0,5 px en cuerpos y rótulos) la abría más que en el prototipo.
+  TextStyle? flat(TextStyle? style) => style?.copyWith(letterSpacing: 0);
+  final t = base.textTheme;
+  final text = t.copyWith(
+    displayLarge: flat(t.displayLarge),
+    displayMedium: flat(t.displayMedium),
+    displaySmall: flat(t.displaySmall),
+    headlineLarge: flat(t.headlineLarge),
+    headlineMedium: flat(t.headlineMedium),
+    headlineSmall: flat(t.headlineSmall),
+    titleLarge: flat(t.titleLarge),
+    titleMedium: flat(t.titleMedium),
+    titleSmall: flat(t.titleSmall),
+    bodyLarge: flat(t.bodyLarge),
+    bodyMedium: flat(t.bodyMedium),
+    bodySmall: flat(t.bodySmall),
+    labelLarge: flat(t.labelLarge),
+    labelMedium: flat(t.labelMedium),
+    labelSmall: flat(t.labelSmall),
+  );
   TextStyle? display(TextStyle? style, FontWeight weight) => style?.copyWith(
     fontFamily: AgroFonts.display,
     fontWeight: weight,

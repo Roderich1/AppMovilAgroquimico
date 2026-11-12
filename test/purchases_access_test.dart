@@ -79,7 +79,7 @@ void main() {
     final repo = await tester.runAsync(fixture);
     await pumpApp(tester, repo!);
 
-    await tester.tap(find.text('Operaciones').last);
+    await tester.tap(find.text('Actividad').last);
     await settle(tester, frames: 25);
 
     // La tarjeta de compras debe existir y llevar al LISTADO, igual que las de
@@ -115,7 +115,7 @@ void main() {
     final repo = await tester.runAsync(fixture);
     await pumpApp(tester, repo!);
 
-    await tester.tap(find.text('Operaciones').last);
+    await tester.tap(find.text('Actividad').last);
     await settle(tester, frames: 25);
     await tester.tap(find.textContaining('Compras').first);
     await settle(tester, frames: 30);

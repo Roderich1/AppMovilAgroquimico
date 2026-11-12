@@ -35,6 +35,8 @@ import 'package:agroquimicos/domain/inventory_alerts.dart';
 import 'package:agroquimicos/domain/models.dart';
 import 'package:agroquimicos/domain/money.dart';
 import 'package:agroquimicos/presentation/widgets/adaptive_entity_picker.dart';
+import 'package:agroquimicos/presentation/widgets/agro_ui.dart'
+    show DashedAddButton;
 import 'package:agroquimicos/presentation/widgets/application_expiry_notice.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -446,7 +448,7 @@ void main() {
     );
     await tapKey(tester, 'application-continue');
 
-    expect(find.text('Paso 2 de 3 · Productos y cantidades'), findsOneWidget);
+    expect(find.text('¿Qué aplicó?'), findsOneWidget);
     final reason = tester.widget<Text>(
       find.byKey(const Key('application-without-stock')),
     );
@@ -511,12 +513,12 @@ void main() {
     await waitUntil(
       tester,
       'la vuelta a la aplicación',
-      () => find.text('Nueva aplicación').evaluate().isNotEmpty,
+      () => find.byKey(const Key('application-step')).evaluate().isNotEmpty,
     );
     await settle(tester);
 
     // El borrador sigue: paso, mezcla y cantidades.
-    expect(find.text('Paso 2 de 3 · Productos y cantidades'), findsOneWidget);
+    expect(find.text('¿Qué aplicó?'), findsOneWidget);
     expect(
       tester
           .widget<Text>(
@@ -527,7 +529,7 @@ void main() {
     );
     // Existencias al día: Mancozeb ya se puede agregar.
     expect(find.byKey(const Key('application-without-stock')), findsNothing);
-    final add = tester.widget<ButtonStyleButton>(
+    final add = tester.widget<DashedAddButton>(
       find.byKey(const Key('application-add-product')),
     );
     expect(add.onPressed, isNotNull);
@@ -543,7 +545,7 @@ void main() {
           .text,
       '0,4',
     );
-    expect(find.textContaining('(hoy)'), findsOneWidget);
+    expect(find.textContaining('Hoy, '), findsOneWidget);
     expect(await rows(tester, s.database, 'applications'), isEmpty);
   });
 
@@ -563,7 +565,7 @@ void main() {
     );
     await tapKey(tester, 'application-line-add');
     await tapKey(tester, 'application-continue');
-    expect(find.text('Paso 3 de 3 · Resumen y confirmación'), findsOneWidget);
+    expect(find.text('Revise y confirme'), findsOneWidget);
   }
 
   testWidgets('(a3) resumen: costo con ayuda breve y cargo; aviso de lote '
@@ -586,8 +588,10 @@ void main() {
     await reviewHermana(tester, c);
 
     expect(
-      find.text('Costo total estimado: ${formatBob(10000)}'),
-      findsOneWidget,
+      tester
+          .widget<Text>(find.byKey(const Key('application-review-cost')))
+          .data,
+      formatBob(10000),
     );
     expect(find.byKey(const Key('application-cost-help-text')), findsNothing);
     await tapKey(tester, 'application-cost-help');
@@ -610,7 +614,7 @@ void main() {
     await waitUntil(
       tester,
       'la aplicación',
-      () => find.text('Nueva aplicación').evaluate().isEmpty,
+      () => find.byKey(const Key('application-step')).evaluate().isEmpty,
     );
     expect(await rows(tester, s.database, 'applications'), hasLength(1));
   });
@@ -666,7 +670,7 @@ void main() {
     await waitUntil(
       tester,
       'el plan',
-      () => find.text('Nueva planificación').evaluate().isEmpty,
+      () => find.byKey(const Key('plan-header')).evaluate().isEmpty,
     );
     final plans = await rows(tester, s.database, 'application_plans');
     expect(plans, hasLength(1));

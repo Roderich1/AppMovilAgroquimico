@@ -23,6 +23,7 @@ import 'support/f04_mode_fixtures.dart';
 import 'support/es_material_labels.dart';
 import 'support/f04_mode_ui_harness.dart';
 import 'support/purchase_form_driver.dart';
+import 'support/shell_finders.dart';
 
 typedef Row = Map<String, Object?>;
 
@@ -394,7 +395,7 @@ void main() {
         await tester.tap(find.byKey(const Key('payment-method-transfer')));
         await settle(tester);
         expect(chipSelected(tester, 'payment-method-transfer'), isTrue);
-        await tester.tap(find.text('Registrar'));
+        await tester.tap(textOutsideShellFab('Registrar'));
         await settle(tester);
         final payment = (await rows(
           tester,

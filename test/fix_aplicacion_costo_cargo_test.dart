@@ -91,7 +91,7 @@ void main() {
     await addProduct(tester, 'Glifosato', '0,2');
     await addProduct(tester, 'Bellator', '0,1');
     await tapKey(tester, 'application-continue');
-    expect(find.text('Paso 3 de 3 · Resumen y confirmación'), findsOneWidget);
+    expect(find.text('Revise y confirme'), findsOneWidget);
   }
 
   void expectCosts(WidgetTester tester, int glifosato, int bellator) {
@@ -112,8 +112,10 @@ void main() {
       formatBob(2000),
     );
     expect(
-      find.text('Costo total estimado: ${formatBob(4000)}'),
-      findsOneWidget,
+      tester
+          .widget<Text>(find.byKey(const Key('application-review-cost')))
+          .data,
+      formatBob(4000),
     );
   }
 

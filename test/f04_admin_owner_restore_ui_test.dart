@@ -31,6 +31,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'support/f04_app_access.dart';
 import 'support/f04_mode_fixtures.dart';
 import 'support/purchase_form_driver.dart';
+import 'support/shell_finders.dart';
 
 class _WorkspacePaths extends PathProviderPlatform {
   _WorkspacePaths(this.directory);
@@ -371,7 +372,7 @@ void main() {
       expect(find.byType(DropdownButton<int>), findsNothing);
       expect(find.text('Paga el titular: Titular'), findsOneWidget);
       expect(find.textContaining('Paga '), findsOneWidget);
-      await tester.tap(find.text('Registrar'));
+      await tester.tap(textOutsideShellFab('Registrar'));
       await settle(tester);
       expect(
         await tester.runAsync(
