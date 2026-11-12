@@ -9,9 +9,10 @@ import 'dart:convert';
 import 'operation_id.dart';
 
 /// Versión del contrato de las rutas del agricultor que lee este teléfono
-/// (E2 §10.6). Se pide con [jointPurchaseContractHeader]; una respuesta con
-/// otra versión es una incompatibilidad de versión, no un fallo temporal.
-const int jointPurchaseContractVersion = 2;
+/// (E2 §10.6 y P-A §12: la autorización de la persona responsable actual).
+/// Se pide con [jointPurchaseContractHeader]; una respuesta con otra versión
+/// es una incompatibilidad de versión, no un fallo temporal.
+const int jointPurchaseContractVersion = 3;
 const String jointPurchaseContractHeader = 'X-Joint-Purchase-Contract';
 
 /// Versión vigente del texto de consentimiento de la participación (E2 §10.6,
@@ -185,6 +186,8 @@ class JointPurchaseParticipation {
     required this.consentScopeSequence,
     this.consentScopeDecidedAt,
     this.consentScopeReceivedAt,
+    this.responsibleAuthorized,
+    this.responsibleAuthorizationVersion,
   });
 
   final String status;
@@ -213,7 +216,20 @@ class JointPurchaseParticipation {
   final String? consentScopeDecidedAt;
   final String? consentScopeReceivedAt;
 
+  /// P-A C1 (E2 §12): si el agricultor autorizó a la persona responsable
+  /// ACTUAL de la convocatoria, según el sindicato. Null = desconocido (copia
+  /// guardada antes del contrato 3, o una respuesta que no lo trae): nunca se
+  /// supone autorizada ni restringida por eso.
+  final bool? responsibleAuthorized;
+
+  /// La versión de la responsabilidad que cubre su autorización (null si
+  /// ninguna o si no se sabe).
+  final int? responsibleAuthorizationVersion;
+
   bool get isActive => status == JointPurchaseParticipationStatus.active;
+
+  /// El sindicato dijo que falta autorizar a la responsable actual.
+  bool get needsResponsibleAuthorization => responsibleAuthorized == false;
 
   bool get coversCollaborators =>
       consentScope == JointPurchaseConsentScope.collaborators;
@@ -236,6 +252,13 @@ class JointPurchaseParticipation {
         consentScopeSequence: other.consentScopeSequence,
         consentScopeDecidedAt: other.consentScopeDecidedAt,
         consentScopeReceivedAt: other.consentScopeReceivedAt,
+        // La autorización viaja con las decisiones sobre el consentimiento
+        // (P-A §12); si [other] no la trae, se conserva la conocida.
+        responsibleAuthorized:
+            other.responsibleAuthorized ?? responsibleAuthorized,
+        responsibleAuthorizationVersion: other.responsibleAuthorized != null
+            ? other.responsibleAuthorizationVersion
+            : responsibleAuthorizationVersion,
       );
 
   Map<String, Object?> toJson() => {
@@ -263,6 +286,11 @@ class JointPurchaseParticipation {
       'received_at': consentScopeReceivedAt,
       'sequence': consentScopeSequence,
     },
+    if (responsibleAuthorized != null)
+      'responsible_authorization': {
+        'authorized': responsibleAuthorized,
+        'version': responsibleAuthorizationVersion,
+      },
   };
 
   String encode() => jsonEncode(toJson());
@@ -294,8 +322,8 @@ class JointPurchaseParticipation {
     final json = _object(raw);
     _knownKeys(
       json,
-      {..._keys, 'consent_scope'},
-      optional: const {'consent_scope'},
+      {..._keys, 'consent_scope', 'responsible_authorization'},
+      optional: const {'consent_scope', 'responsible_authorization'},
     );
     final status = _oneOf(json['status'], const {
       JointPurchaseParticipationStatus.active,
@@ -354,6 +382,20 @@ class JointPurchaseParticipation {
       scopeDecidedAt = _optionalInstant(scoped['decided_at']);
       scopeReceivedAt = _optionalInstant(scoped['received_at']);
     }
+    bool? authorized;
+    int? authorizedVersion;
+    if (json['responsible_authorization'] != null) {
+      final authorization = _object(json['responsible_authorization']);
+      _knownKeys(authorization, const {'authorized', 'version'});
+      final flag = authorization['authorized'];
+      final version = authorization['version'];
+      if (flag is! bool) _invalid();
+      if (version != null && (version is! int || version < 1)) _invalid();
+      // Autorizada exige una versión concreta.
+      if (flag && version == null) _invalid();
+      authorized = flag;
+      authorizedVersion = version as int?;
+    }
     return JointPurchaseParticipation(
       status: status,
       lines: lines,
@@ -369,6 +411,8 @@ class JointPurchaseParticipation {
       consentScopeSequence: scopeSequence,
       consentScopeDecidedAt: scopeDecidedAt,
       consentScopeReceivedAt: scopeReceivedAt,
+      responsibleAuthorized: authorized,
+      responsibleAuthorizationVersion: authorizedVersion,
     );
   }
 
@@ -395,6 +439,7 @@ class JointPurchaseCallView {
     required this.participation,
     required this.closingIncluded,
     this.finishedAt,
+    this.responsibleVersion,
   });
 
   final String callId;
@@ -422,6 +467,10 @@ class JointPurchaseCallView {
   /// sólo el filtro de presentación (E2 §10.1 a).
   final String? finishedAt;
 
+  /// P-A (E2 §12): versión de la responsabilidad (la sube cada sustitución).
+  /// Sólo en el contrato 3.
+  final int? responsibleVersion;
+
   bool get isFinished => status != JointPurchaseCallStatus.open;
 
   /// Lo que el teléfono guarda como «lo aceptado»: en `CLOSED`, la
@@ -447,7 +496,7 @@ class JointPurchaseCallView {
     'closing',
   };
   static const _campaignKeys = {'campaign_ref', 'name'};
-  static const _responsibleKeys = {'name'};
+  static const _responsibleKeys = {'name', 'version'};
   static const _closingKeys = {'cutoff_at', 'closed_at', 'included', 'lines'};
   static const _closingLineKeys = {'product_ref', 'base_unit', 'quantity_base'};
 
@@ -466,7 +515,12 @@ class JointPurchaseCallView {
       _invalid();
     }
     final responsible = _object(json['responsible']);
-    _knownKeys(responsible, _responsibleKeys);
+    _knownKeys(responsible, _responsibleKeys, optional: const {'version'});
+    final responsibleVersion = responsible['version'];
+    if (responsibleVersion != null &&
+        (responsibleVersion is! int || responsibleVersion < 1)) {
+      _invalid();
+    }
     final openedAt = _optionalInstant(json['opened_at']);
     // Abierta ⇒ con fecha de apertura (E2 §3).
     if (status == JointPurchaseCallStatus.open && openedAt == null) _invalid();
@@ -523,6 +577,7 @@ class JointPurchaseCallView {
         JointPurchaseCallStatus.cancelled => cancelledAt,
         _ => null,
       },
+      responsibleVersion: responsibleVersion as int?,
     );
   }
 
@@ -682,11 +737,16 @@ class JointPurchaseErrorBody {
     required this.errorCode,
     this.reason,
     this.participation,
+    this.responsibleVersion,
   });
 
   final String errorCode;
   final String? reason;
   final JointPurchaseParticipation? participation;
+
+  /// P-A: la versión vigente de la responsabilidad (`RESPONSIBLE_CHANGED`,
+  /// `AUTHORIZATION_REQUIRED`).
+  final int? responsibleVersion;
 
   static final _code = RegExp(r'^[A-Z][A-Z0-9_]{0,63}$');
 
@@ -718,6 +778,30 @@ class JointPurchaseErrorBody {
           );
           return JointPurchaseErrorBody(
             errorCode: code,
+            participation: json['participation'] == null
+                ? null
+                : JointPurchaseParticipation.fromJson(
+                    json['participation'],
+                    products: products,
+                  ),
+          );
+        case 'RESPONSIBLE_CHANGED':
+        case 'AUTHORIZATION_REQUIRED':
+          _knownKeys(
+            json,
+            const {
+              'contractVersion',
+              'errorCode',
+              'responsible_version',
+              'participation',
+            },
+            optional: const {'contractVersion', 'participation'},
+          );
+          final version = json['responsible_version'];
+          if (version is! int || version < 1) _invalid();
+          return JointPurchaseErrorBody(
+            errorCode: code,
+            responsibleVersion: version,
             participation: json['participation'] == null
                 ? null
                 : JointPurchaseParticipation.fromJson(

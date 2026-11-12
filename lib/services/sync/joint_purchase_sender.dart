@@ -340,6 +340,9 @@ class JointPurchaseSender {
               'version': op.consentVersion,
               'accepted_at': op.consentAcceptedAt,
             },
+          // P-A C1: la responsable que se mostró al aceptar (primera vez).
+          if (op.consentVersion != null && op.responsibleVersion != null)
+            'responsible_version': op.responsibleVersion,
           'lines': op.wireLines,
         };
 
@@ -386,6 +389,21 @@ class JointPurchaseSender {
       final error = JointPurchaseErrorBody.tryParse(response.body, products);
       await _store.markConsentStale(op, error?.participation);
       report.superseded++;
+      return true;
+    }
+    // P-A C1: la responsable cambió antes de que llegara la decisión, o se
+    // intentó ampliar sin autorizarla. Rechazo definitivo (no se reintenta:
+    // el agricultor revisa de nuevo); se adopta la participación vigente.
+    if (status == 409 &&
+        (response.errorCode == 'RESPONSIBLE_CHANGED' ||
+            response.errorCode == 'AUTHORIZATION_REQUIRED')) {
+      final error = JointPurchaseErrorBody.tryParse(response.body, products);
+      await _store.markConsentRejected(
+        op,
+        response.errorCode!,
+        participation: error?.participation,
+      );
+      report.rejected++;
       return true;
     }
     if (status == 409 && response.errorCode == 'PARTICIPATION_REQUIRED') {

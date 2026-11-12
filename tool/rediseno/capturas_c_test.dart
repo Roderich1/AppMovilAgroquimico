@@ -16,7 +16,7 @@ import 'package:agroquimicos/app.dart';
 import 'package:agroquimicos/data/sync/identification_request_store.dart';
 import 'package:agroquimicos/data/sync/joint_purchase_store.dart';
 import 'package:agroquimicos/domain/sync/joint_purchase_call_view.dart'
-    show JointPurchaseHistoryPage;
+    show JointPurchaseConsentScope, JointPurchaseHistoryPage;
 import 'package:agroquimicos/domain/sync/sync_types.dart' show ProjectionType;
 import 'package:agroquimicos/presentation/screens/central_binding_screen.dart';
 import 'package:agroquimicos/presentation/screens/consumption_publish_screen.dart';
@@ -407,5 +407,60 @@ void main() {
     await tester.tap(find.byKey(const Key('joint-quantities-continue')));
     await settle(tester);
     await shot(tester, '6.3b_consentimiento');
+  });
+
+  // P-A C1 (rama funcional F, integrada el 2026-11-12): la persona
+  // responsable cambió y el sindicato dice que este agricultor todavía no la
+  // autorizó. Datos sintéticos.
+  testWidgets('P-A: la persona responsable cambió', (tester) async {
+    await setUpView(tester);
+    final dir = await tester.runAsync(
+      () => Directory.systemTemp.createTemp('rdm_c_pa_'),
+    );
+    final fixture = (await tester.runAsync(
+      () => seedSyncFixture(path: '${dir!.path}/pa.db'),
+    ))!;
+    final store = JointPurchaseStore(
+      fixture.database,
+      clock: () => DateTime.utc(2026, 11, 11, 18, 20),
+    );
+    await tester.runAsync(
+      () => seedCalls(store, memberA, [
+        callJson(
+          name: 'Herbicidas invierno 2026',
+          responsibleVersion: 2,
+          responsibleName: 'Responsable nueva (sintética)',
+          participation: participationJson(
+            lines: {litreRef: 12000, kiloRef: 20000},
+            consentScope: JointPurchaseConsentScope.responsibleOnly,
+            consentScopeSequence: 0,
+            responsibleAuthorization: {'authorized': false, 'version': 1},
+          ),
+        ),
+      ]),
+    );
+    final overrides = [
+      databaseProvider.overrideWithValue(fixture.database),
+      repositoryProvider.overrideWithValue(fixture.repo),
+      declaredNeedStoreProvider.overrideWithValue(fixture.needs),
+      centralBindingStoreProvider.overrideWithValue(fixture.bindings),
+      syncOutboxStoreProvider.overrideWithValue(fixture.outbox),
+      jointPurchaseStoreProvider.overrideWithValue(store),
+    ];
+    await pumpRouted(
+      tester,
+      const JointPurchaseDetailScreen(callId: callId),
+      overrides,
+    );
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('joint-responsible-review')),
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await settle(tester);
+    await shot(tester, '6.2e_pa_responsable_cambio');
+    await tester.tap(find.byKey(const Key('joint-responsible-authorize')));
+    await settle(tester);
+    await shot(tester, '6.2f_pa_autorizar');
   });
 }

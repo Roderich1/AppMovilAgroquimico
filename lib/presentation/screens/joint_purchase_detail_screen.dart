@@ -9,6 +9,7 @@ import '../../services/sync/sync_providers.dart';
 import '../theme/agro_theme.dart';
 import '../widgets/agro_ui.dart';
 import '../widgets/common.dart';
+import '../widgets/joint_purchase_responsible_review.dart';
 import '../widgets/joint_purchase_texts.dart';
 import '../widgets/rdm_c_joint.dart';
 import '../widgets/rdm_c_page.dart';
@@ -426,9 +427,13 @@ class _JointPurchaseDetailScreenState
             textKey: const Key('joint-consent-result'),
             icon: Icons.fact_check_outlined,
           ),
+        // P-A C1 (E2 §12): la persona responsable cambió; autorizarla es una
+        // acción propia, aparte de las cantidades (se muestra sola si aplica).
+        JointPurchaseResponsibleReview(call: call, onChanged: _reload),
         if (canDecide) ...[
           const SizedBox(height: 10),
-          if (effectiveScope != widen)
+          // Sin autorizar a la responsable actual no se amplía (P-A C1).
+          if (effectiveScope != widen && !call.needsResponsibleReview)
             OutlinedButton.icon(
               key: const Key('joint-consent-widen'),
               onPressed:
@@ -437,8 +442,8 @@ class _JointPurchaseDetailScreenState
                   : () => _decide(call, widen),
               icon: const Icon(Icons.group_add_outlined),
               label: const Text(jointPurchaseWidenLabel),
-            )
-          else
+            ),
+          if (effectiveScope == widen)
             OutlinedButton.icon(
               key: const Key('joint-consent-reduce'),
               onPressed: busy

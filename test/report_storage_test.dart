@@ -172,12 +172,17 @@ void main() {
 
     test('sustituye separadores de ruta y caracteres reservados', () {
       expect(sanitizeFileName('a/b'), 'a-b');
+      // Tildes y eñe: su letra base, no un guion.
+      expect(
+        sanitizeFileName('María Ñuflo Gutiérrez'),
+        'Maria Nuflo Gutierrez',
+      );
       expect(sanitizeFileName(r'a\b'), 'a-b');
       expect(sanitizeFileName('a:b*c?d"e<f>g|h'), 'a-b-c-d-e-f-g-h');
     });
 
-    test('sustituye acentos y ñ, que no todos los sistemas guardan igual', () {
-      expect(sanitizeFileName('Campaña Ñuflo'), 'Campa-a -uflo');
+    test('escribe acentos y ñ con su letra base (sin caracteres que no todos los sistemas guardan igual)', () {
+      expect(sanitizeFileName('Campaña Ñuflo'), 'Campana Nuflo');
     });
 
     test('no deja puntos ni espacios al principio ni al final', () {

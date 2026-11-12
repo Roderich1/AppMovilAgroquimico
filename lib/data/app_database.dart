@@ -18,7 +18,7 @@ class AppDatabase {
   /// Toda base, creada desde cero o migrada desde cualquier versión anterior,
   /// debe terminar con el mismo esquema. `test/schema_equivalence_test.dart`
   /// lo verifica automáticamente.
-  static const int schemaVersion = 18;
+  static const int schemaVersion = 19;
 
   /// Primera versión con `owner_bindings` e `install_origin`: una base
   /// anterior es histórica y no declara titular.
@@ -62,6 +62,33 @@ class AppDatabase {
   /// Primera versión con la cola propia de decisiones sobre el
   /// consentimiento de las convocatorias (E2 §10.6, P-C).
   static const int jointPurchaseConsentSinceVersion = 18;
+
+  /// Primera versión con la autorización de la persona responsable actual
+  /// de las convocatorias (E2 §12, P-A C1).
+  static const int jointPurchaseResponsibleSinceVersion = 19;
+
+  /// v19 — columnas opcionales (P-A C1, E2 §12), todas admiten NULL y no se
+  /// rellenan: «no se sabe» no es «autorizada» ni «restringida».
+  ///
+  /// - `joint_purchase_calls.responsible_version`: versión de la
+  ///   responsabilidad que sirvió el sindicato (la sube cada sustitución).
+  /// - `joint_purchase_participation_ops.responsible_version`: la versión que
+  ///   mostraba el teléfono al aceptar el consentimiento (primera
+  ///   confirmación); las cantidades nunca autorizan a nadie.
+  /// - `joint_purchase_consent_ops.responsible_version` y
+  ///   `authorize_responsible`: una decisión atada a la responsable concreta
+  ///   que se mostró; una autorización para otra versión nunca vale para la
+  ///   vigente.
+  static const Map<String, Map<String, String>>
+  jointPurchaseResponsibleColumns = {
+    'joint_purchase_calls': {'responsible_version': 'INTEGER'},
+    'joint_purchase_participation_ops': {'responsible_version': 'INTEGER'},
+    'joint_purchase_consent_ops': {
+      'responsible_version': 'INTEGER',
+      'authorize_responsible':
+          'INTEGER NOT NULL DEFAULT 0 CHECK (authorize_responsible IN (0,1))',
+    },
+  };
 
   /// v17 — columna opcional de `joint_purchase_calls` (E2 §10.1 a): la
   /// fecha de término según el sindicato (`closed_at` o `cancelled_at`), en
@@ -913,6 +940,7 @@ class AppDatabase {
     await _applyJointPurchaseSchema(db);
     await _applyJointPurchaseHistorySchema(db);
     await _applyJointPurchaseConsentSchema(db);
+    await _applyJointPurchaseResponsibleSchema(db);
     // Una base creada por esta versión nace bajo la política de activación.
     await db.insert('app_settings', {
       'key': installOriginKey,
@@ -1090,6 +1118,30 @@ class AppDatabase {
     }
     if (oldVersion < 18) {
       await _applyJointPurchaseConsentSchema(db);
+    }
+    if (oldVersion < 19) {
+      await _applyJointPurchaseResponsibleSchema(db);
+    }
+  }
+
+  /// Versión 19 — **autorización de la persona responsable** (E2 §12, P-A
+  /// C1). Aditiva: columnas que admiten NULL (o con valor por defecto) en
+  /// tres tablas de E2. No hace backfill ni toca filas existentes: una
+  /// copia o una operación guardada antes no dice a qué responsable se
+  /// refería, y eso no se inventa. Idempotente: una columna que ya existe no
+  /// se vuelve a añadir; una tabla que no existe no se amplía.
+  Future<void> _applyJointPurchaseResponsibleSchema(DatabaseExecutor db) async {
+    for (final table in jointPurchaseResponsibleColumns.entries) {
+      final existing = (await db.rawQuery('PRAGMA table_info(${table.key})'))
+          .map((row) => row['name'] as String)
+          .toSet();
+      if (existing.isEmpty) continue;
+      for (final column in table.value.entries) {
+        if (existing.contains(column.key)) continue;
+        await db.execute(
+          'ALTER TABLE ${table.key} ADD COLUMN ${column.key} ${column.value}',
+        );
+      }
     }
   }
 

@@ -192,8 +192,8 @@ void main() {
       });
       expect(requests.first.headers['authorization'], 'Bearer token-sintetico');
       // N7: cada petición dice qué contrato lee el teléfono.
-      expect(requests.first.headers['x-joint-purchase-contract'], '2');
-      expect(requests.last.headers['x-joint-purchase-contract'], '2');
+      expect(requests.first.headers['x-joint-purchase-contract'], '3');
+      expect(requests.last.headers['x-joint-purchase-contract'], '3');
       final stored = (await store.op(op.operationId))!;
       expect(stored.sendStatus, JointPurchaseOpStatus.received);
       final call = (await store.call(callId))!;
@@ -844,7 +844,7 @@ void main() {
       'scope': 'COLLABORATORS',
       'consent': {'version': 'CONV-3', 'decided_at': now.toIso8601String()},
     });
-    expect(requests[1].headers['x-joint-purchase-contract'], '2');
+    expect(requests[1].headers['x-joint-purchase-contract'], '3');
     final call = (await store.call(callId))!;
     expect(call.serverParticipation!.consentScope, 'COLLABORATORS');
     expect(call.serverParticipation!.lines, {litreRef: 30000});

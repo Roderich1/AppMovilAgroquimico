@@ -234,9 +234,14 @@ class ReportExportService {
     final at = table.generatedAt.toLocal();
     String two(int value) => value.toString().padLeft(2, '0');
     final stamp = '${at.year}-${two(at.month)}-${two(at.day)}';
-    final person = request.kind == ReportKind.accountStatement
-        ? table.filters.first.value
+    // La persona se acorta antes de añadir la fecha: un nombre largo no puede
+    // dejar el archivo sin fecha (revisión en Excel del 2026-11-12).
+    final rawPerson = request.kind == ReportKind.accountStatement
+        ? sanitizeFileName(table.filters.first.value)
         : null;
+    final person = rawPerson == null || rawPerson.length <= 40
+        ? rawPerson
+        : rawPerson.substring(0, 40).trim();
     return sanitizeFileName(
       person == null
           ? '${request.kind.fileBaseName}-$stamp'
