@@ -87,7 +87,7 @@ void main() {
     );
     await waitFor(tester, picker('Chaco'));
     await settle(tester);
-    await choose(tester, 'Persona', person);
+    await choose(tester, applicationPersonLabel, person);
     await choose(tester, 'Chaco', farm);
     await tapKey(tester, 'application-continue');
   }

@@ -67,6 +67,13 @@ enum _ApplicationStep { who, products, review }
 /// La dosis, la cantidad teórica y el costo estimado siguen calculándose
 /// igual, en el «Detalle» de cada tarjeta. Las aplicaciones vinculadas a un
 /// plan conservan su área exacta, sus cantidades previstas y su confirmación.
+
+/// Rótulo del selector de persona de la aplicación en inventario compartido
+/// (decisión del autor, 2026-11-12). Es la persona cuyas existencias se
+/// consumen y a quien se carga el uso: la responsable del chaco. Antes,
+/// «Persona».
+const applicationPersonLabel = '¿De quién son los productos?';
+
 class ApplicationFormScreen extends ConsumerStatefulWidget {
   const ApplicationFormScreen({super.key, this.planId, this.voice = false});
   final int? planId;
@@ -1245,10 +1252,11 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen>
           else
             // En compartido se elige a la persona responsable del chaco: se
             // usan sus existencias y se le aplica su forma de cobro (no se
-            // registra a quien hizo el trabajo). Rótulo vigente «Persona».
+            // registra a quien hizo el trabajo). Rótulo decidido por el autor
+            // el 2026-11-12: [applicationPersonLabel].
             AdaptiveEntityPicker<Map<String, Object?>>(
               rowStyle: true,
-              label: 'Persona',
+              label: applicationPersonLabel,
               hint: 'Responsable del chaco · se usan sus productos',
               hintKey: const Key('application-person-hint'),
               items: data.people,

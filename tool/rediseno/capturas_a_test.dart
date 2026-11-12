@@ -17,6 +17,8 @@ import 'package:agroquimicos/app.dart';
 import 'package:agroquimicos/domain/models.dart';
 import 'package:agroquimicos/presentation/widgets/adaptive_entity_picker.dart';
 import 'package:agroquimicos/voice/voice_providers.dart';
+import 'package:agroquimicos/presentation/screens/application_form_screen.dart'
+    show applicationPersonLabel;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
@@ -227,7 +229,7 @@ void main() {
     await shot(tester, '3.1v_panel_voz');
     await tapKey(tester, 'voz-panel-cerrar');
 
-    await choose(tester, 'Persona', 'Hermana');
+    await choose(tester, applicationPersonLabel, 'Hermana');
     await choose(tester, 'Chaco', 'Chaco hermana');
     await shot(tester, '3.1b_paso1_lleno');
 
@@ -294,7 +296,7 @@ void main() {
     await tapKey(tester, 'application-back');
     // Otra persona elegida y el mismo dictado: el chaco no se cambia solo.
     await tapKey(tester, 'voz-deshacer');
-    await choose(tester, 'Persona', 'Hermana');
+    await choose(tester, applicationPersonLabel, 'Hermana');
     await tapKey(tester, 'form-dictar');
     await tapKey(tester, 'voz-hablar');
     await tapKey(tester, 'voz-terminar');

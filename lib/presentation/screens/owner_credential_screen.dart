@@ -16,8 +16,8 @@ abstract final class ActivationPinTexts {
   static const offer =
       'Le recomendamos crear ahora el PIN del titular. Con él, el titular '
       'autoriza en este teléfono, incluso sin conexión, las acciones que sólo '
-      'él puede aprobar: revertir una operación o revisar una operación '
-      'tardía.';
+      'la persona titular puede aprobar: revertir una operación o revisar una '
+      'operación tardía.';
   static const whyNow =
       'Acaba de confirmar su cuenta en línea, así que ahora no hace falta '
       'volver a escribir la contraseña. Si lo deja para después, tendrá que '

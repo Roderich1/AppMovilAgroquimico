@@ -38,6 +38,8 @@ import 'package:agroquimicos/presentation/widgets/adaptive_entity_picker.dart';
 import 'package:agroquimicos/presentation/widgets/agro_ui.dart'
     show DashedAddButton;
 import 'package:agroquimicos/presentation/widgets/application_expiry_notice.dart';
+import 'package:agroquimicos/presentation/screens/application_form_screen.dart'
+    show applicationPersonLabel;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -413,10 +415,10 @@ void main() {
     final s = await activatedHousehold(tester, 'uxjb-a1');
     final c = await pumpModeApp(tester, s.database);
     c.read(routerProvider).push('/aplicaciones/nueva');
-    await waitFor(tester, picker('Persona'));
+    await waitFor(tester, picker(applicationPersonLabel));
     await settle(tester);
 
-    await openCreate(tester, 'Persona', 'Agregar persona');
+    await openCreate(tester, applicationPersonLabel, 'Agregar persona');
     await tester.tap(find.byType(DropdownButtonFormField<PersonRole>));
     await settle(tester);
     // Una persona nueva no es el titular: «Administrador» no podría aplicar.
@@ -428,9 +430,9 @@ void main() {
     await save(
       tester,
       'el alta de la persona',
-      () => pickerAt(tester, 'Persona').value?['name'] == 'Peón',
+      () => pickerAt(tester, applicationPersonLabel).value?['name'] == 'Peón',
     );
-    expect(pickerAt(tester, 'Persona').value?['name'], 'Peón');
+    expect(pickerAt(tester, applicationPersonLabel).value?['name'], 'Peón');
     final people = await rows(tester, s.database, 'persons');
     expect(
       people.singleWhere((p) => p['name'] == 'Peón')['role'],
@@ -470,9 +472,9 @@ void main() {
     });
     final c = await pumpModeApp(tester, s.database);
     c.read(routerProvider).push('/aplicaciones/nueva');
-    await waitFor(tester, picker('Persona'));
+    await waitFor(tester, picker(applicationPersonLabel));
     await settle(tester);
-    await choose(tester, 'Persona', 'Hermana');
+    await choose(tester, applicationPersonLabel, 'Hermana');
     await choose(tester, 'Chaco', 'Chaco hermana');
     await tester.enterText(find.byKey(const Key('application-area')), '0,4');
     await settle(tester);
@@ -536,7 +538,7 @@ void main() {
 
     // Y lo del paso 1, también.
     await tapKey(tester, 'application-back');
-    expect(pickerAt(tester, 'Persona').value?['name'], 'Hermana');
+    expect(pickerAt(tester, applicationPersonLabel).value?['name'], 'Hermana');
     expect(pickerAt(tester, 'Chaco').value?['name'], 'Chaco hermana');
     expect(
       tester
@@ -551,9 +553,9 @@ void main() {
 
   Future<void> reviewHermana(WidgetTester tester, ProviderContainer c) async {
     c.read(routerProvider).push('/aplicaciones/nueva');
-    await waitFor(tester, picker('Persona'));
+    await waitFor(tester, picker(applicationPersonLabel));
     await settle(tester);
-    await choose(tester, 'Persona', 'Hermana');
+    await choose(tester, applicationPersonLabel, 'Hermana');
     await choose(tester, 'Chaco', 'Chaco hermana');
     await tapKey(tester, 'application-continue');
     await tapKey(tester, 'application-add-product');

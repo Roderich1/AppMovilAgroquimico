@@ -23,6 +23,8 @@
 import 'package:agroquimicos/app.dart';
 import 'package:agroquimicos/domain/models.dart';
 import 'package:agroquimicos/presentation/widgets/adaptive_entity_picker.dart';
+import 'package:agroquimicos/presentation/screens/application_form_screen.dart'
+    show applicationPersonLabel;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -105,7 +107,7 @@ void main() {
     c.read(routerProvider).push('/aplicaciones/nueva');
     await waitFor(tester, picker('Chaco'));
     await settle(tester);
-    await choose(tester, 'Persona', 'Titular');
+    await choose(tester, applicationPersonLabel, 'Titular');
     await choose(tester, 'Chaco', 'Chaco titular');
     await tapKey(tester, 'application-continue');
 

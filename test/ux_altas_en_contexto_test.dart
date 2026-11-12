@@ -19,6 +19,8 @@
 import 'package:agroquimicos/app.dart';
 import 'package:agroquimicos/data/agro_repository.dart';
 import 'package:agroquimicos/presentation/widgets/adaptive_entity_picker.dart';
+import 'package:agroquimicos/presentation/screens/application_form_screen.dart'
+    show applicationPersonLabel;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -371,9 +373,9 @@ void main() {
     final s = await activatedHousehold(tester, 'ux-f');
     final c = await pumpModeApp(tester, s.database);
     c.read(routerProvider).push('/aplicaciones/nueva');
-    await waitFor(tester, picker('Persona'));
+    await waitFor(tester, picker(applicationPersonLabel));
     await settle(tester);
-    await choose(tester, 'Persona', 'Hermana');
+    await choose(tester, applicationPersonLabel, 'Hermana');
 
     await openCreate(tester, 'Chaco', 'Crear chaco');
     expect(find.text('Propietario: Hermana'), findsOneWidget);
@@ -387,7 +389,7 @@ void main() {
     );
 
     expect(pickerAt(tester, 'Chaco').value?['name'], 'Chaco Bajo UX');
-    expect(pickerAt(tester, 'Persona').value?['name'], 'Hermana');
+    expect(pickerAt(tester, applicationPersonLabel).value?['name'], 'Hermana');
     final farms = await rows(tester, s.database, 'farms');
     final created = farms.singleWhere((f) => f['name'] == 'Chaco Bajo UX');
     expect(created['owner_person_id'], s.household.relative);

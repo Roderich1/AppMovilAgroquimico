@@ -163,7 +163,7 @@ void main() {
         () => seed('consumo', (h) => h.titular),
       ))!;
       await openForm(tester, s.repo);
-      await choose(tester, 'Persona', 'Titular');
+      await choose(tester, applicationPersonLabel, 'Titular');
       await choose(tester, 'Chaco', 'Chaco titular');
       await tapKey(tester, 'application-continue');
       await mixAndReview(tester);
@@ -191,7 +191,7 @@ void main() {
         return s;
       }))!;
       await openForm(tester, s.repo);
-      await choose(tester, 'Persona', 'Titular');
+      await choose(tester, applicationPersonLabel, 'Titular');
       await choose(tester, 'Chaco', 'Chaco titular');
       await tapKey(tester, 'application-continue');
       await mixAndReview(tester);
@@ -214,7 +214,7 @@ void main() {
         () => seed('compra', (h) => h.thirdParty),
       ))!;
       await openForm(tester, s.repo);
-      await choose(tester, 'Persona', 'Vecino');
+      await choose(tester, applicationPersonLabel, 'Vecino');
       await choose(tester, 'Chaco', 'Chaco vecino');
       await tapKey(tester, 'application-continue');
       await mixAndReview(tester);

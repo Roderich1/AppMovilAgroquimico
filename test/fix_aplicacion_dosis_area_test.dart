@@ -70,7 +70,7 @@ void main() {
     );
     await waitFor(tester, picker('Chaco'));
     await settle(tester);
-    await choose(tester, 'Persona', 'Titular');
+    await choose(tester, applicationPersonLabel, 'Titular');
     await choose(tester, 'Chaco', 'Chaco titular');
   }
 

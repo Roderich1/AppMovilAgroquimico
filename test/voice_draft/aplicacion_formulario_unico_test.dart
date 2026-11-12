@@ -3,6 +3,8 @@ import 'package:agroquimicos/data/app_database.dart';
 import 'package:agroquimicos/domain/models.dart';
 import 'package:agroquimicos/presentation/widgets/adaptive_entity_picker.dart';
 import 'package:agroquimicos/voice/voice_providers.dart';
+import 'package:agroquimicos/presentation/screens/application_form_screen.dart'
+    show applicationPersonLabel;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -123,7 +125,7 @@ void main() {
     ]);
     await openPanel(tester);
     await dictate(tester);
-    expect(picked(tester, 'Persona'), 'Titular');
+    expect(picked(tester, applicationPersonLabel), 'Titular');
     expect(picked(tester, 'Chaco'), 'Chaco titular');
     expect(area(tester), '0,5');
     expect(find.byKey(const Key('voz-marca-farm')), findsOneWidget);
@@ -168,10 +170,10 @@ void main() {
     await open(tester, 'a-otra-persona', [
       const FakeTurn(segment: full, endsOnStop: true),
     ]);
-    await choose(tester, 'Persona', 'Hermana');
+    await choose(tester, applicationPersonLabel, 'Hermana');
     await openPanel(tester);
     await dictate(tester);
-    expect(picked(tester, 'Persona'), 'Hermana');
+    expect(picked(tester, applicationPersonLabel), 'Hermana');
     // Su único chaco ya estaba elegido (comportamiento del formulario).
     expect(picked(tester, 'Chaco'), 'Chaco hermana');
     expect(find.byKey(const Key('voz-revisar-farm')), findsOneWidget);
@@ -186,7 +188,7 @@ void main() {
     await open(tester, 'a-deshacer-revision', [
       const FakeTurn(segment: full, endsOnStop: true),
     ]);
-    await choose(tester, 'Persona', 'Hermana');
+    await choose(tester, applicationPersonLabel, 'Hermana');
     await openPanel(tester);
     await dictate(tester);
     expect(find.byKey(const Key('voz-revisar-farm')), findsOneWidget);
@@ -195,7 +197,7 @@ void main() {
     expect(find.byKey(const Key('voz-revisar-farm')), findsNothing);
     expect(find.byKey(const Key('voz-bloqueo-guardar')), findsNothing);
     expect(enabled(tester, 'application-continue'), isTrue);
-    expect(picked(tester, 'Persona'), 'Hermana');
+    expect(picked(tester, applicationPersonLabel), 'Hermana');
     expect(picked(tester, 'Chaco'), 'Chaco hermana');
   });
 

@@ -8,6 +8,8 @@ import 'package:agroquimicos/data/operation_mode_store.dart';
 import 'package:agroquimicos/domain/models.dart';
 import 'package:agroquimicos/domain/operation_mode.dart';
 import 'package:agroquimicos/presentation/widgets/adaptive_entity_picker.dart';
+import 'package:agroquimicos/presentation/screens/application_form_screen.dart'
+    show applicationPersonLabel;
 import 'package:agroquimicos/presentation/widgets/agro_ui.dart'
     show DashedAddButton;
 import 'package:flutter/material.dart';
@@ -116,7 +118,7 @@ void main() {
     c.read(routerProvider).push('/aplicaciones/nueva');
     await waitFor(tester, picker('Chaco'));
     await settle(tester);
-    if (!personal) await choose(tester, 'Persona', 'Titular');
+    if (!personal) await choose(tester, applicationPersonLabel, 'Titular');
     await choose(tester, 'Chaco', 'Chaco titular');
     await tapKey(tester, 'application-continue');
     expect(find.text('Productos (0)'), findsOneWidget);
@@ -378,7 +380,7 @@ void main() {
     c.read(routerProvider).push('/aplicaciones/nueva');
     await waitFor(tester, picker('Chaco'));
     await settle(tester);
-    expect(picker('Persona'), findsNothing);
+    expect(picker(applicationPersonLabel), findsNothing);
     expect(find.byKey(const Key('application-personal-owner')), findsOneWidget);
     expect(find.text('Titular'), findsWidgets);
     await choose(tester, 'Chaco', 'Chaco titular');
