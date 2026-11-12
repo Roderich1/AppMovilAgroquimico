@@ -194,9 +194,14 @@ void main() {
 
     /// Abre el menú de la tarjeta de la compra con [invoice].
     Future<void> openMenu(WidgetTester tester, String invoice) async {
+      // Rediseño B: cada compra es una fila con clave `purchase-card-<id>`.
       final card = find.ancestor(
         of: find.text('Proveedor · $invoice'),
-        matching: find.byType(Card),
+        matching: find.byWidgetPredicate(
+          (w) =>
+              w.key is ValueKey<String> &&
+              (w.key! as ValueKey<String>).value.startsWith('purchase-card-'),
+        ),
       );
       final menu = find.descendant(
         of: card,

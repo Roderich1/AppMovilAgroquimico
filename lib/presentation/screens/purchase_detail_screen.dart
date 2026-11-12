@@ -12,7 +12,11 @@ import '../../domain/inventory_alerts.dart' show expiryPickerRange;
 import '../../domain/labels.dart';
 import '../../domain/models.dart';
 import '../../domain/money.dart';
+import '../theme/agro_theme.dart';
+import '../widgets/agro_ui.dart';
 import '../widgets/common.dart';
+import '../widgets/rdm_b_purchase_actions.dart';
+import '../widgets/rdm_b_ui.dart';
 import '../widgets/owner_reversal_flow.dart';
 import 'purchase_form_screen.dart' show lotNumberCounter;
 import '../../services/auth/local_owner_credential.dart'
@@ -165,47 +169,310 @@ class _PurchaseDetailScreenState extends ConsumerState<PurchaseDetailScreen> {
     );
   }
 
+  void _reload() {
+    setState(() {
+      data = ref.read(repositoryProvider).purchaseDetail(widget.purchaseId);
+    });
+  }
+
+  /// Pagado al proveedor y no revertido (lo mismo que se mostraba antes).
+  static int _paid(PurchaseDetailRead detail) => [
+    for (final row in detail.payments)
+      if (row['reversed_at'] == null) row['amount_bob_minor']! as int,
+  ].fold<int>(0, (sum, amount) => sum + amount);
+
+  PurchaseActionTarget _target(PurchaseDetailRead detail) => (
+    id: detail.purchase['id']! as int,
+    supplierName: '${detail.purchase['supplier_name']}',
+    invoiceNumber: detail.purchase['invoice_number'] as String?,
+    totalMinor: detail.purchase['total_bob_minor']! as int,
+    paidMinor: _paid(detail),
+  );
+
+  Future<void> _pay(PurchaseDetailRead detail) async {
+    if (await payPurchaseProvider(context, ref, _target(detail)) && mounted) {
+      _reload();
+      showSuccess(context, 'Pago al proveedor registrado.');
+    }
+  }
+
+  Future<void> _reverse(PurchaseDetailRead detail) async {
+    if (await reversePurchaseWithApproval(context, ref, _target(detail)) &&
+        mounted) {
+      _reload();
+    }
+  }
+
   @override
-  Widget build(BuildContext context) => PageFrame(
-    title: 'Detalle de compra',
-    child: FutureBuilder<PurchaseDetailRead?>(
-      future: data,
-      builder: (context, snapshot) {
-        if (snapshot.hasError) {
-          return EmptyState(
+  Widget build(BuildContext context) => FutureBuilder<PurchaseDetailRead?>(
+    future: data,
+    builder: (context, snapshot) {
+      Widget plain(Widget child) => RdmScrollPage(
+        children: [
+          const ScreenTitleBar(
+            title: 'Detalle de compra',
+            leading: RdmBackButton(),
+          ),
+          const SizedBox(height: 12),
+          child,
+        ],
+      );
+      if (snapshot.hasError) {
+        return plain(
+          EmptyState(
             icon: Icons.error_outline,
             message: friendlyError(snapshot.error!),
-          );
-        }
-        if (snapshot.connectionState != ConnectionState.done) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        final detail = snapshot.data;
-        if (detail == null) {
-          return const Card(
-            child: EmptyState(
-              icon: Icons.receipt_long_outlined,
-              message: 'Esta compra ya no está en el teléfono.',
-            ),
-          );
-        }
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _HeaderCard(detail: detail),
-            const SizedBox(height: 12),
-            _ItemsCard(
-              detail: detail,
-              onCorrectLotData: _correctLotData,
-              onShowCorrections: _showCorrections,
-            ),
-            const SizedBox(height: 12),
-            _PaymentsCard(payments: detail.payments),
-          ],
+          ),
         );
-      },
-    ),
+      }
+      if (snapshot.connectionState != ConnectionState.done) {
+        return plain(const Center(child: CircularProgressIndicator()));
+      }
+      final detail = snapshot.data;
+      if (detail == null) {
+        return plain(
+          const EmptyState(
+            icon: Icons.receipt_long_outlined,
+            message: 'Esta compra ya no está en el teléfono.',
+          ),
+        );
+      }
+      return RdmScrollPage(
+        header: _DetailHero(
+          detail: detail,
+          paid: _paid(detail),
+          onPay: () => _pay(detail),
+          onReverse: () => _reverse(detail),
+        ),
+        children: [
+          _ItemsCard(
+            detail: detail,
+            onCorrectLotData: _correctLotData,
+            onShowCorrections: _showCorrections,
+          ),
+          const SizedBox(height: 16),
+          _PaymentsCard(payments: detail.payments),
+          const SizedBox(height: 16),
+          _HeaderCard(detail: detail),
+        ],
+      );
+    },
   );
+}
+
+/// Cabecera oscura del detalle (lámina 2.8): proveedor, fecha y factura,
+/// total, lo pagado y lo que falta, el estado y «Registrar pago al
+/// proveedor» mientras quede saldo. El menú ofrece «Revertir compra».
+///
+/// Sin `FittedBox` (UX-C1): el total no se encoge; si no cabe, baja de
+/// línea.
+class _DetailHero extends StatelessWidget {
+  const _DetailHero({
+    required this.detail,
+    required this.paid,
+    required this.onPay,
+    required this.onReverse,
+  });
+
+  final PurchaseDetailRead detail;
+  final int paid;
+  final VoidCallback onPay;
+  final VoidCallback onReverse;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = detail.purchase;
+    final reversed = p['status'] == 'REVERSED';
+    final total = p['total_bob_minor']! as int;
+    final remaining = total - paid;
+    final invoice = p['invoice_number'] as String?;
+    final split = splitBob(total);
+    const muted = TextStyle(
+      fontSize: 14,
+      height: 20 / 14,
+      color: AgroColors.onInkMuted,
+    );
+    return Container(
+      decoration: const BoxDecoration(
+        color: AgroColors.ink,
+        borderRadius: BorderRadius.vertical(bottom: Radius.circular(28)),
+      ),
+      padding: const EdgeInsets.fromLTRB(20, 12, 12, 20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const RdmBackButton(
+                background: AgroColors.inkSoft,
+                foreground: AgroColors.onInk,
+              ),
+              const Spacer(),
+              if (!reversed)
+                PopupMenuButton<String>(
+                  key: const Key('purchase-detail-menu'),
+                  tooltip: 'Más acciones',
+                  iconColor: AgroColors.onInk,
+                  style: IconButton.styleFrom(
+                    backgroundColor: AgroColors.inkSoft,
+                    fixedSize: const Size.square(44),
+                  ),
+                  onSelected: (_) => onReverse(),
+                  itemBuilder: (_) => const [
+                    PopupMenuItem(
+                      value: 'reverse',
+                      child: ListTile(
+                        leading: Icon(Icons.undo),
+                        title: Text('Revertir compra'),
+                      ),
+                    ),
+                  ],
+                ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  [
+                    'Compra',
+                    formatDate(p['purchase_date']),
+                    if (invoice != null && invoice.isNotEmpty)
+                      'factura $invoice',
+                  ].join(' · '),
+                  style: muted,
+                ),
+                Semantics(
+                  header: true,
+                  child: Text(
+                    p['supplier_name']! as String,
+                    style: const TextStyle(
+                      fontFamily: AgroFonts.display,
+                      fontSize: 20,
+                      height: 26 / 20,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text.rich(
+                  TextSpan(
+                    children: [
+                      TextSpan(
+                        text: split.number,
+                        style: TextStyle(
+                          fontFamily: AgroFonts.display,
+                          fontSize: 44,
+                          height: 1.1,
+                          fontWeight: FontWeight.w800,
+                          color: reversed
+                              ? AgroColors.onInkMuted
+                              : AgroColors.lime,
+                          decoration: reversed
+                              ? TextDecoration.lineThrough
+                              : null,
+                          fontFeatures: const [FontFeature.tabularFigures()],
+                        ),
+                      ),
+                      TextSpan(
+                        text: ' ${split.unit}',
+                        style: TextStyle(
+                          fontFamily: AgroFonts.display,
+                          fontSize: 22,
+                          fontWeight: FontWeight.w700,
+                          color: reversed
+                              ? AgroColors.onInkMuted
+                              : AgroColors.lime,
+                        ),
+                      ),
+                    ],
+                  ),
+                  key: const Key('purchase-detail-total'),
+                ),
+                const SizedBox(height: 10),
+                StatusBadge(
+                  key: const Key('purchase-detail-status'),
+                  label: operationStatusLabel(p['status']),
+                  tone: reversed ? BadgeTone.neutral : BadgeTone.ok,
+                ),
+                if (!reversed) ...[
+                  const SizedBox(height: 12),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(99),
+                    child: LinearProgressIndicator(
+                      key: const Key('purchase-detail-progress'),
+                      value: total <= 0 ? 0 : (paid / total).clamp(0.0, 1.0),
+                      minHeight: 8,
+                      color: AgroColors.lime,
+                      backgroundColor: AgroColors.inkSoft,
+                      semanticsLabel: 'Pagado al proveedor',
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  SizedBox(
+                    width: double.infinity,
+                    child: Wrap(
+                      alignment: WrapAlignment.spaceBetween,
+                      spacing: 12,
+                      runSpacing: 4,
+                      children: [
+                        Text(
+                          'Pagado ${formatBob(paid).trim()}',
+                          style: const TextStyle(
+                            fontSize: 15,
+                            color: AgroColors.onInk,
+                          ),
+                        ),
+                        Text(
+                          remaining > 0
+                              ? 'Falta ${formatBob(remaining).trim()}'
+                              : 'Pagada',
+                          key: const Key('purchase-detail-remaining'),
+                          style: const TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  if (remaining > 0) ...[
+                    const SizedBox(height: 14),
+                    SizedBox(
+                      width: double.infinity,
+                      child: FilledButton(
+                        key: const Key('purchase-detail-pay'),
+                        onPressed: onPay,
+                        style: FilledButton.styleFrom(
+                          backgroundColor: AgroColors.lime,
+                          foregroundColor: AgroColors.ink,
+                          minimumSize: const Size(0, 52),
+                          shape: const StadiumBorder(),
+                        ),
+                        child: const Text(
+                          'Registrar pago al proveedor',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 /// Ver la foto de la factura guardada con la compra (sólo lectura).
@@ -273,22 +540,25 @@ class _Section extends StatelessWidget {
   final List<Widget> children;
 
   @override
-  Widget build(BuildContext context) => Card(
-    child: Padding(
-      padding: const EdgeInsets.all(16),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            title,
-            style: Theme.of(context).textTheme.titleMedium
-                ?.copyWith(fontWeight: FontWeight.w700),
-          ),
-          const SizedBox(height: 10),
-          ...children,
-        ],
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      Padding(
+        padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
+        child: Text(title, style: AgroText.h2),
       ),
-    ),
+      Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: AgroColors.surface,
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: children,
+        ),
+      ),
+    ],
   );
 }
 
@@ -308,69 +578,46 @@ class _HeaderCard extends StatelessWidget {
     final invoice = p['invoice_number'] as String?;
     final notes = p['notes'] as String?;
     final image = p['invoice_image_path'] as String?;
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              p['supplier_name']! as String,
-              style: Theme.of(context).textTheme.titleLarge
-                  ?.copyWith(fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 6),
-            Chip(
-              key: const Key('purchase-detail-status'),
-              avatar: Icon(
-                reversed ? Icons.undo : Icons.check_circle_outline,
-                size: 18,
-              ),
-              label: Text(operationStatusLabel(p['status'])),
-            ),
-            const SizedBox(height: 8),
-            _Field(
-              'Factura',
-              invoice == null || invoice.isEmpty ? 'Sin número' : invoice,
-            ),
-            _Field('Fecha de compra', formatDate(p['purchase_date'])),
-            _Field('Campaña', p['campaign_name']! as String),
-            _Field('Total', formatBob(p['total_bob_minor']! as int)),
-            _Field(
-              reversed ? 'Pagado y no revertido' : 'Pagado al proveedor',
-              formatBob(paid),
-            ),
-            if (p['exchange_rate_source'] != null)
-              _Field(
-                'Origen del tipo de cambio',
-                exchangeRateSourceLabel(p['exchange_rate_source']),
-              ),
-            if ((p['exchange_rate_note'] as String?)?.isNotEmpty ?? false)
-              _Field(
-                'Nota del tipo de cambio',
-                p['exchange_rate_note']! as String,
-              ),
-            if (notes != null && notes.isNotEmpty) _Field('Notas', notes),
-            if (reversed) ...[
-              if (p['reversed_at'] != null)
-                _Field('Revertida el', formatDate(p['reversed_at'])),
-              // Auditoría completa (RF-13): quién autorizó, cómo y el motivo.
-              ReversalActorText(
-                operationType: 'PURCHASE',
-                operationId: p['id']! as int,
-              ),
-            ],
-            if (image != null) ...[
-              const SizedBox(height: 8),
-              OutlinedButton.icon(
-                onPressed: () => showInvoiceImage(context, image),
-                icon: const Icon(Icons.image_outlined),
-                label: const Text('Ver foto de la factura'),
-              ),
-            ],
-          ],
+    return _Section(
+      title: 'Datos de la compra',
+      children: [
+        _Field(
+          'Factura',
+          invoice == null || invoice.isEmpty ? 'Sin número' : invoice,
         ),
-      ),
+        _Field('Fecha de compra', formatDate(p['purchase_date'])),
+        _Field('Campaña', p['campaign_name']! as String),
+        _Field('Total', formatBob(p['total_bob_minor']! as int)),
+        _Field(
+          reversed ? 'Pagado y no revertido' : 'Pagado al proveedor',
+          formatBob(paid),
+        ),
+        if (p['exchange_rate_source'] != null)
+          _Field(
+            'Origen del tipo de cambio',
+            exchangeRateSourceLabel(p['exchange_rate_source']),
+          ),
+        if ((p['exchange_rate_note'] as String?)?.isNotEmpty ?? false)
+          _Field('Nota del tipo de cambio', p['exchange_rate_note']! as String),
+        if (notes != null && notes.isNotEmpty) _Field('Notas', notes),
+        if (reversed) ...[
+          if (p['reversed_at'] != null)
+            _Field('Revertida el', formatDate(p['reversed_at'])),
+          // Auditoría completa (RF-13): quién autorizó, cómo y el motivo.
+          ReversalActorText(
+            operationType: 'PURCHASE',
+            operationId: p['id']! as int,
+          ),
+        ],
+        if (image != null) ...[
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: () => showInvoiceImage(context, image),
+            icon: const Icon(Icons.image_outlined),
+            label: const Text('Ver foto de la factura'),
+          ),
+        ],
+      ],
     );
   }
 }

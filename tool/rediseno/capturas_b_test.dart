@@ -208,6 +208,22 @@ void main() {
     await shot(tester, 'B_1.3_actividad_busqueda_vacia');
   });
 
+  shadowTest('compras', (tester) async {
+    final r = await seeded(tester, 'rdm-b-compras');
+    await go(tester, r.c, '/operaciones');
+    r.c.read(routerProvider).push('/compras');
+    await settle(tester);
+    await shot(tester, 'B_compras_lista');
+    r.c.read(routerProvider).push('/compras/detalle/${r.seed.partialPurchase}');
+    await settle(tester);
+    await shotWithEnd(tester, 'B_2.8_compra_detalle');
+    r.c.read(routerProvider).pop();
+    await settle(tester);
+    r.c.read(routerProvider).push('/compras/detalle/${r.seed.unpaidPurchase}');
+    await settle(tester);
+    await shot(tester, 'B_2.8_compra_detalle_sin_pagar');
+  });
+
   shadowTest('actividad vacia', (tester) async {
     await setView(tester);
     final s = await activatedHousehold(tester, 'rdm-b-actividad-vacia');

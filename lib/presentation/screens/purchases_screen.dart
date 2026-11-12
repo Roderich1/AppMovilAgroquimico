@@ -2,19 +2,21 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../services/auth/local_owner_credential.dart'
-    show AuthorizationPurpose;
-import '../widgets/owner_reversal_flow.dart';
-
 import '../../app.dart';
-import '../../domain/campaign_calendar.dart';
-import '../../domain/models.dart';
 import '../../domain/money.dart';
-import '../../domain/person_roles.dart';
+import '../theme/agro_theme.dart';
+import '../widgets/agro_ui.dart';
 import '../widgets/common.dart';
-import '../widgets/provider_payment_fields.dart';
+import '../widgets/owner_reversal_flow.dart';
+import '../widgets/rdm_b_purchase_actions.dart';
+import '../widgets/rdm_b_ui.dart';
 import 'purchase_detail_screen.dart' show showInvoiceImage;
 
+/// Lista de compras (se abre desde Actividad › Compras › «Lista de compras»
+/// y desde Inicio › «compras con saldo por pagar»). Conserva el filtro por
+/// campaña, la búsqueda por proveedor o factura y, por compra, «Ver
+/// factura», «Registrar pago» al proveedor y «Revertir compra». Tocar la
+/// compra abre su detalle (A2), también la revertida.
 class PurchasesScreen extends ConsumerStatefulWidget {
   const PurchasesScreen({super.key});
   @override
@@ -51,355 +53,283 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> {
   }
 
   Future<void> _pay(Map<String, Object?> purchase) async {
-    final repo = ref.read(repositoryProvider);
-    // Regla del pagador (piloto X01): paga el titular vigente, en las dos
-    // modalidades. La lista sólo trae al titular; si está vacía es que no hay
-    // titular vinculado, y registrar otra persona no lo arreglaría.
-    final payers = await repo.peopleFor(PersonPurpose.providerPayer);
-    if (!mounted) return;
-    if (payers.isEmpty) {
-      showError(
-        context,
-        'No hay un titular vinculado: el pago al proveedor lo registra el '
-        'titular.',
-      );
-      return;
-    }
-    final remaining =
-        (purchase['total_bob_minor']! as int) -
-        (purchase['paid_bob_minor']! as int);
-    final result = await showDialog<_PaymentInput?>(
-      context: context,
-      builder: (_) => _PaymentDialog(
-        people: payers,
-        maxMinor: remaining,
-        title: 'Pago al proveedor',
-        // El pagador no se elige: es el titular (en propio y en compartido).
-        fixedPayer: payers.length == 1,
-      ),
-    );
-    if (result == null) return;
-    try {
-      // Medio y fecha: los que la persona vio y pudo corregir en el diálogo.
-      await repo.addProviderPayment(
-        purchaseId: purchase['id']! as int,
-        payerPersonId: result.$1,
-        amountBobMinor: result.$2,
-        method: result.$3,
-        date: result.$4,
-      );
+    if (await payPurchaseProvider(
+          context,
+          ref,
+          purchaseTargetFromRow(purchase),
+        ) &&
+        mounted) {
       _refresh();
-    } catch (error) {
-      if (mounted) showError(context, error);
     }
   }
 
   Future<void> _reverse(Map<String, Object?> purchase) async {
-    final paid = purchase['paid_bob_minor']! as int;
-    final id = purchase['id']! as int;
-    // RF-13: motivo y PIN del titular; el actor sale de la autorización.
-    final approval = await requestOwnerApproval(
-      context,
-      ref,
-      purpose: AuthorizationPurpose.reversePurchase,
-      subjectRef: 'purchase:$id',
-      title: '¿Revertir esta compra?',
-      effects:
-          '${purchase['supplier_name']} · '
-          '${purchase['invoice_number'] ?? 'Sin factura'}\n'
-          'Total ${formatBob(purchase['total_bob_minor']! as int)}\n\n'
-          'Se anularán los lotes creados y los cargos generados'
-          '${paid > 0 ? ', y se revertirán los pagos al proveedor por ${formatBob(paid)}' : ''}. '
-          'Esta acción no se puede deshacer.',
-      confirmLabel: 'Revertir compra',
-      revalidate: reversalStillPending(ref, 'purchases', id),
-    );
-    if (approval == null || !mounted) return;
-    try {
-      await ref
-          .read(repositoryProvider)
-          .reversePurchase(
-            id,
-            reason: approval.reason,
-            authorization: approval.authorization,
-          );
-      if (mounted) _refresh();
-    } catch (error) {
-      if (mounted) showError(context, error);
+    if (await reversePurchaseWithApproval(
+          context,
+          ref,
+          purchaseTargetFromRow(purchase),
+        ) &&
+        mounted) {
+      _refresh();
     }
   }
 
-  @override
-  Widget build(BuildContext context) => PageFrame(
-    title: 'Compras',
-    action: FilledButton.icon(
-      onPressed: _newPurchase,
-      icon: const Icon(Icons.add),
-      label: const Text('Nueva compra'),
-    ),
-    child: FutureBuilder(
-      future: data,
-      builder: (context, snapshot) {
-        // El error se comprueba ANTES que los datos: al revés, `hasData` es
-        // falso durante un fallo y esta rama nunca se alcanzaba.
-        if (snapshot.hasError)
-          return EmptyState(
-            icon: Icons.error_outline,
-            message: friendlyError(snapshot.error!),
-          );
-        if (!snapshot.hasData)
-          return const Center(child: CircularProgressIndicator());
-        if (snapshot.data!.isEmpty)
-          return const Card(
-            child: EmptyState(
-              icon: Icons.shopping_bag_outlined,
-              message: 'No hay compras confirmadas.',
-            ),
-          );
-        final rows = snapshot.data!.where((row) {
-          if (campaignFilter != null && row['campaign_id'] != campaignFilter) {
-            return false;
-          }
-          if (query.isEmpty) return true;
-          return '${row['supplier_name']} ${row['invoice_number'] ?? ''}'
-              .toLowerCase()
-              .contains(query);
-        }).toList();
-        return Column(
-          children: [
-            DropdownButtonFormField<int?>(
-              initialValue: campaignFilter,
-              decoration: const InputDecoration(
-                labelText: 'Campaña',
-                prefixIcon: Icon(Icons.calendar_month_outlined),
-              ),
-              items: [
-                const DropdownMenuItem(value: null, child: Text('Todas')),
-                for (final row in {
-                  for (final row in snapshot.data!)
-                    row['campaign_id'] as int: row,
-                }.values)
-                  DropdownMenuItem(
-                    value: row['campaign_id'] as int,
-                    child: Text(row['campaign_name'] as String),
-                  ),
-              ],
-              onChanged: (value) => setState(() => campaignFilter = value),
-            ),
-            const SizedBox(height: 8),
-            TextField(
-              onChanged: (value) => setState(() {
-                query = value.trim().toLowerCase();
-              }),
-              decoration: const InputDecoration(
-                prefixIcon: Icon(Icons.search),
-                labelText: 'Buscar proveedor o factura',
-                isDense: true,
-              ),
-            ),
-            const SizedBox(height: 10),
-            for (final row in rows)
-              Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: Card(
-                  // A2: toda la tarjeta abre el detalle de sólo lectura,
-                  // también de una compra revertida. El menú conserva las
-                  // acciones.
-                  clipBehavior: Clip.antiAlias,
-                  child: InkWell(
-                    key: Key('purchase-card-${row['id']}'),
-                    onTap: () => context.push('/compras/detalle/${row['id']}'),
-                    child: Padding(
-                      padding: const EdgeInsets.all(18),
-                      child: Row(
-                        children: [
-                          CircleAvatar(
-                            child: Icon(
-                              row['status'] == 'REVERSED'
-                                  ? Icons.undo
-                                  : Icons.receipt_long_outlined,
-                            ),
-                          ),
-                          const SizedBox(width: 14),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  '${row['supplier_name']} · ${row['invoice_number'] ?? 'Sin factura'}',
-                                  style: Theme.of(context).textTheme.titleMedium
-                                      ?.copyWith(fontWeight: FontWeight.w700),
-                                ),
-                                const SizedBox(height: 5),
-                                Text(
-                                  '${row['campaign_name']} · ${row['item_count']} producto${row['item_count'] == 1 ? '' : 's'} · Total ${formatBob(row['total_bob_minor']! as int)} · pagado ${formatBob(row['paid_bob_minor']! as int)} · ${row['status'] == 'CONFIRMED' ? 'Confirmada' : 'Revertida'}',
-                                ),
-                                if (row['status'] == 'REVERSED')
-                                  ReversalActorText(
-                                    operationType: 'PURCHASE',
-                                    operationId: row['id']! as int,
-                                  ),
-                              ],
-                            ),
-                          ),
-                          if (row['status'] != 'REVERSED')
-                            PopupMenuButton<String>(
-                              onSelected: (value) {
-                                if (value == 'pay') {
-                                  _pay(row);
-                                } else if (value == 'invoice') {
-                                  showInvoiceImage(
-                                    context,
-                                    row['invoice_image_path']! as String,
-                                  );
-                                } else {
-                                  _reverse(row);
-                                }
-                              },
-                              itemBuilder: (_) => [
-                                if (row['invoice_image_path'] != null)
-                                  const PopupMenuItem(
-                                    value: 'invoice',
-                                    child: ListTile(
-                                      leading: Icon(Icons.image_outlined),
-                                      title: Text('Ver factura'),
-                                    ),
-                                  ),
-                                const PopupMenuItem(
-                                  value: 'pay',
-                                  child: ListTile(
-                                    leading: Icon(Icons.payments_outlined),
-                                    title: Text('Registrar pago'),
-                                  ),
-                                ),
-                                const PopupMenuItem(
-                                  value: 'reverse',
-                                  child: ListTile(
-                                    leading: Icon(Icons.undo),
-                                    title: Text('Revertir compra'),
-                                  ),
-                                ),
-                              ],
-                            ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-          ],
-        );
-      },
-    ),
-  );
-}
-
-class _PaymentDialog extends StatefulWidget {
-  const _PaymentDialog({
-    required this.people,
-    required this.maxMinor,
-    required this.title,
-    this.fixedPayer = false,
-  });
-  final List<Map<String, Object?>> people;
-  final int maxMinor;
-  final String title;
-
-  /// Paga el titular: no se elige pagador (#26 y regla del piloto X01).
-  final bool fixedPayer;
-  @override
-  State<_PaymentDialog> createState() => _PaymentDialogState();
-}
-
-/// Lo que devuelve el diálogo: pagador, importe, medio y fecha del pago.
-typedef _PaymentInput = (int, int, PaymentMethod, DateTime);
-
-class _PaymentDialogState extends State<_PaymentDialog> {
-  late int? person = widget.fixedPayer
-      ? widget.people.single['id']! as int
-      : null;
-  // Se precarga con el convenio es-BO que la propia aplicacion acepta.
-  // `toStringAsFixed` producia "20000.00", que con la regla de entrada
-  // centralizada (UIBUG-003) es un formato invalido: el punto es separador de
-  // miles, no decimal.
-  late final amount = TextEditingController(
-    text: formatForInput(widget.maxMinor / 100, maxDecimals: 2),
-  );
-
-  /// Medio y día del pago: visibles y corregibles, sin valores supuestos.
-  /// El medio empieza en «Sin indicar»; el día, en hoy (se registra ahora).
-  PaymentMethod method = PaymentMethod.unspecified;
-  late String day = localDay(DateTime.now());
-
-  @override
-  void dispose() {
-    amount.dispose();
-    super.dispose();
-  }
-
-  void _submit() {
-    final payer = person;
-    if (payer == null) return;
-    Navigator.pop<_PaymentInput>(context, (
-      payer,
-      parseMinor(amount.text),
-      method,
-      effectiveInstantForDay(day, DateTime.now()),
-    ));
+  Future<void> _openDetail(int id) async {
+    await context.push('/compras/detalle/$id');
+    if (mounted) _refresh();
   }
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
-    title: Text(widget.title),
-    content: SingleChildScrollView(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (widget.fixedPayer)
-            Text(
-              'Paga el titular: ${widget.people.single['name']}',
-              key: const Key('payment-personal-payer'),
-            )
-          else
-            DropdownButtonFormField<int>(
-              initialValue: person,
-              decoration: const InputDecoration(labelText: 'Pagador'),
-              items: [
-                for (final p in widget.people)
-                  DropdownMenuItem(
-                    value: p['id']! as int,
-                    child: Text(p['name']! as String),
-                  ),
-              ],
-              onChanged: (value) => setState(() => person = value),
+  Widget build(BuildContext context) => RdmScrollPage(
+    children: [
+      ScreenTitleBar(
+        title: 'Compras',
+        leading: const RdmBackButton(),
+        actions: [
+          FilledButton.icon(
+            onPressed: _newPurchase,
+            style: FilledButton.styleFrom(
+              backgroundColor: AgroColors.lime,
+              foregroundColor: AgroColors.ink,
+              minimumSize: const Size(0, 44),
+              shape: const StadiumBorder(),
             ),
-          const SizedBox(height: 12),
-          TextField(
-            controller: amount,
-            keyboardType: TextInputType.number,
-            decoration: InputDecoration(
-              labelText: 'Importe BOB',
-              helperText: 'Máximo ${formatBob(widget.maxMinor)}',
+            icon: const Icon(Icons.add),
+            label: const Text(
+              'Nueva compra',
+              style: TextStyle(fontWeight: FontWeight.w700),
             ),
-          ),
-          const SizedBox(height: 12),
-          ProviderPaymentFields(
-            method: method,
-            onMethodChanged: (value) => setState(() => method = value),
-            day: day,
-            dayHint: day == localDay(DateTime.now()) ? ' (hoy)' : '',
-            onDayChanged: (value) => setState(() => day = value),
           ),
         ],
       ),
-    ),
-    actions: [
-      TextButton(
-        onPressed: () => Navigator.pop(context),
-        child: const Text('Cancelar'),
+      const SizedBox(height: 8),
+      FutureBuilder<List<Map<String, Object?>>>(
+        future: data,
+        builder: (context, snapshot) {
+          // El error se comprueba ANTES que los datos: al revés, `hasData` es
+          // falso durante un fallo y esta rama nunca se alcanzaba.
+          if (snapshot.hasError) {
+            return EmptyState(
+              icon: Icons.error_outline,
+              message: friendlyError(snapshot.error!),
+            );
+          }
+          if (!snapshot.hasData) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (snapshot.data!.isEmpty) {
+            return const EmptyState(
+              icon: Icons.shopping_bag_outlined,
+              message: 'No hay compras confirmadas.',
+            );
+          }
+          final rows = snapshot.data!.where((row) {
+            if (campaignFilter != null &&
+                row['campaign_id'] != campaignFilter) {
+              return false;
+            }
+            if (query.isEmpty) return true;
+            return '${row['supplier_name']} ${row['invoice_number'] ?? ''}'
+                .toLowerCase()
+                .contains(query);
+          }).toList();
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              DropdownButtonFormField<int?>(
+                initialValue: campaignFilter,
+                isExpanded: true,
+                decoration: const InputDecoration(
+                  labelText: 'Campaña',
+                  prefixIcon: Icon(Icons.calendar_month_outlined),
+                ),
+                items: [
+                  const DropdownMenuItem(value: null, child: Text('Todas')),
+                  for (final row in {
+                    for (final row in snapshot.data!)
+                      row['campaign_id'] as int: row,
+                  }.values)
+                    DropdownMenuItem(
+                      value: row['campaign_id'] as int,
+                      child: Text(row['campaign_name'] as String),
+                    ),
+                ],
+                onChanged: (value) => setState(() => campaignFilter = value),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                onChanged: (value) => setState(() {
+                  query = value.trim().toLowerCase();
+                }),
+                decoration: const InputDecoration(
+                  prefixIcon: Icon(Icons.search),
+                  labelText: 'Buscar proveedor o factura',
+                  isDense: true,
+                ),
+              ),
+              const SizedBox(height: 12),
+              if (rows.isEmpty)
+                const EmptyState(
+                  icon: Icons.search_off_outlined,
+                  message: 'Ninguna compra coincide con el filtro.',
+                )
+              else
+                AgroGroup(
+                  children: [
+                    for (final row in rows)
+                      _PurchaseRow(
+                        row: row,
+                        onOpen: () => _openDetail(row['id']! as int),
+                        onPay: () => _pay(row),
+                        onReverse: () => _reverse(row),
+                      ),
+                  ],
+                ),
+            ],
+          );
+        },
       ),
-      FilledButton(onPressed: _submit, child: const Text('Registrar')),
     ],
   );
+}
+
+/// Una compra: proveedor y factura, fecha, campaña y productos, total y
+/// estado del pago al proveedor (con texto, no sólo color), y su menú.
+class _PurchaseRow extends StatelessWidget {
+  const _PurchaseRow({
+    required this.row,
+    required this.onOpen,
+    required this.onPay,
+    required this.onReverse,
+  });
+
+  final Map<String, Object?> row;
+  final VoidCallback onOpen;
+  final VoidCallback onPay;
+  final VoidCallback onReverse;
+
+  @override
+  Widget build(BuildContext context) {
+    final reversed = row['status'] == 'REVERSED';
+    final total = row['total_bob_minor']! as int;
+    final paid = row['paid_bob_minor']! as int;
+    final items = row['item_count'] as int? ?? 0;
+    final badge = reversed
+        ? const StatusBadge(label: 'Revertida', tone: BadgeTone.neutral)
+        : paid <= 0
+        ? const StatusBadge(label: 'Sin pagar', tone: BadgeTone.review)
+        : paid < total
+        ? StatusBadge(
+            label:
+                'Pagó ${splitBob(paid).number} · falta '
+                '${splitBob(total - paid).number}',
+            tone: BadgeTone.review,
+          )
+        : const StatusBadge(label: 'Pagada', tone: BadgeTone.ok);
+    return InkWell(
+      // A2: toda la fila abre el detalle de sólo lectura, también de una
+      // compra revertida. El menú conserva las acciones.
+      key: Key('purchase-card-${row['id']}'),
+      onTap: onOpen,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 10, 4, 10),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            IconCircle(
+              icon: reversed ? Icons.undo : Icons.shopping_bag_outlined,
+              background: reversed ? AgroColors.chip : AgroColors.lime,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '${row['supplier_name']} · '
+                    '${row['invoice_number'] ?? 'Sin factura'}',
+                    style: const TextStyle(
+                      fontSize: 16,
+                      height: 21 / 16,
+                      fontWeight: FontWeight.w700,
+                      color: AgroColors.ink,
+                    ),
+                  ),
+                  Text(
+                    '${formatDate(row['purchase_date'])} · '
+                    '${row['campaign_name']} · '
+                    '$items producto${items == 1 ? '' : 's'}',
+                    style: AgroText.detail,
+                  ),
+                  const SizedBox(height: 4),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 4,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    children: [
+                      Text(
+                        formatBob(total),
+                        style: AgroText.amount.copyWith(
+                          decoration: reversed
+                              ? TextDecoration.lineThrough
+                              : null,
+                          color: reversed ? AgroColors.muted : null,
+                        ),
+                      ),
+                      badge,
+                    ],
+                  ),
+                  if (reversed)
+                    ReversalActorText(
+                      operationType: 'PURCHASE',
+                      operationId: row['id']! as int,
+                    ),
+                ],
+              ),
+            ),
+            if (!reversed)
+              PopupMenuButton<String>(
+                tooltip: 'Acciones de la compra',
+                onSelected: (value) {
+                  if (value == 'pay') {
+                    onPay();
+                  } else if (value == 'invoice') {
+                    showInvoiceImage(
+                      context,
+                      row['invoice_image_path']! as String,
+                    );
+                  } else {
+                    onReverse();
+                  }
+                },
+                itemBuilder: (_) => [
+                  if (row['invoice_image_path'] != null)
+                    const PopupMenuItem(
+                      value: 'invoice',
+                      child: ListTile(
+                        leading: Icon(Icons.image_outlined),
+                        title: Text('Ver factura'),
+                      ),
+                    ),
+                  const PopupMenuItem(
+                    value: 'pay',
+                    child: ListTile(
+                      leading: Icon(Icons.payments_outlined),
+                      title: Text('Registrar pago'),
+                    ),
+                  ),
+                  const PopupMenuItem(
+                    value: 'reverse',
+                    child: ListTile(
+                      leading: Icon(Icons.undo),
+                      title: Text('Revertir compra'),
+                    ),
+                  ),
+                ],
+              ),
+          ],
+        ),
+      ),
+    );
+  }
 }
