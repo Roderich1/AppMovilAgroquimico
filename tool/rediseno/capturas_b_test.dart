@@ -68,11 +68,14 @@ void main() {
 
   Future<void> shot(WidgetTester tester, String name) async {
     await settle(tester);
-    final boundary = tester.renderObject<RenderRepaintBoundary>(
-      find.byType(RepaintBoundary).first,
-    );
+    // La vista entera (hojas modales y botón flotante incluidos), como el
+    // `shot()` de capturas_arnes_test.dart (base B1).
+    final view = tester.binding.renderViews.first;
+    final layer = view.debugLayer! as OffsetLayer;
     final bytes = await tester.runAsync(() async {
-      final image = await boundary.toImage(pixelRatio: 2);
+      final image = await layer.toImage(
+        Offset.zero & (view.size * tester.view.devicePixelRatio),
+      );
       final data = await image.toByteData(format: ui.ImageByteFormat.png);
       return data!.buffer.asUint8List();
     });

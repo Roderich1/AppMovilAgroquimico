@@ -412,6 +412,9 @@ class RdmScrollPage extends StatelessWidget {
         ContentInsets.of(context) +
         MediaQuery.viewInsetsOf(context).bottom;
     return CustomScrollView(
+      // Siempre desplazable: «tirar para actualizar» funciona aunque el
+      // contenido quepa en la pantalla.
+      physics: const AlwaysScrollableScrollPhysics(),
       slivers: [
         if (header != null) SliverToBoxAdapter(child: header),
         SliverPadding(

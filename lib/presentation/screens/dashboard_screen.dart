@@ -148,93 +148,120 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       future: future,
       builder: (context, snapshot) {
         final data = snapshot.data;
-        return RdmScrollPage(
-          header: _HomeHeader(
-            data: data,
-            personal: personal,
-            loading: data == null && !snapshot.hasError,
-            onRefresh: _refresh,
-          ),
-          children: [
-            // Los avisos de sesión y de acceso, y los accesos principales
-            // (piloto X01), no dependen del resumen: se muestran aunque los
-            // datos tarden o fallen. «Enviar al sindicato» abre la pantalla
-            // de sincronización y no publica nada por sí solo.
-            _SessionArea(existingSession, top: true),
-            const _InstallationAccessNotice(),
-            const _JointPurchaseNotice(),
-            const SizedBox(height: 4),
-            _PrimaryActions(
-              onPurchase: _newPurchase,
-              onApplication: _newApplication,
+        // Tirar hacia abajo actualiza las cifras (el botón «Actualizar» dejó
+        // su lugar al engranaje de Ajustes, B1). Al volver de cualquier
+        // pantalla abierta desde Inicio también se actualizan.
+        return RefreshIndicator(
+          onRefresh: () async {
+            _refresh();
+            await future.then((_) {}, onError: (_) {});
+          },
+          child: RdmScrollPage(
+            header: _HomeHeader(
+              data: data,
+              personal: personal,
+              loading: data == null && !snapshot.hasError,
+              onSettings: () => _openAndRefresh('/mas'),
+              onCampaigns: () => _openAndRefresh('/campanas'),
             ),
-            const SizedBox(height: 10),
-            AgroGroup(
-              children: [
-                LinkRow(
-                  key: const Key('home-ver-cuanto-queda'),
-                  icon: Icons.inventory_2_outlined,
-                  title: 'Ver cuánto queda',
-                  onTap: () => context.go('/inventario'),
-                ),
-                LinkRow(
-                  key: const Key('home-enviar-sindicato'),
-                  icon: Icons.cloud_upload_outlined,
-                  title: 'Enviar al sindicato',
-                  onTap: () => context.push('/sincronizacion'),
-                ),
-              ],
-            ),
-            if (snapshot.hasError)
-              Padding(
-                padding: const EdgeInsets.only(top: 16),
-                child: NoticeBox(
-                  key: const Key('home-load-error'),
-                  tone: NoticeTone.danger,
-                  icon: Icons.error_outline,
-                  text: friendlyError(snapshot.error!),
-                ),
-              )
-            else if (data != null) ...[
-              const SizedBox(height: 18),
-              const Padding(
-                padding: EdgeInsets.only(left: 4, bottom: 8),
-                child: Text('Para atender', style: AgroText.h2),
+            children: [
+              // Los avisos de sesión y de acceso, y los accesos principales
+              // (piloto X01), no dependen del resumen: se muestran aunque los
+              // datos tarden o fallen. «Enviar al sindicato» abre la pantalla
+              // de sincronización y no publica nada por sí solo.
+              _SessionArea(existingSession, top: true),
+              const _InstallationAccessNotice(),
+              const _JointPurchaseNotice(),
+              const SizedBox(height: 4),
+              ActionTileRow(
+                tiles: [
+                  ActionTile(
+                    key: const Key('home-registrar-compra'),
+                    icon: Icons.shopping_bag_outlined,
+                    label: 'Registrar compra',
+                    onTap: _newPurchase,
+                    minHeight: 108,
+                  ),
+                  ActionTile(
+                    key: const Key('home-registrar-aplicacion'),
+                    icon: Icons.spa_outlined,
+                    label: 'Registrar aplicación',
+                    onTap: _newApplication,
+                    tone: ActionTileTone.ink,
+                    minHeight: 108,
+                  ),
+                ],
               ),
-              _AttentionList(data: data, onOpen: _openAndRefresh),
-              // E-15: del libro de cuentas, sin el titular (no es deudor de
-              // sí mismo) ni el ADMIN. En propio no hay cuentas por cobrar.
-              if (!personal && data.summary.topBalances.isNotEmpty) ...[
+              const SizedBox(height: 10),
+              AgroGroup(
+                children: [
+                  LinkRow(
+                    key: const Key('home-ver-cuanto-queda'),
+                    icon: Icons.inventory_2_outlined,
+                    title: 'Ver cuánto queda',
+                    onTap: () => context.go('/inventario'),
+                  ),
+                  LinkRow(
+                    key: const Key('home-enviar-sindicato'),
+                    icon: Icons.cloud_upload_outlined,
+                    title: 'Enviar al sindicato',
+                    onTap: () => context.push('/sincronizacion'),
+                  ),
+                ],
+              ),
+              if (snapshot.hasError)
+                Padding(
+                  padding: const EdgeInsets.only(top: 16),
+                  child: NoticeBox(
+                    key: const Key('home-load-error'),
+                    tone: NoticeTone.danger,
+                    icon: Icons.error_outline,
+                    text: friendlyError(snapshot.error!),
+                  ),
+                )
+              else if (data != null) ...[
+                const SizedBox(height: 18),
                 const Padding(
-                  padding: EdgeInsets.fromLTRB(4, 18, 4, 8),
-                  child: Text('Principales saldos', style: AgroText.h2),
+                  padding: EdgeInsets.only(left: 4, bottom: 8),
+                  child: Text('Para atender', style: AgroText.h2),
                 ),
-                AgroGroup(
-                  key: const Key('home-top-balances'),
-                  children: [
-                    for (final row in data.summary.topBalances.take(5))
-                      LinkRow(
-                        title: row.name,
-                        titleStyle: const TextStyle(
-                          fontSize: 15,
-                          height: 20 / 15,
-                          fontWeight: FontWeight.w700,
-                          color: AgroColors.ink,
+                _AttentionList(data: data, onOpen: _openAndRefresh),
+                // E-15: del libro de cuentas, sin el titular (no es deudor de
+                // sí mismo) ni el ADMIN. En propio no hay cuentas por cobrar.
+                if (!personal && data.summary.topBalances.isNotEmpty) ...[
+                  const Padding(
+                    padding: EdgeInsets.fromLTRB(4, 18, 4, 8),
+                    child: Text('Principales saldos', style: AgroText.h2),
+                  ),
+                  AgroGroup(
+                    key: const Key('home-top-balances'),
+                    children: [
+                      for (final row in data.summary.topBalances.take(5))
+                        LinkRow(
+                          title: row.name,
+                          titleStyle: const TextStyle(
+                            fontSize: 15,
+                            height: 20 / 15,
+                            fontWeight: FontWeight.w700,
+                            color: AgroColors.ink,
+                          ),
+                          subtitle: row.role == 'FAMILY'
+                              ? 'Familiar'
+                              : 'Tercero',
+                          trailing: Text(
+                            formatBob(row.balanceMinor),
+                            style: AgroText.amount,
+                          ),
+                          onTap: () =>
+                              _openAndRefresh('/personas/${row.personId}'),
                         ),
-                        subtitle: row.role == 'FAMILY' ? 'Familiar' : 'Tercero',
-                        trailing: Text(
-                          formatBob(row.balanceMinor),
-                          style: AgroText.amount,
-                        ),
-                        onTap: () =>
-                            _openAndRefresh('/personas/${row.personId}'),
-                      ),
-                  ],
-                ),
+                    ],
+                  ),
+                ],
               ],
+              _SessionArea(existingSession, top: false),
             ],
-            _SessionArea(existingSession, top: false),
-          ],
+          ),
         );
       },
     );
@@ -428,13 +455,15 @@ class _HomeHeader extends StatelessWidget {
     required this.data,
     required this.personal,
     required this.loading,
-    required this.onRefresh,
+    required this.onSettings,
+    required this.onCampaigns,
   });
 
   final _DashboardData? data;
   final bool personal;
   final bool loading;
-  final VoidCallback onRefresh;
+  final VoidCallback onSettings;
+  final VoidCallback onCampaigns;
 
   static const _muted = TextStyle(
     fontSize: 14,
@@ -490,22 +519,40 @@ class _HomeHeader extends StatelessWidget {
                             ? 'Sin campaña activa'
                             : 'Campaña activa: ${active.name}',
                         excludeSemantics: true,
-                        child: Container(
-                          key: const Key('home-active-campaign'),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 12,
-                            vertical: 7,
-                          ),
-                          decoration: BoxDecoration(
-                            color: AgroColors.inkSoft,
-                            borderRadius: BorderRadius.circular(9999),
-                          ),
-                          child: Text(
-                            active?.name ?? 'Sin campaña activa',
-                            style: const TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w700,
-                              color: AgroColors.onInk,
+                        button: true,
+                        hint: 'Abre Campañas',
+                        child: Material(
+                          color: AgroColors.inkSoft,
+                          shape: const StadiumBorder(),
+                          child: InkWell(
+                            key: const Key('home-active-campaign'),
+                            customBorder: const StadiumBorder(),
+                            onTap: onCampaigns,
+                            child: ConstrainedBox(
+                              constraints: const BoxConstraints(minHeight: 40),
+                              child: Padding(
+                                padding: const EdgeInsets.fromLTRB(12, 8, 6, 8),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Flexible(
+                                      child: Text(
+                                        active?.name ?? 'Sin campaña activa',
+                                        style: const TextStyle(
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w700,
+                                          color: AgroColors.onInk,
+                                        ),
+                                      ),
+                                    ),
+                                    const Icon(
+                                      Icons.expand_more,
+                                      size: 18,
+                                      color: AgroColors.onInk,
+                                    ),
+                                  ],
+                                ),
+                              ),
                             ),
                           ),
                         ),
@@ -515,10 +562,10 @@ class _HomeHeader extends StatelessWidget {
               ),
               const SizedBox(width: 8),
               CircleIconButton(
-                key: const Key('home-refresh'),
-                icon: Icons.refresh,
-                tooltip: 'Actualizar',
-                onPressed: onRefresh,
+                key: const Key('home-settings'),
+                icon: Icons.settings_outlined,
+                tooltip: 'Ajustes y datos',
+                onPressed: onSettings,
                 background: AgroColors.inkSoft,
                 foreground: AgroColors.onInk,
               ),
@@ -727,98 +774,6 @@ class _Figures extends StatelessWidget {
       );
     },
   );
-}
-
-/// Accesos grandes de Inicio: «Registrar compra» (la acción más frecuente,
-/// en lima) y «Registrar aplicación». Dos columnas si la palabra más larga
-/// cabe con la letra del teléfono; si no, una (#129).
-class _PrimaryActions extends StatelessWidget {
-  const _PrimaryActions({
-    required this.onPurchase,
-    required this.onApplication,
-  });
-
-  final VoidCallback onPurchase;
-  final VoidCallback onApplication;
-
-  static const _labelStyle = TextStyle(
-    fontFamily: AgroFonts.display,
-    fontSize: 18,
-    height: 22 / 18,
-    fontWeight: FontWeight.w700,
-    color: AgroColors.ink,
-  );
-
-  @override
-  Widget build(BuildContext context) {
-    final actions = [
-      (
-        key: 'home-registrar-compra',
-        label: 'Registrar compra',
-        icon: Icons.shopping_bag_outlined,
-        color: AgroColors.lime,
-        onTap: onPurchase,
-      ),
-      (
-        key: 'home-registrar-aplicacion',
-        label: 'Registrar aplicación',
-        icon: Icons.spa_outlined,
-        color: AgroColors.surface,
-        onTap: onApplication,
-      ),
-    ];
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final widestWord = actions
-            .expand((action) => action.label.split(' '))
-            .map((word) => measureText(context, word, _labelStyle))
-            .fold(0.0, math.max);
-        // Relleno 16 + 16 y 12 dp de holgura.
-        final columns =
-            (constraints.maxWidth - 10) / 2 >= widestWord + 16 + 16 + 12
-            ? 2
-            : 1;
-        final width = (constraints.maxWidth - (columns - 1) * 10) / columns;
-        return Wrap(
-          spacing: 10,
-          runSpacing: 10,
-          children: [
-            for (final action in actions)
-              SizedBox(
-                width: width,
-                child: Material(
-                  color: action.color,
-                  borderRadius: BorderRadius.circular(24),
-                  child: InkWell(
-                    key: Key(action.key),
-                    borderRadius: BorderRadius.circular(24),
-                    onTap: action.onTap,
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(minHeight: 108),
-                      child: Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            IconCircle(
-                              icon: action.icon,
-                              background: AgroColors.ink,
-                              foreground: AgroColors.lime,
-                            ),
-                            const SizedBox(height: 12),
-                            Text(action.label, style: _labelStyle),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-          ],
-        );
-      },
-    );
-  }
 }
 
 /// «Para atender»: sólo lo que hoy pide una acción y que el teléfono ya
