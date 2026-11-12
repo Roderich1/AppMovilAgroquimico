@@ -53,7 +53,7 @@ Láminas del prototipo renderizadas a 390×844 a 2× (Edge sin interfaz, sin el 
 ## Pruebas
 
 - `flutter analyze` (proyecto entero): sin avisos.
-- Suite completa sobre `1214c2e` + cambios hasta `59037b6`: **2.984 pasan, 3 omitidas, 1 falla**: `f08_prev_01_previo_ui_test.dart` «Decidir sobre una copia sin resolver…» (respaldos, no tocado). Aislado pasa 8/8; coincide con la intermitencia conocida (worktree `F08-PREV-01-FLAKY`).
+- Suite completa (`flutter test`, 02:13–02:16) sobre el árbol que se commiteó como `1214c2e`: **2.984 pasan, 3 omitidas, 1 falla**: `f08_prev_01_previo_ui_test.dart` «Decidir sobre una copia sin resolver…» (respaldos, no tocado). Aislado pasa 8/8; coincide con la intermitencia conocida (worktree `F08-PREV-01-FLAKY`).
 - Tras `e68a200` y `15bc23e`: pruebas de compra, voz en compra, altas en contexto, legibilidad, compatibilidad #129, pago y propio (105 + 30) pasan.
 - 21 archivos de prueba adaptados: cambia cómo se llega a los campos (`test/support/purchase_form_driver.dart`) y los textos renombrados; no lo que se comprueba.
 
@@ -62,4 +62,4 @@ Láminas del prototipo renderizadas a 390×844 a 2× (Edge sin interfaz, sin el 
 - Candidata instalada = `2d6aa0d`; `15bc23e` sólo en APK (falta de espacio en el emulador).
 - Letra ampliada y pantalla estrecha verificadas en el arnés, no cambiando la escala del emulador compartido.
 - Sin conexión: no se probó en este bloque (la compra no cambia de comportamiento sin red; no se tocó la sincronización).
-- Hallazgo aparte, **no corregido** (reglas de voz, fuera del rediseño): tras «Deshacer último dictado» con el precio en revisión, el aviso dice «Se conservó lo que editó después (línea 1: moneda)» y la tarjeta sigue con «Por voz», sin que la persona tocara la moneda (`arnes/2.1_paso1_lleno.png`). Viene de `planVoiceUndo`/`voiceFields`, sin cambios en esta rama.
+- Hallazgo aparte, **no corregido** (reglas de voz, fuera del rediseño): tras «Deshacer último dictado» con el precio en revisión, el aviso dice «Se conservó lo que editó después (línea 1: moneda)» y la tarjeta sigue con «Por voz», sin que la persona tocara la moneda (`arnes/2.1_paso1_lleno.png`). Viene de `planVoiceUndo` y `voiceFields`, que esta rama no cambia; no se comprobó todavía si la base `01b2576` muestra lo mismo.

@@ -57,6 +57,19 @@ Leer esto y comprobar Git (`git -C _wt/RDM-MOB log --oneline -5`, `git status`) 
 - `MSYS_NO_PATHCONV=1` rompe las rutas de `node` en `rdm_env.sh credential`: no exportarla en esa orden.
 - Pruebas: los campos de un producto sólo existen con su hoja abierta; usar `test/support/purchase_form_driver.dart`.
 
+## Estado de la candidata (2026-11-12)
+
+- Instalada en el emulador: `.rdm` con `2d6aa0d` (con modelos de voz). APK de `15bc23e`: `C:/Users/MSI/AppData/Local/Temp/agro_rdm/apk/agrocuentas.rdm-15bc23e-profile-x64.apk`; no cabe en el emulador (802 MB libres).
+- Modelos de voz copiados de `_wt/F09-UNI` a `android/app/voice-models` y `jniLibs/x86_64` (ignorados por git; verificados con su manifiesto).
+- Entorno: contenedor `agro_rdm_pg` y API 3370 en marcha; túnel **cerrado** al terminar. La APK está atada a ese origen: sin túnel funciona sin conexión; para sincronizar hay que abrir otro túnel y recompilar.
+- Capturas del arnés: `build/rediseno_capturas` (no versionado) y copia en la evidencia.
+
+## Pendientes concretos del bloque 1
+
+- Revisión visual del autor.
+- Hallazgo aparte (no corregido): «Deshacer último dictado» con el precio en revisión dice que se conservó la moneda. Comprobar en la base `01b2576` antes de proponer nada.
+- Prueba de voz con una persona real en teléfono físico.
+
 ## Siguiente acción concreta
 
 Esperar la revisión del autor sobre la candidata del bloque 1 (capturas antes/después y APK `.rdm`). Con su visto bueno, empezar el bloque 2 por «Nueva aplicación» paso 1 (láminas 3.1–3.2), confirmando antes el significado de «Quién aplicó».
