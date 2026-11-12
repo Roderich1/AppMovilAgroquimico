@@ -1,6 +1,6 @@
 /// Generador PDF (EVO-006).
 ///
-/// Recibe el mismo [ReportTable] que el CSV y devuelve bytes A4. No toca
+/// Recibe el mismo [ReportTable] que el Excel (XLSX) y devuelve bytes A4. No toca
 /// SQLite, ni widgets, ni el sistema de archivos.
 ///
 /// La paginación se calcula antes de dibujar nada para poder escribir

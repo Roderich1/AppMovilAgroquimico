@@ -8,18 +8,36 @@ import 'dart:convert';
 
 import 'operation_id.dart';
 
-/// Versión vigente del texto de consentimiento de la participación (E2-D9,
-/// §10.2). Las operaciones preparadas antes con `CONV-1` se envían tal como
-/// se guardaron: el servidor sigue aceptándolas (sólo las ve la persona
-/// responsable).
-const String jointPurchaseConsentVersion = 'CONV-2';
+/// Versión del contrato de las rutas del agricultor que lee este teléfono
+/// (E2 §10.6). Se pide con [jointPurchaseContractHeader]; una respuesta con
+/// otra versión es una incompatibilidad de versión, no un fallo temporal.
+const int jointPurchaseContractVersion = 2;
+const String jointPurchaseContractHeader = 'X-Joint-Purchase-Contract';
 
-/// Texto exacto `CONV-2` (E2 §10.2). Si el texto cambia, cambia la versión.
+/// Versión vigente del texto de consentimiento de la participación (E2 §10.6,
+/// N5). Explica los dos alcances: aceptarla al participar por primera vez da
+/// «sólo la persona responsable»; ampliar es una decisión aparte. Las
+/// operaciones preparadas antes con `CONV-1` o `CONV-2` se envían tal como se
+/// guardaron: el servidor sigue aceptándolas con el alcance de su texto.
+const String jointPurchaseConsentVersion = 'CONV-3';
+
+/// Texto exacto `CONV-3`. Si el texto cambia, cambia la versión.
 const String jointPurchaseConsentText =
-    'La persona responsable de esta compra conjunta y quienes ella autorice '
-    'para coordinarla podrán ver tu nombre y las cantidades que solicitas, '
-    'para coordinar la compra y la entrega. Esta confirmación no genera una '
-    'deuda.';
+    'La persona responsable de esta compra conjunta podrá ver tu nombre y las '
+    'cantidades que solicitas. Si tú lo autorizas, también podrán verlos las '
+    'personas de la Directiva o la Administración que ella autorice para esta '
+    'convocatoria. Los datos se usan para coordinar la compra y la entrega. '
+    'Esta confirmación no genera una deuda.';
+
+/// Versión anterior (2026-11-11): su texto ya cubría a los colaboradores.
+const String jointPurchaseConsentV2Version = 'CONV-2';
+
+/// Alcance del consentimiento vigente según el servidor (E2 §10.6).
+abstract final class JointPurchaseConsentScope {
+  static const responsibleOnly = 'RESPONSIBLE_ONLY';
+  static const collaborators = 'COLLABORATORS';
+  static const all = {responsibleOnly, collaborators};
+}
 
 /// Versión anterior (E2-D9): sólo la llevan operaciones guardadas antes de
 /// actualizar la aplicación. Nunca se ofrece para una confirmación nueva.
@@ -48,6 +66,18 @@ class JointPurchaseFormatException implements Exception {
   String toString() =>
       'La respuesta del sindicato sobre las compras conjuntas no tiene el '
       'formato esperado.';
+}
+
+/// N7 (E2 §10.6): el sindicato habla otra versión del contrato o publica
+/// otro texto de consentimiento que este teléfono no conoce. No es un fallo
+/// temporal: hay que actualizar la aplicación. Se rechaza entera, como
+/// cualquier respuesta fuera de contrato.
+class JointPurchaseVersionException extends JointPurchaseFormatException {
+  const JointPurchaseVersionException();
+  @override
+  String toString() =>
+      'El sindicato usa una versión de las compras conjuntas que esta '
+      'aplicación no conoce.';
 }
 
 /// Estados de una convocatoria que el agricultor puede ver (E2-D2; un
@@ -150,6 +180,11 @@ class JointPurchaseParticipation {
     required this.consentVersion,
     required this.consentAcceptedAt,
     required this.consentReceivedAt,
+    required this.consentScope,
+    required this.consentScopeVersion,
+    required this.consentScopeSequence,
+    this.consentScopeDecidedAt,
+    this.consentScopeReceivedAt,
   });
 
   final String status;
@@ -162,11 +197,45 @@ class JointPurchaseParticipation {
   final int lastSequence;
   final String lastOperationId;
   final String acceptedAt;
+  /// Texto aceptado al participar por primera vez (nunca se reescribe).
   final String consentVersion;
   final String consentAcceptedAt;
   final String consentReceivedAt;
 
+  /// E2 §10.6: alcance vigente en el servidor, la versión citada por la
+  /// decisión que lo fijó y su orden (0 = la aceptación inicial). Una copia
+  /// guardada antes de §10.6 no lo trae: se deduce de su texto (`CONV-2`
+  /// cubría a los colaboradores; `CONV-1`, no).
+  final String consentScope;
+  final String consentScopeVersion;
+  final int consentScopeSequence;
+  final String? consentScopeDecidedAt;
+  final String? consentScopeReceivedAt;
+
   bool get isActive => status == JointPurchaseParticipationStatus.active;
+
+  bool get coversCollaborators =>
+      consentScope == JointPurchaseConsentScope.collaborators;
+
+  /// La misma participación con el alcance de [other] (para no perder una
+  /// decisión más nueva al adoptar una respuesta de cantidades más nueva).
+  JointPurchaseParticipation withScopeOf(JointPurchaseParticipation other) =>
+      JointPurchaseParticipation(
+        status: status,
+        lines: lines,
+        lineBaseUnits: lineBaseUnits,
+        lastSequence: lastSequence,
+        lastOperationId: lastOperationId,
+        acceptedAt: acceptedAt,
+        consentVersion: consentVersion,
+        consentAcceptedAt: consentAcceptedAt,
+        consentReceivedAt: consentReceivedAt,
+        consentScope: other.consentScope,
+        consentScopeVersion: other.consentScopeVersion,
+        consentScopeSequence: other.consentScopeSequence,
+        consentScopeDecidedAt: other.consentScopeDecidedAt,
+        consentScopeReceivedAt: other.consentScopeReceivedAt,
+      );
 
   Map<String, Object?> toJson() => {
     'status': status,
@@ -186,6 +255,13 @@ class JointPurchaseParticipation {
       'accepted_at': consentAcceptedAt,
       'received_at': consentReceivedAt,
     },
+    'consent_scope': {
+      'scope': consentScope,
+      'version': consentScopeVersion,
+      'decided_at': consentScopeDecidedAt,
+      'received_at': consentScopeReceivedAt,
+      'sequence': consentScopeSequence,
+    },
   };
 
   String encode() => jsonEncode(toJson());
@@ -200,6 +276,13 @@ class JointPurchaseParticipation {
   };
   static const _lineKeys = {'product_ref', 'base_unit', 'quantity_base'};
   static const _consentKeys = {'version', 'accepted_at', 'received_at'};
+  static const _scopeKeys = {
+    'scope',
+    'version',
+    'decided_at',
+    'received_at',
+    'sequence',
+  };
 
   /// [products] (product_ref → unidad base), si se da, limita las líneas a
   /// los productos de la convocatoria con su misma unidad base.
@@ -208,7 +291,11 @@ class JointPurchaseParticipation {
     Map<String, String>? products,
   }) {
     final json = _object(raw);
-    _knownKeys(json, _keys);
+    _knownKeys(
+      json,
+      {..._keys, 'consent_scope'},
+      optional: const {'consent_scope'},
+    );
     final status = _oneOf(json['status'], const {
       JointPurchaseParticipationStatus.active,
       JointPurchaseParticipationStatus.withdrawn,
@@ -240,6 +327,32 @@ class JointPurchaseParticipation {
     }
     final consent = _object(json['consent']);
     _knownKeys(consent, _consentKeys);
+    final consentVersion = _text(consent['version']);
+    final consentAcceptedAt = _instant(consent['accepted_at']);
+    final consentReceivedAt = _instant(consent['received_at']);
+    final String scope;
+    final String scopeVersion;
+    final int scopeSequence;
+    String? scopeDecidedAt;
+    String? scopeReceivedAt;
+    if (json['consent_scope'] == null) {
+      // Copia anterior a §10.6: el alcance de su texto, orden 0.
+      scope = consentVersion == jointPurchaseConsentV2Version
+          ? JointPurchaseConsentScope.collaborators
+          : JointPurchaseConsentScope.responsibleOnly;
+      scopeVersion = consentVersion;
+      scopeSequence = 0;
+    } else {
+      final scoped = _object(json['consent_scope']);
+      _knownKeys(scoped, _scopeKeys);
+      scope = _oneOf(scoped['scope'], JointPurchaseConsentScope.all);
+      scopeVersion = _text(scoped['version']);
+      final order = scoped['sequence'];
+      if (order is! int || order < 0) _invalid();
+      scopeSequence = order;
+      scopeDecidedAt = _optionalInstant(scoped['decided_at']);
+      scopeReceivedAt = _optionalInstant(scoped['received_at']);
+    }
     return JointPurchaseParticipation(
       status: status,
       lines: lines,
@@ -247,9 +360,14 @@ class JointPurchaseParticipation {
       lastSequence: sequence,
       lastOperationId: operationId,
       acceptedAt: _instant(json['accepted_at']),
-      consentVersion: _text(consent['version']),
-      consentAcceptedAt: _instant(consent['accepted_at']),
-      consentReceivedAt: _instant(consent['received_at']),
+      consentVersion: consentVersion,
+      consentAcceptedAt: consentAcceptedAt,
+      consentReceivedAt: consentReceivedAt,
+      consentScope: scope,
+      consentScopeVersion: scopeVersion,
+      consentScopeSequence: scopeSequence,
+      consentScopeDecidedAt: scopeDecidedAt,
+      consentScopeReceivedAt: scopeReceivedAt,
     );
   }
 
@@ -456,15 +574,10 @@ class JointPurchaseCallList {
   /// de pedir uno nuevo (E2 §10.2).
   factory JointPurchaseCallList.fromJson(Object? raw) {
     final json = _object(raw);
+    _requireContract(json);
     _knownKeys(json, _rootKeys);
-    if (json['contractVersion'] != 1) _invalid();
     final serverTime = _instant(json['server_time']);
-    final consent = _object(json['consent']);
-    _knownKeys(consent, const {'version', 'text'});
-    if (consent['version'] != jointPurchaseConsentVersion ||
-        consent['text'] != jointPurchaseConsentText) {
-      _invalid();
-    }
+    _requireConsent(json['consent']);
     final history = _object(json['history']);
     _knownKeys(history, const {'older_count'});
     final olderCount = history['older_count'];
@@ -508,16 +621,9 @@ class JointPurchaseHistoryPage {
   /// exactamente el vigente de este teléfono.
   factory JointPurchaseHistoryPage.fromJson(Object? raw, {int? limit}) {
     final json = _object(raw);
+    _requireContract(json);
     _knownKeys(json, _rootKeys, optional: const {'consent'});
-    if (json['contractVersion'] != 1) _invalid();
-    if (json.containsKey('consent')) {
-      final consent = _object(json['consent']);
-      _knownKeys(consent, const {'version', 'text'});
-      if (consent['version'] != jointPurchaseConsentVersion ||
-          consent['text'] != jointPurchaseConsentText) {
-        _invalid();
-      }
-    }
+    if (json.containsKey('consent')) _requireConsent(json['consent']);
     final serverTime = _instant(json['server_time']);
     final calls = JointPurchaseCallView._calls(json['calls']);
     for (final call in calls) {
@@ -558,9 +664,7 @@ JointPurchaseParticipation? parseAcceptedResponse(
     const {'contractVersion', 'outcome', 'participation'},
     optional: const {'contractVersion'},
   );
-  if (json.containsKey('contractVersion') && json['contractVersion'] != 1) {
-    _invalid();
-  }
+  if (json.containsKey('contractVersion')) _requireContract(json);
   if (json['outcome'] != 'ACCEPTED') _invalid();
   return json['participation'] == null
       ? null
@@ -642,6 +746,27 @@ final _decimal = RegExp(r'^[1-9][0-9]{0,18}$');
 final _maxInt64 = BigInt.parse('9223372036854775807');
 
 Never _invalid() => throw const JointPurchaseFormatException();
+
+/// N7: otra versión del contrato es una incompatibilidad de versión.
+void _requireContract(Map<String, dynamic> json) {
+  final version = json['contractVersion'];
+  if (version is! int) _invalid();
+  if (version != jointPurchaseContractVersion) {
+    throw const JointPurchaseVersionException();
+  }
+}
+
+/// El consentimiento publicado debe ser exactamente el vigente de este
+/// teléfono; otro texto o versión exige actualizar la aplicación (N7).
+void _requireConsent(Object? raw) {
+  final consent = _object(raw);
+  _knownKeys(consent, const {'version', 'text'});
+  if (consent['version'] is! String || consent['text'] is! String) _invalid();
+  if (consent['version'] != jointPurchaseConsentVersion ||
+      consent['text'] != jointPurchaseConsentText) {
+    throw const JointPurchaseVersionException();
+  }
+}
 
 Map<String, dynamic> _object(Object? value) =>
     value is Map<String, dynamic> ? value : _invalid();

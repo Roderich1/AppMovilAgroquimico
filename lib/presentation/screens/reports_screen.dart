@@ -223,7 +223,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
   @override
   Widget build(BuildContext context) => PageFrame(
     title: 'Reportes',
-    subtitle: 'Exporta inventario, costos y cuentas a CSV o PDF.',
+    subtitle: 'Exporta inventario, costos y cuentas a Excel o PDF.',
     child: FutureBuilder<_Filters>(
       future: _filters,
       builder: (context, snapshot) {

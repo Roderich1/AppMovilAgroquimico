@@ -18,26 +18,34 @@ import '../../data/agro_repository.dart';
 import '../../data/typed_reads.dart';
 import '../../domain/reports/report_composer.dart';
 import '../../domain/reports/report_table.dart';
-import 'csv_report_generator.dart';
 import 'pdf_report_generator.dart';
 import 'report_storage.dart';
+import 'xlsx_report_generator.dart';
 
 /// Formatos de salida disponibles.
-enum ReportFormat { csv, pdf }
+///
+/// Excel es la única salida tabular (decisión del autor del 2026-11-12): el CSV
+/// dejó de ofrecerse. Los `.csv` ya guardados en el teléfono no se tocan.
+enum ReportFormat { xlsx, pdf }
 
 extension ReportFormatInfo on ReportFormat {
   String get label => switch (this) {
-    ReportFormat.csv => 'CSV',
+    ReportFormat.xlsx => 'Excel',
     ReportFormat.pdf => 'PDF',
   };
 
   String get extension => switch (this) {
-    ReportFormat.csv => 'csv',
+    ReportFormat.xlsx => 'xlsx',
     ReportFormat.pdf => 'pdf',
   };
 
+  String get mimeType => switch (this) {
+    ReportFormat.xlsx => xlsxMimeType,
+    ReportFormat.pdf => 'application/pdf',
+  };
+
   String get description => switch (this) {
-    ReportFormat.csv => 'Para abrir en una hoja de cálculo.',
+    ReportFormat.xlsx => 'Para abrir en Excel u otra hoja de cálculo.',
     ReportFormat.pdf => 'Para imprimir o archivar.',
   };
 }
@@ -99,18 +107,18 @@ class ReportExportService {
     this._repository,
     this._storage, {
     ReportComposer composer = const ReportComposer(),
-    CsvReportGenerator csv = const CsvReportGenerator(),
+    XlsxReportGenerator xlsx = const XlsxReportGenerator(),
     PdfReportGenerator pdf = const PdfReportGenerator(),
     DateTime Function() clock = DateTime.now,
   }) : _composer = composer,
-       _csv = csv,
+       _xlsx = xlsx,
        _pdf = pdf,
        _clock = clock;
 
   final AgroRepository _repository;
   final ReportStorage _storage;
   final ReportComposer _composer;
-  final CsvReportGenerator _csv;
+  final XlsxReportGenerator _xlsx;
   final PdfReportGenerator _pdf;
   final DateTime Function() _clock;
 
@@ -207,7 +215,7 @@ class ReportExportService {
     cancellation?.throwIfCancelled();
 
     final Uint8List bytes = switch (request.format) {
-      ReportFormat.csv => _csv.generate(table),
+      ReportFormat.xlsx => _xlsx.generate(table),
       ReportFormat.pdf => _pdf.generate(table),
     };
     // Última comprobación antes de tocar el disco: cancelar aquí no deja nada

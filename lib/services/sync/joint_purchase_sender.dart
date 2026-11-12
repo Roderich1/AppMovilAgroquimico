@@ -28,6 +28,12 @@ class JointPurchaseRunReport {
   /// La lista del sindicato no se pudo leer o no respetó el contrato.
   bool listUnavailable = false;
 
+  /// N7: por qué no se pudo leer la lista, para decirlo con precisión:
+  /// [JointPurchaseListProblem.incompatibleVersion] (hay que actualizar la
+  /// aplicación), [JointPurchaseListProblem.offline] (sin conexión) o
+  /// [JointPurchaseListProblem.temporary] (el sindicato no respondió bien).
+  JointPurchaseListProblem? listProblem;
+
   /// Sin dirección del sindicato configurada: nada que hacer.
   bool apiUnavailable = false;
 
@@ -45,6 +51,9 @@ class JointPurchaseRunReport {
       '$ownerMismatch, listUnavailable: $listUnavailable, apiUnavailable: '
       '$apiUnavailable)';
 }
+
+/// N7 (E2 §10.6): motivo de una lista no leída.
+enum JointPurchaseListProblem { incompatibleVersion, offline, temporary }
 
 /// Resultado de pedir una página de «Historial» (E2 §10.1).
 enum JointPurchaseHistoryOutcome {
@@ -65,6 +74,9 @@ enum JointPurchaseHistoryOutcome {
 
   /// `400 PAYLOAD_INVALID`: el sindicato no reconoce el cursor.
   invalidCursor,
+
+  /// N7: el sindicato usa otra versión del contrato: actualizar la app.
+  incompatibleVersion,
 
   /// Otra respuesta, o una que no respeta el contrato: no se guarda nada.
   unavailable,
@@ -203,6 +215,21 @@ class JointPurchaseSender {
       processed = true;
       if (!await _send(api, token, op, report)) return report;
     }
+    // E2 §10.6: las decisiones sobre el consentimiento van después (una
+    // primera confirmación enviada en este ciclo ya existe en el sindicato),
+    // en su propia cola y con su propio orden.
+    final decisions = await _store.sendableConsent(
+      access.scope,
+      includePaused: includePaused,
+    );
+    for (final op in decisions) {
+      final due =
+          op.sendStatus == JointPurchaseOpStatus.authPaused ||
+          _due(op.nextAttemptAt);
+      if (!due) continue;
+      processed = true;
+      if (!await _sendConsent(api, token, op, report)) return report;
+    }
     final now = _clock();
     final last = _lastListedAt;
     if (forceList ||
@@ -275,6 +302,10 @@ class JointPurchaseSender {
     final JointPurchaseHistoryPage page;
     try {
       page = JointPurchaseHistoryPage.fromJson(response.body, limit: limit);
+    } on JointPurchaseVersionException {
+      return const JointPurchaseHistoryResult(
+        JointPurchaseHistoryOutcome.incompatibleVersion,
+      );
     } on JointPurchaseFormatException {
       return const JointPurchaseHistoryResult(
         JointPurchaseHistoryOutcome.unavailable,
@@ -297,17 +328,88 @@ class JointPurchaseSender {
   static String _authCode(JointPurchaseResponse response) =>
       response.statusCode == 401 ? 'AUTH_REQUIRED' : 'FORBIDDEN';
 
+  /// E2 §10.6: el consentimiento sólo viaja en la confirmación que lo
+  /// guardó (la primera participación); modificar no lo lleva.
   Map<String, Object?> _body(JointPurchaseOp op) => op.isWithdraw
       ? {'operation_id': op.operationId, 'sequence': op.sequence}
       : {
           'operation_id': op.operationId,
           'sequence': op.sequence,
-          'consent': {
-            'version': op.consentVersion,
-            'accepted_at': op.consentAcceptedAt,
-          },
+          if (op.consentVersion != null && op.consentAcceptedAt != null)
+            'consent': {
+              'version': op.consentVersion,
+              'accepted_at': op.consentAcceptedAt,
+            },
           'lines': op.wireLines,
         };
+
+  /// Envía una decisión sobre el consentimiento. Devuelve false si el ciclo
+  /// debe detenerse (401/403).
+  ///
+  /// - `ACCEPTED` → `RECEIVED` (aplicada en el sindicato).
+  /// - `STALE_SEQUENCE` → `SUPERSEDED`: una decisión posterior ya rige.
+  /// - `PARTICIPATION_REQUIRED` (la primera confirmación aún no llegó), 5xx,
+  ///   429, red o respuesta inválida → sigue pendiente y se reintenta.
+  /// - Otros 400/404/409/422 → `REJECTED` con su código.
+  Future<bool> _sendConsent(
+    JointPurchaseApi api,
+    String token,
+    JointPurchaseConsentOp op,
+    JointPurchaseRunReport report,
+  ) async {
+    final response = await api.decideConsent(op.callId, op.wireBody, token);
+    if (response.isAuth) {
+      await _store.markConsentAuthPaused(op, _authCode(response));
+      report.authFailed = true;
+      return false;
+    }
+    final products = await _store.productBaseUnits(op.callId);
+    if (response.ok) {
+      final JointPurchaseParticipation? participation;
+      try {
+        participation = parseAcceptedResponse(response.body, products);
+      } on JointPurchaseFormatException {
+        await _store.scheduleConsentRetry(
+          op,
+          'INVALID_RESPONSE',
+          _retryAt(op.attempts + 1, null),
+        );
+        report.retried++;
+        return true;
+      }
+      await _store.markConsentReceived(op, participation);
+      report.received++;
+      return true;
+    }
+    final status = response.statusCode;
+    if (status == 409 && response.errorCode == 'STALE_SEQUENCE') {
+      final error = JointPurchaseErrorBody.tryParse(response.body, products);
+      await _store.markConsentStale(op, error?.participation);
+      report.superseded++;
+      return true;
+    }
+    if (status == 409 && response.errorCode == 'PARTICIPATION_REQUIRED') {
+      await _store.scheduleConsentRetry(
+        op,
+        'PARTICIPATION_REQUIRED',
+        _retryAt(op.attempts + 1, null),
+      );
+      report.retried++;
+      return true;
+    }
+    if (status != null && const {400, 404, 409, 413, 422}.contains(status)) {
+      await _store.markConsentRejected(op, response.code);
+      report.rejected++;
+      return true;
+    }
+    await _store.scheduleConsentRetry(
+      op,
+      response.code,
+      _retryAt(op.attempts + 1, response.retryAfter),
+    );
+    report.retried++;
+    return true;
+  }
 
   /// Envía [op]. Devuelve false si el ciclo debe detenerse (401/403).
   Future<bool> _send(
@@ -403,13 +505,22 @@ class JointPurchaseSender {
     }
     if (!response.ok) {
       report.listUnavailable = true;
+      report.listProblem =
+          response.statusCode == null && response.transportCode != 'TRANSPORT'
+          ? JointPurchaseListProblem.offline
+          : JointPurchaseListProblem.temporary;
       return;
     }
     final JointPurchaseCallList list;
     try {
       list = JointPurchaseCallList.fromJson(response.body);
+    } on JointPurchaseVersionException {
+      report.listUnavailable = true;
+      report.listProblem = JointPurchaseListProblem.incompatibleVersion;
+      return;
     } on JointPurchaseFormatException {
       report.listUnavailable = true;
+      report.listProblem = JointPurchaseListProblem.temporary;
       return;
     }
     await _store.saveFetched(access.scope, list);

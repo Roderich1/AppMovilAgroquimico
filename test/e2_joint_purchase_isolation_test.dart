@@ -456,10 +456,21 @@ void main() {
           Map.of(historyJson([oldCallJson(callId)]))..remove('next_cursor'),
           'sin next_cursor',
         );
-        rejectsPage({
-          ...historyJson([oldCallJson(callId)]),
-          'contractVersion': 2,
-        }, 'contractVersion');
+        // N7: otra versión del contrato (la anterior o una futura) es una
+        // incompatibilidad de versión, no un fallo temporal.
+        for (final other in [1, 3]) {
+          rejectsPage({
+            ...historyJson([oldCallJson(callId)]),
+            'contractVersion': other,
+          }, 'contractVersion $other');
+          expect(
+            () => JointPurchaseHistoryPage.fromJson({
+              ...historyJson([oldCallJson(callId)]),
+              'contractVersion': other,
+            }),
+            throwsA(isA<JointPurchaseVersionException>()),
+          );
+        }
         rejectsPage(historyJson([callJson()]), 'una abierta');
         rejectsPage(
           historyJson([

@@ -46,6 +46,9 @@ class AuthHttpClient {
     Map<String, Object?>? jsonBody,
     String? accessToken,
     Map<String, String> query = const {},
+    // Encabezados propios de un contrato (p. ej. la versión del contrato de
+    // compras conjuntas, E2 §10.6). Nunca credenciales: esas van aparte.
+    Map<String, String> headers = const {},
   }) async {
     try {
       return await _send(
@@ -54,6 +57,7 @@ class AuthHttpClient {
         jsonBody,
         accessToken,
         query,
+        headers,
       ).timeout(timeout);
     } on TimeoutException {
       throw const AuthApiException(AuthApiErrorKind.timeout);
@@ -71,9 +75,11 @@ class AuthHttpClient {
     Map<String, Object?>? jsonBody,
     String? accessToken,
     Map<String, String> query,
+    Map<String, String> headers,
   ) async {
     final request = http.Request(method, _config.endpoint(path, query: query));
     request.followRedirects = false;
+    request.headers.addAll(headers);
     request.headers['Accept'] = 'application/json';
     if (jsonBody != null) {
       request.headers['Content-Type'] = 'application/json; charset=utf-8';
