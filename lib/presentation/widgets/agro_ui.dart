@@ -1412,3 +1412,55 @@ class InPageSheet extends StatelessWidget {
     );
   }
 }
+
+/// Barra superior de las pantallas fuera de las pestañas (acceso, titular,
+/// PIN, tardías): «Volver» redondo si se puede volver y el título grande con
+/// la letra de los títulos (láminas «Activar», «Reautenticar», «Recuperar»,
+/// «PIN del titular», «Operaciones tardías»). Sustituye a `AppBar` sin
+/// cambiar qué hace Atrás.
+class AgroAppBar extends StatelessWidget implements PreferredSizeWidget {
+  const AgroAppBar({super.key, required this.title, this.actions});
+  final String title;
+  final List<Widget>? actions;
+
+  @override
+  Size get preferredSize => const Size.fromHeight(72);
+
+  @override
+  Widget build(BuildContext context) {
+    final canPop = ModalRoute.of(context)?.impliesAppBarDismissal ?? false;
+    return AppBar(
+      toolbarHeight: 72,
+      backgroundColor: AgroColors.canvas,
+      surfaceTintColor: Colors.transparent,
+      scrolledUnderElevation: 0,
+      automaticallyImplyLeading: false,
+      leadingWidth: canPop ? 68 : 0,
+      leading: canPop
+          ? Padding(
+              padding: const EdgeInsets.only(left: 16),
+              child: Center(
+                child: CircleIconButton(
+                  icon: Icons.arrow_back,
+                  tooltip: 'Volver',
+                  onPressed: () => Navigator.of(context).maybePop(),
+                ),
+              ),
+            )
+          : null,
+      titleSpacing: canPop ? 12 : 16,
+      title: Text(
+        title,
+        maxLines: 2,
+        style: const TextStyle(
+          fontFamily: AgroFonts.display,
+          fontSize: 24,
+          height: 30 / 24,
+          fontWeight: FontWeight.w800,
+          color: AgroColors.ink,
+        ),
+      ),
+      actions: actions,
+    );
+  }
+}

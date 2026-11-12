@@ -296,19 +296,32 @@ Future<bool> confirmDestructiveAction(
       builder: (dialogContext) => AlertDialog(
         icon: const Icon(Icons.warning_amber_outlined),
         title: Text(title),
-        content: Text(detail),
+        // Rediseño (lámina «Revertir»): las dos salidas a lo ancho, la
+        // destructiva en rojo arriba y «Cancelar» debajo.
+        content: SingleChildScrollView(child: Text(detail)),
+        actionsOverflowDirection: VerticalDirection.down,
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: Theme.of(context).colorScheme.error,
-              foregroundColor: Theme.of(context).colorScheme.onError,
+          SizedBox(
+            width: double.infinity,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                FilledButton(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: Theme.of(context).colorScheme.error,
+                    foregroundColor: Theme.of(context).colorScheme.onError,
+                    minimumSize: const Size.fromHeight(52),
+                  ),
+                  onPressed: () => Navigator.pop(dialogContext, true),
+                  child: Text(confirmLabel),
+                ),
+                const SizedBox(height: 4),
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext, false),
+                  child: const Text('Cancelar'),
+                ),
+              ],
             ),
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: Text(confirmLabel),
           ),
         ],
       ),

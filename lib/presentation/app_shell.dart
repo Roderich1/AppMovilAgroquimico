@@ -156,12 +156,19 @@ class AppShell extends StatefulWidget {
     // registro: dos «Registrar» iguales competirían (sesión A).
     '/aplicaciones',
     '/planificacion',
-    // La lista de Compras tiene «Nueva compra» (sesión B, entrega 3).
+    // La lista de Compras tiene «Nueva compra» (sesión B, entrega 3);
+    // Transferencias, «Nueva»; Personas y Cuentas, «Registrar pago» en cada
+    // tarjeta (láminas sin flotante).
     '/compras',
+    '/transferencias',
+    '/personas',
+    '/liquidacion',
     // Ajustes y Respaldos son consultas y ajustes: no inician operaciones
     // (láminas «Ajustes» y «Respaldos», sin botón flotante).
     '/mas',
     '/respaldo-remoto',
+    // Reportes tiene su propia acción, «Exportar …» (lámina sin flotante).
+    '/reportes',
   };
 
   /// Si esta ruta oculta el FAB global. El detalle de compra es de sólo

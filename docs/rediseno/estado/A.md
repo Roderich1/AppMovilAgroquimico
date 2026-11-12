@@ -1,7 +1,7 @@
 # Estado de la sesión A
 
 - Dueño del worktree: sesión proyectoagro-4d desde 2026-11-12 (hora local en el commit)
-- Base incorporada: B2 (`794a44b`) + coordinación `b70d37e` (grupo Personas cedido por B)
+- Base incorporada: B2 (`794a44b`) + `b70d37e` (grupo Personas cedido por B) + integración `7b79f05` (`local_backup_actions.dart`)
 
 ## Entregas listas
 
@@ -11,6 +11,7 @@
 | 2 | `1c7ff89` (serie `ede5ffc`, `b7298a6`, `1c7ff89`) | `/planificacion/nueva`: «¿Qué piensa aplicar?», chaco y área, tarjetas de producto con dosis, «Necesita» y cobertura; panel de voz anclado, aviso tras dictar, conflicto de chaco y área | ver «Entrega 2 · pruebas» | mismo arnés (`3.5*`, `3.6*`) | ver «Entrega 2 · diferencias» |
 | 3 | `55bbbf0` (serie `0f082b6`, `26ed816`, `97aa823`, `55bbbf0`) | Revisión A-1 (puntos 1 y 2) en `/aplicaciones/nueva` y `/planificacion/nueva`; listas `/aplicaciones` y `/planificacion` (punto 3) | ver «Entrega 3 · pruebas» | arnés con la vista entera; `3.7*`, `3.8*`; lado a lado en `build/rediseno_lado_a_lado/` | ver «Entrega 3 · diferencias» |
 | 4–5 | `9d41017` (serie `1001218`, `ec5f7e8`, `0ef45e7`, `a6de432`, `cd2fb23`, `9d41017`) | Pruebas del arreglo de «Deshacer» de B2; `/chacos/:id` (Bitácora); `/personas/:id` (Persona) | ver «Entregas 4 y 5 · pruebas» | `5.7*`, `5.2*` | ver «Entregas 4 y 5 · diferencias» |
+| 6–7 | `e274f8d` (serie `27417ab`, `4a078b6`, merge `7b79f05`, `db4e3f9`, `64d6800`, `d72d82c`, `e274f8d`) | `/liquidacion` (Cuentas), hoja Pago, estado de cuenta y movimientos propios a pantalla completa, `/personas`, «Registrar pago» en `/personas/:id` | ver «Entregas 6 y 7 · pruebas» | `5.1*`, `5.3*`–`5.6*` | ver «Entregas 6 y 7 · diferencias» |
 
 ## Entrega 1 · aplicación (2026-11-12)
 
@@ -144,11 +145,68 @@ Archivos: `application_form_screen.dart` y `plan_form_screen.dart` (sólo `hint:
 | Pestañas «Resumen · Cuenta · Chacos · Aplicado · Tiene» | «Resumen · Chacos · Aplicaciones · Inventario · Cuenta» | Rótulos vigentes y más claros; mismo contenido. |
 | «Tiene en su poder» y «Ver la cuenta completa» en el resumen | En sus pestañas (Inventario, Cuenta) | Contenido vigente sin duplicar. |
 
+## Entregas 6 y 7 · Cuentas, Pago, Cuenta, Propios y Personas (2026-11-12)
+
+Plan aprobado por el orquestador: sin rutas nuevas; Cuenta y Propios como diálogos a pantalla completa; Pago como hoja inferior; «Registrar pago» visible en cada tarjeta.
+
+### Archivos
+
+`settlements_screen.dart`, `persons_screen.dart`, `person_detail_screen.dart`, `widgets/account_statement_view.dart`; nuevos `widgets/rdm_a_payment.dart` (hoja de pago, `recordAccountPayment`, `showAccountStatement`, `showOwnMovements`, `RdmAFullScreenSheet`) y `test/rdm_a_personas_pago_test.dart`.
+
+### Qué cambia
+
+- **Cuentas** (`/liquidacion`): cabecera oscura con el menú de respaldos, que ahora llama a `exportLocalBackup` y `restoreLocalBackup` (`local_backup_actions.dart`, el mismo procedimiento que «Respaldos»; se borraron las copias privadas). Tarjeta propia oscura con «No es deuda»; conserva su menú (ver, exportar, pago propio Q-2). Cada persona tiene una tarjeta blanca con sus cifras y «Registrar pago» visible. En inventario propio, la tarjeta del familiar dice «Inventario propio: pagos sólo del titular». El menú conserva «Ver detalle cronológico» y «Exportar estado de cuenta». Debajo, los costos por chaco (costo por hectárea en grande y total) y por producto.
+- **Pago**: hoja inferior compartida con los textos y la validación del diálogo anterior. «Pagar todo» sólo rellena el importe y «Quedará debiendo / a favor / al día» es sólo texto. Los botones van fijos al pie (con el teclado siguen a la vista) y la hoja se abre en el navegador raíz, por encima de la barra y del flotante.
+- **Cuenta y Propios**: diálogos a pantalla completa con «Cerrar»; resumen y movimientos en grupos blancos, iconos en círculo. Textos, cifras y orden sin cambios.
+- **Personas** (`/personas`): cabecera oscura con «Le deben · todas las campañas · n personas», el mismo dato de Inicio (`receivableByRole`). Buscador, recarga y fila «Cuentas → Por campaña, costos y respaldos» (`/liquidacion`). Cada persona tiene su tarjeta: cifra «Debe / A favor / Sin saldo», «Registrar pago» y «Ver cuenta». El titular muestra «Consumo propio …» y «Ver movimientos propios»; ADMIN, «no participa en la liquidación». En propio sólo paga el titular, y su pago propio va en Cuentas.
+- **Persona**: «Registrar pago» en la cabecera, con la misma hoja; se recarga al registrar.
+- **Bitácora a 200 %**: las dos cifras siguen lado a lado y sus rótulos crecen hasta 1,3× (pedido del orquestador).
+- **Arnés**: sombras reales (`debugDisableShadows`) en cada captura.
+
+### Pruebas
+
+- `flutter analyze` de todo lo tocado: sin avisos.
+- Verdes (`--concurrency=2`): `payment_dialog`, `d04_imputacion_base`, `e15_consumo_propio_base`, `ux_c1_correcciones`, `ux_f12_estado_cuenta_y_nombres`, `regression_widget`, `personal_mode_flows`, `set_state_contract`, `f04_admin_owner_restore_ui`, `rdm_a_personas_pago` (nueva), `rec_015_logbook_profile`, `rec_046_051_net_figures`, `hierarchical_navigation`, `navigation`, `ui_polish`, `widget_test`, `error_states`, `oe3_fab_sincronizacion`.
+- Adaptadas (cómo se llega, no qué se comprueba):
+  - El pago se abre con el botón de la tarjeta y no desde el menú (`payment_dialog`, `d04`, `ux_c1`, `personal_mode_flows`).
+  - La hoja se busca por `payment-sheet`, y el estado de cuenta y los propios por `Dialog` (`payment_dialog`, `d04`, `e15`, `ux_c1`, `ux_f12`).
+  - El familiar en propio no tiene botón y su tarjeta dice la nota (`e15`, `personal_mode_flows`).
+  - El pago propio del titular sigue en su menú (`e15`, `ux_c1`).
+- Prueba nueva: el pago desde Personas y desde Persona se registra una sola vez y recarga la cifra; «Pagar todo» y «Cancelar» no escriben nada.
+- Defectos encontrados y corregidos al capturar:
+  - La hoja quedaba bajo la barra inferior; ahora se abre en el navegador raíz.
+  - A 200 % la cifra de la tarjeta de Personas ocupaba toda la fila; ahora tiene ancho acotado, y el consumo propio del titular va en su línea.
+  - Una tercera lectura al cargar Personas rompía la prueba de espera fija; las campañas se leen al pagar.
+
+### Recorrido para revisarlo
+
+1. Personas: la cifra «Le deben», el buscador, «Cuentas». En la tarjeta de una persona, «Registrar pago»: la hoja dice a quién y en qué campaña se registra; «Pagar todo» rellena; «Quedará debiendo» cambia al escribir; «Registrar» registra y la lista se recarga. «Ver cuenta» abre el estado de cuenta a pantalla completa. Tocar la tarjeta abre la persona.
+2. Persona: «Registrar pago» en la cabecera.
+3. Cuentas: filtro de campaña, tarjeta propia (menú: movimientos propios, exportar, pago propio), tarjetas con «Registrar pago» y menú (detalle, exportar), costos. Carpeta: exportar, restaurar y respaldo en la nube.
+4. Modo propio: el familiar no tiene «Registrar pago» y su tarjeta lo dice.
+
+### Diferencias con las láminas (Personas, Cuenta, Pago, Propios, CostosChaco)
+
+| Lámina | App | Motivo |
+|---|---|---|
+| Personas: selector de campaña y conmutador «Cuentas / Costos por chaco» en la cabecera | Personas con cifras de **todas las campañas** y una fila hacia Cuentas, donde están el filtro y los costos | Sin rutas nuevas (decisión del orquestador); el filtro por campaña vive donde se aplica. |
+| Personas: menú «⋯» por persona | Tocar la tarjeta abre la persona; «Ver cuenta» abre el estado de cuenta | Mismas funciones sin un tercer control. |
+| «Familiar · Chaco Río, 2 ha» | «Familiar · 2 ha» | Texto vigente (`personProfiles` da superficie, no chacos). |
+| Cuenta: tres cifras arriba (Cargos, Pagos, Debe) | Resumen vigente (deuda por origen, a favor, saldo neto) | Son los cálculos D-04 con sus rótulos; no se crean cifras nuevas. |
+| Cuenta: «Registrar pago» flotante | En la tarjeta (Cuentas, Personas) y en la cabecera de Persona | El estado de cuenta es una consulta a pantalla completa. |
+| Pago: «¿Cuánto pagó?» | «Importe del pago» | Rótulo vigente (pruebas A4). |
+| Pago: botón «Registrar pago» | «Registrar» (el título dice «Registrar pago») | Rótulo vigente; evita dos «Registrar pago» en la misma hoja. |
+| Propios: cifra grande y desglose en filas | Tarjeta oscura «No es deuda» con las líneas E-15 vigentes; detalle en «Ver movimientos propios» | Textos E-15 sin cambios. |
+| CostosChaco: total de campaña y barra relativa | Tarjetas con costo por hectárea y total; sin barra | La barra es una proporción nueva que no está en el código; el total de campaña es una suma nueva. |
+| CostosChaco: «Exportar como reporte» | No | Exportación bloqueada (Excel, ver COORDINACION). |
+
 ## En curso
 
-- Personas (`/personas`), Cuentas (`/liquidacion`) con Pago, Propios y Costos por chaco.
+- Nada. Grupo Personas cubierto (Personas, Persona, Cuenta, Pago, Propios, Costos por chaco dentro de Cuentas y Bitácora). A la espera de la revisión.
 
 ## Solicitudes al orquestador
+
+- No bloqueante: `RdmAHero`/`RdmAStatTile` (`rdm_a_people.dart`) y la cabecera oscura de Inicio (B) son el mismo patrón; si promueves una, la uso.
 
 - ~~`BadgeTone.ok`~~: hecho en B1 y usado.
 

@@ -448,10 +448,13 @@ void main() {
         return items;
       }
 
-      expect(
-        await menuOf('Hermana'),
-        allOf(contains('pay'), isNot(contains('advance'))),
+      // Rediseño: el pago de una persona es un botón de su tarjeta.
+      Finder payButton(String name) => find.descendant(
+        of: find.ancestor(of: find.text(name), matching: find.byType(Card)),
+        matching: find.widgetWithText(FilledButton, 'Registrar pago'),
       );
+      expect(payButton('Hermana'), findsOneWidget);
+      expect(await menuOf('Hermana'), isNot(contains('advance')));
       await switchModeBehindScreen(
         tester,
         c,
@@ -461,6 +464,17 @@ void main() {
       final relative = await menuOf('Hermana');
       expect(relative, isNot(contains('pay')));
       expect(relative, isNot(contains('advance')));
+      expect(payButton('Hermana'), findsNothing);
+      expect(
+        find.descendant(
+          of: find.ancestor(
+            of: find.text('Hermana'),
+            matching: find.byType(Card),
+          ),
+          matching: find.text('Inventario propio: pagos sólo del titular'),
+        ),
+        findsOneWidget,
+      );
       expect(
         await menuOf('Titular'),
         allOf(contains('pay'), isNot(contains('advance'))),

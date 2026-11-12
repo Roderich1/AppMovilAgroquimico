@@ -107,6 +107,10 @@ void main() {
         '/inventario/avisos',
         '/inventario/estimacion',
         '/compras/detalle/7',
+        // Rediseño: Personas y Cuentas tienen «Registrar pago» en cada
+        // tarjeta (láminas sin flotante).
+        '/personas',
+        '/liquidacion',
       ]) {
         expect(
           AppShell(location: path, child: const SizedBox()).hidesGlobalFab,
@@ -117,8 +121,6 @@ void main() {
       for (final path in const [
         '/operaciones',
         '/inventario',
-        '/personas',
-        '/liquidacion',
       ]) {
         expect(
           AppShell(location: path, child: const SizedBox()).hidesGlobalFab,

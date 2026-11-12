@@ -9,11 +9,15 @@
 //   RDM_TEXT_SCALE=1.3 para letra ampliada
 //
 // No es parte de la suite: vive en tool/ y sólo escribe imágenes.
+import 'dart:async';
 import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:agroquimicos/app.dart';
 import 'package:agroquimicos/presentation/widgets/adaptive_entity_picker.dart';
+import 'package:agroquimicos/presentation/widgets/common.dart'
+    show confirmDestructiveAction;
+import 'package:agroquimicos/services/reports/report_storage.dart';
 import 'package:agroquimicos/voice/voice_providers.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
@@ -222,7 +226,19 @@ void main() {
           (call) async => support.path,
         );
     final s = await activatedHousehold(tester, 'rdm-shell');
-    final c = await pumpModeApp(tester, s.database);
+    final c = await pumpModeApp(
+      tester,
+      s.database,
+      extraOverrides: [
+        // Reportes: carpeta temporal (en el anfitrión no hay almacenamiento
+        // del teléfono).
+        reportStorageProvider.overrideWithValue(
+          LocalReportStorage(
+            directory: () async => Directory('${support.path}/reportes'),
+          ),
+        ),
+      ],
+    );
     final tag =
         '${scale == 1.0 ? '' : '_x${scale.toString().replaceAll('.', '')}'}'
         '${width == 390 ? '' : '_w${width.round()}'}';
@@ -245,6 +261,42 @@ void main() {
     c.read(routerProvider).push('/respaldo-remoto');
     await settle(tester);
     await shot(tester, '7.6_respaldos$tag');
+    c.read(routerProvider).go('/');
+    await settle(tester);
+    c.read(routerProvider).push('/campanas');
+    await settle(tester);
+    await shot(tester, '7.3_campanas$tag');
+    c.read(routerProvider).go('/');
+    await settle(tester);
+    c.read(routerProvider).push('/reportes');
+    await settle(tester);
+    await shot(tester, '7.4_reportes$tag');
+    c.read(routerProvider).push('/modo');
+    await settle(tester);
+    await shot(tester, '7.7_modo$tag');
+    c.read(routerProvider).go('/');
+    await settle(tester);
+    c.read(routerProvider).push('/titular/pin');
+    await settle(tester);
+    await shot(tester, '7.5_pin$tag');
+    c.read(routerProvider).go('/');
+    await settle(tester);
+    c.read(routerProvider).push('/operaciones/tardias');
+    await settle(tester);
+    await shot(tester, '7.9_tardias$tag');
+    // Una confirmación con el estilo del tema (lámina «Revertir»).
+    unawaited(
+      confirmDestructiveAction(
+        tester.element(find.byType(Scaffold).last),
+        title: '¿Revertir esta compra?',
+        detail:
+            'Agroinsumos del Valle · 625,00 Bs. Se anulan los lotes creados '
+            'y los cargos generados.',
+        confirmLabel: 'Revertir compra',
+      ),
+    );
+    await settle(tester);
+    await shot(tester, '9.1_confirmar$tag');
     debugDisableShadows = true;
   });
 }

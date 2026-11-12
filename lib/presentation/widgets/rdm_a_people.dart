@@ -233,19 +233,24 @@ class RdmAStatPair extends StatelessWidget {
   final Widget first;
   final Widget second;
 
+  /// Con la letra ampliada las cifras siguen lado a lado (la cifra se
+  /// reduce entera si no cabe, como [BigFigure]) y sus rótulos crecen hasta
+  /// 1,3×: dos recuadros apilados a 200 % ocupaban toda la pantalla.
   @override
   Widget build(BuildContext context) => LayoutBuilder(
     builder: (context, constraints) {
-      final scale = MediaQuery.textScalerOf(context).scale(1);
-      if (constraints.maxWidth / 2 >= 150 * scale) {
-        return IntrinsicHeight(
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Expanded(child: first),
-              const SizedBox(width: 10),
-              Expanded(child: second),
-            ],
+      if (constraints.maxWidth >= 280) {
+        return MediaQuery.withClampedTextScaling(
+          maxScaleFactor: 1.3,
+          child: IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(child: first),
+                const SizedBox(width: 10),
+                Expanded(child: second),
+              ],
+            ),
           ),
         );
       }

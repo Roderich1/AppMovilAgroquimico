@@ -13,6 +13,7 @@ import '../../operation_mode_controller.dart';
 import '../../services/auth/first_activation_providers.dart';
 import '../../services/auth/local_owner_credential.dart';
 import '../../services/auth/local_owner_credential_providers.dart';
+import '../widgets/agro_ui.dart';
 import '../widgets/common.dart';
 import 'operation_mode_screen.dart' show operationModeExplanation;
 
@@ -226,7 +227,7 @@ class _OwnerSetupScreenState extends ConsumerState<OwnerSetupScreen> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('Titular de los datos')),
+    appBar: const AgroAppBar(title: 'Titular de los datos'),
     body: SafeArea(
       child: FutureBuilder<List<Map<String, Object?>>>(
         future: _candidates,

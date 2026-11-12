@@ -7,6 +7,7 @@ import '../../installation_access.dart';
 import '../../services/auth/existing_session_providers.dart';
 import '../../services/auth/first_activation_coordinator.dart';
 import '../../services/auth/first_activation_providers.dart';
+import '../widgets/agro_ui.dart';
 
 /// An explicit first-activation entry point. Existing-session startup belongs
 /// to #21 and is intentionally not inferred from a stored credential here.
@@ -70,7 +71,7 @@ class _FirstActivationScreenState extends ConsumerState<FirstActivationScreen> {
     final existingSession = ref.watch(effectiveLocalSessionProvider);
     if (!existingSession.allowsFirstActivation) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Activar cuenta')),
+        appBar: const AgroAppBar(title: 'Activar cuenta'),
         body: SafeArea(
           child: Center(
             child: ConstrainedBox(
@@ -100,7 +101,7 @@ class _FirstActivationScreenState extends ConsumerState<FirstActivationScreen> {
     final state = ref.watch(firstActivationProvider);
     if (state.isCompleted) {
       return Scaffold(
-        appBar: AppBar(title: const Text('Activar cuenta')),
+        appBar: const AgroAppBar(title: 'Activar cuenta'),
         body: SafeArea(
           child: Center(
             child: ConstrainedBox(
@@ -150,7 +151,7 @@ class _FirstActivationScreenState extends ConsumerState<FirstActivationScreen> {
         if (!didPop && canCancel) _cancel();
       },
       child: Scaffold(
-        appBar: AppBar(title: const Text('Activar cuenta')),
+        appBar: const AgroAppBar(title: 'Activar cuenta'),
         body: SafeArea(
           child: Center(
             child: ConstrainedBox(
