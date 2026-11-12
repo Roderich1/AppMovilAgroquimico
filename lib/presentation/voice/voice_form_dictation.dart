@@ -143,6 +143,11 @@ class VoiceFormDictation<S> extends ChangeNotifier {
   final Map<SlotRef, VoiceMark> _marks = {};
   DictationRecord? _last;
 
+  /// Revisiones y elecciones que planteó el dictado de [_last]: «Deshacer
+  /// último dictado» las retira con él (antes quedaban pendientes y, p. ej.,
+  /// el precio de un dictado deshecho seguía «por revisar»; 2026-11-12).
+  Set<SlotRef> _lastPending = const {};
+
   /// Dictados que llegaron al final (con o sin cambios). La pantalla lo usa
   /// para cerrar el panel y mostrar el resultado; no cambia ninguna regla.
   int _completions = 0;
@@ -378,9 +383,13 @@ class VoiceFormDictation<S> extends ChangeNotifier {
       _reviews[r.slot] = r;
       _reviewBase[r.slot] = after.valueOf(r.slot).$2;
     }
-    _last = plan.changes.isEmpty && plan.newLines.isEmpty
-        ? _last
-        : DictationRecord(changes: plan.changes, createdLines: created);
+    if (plan.changes.isNotEmpty || plan.newLines.isNotEmpty) {
+      _last = DictationRecord(changes: plan.changes, createdLines: created);
+      _lastPending = {
+        for (final r in plan.reviews) r.slot,
+        for (final c in plan.choices) c.slot,
+      };
+    }
     target.onDictationApplied(shadow, text);
     _setPhase(
       VoiceFormPhase.ready,
@@ -504,7 +513,12 @@ class VoiceFormDictation<S> extends ChangeNotifier {
     final touched = {
       for (final c in record.changes) c.slot,
       for (final l in record.createdLines.keys) SlotRef.line(l, '*'),
+      ..._lastPending,
     };
+    for (final slot in _lastPending) {
+      _reviewBase.remove(slot);
+      _marks.remove(slot);
+    }
     _choices.removeWhere(
       (s, _) => touched.contains(s) || record.createdLines.containsKey(s.line),
     );
@@ -512,6 +526,7 @@ class VoiceFormDictation<S> extends ChangeNotifier {
       (s, _) => touched.contains(s) || record.createdLines.containsKey(s.line),
     );
     _last = null;
+    _lastPending = const {};
     final kept = plan.keptEdited.length;
     _setPhase(
       VoiceFormPhase.ready,

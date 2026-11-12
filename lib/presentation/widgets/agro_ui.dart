@@ -1038,7 +1038,10 @@ class SegmentToggle<T> extends StatelessWidget {
     );
   }
 
+  // Con la familia de la app: sin ella se medía con la fuente por defecto
+  // del motor y el selector se apilaba aunque cupiera (sesión C).
   static const _labelStyle = TextStyle(
+    fontFamily: AgroFonts.body,
     fontSize: 14,
     fontWeight: FontWeight.w700,
   );
