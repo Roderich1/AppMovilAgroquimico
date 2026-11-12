@@ -153,30 +153,32 @@ void main() {
     expect(payments, isEmpty);
   });
 
-  testWidgets('Operaciones: lo diario y «Más»; Más conserva los accesos y '
-      'Atrás vuelve', (tester) async {
+  testWidgets('Actividad: lo diario y Reportes; Más (desde Inicio) conserva '
+      'los accesos y Atrás vuelve', (tester) async {
     await tester.binding.setSurfaceSize(const Size(800, 2400));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     final s = await activatedHousehold(tester, 'mas');
     final c = await pumpModeApp(tester, s.database);
     c.read(routerProvider).go('/operaciones');
     await settle(tester);
+    // Rediseño B: Actividad filtra por tipo y abre cada lista; Reportes va en
+    // su cabecera. Más y Campañas cuelgan de Inicio (B1).
     for (final title in [
       'Compras',
       'Aplicaciones',
-      'Planificación',
+      'Planes',
       'Transferencias',
-      // Accesos propios desde el 2026-11-05 (presentación móvil).
-      'Campañas',
-      'Reportes',
-      'Más',
     ]) {
       expect(find.text(title), findsOneWidget, reason: title);
     }
+    expect(find.byTooltip('Reportes'), findsOneWidget);
+    expect(find.text('Más'), findsNothing);
     expect(find.text('Administrar datos'), findsNothing);
     expect(find.textContaining('FIFO'), findsNothing);
 
-    await tester.tap(find.text('Más'));
+    c.read(routerProvider).go('/');
+    await settle(tester);
+    await tester.tap(find.byKey(const Key('home-settings')));
     await settle(tester);
     // Con `push` el router no cambia la ruta base: se mira la pantalla.
     expect(find.text('Administrar datos'), findsOneWidget);

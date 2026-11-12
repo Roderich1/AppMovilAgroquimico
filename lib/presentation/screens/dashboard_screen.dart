@@ -131,8 +131,11 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
   /// Abre una pantalla de Inicio y, al volver, recarga las cifras: lo que se
   /// haya registrado allí cambia los avisos y los saldos.
-  Future<void> _openAndRefresh(String path) async {
-    await context.push(path);
+  ///
+  /// Recibe la navegación ya iniciada (`context.push` con la ruta escrita,
+  /// para que la guarda de rutas sin origen la encuentre).
+  Future<void> _openAndRefresh(Future<Object?> navigation) async {
+    await navigation;
     if (mounted) _refresh();
   }
 
@@ -162,8 +165,8 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               data: data,
               personal: personal,
               loading: data == null && !snapshot.hasError,
-              onSettings: () => _openAndRefresh('/mas'),
-              onCampaigns: () => _openAndRefresh('/campanas'),
+              onSettings: () => _openAndRefresh(context.push('/mas')),
+              onCampaigns: () => _openAndRefresh(context.push('/campanas')),
             ),
             children: [
               // Los avisos de sesión y de acceso, y los accesos principales
@@ -253,8 +256,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                             formatBob(row.balanceMinor),
                             style: AgroText.amount,
                           ),
-                          onTap: () =>
-                              _openAndRefresh('/personas/${row.personId}'),
+                          onTap: () => _openAndRefresh(
+                            context.push('/personas/${row.personId}'),
+                          ),
                         ),
                     ],
                   ),
@@ -784,12 +788,12 @@ class _AttentionList extends StatelessWidget {
   const _AttentionList({required this.data, required this.onOpen});
 
   final _DashboardData data;
-  final void Function(String path) onOpen;
+  final void Function(Future<Object?> navigation) onOpen;
 
   @override
   Widget build(BuildContext context) {
     final rows = <Widget>[];
-    void avisos() => onOpen('/inventario/avisos');
+    void avisos() => onOpen(context.push('/inventario/avisos'));
     final alerts = data.alerts;
     if (data.alertsError != null) {
       rows.add(
@@ -867,7 +871,7 @@ class _AttentionList extends StatelessWidget {
           key: const Key('home-attention-purchases-error'),
           dot: DotTone.danger,
           title: 'No se pudo revisar el saldo de las compras',
-          onTap: () => onOpen('/compras'),
+          onTap: () => onOpen(context.push('/compras')),
         ),
       );
     } else if (withBalance > 0) {
@@ -878,7 +882,7 @@ class _AttentionList extends StatelessWidget {
           title:
               '${_count(withBalance, 'compra', 'compras')} con saldo por '
               'pagar al proveedor',
-          onTap: () => onOpen('/compras'),
+          onTap: () => onOpen(context.push('/compras')),
         ),
       );
     }

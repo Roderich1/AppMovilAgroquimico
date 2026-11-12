@@ -135,16 +135,19 @@ void main() {
 
       await tester.tap(find.text('Actividad').last);
       await settle(tester);
-      // Las funciones poco frecuentes viven en «Más» (piloto X01).
-      await tester.tap(find.text('Más'));
+      // Rediseño B: desde Actividad se abre la lista de compras (filtro
+      // «Compras» › «Lista de compras») y, desde ella, el detalle de otra
+      // ruta apilada: Reportes, que también cuelga de Actividad.
+      await tester.tap(find.byKey(const Key('activity-filter-purchases')));
+      await settle(tester);
+      await tester.tap(find.byKey(const Key('activity-open-purchases')));
       await settle(tester, frames: 30);
-      expect(currentLocation(tester), '/mas');
-      await tester.tap(find.text('Administrar datos'));
-      await settle(tester, frames: 30);
-      expect(currentLocation(tester), '/catalogos');
-
+      expect(currentLocation(tester), '/compras');
       await systemBack(tester);
-      expect(currentLocation(tester), '/mas');
+      expect(currentLocation(tester), '/operaciones');
+      await tester.tap(find.byKey(const Key('activity-reports')));
+      await settle(tester, frames: 30);
+      expect(currentLocation(tester), '/reportes');
       await systemBack(tester);
       expect(
         currentLocation(tester),
