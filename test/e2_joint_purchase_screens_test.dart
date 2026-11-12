@@ -174,6 +174,49 @@ void main() {
     },
   );
 
+  // E2 §10.2/§10.3 (verificación de CONV-2): el agricultor sabe, por función,
+  // quién ve su nombre y sus cantidades según el consentimiento aceptado.
+  for (final (label, participation, expected) in [
+    (
+      'sin participación: lo que regiría al participar',
+      null,
+      'Si participa, podrán ver su nombre y sus cantidades la persona '
+          'responsable (Responsable sintético) y las personas de la Directiva '
+          'o la Administración que ella autorice para esta convocatoria.',
+    ),
+    (
+      'aceptada con CONV-2: responsable y autorizados',
+      participationJson(),
+      'Pueden ver su nombre y sus cantidades la persona responsable '
+          '(Responsable sintético) y las personas de la Directiva o la '
+          'Administración que ella autorice para esta convocatoria.',
+    ),
+    (
+      'aceptada con CONV-1: sólo la persona responsable, sin retroactividad',
+      participationJson(consentVersion: jointPurchaseLegacyConsentVersion),
+      'Con el consentimiento que usted aceptó antes, sólo la persona '
+          'responsable (Responsable sintético) puede ver su nombre y sus '
+          'cantidades. Si modifica su participación, se le pedirá el '
+          'consentimiento vigente, que incluye a las personas de la Directiva '
+          'o la Administración que ella autorice para esta convocatoria.',
+    ),
+  ]) {
+    testWidgets('quién ve sus datos: $label', (tester) async {
+      final s = await pumpDetail(tester);
+      await tester.runAsync(
+        () => seedCalls(s.store, memberA, [
+          callJson(participation: participation),
+        ]),
+      );
+      s.c.read(jointPurchaseRevisionProvider.notifier).bump();
+      await settle(tester);
+      expect(
+        tester.widget<Text>(find.byKey(const Key('joint-who-can-see'))).data,
+        expected,
+      );
+    });
+  }
+
   testWidgets('convocatoria cerrada: botones desactivados con explicación', (
     tester,
   ) async {

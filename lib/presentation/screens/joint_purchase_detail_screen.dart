@@ -249,6 +249,11 @@ class _JointPurchaseDetailScreenState
           'entrega.',
           key: Key('joint-not-a-debt'),
         ),
+        const SizedBox(height: 4),
+        Text(
+          jointPurchaseWhoCanSeeText(call),
+          key: const Key('joint-who-can-see'),
+        ),
         if (!call.isOpen)
           Padding(
             padding: const EdgeInsets.only(top: 8),

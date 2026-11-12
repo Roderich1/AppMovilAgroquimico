@@ -165,3 +165,29 @@ String? historyProblemText(JointPurchaseHistoryResult result) =>
         'No se pudo leer el historial del sindicato. Lo guardado en el '
             'teléfono se conserva; inténtelo más tarde.',
     };
+
+/// E2 §10.2 y §10.3: quién puede ver, por función, el nombre y las
+/// cantidades del agricultor en esta convocatoria, según el consentimiento
+/// que el sindicato tiene aceptado para su participación. Con `CONV-1` sólo
+/// la persona responsable (no se extiende hacia atrás); con `CONV-2`, también
+/// quienes ella autorice. Sin participación aceptada, lo que regiría si
+/// participa ahora (el consentimiento vigente).
+String jointPurchaseWhoCanSeeText(JointPurchaseCall call) {
+  final responsible = call.responsibleName == null
+      ? 'la persona responsable'
+      : 'la persona responsable (${call.responsibleName})';
+  const authorized =
+      'las personas de la Directiva o la Administración que ella autorice '
+      'para esta convocatoria';
+  final accepted = call.acceptedActive;
+  if (accepted == null) {
+    return 'Si participa, podrán ver su nombre y sus cantidades '
+        '$responsible y $authorized.';
+  }
+  if (accepted.consentVersion == jointPurchaseLegacyConsentVersion) {
+    return 'Con el consentimiento que usted aceptó antes, sólo $responsible '
+        'puede ver su nombre y sus cantidades. Si modifica su participación, '
+        'se le pedirá el consentimiento vigente, que incluye a $authorized.';
+  }
+  return 'Pueden ver su nombre y sus cantidades $responsible y $authorized.';
+}
