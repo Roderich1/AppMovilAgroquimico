@@ -51,7 +51,7 @@ class SharedOnlyNotice extends StatelessWidget {
           const SizedBox(height: 16),
           FilledButton(
             onPressed: onBack,
-            child: const Text('Volver a Operaciones'),
+            child: const Text('Volver a Actividad'),
           ),
         ],
       ),

@@ -29,15 +29,15 @@ abstract final class ActivationPinTexts {
   static const form = 'Elija un PIN de 6 dígitos que no sea una secuencia.';
   static const done = 'PIN del titular creado. Funciona sin conexión.';
   static const skipped =
-      'Puede crear el PIN más tarde en Operaciones › Más › PIN del titular. '
+      'Puede crear el PIN más tarde en Ajustes y datos › PIN del titular. '
       'Entonces se le pedirá confirmar su cuenta en línea.';
   static const expired =
       'Ya no se puede crear el PIN con la confirmación de la activación: pasó '
       'el tiempo, salió de la aplicación o cambió la cuenta, la instalación o '
-      'el titular. Puede crearlo más tarde en Operaciones › Más › PIN del '
+      'el titular. Puede crearlo más tarde en Ajustes y datos › PIN del '
       'titular, confirmando su cuenta en línea.';
   static const saveFailed =
-      'No se pudo guardar el PIN. Puede crearlo más tarde en Operaciones › Más '
+      'No se pudo guardar el PIN. Puede crearlo más tarde en Ajustes y datos '
       '› PIN del titular, confirmando su cuenta en línea.';
 }
 

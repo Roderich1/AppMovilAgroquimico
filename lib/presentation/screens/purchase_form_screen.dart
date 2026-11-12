@@ -828,8 +828,8 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen>
             // se dice en activa y con el camino para anotarlo después.
             extraNote: paid
                 ? 'El pago al proveedor no se guarda con la revisión. Si el '
-                      'titular la confirma, anótalo después en Operaciones, '
-                      'Compras, «Registrar pago».'
+                      'titular la confirma, anótelo después en Actividad › Lista '
+                      'de compras, «Registrar pago al proveedor».'
                 : null,
             capture: (reason) => repo.captureLatePurchase(late, reason: reason),
           );

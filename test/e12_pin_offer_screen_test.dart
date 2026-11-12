@@ -226,7 +226,7 @@ void main() {
     expect(
       find.text(
         'Titular vinculado. Usa inventario compartido; puede cambiarlo en '
-        'Operaciones › Más › Modo de uso.',
+        'Ajustes y datos › Modo de uso.',
       ),
       findsOneWidget,
     );

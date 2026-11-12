@@ -144,7 +144,7 @@ class _OperationModeScreenState extends ConsumerState<OperationModeScreen> {
             'aplíquelos o cancélelos en Planificación.',
       if (names.withBalance.isNotEmpty)
         '• Saldo de cuenta de ${names.withBalance.join(', ')}: registre el '
-            'pago en Cuentas.',
+            'pago en Personas › Cuentas.',
       'No se borra ni se reasigna nada.',
     ].join('\n');
   }

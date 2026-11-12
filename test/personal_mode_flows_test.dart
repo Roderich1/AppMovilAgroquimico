@@ -180,7 +180,7 @@ void main() {
       );
       expect(find.byKey(const Key('shared-only-notice')), findsOneWidget);
       expect(find.text('Nueva'), findsNothing);
-      await tester.tap(find.text('Volver a Operaciones'));
+      await tester.tap(find.text('Volver a Actividad'));
       await settle(tester);
       expect(currentPath(c), '/operaciones');
       expect(find.byType(TransfersScreen), findsNothing);
