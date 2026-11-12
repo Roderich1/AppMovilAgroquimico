@@ -251,7 +251,12 @@ class LinkRow extends StatelessWidget {
                 ],
               ),
             ),
-            if (trailing != null) ...[const SizedBox(width: 8), trailing!],
+            // Flexible: con letra grande el dato de la derecha se acomoda
+            // (parte línea) en vez de desbordar la fila.
+            if (trailing != null) ...[
+              const SizedBox(width: 8),
+              Flexible(child: trailing!),
+            ],
             if (onTap != null)
               const Padding(
                 padding: EdgeInsets.only(left: 4),
@@ -449,14 +454,22 @@ class RdmScrollPage extends StatelessWidget {
       // contenido quepa en la pantalla.
       physics: const AlwaysScrollableScrollPhysics(),
       slivers: [
-        if (header != null) SliverToBoxAdapter(child: header),
-        SliverPadding(
-          padding: padding.copyWith(bottom: bottom),
-          sliver: SliverToBoxAdapter(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: children,
-            ),
+        // Cabecera y contenido en un solo bloque: con letra grande la
+        // cabecera puede ocupar la pantalla, y el contenido sigue existiendo
+        // (para la accesibilidad y las pruebas) aunque esté debajo.
+        SliverToBoxAdapter(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              if (header != null) header!,
+              Padding(
+                padding: padding.copyWith(bottom: bottom),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: children,
+                ),
+              ),
+            ],
           ),
         ),
       ],

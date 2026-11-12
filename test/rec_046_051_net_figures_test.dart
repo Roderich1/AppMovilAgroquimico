@@ -467,16 +467,21 @@ void main() {
       await mount(tester, InventoryDetailScreen(productId: glifosato));
       await waitFor(tester, find.text('Comprado neto'));
 
-      /// El valor dentro de la tarjeta de su rótulo.
+      /// El valor junto a su rótulo (rediseño B: cifra con clave
+      /// `metric-<rótulo>` en la cabecera del producto).
       Finder metric(String label, String value) => find.descendant(
-        of: find
-            .ancestor(of: find.text(label), matching: find.byType(Card))
-            .first,
+        of: find.byKey(Key('metric-$label')),
         matching: find.text(value),
       );
       expect(metric('Comprado neto', '10 L'), findsOneWidget);
       expect(metric('Consumido neto', '3 L'), findsOneWidget);
-      expect(metric('Físico', '7 L'), findsOneWidget);
+      // El físico va en grande, con el número y la unidad por separado.
+      expect(metric('Físico', '7'), findsOneWidget);
+      expect(metric('Físico', 'L'), findsOneWidget);
+      // Las explicaciones se abren con «i» en la cabecera (sin párrafos
+      // permanentes); el texto es el mismo.
+      await tester.tap(find.byKey(const Key('inventory-info')));
+      await settle(tester);
       expect(
         find.text(
           'Neto: no cuenta lo revertido. Comprado neto menos consumido '
@@ -492,6 +497,8 @@ void main() {
         ),
         findsOneWidget,
       );
+      await tester.tap(find.text('Cerrar'));
+      await settle(tester);
       expect(
         find.text('Asignación neta 9 L · consumido neto 3 L'),
         findsOneWidget,

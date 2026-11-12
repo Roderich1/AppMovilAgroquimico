@@ -235,6 +235,14 @@ void main() {
     await shot(tester, 'B_5.4_transferencia_vacia');
   });
 
+  shadowTest('producto', (tester) async {
+    final r = await seeded(tester, 'rdm-b-producto');
+    await go(tester, r.c, '/inventario');
+    r.c.read(routerProvider).push('/inventario/${r.seed.longProduct}');
+    await settle(tester);
+    await shotWithEnd(tester, 'B_4.1_producto');
+  });
+
   shadowTest('actividad vacia', (tester) async {
     await setView(tester);
     final s = await activatedHousehold(tester, 'rdm-b-actividad-vacia');
