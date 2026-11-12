@@ -119,6 +119,7 @@ Pruebas: cada sesión adapta las pruebas que rompan sus propios cambios (cambia 
 | 2026-11-12 | B | `56c0080` (entrega 3: lista y detalle de compra) | merge tras `a33f40d` (+ `/compras` sin flotante) | — | implementado · probado automáticamente · no recorrido · no revisado por el usuario |
 | 2026-11-12 | B | `f41c7fb` (entrega 4: transferencias) | merge tras `e6d72b3` | rótulos «Persona origen/destino» se conservan (decisión del orquestador) | implementado · probado automáticamente · no recorrido · no revisado por el usuario |
 | 2026-11-12 | A | `458803a` (entregas 6–7: Personas, Cuentas, pago, cuenta, propios) | merge tras B4 | sin flotante en Personas y Cuentas | implementado · probado automáticamente · no recorrido · no revisado por el usuario. **Grupo Personas completo.** |
+| 2026-11-12 | B | `7f0bfab` (entrega 5: producto, avisos, estimación) | merge tras `1a04963` (+ detalle de producto sin flotante) | Estimación conserva su aspecto claro (alcance F12 intacto); Producto sin pestañas, secciones apiladas | implementado · probado automáticamente · no recorrido · no revisado por el usuario. **B completo.** |
 | 2026-11-12 | B | `8e97b78` (entrega 1: Inicio y Almacén) | merge tras `6f08f9c` | `revisiones/B-1.md` | implementado · probado automáticamente · no recorrido · no revisado por el usuario |
 
 Estados posibles de una pantalla: implementado · probado automáticamente · recorrido en emulador · revisado por el usuario. Sólo el autor marca «revisado por el usuario».
