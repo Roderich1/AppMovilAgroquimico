@@ -5,6 +5,7 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../domain/money.dart';
 import '../theme/agro_theme.dart';
@@ -294,7 +295,7 @@ class IconCircle extends StatelessWidget {
 
 /// Pastilla de filtro («Todo», «Compras»). La elegida, en verde oscuro con
 /// negrita y marca: no se distingue sólo por color.
-class FilterPill extends StatelessWidget {
+class FilterPill extends StatefulWidget {
   const FilterPill({
     super.key,
     required this.label,
@@ -305,6 +306,38 @@ class FilterPill extends StatelessWidget {
   final String label;
   final bool selected;
   final VoidCallback onSelected;
+
+  @override
+  State<FilterPill> createState() => _FilterPillState();
+}
+
+class _FilterPillState extends State<FilterPill> {
+  bool get selected => widget.selected;
+  String get label => widget.label;
+  VoidCallback get onSelected => widget.onSelected;
+
+  /// La pastilla elegida queda entera a la vista en su fila desplazable
+  /// (revisión del orquestador, entrega 2).
+  @override
+  void didUpdateWidget(FilterPill oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.selected && !oldWidget.selected) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        // Sólo la fila de pastillas: `Scrollable.ensureVisible` movería
+        // también la página hacia arriba o abajo.
+        final row = Scrollable.maybeOf(context);
+        final box = context.findRenderObject();
+        if (row == null || box == null) return;
+        row.position.ensureVisible(
+          box,
+          alignment: 0.5,
+          duration: const Duration(milliseconds: 200),
+          curve: Curves.easeOut,
+        );
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) => Semantics(
@@ -429,4 +462,76 @@ class RdmScrollPage extends StatelessWidget {
       ],
     );
   }
+}
+
+/// «Volver» redondo para las pantallas apiladas del rediseño: sólo aparece
+/// si hay adónde volver, y respeta el `PopScope` de la página como el Atrás
+/// del sistema (mismo criterio que `PageFrame`).
+class RdmBackButton extends StatelessWidget {
+  const RdmBackButton({
+    super.key,
+    this.background = AgroColors.surface,
+    this.foreground = AgroColors.ink,
+  });
+
+  final Color background;
+  final Color foreground;
+
+  @override
+  Widget build(BuildContext context) {
+    final router = GoRouter.maybeOf(context);
+    // Se recalcula con cada cambio de la pila (como `PageFrame`): si no,
+    // quedaba una flecha que no llevaba a ningún sitio (2026-11-05).
+    if (router == null) return _build(context, null);
+    return ListenableBuilder(
+      listenable: router.routerDelegate,
+      builder: (context, _) => _build(context, router),
+    );
+  }
+
+  Widget _build(BuildContext context, GoRouter? router) {
+    final navigator = Navigator.maybeOf(context);
+    final canPop =
+        (router?.canPop() ?? false) || (navigator?.canPop() ?? false);
+    if (!canPop) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: _CircleBack(
+        background: background,
+        foreground: foreground,
+        onPressed: () {
+          if (navigator != null && navigator.canPop()) {
+            navigator.maybePop();
+          } else {
+            router?.pop();
+          }
+        },
+      ),
+    );
+  }
+}
+
+class _CircleBack extends StatelessWidget {
+  const _CircleBack({
+    required this.background,
+    required this.foreground,
+    required this.onPressed,
+  });
+  final Color background;
+  final Color foreground;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) => IconButton(
+    tooltip: 'Volver',
+    onPressed: onPressed,
+    style: IconButton.styleFrom(
+      backgroundColor: background,
+      foregroundColor: foreground,
+      minimumSize: const Size.square(44),
+      fixedSize: const Size.square(44),
+      padding: EdgeInsets.zero,
+    ),
+    icon: const Icon(Icons.arrow_back, size: 22),
+  );
 }

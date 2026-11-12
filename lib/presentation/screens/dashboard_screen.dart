@@ -191,7 +191,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                     icon: Icons.spa_outlined,
                     label: 'Registrar aplicación',
                     onTap: _newApplication,
-                    tone: ActionTileTone.ink,
+                    tone: ActionTileTone.surface,
                     minHeight: 108,
                   ),
                 ],

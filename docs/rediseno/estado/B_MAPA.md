@@ -12,8 +12,8 @@ Lo mantiene la sesión B en su rama. Rutas tal como están en `lib/app.dart` (ba
 | 4.1 Producto | `/inventario/:id` | `inventory_detail_screen.dart` | P | Almacén (fila); Avisos (fila) | pendiente |
 | 4.3 Estimación | `/inventario/estimacion` | `estimation_screen.dart` | P | Almacén › «Estimación del consumo» | pendiente |
 | 1.3 Actividad | `/operaciones` | `operations_screen.dart` | P | pestaña Actividad | **implementado + probado (entrega 2)** |
-| — Compras (lista) | `/compras` | `purchases_screen.dart` | P | Actividad › Compras › «Lista de compras»; Inicio › «compras con saldo por pagar» | pendiente |
-| 2.8 Compra · detalle | `/compras/detalle/:id` | `purchase_detail_screen.dart` | P | Compras (fila); Actividad (fila) | pendiente |
+| — Compras (lista) | `/compras` | `purchases_screen.dart` | P | Actividad › Compras › «Lista de compras»; Inicio › «compras con saldo por pagar» | **implementado + probado (entrega 3)** |
+| 2.8 Compra · detalle | `/compras/detalle/:id` | `purchase_detail_screen.dart` | P | Compras (fila); Actividad (fila) | **implementado + probado (entrega 3)** |
 | — Aplicaciones / Planificación (listas) | `/aplicaciones`, `/planificacion` | (de A) | P | Actividad › filtro › «Lista de …»; «Aplicar» de un plan abre `/aplicaciones/nueva?planId=` | sólo enlace |
 | — Transferencias (lista) | `/transferencias` | `transfers_screen.dart` | P | Actividad › Transferencias › «Lista de transferencias»; fila de transferencia; sólo en compartido | pendiente |
 | 5.4 Nueva transferencia | `/transferencias/nueva` | `transfer_form_screen.dart` | P | hoja «Registrar» (B1); Transferencias | pendiente |

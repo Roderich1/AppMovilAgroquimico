@@ -453,13 +453,18 @@ void main() {
       );
       await _settle(tester);
 
+      // Rediseño B: cada compra es una fila con clave `purchase-card-<id>`.
       final cards = find.ancestor(
         of: find.textContaining('Agroquímicos del Valle'),
-        matching: find.byType(Card),
+        matching: find.byWidgetPredicate(
+          (w) =>
+              w.key is ValueKey<String> &&
+              (w.key! as ValueKey<String>).value.startsWith('purchase-card-'),
+        ),
       );
       expect(cards, findsNWidgets(2));
-      for (final card in tester.widgetList<Card>(cards).toList()) {
-        await tester.tap(find.byWidget(card));
+      for (final card in tester.widgetList(cards).toList()) {
+        await tester.tap(find.byKey(card.key!));
         await _settle(tester, rounds: 3);
         router.pop();
         await _settle(tester, rounds: 3);
