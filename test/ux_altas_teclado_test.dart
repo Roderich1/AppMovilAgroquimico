@@ -13,7 +13,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'support/f04_mode_ui_harness.dart';
-import 'support/purchase_form_driver.dart';
 
 typedef Row = Map<String, Object?>;
 
