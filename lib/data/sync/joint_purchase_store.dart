@@ -786,8 +786,7 @@ class JointPurchaseStore {
     // E2 §10.6: sin participación en el sindicato, la confirmación lleva el
     // consentimiento aceptado; con ella, nunca.
     final carriesConsent =
-        kind == JointPurchaseOpKind.confirm &&
-        call.serverParticipation == null;
+        kind == JointPurchaseOpKind.confirm && call.serverParticipation == null;
     if (carriesConsent && consentAcceptedAt == null) {
       throw JointPurchaseException(
         'Debe aceptar el texto de consentimiento vigente para participar.',

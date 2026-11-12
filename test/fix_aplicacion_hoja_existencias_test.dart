@@ -137,10 +137,7 @@ void main() {
       await openForm(tester, s.repo, 'Hermana', 'Chaco hermana');
       await tapKey(tester, 'application-add-product');
       expect(
-        find.descendant(
-          of: picker('Producto'),
-          matching: find.text('Elegir'),
-        ),
+        find.descendant(of: picker('Producto'), matching: find.text('Elegir')),
         findsOneWidget,
       );
       await choose(tester, 'Producto', 'Glifosato');

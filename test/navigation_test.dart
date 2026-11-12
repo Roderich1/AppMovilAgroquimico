@@ -155,12 +155,16 @@ void main() {
 
       await tester.tap(find.text('Actividad').first);
       await settle(tester);
-      await tester.tap(find.text('Compras'));
+      // Rediseño B: el filtro «Compras» de Actividad ofrece la lista
+      // completa, que conserva sus acciones.
+      await tester.tap(find.byKey(const Key('activity-filter-purchases')));
+      await settle(tester);
+      await tester.tap(find.byKey(const Key('activity-open-purchases')));
       await settle(tester, frames: 30);
       expect(
         find.text('Nueva compra'),
         findsOneWidget,
-        reason: 'La tarjeta de Operaciones debe abrir el historial de compras.',
+        reason: 'Actividad debe abrir el historial de compras.',
       );
 
       await expectPurchaseFormReturnsCleanly(
@@ -177,11 +181,10 @@ void main() {
     final repo = (await tester.runAsync(fixture))!;
     await pumpApp(tester, repo);
 
-    await tester.tap(find.text('Actividad').first);
+    // B1: Más cuelga de Inicio (engranaje de la cabecera).
+    await tester.tap(find.byKey(const Key('home-settings')));
     await settle(tester);
-    await tester.tap(find.text('Más'));
-    await settle(tester);
-    await tester.tap(find.text('Administrar datos'));
+    await tester.tap(find.text('Personas, chacos, productos y proveedores'));
     await settle(tester);
     // Se navega a /compras mediante el router, sin depender de la UI de
     // catálogos, para aislar la ruta bajo prueba.

@@ -113,6 +113,9 @@ Pruebas: cada sesión adapta las pruebas que rompan sus propios cambios (cambia 
 | 2026-11-12 | C | `ea55529` (entregas 2–3: necesidad, consumo, Sindicato, sincronización; C-1) | `2526754` | `revisiones/C-2.md` | implementado · probado automáticamente · no recorrido · no revisado por el usuario |
 | 2026-11-12 | F | `9cb6d7b`, `e1f6e25` (Excel; P-C, CONV-3, v18) | `0b0f1c1`…`6e9a7ed` | rama funcional del autor (sesión F); no es rediseño | probado automáticamente (suite completa, ver continuidad) · no recorrido aquí |
 | 2026-11-12 | A | `acce0ad` (entrega 3: listas de aplicaciones y planificación; A-1) | `6f08f9c` | `revisiones/A-1.md` | implementado · probado automáticamente · no recorrido · no revisado por el usuario |
+| 2026-11-12 | C | `8918b2c` (entrega 4: convocatorias, convocatoria, participar; C-2) | ver `git log --merges` | `revisiones/C-2.md` | implementado · probado automáticamente · no recorrido · no revisado por el usuario. **C completo** (9 láminas + Sincronización). |
+| 2026-11-12 | A | `e4af5de` (entregas 4–5: bitácora, persona; pruebas del arreglo de Deshacer) | `bbf25d0` | — (sin correcciones; nota de cabecera a 200 %) | implementado · probado automáticamente · no recorrido · no revisado por el usuario |
+| 2026-11-12 | B | `eb7807e` (entrega 2: Actividad) | tras `bbf25d0` (+ 2 pruebas adaptadas en integración) | — | implementado · probado automáticamente · no recorrido · no revisado por el usuario |
 | 2026-11-12 | B | `8e97b78` (entrega 1: Inicio y Almacén) | merge tras `6f08f9c` | `revisiones/B-1.md` | implementado · probado automáticamente · no recorrido · no revisado por el usuario |
 
 Estados posibles de una pantalla: implementado · probado automáticamente · recorrido en emulador · revisado por el usuario. Sólo el autor marca «revisado por el usuario».

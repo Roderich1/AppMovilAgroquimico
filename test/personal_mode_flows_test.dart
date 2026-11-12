@@ -79,7 +79,8 @@ void main() {
       await settle(tester);
       expect(find.text('Transferencias'), findsNothing);
       expect(find.text('Compras'), findsOneWidget);
-      expect(find.text('Más'), findsOneWidget);
+      // Rediseño B: Más cuelga de Inicio (B1); Actividad conserva Reportes.
+      expect(find.byKey(const Key('activity-reports')), findsOneWidget);
       await openNewSheet(tester);
       expect(find.text('Transferencia'), findsNothing);
       expect(find.text('Compra'), findsOneWidget);
@@ -163,7 +164,10 @@ void main() {
       final c = await pumpModeApp(tester, s.database);
       c.read(routerProvider).go('/operaciones');
       await settle(tester);
+      // Rediseño B: filtro «Transferencias» › «Lista de transferencias».
       await tester.tap(find.text('Transferencias'));
+      await settle(tester);
+      await tester.tap(find.byKey(const Key('activity-open-transfers')));
       await settle(tester);
       expect(find.byType(TransfersScreen), findsOneWidget);
       expect(find.text('Nueva'), findsOneWidget);
@@ -180,7 +184,7 @@ void main() {
       await settle(tester);
       expect(currentPath(c), '/operaciones');
       expect(find.byType(TransfersScreen), findsNothing);
-      expect(find.text('Más'), findsOneWidget);
+      expect(find.byKey(const Key('activity-reports')), findsOneWidget);
     });
 
     testWidgets('si la pantalla de transferencias llegara a mostrarse en '

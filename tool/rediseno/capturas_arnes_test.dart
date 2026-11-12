@@ -213,6 +213,14 @@ void main() {
     tester.platformDispatcher.textScaleFactorTestValue = scale;
     addTearDown(tester.view.reset);
     addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+    // Respaldos lee el directorio de la aplicación: uno temporal.
+    final support = Directory.systemTemp.createTempSync('rdm-shell');
+    addTearDown(() => support.deleteSync(recursive: true));
+    TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+        .setMockMethodCallHandler(
+          const MethodChannel('plugins.flutter.io/path_provider'),
+          (call) async => support.path,
+        );
     final s = await activatedHousehold(tester, 'rdm-shell');
     final c = await pumpModeApp(tester, s.database);
     final tag =
@@ -228,7 +236,15 @@ void main() {
     await settle(tester);
     c.read(routerProvider).go('/sindicato');
     await settle(tester);
-    await shot(tester, '1.6_sindicato_esqueleto$tag');
+    await shot(tester, '1.6_sindicato$tag');
+    c.read(routerProvider).go('/');
+    await settle(tester);
+    c.read(routerProvider).push('/mas');
+    await settle(tester);
+    await shot(tester, '7.1_ajustes$tag');
+    c.read(routerProvider).push('/respaldo-remoto');
+    await settle(tester);
+    await shot(tester, '7.6_respaldos$tag');
     debugDisableShadows = true;
   });
 }

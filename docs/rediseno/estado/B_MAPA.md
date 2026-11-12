@@ -11,19 +11,13 @@ Lo mantiene la sesión B en su rama. Rutas tal como están en `lib/app.dart` (ba
 | 4.2 Avisos | `/inventario/avisos` | `inventory_alerts_screen.dart` | P | Almacén (fichas y «Todos los avisos»); Inicio › «Para atender» | resumen con unidades (entrega 1); pantalla pendiente |
 | 4.1 Producto | `/inventario/:id` | `inventory_detail_screen.dart` | P | Almacén (fila); Avisos (fila) | pendiente |
 | 4.3 Estimación | `/inventario/estimacion` | `estimation_screen.dart` | P | Almacén › «Estimación del consumo» | pendiente |
-| 1.3 Actividad | `/operaciones` | `operations_screen.dart` | P | pestaña Actividad | pendiente |
-| — Compras (lista) | `/compras` | `purchases_screen.dart` | P | Actividad (filtro «Compras»); Inicio › «compras con saldo por pagar» | pendiente |
+| 1.3 Actividad | `/operaciones` | `operations_screen.dart` | P | pestaña Actividad | **implementado + probado (entrega 2)** |
+| — Compras (lista) | `/compras` | `purchases_screen.dart` | P | Actividad › Compras › «Lista de compras»; Inicio › «compras con saldo por pagar» | pendiente |
 | 2.8 Compra · detalle | `/compras/detalle/:id` | `purchase_detail_screen.dart` | P | Compras (fila); Actividad (fila) | pendiente |
-| — Aplicaciones / Planificación (listas) | `/aplicaciones`, `/planificacion` | (de A) | P | Actividad enlaza; **no** se duplican sus funciones | sólo enlace |
-| — Transferencias (lista) | `/transferencias` | `transfers_screen.dart` | P | Actividad (filtro); sólo en compartido | pendiente |
+| — Aplicaciones / Planificación (listas) | `/aplicaciones`, `/planificacion` | (de A) | P | Actividad › filtro › «Lista de …»; «Aplicar» de un plan abre `/aplicaciones/nueva?planId=` | sólo enlace |
+| — Transferencias (lista) | `/transferencias` | `transfers_screen.dart` | P | Actividad › Transferencias › «Lista de transferencias»; fila de transferencia; sólo en compartido | pendiente |
 | 5.4 Nueva transferencia | `/transferencias/nueva` | `transfer_form_screen.dart` | P | hoja «Registrar» (B1); Transferencias | pendiente |
-| 1.5 Personas | `/personas` | `persons_screen.dart` | P | pestaña Personas | pendiente |
-| 5.1 Persona | `/personas/:id` | `person_detail_screen.dart` | P | Personas; Inicio › «Principales saldos» | pendiente |
-| 5.2 Cuenta | `/liquidacion` | `settlements_screen.dart` + `account_statement_view.dart` | P | **Personas** (acceso «Cuentas», B1 la quitó de la barra) | pendiente |
-| 5.3 Registrar pago | (hoja) | `settlements_screen.dart` | H | Personas, Persona, Cuenta, hoja «Registrar» | pendiente |
-| 5.5 Consumo y costos propios | (en Cuentas/Persona) | `settlements_screen.dart` | P/E | Personas › titular «Ver movimientos propios» | pendiente |
-| 5.6 Costos por chaco | `/chacos/:id` y reporte | `farm_logbook_screen.dart` / Cuentas | P | Personas › «Costos por chaco» | pendiente (sin exportación propia) |
-| 5.7 Bitácora del chaco | `/chacos/:id` | `farm_logbook_screen.dart` | P | Persona › chaco | pendiente |
+| 1.5–5.7 Personas, Persona, Cuenta, Pago, Propios, Costos, Bitácora | `/personas`, `/personas/:id`, `/liquidacion`, `/chacos/:id` | — | — | — | **cedidas a la sesión A** (2026-11-12); Inicio enlaza `/personas/:id` |
 
 Tipos: P = pantalla (ruta), H = hoja, E = estado de otra lámina.
 
@@ -35,6 +29,8 @@ Tipos: P = pantalla (ruta), H = hoja, E = estado de otra lámina.
 | Campañas (`/campanas`) | Actividad › Campañas | Inicio › campaña activa de la cabecera (`home-active-campaign`) |
 | Cuentas (`/liquidacion`) | pestaña Cuentas | Personas (pendiente, siguiente entrega de Personas) |
 | Inventario en Inicio, aplicaciones recientes | Inicio | Almacén y Actividad |
+| Reportes (`/reportes`) | Actividad › tarjeta | Actividad › botón de la cabecera (`activity-reports`) |
+| Compras, Aplicaciones, Planificación, Transferencias (listas) | Actividad › tarjetas | Actividad › filtro › «Lista de …» (`activity-open-*`) |
 
 ## Lo que la lámina no muestra y se conserva
 

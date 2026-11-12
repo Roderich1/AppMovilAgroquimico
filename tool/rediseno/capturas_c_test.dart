@@ -14,10 +14,15 @@ import 'dart:ui' as ui;
 
 import 'package:agroquimicos/app.dart';
 import 'package:agroquimicos/data/sync/identification_request_store.dart';
+import 'package:agroquimicos/data/sync/joint_purchase_store.dart';
+import 'package:agroquimicos/domain/sync/joint_purchase_call_view.dart'
+    show JointPurchaseHistoryPage;
 import 'package:agroquimicos/domain/sync/sync_types.dart' show ProjectionType;
 import 'package:agroquimicos/presentation/screens/central_binding_screen.dart';
 import 'package:agroquimicos/presentation/screens/consumption_publish_screen.dart';
 import 'package:agroquimicos/presentation/screens/declared_needs_screen.dart';
+import 'package:agroquimicos/presentation/screens/joint_purchase_detail_screen.dart';
+import 'package:agroquimicos/presentation/screens/joint_purchases_screen.dart';
 import 'package:agroquimicos/presentation/screens/sync_status_screen.dart';
 import 'package:agroquimicos/presentation/screens/union_screen.dart';
 import 'package:agroquimicos/presentation/theme/agro_theme.dart';
@@ -34,6 +39,8 @@ import 'package:go_router/go_router.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import '../../test/support/e1_identification_fixtures.dart';
+import '../../test/support/e2_joint_purchase_fixtures.dart';
+import '../../test/support/f04_mode_fixtures.dart' show memberA;
 import '../../test/support/f04_mode_ui_harness.dart' show settle;
 import '../../test/support/f05_sync_fixtures.dart';
 import '../../test/support/f06_consumption_fixtures.dart';
@@ -300,5 +307,105 @@ void main() {
 
     await pumpRouted(tester, const SyncStatusScreen(), overrides);
     await shot(tester, '7.x_sincronizacion');
+  });
+
+  testWidgets('compras conjuntas: lista, convocatoria y participar', (
+    tester,
+  ) async {
+    await setUpView(tester);
+    final dir = await tester.runAsync(
+      () => Directory.systemTemp.createTemp('rdm_c_'),
+    );
+    final fixture = (await tester.runAsync(
+      () => seedSyncFixture(path: '${dir!.path}/c3.db'),
+    ))!;
+    // Reloj de las convocatorias sintéticas (como en las pruebas E2).
+    final store = JointPurchaseStore(
+      fixture.database,
+      clock: () => DateTime.utc(2026, 11, 11, 18, 20),
+    );
+    const newCallId = '9b1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d';
+    const closedId = 'ab1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d';
+    const oldId = 'bb1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d';
+    await tester.runAsync(() async {
+      await fixture.needs.declare(
+        referenceDate: inCampaign,
+        productId: fixture.litreProductId,
+        quantityBase: 20000,
+      );
+      await seedCalls(store, memberA, [
+        callJson(
+          name: 'Herbicidas invierno 2026',
+          participation: participationJson(
+            lines: {litreRef: 12000, kiloRef: 20000},
+          ),
+        ),
+        callJson(id: newCallId, name: 'Fungicidas de verano', withKilo: false),
+        callJson(
+          id: closedId,
+          name: 'Compra cerrada reciente',
+          status: 'CLOSED',
+          participation: participationJson(),
+          closedAt: '2026-11-05T22:00:00.000Z',
+        ),
+      ], olderCount: 2);
+      await store.saveHistory(
+        memberA,
+        JointPurchaseHistoryPage.fromJson(
+          historyJson([oldCallJson(oldId, finishedAt: '2026-04-01T12:00:00Z')]),
+        ).calls,
+      );
+    });
+    final overrides = [
+      databaseProvider.overrideWithValue(fixture.database),
+      repositoryProvider.overrideWithValue(fixture.repo),
+      declaredNeedStoreProvider.overrideWithValue(fixture.needs),
+      centralBindingStoreProvider.overrideWithValue(fixture.bindings),
+      syncOutboxStoreProvider.overrideWithValue(fixture.outbox),
+      jointPurchaseStoreProvider.overrideWithValue(store),
+    ];
+
+    await pumpRouted(tester, const JointPurchasesScreen(), overrides);
+    await shot(tester, '6.1_convocatorias');
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('joint-history-query')),
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await shot(tester, '6.1b_convocatorias_historial');
+
+    await pumpRouted(
+      tester,
+      const JointPurchaseDetailScreen(callId: callId),
+      overrides,
+    );
+    await shot(tester, '6.2_convocatoria');
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('joint-consent-widen')),
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await shot(tester, '6.2b_convocatoria_quien_ve');
+    await tester.tap(find.byKey(const Key('joint-consent-widen')));
+    await settle(tester);
+    await shot(tester, '6.2c_autorizar_tambien');
+    await tester.tap(find.text('Cancelar'));
+    await settle(tester);
+
+    await pumpRouted(
+      tester,
+      const JointPurchaseDetailScreen(callId: newCallId),
+      overrides,
+    );
+    await shot(tester, '6.2d_convocatoria_sin_participar');
+    await tester.ensureVisible(find.byKey(const Key('joint-participate')));
+    await settle(tester);
+    await tester.tap(find.byKey(const Key('joint-participate')));
+    await settle(tester);
+    await shot(tester, '6.3_participar');
+    await tester.enterText(find.byKey(Key('joint-quantity-$litreRef')), '15');
+    await tester.tap(find.byKey(const Key('joint-quantities-continue')));
+    await settle(tester);
+    await shot(tester, '6.3b_consentimiento');
   });
 }

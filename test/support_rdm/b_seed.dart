@@ -80,13 +80,9 @@ Future<SeedB> seedSessionB(Household h, {DateTime? today}) async {
           expiry: _day(day),
           lot: 'L-2291',
         ),
-        item(
-          insecticide,
-          4000,
-          9000,
-          [AllocationDraft(personId: h.thirdParty, quantityBase: 4000)],
-          expiry: _day(day.subtract(const Duration(days: 1))),
-        ),
+        item(insecticide, 4000, 9000, [
+          AllocationDraft(personId: h.thirdParty, quantityBase: 4000),
+        ], expiry: _day(day.subtract(const Duration(days: 1)))),
       ],
     ),
   );
@@ -105,16 +101,10 @@ Future<SeedB> seedSessionB(Household h, {DateTime? today}) async {
       campaignId: h.campaign,
       purchaseDate: ago(8),
       items: [
-        item(
-          h.product,
-          14500,
-          10050,
-          [
-            AllocationDraft(personId: h.titular, quantityBase: 8500),
-            AllocationDraft(personId: h.relative, quantityBase: 6000),
-          ],
-          expiry: _day(day.add(const Duration(days: 15))),
-        ),
+        item(h.product, 14500, 10050, [
+          AllocationDraft(personId: h.titular, quantityBase: 8500),
+          AllocationDraft(personId: h.relative, quantityBase: 6000),
+        ], expiry: _day(day.add(const Duration(days: 15)))),
       ],
     ),
   );

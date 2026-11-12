@@ -24,9 +24,10 @@ void main() {
     addTearDown(() => tester.binding.setSurfaceSize(null));
     final s = await activatedHousehold(tester, 'licencias');
     final c = await pumpModeApp(tester, s.database);
-    c.read(routerProvider).go('/operaciones');
+    // Rediseño: «Ajustes y datos» se abre desde el engranaje de Inicio.
+    c.read(routerProvider).go('/');
     await settle(tester);
-    await tester.tap(find.text('Más'));
+    await tester.tap(find.byKey(const Key('home-settings')));
     await settle(tester);
 
     final entry = find.byKey(const Key('more-licenses'));
@@ -77,6 +78,9 @@ void main() {
     );
     await settle(tester);
     expect(find.byType(LicensePage), findsNothing);
-    expect(find.text('Administrar datos'), findsOneWidget);
+    expect(
+      find.text('Personas, chacos, productos y proveedores'),
+      findsOneWidget,
+    );
   });
 }

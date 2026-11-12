@@ -643,35 +643,41 @@ void main() {
       JointPurchaseOpStatus.superseded,
     );
     // Las cantidades pendientes siguen intactas.
-    expect((await store.op(modified.operationId))!.sendStatus, JointPurchaseOpStatus.pendingSend);
+    expect(
+      (await store.op(modified.operationId))!.sendStatus,
+      JointPurchaseOpStatus.pendingSend,
+    );
   });
 
-  test('P-C: en una convocatoria cancelada se reduce pero no se amplía', () async {
-    await seedCalls(store, memberA, [
-      callJson(
-        status: 'CANCELLED',
-        participation: participationJson(
-          consentScope: 'COLLABORATORS',
-          consentScopeSequence: 1,
+  test(
+    'P-C: en una convocatoria cancelada se reduce pero no se amplía',
+    () async {
+      await seedCalls(store, memberA, [
+        callJson(
+          status: 'CANCELLED',
+          participation: participationJson(
+            consentScope: 'COLLABORATORS',
+            consentScopeSequence: 1,
+          ),
         ),
-      ),
-    ]);
-    final reduce = await store.decideConsent(
-      callId: callId,
-      scope: JointPurchaseConsentScope.responsibleOnly,
-      decidedAt: now,
-    );
-    expect(reduce, isNotNull);
-    await seedCalls(store, memberA, [
-      callJson(status: 'CANCELLED', participation: participationJson()),
-    ]);
-    await expectLater(
-      store.decideConsent(
+      ]);
+      final reduce = await store.decideConsent(
         callId: callId,
-        scope: JointPurchaseConsentScope.collaborators,
+        scope: JointPurchaseConsentScope.responsibleOnly,
         decidedAt: now,
-      ),
-      throwsA(isA<BusinessRuleException>()),
-    );
-  });
+      );
+      expect(reduce, isNotNull);
+      await seedCalls(store, memberA, [
+        callJson(status: 'CANCELLED', participation: participationJson()),
+      ]);
+      await expectLater(
+        store.decideConsent(
+          callId: callId,
+          scope: JointPurchaseConsentScope.collaborators,
+          decidedAt: now,
+        ),
+        throwsA(isA<BusinessRuleException>()),
+      );
+    },
+  );
 }

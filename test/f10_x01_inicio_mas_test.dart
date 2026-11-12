@@ -153,53 +153,76 @@ void main() {
     expect(payments, isEmpty);
   });
 
-  testWidgets('Operaciones: lo diario y «Más»; Más conserva los accesos y '
-      'Atrás vuelve', (tester) async {
+  testWidgets('Actividad: lo diario y Reportes; Más (desde Inicio) conserva '
+      'los accesos y Atrás vuelve', (tester) async {
     await tester.binding.setSurfaceSize(const Size(800, 2400));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     final s = await activatedHousehold(tester, 'mas');
     final c = await pumpModeApp(tester, s.database);
     c.read(routerProvider).go('/operaciones');
     await settle(tester);
+    // Rediseño B: Actividad filtra por tipo y abre cada lista; Reportes va en
+    // su cabecera. Más y Campañas cuelgan de Inicio (B1).
     for (final title in [
       'Compras',
       'Aplicaciones',
-      'Planificación',
+      'Planes',
       'Transferencias',
-      // Accesos propios desde el 2026-11-05 (presentación móvil).
-      'Campañas',
-      'Reportes',
-      'Más',
     ]) {
       expect(find.text(title), findsOneWidget, reason: title);
     }
-    expect(find.text('Administrar datos'), findsNothing);
+    expect(find.byTooltip('Reportes'), findsOneWidget);
+    expect(find.text('Más'), findsNothing);
+    expect(
+      find.text('Personas, chacos, productos y proveedores'),
+      findsNothing,
+    );
     expect(find.textContaining('FIFO'), findsNothing);
 
-    await tester.tap(find.text('Más'));
+    c.read(routerProvider).go('/');
+    await settle(tester);
+    await tester.tap(find.byKey(const Key('home-settings')));
     await settle(tester);
     // Con `push` el router no cambia la ruta base: se mira la pantalla.
-    expect(find.text('Administrar datos'), findsOneWidget);
-    // Reportes pasó a Operaciones (2026-11-05) y no se repite aquí.
+    expect(find.text('Ajustes y datos'), findsWidgets);
+    // Reportes está en la cabecera de Actividad (2026-11-05) y no se repite
+    // aquí; Vínculos y Compras conjuntas, en la pestaña Sindicato (rediseño).
     expect(find.text('Reportes'), findsNothing);
     for (final title in [
-      'Administrar datos',
-      'Modo de uso',
-      'Vínculos con el sindicato',
-      'Respaldo en la nube',
-      'Copias de seguridad en este teléfono',
-      'PIN del titular',
+      'Personas, chacos, productos y proveedores',
+      'Campañas',
       'Operaciones tardías',
+      'Acceso en línea',
+      'PIN del titular',
+      'Respaldos',
+      'Modo de uso',
       'Registrar por voz',
+      'Licencias',
     ]) {
+      await tester.scrollUntilVisible(
+        find.text(title),
+        100,
+        scrollable: find.byType(Scrollable).first,
+      );
       expect(find.text(title), findsOneWidget, reason: title);
     }
-    await tester.tap(find.text('Administrar datos'));
+    await tester.scrollUntilVisible(
+      find.text('Personas, chacos, productos y proveedores'),
+      -100,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(find.text('Personas, chacos, productos y proveedores'));
     await settle(tester);
     expect(find.text('Catálogos'), findsWidgets);
-    expect(find.text('Administrar datos'), findsNothing);
+    expect(
+      find.text('Personas, chacos, productos y proveedores'),
+      findsNothing,
+    );
     c.read(routerProvider).pop();
     await settle(tester);
-    expect(find.text('Administrar datos'), findsOneWidget);
+    expect(
+      find.text('Personas, chacos, productos y proveedores'),
+      findsOneWidget,
+    );
   });
 }
