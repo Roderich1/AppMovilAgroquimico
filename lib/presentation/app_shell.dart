@@ -156,6 +156,8 @@ class AppShell extends StatefulWidget {
     // registro: dos «Registrar» iguales competirían (sesión A).
     '/aplicaciones',
     '/planificacion',
+    // La lista de Compras tiene «Nueva compra» (sesión B, entrega 3).
+    '/compras',
     // Ajustes y Respaldos son consultas y ajustes: no inician operaciones
     // (láminas «Ajustes» y «Respaldos», sin botón flotante).
     '/mas',

@@ -27,14 +27,10 @@ Future<void> showRegisterSheet(
   showDragHandle: true,
   builder: (sheetContext) {
     final large = MediaQuery.textScalerOf(sheetContext).scale(1) >= 1.5;
-    void open(String path, {String? done, bool stack = true}) {
+    void open(String path, {String? done}) {
       Navigator.of(sheetContext).pop();
       WidgetsBinding.instance.addPostFrameCallback((_) async {
         if (!context.mounted) return;
-        if (!stack) {
-          context.go(path);
-          return;
-        }
         final saved = await context.push<bool>(path);
         if (done != null && saved == true && context.mounted) {
           showSuccess(context, done);
@@ -122,7 +118,14 @@ Future<void> showRegisterSheet(
                   icon: Icons.payments_outlined,
                   label: 'Pago',
                   hint: 'En Cuentas',
-                  onTap: () => open('/liquidacion', stack: false),
+                  onTap: () {
+                    // Pago se elige en Cuentas (no es un formulario): se va a
+                    // la pantalla, sin apilar.
+                    Navigator.of(sheetContext).pop();
+                    WidgetsBinding.instance.addPostFrameCallback((_) {
+                      if (context.mounted) context.go('/liquidacion');
+                    });
+                  },
                 ),
                 if (transfersEnabled)
                   row(
