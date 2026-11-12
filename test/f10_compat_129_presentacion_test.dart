@@ -31,6 +31,7 @@ import 'package:agroquimicos/presentation/app_shell.dart';
 import 'package:agroquimicos/presentation/screens/dashboard_screen.dart';
 import 'package:agroquimicos/presentation/screens/purchase_form_screen.dart';
 import 'package:agroquimicos/presentation/widgets/adaptive_entity_picker.dart';
+import 'package:agroquimicos/presentation/widgets/agro_ui.dart' show AgroGroup;
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
@@ -90,6 +91,23 @@ void main() {
       loader.addFont(Future.value(ByteData.sublistView(bytes)));
     }
     await loader.load();
+    // Rediseño (2026-11-12): las pantallas nuevas usan DM Sans y Bricolage
+    // Grotesque empaquetadas; sin cargarlas se medirían con la fuente de
+    // cuadrados, que no representa el teléfono (mismo motivo que Roboto).
+    for (final (family, files) in [
+      ('DM Sans', ['DMSans-400', 'DMSans-500', 'DMSans-700']),
+      (
+        'Bricolage Grotesque',
+        ['BricolageGrotesque-700', 'BricolageGrotesque-800'],
+      ),
+    ]) {
+      final bundled = FontLoader(family);
+      for (final name in files) {
+        final bytes = File('assets/fonts/$name.ttf').readAsBytesSync();
+        bundled.addFont(Future.value(ByteData.sublistView(bytes)));
+      }
+      await bundled.load();
+    }
   });
 
   Future<void> settle(WidgetTester tester) async {
@@ -295,7 +313,6 @@ void main() {
     testWidgets('Inicio: tarjetas, encabezados y barra inferior sin palabras '
         'partidas; importes fuera del botón «Nuevo» ($label)', (tester) async {
       configure(tester, device, scale);
-      final size = logicalSize(device);
       final repo = (await tester.runAsync(repository))!;
       addTearDown(() => repo.appDatabase.close());
       await tester.pumpWidget(
@@ -316,33 +333,35 @@ void main() {
         reason: 'datos cargados',
       );
 
-      // Etiquetas de las tarjetas de importes.
+      // Rediseño B: etiquetas de las cifras de la cabecera de Inicio.
       for (final card in [
+        'Por cobrar',
         'Compras',
-        'Pagado proveedores',
-        'Familias por cobrar',
-        'Terceros por cobrar',
+        'Pagado a proveedores',
         'Pagos recibidos',
       ]) {
-        expectWordsWhole(tester, find.text(card), 'tarjeta «$card»');
+        expectWordsWhole(tester, find.text(card), 'cifra «$card»');
       }
-      // Encabezados de sección con su acción.
-      for (final heading in [
-        'Inventario proyectado',
-        'Aplicaciones recientes',
-        'Principales saldos',
-      ]) {
-        expectWordsWhole(tester, find.text(heading), 'encabezado «$heading»');
-      }
-      for (final action in ['Ver todos', 'Ver todas']) {
-        for (final element in find.text(action).evaluate()) {
-          expectOnScreen(
+      for (final key in ['home-receivable-family', 'home-receivable-third']) {
+        for (final element in find.byKey(Key(key)).evaluate()) {
+          expectWordsWhole(
             tester,
             find.byElementPredicate((e) => e == element),
-            size,
+            'cifra «$key»',
           );
         }
       }
+      // Encabezados de sección.
+      for (final heading in ['Para atender', 'Principales saldos']) {
+        for (final element in find.text(heading).evaluate()) {
+          expectWordsWhole(
+            tester,
+            find.byElementPredicate((e) => e == element),
+            'encabezado «$heading»',
+          );
+        }
+      }
+      expect(find.text('Para atender'), findsOneWidget);
       // Barra inferior: cada destino en una línea, sin partir.
       final bar = find.byType(NavigationBar);
       for (final item in AppShell.destinations) {
@@ -376,7 +395,15 @@ void main() {
         await tester.pump();
       }
       await tester.pump(const Duration(seconds: 1));
-      final last = tester.getRect(find.byType(Card).last);
+      // Rediseño B: el último bloque es un grupo blanco o el de la sesión.
+      final last = tester.getRect(
+        find
+            .byWidgetPredicate(
+              (w) =>
+                  w is AgroGroup || w.key == const Key('home-session-routine'),
+            )
+            .last,
+      );
       final viewport = tester.getRect(scrollable);
       expect(
         last.bottom,

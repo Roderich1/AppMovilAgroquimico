@@ -405,15 +405,12 @@ void main() {
         'de «Principales saldos» (D-04: 101 y Titular 81)', (tester) async {
       final e = await seeded(tester);
       await pump(tester, e.w.repo, const DashboardScreen());
-      final familias = find
-          .ancestor(
-            of: find.text('Familias por cobrar'),
-            matching: find.byType(Card),
-          )
-          .first;
+      // Rediseño B: el importe de las familias va en la cabecera de Inicio.
       expect(
-        find.descendant(of: familias, matching: find.textContaining(bs(2000))),
-        findsOneWidget,
+        tester
+            .widget<Text>(find.byKey(const Key('home-receivable-family')))
+            .data,
+        contains(bs(2000)),
       );
       expect(find.text('Titular'), findsNothing);
       expect(find.text('Familiar Demo'), findsOneWidget);

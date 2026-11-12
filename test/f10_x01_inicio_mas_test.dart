@@ -102,7 +102,9 @@ void main() {
     // Ver cuánto queda lleva al inventario.
     await tapKey(tester, 'home-ver-cuanto-queda');
     expect(currentPath(c), '/inventario');
-    expect(find.text('Inventario'), findsWidgets);
+    // Rediseño B: la pantalla se llama Almacén (como su pestaña).
+    expect(find.byKey(const Key('page-frame-title')), findsOneWidget);
+    expect(find.text('Almacén'), findsWidgets);
     c.read(routerProvider).go('/');
     await settle(tester);
 

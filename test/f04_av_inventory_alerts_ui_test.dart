@@ -34,6 +34,13 @@ import 'support/purchase_form_driver.dart';
 typedef Row = Map<String, Object?>;
 
 void main() {
+  /// Cifra de una de las fichas de avisos del Almacén.
+  void expectTile(String key, String count) => expect(
+    find.descendant(of: find.byKey(Key(key)), matching: find.text(count)),
+    findsOneWidget,
+    reason: key,
+  );
+
   sqfliteFfiInit();
 
   Finder field(String label) => find.byWidgetPredicate(
@@ -548,11 +555,14 @@ void main() {
     });
     final c = await pumpModeApp(tester, s.database);
     c.read(routerProvider).go('/inventario');
-    await waitFor(tester, find.textContaining('bajo en el total'));
+    // Rediseño B: los productos bajos en el total van en su ficha; el resto,
+    // en el resumen de «Todos los avisos», con lo que cuenta cada cifra.
+    await waitFor(tester, find.byKey(const Key('inventory-tile-low')));
+    expectTile('inventory-tile-low', '1');
     expect(
       find.text(
-        '1 bajo en el total · 2 bajos por responsable · '
-        '2 sin fecha registrada',
+        '2 existencias bajas por responsable · '
+        '2 lotes sin fecha registrada',
       ),
       findsOneWidget,
     );
@@ -612,11 +622,16 @@ void main() {
     final c = await pumpModeApp(tester, s.database);
     c.read(routerProvider).go('/inventario');
     await waitFor(tester, find.byKey(const Key('inventory-alerts-entry')));
-    await waitFor(tester, find.textContaining('1 vencido'));
+    // Rediseño B: vencidos, de hoy y bajos en el total en sus fichas; el
+    // resto en el resumen de «Todos los avisos».
+    await waitFor(tester, find.byKey(const Key('inventory-tile-expired')));
+    expectTile('inventory-tile-expired', '1');
+    expectTile('inventory-tile-today', '1');
+    expectTile('inventory-tile-low', '0');
     expect(
       find.text(
-        '1 vencido · 1 vence hoy · 1 por vencer · 1 bajo por responsable · '
-        '1 sin fecha registrada',
+        '1 lote por vencer · 1 existencia baja por responsable · '
+        '1 lote sin fecha registrada',
       ),
       findsOneWidget,
     );
