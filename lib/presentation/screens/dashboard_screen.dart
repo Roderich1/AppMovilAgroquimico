@@ -115,8 +115,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     if (active == null) {
       showError(
         context,
-        'Activa una campaña antes de registrar aplicaciones: Operaciones, '
-        'Más, Administrar datos.',
+        // B1: Campañas se abre desde la campaña de la cabecera de Inicio.
+        'Active una campaña antes de registrar aplicaciones: toque la '
+        'campaña arriba en Inicio.',
       );
       return;
     }
