@@ -8,7 +8,10 @@ import '../../domain/operation_mode.dart';
 import '../../operation_mode_controller.dart';
 import '../widgets/campaign_actions.dart';
 import '../widgets/catalog_dialogs.dart';
+import '../theme/agro_theme.dart';
+import '../widgets/agro_ui.dart';
 import '../widgets/common.dart';
+import '../widgets/rdm_c_page.dart';
 import '../widgets/label_photo_sheet.dart';
 
 class CatalogsScreen extends ConsumerStatefulWidget {
@@ -188,9 +191,10 @@ class _CatalogsScreenState extends ConsumerState<CatalogsScreen>
     return _page(context, personal);
   }
 
-  Widget _page(BuildContext context, bool personal) => PageFrame(
-    title: 'Catálogos',
-    subtitle: 'Personas, chacos, insumos y campañas.',
+  Widget _page(BuildContext context, bool personal) => RdmCPage(
+    // Rediseño (lámina «Datos»), desde «Ajustes y datos».
+    title: 'Datos',
+    subtitle: 'Personas, chacos, productos, proveedores y campañas.',
     // **UIBUG-047 — jerarquía de acciones en `/catalogos`.** La pantalla
     // presentaba dos acciones visualmente primarias: este botón y el FAB
     // global "Nuevo". Se conserva el botón específico, que dice **qué** va a
@@ -210,17 +214,6 @@ class _CatalogsScreenState extends ConsumerState<CatalogsScreen>
           ),
     child: Column(
       children: [
-        TextField(
-          onChanged: (value) => setState(() {
-            query = value.trim().toLowerCase();
-          }),
-          decoration: const InputDecoration(
-            prefixIcon: Icon(Icons.search),
-            labelText: 'Buscar en esta sección',
-            isDense: true,
-          ),
-        ),
-        const SizedBox(height: 8),
         Align(
           alignment: Alignment.centerLeft,
           child: Wrap(
@@ -243,17 +236,26 @@ class _CatalogsScreenState extends ConsumerState<CatalogsScreen>
           ),
         ),
         const SizedBox(height: 12),
+        TextField(
+          onChanged: (value) => setState(() {
+            query = value.trim().toLowerCase();
+          }),
+          decoration: const InputDecoration(
+            prefixIcon: Icon(Icons.search),
+            labelText: 'Buscar en esta sección',
+            isDense: true,
+            filled: true,
+            fillColor: AgroColors.surface,
+          ),
+        ),
+        const SizedBox(height: 12),
         if (personal && tabs.index == 0) ...[
-          const Card(
+          const NoticeBox(
             key: Key('catalogs-personal-persons-notice'),
-            child: Padding(
-              padding: EdgeInsets.all(14),
-              child: Text(
+            text:
                 'Inventario propio: registra sólo el titular. Para agregar '
                 'responsables, cambie a inventario compartido en Modo de uso. '
                 'Las personas ya registradas y su historial se conservan.',
-              ),
-            ),
           ),
           const SizedBox(height: 12),
         ],
@@ -285,103 +287,116 @@ class _CatalogsScreenState extends ConsumerState<CatalogsScreen>
                   icon: Icons.add_circle_outline,
                   message: 'No hay registros. Usa Agregar para comenzar.',
                 );
-              return Card(
-                child: ListView.separated(
-                  // La lista ya no tiene altura propia: crece con su contenido
-                  // y se desplaza con la página (UIBUG-018).
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  itemCount: rows.length,
-                  separatorBuilder: (_, __) => const Divider(height: 1),
-                  itemBuilder: (_, index) {
-                    final row = rows[index];
-                    final (title, subtitle, icon) = switch (tabs.index) {
-                      0 => (
-                        row['name'].toString(),
-                        '${_roleLabel(row['role']! as String)} · ${_policyLabel(row['settlement_policy']! as String)}',
-                        Icons.person_outline,
-                      ),
-                      1 => (
-                        row['name'].toString(),
-                        '${row['owner_name']} · ${formatHectares(row['area_m2'] as int)}',
-                        Icons.landscape_outlined,
-                      ),
-                      2 => (
-                        row['name'].toString(),
-                        '${row['active_ingredient'] ?? 'Sin ingrediente'} · ${row['unit']}'
-                            '${row['photo_path'] == null ? '' : ' · Con foto de la etiqueta'}',
-                        Icons.science_outlined,
-                      ),
-                      3 => (
-                        row['name'].toString(),
-                        row['phone']?.toString() ?? 'Proveedor',
-                        Icons.storefront_outlined,
-                      ),
-                      _ => (
-                        row['name'].toString(),
-                        campaignSubtitle(row, snapshot.data![tabs.index]),
-                        Icons.calendar_month_outlined,
-                      ),
-                    };
-                    return ListTile(
-                      leading: CircleAvatar(child: Icon(icon)),
-                      title: Text(title),
-                      subtitle: Text(subtitle),
-                      trailing: PopupMenuButton<String>(
-                        onSelected: (value) => tabs.index == 4
-                            ? _campaignAction(value, row)
-                            : value == 'edit'
-                            ? _edit(row)
-                            : value == 'photo'
-                            ? _labelPhoto(row)
-                            : _archive(row),
-                        itemBuilder: (_) => tabs.index == 4
-                            ? [
-                                const PopupMenuItem(
-                                  value: 'edit',
-                                  child: Text('Editar'),
-                                ),
-                                // **UIBUG-059 — una campaña cerrada es
-                                // terminal.** Antes bastaba con no estar
-                                // `ACTIVE` para ofrecer "Activar", así que una
-                                // campaña cerrada —un periodo contable ya
-                                // terminado— podía reabrirse con dos toques.
-                                // Sólo se puede activar lo que aún no ha
-                                // vivido: `PLANNED`. El repositorio rechaza
-                                // además la reactivación, por si se llega por
-                                // otro camino.
-                                if (row['status'] == 'PLANNED')
+              return AgroGroup(
+                children: [
+                  ListView.separated(
+                    // La lista ya no tiene altura propia: crece con su contenido
+                    // y se desplaza con la página (UIBUG-018).
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: rows.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemBuilder: (_, index) {
+                      final row = rows[index];
+                      final (title, subtitle, icon) = switch (tabs.index) {
+                        0 => (
+                          row['name'].toString(),
+                          '${_roleLabel(row['role']! as String)} · ${_policyLabel(row['settlement_policy']! as String)}',
+                          Icons.person_outline,
+                        ),
+                        1 => (
+                          row['name'].toString(),
+                          '${row['owner_name']} · ${formatHectares(row['area_m2'] as int)}',
+                          Icons.landscape_outlined,
+                        ),
+                        2 => (
+                          row['name'].toString(),
+                          '${row['active_ingredient'] ?? 'Sin ingrediente'} · ${row['unit']}'
+                              '${row['photo_path'] == null ? '' : ' · Con foto de la etiqueta'}',
+                          Icons.science_outlined,
+                        ),
+                        3 => (
+                          row['name'].toString(),
+                          row['phone']?.toString() ?? 'Proveedor',
+                          Icons.storefront_outlined,
+                        ),
+                        _ => (
+                          row['name'].toString(),
+                          campaignSubtitle(row, snapshot.data![tabs.index]),
+                          Icons.calendar_month_outlined,
+                        ),
+                      };
+                      return ListTile(
+                        // Personas con su inicial, como en la lámina; el resto
+                        // con el icono de su sección.
+                        leading: CircleAvatar(
+                          backgroundColor: AgroColors.chip,
+                          foregroundColor: AgroColors.ink,
+                          child: tabs.index == 0 && title.isNotEmpty
+                              ? Text(
+                                  title.characters.first.toUpperCase(),
+                                  style: AgroText.value,
+                                )
+                              : Icon(icon),
+                        ),
+                        title: Text(title, style: AgroText.value),
+                        subtitle: Text(subtitle),
+                        trailing: PopupMenuButton<String>(
+                          onSelected: (value) => tabs.index == 4
+                              ? _campaignAction(value, row)
+                              : value == 'edit'
+                              ? _edit(row)
+                              : value == 'photo'
+                              ? _labelPhoto(row)
+                              : _archive(row),
+                          itemBuilder: (_) => tabs.index == 4
+                              ? [
                                   const PopupMenuItem(
-                                    value: 'activate',
-                                    child: Text('Activar'),
+                                    value: 'edit',
+                                    child: Text('Editar'),
                                   ),
-                                if (row['status'] == 'ACTIVE')
+                                  // **UIBUG-059 — una campaña cerrada es
+                                  // terminal.** Antes bastaba con no estar
+                                  // `ACTIVE` para ofrecer "Activar", así que una
+                                  // campaña cerrada —un periodo contable ya
+                                  // terminado— podía reabrirse con dos toques.
+                                  // Sólo se puede activar lo que aún no ha
+                                  // vivido: `PLANNED`. El repositorio rechaza
+                                  // además la reactivación, por si se llega por
+                                  // otro camino.
+                                  if (row['status'] == 'PLANNED')
+                                    const PopupMenuItem(
+                                      value: 'activate',
+                                      child: Text('Activar'),
+                                    ),
+                                  if (row['status'] == 'ACTIVE')
+                                    const PopupMenuItem(
+                                      value: 'close',
+                                      child: Text('Cerrar'),
+                                    ),
+                                ]
+                              : [
                                   const PopupMenuItem(
-                                    value: 'close',
-                                    child: Text('Cerrar'),
+                                    value: 'edit',
+                                    child: Text('Editar'),
                                   ),
-                              ]
-                            : [
-                                const PopupMenuItem(
-                                  value: 'edit',
-                                  child: Text('Editar'),
-                                ),
-                                // E1: la foto de la etiqueta, sólo en
-                                // Productos.
-                                if (tabs.index == 2)
+                                  // E1: la foto de la etiqueta, sólo en
+                                  // Productos.
+                                  if (tabs.index == 2)
+                                    const PopupMenuItem(
+                                      value: 'photo',
+                                      child: Text('Foto de la etiqueta'),
+                                    ),
                                   const PopupMenuItem(
-                                    value: 'photo',
-                                    child: Text('Foto de la etiqueta'),
+                                    value: 'archive',
+                                    child: Text('Archivar'),
                                   ),
-                                const PopupMenuItem(
-                                  value: 'archive',
-                                  child: Text('Archivar'),
-                                ),
-                              ],
-                      ),
-                    );
-                  },
-                ),
+                                ],
+                        ),
+                      );
+                    },
+                  ),
+                ],
               );
             },
           ),

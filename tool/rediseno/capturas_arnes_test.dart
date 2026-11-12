@@ -258,6 +258,11 @@ void main() {
     c.read(routerProvider).push('/mas');
     await settle(tester);
     await shot(tester, '7.1_ajustes$tag');
+    c.read(routerProvider).push('/catalogos');
+    await settle(tester);
+    await shot(tester, '7.2_datos$tag');
+    c.read(routerProvider).pop();
+    await settle(tester);
     c.read(routerProvider).push('/respaldo-remoto');
     await settle(tester);
     await shot(tester, '7.6_respaldos$tag');

@@ -213,7 +213,7 @@ void main() {
     );
     await tester.tap(find.text('Personas, chacos, productos y proveedores'));
     await settle(tester);
-    expect(find.text('Catálogos'), findsWidgets);
+    expect(find.text('Datos'), findsWidgets);
     expect(
       find.text('Personas, chacos, productos y proveedores'),
       findsNothing,
