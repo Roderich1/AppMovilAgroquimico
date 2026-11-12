@@ -444,12 +444,12 @@ void main() {
       await waitFor(tester, find.text('Actividad').first);
 
       await tester.tap(find.text('Actividad').first);
-      // Reportes tiene acceso propio en Operaciones (2026-11-05); antes
-      // vivía en «Más» (piloto X01).
-      await waitFor(tester, find.text('Reportes'));
-      expect(find.text('Reportes'), findsOneWidget);
+      // Reportes tiene acceso propio en Actividad: el botón de su cabecera
+      // (rediseño, 2026-11-12; antes una tarjeta de Operaciones).
+      await waitFor(tester, find.byTooltip('Reportes'));
+      expect(find.byTooltip('Reportes'), findsOneWidget);
 
-      await tester.tap(find.text('Reportes'));
+      await tester.tap(find.byTooltip('Reportes'));
       // Se espera a "Formato", que sólo existe cuando la pantalla TERMINÓ de
       // cargar: el subtítulo aparece antes, y volver atrás con la lectura a
       // medias dejaría viva la consulta a SQLite.
@@ -460,8 +460,8 @@ void main() {
       );
 
       await tester.tap(find.byTooltip('Volver'));
-      await waitFor(tester, find.text('Campañas'));
-      expect(find.text('Campañas'), findsOneWidget);
+      await waitFor(tester, find.byTooltip('Reportes'));
+      expect(find.byTooltip('Reportes'), findsOneWidget);
       expect(tester.takeException(), isNull);
       // Deja terminar la animación de transición: `waitFor` para en cuanto
       // aparece el texto, y una ruta a medio animar deja un temporizador vivo.
