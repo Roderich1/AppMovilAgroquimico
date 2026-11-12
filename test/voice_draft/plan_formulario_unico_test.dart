@@ -195,4 +195,25 @@ void main() {
     expect(find.text('Productos (1)'), findsOneWidget);
     expect(text(tester, 'Dosis (L/ha)'), '3');
   });
+
+  testWidgets('deshacer el dictado retira también la elección de chaco y '
+      'área que planteó; el chaco elegido sigue y se puede guardar', (
+    tester,
+  ) async {
+    await open(tester, 'p-deshacer-eleccion', [
+      const FakeTurn(segment: full, endsOnStop: true),
+    ]);
+    await choose(tester, 'Chaco', 'Chaco hermana');
+    await tapKey(tester, 'plan-completar-voz');
+    await dictate(tester);
+    expect(find.byKey(const Key('voz-elegir-farm')), findsOneWidget);
+    expect(saveEnabled(tester), isFalse);
+    await tapKey(tester, 'voz-deshacer');
+    expect(find.byKey(const Key('voz-elegir-farm')), findsNothing);
+    expect(find.byKey(const Key('voz-elegir-area')), findsNothing);
+    expect(find.byKey(const Key('voz-bloqueo-guardar')), findsNothing);
+    expect(saveEnabled(tester), isTrue);
+    expect(picked(tester, 'Chaco'), 'Chaco hermana');
+    expect(text(tester, 'Área planificada'), '0,5');
+  });
 }

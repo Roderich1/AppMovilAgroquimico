@@ -179,6 +179,26 @@ void main() {
     expect(find.byKey(const Key('voz-bloqueo-guardar')), findsOneWidget);
   });
 
+  testWidgets('deshacer el dictado retira también la revisión del chaco '
+      'ajeno que planteó; la persona y el chaco elegidos siguen', (
+    tester,
+  ) async {
+    await open(tester, 'a-deshacer-revision', [
+      const FakeTurn(segment: full, endsOnStop: true),
+    ]);
+    await choose(tester, 'Persona', 'Hermana');
+    await openPanel(tester);
+    await dictate(tester);
+    expect(find.byKey(const Key('voz-revisar-farm')), findsOneWidget);
+    expect(enabled(tester, 'application-continue'), isFalse);
+    await tapKey(tester, 'voz-deshacer');
+    expect(find.byKey(const Key('voz-revisar-farm')), findsNothing);
+    expect(find.byKey(const Key('voz-bloqueo-guardar')), findsNothing);
+    expect(enabled(tester, 'application-continue'), isTrue);
+    expect(picked(tester, 'Persona'), 'Hermana');
+    expect(picked(tester, 'Chaco'), 'Chaco hermana');
+  });
+
   testWidgets('pedir un plan por voz ofrece los planes pendientes y abre el '
       'recorrido de siempre «Aplicar este plan»', (tester) async {
     await open(tester, 'a-plan', [
