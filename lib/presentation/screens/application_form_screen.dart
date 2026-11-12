@@ -1246,31 +1246,20 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen>
             // En compartido se elige a la persona responsable del chaco: se
             // usan sus existencias y se le aplica su forma de cobro (no se
             // registra a quien hizo el trabajo). Rótulo vigente «Persona».
-            Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                AdaptiveEntityPicker<Map<String, Object?>>(
-                  rowStyle: true,
-                  label: 'Persona',
-                  items: data.people,
-                  value: person,
-                  labelOf: (p) => p['name'] as String,
-                  secondaryOf: (p) => personRoleLabel(p['role']),
-                  onChanged: selectPerson,
-                  // Sólo en compartido (aquí nunca es propio ni de un plan),
-                  // con la regla de Catálogos; la vuelve a comprobar el alta.
-                  createLabel: 'Agregar persona',
-                  onCreate: _createPerson,
-                ),
-                const Padding(
-                  padding: EdgeInsets.fromLTRB(16, 0, 16, 10),
-                  child: Text(
-                    'Responsable del chaco · se usan sus productos',
-                    key: Key('application-person-hint'),
-                    style: AgroText.detail,
-                  ),
-                ),
-              ],
+            AdaptiveEntityPicker<Map<String, Object?>>(
+              rowStyle: true,
+              label: 'Persona',
+              hint: 'Responsable del chaco · se usan sus productos',
+              hintKey: const Key('application-person-hint'),
+              items: data.people,
+              value: person,
+              labelOf: (p) => p['name'] as String,
+              secondaryOf: (p) => personRoleLabel(p['role']),
+              onChanged: selectPerson,
+              // Sólo en compartido (aquí nunca es propio ni de un plan), con
+              // la regla de Catálogos; la vuelve a comprobar el alta.
+              createLabel: 'Agregar persona',
+              onCreate: _createPerson,
             ),
           if (widget.planId == null)
             AdaptiveEntityPicker<Map<String, Object?>>(
