@@ -94,7 +94,7 @@ Worktree temporal `_wt/RDM-BASE` (detached en `01b2576`): sólo para comparar co
 10. La lámina «Nuevo período histórico» corresponde a la función de **Operaciones tardías** (botón «Período histórico»), no a Campañas: se dejó con su diálogo vigente.
 
 11. **P-A**: integrada (`91f2e73`, suite 3055/3/0), **instalada** en `emulator-5556` (APK `6e82fd2b…`, esquema 19, datos conservados) y **recorrida conectada** a–f con Back `_wt/RDM-BE` en `49ed870` (evidencia `integracion/README.md`, `pa_api.txt`). Pendiente: el punto g (app anterior, contrato 2) lo hace la sesión F; revisión del autor.
-13. `9264191` («+ Registrar» fuera de Convocatorias): en la rama, **no instalado**; instalarlo requiere recompilar con el mismo túnel (o uno nuevo) y la autorización del autor.
+13. `9264191` («+ Registrar» fuera de Convocatorias): en la rama, suite completa 3055/3/0 sobre `79de523` (mismo código), **no instalado**; `_wt/RDM-BE` avanzó a `361416a` (sólo una prueba de Back, Web y docs respecto de `49ed870`; sin reconstruir); instalarlo requiere recompilar con el mismo túnel (o uno nuevo) y la autorización del autor.
 14. Túnel temporal **abierto** al cerrar la sesión de la noche (para la revisión conectada del autor); cerrarlo con `rdm_env.sh untunnel` cuando termine. Con otro túnel hay que recompilar.
 12. PDF «Estado de cuenta»: columnas truncadas con «…» en A4 vertical (maquetación anterior al rediseño; no se tocó).
 

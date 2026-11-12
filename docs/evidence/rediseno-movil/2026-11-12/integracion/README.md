@@ -17,6 +17,8 @@
 | Focalizadas sobre `d6c4c4d` (Actividad, Almacén, «+ Registrar»; 19 archivos) | `flutter test --concurrency=4 …` | 159 pasan, 0 fallan |
 | Focalizadas de P-A tras fusionar (`91f2e73`) | e2_*, migration, rec_039, reportes | 177 pasan, 0 fallan |
 | Suite completa sobre `91f2e73` (con P-A, esquema v19) | `flutter test --concurrency=4` | **3055 pasan, 3 omitidas, 0 fallan** (07:08) |
+| Focalizadas sobre `9264191` (FAB y convocatorias; 15 archivos) | `flutter test --concurrency=4 …` | 184 pasan, 0 fallan |
+| Suite completa sobre `79de523` (mismo código que `9264191`; después sólo `docs/`) | `flutter test --concurrency=4` | **3055 pasan, 3 omitidas, 0 fallan** (07:11) |
 | Pruebas focalizadas tras cada fusión | ver `COORDINACION.md` | verdes |
 
 ## APK
