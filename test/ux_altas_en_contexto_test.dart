@@ -437,6 +437,6 @@ void main() {
     await settle(tester);
     await tester.tap(find.text('Aplicación'));
     await settle(tester);
-    expect(find.text('Nueva aplicación'), findsOneWidget);
+    expect(find.byKey(const Key('application-step')), findsOneWidget);
   });
 }

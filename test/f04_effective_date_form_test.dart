@@ -373,7 +373,7 @@ void main() {
       expect(
         find.descendant(
           of: dateTile(tile),
-          matching: find.textContaining('(hoy)'),
+          matching: find.textContaining('Hoy, '),
         ),
         findsOneWidget,
       );
@@ -417,7 +417,7 @@ void main() {
       expect(
         find.descendant(
           of: dateTile(tile),
-          matching: find.textContaining('(hoy)'),
+          matching: find.textContaining('Hoy, '),
         ),
         findsOneWidget,
       );

@@ -109,7 +109,7 @@ void main() {
       await type(tester, '200');
       expect(
         find.text(
-          'Pediste 200 L y hay 1,5 L. Baja la cantidad o registra primero la '
+          'Pidió 200 L y hay 1,5 L. Baje la cantidad o registre primero la '
           'compra.',
         ),
         findsOneWidget,
@@ -120,7 +120,7 @@ void main() {
       expect(find.text('Guardar cambios'), findsOneWidget);
 
       await type(tester, '1,5');
-      expect(find.textContaining('Pediste'), findsNothing);
+      expect(find.textContaining('Pidió'), findsNothing);
       expect(addEnabled(tester), isTrue);
       await tapKey(tester, 'application-line-add');
       expect(find.text('Guardar cambios'), findsNothing);
@@ -139,7 +139,7 @@ void main() {
       expect(
         find.descendant(
           of: picker('Producto'),
-          matching: find.text('Seleccionar'),
+          matching: find.text('Elegir'),
         ),
         findsOneWidget,
       );
@@ -149,7 +149,7 @@ void main() {
       await type(tester, '1');
       expect(
         find.text(
-          'Pediste 1 L y hay 0,5 L. Baja la cantidad o registra primero la '
+          'Pidió 1 L y hay 0,5 L. Baje la cantidad o registre primero la '
           'compra.',
         ),
         findsOneWidget,

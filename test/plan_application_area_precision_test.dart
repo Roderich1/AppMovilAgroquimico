@@ -142,7 +142,7 @@ void main() {
     ]);
   }
 
-  Finder areaField() => find.widgetWithText(TextField, 'Área tratada (ha)');
+  Finder areaField() => find.widgetWithText(TextField, 'Área tratada');
 
   final navigator = GlobalKey<NavigatorState>();
 
