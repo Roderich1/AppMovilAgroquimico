@@ -6,8 +6,12 @@ import '../../domain/money.dart' show baseUnitsPerMajor, formatQuantity;
 import '../../domain/numeric_input.dart' show formatForInput, parseBaseQuantity;
 import '../../domain/sync/joint_purchase_call_view.dart';
 import '../../services/sync/sync_providers.dart';
+import '../theme/agro_theme.dart';
+import '../widgets/agro_ui.dart';
 import '../widgets/common.dart';
 import '../widgets/joint_purchase_texts.dart';
+import '../widgets/rdm_c_joint.dart';
+import '../widgets/rdm_c_page.dart';
 import 'joint_purchases_screen.dart' show refreshProblem;
 
 typedef _Detail = ({JointPurchaseCall? call, Map<String, int> declared});
@@ -57,14 +61,20 @@ class _JointPurchaseDetailScreenState
     });
   }
 
-  Future<void> _participate(JointPurchaseCall call) async {
+  Future<void> _participate(
+    JointPurchaseCall call,
+    Map<String, int> declared,
+  ) async {
     final initial = call.pendingOp?.isWithdraw == false
         ? call.pendingOp!.lines
         : call.acceptedActive?.lines ?? const <String, int>{};
-    final lines = await showDialog<Map<String, int>>(
-      context: context,
-      builder: (_) =>
-          ParticipationQuantitiesDialog(call: call, initial: initial),
+    final lines = await showRdmCSheet<Map<String, int>>(
+      context,
+      builder: (_) => ParticipationQuantitiesDialog(
+        call: call,
+        initial: initial,
+        declared: declared,
+      ),
     );
     if (lines == null || !mounted) return;
     // E2 §10.6: el consentimiento se pide sólo para participar por primera
@@ -199,7 +209,7 @@ class _JointPurchaseDetailScreenState
       future: detail,
       builder: (context, snapshot) {
         if (snapshot.hasError) {
-          return PageFrame(
+          return RdmCPage(
             title: 'Compra conjunta',
             child: EmptyState(
               icon: Icons.error_outline,
@@ -208,16 +218,16 @@ class _JointPurchaseDetailScreenState
           );
         }
         if (!snapshot.hasData) {
-          return const PageFrame(
+          return const RdmCPage(
             title: 'Compra conjunta',
             child: Center(child: CircularProgressIndicator()),
           );
         }
         final call = snapshot.data!.call;
         if (call == null) {
-          return const PageFrame(
+          return const RdmCPage(
             title: 'Compra conjunta',
-            child: EmptyState(
+            child: RdmCEmpty(
               icon: Icons.search_off_outlined,
               message:
                   'Esta convocatoria no está en el teléfono para el titular '
@@ -225,7 +235,7 @@ class _JointPurchaseDetailScreenState
             ),
           );
         }
-        return PageFrame(
+        return RdmCPage(
           title: call.name,
           child: _body(context, call, snapshot.data!.declared),
         );
@@ -254,141 +264,244 @@ class _JointPurchaseDetailScreenState
         JointPurchaseConsentScope.responsibleOnly;
     final accepted = acceptedText(call);
     final pending = pendingText(call);
-    final bold = const TextStyle(fontWeight: FontWeight.w700);
+    final consentResult = jointPurchaseConsentResultText(call);
     return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Card(
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Chip(
-                  label: Text(callStatusText(call)),
-                  visualDensity: VisualDensity.compact,
-                ),
-                if (call.campaignName != null)
-                  Text('Campaña: ${call.campaignName}'),
-                Text(callDeadlineText(call)),
-                if (call.responsibleName != null)
-                  Text('Responsable: ${call.responsibleName}'),
-              ],
-            ),
-          ),
-        ),
-        const SectionHeading(title: 'Productos'),
-        for (final product in call.products)
-          ListTile(
-            dense: true,
-            contentPadding: EdgeInsets.zero,
-            title: Text('${product.name} (${product.unit})'),
-            subtitle: declared[product.productRef] == null
-                ? null
-                : Text(
-                    'Su necesidad declarada para esta campaña: '
-                    '${formatQuantity(declared[product.productRef]!, product.unit)}',
-                  ),
-          ),
-        if (declared.isNotEmpty)
-          const Text(
-            'La necesidad declarada es sólo una referencia: no se suma a su '
-            'participación.',
-          ),
-        const SizedBox(height: 8),
-        const SectionHeading(title: 'Su participación'),
-        if (opText != null)
-          Chip(
-            key: const Key('joint-op-status'),
-            label: Text(opText),
-            visualDensity: VisualDensity.compact,
-          ),
-        if (accepted != null)
-          Text(accepted, key: const Key('joint-accepted'), style: bold),
-        if (pending != null) Text(pending, key: const Key('joint-pending')),
-        if (accepted == null && pending == null)
-          const Text('Todavía no participa en esta convocatoria.'),
-        const SizedBox(height: 4),
-        const Text(
-          'Participar no es una compra ni genera una deuda: la persona '
-          'responsable y quienes ella autorice coordinan la compra y la '
-          'entrega.',
-          key: Key('joint-not-a-debt'),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          jointPurchaseWhoCanSeeText(call),
-          key: const Key('joint-who-can-see'),
-        ),
-        if (call.pendingConsentOp != null)
-          Text(
-            jointPurchaseConsentPendingText(call.pendingConsentOp!),
-            key: const Key('joint-consent-pending'),
-            style: bold,
-          ),
-        if (jointPurchaseConsentResultText(call) != null)
-          Text(
-            jointPurchaseConsentResultText(call)!,
-            key: const Key('joint-consent-result'),
-          ),
-        if (!call.isOpen)
-          Padding(
-            padding: const EdgeInsets.only(top: 8),
-            child: Text(
-              '${callStatusText(call)}: ya no admite cambios.',
-              key: const Key('joint-not-open'),
-            ),
-          ),
-        const SizedBox(height: 8),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
+        _CallSummary(call: call),
+        const SizedBox(height: 16),
+        // --- Cantidades: participar, modificar, retirar ---------------------
+        const SectionHeader(title: 'Su participación'),
+        const SizedBox(height: 10),
+        AgroGroup(
           children: [
-            FilledButton.icon(
-              key: const Key('joint-participate'),
-              onPressed: busy || !call.isOpen ? null : () => _participate(call),
-              icon: const Icon(Icons.how_to_reg_outlined),
-              label: Text(hasParticipation ? 'Modificar' : 'Participar'),
-            ),
-            if (hasParticipation)
-              OutlinedButton.icon(
-                key: const Key('joint-withdraw'),
-                onPressed: busy || !call.isOpen ? null : () => _withdraw(call),
-                icon: const Icon(Icons.person_remove_outlined),
-                label: const Text('Retirar participación'),
-              ),
-            if (canDecide && effectiveScope != widen)
-              OutlinedButton.icon(
-                key: const Key('joint-consent-widen'),
-                onPressed:
-                    busy || call.status == JointPurchaseCallStatus.cancelled
-                    ? null
-                    : () => _decide(call, widen),
-                icon: const Icon(Icons.group_add_outlined),
-                label: const Text(jointPurchaseWidenLabel),
-              ),
-            if (canDecide && effectiveScope == widen)
-              OutlinedButton.icon(
-                key: const Key('joint-consent-reduce'),
-                onPressed: busy
-                    ? null
-                    : () => _decide(
-                        call,
-                        JointPurchaseConsentScope.responsibleOnly,
+            Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (opText != null) ...[
+                    StatusBadge(
+                      key: const Key('joint-op-status'),
+                      label: opText,
+                      tone: jointPurchaseChipTone(opText),
+                    ),
+                    const SizedBox(height: 8),
+                  ],
+                  if (accepted != null)
+                    Text(
+                      accepted,
+                      key: const Key('joint-accepted'),
+                      style: AgroText.question,
+                    ),
+                  if (pending != null)
+                    Padding(
+                      padding: EdgeInsets.only(top: accepted == null ? 0 : 6),
+                      child: Text(
+                        pending,
+                        key: const Key('joint-pending'),
+                        style: AgroText.detail.copyWith(
+                          color: AgroColors.warnInk,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
-                icon: const Icon(Icons.lock_person_outlined),
-                label: const Text(jointPurchaseReduceLabel),
+                    ),
+                  if (accepted == null && pending == null)
+                    const Text(
+                      'Todavía no participa en esta convocatoria.',
+                      style: AgroText.detail,
+                    ),
+                ],
               ),
-            if (call.pendingOp != null || call.pendingConsentOp != null)
-              TextButton.icon(
-                key: const Key('joint-send-now'),
-                onPressed: busy ? null : () => _sendNow(call),
-                icon: const Icon(Icons.send_outlined),
-                label: const Text('Enviar ahora'),
+            ),
+          ],
+        ),
+        if (!call.isOpen)
+          JointInfoLine(
+            text: '${callStatusText(call)}: ya no admite cambios.',
+            textKey: const Key('joint-not-open'),
+            icon: Icons.lock_clock_outlined,
+            strong: true,
+          ),
+        const SizedBox(height: 12),
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final scale = MediaQuery.textScalerOf(context).scale(1);
+            final side =
+                hasParticipation && constraints.maxWidth / 2 >= 160 * scale;
+            final participate = PrimaryActionButton(
+              key: const Key('joint-participate'),
+              label: hasParticipation ? 'Modificar' : 'Participar',
+              icon: Icons.how_to_reg_outlined,
+              iconFirst: true,
+              onPressed: busy || !call.isOpen
+                  ? null
+                  : () => _participate(call, declared),
+            );
+            final withdraw = SecondaryActionButton(
+              key: const Key('joint-withdraw'),
+              label: 'Retirar participación',
+              icon: Icons.person_remove_outlined,
+              onPressed: busy || !call.isOpen ? null : () => _withdraw(call),
+            );
+            if (!hasParticipation) return participate;
+            return side
+                ? Row(
+                    children: [
+                      Expanded(child: participate),
+                      const SizedBox(width: 10),
+                      Expanded(child: withdraw),
+                    ],
+                  )
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      participate,
+                      const SizedBox(height: 10),
+                      withdraw,
+                    ],
+                  );
+          },
+        ),
+        if (call.pendingOp != null || call.pendingConsentOp != null)
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              key: const Key('joint-send-now'),
+              onPressed: busy ? null : () => _sendNow(call),
+              icon: const Icon(Icons.send_outlined),
+              label: const Text('Enviar ahora'),
+            ),
+          ),
+        const JointInfoLine(
+          text:
+              'Participar no es una compra ni genera una deuda: la persona '
+              'responsable y quienes ella autorice coordinan la compra y la '
+              'entrega.',
+          textKey: Key('joint-not-a-debt'),
+        ),
+        const SizedBox(height: 16),
+        // --- Productos de la convocatoria ----------------------------------
+        const SectionHeader(title: 'Productos'),
+        const SizedBox(height: 10),
+        AgroGroup(
+          children: [
+            for (final product in call.products)
+              RdmCRow(
+                title: '${product.name} (${product.unit})',
+                detail: declared[product.productRef] == null
+                    ? null
+                    : 'Su necesidad declarada para esta campaña: '
+                          '${formatQuantity(declared[product.productRef]!, product.unit)}',
               ),
           ],
         ),
+        if (declared.isNotEmpty)
+          const Padding(
+            padding: EdgeInsets.fromLTRB(4, 8, 4, 0),
+            child: Text(
+              'La necesidad declarada es sólo una referencia: no se suma a su '
+              'participación.',
+              style: AgroText.detail,
+            ),
+          ),
+        const SizedBox(height: 16),
+        // --- Quién ve sus datos (E2 §10.6: aparte de las cantidades) --------
+        const SectionHeader(title: 'Quién ve sus datos'),
+        JointInfoLine(
+          text: jointPurchaseWhoCanSeeText(call),
+          textKey: const Key('joint-who-can-see'),
+          icon: Icons.visibility_outlined,
+        ),
+        if (call.pendingConsentOp != null)
+          JointInfoLine(
+            text: jointPurchaseConsentPendingText(call.pendingConsentOp!),
+            textKey: const Key('joint-consent-pending'),
+            icon: Icons.schedule,
+            strong: true,
+          ),
+        if (consentResult != null)
+          JointInfoLine(
+            text: consentResult,
+            textKey: const Key('joint-consent-result'),
+            icon: Icons.fact_check_outlined,
+          ),
+        if (canDecide) ...[
+          const SizedBox(height: 10),
+          if (effectiveScope != widen)
+            OutlinedButton.icon(
+              key: const Key('joint-consent-widen'),
+              onPressed:
+                  busy || call.status == JointPurchaseCallStatus.cancelled
+                  ? null
+                  : () => _decide(call, widen),
+              icon: const Icon(Icons.group_add_outlined),
+              label: const Text(jointPurchaseWidenLabel),
+            )
+          else
+            OutlinedButton.icon(
+              key: const Key('joint-consent-reduce'),
+              onPressed: busy
+                  ? null
+                  : () => _decide(
+                      call,
+                      JointPurchaseConsentScope.responsibleOnly,
+                    ),
+              icon: const Icon(Icons.lock_person_outlined),
+              label: const Text(jointPurchaseReduceLabel),
+            ),
+        ],
       ],
+    );
+  }
+}
+
+/// Resumen oscuro de la convocatoria (lámina «Convocatoria»): estado,
+/// campaña agrícola, fecha límite según el sindicato y persona responsable.
+class _CallSummary extends StatelessWidget {
+  const _CallSummary({required this.call});
+  final JointPurchaseCall call;
+
+  @override
+  Widget build(BuildContext context) {
+    final light = AgroText.detail.copyWith(color: AgroColors.onInk);
+    return Container(
+      padding: const EdgeInsets.fromLTRB(18, 16, 18, 18),
+      decoration: BoxDecoration(
+        color: AgroColors.ink,
+        borderRadius: BorderRadius.circular(28),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Wrap(
+            spacing: 8,
+            runSpacing: 6,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              Text(
+                'Compra conjunta',
+                style: AgroText.detail.copyWith(color: AgroColors.onInkMuted),
+              ),
+              StatusBadge(
+                label: callStatusText(call),
+                tone: jointPurchaseChipTone(callStatusText(call)),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          // Campaña agrícola ≠ convocatoria: la campaña es el período; la
+          // convocatoria es esta compra conjunta.
+          if (call.campaignName != null)
+            Text('Campaña: ${call.campaignName}', style: light),
+          Text(
+            callDeadlineText(call),
+            style: AgroText.question.copyWith(color: AgroColors.lime),
+          ),
+          if (call.responsibleName != null)
+            Text('Responsable: ${call.responsibleName}', style: light),
+        ],
+      ),
     );
   }
 }
@@ -400,10 +513,14 @@ class ParticipationQuantitiesDialog extends StatefulWidget {
     super.key,
     required this.call,
     required this.initial,
+    this.declared = const {},
   });
 
   final JointPurchaseCall call;
   final Map<String, int> initial;
+
+  /// Necesidad declarada por producto, sólo como referencia (no se suma).
+  final Map<String, int> declared;
 
   @override
   State<ParticipationQuantitiesDialog> createState() =>
@@ -462,51 +579,144 @@ class _ParticipationQuantitiesDialogState
   }
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
-    title: const Text('Cantidades que solicita'),
-    content: SingleChildScrollView(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
+  Widget build(BuildContext context) => RdmCSheetBody(
+    title: 'Cantidades que solicita',
+    subtitle: '${widget.call.name} · ${callDeadlineText(widget.call)}',
+    actions: [
+      PrimaryActionButton(
+        key: const Key('joint-quantities-continue'),
+        label: 'Continuar',
+        onPressed: _submit,
+      ),
+    ],
+    children: [
+      AgroGroup(
         children: [
           for (final product in widget.call.products)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: TextField(
-                key: Key('joint-quantity-${product.productRef}'),
-                controller: controllers[product.productRef],
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
-                decoration: InputDecoration(
-                  labelText: product.name,
-                  suffixText: product.unit,
-                  errorText: errors[product.productRef],
-                  errorMaxLines: 3,
-                ),
-                onChanged: (_) => setState(() {
-                  errors.remove(product.productRef);
-                  general = null;
-                }),
-              ),
-            ),
-          const Text('Deje vacío lo que no pide.'),
-          if (general != null)
-            Text(
-              general!,
-              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            _QuantityRow(
+              product: product,
+              declared: widget.declared[product.productRef],
+              controller: controllers[product.productRef]!,
+              error: errors[product.productRef],
+              onChanged: () => setState(() {
+                errors.remove(product.productRef);
+                general = null;
+              }),
             ),
         ],
       ),
-    ),
-    actions: [
-      TextButton(
-        onPressed: () => Navigator.pop(context),
-        child: const Text('Cancelar'),
+      const Padding(
+        padding: EdgeInsets.fromLTRB(4, 10, 4, 0),
+        child: Text('Deje vacío lo que no pide.', style: AgroText.detail),
       ),
-      FilledButton(onPressed: _submit, child: const Text('Continuar')),
+      if (general != null)
+        Padding(
+          padding: const EdgeInsets.fromLTRB(4, 6, 4, 0),
+          child: Row(
+            children: [
+              const Icon(
+                Icons.error_outline,
+                size: 18,
+                color: AgroColors.danger,
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  general!,
+                  style: const TextStyle(color: AgroColors.danger),
+                ),
+              ),
+            ],
+          ),
+        ),
+      // Las cantidades no cambian quién ve sus datos (E2 §10.6): eso se
+      // decide aparte, en «Quién ve sus datos».
     ],
   );
+}
+
+/// Un producto: nombre, la necesidad declarada como referencia y el campo
+/// de la cantidad con su unidad. Con la letra ampliada el campo baja debajo
+/// del nombre.
+class _QuantityRow extends StatelessWidget {
+  const _QuantityRow({
+    required this.product,
+    required this.declared,
+    required this.controller,
+    required this.error,
+    required this.onChanged,
+  });
+
+  final JointPurchaseProduct product;
+  final int? declared;
+  final TextEditingController controller;
+  final String? error;
+  final VoidCallback onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final label = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(product.name, style: AgroText.value),
+        if (declared != null)
+          Text(
+            'Su necesidad declarada: '
+            '${formatQuantity(declared!, product.unit)}',
+            style: AgroText.detail,
+          ),
+      ],
+    );
+    final field = Semantics(
+      label: '${product.name}, cantidad en ${product.unit}',
+      child: TextField(
+        key: Key('joint-quantity-${product.productRef}'),
+        controller: controller,
+        textAlign: TextAlign.end,
+        style: AgroText.input,
+        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+        decoration: InputDecoration(
+          // La unidad siempre a la vista (`suffixText` sólo aparece al
+          // escribir).
+          suffixIcon: Padding(
+            padding: const EdgeInsets.only(right: 12),
+            child: Text(product.unit, style: AgroText.value),
+          ),
+          suffixIconConstraints: const BoxConstraints(minWidth: 0),
+          errorText: error,
+          errorMaxLines: 4,
+        ),
+        onChanged: (_) => onChanged(),
+      ),
+    );
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          final scale = MediaQuery.textScalerOf(context).scale(1);
+          if (constraints.maxWidth >= 300 * scale) {
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: label,
+                  ),
+                ),
+                const SizedBox(width: 12),
+                SizedBox(width: 140 * scale.clamp(1, 1.3), child: field),
+              ],
+            );
+          }
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [label, const SizedBox(height: 8), field],
+          );
+        },
+      ),
+    );
+  }
 }
 
 /// E2 §10.6: «Autorizar también…», con el texto vigente y una casilla sin

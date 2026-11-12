@@ -3,10 +3,16 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../data/sync/joint_purchase_store.dart';
+import '../../domain/sync/joint_purchase_call_view.dart'
+    show jointPurchaseRecentFinishedDays;
 import '../../services/sync/joint_purchase_sender.dart';
 import '../../services/sync/sync_providers.dart';
+import '../theme/agro_theme.dart';
+import '../widgets/agro_ui.dart';
 import '../widgets/common.dart';
 import '../widgets/joint_purchase_texts.dart';
+import '../widgets/rdm_c_joint.dart';
+import '../widgets/rdm_c_page.dart';
 
 /// «Compras conjuntas» (contrato E2 §5 y §10.1): las convocatorias que el
 /// sindicato sirvió a este titular, guardadas en el teléfono. Se descubren
@@ -112,13 +118,13 @@ class _JointPurchasesScreenState extends ConsumerState<JointPurchasesScreen> {
   @override
   Widget build(BuildContext context) {
     ref.listen(jointPurchaseRevisionProvider, (_, _) => _reload());
-    return PageFrame(
+    return RdmCPage(
       title: 'Compras conjuntas',
       subtitle: 'Convocatorias del sindicato y su participación.',
-      action: FilledButton.tonalIcon(
+      action: RdmCHeaderAction(
+        icon: Icons.sync,
+        label: 'Actualizar',
         onPressed: loading ? null : _refresh,
-        icon: const Icon(Icons.cloud_download_outlined),
-        label: const Text('Actualizar'),
       ),
       child: FutureBuilder<JointPurchaseOverview>(
         future: overview,
@@ -133,32 +139,58 @@ class _JointPurchasesScreenState extends ConsumerState<JointPurchasesScreen> {
             return const Center(child: CircularProgressIndicator());
           }
           final data = snapshot.data!;
+          final open = [
+            for (final call in data.recent)
+              if (call.isOpen) call,
+          ];
+          final finished = [
+            for (final call in data.recent)
+              if (!call.isOpen) call,
+          ];
           return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              if (loading) const LinearProgressIndicator(),
-              if (problem != null)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: Text(
-                    problem!,
-                    key: const Key('joint-purchases-problem'),
-                  ),
-                ),
+              if (loading) ...[
+                const LinearProgressIndicator(),
+                const SizedBox(height: 8),
+              ],
+              if (problem != null) ...[
+                _Problem(text: problem!, textKey: 'joint-purchases-problem'),
+                const SizedBox(height: 12),
+              ],
               if (data.isEmpty)
-                const EmptyState(
+                const RdmCEmpty(
                   icon: Icons.groups_outlined,
                   message:
                       'No hay convocatorias en este teléfono. Pulse '
                       '«Actualizar» para consultar al sindicato.',
                 )
               else if (data.recent.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 8),
-                  child: Text(jointPurchaseRecentEmpty),
-                )
-              else
-                for (final call in data.recent) _callCard(call),
+                const RdmCEmpty(
+                  icon: Icons.groups_outlined,
+                  message: jointPurchaseRecentEmpty,
+                ),
+              if (open.isNotEmpty) ...[
+                const RdmCOverline('Abiertas'),
+                for (final call in open) ...[
+                  _OpenCallCard(call: call, onOpen: () => _open(call)),
+                  const SizedBox(height: 10),
+                ],
+              ],
+              if (finished.isNotEmpty) ...[
+                // «Terminadas hace menos de 180 días»: el filtro de la vista,
+                // no un borrado (E2 §10.1 a); las anteriores siguen abajo.
+                RdmCOverline(
+                  'Terminadas hace menos de $jointPurchaseRecentFinishedDays '
+                  'días',
+                ),
+                AgroGroup(
+                  children: [
+                    for (final call in finished)
+                      _callRow(call, onOpen: () => _open(call)),
+                  ],
+                ),
+              ],
               const SizedBox(height: 16),
               _history(context, data),
             ],
@@ -168,28 +200,39 @@ class _JointPurchasesScreenState extends ConsumerState<JointPurchasesScreen> {
     );
   }
 
+  Future<void> _open(JointPurchaseCall call) async {
+    await context.push('/compras-conjuntas/${call.callId}');
+    if (mounted) _reload();
+  }
+
   Widget _history(BuildContext context, JointPurchaseOverview data) => Column(
     key: const Key('joint-history-section'),
-    crossAxisAlignment: CrossAxisAlignment.start,
+    crossAxisAlignment: CrossAxisAlignment.stretch,
     children: [
-      Text(
-        jointPurchaseHistoryTitle,
-        style: Theme.of(context).textTheme.titleMedium,
-      ),
+      const SectionHeader(title: jointPurchaseHistoryTitle),
       const SizedBox(height: 4),
-      const Text(jointPurchaseHistoryIntro),
-      const SizedBox(height: 8),
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4),
+        child: Text(jointPurchaseHistoryIntro, style: AgroText.detail),
+      ),
+      const SizedBox(height: 10),
       if (data.older.isEmpty)
-        const Text(jointPurchaseHistoryEmpty, key: Key('joint-history-empty'))
+        RdmCEmpty(
+          key: const Key('joint-history-empty'),
+          icon: Icons.history,
+          message: jointPurchaseHistoryEmpty,
+        )
       else
-        for (final call in data.older) _callCard(call),
+        AgroGroup(
+          children: [
+            for (final call in data.older)
+              _callRow(call, onOpen: () => _open(call)),
+          ],
+        ),
       if (data.missingOlder > 0)
-        Padding(
-          padding: const EdgeInsets.only(top: 8),
-          child: Text(
-            jointPurchaseMissingOlderText(data.missingOlder),
-            key: const Key('joint-history-missing'),
-          ),
+        _HistoryNote(
+          text: jointPurchaseMissingOlderText(data.missingOlder),
+          textKey: 'joint-history-missing',
         ),
       if (historyLoading)
         const Padding(
@@ -199,14 +242,17 @@ class _JointPurchasesScreenState extends ConsumerState<JointPurchasesScreen> {
       if (historyProblem != null)
         Padding(
           padding: const EdgeInsets.only(top: 8),
-          child: Text(historyProblem!, key: const Key('joint-history-problem')),
+          child: _Problem(
+            text: historyProblem!,
+            textKey: 'joint-history-problem',
+          ),
         ),
       if (historyQueried && historyCursor == null && historyProblem == null)
-        const Padding(
-          padding: EdgeInsets.only(top: 8),
-          child: Text(jointPurchaseHistoryEnd, key: Key('joint-history-end')),
+        const _HistoryNote(
+          text: jointPurchaseHistoryEnd,
+          textKey: 'joint-history-end',
         ),
-      const SizedBox(height: 8),
+      const SizedBox(height: 10),
       Wrap(
         spacing: 8,
         runSpacing: 8,
@@ -230,39 +276,123 @@ class _JointPurchasesScreenState extends ConsumerState<JointPurchasesScreen> {
     ],
   );
 
-  Widget _callCard(JointPurchaseCall call) => Card(
-    child: ListTile(
+  /// Fila de una convocatoria terminada o anterior: nombre, campaña, fecha
+  /// límite y las etiquetas de su estado y de la participación propia.
+  Widget _callRow(JointPurchaseCall call, {required VoidCallback onOpen}) =>
+      RdmCRow(
+        key: Key('joint-call-${call.callId}'),
+        title: call.name,
+        detail: [
+          if (call.campaignName != null) 'Campaña: ${call.campaignName}',
+          callDeadlineText(call),
+        ].join('\n'),
+        badges: [JointBadges(jointPurchaseChips(call))],
+        onTap: onOpen,
+      );
+}
+
+/// Convocatoria abierta, destacada como en la lámina: etiquetas, nombre,
+/// campaña, fecha límite según el sindicato y «Ver y participar».
+class _OpenCallCard extends StatelessWidget {
+  const _OpenCallCard({required this.call, required this.onOpen});
+  final JointPurchaseCall call;
+  final VoidCallback onOpen;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    container: true,
+    child: Material(
       key: Key('joint-call-${call.callId}'),
-      contentPadding: const EdgeInsets.all(12),
-      title: Text(
-        call.name,
-        style: const TextStyle(fontWeight: FontWeight.w700),
-      ),
-      subtitle: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          if (call.campaignName != null) Text('Campaña: ${call.campaignName}'),
-          Text(callDeadlineText(call)),
-          const SizedBox(height: 4),
-          Wrap(
-            spacing: 6,
-            runSpacing: 4,
+      color: AgroColors.ink,
+      borderRadius: BorderRadius.circular(28),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onOpen,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(18, 18, 18, 18),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              for (final text in jointPurchaseChips(call))
-                Chip(
-                  label: Text(text),
-                  visualDensity: VisualDensity.compact,
-                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              JointBadges(jointPurchaseChips(call)),
+              const SizedBox(height: 10),
+              Text(
+                call.name,
+                style: AgroText.sheetTitle.copyWith(color: Colors.white),
+              ),
+              if (call.campaignName != null)
+                Text(
+                  'Campaña: ${call.campaignName}',
+                  style: AgroText.detail.copyWith(color: AgroColors.onInk),
                 ),
+              const SizedBox(height: 6),
+              Text(
+                callDeadlineText(call),
+                style: AgroText.detail.copyWith(color: AgroColors.onInkMuted),
+              ),
+              const SizedBox(height: 14),
+              FilledButton(
+                onPressed: onOpen,
+                style: FilledButton.styleFrom(
+                  backgroundColor: AgroColors.lime,
+                  foregroundColor: AgroColors.ink,
+                  minimumSize: const Size(0, 48),
+                ),
+                child: Text(
+                  call.acceptedActive != null || call.pendingOp != null
+                      ? 'Ver su participación'
+                      : 'Ver y participar',
+                ),
+              ),
             ],
           ),
-        ],
+        ),
       ),
-      trailing: const Icon(Icons.chevron_right),
-      onTap: () async {
-        await context.push('/compras-conjuntas/${call.callId}');
-        if (mounted) _reload();
-      },
+    ),
+  );
+}
+
+/// Aviso de un problema al consultar, con su clave en el texto.
+class _Problem extends StatelessWidget {
+  const _Problem({required this.text, required this.textKey});
+  final String text;
+  final String textKey;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+    decoration: BoxDecoration(
+      color: AgroColors.warnBg,
+      borderRadius: BorderRadius.circular(16),
+    ),
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Icon(Icons.cloud_off_outlined, color: AgroColors.warnInk),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            text,
+            key: Key(textKey),
+            style: AgroText.detail.copyWith(color: AgroColors.warnInk),
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+class _HistoryNote extends StatelessWidget {
+  const _HistoryNote({required this.text, required this.textKey});
+  final String text;
+  final String textKey;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(4, 8, 4, 0),
+    child: Text(
+      text,
+      key: Key(textKey),
+      style: AgroText.detail.copyWith(color: AgroColors.ink),
     ),
   );
 }
