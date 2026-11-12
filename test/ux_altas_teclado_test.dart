@@ -132,15 +132,15 @@ void main() {
       final c = await pumpModeApp(tester, s.database);
       c.read(routerProvider).go('/operaciones');
       await settle(tester);
-      expect(find.byTooltip('Registrar operación'), findsOneWidget);
+      expect(find.byKey(const Key('shell-registrar')), findsOneWidget);
 
       await openKeyboard(tester);
-      expect(find.byTooltip('Registrar operación'), findsNothing);
+      expect(find.byKey(const Key('shell-registrar')), findsNothing);
 
       tester.view.resetViewInsets();
       await tester.pump();
       await settle(tester);
-      expect(find.byTooltip('Registrar operación'), findsOneWidget);
+      expect(find.byKey(const Key('shell-registrar')), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
   }

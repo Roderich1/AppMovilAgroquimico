@@ -110,13 +110,13 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('Inventario -> detalle -> Atrás vuelve a la lista', (
+    testWidgets('Almacén -> detalle -> Atrás vuelve a la lista', (
       tester,
     ) async {
       final repo = (await tester.runAsync(fixture))!;
       await pumpApp(tester, repo);
 
-      await tester.tap(find.text('Inventario').last);
+      await tester.tap(find.text('Almacén').last);
       await settle(tester, frames: 30);
       await tester.tap(find.text('Glifosato').first);
       await settle(tester, frames: 30);
@@ -127,13 +127,13 @@ void main() {
       expect(tester.takeException(), isNull);
     });
 
-    testWidgets('Operaciones -> subruta -> Atrás vuelve a Operaciones', (
+    testWidgets('Actividad -> subruta -> Atrás vuelve a Actividad', (
       tester,
     ) async {
       final repo = (await tester.runAsync(fixture))!;
       await pumpApp(tester, repo);
 
-      await tester.tap(find.text('Operaciones').last);
+      await tester.tap(find.text('Actividad').last);
       await settle(tester);
       // Las funciones poco frecuentes viven en «Más» (piloto X01).
       await tester.tap(find.text('Más'));
@@ -149,7 +149,7 @@ void main() {
       expect(
         currentLocation(tester),
         '/operaciones',
-        reason: 'Las subrutas de Operaciones son jerárquicas',
+        reason: 'Lo que se abre apilado desde Actividad vuelve a Actividad',
       );
       expect(tester.takeException(), isNull);
     });
@@ -193,25 +193,41 @@ void main() {
     test('selectedIndex de todas las rutas del shell', () {
       // `/chacos/:id` no coincidia con ningun destino y caia por defecto a 0
       // (Inicio). Se alcanza desde Personas, asi que debe resaltar Personas.
+      // Barra del rediseño (2026-11-12): Inicio · Actividad · Almacén ·
+      // Personas · Sindicato. Cuentas cuelga de Personas; Más, Catálogos y
+      // Campañas, de Inicio (sus ajustes).
       const cases = <String, int>{
         '/': 0,
+        '/mas': 0,
+        '/catalogos': 0,
+        '/campanas': 0,
+        '/respaldo-remoto': 0,
         '/operaciones': 1,
-        '/mas': 1,
-        '/catalogos': 1,
         '/planificacion': 1,
         '/compras': 1,
         '/compras/nueva': 1,
+        '/compras/detalle/3': 1,
         '/aplicaciones': 1,
         '/transferencias': 1,
-        // Reportes se alcanza desde Operaciones, como el resto de sus hijas:
+        // Reportes se alcanza desde Actividad, como el resto de sus hijas:
         // en el Pixel 8 la barra resaltaba "Inicio" estando en /reportes.
         '/reportes': 1,
+        '/voz': 1,
         '/inventario': 2,
         '/inventario/7': 2,
+        '/inventario/avisos': 2,
         '/personas': 3,
         '/personas/4': 3,
         '/chacos/9': 3,
-        '/liquidacion': 4,
+        '/liquidacion': 3,
+        '/sindicato': 4,
+        '/sindicato/vinculos': 4,
+        '/sincronizacion': 4,
+        '/sincronizacion/consumo': 4,
+        '/compras-conjuntas': 4,
+        '/compras-conjuntas/abc': 4,
+        // Es del Sindicato aunque cuelgue de /planificacion.
+        '/planificacion/necesidades': 4,
       };
       cases.forEach((location, expected) {
         expect(
@@ -226,13 +242,17 @@ void main() {
       const cases = <String, String?>{
         '/': null,
         '/operaciones': '/',
-        '/mas': '/operaciones',
-        '/catalogos': '/operaciones',
+        '/mas': '/',
+        '/catalogos': '/',
         '/compras': '/operaciones',
         '/reportes': '/operaciones',
         '/inventario': '/',
+        '/inventario/avisos': '/inventario',
         '/personas': '/',
-        '/liquidacion': '/',
+        '/liquidacion': '/personas',
+        '/sindicato': '/',
+        '/compras-conjuntas': '/sindicato',
+        '/planificacion/necesidades': '/sindicato',
       };
       cases.forEach((location, expected) {
         expect(

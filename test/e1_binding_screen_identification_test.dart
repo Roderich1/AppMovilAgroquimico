@@ -128,14 +128,21 @@ void main() {
       await settle(tester, rounds: 3);
 
       // Exactamente lo que se enviará; sin foto, sin casilla de la foto.
-      expect(find.text('Nombre: Adherente local'), findsOneWidget);
-      expect(find.text('Ingrediente activo: sin dato'), findsOneWidget);
-      expect(find.text('Unidad: L'), findsOneWidget);
+      // Rediseño (sesión C): rótulo y valor en filas separadas de la hoja.
+      Finder sent(String key, String value) => find.descendant(
+        of: find.byKey(Key('identification-sent-$key')),
+        matching: find.text(value),
+        matchRoot: true,
+      );
+      expect(find.text('Nombre'), findsOneWidget);
+      expect(sent('name', 'Adherente local'), findsOneWidget);
+      expect(find.text('Ingrediente activo'), findsOneWidget);
+      expect(sent('ingredient', 'sin dato'), findsOneWidget);
+      expect(find.text('Unidad'), findsOneWidget);
+      expect(sent('unit', 'L'), findsOneWidget);
       expect(find.byKey(const Key('identification-share-photo')), findsNothing);
       expect(identificationCalls, isEmpty);
-      await tester.tap(
-        find.widgetWithText(FilledButton, 'Pedir identificación'),
-      );
+      await tester.tap(find.byKey(const Key('identification-confirm')));
       await settle(tester);
 
       final created = (await tester.runAsync(

@@ -9,6 +9,7 @@ import 'package:agroquimicos/domain/sync/sync_types.dart';
 import 'package:agroquimicos/presentation/screens/central_binding_screen.dart';
 import 'package:agroquimicos/presentation/screens/declared_needs_screen.dart';
 import 'package:agroquimicos/presentation/screens/sync_status_screen.dart';
+import 'package:agroquimicos/presentation/widgets/rdm_c_page.dart' show RdmCRow;
 import 'package:agroquimicos/services/auth/api_endpoint_config.dart';
 import 'package:agroquimicos/services/auth/auth_http_client.dart';
 import 'package:agroquimicos/services/sync/sync_access.dart';
@@ -271,7 +272,21 @@ void main() {
           ),
         ],
       );
-      expect(find.text('Requiere vinculación'), findsNWidgets(4));
+      // Rediseño (sesión C): productos y campañas en pestañas; entre las
+      // dos siguen siendo cuatro filas sin vincular.
+      final unboundProducts = find
+          .text('Requiere vinculación')
+          .evaluate()
+          .length;
+      await tester.tap(find.byKey(const Key('binding-tab-campaigns')));
+      await settle(tester);
+      final unboundCampaigns = find
+          .text('Requiere vinculación')
+          .evaluate()
+          .length;
+      expect(unboundProducts + unboundCampaigns, 4);
+      await tester.tap(find.byKey(const Key('binding-tab-products')));
+      await settle(tester);
       await tester.tap(find.text('Actualizar'));
       await settle(tester);
       // Nada se vinculó por leer las referencias.
@@ -282,7 +297,7 @@ void main() {
 
       final row = find.ancestor(
         of: find.text('Herbicida local (L)'),
-        matching: find.byType(ListTile),
+        matching: find.byType(RdmCRow),
       );
       await tester.tap(
         find.descendant(

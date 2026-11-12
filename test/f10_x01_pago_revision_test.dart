@@ -14,6 +14,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'support/es_material_labels.dart';
 import 'support/f04_mode_ui_harness.dart';
 import 'support/purchase_form_driver.dart';
+import 'support/shell_finders.dart';
 
 typedef Row = Map<String, Object?>;
 
@@ -175,7 +176,7 @@ void main() {
     await waitFor(tester, find.byKey(const Key('payment-personal-payer')));
     expect(find.text('Pagador'), findsNothing);
     expect(find.text('Paga el titular: Titular'), findsOneWidget);
-    await tester.tap(find.text('Registrar'));
+    await tester.tap(textOutsideShellFab('Registrar'));
     await settle(tester);
     final payments = await rows(tester, s.database, 'provider_payments');
     expect(payments, hasLength(1));

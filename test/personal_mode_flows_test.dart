@@ -57,10 +57,9 @@ void main() {
           .where((w) => w.enabled ?? true)
           .length;
 
-  /// Abre el menú del botón flotante «+» (sin etiqueta visible; su nombre
-  /// accesible es «Registrar operación»).
+  /// Abre la hoja del botón flotante «+ Registrar» (rediseño, 2026-11-12).
   Future<void> openNewSheet(WidgetTester tester) async {
-    await tester.tap(find.byTooltip('Registrar operación'));
+    await tester.tap(find.byKey(const Key('shell-registrar')));
     await settle(tester);
   }
 

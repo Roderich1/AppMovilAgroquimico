@@ -163,25 +163,30 @@ class AgroGroup extends StatelessWidget {
   final Color? borderColor;
 
   @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(vertical: 4),
-    decoration: BoxDecoration(
-      color: AgroColors.surface,
+  // `Material` (no un `Container` con color): así las filas tocables pintan
+  // su respuesta al toque sobre el fondo del grupo y `ListTile` no queda
+  // tapado por una decoración.
+  Widget build(BuildContext context) => Material(
+    color: AgroColors.surface,
+    shape: RoundedRectangleBorder(
       borderRadius: BorderRadius.circular(20),
-      border: borderColor == null
-          ? null
-          : Border.all(color: borderColor!, width: 2),
+      side: borderColor == null
+          ? BorderSide.none
+          : BorderSide(color: borderColor!, width: 2),
     ),
     clipBehavior: Clip.antiAlias,
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        for (var i = 0; i < children.length; i++) ...[
-          if (i > 0)
-            const Divider(height: 1, thickness: 1, indent: 16, endIndent: 16),
-          children[i],
+    child: Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (var i = 0; i < children.length; i++) ...[
+            if (i > 0)
+              const Divider(height: 1, thickness: 1, indent: 16, endIndent: 16),
+            children[i],
+          ],
         ],
-      ],
+      ),
     ),
   );
 }
@@ -203,11 +208,18 @@ class ValueRow extends StatelessWidget {
     this.labelKey,
     this.valueKey,
     this.errorText,
+    this.hint,
+    this.hintKey,
   });
 
   final String label;
   final Key? labelKey;
   final Key? valueKey;
+
+  /// Línea secundaria bajo el valor, en gris (p. ej. «Responsable del chaco
+  /// · se usan sus productos»). Pedida por la sesión A (2026-11-12).
+  final String? hint;
+  final Key? hintKey;
 
   /// Error de validación debajo del valor, con icono (no sólo color).
   final String? errorText;
@@ -226,6 +238,7 @@ class ValueRow extends StatelessWidget {
       enabled: onTap != null,
       label: label,
       value: empty ? 'Sin elegir' : value,
+      hint: hint,
       excludeSemantics: true,
       child: InkWell(
         onTap: onTap,
@@ -248,6 +261,15 @@ class ValueRow extends StatelessWidget {
                             ? AgroText.value.copyWith(color: AgroColors.muted)
                             : AgroText.value,
                       ),
+                      if (hint != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 2),
+                          child: Text(
+                            hint!,
+                            key: hintKey,
+                            style: AgroText.detail,
+                          ),
+                        ),
                       if (errorText != null)
                         Padding(
                           padding: const EdgeInsets.only(top: 2),
@@ -294,7 +316,7 @@ class ValueRow extends StatelessWidget {
 
 /// Tono de una etiqueta de estado. Cada tono lleva además un texto: el color
 /// nunca es lo único que dice el estado.
-enum BadgeTone { voice, review, missing, neutral }
+enum BadgeTone { voice, review, missing, neutral, ok }
 
 /// Etiqueta pequeña con punto y texto («Por voz», «Revise el precio»).
 class StatusBadge extends StatelessWidget {
@@ -309,6 +331,9 @@ class StatusBadge extends StatelessWidget {
       BadgeTone.review => (AgroColors.warnBg, const Color(0xFF5A3A00)),
       BadgeTone.missing => (const Color(0xFFFFDAD6), const Color(0xFF8C1D18)),
       BadgeTone.neutral => (AgroColors.track, AgroColors.ink),
+      // Estado conforme («Cubierto», «Vinculado»): mismo lima suave que «Por
+      // voz»; el texto dice el estado.
+      BadgeTone.ok => (const Color(0xFFE3F6A8), const Color(0xFF24400A)),
     };
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
@@ -580,6 +605,181 @@ class DashedAddButton extends StatelessWidget {
   );
 }
 
+/// Panel con borde punteado que se toca entero (p. ej. «Completar por voz»
+/// en la hoja «Registrar»). El contenido lo pone quien lo usa.
+class DashedPanel extends StatelessWidget {
+  const DashedPanel({super.key, required this.child, required this.onTap});
+  final Widget child;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) => CustomPaint(
+    painter: _DashedBorderPainter(),
+    child: Material(
+      type: MaterialType.transparency,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(20),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 60),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            child: child,
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+/// Tono de una [ActionTile].
+enum ActionTileTone { lime, ink }
+
+/// Botón grande de acción principal (lámina «Inicio» y «Registrar»): icono en
+/// un círculo arriba y el nombre de la acción abajo, en lima o en verde
+/// oscuro. Dos por fila cuando caben; si no, uno debajo del otro
+/// ([ActionTileRow]).
+class ActionTile extends StatelessWidget {
+  const ActionTile({
+    super.key,
+    required this.icon,
+    required this.label,
+    required this.onTap,
+    this.tone = ActionTileTone.lime,
+    this.minHeight = 140,
+    this.compact = false,
+  });
+  final IconData icon;
+  final String label;
+  final VoidCallback? onTap;
+  final ActionTileTone tone;
+  final double minHeight;
+
+  /// Fila baja con el icono a la izquierda: la usa [ActionTileRow] cuando
+  /// apila las acciones (letra grande o pantalla estrecha), para que la hoja
+  /// «Registrar» siga mostrando todas sus opciones.
+  final bool compact;
+
+  ActionTile _compact() => ActionTile(
+    key: key,
+    icon: icon,
+    label: label,
+    onTap: onTap,
+    tone: tone,
+    minHeight: minHeight,
+    compact: true,
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    final lime = tone == ActionTileTone.lime;
+    final background = lime ? AgroColors.lime : AgroColors.ink;
+    final foreground = lime ? AgroColors.ink : AgroColors.onInk;
+    return Semantics(
+      button: true,
+      label: label,
+      excludeSemantics: true,
+      child: Material(
+        color: background,
+        borderRadius: BorderRadius.circular(24),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          child: Builder(
+            builder: (context) {
+              final circle = CircleAvatar(
+                radius: 22,
+                backgroundColor: lime ? AgroColors.ink : AgroColors.lime,
+                child: Icon(
+                  icon,
+                  color: lime ? AgroColors.lime : AgroColors.ink,
+                ),
+              );
+              final text = Text(
+                label,
+                style: TextStyle(
+                  fontFamily: AgroFonts.body,
+                  fontSize: 20,
+                  fontWeight: FontWeight.w700,
+                  height: 1.15,
+                  color: foreground,
+                ),
+              );
+              if (compact) {
+                return ConstrainedBox(
+                  constraints: const BoxConstraints(minHeight: 72),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 12,
+                    ),
+                    child: Row(
+                      children: [
+                        circle,
+                        const SizedBox(width: 16),
+                        Expanded(child: text),
+                      ],
+                    ),
+                  ),
+                );
+              }
+              return ConstrainedBox(
+                constraints: BoxConstraints(minHeight: minHeight),
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [circle, const SizedBox(height: 16), text],
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Dos [ActionTile] lado a lado si cada una tiene al menos 150 px por la
+/// escala de la letra; si no, apiladas.
+class ActionTileRow extends StatelessWidget {
+  const ActionTileRow({super.key, required this.tiles});
+  final List<ActionTile> tiles;
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      final scale = MediaQuery.textScalerOf(context).scale(1);
+      final perTile =
+          (constraints.maxWidth - 12 * (tiles.length - 1)) / tiles.length;
+      if (perTile >= 150 * scale) {
+        return IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              for (var i = 0; i < tiles.length; i++) ...[
+                if (i > 0) const SizedBox(width: 12),
+                Expanded(child: tiles[i]),
+              ],
+            ],
+          ),
+        );
+      }
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (var i = 0; i < tiles.length; i++) ...[
+            if (i > 0) const SizedBox(height: 12),
+            tiles[i]._compact(),
+          ],
+        ],
+      );
+    },
+  );
+}
+
 class _DashedBorderPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
@@ -786,30 +986,62 @@ class SegmentToggle<T> extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scaler = MediaQuery.textScalerOf(context);
-    return Semantics(
-      label: semanticLabel,
-      container: true,
-      child: Container(
-        constraints: BoxConstraints(minHeight: height),
-        padding: const EdgeInsets.all(4),
-        decoration: BoxDecoration(
-          color: AgroColors.track,
-          borderRadius: BorderRadius.circular(height),
-        ),
-        child: IntrinsicHeight(
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              for (var i = 0; i < options.length; i++) ...[
-                if (i > 0) const SizedBox(width: 4),
-                Expanded(child: _segment(options[i], scaler)),
-              ],
-            ],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Si con la letra actual algún rótulo no cabe en su parte sin partir
+        // una palabra, las opciones se apilan con el mismo aspecto
+        // (propuesta de la sesión C, 2026-11-12). 8 de la pista, 4 entre
+        // opciones, 16 de relleno y 20 de la marca de elegida.
+        final segment = constraints.hasBoundedWidth
+            ? (constraints.maxWidth - 8 - 4 * (options.length - 1)) /
+                      options.length -
+                  36
+            : double.infinity;
+        final fits = options.every(
+          (option) =>
+              measureText(context, option.label, _labelStyle) <= segment,
+        );
+        return Semantics(
+          label: semanticLabel,
+          container: true,
+          child: Container(
+            constraints: BoxConstraints(minHeight: height),
+            padding: const EdgeInsets.all(4),
+            decoration: BoxDecoration(
+              color: AgroColors.track,
+              borderRadius: BorderRadius.circular(fits ? height : 24),
+            ),
+            child: fits
+                ? IntrinsicHeight(
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        for (var i = 0; i < options.length; i++) ...[
+                          if (i > 0) const SizedBox(width: 4),
+                          Expanded(child: _segment(options[i], scaler)),
+                        ],
+                      ],
+                    ),
+                  )
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      for (var i = 0; i < options.length; i++) ...[
+                        if (i > 0) const SizedBox(height: 4),
+                        _segment(options[i], scaler),
+                      ],
+                    ],
+                  ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
+
+  static const _labelStyle = TextStyle(
+    fontSize: 14,
+    fontWeight: FontWeight.w700,
+  );
 
   Widget _segment(ToggleOption<T> option, TextScaler scaler) {
     final on = option.value == selected;

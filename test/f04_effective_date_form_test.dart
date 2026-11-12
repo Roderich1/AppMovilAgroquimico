@@ -20,6 +20,7 @@ import 'support/f04_mode_fixtures.dart';
 import 'support/es_material_labels.dart';
 import 'support/f04_mode_ui_harness.dart';
 import 'support/purchase_form_driver.dart';
+import 'support/shell_finders.dart';
 
 typedef Row = Map<String, Object?>;
 
@@ -372,7 +373,7 @@ void main() {
       expect(
         find.descendant(
           of: dateTile(tile),
-          matching: find.textContaining('(hoy)'),
+          matching: find.textContaining('Hoy, '),
         ),
         findsOneWidget,
       );
@@ -416,7 +417,7 @@ void main() {
       expect(
         find.descendant(
           of: dateTile(tile),
-          matching: find.textContaining('(hoy)'),
+          matching: find.textContaining('Hoy, '),
         ),
         findsOneWidget,
       );
@@ -456,7 +457,7 @@ void main() {
       final c = await pumpModeApp(tester, h.database);
       c.read(routerProvider).go('/aplicaciones');
       await settle(tester);
-      await tester.tap(find.text('Registrar'));
+      await tester.tap(textOutsideShellFab('Registrar'));
       await waitFor(tester, picker('Chaco'));
       await settle(tester);
       final choice = pastDayChoice(DateTime.now());

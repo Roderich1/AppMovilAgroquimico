@@ -25,6 +25,8 @@ class AdaptiveEntityPicker<T> extends StatefulWidget {
     this.displayLabelKey,
     this.placeholder = 'Elegir',
     this.badge,
+    this.hint,
+    this.hintKey,
   });
 
   /// Rediseño (2026-11-12): se dibuja como una fila «rótulo pequeño + valor
@@ -43,6 +45,10 @@ class AdaptiveEntityPicker<T> extends StatefulWidget {
 
   /// Etiqueta junto a la flecha en [rowStyle] (por ejemplo «Por voz»).
   final Widget? badge;
+
+  /// Línea secundaria bajo el valor en [rowStyle] ([ValueRow.hint]).
+  final String? hint;
+  final Key? hintKey;
 
   final String label;
   final List<T> items;
@@ -127,6 +133,8 @@ class _AdaptiveEntityPickerState<T> extends State<AdaptiveEntityPicker<T>> {
           value: selected == null ? null : widget.labelOf(selected),
           placeholder: widget.loading ? 'Cargando…' : widget.placeholder,
           badge: widget.badge,
+          hint: widget.hint,
+          hintKey: widget.hintKey,
           errorText: widget.error?.toString(),
           onTap: widget.enabled && !widget.loading ? _open : null,
         ),

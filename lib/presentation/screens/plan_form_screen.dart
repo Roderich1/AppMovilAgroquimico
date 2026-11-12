@@ -8,7 +8,9 @@ import '../../domain/models.dart';
 import '../../domain/money.dart';
 import '../../domain/operation_mode.dart';
 import '../../operation_mode_controller.dart';
+import '../theme/agro_theme.dart';
 import '../widgets/adaptive_entity_picker.dart';
+import '../widgets/agro_ui.dart';
 import '../widgets/catalog_dialogs.dart';
 import '../widgets/common.dart';
 import '../widgets/mode_notice.dart';
@@ -63,6 +65,11 @@ class _PlanFormScreenState extends ConsumerState<PlanFormScreen>
   VoiceFormDictation<VoicePlanDraft>? voice;
   late final _voiceTarget = _PlanVoice(this);
   bool showVoice = false;
+
+  /// Aviso del último dictado arriba del formulario (el panel se cierra solo
+  /// al terminar un dictado; lo dictado ya está en el formulario).
+  bool _voiceBanner = false;
+  int _seenCompletions = 0;
   VoicePlanDraft? _lastVoiceDraft;
   bool _voiceSaved = false;
   bool _voiceFailed = false;
@@ -111,11 +118,25 @@ class _PlanFormScreenState extends ConsumerState<PlanFormScreen>
     if (catalog != null) {
       voice!.session.setVocabularyHints(voiceVocabularyHints(catalog));
     }
-    setState(() => showVoice = true);
+    FocusManager.instance.primaryFocus?.unfocus();
+    setState(() {
+      showVoice = true;
+      _voiceBanner = false;
+    });
   }
 
+  /// Al terminar un dictado el panel se cierra y su resultado queda en el
+  /// aviso de arriba.
   void _onVoice() {
-    if (mounted) setState(() {});
+    if (!mounted) return;
+    final v = voice;
+    setState(() {
+      if (v != null && v.completions != _seenCompletions) {
+        _seenCompletions = v.completions;
+        showVoice = false;
+        _voiceBanner = true;
+      }
+    });
   }
 
   void _voiceApplied(VoicePlanDraft shadow, String text) {
@@ -378,315 +399,482 @@ class _PlanFormScreenState extends ConsumerState<PlanFormScreen>
       if (!didPop && !saving) close();
     },
     child: Scaffold(
-      appBar: AppBar(
-        title: const Text('Nueva planificación'),
-        actions: [
-          // F09 (formulario único): la voz completa ESTE formulario.
-          IconButton(
-            key: const Key('form-dictar'),
-            tooltip: showVoice
-                ? 'Ocultar el panel de voz'
-                : 'Completar por voz',
-            icon: Icon(showVoice ? Icons.mic : Icons.mic_none_outlined),
-            onPressed: saving
-                ? null
-                : showVoice
-                ? (voice?.busy ?? false)
-                      ? null
-                      : () => setState(() => showVoice = false)
-                : _openVoice,
-          ),
-        ],
-        leading: IconButton(
-          onPressed: saving ? null : close,
-          icon: const Icon(Icons.arrow_back),
-        ),
-      ),
-      bottomNavigationBar: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: FutureBuilder<_PlanCatalogs>(
-            future: future,
-            builder: (context, s) {
-              final voiceBlock = voice?.blocksSave ?? false;
+      bottomNavigationBar: _bottomBar(),
+      body: SafeArea(
+        child: FutureBuilder<_PlanCatalogs>(
+          future: future,
+          builder: (context, s) {
+            final header = Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+              child: _header(s.data?.campaign['name']?.toString()),
+            );
+            if (s.hasError) {
               return Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  if (voiceBlock)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 6),
-                      child: Text(
-                        voice!.saveBlockReason!,
-                        key: const Key('voz-bloqueo-guardar'),
-                        textAlign: TextAlign.center,
-                      ),
+                  header,
+                  Expanded(
+                    child: EmptyState(
+                      icon: Icons.error_outline,
+                      message: friendlyError(s.error!),
                     ),
-                  FilledButton.icon(
-                    key: const Key('plan-confirm'),
-                    onPressed:
-                        saving ||
-                            voiceBlock ||
-                            !s.hasData ||
-                            modeChangedSince(
-                              loadedMode,
-                              ref.watch(operationModeProvider),
-                            )
-                        ? null
-                        : () => submit(s.data!),
-                    icon: const Icon(Icons.check),
-                    label: const Text('Guardar planificación'),
                   ),
                 ],
               );
-            },
-          ),
-        ),
-      ),
-      body: FutureBuilder<_PlanCatalogs>(
-        future: future,
-        builder: (context, s) {
-          if (s.hasError)
-            return EmptyState(
-              icon: Icons.error_outline,
-              message: friendlyError(s.error!),
-            );
-          if (!s.hasData)
-            return const Center(child: CircularProgressIndicator());
-          final d = s.data!;
-          final farm = d.farms.where((f) => f['id'] == farmId).firstOrNull;
-          final addable = d.products
-              .where((p) => !lines.any((l) => l.product?['id'] == p['id']))
-              .toList();
-          return SafeArea(
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 100),
-              children: [
-                if (modeChangedSince(
-                  loadedMode,
-                  ref.watch(operationModeProvider),
-                )) ...[
-                  const ModeChangedNotice(),
-                  const SizedBox(height: 12),
+            }
+            if (!s.hasData) {
+              return Column(
+                children: [
+                  header,
+                  const Expanded(
+                    child: Center(child: CircularProgressIndicator()),
+                  ),
                 ],
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.primaryContainer,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    'Campaña activa · ${d.campaign['name']}',
-                    style: const TextStyle(fontWeight: FontWeight.w800),
-                  ),
-                ),
-                const SizedBox(height: 12),
-                if (showVoice && voice != null)
-                  VoiceFormPanel(
-                    dictation: voice!,
-                    engineHint:
-                        'Hable por frases cortas: chaco, área y la dosis por '
-                        'hectárea de cada producto. Pulse «Terminar» al '
-                        'acabar. Nada se guarda solo.',
-                    onClose: () => setState(() => showVoice = false),
-                    // Sólo en la compilación de diagnóstico: política B, comparar
-                    // pistas y lo que propuso cada motor (ruta por frases).
-                    diagnostics:
-                        voiceDiagnosticsBuild && _voiceTarget.catalog != null
-                        ? Column(
+              );
+            }
+            final d = s.data!;
+            final farm = d.farms.where((f) => f['id'] == farmId).firstOrNull;
+            final addable = d.products
+                .where((p) => !lines.any((l) => l.product?['id'] == p['id']))
+                .toList();
+            return Column(
+              children: [
+                header,
+                Expanded(
+                  child: ListView(
+                    key: const Key('plan-scroll'),
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+                    children: [
+                      if (modeChangedSince(
+                        loadedMode,
+                        ref.watch(operationModeProvider),
+                      )) ...[
+                        const ModeChangedNotice(),
+                        const SizedBox(height: 12),
+                      ],
+                      Semantics(
+                        header: true,
+                        child: const Text(
+                          '¿Qué piensa aplicar?',
+                          style: AgroText.h1,
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      ..._voiceEntry(),
+                      AgroGroup(
+                        children: [
+                          Column(
                             crossAxisAlignment: CrossAxisAlignment.stretch,
                             children: [
-                              const VoicePolicyBSwitch(),
-                              VoiceContextExperimentSwitch(
-                                domainHints: () => voiceDomainContextHints(
-                                  _voiceTarget.catalog!,
+                              AdaptiveEntityPicker<Map<String, Object?>>(
+                                rowStyle: true,
+                                label: 'Chaco',
+                                items: d.farms,
+                                value: farm,
+                                labelOf: (f) => f['name'] as String,
+                                secondaryOf: (f) =>
+                                    '${f['owner_name']} · '
+                                    '${formatHectares(f['area_m2'] as int)}',
+                                onChanged: selectFarm,
+                                createLabel: 'Crear chaco',
+                                onCreate: _createFarm,
+                                badge: VoiceMarkBadge(
+                                  dictation: voice,
+                                  slot: const SlotRef.header('farm'),
+                                  current: farmId,
                                 ),
                               ),
-                              VoiceProposalsButton(describe: (_) => const []),
+                              // Lo que falta se calcula con las existencias
+                              // del responsable del chaco.
+                              if (farm != null)
+                                Padding(
+                                  padding: const EdgeInsets.fromLTRB(
+                                    16,
+                                    0,
+                                    16,
+                                    10,
+                                  ),
+                                  child: Text(
+                                    '${farm['owner_name']} · se compara con '
+                                    'sus existencias',
+                                    key: const Key('plan-farm-owner'),
+                                    style: AgroText.detail,
+                                  ),
+                                ),
                             ],
-                          )
-                        : null,
-                  )
-                else
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: OutlinedButton.icon(
-                      key: const Key('plan-completar-voz'),
-                      onPressed: saving ? null : _openVoice,
-                      icon: const Icon(Icons.mic_none_outlined),
-                      label: const Text('Completar por voz'),
-                    ),
-                  ),
-                const SizedBox(height: 16),
-                AdaptiveEntityPicker<Map<String, Object?>>(
-                  label: 'Chaco',
-                  items: d.farms,
-                  value: farm,
-                  labelOf: (f) => f['name'] as String,
-                  secondaryOf: (f) =>
-                      '${f['owner_name']} · ${formatHectares(f['area_m2'] as int)}',
-                  onChanged: selectFarm,
-                  createLabel: 'Crear chaco',
-                  onCreate: _createFarm,
-                ),
-                VoiceSlotMark(
-                  dictation: voice,
-                  slot: const SlotRef.header('farm'),
-                  current: farmId,
-                  currentDisplay: farm?['name']?.toString(),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: area,
-                  onChanged: (_) => _edited(),
-                  keyboardType: const TextInputType.numberWithOptions(
-                    decimal: true,
-                  ),
-                  decoration: const InputDecoration(
-                    labelText: 'Área planificada (ha)',
-                  ),
-                ),
-                VoiceSlotMark(
-                  dictation: voice,
-                  slot: const SlotRef.header('area'),
-                  current: _PlanVoice._areaCanon(area.text),
-                  currentDisplay: area.text,
-                ),
-                const SizedBox(height: 20),
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        'Productos (${lines.length})',
-                        style: Theme.of(context).textTheme.titleLarge
-                            ?.copyWith(fontWeight: FontWeight.w800),
-                      ),
-                    ),
-                    // Nombre accesible: sin él el lector de pantalla sólo
-                    // anunciaba «botón» (2026-11-05).
-                    IconButton.filled(
-                      tooltip: 'Agregar al plan',
-                      onPressed: productToAdd == null ? null : add,
-                      icon: const Icon(Icons.add),
-                    ),
-                  ],
-                ),
-                AdaptiveEntityPicker<Map<String, Object?>>(
-                  label: 'Agregar producto',
-                  items: addable,
-                  value: productToAdd,
-                  labelOf: (p) => p['name'] as String,
-                  secondaryOf: (p) => p['unit'] as String,
-                  onChanged: (p) => setState(() => productToAdd = p),
-                  // El producto a agregar se elige siempre, aunque quede uno:
-                  // con la autoselección el único producto quedaba elegido al
-                  // elegir el chaco y podía pisar uno recién creado (prueba
-                  // (e) de ux_altas_en_contexto bajo carga, 2026-11-05).
-                  autoSelectSingle: false,
-                  enabled: farmId != null,
-                  createLabel: 'Crear producto',
-                  onCreate: _createProduct,
-                ),
-                // Sin el aviso «Agregue los productos…» con la lista vacía:
-                // repetía lo que ya dicen «Productos (0)» y el selector
-                // «Agregar producto» justo encima (2026-11-05).
-                const SizedBox(height: 8),
-                for (final l in lines)
-                  Card(
-                    margin: const EdgeInsets.only(bottom: 8),
-                    child: ListTile(
-                      title: l.product == null
-                          // Línea dictada con el producto por elegir (fuera
-                          // del catálogo, ambiguo o repetido): se elige aquí.
-                          ? AdaptiveEntityPicker<Map<String, Object?>>(
-                              label: 'Producto',
-                              items: addable,
-                              value: null,
-                              labelOf: (p) => p['name'] as String,
-                              secondaryOf: (p) => p['unit'] as String,
-                              autoSelectSingle: false,
-                              onChanged: (p) {
-                                setState(() => l.product = p);
-                                _edited();
-                              },
-                            )
-                          : Text(
-                              l.product!['name'] as String,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                      subtitle: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          VoiceSlotMark(
-                            dictation: voice,
-                            slot: SlotRef.line(l.id, 'product'),
-                            current: l.product?['id'],
-                            currentDisplay: l.product?['name']?.toString(),
                           ),
-                          const SizedBox(height: 6),
-                          TextField(
-                            controller: l.dose,
-                            onChanged: (_) => _edited(),
-                            keyboardType: const TextInputType.numberWithOptions(
-                              decimal: true,
-                            ),
-                            decoration: InputDecoration(
-                              labelText: l.product == null
-                                  ? 'Dosis por hectárea'
-                                  : 'Dosis (${l.product!['unit']}/ha)',
-                              isDense: true,
-                            ),
-                          ),
-                          VoiceSlotMark(
-                            dictation: voice,
-                            slot: SlotRef.line(l.id, 'dose'),
-                            current: l.voiceFields()['dose'],
-                            currentDisplay: l.dose.text,
-                          ),
-                          if (voice?.touchesLine(l.id) ?? false) ...[
-                            if (l.product == null)
-                              const VoiceMissingMark(label: 'producto'),
-                            if (l.voiceFields()['dose'] == null)
-                              const VoiceMissingMark(label: 'dosis'),
-                          ],
-                          const SizedBox(height: 6),
-                          if (l.product != null)
-                            Builder(
-                              builder: (_) {
-                                final unit = l.product!['unit'] as String;
-                                final need = needed(l);
-                                final stock = ownerStock[l.product!['id']] ?? 0;
-                                final missing = need > stock ? need - stock : 0;
-                                return Text(
-                                  'Necesita ${formatQuantity(need, unit)} · stock ${formatQuantity(stock, unit)} · ${missing == 0 ? 'cubierto' : 'comprar ${formatQuantity(missing, unit)}'}',
-                                );
-                              },
-                            ),
                         ],
                       ),
-                      trailing: IconButton(
-                        tooltip: 'Quitar producto',
-                        onPressed: () {
-                          setState(() {
-                            lines.remove(l);
-                            voice?.lineRemoved(l.id);
-                            l.dispose();
-                            dirty = true;
-                          });
-                        },
-                        icon: const Icon(Icons.close),
+                      VoiceSlotMark(
+                        dictation: voice,
+                        slot: const SlotRef.header('farm'),
+                        current: farmId,
+                        currentDisplay: farm?['name']?.toString(),
+                        showMark: false,
                       ),
-                    ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        key: const Key('plan-area'),
+                        controller: area,
+                        onChanged: (_) => _edited(),
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        style: AgroText.input,
+                        decoration: const InputDecoration(
+                          labelText: 'Área planificada',
+                          floatingLabelBehavior: FloatingLabelBehavior.always,
+                          suffixText: 'ha',
+                          suffixStyle: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                            color: AgroColors.muted,
+                          ),
+                        ),
+                      ),
+                      VoiceSlotMark(
+                        dictation: voice,
+                        slot: const SlotRef.header('area'),
+                        current: _PlanVoice._areaCanon(area.text),
+                        currentDisplay: area.text,
+                      ),
+                      const SizedBox(height: 20),
+                      Text('Productos (${lines.length})', style: AgroText.h2),
+                      const SizedBox(height: 10),
+                      for (final l in lines) _lineCard(l, addable),
+                      // Elegir el producto y después «Agregar al plan»: dos
+                      // actos explícitos, como hasta ahora.
+                      Row(
+                        children: [
+                          Expanded(
+                            child: AgroGroup(
+                              children: [
+                                AdaptiveEntityPicker<Map<String, Object?>>(
+                                  rowStyle: true,
+                                  label: 'Agregar producto',
+                                  placeholder: farmId == null
+                                      ? 'Elija primero el chaco'
+                                      : 'Elegir',
+                                  items: addable,
+                                  value: productToAdd,
+                                  labelOf: (p) => p['name'] as String,
+                                  secondaryOf: (p) => p['unit'] as String,
+                                  onChanged: (p) =>
+                                      setState(() => productToAdd = p),
+                                  // El producto a agregar se elige siempre,
+                                  // aunque quede uno: con la autoselección el
+                                  // único producto quedaba elegido al elegir
+                                  // el chaco y podía pisar uno recién creado
+                                  // (prueba (e) de ux_altas_en_contexto bajo
+                                  // carga, 2026-11-05).
+                                  autoSelectSingle: false,
+                                  enabled: farmId != null,
+                                  createLabel: 'Crear producto',
+                                  onCreate: _createProduct,
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          // Nombre accesible: sin él el lector de pantalla
+                          // sólo anunciaba «botón» (2026-11-05).
+                          IconButton.filled(
+                            key: const Key('plan-add-line'),
+                            tooltip: 'Agregar al plan',
+                            style: IconButton.styleFrom(
+                              minimumSize: const Size(56, 56),
+                              backgroundColor: AgroColors.ink,
+                              foregroundColor: AgroColors.lime,
+                            ),
+                            onPressed: productToAdd == null ? null : add,
+                            icon: const Icon(Icons.add),
+                          ),
+                        ],
+                      ),
+                    ],
                   ),
+                ),
               ],
-            ),
-          );
-        },
+            );
+          },
+        ),
       ),
     ),
   );
+
+  /// Volver, «Nuevo plan · campaña» y el acceso a la voz.
+  Widget _header(String? campaign) {
+    final busy = voice?.busy ?? false;
+    return FlowTopBar(
+      backKey: const Key('plan-close'),
+      backTooltip: 'Volver',
+      onBack: saving ? null : close,
+      label: campaign == null ? 'Nuevo plan' : 'Nuevo plan · $campaign',
+      labelKey: const Key('plan-header'),
+      // F09 (formulario único): la voz completa ESTE formulario.
+      trailing: CircleIconButton(
+        key: const Key('form-dictar'),
+        icon: showVoice ? Icons.mic : Icons.mic_none_outlined,
+        tooltip: showVoice ? 'Ocultar el panel de voz' : 'Completar por voz',
+        onPressed: saving
+            ? null
+            : showVoice
+            ? busy
+                  ? null
+                  : () => setState(() => showVoice = false)
+            : _openVoice,
+      ),
+    );
+  }
+
+  /// Panel inferior: «Guardar plan» o el panel de voz, que ocupa su lugar
+  /// mientras está abierto.
+  Widget _bottomBar() {
+    if (showVoice && voice != null) {
+      return VoiceFormPanel(
+        dictation: voice!,
+        docked: true,
+        example:
+            '«Chaco Norte, tres hectáreas, fungicida a dos litros por '
+            'hectárea»',
+        engineHint:
+            'Hable por frases cortas: chaco, área y la dosis por hectárea de '
+            'cada producto. Pulse «Terminar» al acabar.',
+        onClose: () => setState(() => showVoice = false),
+        // Sólo en la compilación de diagnóstico: política B, comparar pistas
+        // y lo que propuso cada motor (ruta por frases).
+        diagnostics: voiceDiagnosticsBuild && _voiceTarget.catalog != null
+            ? Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  const VoicePolicyBSwitch(),
+                  VoiceContextExperimentSwitch(
+                    domainHints: () =>
+                        voiceDomainContextHints(_voiceTarget.catalog!),
+                  ),
+                  VoiceProposalsButton(describe: (_) => const []),
+                ],
+              )
+            : null,
+      );
+    }
+    return FutureBuilder<_PlanCatalogs>(
+      future: future,
+      builder: (context, s) {
+        final voiceBlock = voice?.blocksSave ?? false;
+        return BottomPanel(
+          children: [
+            if (voiceBlock)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Row(
+                  children: [
+                    const Icon(Icons.rule, size: 18, color: AgroColors.caution),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        voice!.saveBlockReason!,
+                        key: const Key('voz-bloqueo-guardar'),
+                        style: AgroText.detail.copyWith(
+                          color: AgroColors.warnInk,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            PrimaryActionButton(
+              key: const Key('plan-confirm'),
+              label: saving ? 'Guardando…' : 'Guardar plan',
+              icon: Icons.check,
+              iconFirst: true,
+              busy: saving,
+              onPressed:
+                  saving ||
+                      voiceBlock ||
+                      !s.hasData ||
+                      modeChangedSince(
+                        loadedMode,
+                        ref.watch(operationModeProvider),
+                      )
+                  ? null
+                  : () => submit(s.data!),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  /// El aviso del último dictado o el botón que abre el panel. Con el panel
+  /// abierto no se muestra nada aquí (el panel va abajo).
+  List<Widget> _voiceEntry() {
+    if (showVoice) return const [];
+    if (voice != null && _voiceBanner) {
+      return [
+        VoiceResultBanner(
+          dictation: voice!,
+          onDictateMore: saving ? null : _openVoice,
+          onDismiss: () => setState(() => _voiceBanner = false),
+        ),
+        const SizedBox(height: 12),
+      ];
+    }
+    return [
+      Align(
+        alignment: Alignment.centerLeft,
+        child: PillButton(
+          key: const Key('plan-completar-voz'),
+          icon: Icons.mic_none_outlined,
+          label: 'Completar por voz',
+          onPressed: saving ? null : _openVoice,
+        ),
+      ),
+      const SizedBox(height: 12),
+    ];
+  }
+
+  void _removeLine(_PlanLine l) {
+    setState(() {
+      lines.remove(l);
+      voice?.lineRemoved(l.id);
+      l.dispose();
+      dirty = true;
+    });
+  }
+
+  /// Tarjeta de un producto del plan: producto, dosis por hectárea, lo que
+  /// necesita el área y si las existencias del responsable lo cubren.
+  Widget _lineCard(_PlanLine l, List<Map<String, Object?>> addable) {
+    final product = l.product;
+    final unit = product?['unit'] as String?;
+    final need = product == null ? 0 : needed(l);
+    final stock = product == null ? 0 : ownerStock[product['id']] ?? 0;
+    final missing = need > stock ? need - stock : 0;
+    final (String badge, BadgeTone tone) = need <= 0
+        ? ('Escriba la dosis', BadgeTone.neutral)
+        : missing == 0
+        ? ('Cubierto · hay ${formatQuantity(stock, unit!)}', BadgeTone.voice)
+        : (
+            'Falta comprar ${formatQuantity(missing, unit!)} · '
+                'hay ${formatQuantity(stock, unit)}',
+            BadgeTone.review,
+          );
+    return Card(
+      key: Key('plan-line-${l.id}'),
+      margin: const EdgeInsets.only(bottom: 10),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 8, 8, 14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: product == null
+                      // Línea dictada con el producto por elegir (fuera del
+                      // catálogo, ambiguo o repetido): se elige aquí.
+                      ? AdaptiveEntityPicker<Map<String, Object?>>(
+                          rowStyle: true,
+                          label: 'Producto',
+                          items: addable,
+                          value: null,
+                          labelOf: (p) => p['name'] as String,
+                          secondaryOf: (p) => p['unit'] as String,
+                          autoSelectSingle: false,
+                          onChanged: (p) {
+                            setState(() => l.product = p);
+                            _edited();
+                          },
+                        )
+                      : Padding(
+                          padding: const EdgeInsets.only(top: 6),
+                          child: Text(
+                            product['name'] as String,
+                            style: AgroText.value,
+                          ),
+                        ),
+                ),
+                IconButton(
+                  tooltip: 'Quitar producto',
+                  color: AgroColors.muted,
+                  onPressed: () => _removeLine(l),
+                  icon: const Icon(Icons.delete_outline),
+                ),
+              ],
+            ),
+            VoiceSlotMark(
+              dictation: voice,
+              slot: SlotRef.line(l.id, 'product'),
+              current: product?['id'],
+              currentDisplay: product?['name']?.toString(),
+            ),
+            const SizedBox(height: 10),
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: l.dose,
+                      onChanged: (_) => _edited(),
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      style: AgroText.input,
+                      decoration: InputDecoration(
+                        labelText: product == null
+                            ? 'Dosis por hectárea'
+                            : 'Dosis ($unit/ha)',
+                        floatingLabelBehavior: FloatingLabelBehavior.always,
+                      ),
+                    ),
+                  ),
+                  if (product != null) ...[
+                    const SizedBox(width: 12),
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        const Text('Necesita', style: AgroText.label),
+                        Text(
+                          formatQuantity(need, unit!),
+                          key: Key('plan-line-need-${l.id}'),
+                          style: AgroText.input,
+                        ),
+                      ],
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            VoiceSlotMark(
+              dictation: voice,
+              slot: SlotRef.line(l.id, 'dose'),
+              current: l.voiceFields()['dose'],
+              currentDisplay: l.dose.text,
+            ),
+            if (voice?.touchesLine(l.id) ?? false) ...[
+              if (product == null) const VoiceMissingMark(label: 'producto'),
+              if (l.voiceFields()['dose'] == null)
+                const VoiceMissingMark(label: 'dosis'),
+            ],
+            if (product != null) ...[
+              const SizedBox(height: 10),
+              Align(
+                alignment: Alignment.centerLeft,
+                child: StatusBadge(
+                  key: Key('plan-line-coverage-${l.id}'),
+                  label: badge,
+                  tone: tone,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _PlanLine {

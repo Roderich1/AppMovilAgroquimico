@@ -68,11 +68,15 @@ void main() {
 
   Future<void> shot(WidgetTester tester, String name) async {
     await settle(tester);
-    final boundary = tester.renderObject<RenderRepaintBoundary>(
-      find.byType(RepaintBoundary).first,
-    );
+    // La vista entera (también las hojas modales y el botón flotante), no
+    // sólo la página: se captura la capa raíz de la vista.
+    final view = tester.binding.renderViews.first;
+    final layer = view.debugLayer! as OffsetLayer;
     final bytes = await tester.runAsync(() async {
-      final image = await boundary.toImage(pixelRatio: 2);
+      // La capa raíz ya aplica la densidad: se recorta en píxeles físicos.
+      final image = await layer.toImage(
+        Offset.zero & (view.size * tester.view.devicePixelRatio),
+      );
       final data = await image.toByteData(format: ui.ImageByteFormat.png);
       return data!.buffer.asUint8List();
     });
@@ -109,6 +113,8 @@ void main() {
 
   testWidgets('compra: recorrido de capturas', (tester) async {
     await tester.runAsync(_loadFonts);
+    // Sombras reales: en las pruebas se dibujan como un borde negro.
+    debugDisableShadows = false;
     tester.view.physicalSize = Size(width * 2, 844 * 2);
     tester.view.devicePixelRatio = 2;
     tester.platformDispatcher.textScaleFactorTestValue = scale;
@@ -195,5 +201,34 @@ void main() {
     await shot(tester, '2.7_paso2$tag');
     await tapKey(tester, 'purchase-paid-yes');
     await shot(tester, '2.7b_paso2_pagado$tag');
+    debugDisableShadows = true;
+  });
+
+  testWidgets('shell: barra, «Registrar» y Sindicato', (tester) async {
+    await tester.runAsync(_loadFonts);
+    // Sombras reales: en las pruebas se dibujan como un borde negro.
+    debugDisableShadows = false;
+    tester.view.physicalSize = Size(width * 2, 844 * 2);
+    tester.view.devicePixelRatio = 2;
+    tester.platformDispatcher.textScaleFactorTestValue = scale;
+    addTearDown(tester.view.reset);
+    addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+    final s = await activatedHousehold(tester, 'rdm-shell');
+    final c = await pumpModeApp(tester, s.database);
+    final tag =
+        '${scale == 1.0 ? '' : '_x${scale.toString().replaceAll('.', '')}'}'
+        '${width == 390 ? '' : '_w${width.round()}'}';
+    c.read(routerProvider).go('/operaciones');
+    await settle(tester);
+    await shot(tester, '1.2_actividad_barra$tag');
+    await tester.tap(find.byKey(const Key('shell-registrar')));
+    await settle(tester);
+    await shot(tester, '1.7_registrar$tag');
+    Navigator.of(tester.element(find.byKey(const Key('register-sheet')))).pop();
+    await settle(tester);
+    c.read(routerProvider).go('/sindicato');
+    await settle(tester);
+    await shot(tester, '1.6_sindicato_esqueleto$tag');
+    debugDisableShadows = true;
   });
 }

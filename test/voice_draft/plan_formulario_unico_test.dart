@@ -106,7 +106,7 @@ void main() {
     await tapKey(tester, 'plan-completar-voz');
     await dictate(tester);
     expect(picked(tester, 'Chaco'), 'Chaco titular');
-    expect(text(tester, 'Área planificada (ha)'), '1');
+    expect(text(tester, 'Área planificada'), '1');
     expect(find.text('Productos (1)'), findsOneWidget);
     expect(text(tester, 'Dosis (L/ha)'), '2');
     expect(find.byKey(const Key('voz-marca-farm')), findsOneWidget);
@@ -130,11 +130,11 @@ void main() {
       ),
     ]);
     await choose(tester, 'Chaco', 'Chaco hermana');
-    expect(text(tester, 'Área planificada (ha)'), '0,5');
+    expect(text(tester, 'Área planificada'), '0,5');
     await tapKey(tester, 'plan-completar-voz');
     await dictate(tester);
     expect(picked(tester, 'Chaco'), 'Chaco hermana');
-    expect(text(tester, 'Área planificada (ha)'), '0,5');
+    expect(text(tester, 'Área planificada'), '0,5');
     expect(text(tester, 'Dosis (L/ha)'), '2');
     expect(find.byKey(const Key('voz-elegir-farm')), findsNothing);
     expect(find.byKey(const Key('voz-elegir-area')), findsNothing);
@@ -158,7 +158,7 @@ void main() {
       await tapKey(tester, 'voz-mantener-area');
     }
     expect(picked(tester, 'Chaco'), 'Chaco hermana');
-    expect(text(tester, 'Área planificada (ha)'), '0,5');
+    expect(text(tester, 'Área planificada'), '0,5');
     expect(saveEnabled(tester), isTrue);
   });
 
@@ -191,7 +191,7 @@ void main() {
     await settle(tester);
     await tapKey(tester, 'voz-deshacer');
     expect(picked(tester, 'Chaco'), isNull);
-    expect(text(tester, 'Área planificada (ha)'), '');
+    expect(text(tester, 'Área planificada'), '');
     expect(find.text('Productos (1)'), findsOneWidget);
     expect(text(tester, 'Dosis (L/ha)'), '3');
   });

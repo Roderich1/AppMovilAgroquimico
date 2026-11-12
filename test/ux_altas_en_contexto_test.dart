@@ -345,7 +345,7 @@ void main() {
     );
 
     expect(pickerAt(tester, 'Chaco').value?['name'], 'Chaco Loma UX');
-    expect(fieldText(tester, 'Área planificada (ha)'), '2,5');
+    expect(fieldText(tester, 'Área planificada'), '2,5');
 
     await openCreate(tester, 'Agregar producto', 'Crear producto');
     await tester.enterText(field('Producto'), 'Cipermetrina UX');
@@ -422,7 +422,7 @@ void main() {
     await settle(tester);
     expect(find.byKey(const Key('campaigns-current')), findsOneWidget);
     expect(find.text('Campaña 1'), findsOneWidget);
-    expect(find.byTooltip('Registrar operación'), findsNothing);
+    expect(find.byKey(const Key('shell-registrar')), findsNothing);
     expect(find.byKey(const Key('campaigns-add')), findsOneWidget);
   });
 
@@ -433,10 +433,10 @@ void main() {
     c.read(routerProvider).go('/operaciones');
     await settle(tester);
 
-    await tester.tap(find.byTooltip('Registrar operación'));
+    await tester.tap(find.byKey(const Key('shell-registrar')));
     await settle(tester);
     await tester.tap(find.text('Aplicación'));
     await settle(tester);
-    expect(find.text('Nueva aplicación'), findsOneWidget);
+    expect(find.byKey(const Key('application-step')), findsOneWidget);
   });
 }
