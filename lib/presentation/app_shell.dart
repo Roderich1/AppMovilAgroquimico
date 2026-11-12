@@ -175,7 +175,10 @@ class AppShell extends StatefulWidget {
   /// lectura (A2, 2026-10-30): un botón de creación no tiene sentido ahí.
   bool get hidesGlobalFab =>
       _routesWithoutGlobalFab.contains(location) ||
-      location.startsWith('/compras/detalle/');
+      location.startsWith('/compras/detalle/') ||
+      // Detalle de un producto (lámina «Producto», sin flotante): el botón
+      // tapaba sus movimientos.
+      location.startsWith('/inventario/');
 
   int get selectedIndex =>
       destinations.indexWhere((item) => item.path == sectionOf(location));
