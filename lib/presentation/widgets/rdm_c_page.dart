@@ -8,6 +8,7 @@ library;
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../domain/sync/sync_types.dart' show OutboxStatus;
 import '../theme/agro_theme.dart';
 import 'agro_ui.dart';
 import 'common.dart' show ContentInsets, measureText;
@@ -542,6 +543,68 @@ class RdmCInfoRow extends StatelessWidget {
           style: AgroText.value.copyWith(fontSize: 16),
         ),
       ],
+    ),
+  );
+}
+
+/// Tono de la etiqueta del estado de un envío al sindicato. La palabra la
+/// pone la pantalla (`outboxStatusPhrase`…); el tono sólo la acompaña:
+/// aceptado → verde; en camino o pausado → ámbar; conflicto o rechazo →
+/// rojo; sin envío o descartado → gris.
+BadgeTone rdmCOutboxTone(OutboxStatus? status) => switch (status) {
+  OutboxStatus.acked => BadgeTone.voice,
+  OutboxStatus.conflict ||
+  OutboxStatus.rejected ||
+  OutboxStatus.failed => BadgeTone.missing,
+  null || OutboxStatus.discarded => BadgeTone.neutral,
+  _ => BadgeTone.review,
+};
+
+/// Fila gris que lleva a otra pantalla: una frase y la flecha.
+class RdmCLinkRow extends StatelessWidget {
+  const RdmCLinkRow({
+    super.key,
+    required this.text,
+    required this.onTap,
+    this.semanticsHint,
+  });
+
+  final String text;
+  final VoidCallback onTap;
+  final String? semanticsHint;
+
+  @override
+  Widget build(BuildContext context) => Semantics(
+    button: true,
+    hint: semanticsHint,
+    child: Material(
+      color: AgroColors.track,
+      borderRadius: BorderRadius.circular(20),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 56),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 10, 12),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    text,
+                    style: const TextStyle(
+                      fontSize: 15,
+                      height: 20 / 15,
+                      color: AgroColors.ink,
+                    ),
+                  ),
+                ),
+                const Icon(Icons.chevron_right, color: AgroColors.muted),
+              ],
+            ),
+          ),
+        ),
+      ),
     ),
   );
 }

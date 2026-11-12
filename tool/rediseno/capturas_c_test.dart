@@ -14,7 +14,10 @@ import 'dart:ui' as ui;
 
 import 'package:agroquimicos/app.dart';
 import 'package:agroquimicos/data/sync/identification_request_store.dart';
+import 'package:agroquimicos/domain/sync/sync_types.dart' show ProjectionType;
 import 'package:agroquimicos/presentation/screens/central_binding_screen.dart';
+import 'package:agroquimicos/presentation/screens/consumption_publish_screen.dart';
+import 'package:agroquimicos/presentation/screens/declared_needs_screen.dart';
 import 'package:agroquimicos/presentation/theme/agro_theme.dart';
 import 'package:agroquimicos/presentation/widgets/label_photo_sheet.dart';
 import 'package:agroquimicos/services/sync/sync_providers.dart';
@@ -31,6 +34,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import '../../test/support/e1_identification_fixtures.dart';
 import '../../test/support/f04_mode_ui_harness.dart' show settle;
 import '../../test/support/f05_sync_fixtures.dart';
+import '../../test/support/f06_consumption_fixtures.dart';
 
 Future<void> _loadFonts() async {
   Future<void> family(String name, List<String> assets) async {
@@ -222,5 +226,71 @@ void main() {
     showLabelPhotoSheet(context, productId: lime, productName: 'Cal agrícola');
     await settle(tester);
     await shot(tester, '4.6b_etiqueta_sin_foto');
+  });
+
+  testWidgets('necesidad declarada y consumo', (tester) async {
+    await setUpView(tester);
+    final dir = await tester.runAsync(
+      () => Directory.systemTemp.createTemp('rdm_c_'),
+    );
+    final f = (await tester.runAsync(
+      () => seedConsumptionFixture(path: '${dir!.path}/c2.db'),
+    ))!;
+    await tester.runAsync(() async {
+      // Necesidades: una aceptada y otra pendiente de envío.
+      await f.sync.needs.declare(
+        referenceDate: inCampaign,
+        productId: f.sync.litreProductId,
+        quantityBase: 20000,
+      );
+      final need = (await f.sync.outboxEntries()).single;
+      await f.sync.outbox.recordAccepted(
+        await f.sync.outbox.markSending(need),
+        '2026-11-11T12:00:00.000Z',
+      );
+      await f.sync.needs.declare(
+        referenceDate: inCampaign,
+        productId: f.sync.kiloProductId,
+        quantityBase: 5000,
+      );
+      // Consumo: dos totales publicados (uno aceptado), uno nuevo y una
+      // aplicación de un familiar que no se publica.
+      await f.apply(f.ownerPersonId, {
+        f.sync.litreProductId: 6000,
+        f.sync.kiloProductId: 1500,
+      });
+      await f.apply(f.familyPersonId, {f.sync.litreProductId: 2000});
+      await f.publisher.publish(await f.publisher.preview());
+      final litre = (await f.sync.outboxEntries()).lastWhere(
+        (e) =>
+            e.projectionType == ProjectionType.consumptionTotal &&
+            e.productRef == litreRef,
+      );
+      await f.sync.outbox.recordAccepted(
+        await f.sync.outbox.markSending(litre),
+        '2026-11-11T12:30:00.000Z',
+      );
+      await f.apply(f.ownerPersonId, {f.extraLitreProductId: 400});
+    });
+    final overrides = [
+      databaseProvider.overrideWithValue(f.sync.database),
+      repositoryProvider.overrideWithValue(f.sync.repo),
+      declaredNeedStoreProvider.overrideWithValue(f.sync.needs),
+      centralBindingStoreProvider.overrideWithValue(f.sync.bindings),
+      syncOutboxStoreProvider.overrideWithValue(f.sync.outbox),
+      consumptionPublisherProvider.overrideWithValue(f.publisher),
+    ];
+
+    await pumpRouted(tester, const DeclaredNeedsScreen(), overrides);
+    await shot(tester, '6.4_necesidad');
+
+    await pumpRouted(tester, const ConsumptionPublishScreen(), overrides);
+    await shot(tester, '6.5_consumo');
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('publish-consumption')),
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await shot(tester, '6.5b_consumo_final');
   });
 }
