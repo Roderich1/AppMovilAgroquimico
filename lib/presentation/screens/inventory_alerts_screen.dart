@@ -4,8 +4,12 @@ import 'package:go_router/go_router.dart';
 
 import '../../app.dart';
 import '../../domain/campaign_calendar.dart';
+import '../../data/app_database.dart';
 import '../../domain/inventory_alerts.dart';
 import '../../domain/money.dart';
+import '../theme/agro_theme.dart';
+import '../widgets/agro_ui.dart';
+import '../widgets/rdm_b_ui.dart';
 import '../widgets/common.dart';
 
 /// Vista de avisos de existencias y vencimiento (F04-AV, MOB #170; CU-22).
@@ -52,37 +56,116 @@ class _InventoryAlertsScreenState extends ConsumerState<InventoryAlertsScreen> {
     });
   }
 
-  @override
-  Widget build(BuildContext context) => PageFrame(
-    title: 'Avisos de inventario',
-    subtitle: inventoryAlertsSubtitle,
-    action: IconButton.filledTonal(
-      tooltip: 'Volver a calcular',
-      onPressed: _refresh,
-      icon: const Icon(Icons.refresh),
+  /// Qué son los avisos y cómo se calcula cada sección: antes eran párrafos
+  /// permanentes; ahora se abren con «i», con los mismos textos.
+  Future<void> _showInfo(InventoryAlerts? alerts) => showDialog<void>(
+    context: context,
+    builder: (dialogContext) => AlertDialog(
+      key: const Key('alerts-info-dialog'),
+      title: const Text('Cómo se calculan los avisos'),
+      content: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(inventoryAlertsSubtitle),
+            for (final (title, help) in sectionHelp(alerts)) ...[
+              const SizedBox(height: 12),
+              Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
+              Text(help),
+            ],
+          ],
+        ),
+      ),
+      actions: [
+        FilledButton(
+          onPressed: () => Navigator.of(dialogContext).pop(),
+          child: const Text('Cerrar'),
+        ),
+      ],
     ),
-    child: FutureBuilder<InventoryAlerts>(
-      future: future,
-      builder: (context, snapshot) {
-        // CU-22 E1: si no se pudo leer todo, no se muestra una lista que
-        // parezca completa.
-        if (snapshot.hasError) {
-          return EmptyState(
-            icon: Icons.error_outline,
-            message:
-                'No se pudieron calcular los avisos: '
-                '${friendlyError(snapshot.error!)} No se muestra una lista '
-                'incompleta.',
-          );
-        }
-        if (!snapshot.hasData) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        return _AlertsBody(alerts: snapshot.data!, onOpenProduct: _openProduct);
-      },
+  );
+
+  @override
+  Widget build(BuildContext context) => FutureBuilder<InventoryAlerts>(
+    future: future,
+    builder: (context, snapshot) => RdmScrollPage(
+      children: [
+        ScreenTitleBar(
+          title: 'Avisos de inventario',
+          compact: true,
+          leading: const RdmBackButton(),
+          actions: [
+            CircleIconButton(
+              key: const Key('alerts-info'),
+              icon: Icons.info_outline,
+              tooltip: 'Cómo se calculan los avisos',
+              onPressed: () => _showInfo(snapshot.data),
+            ),
+            CircleIconButton(
+              icon: Icons.refresh,
+              tooltip: 'Volver a calcular',
+              onPressed: _refresh,
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        Builder(
+          builder: (context) {
+            // CU-22 E1: si no se pudo leer todo, no se muestra una lista que
+            // parezca completa.
+            if (snapshot.hasError) {
+              return EmptyState(
+                icon: Icons.error_outline,
+                message:
+                    'No se pudieron calcular los avisos: '
+                    '${friendlyError(snapshot.error!)} No se muestra una lista '
+                    'incompleta.',
+              );
+            }
+            if (!snapshot.hasData) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            return _AlertsBody(
+              alerts: snapshot.data!,
+              onOpenProduct: _openProduct,
+            );
+          },
+        ),
+      ],
     ),
   );
 }
+
+/// Explicación de cada sección (título y texto), para el diálogo «i».
+List<(String, String)> sectionHelp(InventoryAlerts? a) => [
+  ('Lotes vencidos', 'Lotes con producto cuya fecha de vencimiento ya pasó.'),
+  (
+    'Lotes que vencen hoy',
+    a == null
+        ? 'Vencen hoy, según la fecha del teléfono. Mañana pasan a vencidos.'
+        : 'Vencen hoy, ${displayDay(a.today)}, según la fecha del '
+              'teléfono. Mañana pasan a vencidos.',
+  ),
+  (
+    'Lotes próximos a vencer',
+    'Vencen dentro del plazo de aviso de cada producto. El plazo '
+        'inicial es de ${_daysText(a?.defaultLeadDays ?? AppDatabase.defaultAlertLeadDays)}; '
+        'puede cambiarlo en el detalle de cada producto.',
+  ),
+  (
+    'Existencia baja',
+    'Lo que queda en total, o lo que tiene cada responsable en el '
+        'inventario compartido, es igual o menor al nivel mínimo. Puede '
+        'haber producto en otras manos: se indica el total de la '
+        'instalación.',
+  ),
+  (
+    'Lotes sin fecha de vencimiento',
+    'No se sabe si están vigentes o vencidos. Puede registrar la fecha en '
+        'Compras, en el detalle de la compra de ese lote.',
+  ),
+];
 
 /// Subtítulo de la vista: qué son los avisos y qué no hacen.
 const inventoryAlertsSubtitle =
@@ -148,7 +231,8 @@ class _AlertsBody extends StatelessWidget {
           ),
         _Section(
           keyName: 'alerts-expired',
-          title: 'Vencidos',
+          title: 'Lotes vencidos',
+          tone: _SectionTone.danger,
           help: 'Lotes con producto cuya fecha de vencimiento ya pasó.',
           children: [
             for (final alert in a.expired)
@@ -164,7 +248,7 @@ class _AlertsBody extends StatelessWidget {
         // mañana sí (decisión del autor del 2026-11-01).
         _Section(
           keyName: 'alerts-today',
-          title: 'Vence hoy',
+          title: 'Lotes que vencen hoy',
           help:
               'Vencen hoy, ${displayDay(a.today)}, según la fecha del '
               'teléfono. Mañana pasan a vencidos.',
@@ -181,7 +265,7 @@ class _AlertsBody extends StatelessWidget {
         ),
         _Section(
           keyName: 'alerts-near',
-          title: 'Próximos a vencer',
+          title: 'Lotes próximos a vencer',
           help:
               'Vencen dentro del plazo de aviso de cada producto. El plazo '
               'inicial es de ${_daysText(a.defaultLeadDays)}; puede '
@@ -229,7 +313,7 @@ class _AlertsBody extends StatelessWidget {
           ),
         _Section(
           keyName: 'alerts-unknown',
-          title: 'Sin fecha de vencimiento registrada',
+          title: 'Lotes sin fecha de vencimiento',
           help:
               'No se sabe si están vigentes o vencidos. Puede registrar la '
               'fecha en Compras, en el detalle de la compra de ese lote.',
@@ -258,6 +342,8 @@ class _AlertsBody extends StatelessWidget {
   }
 }
 
+enum _SectionTone { normal, danger }
+
 class _Section extends StatelessWidget {
   const _Section({
     required this.keyName,
@@ -265,41 +351,52 @@ class _Section extends StatelessWidget {
     required this.help,
     required this.children,
     this.highlight = false,
+    this.tone = _SectionTone.normal,
   });
   final String keyName;
   final String title;
+
+  /// Explicación de la sección: se lee en el diálogo «i» de la cabecera
+  /// (`sectionHelp`), no como párrafo permanente.
   final String help;
   final List<Widget> children;
 
-  /// Tarjeta en ámbar, de advertencia: distinta de los próximos (sin color)
-  /// y de los vencidos (en rojo).
+  /// Tarjeta en ámbar, de advertencia: distinta de los próximos (blanca) y
+  /// de los vencidos (título en rojo).
   final bool highlight;
+  final _SectionTone tone;
 
   @override
   Widget build(BuildContext context) {
     if (children.isEmpty) return const SizedBox.shrink();
-    final theme = Theme.of(context);
     return Padding(
       key: Key(keyName),
       padding: const EdgeInsets.only(top: 16),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(
-            '$title (${children.length})',
-            style: theme.textTheme.titleLarge?.copyWith(
-              fontWeight: FontWeight.w700,
+          Padding(
+            padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
+            child: Semantics(
+              header: true,
+              child: Text(
+                '$title (${children.length})',
+                style: AgroText.h2.copyWith(
+                  color: tone == _SectionTone.danger
+                      ? AgroColors.danger
+                      : AgroColors.ink,
+                ),
+              ),
             ),
           ),
-          const SizedBox(height: 4),
-          Text(help, style: theme.textTheme.bodySmall),
-          const SizedBox(height: 8),
           Card(
-            color: highlight
-                ? (theme.brightness == Brightness.dark
-                      ? Colors.amber.shade900
-                      : Colors.amber.shade100)
-                : null,
+            margin: EdgeInsets.zero,
+            elevation: 0,
+            color: highlight ? AgroColors.warnBg : AgroColors.surface,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(20),
+            ),
+            clipBehavior: Clip.antiAlias,
             child: Column(children: children),
           ),
         ],
@@ -329,13 +426,20 @@ class _LotTile extends StatelessWidget {
         : '';
     return ListTile(
       key: Key('alert-lot-${lot.lotId}'),
-      leading: Icon(switch (alert.status) {
-        ExpiryStatus.expired => Icons.error_outline,
-        ExpiryStatus.today => Icons.warning_amber_rounded,
-        ExpiryStatus.near => Icons.event_outlined,
-        _ => Icons.help_outline,
-      }, color: urgent ? Theme.of(context).colorScheme.error : null),
-      title: Text(_lotTitle(lot)),
+      leading: IconCircle(
+        icon: switch (alert.status) {
+          ExpiryStatus.expired => Icons.error_outline,
+          ExpiryStatus.today => Icons.warning_amber_rounded,
+          ExpiryStatus.near => Icons.event_outlined,
+          _ => Icons.help_outline,
+        },
+        background: urgent ? const Color(0xFFFFDAD6) : AgroColors.chip,
+        foreground: urgent ? AgroColors.danger : AgroColors.ink,
+      ),
+      title: Text(
+        _lotTitle(lot),
+        style: const TextStyle(fontWeight: FontWeight.w700),
+      ),
       subtitle: Text(
         '${expiryPhrase(alert)} · Quedan '
         '${formatQuantity(lot.remainingBase, lot.unit)}'

@@ -638,7 +638,7 @@ void main() {
 
     await tapKey(tester, 'inventory-alerts-entry');
     await waitFor(tester, find.byKey(const Key('alerts-expired')));
-    expect(find.text('Vencidos (1)'), findsOneWidget);
+    expect(find.text('Lotes vencidos (1)'), findsOneWidget);
     expect(find.text('Glifosato · lote VIEJO'), findsOneWidget);
     expect(
       find.text(
@@ -647,7 +647,7 @@ void main() {
       findsOneWidget,
     );
     // Vence hoy: sección propia, destacada, entre vencidos y próximos.
-    expect(find.text('Vence hoy (1)'), findsOneWidget);
+    expect(find.text('Lotes que vencen hoy (1)'), findsOneWidget);
     expect(
       find.text('Vence hoy, ${displayDay(today)} · Quedan 1 L · Titular'),
       findsOneWidget,
@@ -667,7 +667,7 @@ void main() {
       tester.getTopLeft(find.byKey(const Key('alerts-today'))).dy,
       lessThan(tester.getTopLeft(find.byKey(const Key('alerts-near'))).dy),
     );
-    expect(find.text('Próximos a vencer (1)'), findsOneWidget);
+    expect(find.text('Lotes próximos a vencer (1)'), findsOneWidget);
     expect(
       find.text(
         'Vence el ${displayDay(in10)}, en 10 días · Quedan 2 L · Titular · '
@@ -687,7 +687,7 @@ void main() {
       findsOneWidget,
     );
     expect(
-      find.text('Sin fecha de vencimiento registrada (1)'),
+      find.text('Lotes sin fecha de vencimiento (1)'),
       findsOneWidget,
     );
     expect(
@@ -695,11 +695,15 @@ void main() {
       findsOneWidget,
     );
     expect(find.byKey(const Key('alerts-clock-warning')), findsNothing);
-    // El plazo inicial se explica y se dice dónde cambiarlo.
+    // El plazo inicial se explica y se dice dónde cambiarlo (rediseño B: en
+    // el diálogo «i» de la cabecera, no como párrafo permanente).
+    await tapKey(tester, 'alerts-info');
     expect(
       find.textContaining('El plazo inicial es de 30 días; puede cambiarlo'),
       findsOneWidget,
     );
+    await tester.tap(find.text('Cerrar'));
+    await settle(tester);
 
     await tester.tap(find.text('Glifosato · Hermana (responsable)'));
     await waitFor(tester, find.byKey(const Key('inventory-alert-settings')));

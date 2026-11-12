@@ -243,6 +243,19 @@ void main() {
     await shotWithEnd(tester, 'B_4.1_producto');
   });
 
+  shadowTest('avisos', (tester) async {
+    final r = await seeded(tester, 'rdm-b-avisos');
+    await go(tester, r.c, '/inventario');
+    r.c.read(routerProvider).push('/inventario/avisos');
+    await settle(tester);
+    await shotWithEnd(tester, 'B_4.2_avisos');
+    r.c.read(routerProvider).pop();
+    await settle(tester);
+    r.c.read(routerProvider).push('/inventario/estimacion');
+    await settle(tester);
+    await shot(tester, 'B_4.3_estimacion');
+  });
+
   shadowTest('actividad vacia', (tester) async {
     await setView(tester);
     final s = await activatedHousehold(tester, 'rdm-b-actividad-vacia');

@@ -6,7 +6,9 @@ import '../../domain/estimation/farmer_estimation.dart';
 import '../../domain/sync/central_references.dart';
 import '../../services/estimation/estimation_api.dart';
 import '../../services/estimation/estimation_providers.dart';
+import '../theme/agro_theme.dart';
 import '../widgets/common.dart';
+import '../widgets/rdm_b_ui.dart';
 
 /// Estimación del consumo dentro de Inventario (F12-EST-07-MOB, MOB #164;
 /// prototipo M6, figura 3.25; CU-21, RF-39, RF-40, RN-30, DAT-20, INT-09).
@@ -180,12 +182,27 @@ class _EstimationScreenState extends ConsumerState<EstimationScreen> {
   }
 
   @override
-  Widget build(BuildContext context) => PageFrame(
-    title: 'Estimación del consumo',
-    subtitle: 'Inventario · referencia para la próxima campaña comparable',
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
+  Widget build(BuildContext context) => Theme(
+    // Rediseño B (lámina 4.3): tarjetas blancas redondeadas, sin sombra.
+    // Los textos y el alcance de cada cifra (F12) no cambian.
+    data: Theme.of(context).copyWith(
+      cardTheme: CardThemeData(
+        color: AgroColors.surface,
+        elevation: 0,
+        margin: EdgeInsets.zero,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        clipBehavior: Clip.antiAlias,
+      ),
+    ),
+    child: RdmScrollPage(
       children: [
+        const ScreenTitleBar(
+          title: 'Estimación del consumo',
+          compact: true,
+          subtitle: 'Almacén · referencia para la próxima campaña comparable',
+          leading: RdmBackButton(),
+        ),
+        const SizedBox(height: 12),
         if (blocked != null)
           Card(
             key: const Key('estimation-blocked'),
@@ -204,7 +221,11 @@ class _EstimationScreenState extends ConsumerState<EstimationScreen> {
           Text(note!, key: const Key('estimation-note')),
         ],
         const SizedBox(height: 12),
-        const Text(estimationReferenceText, key: Key('estimation-reference')),
+        const Text(
+          estimationReferenceText,
+          key: Key('estimation-reference'),
+          style: AgroText.detail,
+        ),
       ],
     ),
   );

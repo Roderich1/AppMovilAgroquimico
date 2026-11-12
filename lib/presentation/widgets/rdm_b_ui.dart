@@ -110,9 +110,14 @@ class ScreenTitleBar extends StatelessWidget {
     this.actions = const [],
     this.leading,
     this.subtitle,
+    this.compact = false,
   });
 
   final String title;
+
+  /// Título de 26 px para pantallas apiladas («Avisos de inventario»); las
+  /// principales usan 32.
+  final bool compact;
   final List<Widget> actions;
   final Widget? leading;
 
@@ -147,10 +152,10 @@ class ScreenTitleBar extends StatelessWidget {
                 child: Text(
                   title,
                   key: const Key('page-frame-title'),
-                  style: const TextStyle(
+                  style: TextStyle(
                     fontFamily: AgroFonts.display,
-                    fontSize: 32,
-                    height: 38 / 32,
+                    fontSize: compact ? 26 : 32,
+                    height: compact ? 32 / 26 : 38 / 32,
                     fontWeight: FontWeight.w800,
                     letterSpacing: -0.5,
                     color: AgroColors.ink,
