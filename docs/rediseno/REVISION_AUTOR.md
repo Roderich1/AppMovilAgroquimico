@@ -4,7 +4,7 @@
 
 **Datos sintéticos** (inventario compartido, campaña «Invierno 2026»): Rosa Vargas (titular, Chaco Norte 3 ha) y Juan Mamani (familiar, Chaco Rio 2 ha); una compra de 5 L de «Herbicida sin red» a 80 Bs sin pagar (400,00 Bs); transferencia de 2 L Rosa → Juan; un plan para Chaco Rio aplicado (1 L, cargo de 80,00 Bs a Juan) y otro pendiente para Chaco Norte; pago de 50,00 Bs de Juan (le quedan 30,00 Bs).
 
-**Sin servidor:** la APK se compiló sin túnel (origen inexistente). Todo lo local funciona; lo que necesita la Central (cuenta en línea, enviar, convocatorias, vínculos) muestra el estado sin conexión.
+**Versión instalada (noche del 2026-11-12):** `91f2e73` (rediseño + P-A), conectada a la Central aislada por un túnel temporal; cuenta en línea autenticada. Además de los datos de abajo hay dos convocatorias sintéticas: «Convocatoria P-A sustitución» (abierta, 12 KG, responsable sustituida y ya autorizada) y «Convocatoria P-A cerrada» (4 L, cerrada, sustituida y autorizada). En Convocatorias todavía aparece el «+ Registrar» flotante: corregido en la rama (`9264191`), no instalado.
 
 **Comparativas lámina | integración:** `docs/evidence/rediseno-movil/2026-11-12/integracion/comparativas/` (49, nombradas por número de lámina). Las capturas de la derecha salen del arnés sobre la rama integrada (fuentes reales, 390×844) o del emulador cuando se indica.
 
@@ -38,7 +38,7 @@
 - **Mirar:** tarjeta de envío, «Convocatorias», «Necesidad declarada», «Consumo», «Productos y campañas», identificación con foto.
 - **Diferencias:** sin contadores en la tarjeta de convocatorias; estados de vínculos con los textos vigentes (no «Solicitud enviada» si sólo está en el teléfono); casillas de consentimiento sin marcar con el texto vigente FOTO-1/CONV-3; «Responsable: nombre» y fecha límite absoluta.
 - **Textos de consentimiento:** CONV-3 trata de «tú» y **se conserva tal cual** (texto versionado); el resto de la app usa «usted».
-- **Sin servidor aquí:** la participación y sus estados (pendiente/aplicada, versión, sin conexión, fallo temporal) están cubiertos por pruebas y capturas del arnés, no recorridos en este emulador (ver «Bloqueos»).
+- **P-A, recorrida conectada:** tarjeta «La persona responsable … cambió» con «Revisar autorización», diálogo con dos casillas sin marcar, «Sus cantidades no cambian», estados «Participación recibida» y «… aplicada en el sindicato» (`g01`–`g10`). Para ver de nuevo la tarjeta hace falta otra sustitución desde la Central (lo hago yo si lo pide).
 - **Comparativas:** `1.6`, `4.4`–`4.6`, `6.1`–`6.5`.
 
 ## 6. Ajustes, reportes y respaldos
