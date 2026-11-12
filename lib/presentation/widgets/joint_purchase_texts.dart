@@ -187,7 +187,8 @@ const jointPurchaseListTemporaryText =
 // --- Autorización (E2 §10.6, P-C) -------------------------------------------
 
 /// Título de la acción que amplía quién ve los datos.
-const jointPurchaseWidenLabel = 'Autorizar también a la Directiva o la '
+const jointPurchaseWidenLabel =
+    'Autorizar también a la Directiva o la '
     'Administración';
 
 /// Título de la acción que reduce a sólo la persona responsable.

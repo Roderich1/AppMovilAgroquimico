@@ -360,8 +360,8 @@ class _JointPurchaseDetailScreenState
             if (canDecide && effectiveScope != widen)
               OutlinedButton.icon(
                 key: const Key('joint-consent-widen'),
-                onPressed: busy ||
-                        call.status == JointPurchaseCallStatus.cancelled
+                onPressed:
+                    busy || call.status == JointPurchaseCallStatus.cancelled
                     ? null
                     : () => _decide(call, widen),
                 icon: const Icon(Icons.group_add_outlined),
