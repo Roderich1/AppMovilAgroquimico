@@ -1,3 +1,7 @@
+/// Acciones de una cuenta compartidas por Cuentas, Personas y el detalle de
+/// persona: la hoja «Registrar pago» (lámina Pago), el estado de cuenta y
+/// los movimientos propios a pantalla completa (láminas Cuenta y Propios).
+///
 /// Hoja «Registrar pago» de una cuenta (lámina Pago), compartida por Cuentas,
 /// Personas y el detalle de persona. Sólo pide el importe: quién paga, en qué
 /// campaña se registra y cómo se imputa los decide la pantalla que la abre y
@@ -5,11 +9,18 @@
 library;
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../app.dart';
+import '../../domain/account_ledger.dart';
+import '../../domain/campaign_calendar.dart';
+import '../../domain/read_models.dart' show CampaignRead;
 
 import '../../domain/account_texts.dart';
-import '../../domain/numeric_input.dart';
 import '../theme/agro_theme.dart';
+import 'account_statement_view.dart';
 import 'agro_ui.dart';
+import 'common.dart';
 
 /// Abre la hoja y devuelve el importe en centavos, o `null` si se cancela.
 ///
@@ -248,4 +259,147 @@ class _PaymentSheetState extends State<_PaymentSheet> {
       ),
     );
   }
+}
+
+/// Campaña de registro de un pago como período (para su texto).
+CampaignPeriod? rdmAPeriodOf(CampaignRead? campaign) => campaign == null
+    ? null
+    : CampaignPeriod.fromRow({
+        'id': campaign.id,
+        'name': campaign.name,
+        'status': campaign.status,
+        'start_date': campaign.startDate,
+        'end_date': campaign.endDate,
+      });
+
+/// Pide el importe con la hoja y registra el pago de [person] en la campaña
+/// [campaign] (sólo la de registro: la imputación va a la deuda más antigua
+/// de cualquier campaña, D-04). Avisa del resultado. Devuelve `true` si quedó
+/// registrado.
+Future<bool> recordAccountPayment(
+  BuildContext context,
+  WidgetRef ref, {
+  required AccountSummary person,
+  required CampaignRead? campaign,
+  bool ownRecord = false,
+}) async {
+  final amount = await showAccountPaymentSheet(
+    context,
+    personName: person.name,
+    registration: registrationText(rdmAPeriodOf(campaign), DateTime.now()),
+    netMinor: person.account.netMinor,
+    ownRecord: ownRecord,
+  );
+  if (amount == null || !context.mounted) return false;
+  try {
+    final payment = await ref
+        .read(repositoryProvider)
+        .registerAccountPayment(
+          personId: person.personId,
+          campaignId: campaign?.id,
+          amountBobMinor: amount,
+        );
+    if (context.mounted) showSuccess(context, payment.message(person.name));
+    return true;
+  } catch (error) {
+    if (context.mounted) showError(context, error);
+    return false;
+  }
+}
+
+/// Estado de cuenta de una persona a pantalla completa (lámina Cuenta).
+Future<void> showAccountStatement(
+  BuildContext context,
+  WidgetRef ref, {
+  required int personId,
+  required String name,
+  int? campaignId,
+}) async {
+  final statement = await ref
+      .read(repositoryProvider)
+      .accountStatement(personId, campaignId: campaignId);
+  if (!context.mounted) return;
+  await showDialog<void>(
+    context: context,
+    builder: (_) => RdmAFullScreenSheet(
+      overline: 'Cuenta',
+      title: 'Estado de cuenta · $name',
+      child: AccountStatementView(statement: statement),
+    ),
+  );
+}
+
+/// «Movimientos propios» del titular a pantalla completa (lámina Propios,
+/// E-15 §B.2).
+Future<void> showOwnMovements(
+  BuildContext context,
+  WidgetRef ref, {
+  required int personId,
+  required String name,
+  int? campaignId,
+}) async {
+  final statement = await ref
+      .read(repositoryProvider)
+      .accountStatement(personId, campaignId: campaignId);
+  if (!context.mounted) return;
+  await showDialog<void>(
+    context: context,
+    builder: (_) => RdmAFullScreenSheet(
+      overline: 'Titular · no es deuda',
+      title: 'Movimientos propios · $name',
+      child: OwnMovementsView(statement: statement),
+    ),
+  );
+}
+
+/// Estado de cuenta o movimientos propios a pantalla completa (láminas
+/// Cuenta y Propios), con «Cerrar» arriba. Es un diálogo: no cambia la
+/// navegación y se cierra como antes.
+class RdmAFullScreenSheet extends StatelessWidget {
+  const RdmAFullScreenSheet({
+    super.key,
+    required this.overline,
+    required this.title,
+    required this.child,
+  });
+
+  final String overline;
+  final String title;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => Dialog.fullscreen(
+    backgroundColor: AgroColors.canvas,
+    child: SafeArea(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Expanded(child: Text(overline, style: AgroText.detail)),
+                    TextButton.icon(
+                      style: TextButton.styleFrom(
+                        foregroundColor: AgroColors.ink,
+                        minimumSize: const Size(0, 44),
+                      ),
+                      onPressed: () => Navigator.of(context).pop(),
+                      icon: const Icon(Icons.close),
+                      label: const Text('Cerrar'),
+                    ),
+                  ],
+                ),
+                Semantics(header: true, child: Text(title, style: AgroText.h2)),
+              ],
+            ),
+          ),
+          Expanded(child: child),
+        ],
+      ),
+    ),
+  );
 }

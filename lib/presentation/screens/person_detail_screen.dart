@@ -5,9 +5,13 @@ import 'package:go_router/go_router.dart';
 import '../../app.dart';
 import '../../domain/account_ledger.dart';
 import '../../domain/account_texts.dart';
+import '../../data/typed_reads.dart';
 import '../../domain/money.dart';
+import '../../domain/operation_mode.dart';
+import '../../operation_mode_controller.dart';
 import '../theme/agro_theme.dart';
 import '../widgets/common.dart';
+import '../widgets/rdm_a_payment.dart';
 import '../widgets/rdm_a_people.dart';
 import '../widgets/rdm_b_ui.dart' show BigFigure, RdmScrollPage, splitBob;
 
@@ -23,10 +27,20 @@ typedef _PersonData = ({
   AccountStatement statement,
 });
 
-class PersonDetailScreen extends ConsumerWidget {
+class PersonDetailScreen extends ConsumerStatefulWidget {
   const PersonDetailScreen({super.key, required this.personId});
   final int personId;
-  Future<_PersonData> _load(WidgetRef ref) async {
+
+  @override
+  ConsumerState<PersonDetailScreen> createState() => _PersonDetailScreenState();
+}
+
+class _PersonDetailScreenState extends ConsumerState<PersonDetailScreen> {
+  late Future<_PersonData> future = _load();
+
+  int get personId => widget.personId;
+
+  Future<_PersonData> _load() async {
     final repo = ref.read(repositoryProvider);
     return (
       profile: await repo.personProfile(personId),
@@ -37,12 +51,30 @@ class PersonDetailScreen extends ConsumerWidget {
     );
   }
 
+  void _refresh() {
+    final next = _load();
+    setState(() {
+      future = next;
+    });
+  }
+
+  /// «Registrar pago» de la cabecera (lámina Persona): la misma hoja y el
+  /// mismo registro que Cuentas, en la campaña activa (sólo de registro).
+  Future<void> _pay(AccountStatement s) async {
+    final campaigns = await ref.read(repositoryProvider).campaignsTyped();
+    if (!mounted) return;
+    final recorded = await recordAccountPayment(
+      context,
+      ref,
+      person: AccountSummary(account: s.account, campaignId: null),
+      campaign: campaigns.where((campaign) => campaign.isActive).firstOrNull,
+    );
+    if (recorded && mounted) _refresh();
+  }
+
   @override
-  Widget build(
-    BuildContext context,
-    WidgetRef ref,
-  ) => FutureBuilder<_PersonData>(
-    future: _load(ref),
+  Widget build(BuildContext context) => FutureBuilder<_PersonData>(
+    future: future,
     builder: (context, snapshot) {
       if (snapshot.hasError) {
         return RdmScrollPage(
@@ -62,6 +94,13 @@ class PersonDetailScreen extends ConsumerWidget {
       final s = d.statement;
       final ownCost = s.ledger.ownConsumption(personId).activeCostMinor;
       final net = s.account.netMinor;
+      // En inventario propio sólo el titular registra pagos (#26); el pago
+      // propio del titular (Q-2) se registra en Cuentas. ADMIN no participa
+      // en la liquidación.
+      final canPay =
+          !s.isCurrentOwner &&
+          d.profile['role'] != 'ADMIN' &&
+          ref.watch(operationModeProvider) != OperationMode.personal;
       return _PersonTabs(
         data: d,
         builder: (context, tabs, body) => RdmScrollPage(
@@ -88,12 +127,38 @@ class PersonDetailScreen extends ConsumerWidget {
                     : 'Sin saldo · todas las campañas',
                 style: RdmAHero.subtitleStyle,
               ),
-              BigFigure(
-                number: splitBob(s.isCurrentOwner ? ownCost : net.abs()).number,
-                unit: 'Bs',
-                size: 40,
-                color: AgroColors.lime,
-                numberKey: const Key('person-headline-amount'),
+              Wrap(
+                alignment: WrapAlignment.spaceBetween,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: 12,
+                runSpacing: 8,
+                children: [
+                  BigFigure(
+                    number: splitBob(s.isCurrentOwner ? ownCost : net.abs())
+                        .number,
+                    unit: 'Bs',
+                    size: 40,
+                    color: AgroColors.lime,
+                    numberKey: const Key('person-headline-amount'),
+                  ),
+                  if (canPay)
+                    FilledButton(
+                      key: const Key('person-detail-pay'),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: AgroColors.lime,
+                        foregroundColor: AgroColors.ink,
+                        minimumSize: const Size(0, 48),
+                        padding: const EdgeInsets.symmetric(horizontal: 18),
+                        textStyle: const TextStyle(
+                          fontFamily: AgroFonts.body,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      onPressed: () => _pay(s),
+                      child: const Text('Registrar pago'),
+                    ),
+                ],
               ),
             ],
           ),

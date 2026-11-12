@@ -13,7 +13,6 @@ import '../../domain/read_models.dart';
 import '../../domain/reports/report_composer.dart';
 import '../../operation_mode_controller.dart';
 import '../theme/agro_theme.dart';
-import '../widgets/account_statement_view.dart';
 import '../widgets/agro_ui.dart';
 import '../widgets/common.dart';
 import '../widgets/local_backup_actions.dart';
@@ -101,35 +100,18 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
     required List<CampaignRead> campaigns,
     bool ownRecord = false,
   }) async {
-    // El diálogo es dueño de su propio TextEditingController y lo libera en
-    // `State.dispose()`. Antes el controlador se creaba aquí y se liberaba al
-    // volver de `showDialog`, mientras el diálogo aún se animaba al cerrarse:
-    // el TextField seguía montado y volvía a suscribirse a un controlador ya
-    // liberado (UIBUG-005).
-    final selected = _selectedPeriod(campaigns);
-    final result = await showAccountPaymentSheet(
+    // D-04: la campaña elegida sólo es la de registro; la imputación va a la
+    // deuda más antigua de cualquier campaña.
+    final recorded = await recordAccountPayment(
       context,
-      personName: person.name,
-      registration: registrationText(selected, DateTime.now()),
-      netMinor: person.account.netMinor,
+      ref,
+      person: person,
+      campaign: campaigns
+          .where((campaign) => campaign.id == selectedCampaignId)
+          .firstOrNull,
       ownRecord: ownRecord,
     );
-    if (result == null || !mounted) return;
-    try {
-      // D-04: la campaña elegida sólo es la de registro; la imputación va a
-      // la deuda más antigua de cualquier campaña.
-      final payment = await ref
-          .read(repositoryProvider)
-          .registerAccountPayment(
-            personId: person.personId,
-            campaignId: selectedCampaignId,
-            amountBobMinor: result,
-          );
-      _refresh();
-      if (mounted) showSuccess(context, payment.message(person.name));
-    } catch (error) {
-      if (mounted) showError(context, error);
-    }
+    if (recorded && mounted) _refresh();
   }
 
   CampaignPeriod? _selectedPeriod(List<CampaignRead> campaigns) {
@@ -147,36 +129,22 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
     return null;
   }
 
-  Future<void> _statement(AccountSummary person) async {
-    final statement = await ref
-        .read(repositoryProvider)
-        .accountStatement(person.personId, campaignId: selectedCampaignId);
-    if (!mounted) return;
-    await showDialog<void>(
-      context: context,
-      builder: (dialogContext) => _FullScreenSheet(
-        overline: 'Cuenta',
-        title: 'Estado de cuenta · ${person.name}',
-        child: AccountStatementView(statement: statement),
-      ),
-    );
-  }
+  Future<void> _statement(AccountSummary person) => showAccountStatement(
+    context,
+    ref,
+    personId: person.personId,
+    name: person.name,
+    campaignId: selectedCampaignId,
+  );
 
   /// «Movimientos propios» del titular (E-15 §B.2).
-  Future<void> _ownMovements(int personId, String name) async {
-    final statement = await ref
-        .read(repositoryProvider)
-        .accountStatement(personId, campaignId: selectedCampaignId);
-    if (!mounted) return;
-    await showDialog<void>(
-      context: context,
-      builder: (dialogContext) => _FullScreenSheet(
-        overline: 'Titular · no es deuda',
-        title: 'Movimientos propios · $name',
-        child: OwnMovementsView(statement: statement),
-      ),
-    );
-  }
+  Future<void> _ownMovements(int personId, String name) => showOwnMovements(
+    context,
+    ref,
+    personId: personId,
+    name: name,
+    campaignId: selectedCampaignId,
+  );
 
   /// Tarjeta «Consumo y costos propios» del titular vigente (E-15 §B.2).
   /// No es una cuenta por cobrar: no lleva pendiente ni saldo.
@@ -647,57 +615,6 @@ class _FarmCostCard extends StatelessWidget {
       ),
     );
   }
-}
-
-/// Estado de cuenta o movimientos propios a pantalla completa (láminas
-/// Cuenta y Propios), con «Cerrar» arriba. Es un diálogo: no cambia la
-/// navegación y se cierra como antes.
-class _FullScreenSheet extends StatelessWidget {
-  const _FullScreenSheet({
-    required this.overline,
-    required this.title,
-    required this.child,
-  });
-
-  final String overline;
-  final String title;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) => Dialog.fullscreen(
-    backgroundColor: AgroColors.canvas,
-    child: SafeArea(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  children: [
-                    Expanded(child: Text(overline, style: AgroText.detail)),
-                    TextButton.icon(
-                      style: TextButton.styleFrom(
-                        foregroundColor: AgroColors.ink,
-                        minimumSize: const Size(0, 44),
-                      ),
-                      onPressed: () => Navigator.of(context).pop(),
-                      icon: const Icon(Icons.close),
-                      label: const Text('Cerrar'),
-                    ),
-                  ],
-                ),
-                Semantics(header: true, child: Text(title, style: AgroText.h2)),
-              ],
-            ),
-          ),
-          Expanded(child: child),
-        ],
-      ),
-    ),
-  );
 }
 
 /// Cifras de la tarjeta de persona: las líneas contables y el importe con su
