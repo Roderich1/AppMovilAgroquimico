@@ -8,7 +8,8 @@
 
 | n | SHA | Pantallas / rutas | Pruebas corridas | Capturas | Diferencias con la lámina |
 |---|---|---|---|---|---|
-| 1 | el commit que añade esta fila (código: `950ce19`, `e79d422`, `032a100`) | Inicio `/` (1.2), Almacén `/inventario` (1.4), resumen de avisos del Almacén | ver «Entrega 1» | `docs/evidence/rediseno-movil/2026-11-12/sesion-b/entrega-1/` | ver «Entrega 1» |
+| 1 | `8e97b78` (código: `950ce19`, `e79d422`, `032a100`) — integrada, revisión B-1 | Inicio `/` (1.2), Almacén `/inventario` (1.4), resumen de avisos del Almacén | ver «Entrega 1» | `docs/evidence/rediseno-movil/2026-11-12/sesion-b/entrega-1/` | ver «Entrega 1» |
+| 2 | el commit que añade esta fila (código: `b2997b1`) | Actividad `/operaciones` (1.3) | ver «Entrega 2» | `docs/evidence/rediseno-movil/2026-11-12/sesion-b/entrega-2/` | ver «Entrega 2» |
 
 ### Entrega 1 — Inicio y Almacén
 
@@ -54,9 +55,37 @@
 
 **Datos y arnés:** `test/support_rdm/b_seed.dart` (nombres largos, decimales, L y KG, lotes vencidos/hoy/por vencer, pago parcial, deudas, plan, transferencia); `tool/rediseno/capturas_b_test.dart`.
 
+### Entrega 2 — Actividad
+
+**Qué hace Actividad ahora** (`operations_screen.dart`)
+- Historial único, del más reciente al más antiguo, agrupado por mes: compras (proveedor, fecha, n.º de productos, total y estado del pago al proveedor: «Sin pagar», «Pagó X», «Pagada», «Revertida»), aplicaciones (chaco · persona, productos, costo; revertidas tachadas, UIBUG-010) y transferencias (de → a, productos; **sin importe**: no generan deuda), éstas sólo en compartido.
+- Filtros Todo · Compras · Aplicaciones · Planes · Transferencias (ésta sólo en compartido; al pasar a propio el filtro vuelve a Todo y se relee). Búsqueda por proveedor, factura, persona, chaco, producto o campaña.
+- «Por hacer»: planes pendientes (chaco, dueño, productos y cantidades, fecha prevista) con «Aplicar», que abre `/aplicaciones/nueva?planId=` igual que Planificación (sesión A); tocar el plan abre Planificación.
+- Cada filtro muestra «Lista de …» que abre la lista completa con sus acciones: `/compras` (campaña, buscar, pagar al proveedor, revertir, factura), `/aplicaciones` y `/planificacion` (de A), `/transferencias`. Tocar una compra abre su detalle; una aplicación o transferencia, su lista.
+- Reportes en la cabecera (B1: Reportes sigue en Actividad). Más y Campañas ya no están aquí: Inicio (engranaje y campaña).
+- Límites: lee las listas con el límite de sus pantallas (compras 200, aplicaciones 200, transferencias 50). Si una llega al límite, el historial combinado se corta en su fecha más antigua y dice «Lo anterior está en la lista de cada tipo.», para no mostrar un hueco como si no hubiera habido operaciones.
+- Al volver de cualquier pantalla abierta desde aquí, se relee.
+
+**Diferencias con la lámina**
+| Lámina | App | Motivo |
+|---|---|---|
+| Botón de descarga en la cabecera | botón «Reportes» (abre la pantalla de reportes) | La exportación es de la sesión F/orquestador; B no la implementa. |
+| Transferencia con «2 L» a la derecha | productos y cantidades en el detalle; sin importe | Varias líneas por transferencia; una transferencia no genera deuda. |
+| Pago recibido / pagos al proveedor en el historial | no aparecen como filas | No hay una lista existente de pagos para todo el historial; siguen en el detalle de compra y en Cuentas. No se crean consultas nuevas. |
+| Filtro sin acceso a las listas | «Lista de …» bajo los filtros | Las acciones (pagar, revertir, factura, nuevo plan) siguen en sus listas sin duplicarlas. |
+| Sin aviso del modo propio | sin el párrafo «Inventario propio: …» de antes | Párrafo permanente; el modo se ve en Más › Modo de uso y en que no hay transferencias. |
+
+**Pruebas corridas** (una a la vez, `--concurrency=2`, en verde sobre `b2997b1`): `uxj_a_navegacion`, `personal_mode_flows`, `hierarchical_navigation`, `purchases_access`, `navigation`, `e12_pending_operation_return`, `f04_rf03_late_screen`, `oe3_fab_sincronizacion`, `f10_x01_inicio_mas`, `d04_imputacion_base`, `e15_consumo_propio_base`, `f10_compat_129_presentacion`, `remote_session_screen`, `f04_av_inventory_alerts_ui`, `ui_polish`. `flutter analyze` sin avisos en lo tocado.
+
+**Pruebas adaptadas**
+- `purchases_access` (UIBUG-002), `navigation` (STAB-001), `hierarchical_navigation` (UIBUG-004A), `personal_mode_flows`: se llega a las listas con el filtro y «Lista de …» (`activity-filter-*`, `activity-open-*`); Más se abre con el engranaje de Inicio; donde se comprobaba «Más» en Actividad se comprueba el acceso a Reportes. La guarda «ninguna ruta declarada queda sin origen» sigue intacta: Inicio y Actividad navegan con `push('/ruta')` escrito.
+- `uxj_a_navegacion`: (a) Campañas desde Inicio (pestaña 0) y Reportes desde Actividad (pestaña 1), Atrás vuelve a su pestaña; (d) y (e) **reescritas**: la cuadrícula de 7 tarjetas ya no existe; ahora (d) el «+» no tapa los botones ni los filtros de Actividad y (e) Actividad muestra los filtros y Reportes, y no Más ni Campañas.
+- `f10_x01_inicio_mas`: «Actividad: lo diario y Reportes; Más desde Inicio».
+
 ## En curso
 
-- Siguiente: Actividad (`/operaciones`), Compras y detalle de compra (2.8), Transferencias.
+- Siguiente (tras incorporar B2): lista de Compras y detalle (2.8), Transferencias y nueva transferencia (5.4), Producto (4.1), Avisos (4.2), Estimación (4.3).
+- Cedido a la sesión A el 2026-11-12 (propuesta del orquestador): Personas, Persona, Cuenta, Pago, Propios, Costos por chaco y Bitácora (`persons_screen`, `person_detail_screen`, `settlements_screen`, `account_statement_view`, `farm_logbook_screen`). B no los tocó.
 
 ## Solicitudes al orquestador
 
