@@ -13,12 +13,54 @@ import '../theme/agro_theme.dart';
 import 'agro_ui.dart';
 import 'common.dart' show ContentInsets, measureText;
 
-/// Escala de la letra para los títulos grandes (30 y 26 px): sigue la del
-/// teléfono hasta 1,4×. Con más, una palabra larga («Sincronización»,
-/// «identificación») ya no cabe en 360 dp y se partiría por dentro; el texto
-/// del contenido sigue la escala completa.
-TextScaler rdmCTitleScaler(BuildContext context) =>
-    MediaQuery.textScalerOf(context).clamp(maxScaleFactor: 1.4);
+/// Escala de la letra para un título grande (30 o 26 px) en [maxWidth]:
+/// sigue la del teléfono hasta 1,4× y, si aun así la palabra más larga
+/// («Sincronización», «identificación») no cabe entera en la línea, baja
+/// sólo lo necesario para que no se parta por dentro. El texto del
+/// contenido sigue la escala completa del teléfono.
+TextScaler rdmCTitleScaler(
+  BuildContext context,
+  String title,
+  TextStyle style,
+  double maxWidth,
+) {
+  final phone = MediaQuery.textScalerOf(context).clamp(maxScaleFactor: 1.4);
+  if (!maxWidth.isFinite) return phone;
+  var longest = 0.0;
+  for (final word in title.split(RegExp(r'\s+'))) {
+    if (word.isEmpty) continue;
+    final width = measureText(
+      context,
+      word,
+      style,
+      textScaler: TextScaler.noScaling,
+    );
+    if (width > longest) longest = width;
+  }
+  if (longest == 0) return phone;
+  final fit = (maxWidth - 1) / longest;
+  final current = phone.scale(1);
+  return fit >= current ? phone : TextScaler.linear(fit);
+}
+
+/// Título grande que nunca parte una palabra por dentro (ver
+/// [rdmCTitleScaler]).
+class RdmCTitle extends StatelessWidget {
+  const RdmCTitle(this.title, {super.key, required this.style, this.textKey});
+  final String title;
+  final TextStyle style;
+  final Key? textKey;
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) => Text(
+      title,
+      key: textKey,
+      style: style,
+      textScaler: rdmCTitleScaler(context, title, style, constraints.maxWidth),
+    ),
+  );
+}
 
 /// [SegmentToggle] que, si con la letra actual algún rótulo no cabe en su
 /// mitad sin partir una palabra, apila las opciones una debajo de otra con
@@ -212,11 +254,10 @@ class RdmCPage extends StatelessWidget {
                     ),
                   Semantics(
                     header: true,
-                    child: Text(
+                    child: RdmCTitle(
                       title,
-                      key: const Key('page-frame-title'),
+                      textKey: const Key('page-frame-title'),
                       style: AgroText.h1,
-                      textScaler: rdmCTitleScaler(context),
                     ),
                   ),
                   if (subtitle != null) ...[
@@ -429,11 +470,7 @@ class RdmCSheetBody extends StatelessWidget {
                     Semantics(
                       header: true,
                       namesRoute: true,
-                      child: Text(
-                        title,
-                        style: AgroText.sheetTitle,
-                        textScaler: rdmCTitleScaler(context),
-                      ),
+                      child: RdmCTitle(title, style: AgroText.sheetTitle),
                     ),
                     if (subtitle != null)
                       Text(subtitle!, style: AgroText.detail),

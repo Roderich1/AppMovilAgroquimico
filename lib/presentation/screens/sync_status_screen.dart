@@ -3,10 +3,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart' show DateFormat;
 
+import '../../data/sync/sync_outbox_store.dart' show SyncQueueSummary;
 import '../../domain/money.dart';
 import '../../domain/sync/sync_types.dart';
 import '../../services/sync/sync_providers.dart';
+import '../theme/agro_theme.dart';
+import '../widgets/agro_ui.dart';
 import '../widgets/common.dart';
+import '../widgets/rdm_c_page.dart';
 import '../widgets/sync_status_banner.dart';
 
 String projectionLabel(ProjectionType type) => switch (type) {
@@ -119,11 +123,16 @@ class _SyncStatusScreenState extends ConsumerState<SyncStatusScreen> {
     });
     final sync = ref.watch(syncControllerProvider);
     final summary = sync.summary;
-    return PageFrame(
+    return RdmCPage(
       title: 'Sincronización',
       subtitle: 'Lo que se envía al sindicato: sólo totales propios.',
       action: FilledButton.icon(
         onPressed: sync.busy ? null : _syncNow,
+        style: FilledButton.styleFrom(
+          backgroundColor: AgroColors.lime,
+          foregroundColor: AgroColors.ink,
+          minimumSize: const Size(0, 44),
+        ),
         icon: const Icon(Icons.sync),
         label: const Text('Sincronizar ahora'),
       ),
@@ -132,165 +141,102 @@ class _SyncStatusScreenState extends ConsumerState<SyncStatusScreen> {
         children: [
           // Sin botón propio: «Sincronizar ahora» ya es la acción de la
           // página.
-          if (sync.message != null) SyncNoticeCard(message: sync.message!),
-          if (summary != null) ...[
+          if (sync.message != null) ...[
+            SyncNoticeCard(message: sync.message!),
             const SizedBox(height: 8),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    for (final status in OutboxStatus.values)
-                      if (summary.count(status) > 0)
-                        Chip(
-                          label: Text(
-                            '${outboxStatusLabel(status)}: ${summary.count(status)}',
-                          ),
-                        ),
-                    Chip(
-                      avatar: const Icon(Icons.schedule, size: 16),
-                      label: Text(
-                        // Lenguaje del agricultor (bloque X01): «confirmación»
-                        // en vez de «ACK». Es el mismo estado real
-                        // (`lastAcceptedAt`): que no haya confirmación no
-                        // dice que Central no recibiera el envío.
-                        summary.lastAcceptedAt == null
-                            ? 'Todavía sin confirmación'
-                            : 'Última confirmación: ${formatDate(summary.lastAcceptedAt)}',
-                        // El `Chip` desvanece en silencio lo que no cabe en
-                        // una línea; con fuente ampliada en 360 px la fecha
-                        // no cabía. Dos líneas, nunca truncado.
-                        softWrap: true,
-                        maxLines: 2,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
+          ],
+          if (summary != null) ...[
+            _SummaryCard(summary: summary),
             // C40/C22 (#18): tras un 403, verificar el acceso no reanuda nada
             // por sí solo; la acción explícita es «Sincronizar ahora».
-            if (summary.count(OutboxStatus.authPaused) > 0) ...[
-              const SizedBox(height: 8),
-              const Card(
-                child: ListTile(
-                  leading: Icon(Icons.lock_outline),
-                  title: Text('Envíos pausados por autorización'),
-                  subtitle: Text(
+            if (summary.count(OutboxStatus.authPaused) > 0)
+              const _SyncNotice(
+                icon: Icons.lock_outline,
+                title: 'Envíos pausados por autorización',
+                body:
                     'El sindicato no autorizó esta cuenta o este '
                     'dispositivo. No se reanudan solos: con el acceso '
                     'verificado de la cuenta del titular, pulse '
                     '«Sincronizar ahora».',
-                  ),
-                ),
               ),
-            ],
             // D-F04-C2: intenciones que nunca salieron y no se envían porque
             // el período local de su campaña no cabe en el central (o no se
             // comprobó). Se resuelven en «Vincular con el sindicato».
-            if (summary.heldForPeriod > 0) ...[
-              const SizedBox(height: 8),
-              Card(
-                child: ListTile(
-                  key: const Key('held-for-period'),
-                  leading: const Icon(Icons.event_busy_outlined),
-                  title: Text(
+            if (summary.heldForPeriod > 0)
+              _SyncNotice(
+                key: const Key('held-for-period'),
+                icon: Icons.event_busy_outlined,
+                title:
                     'Envíos retenidos por el período de la campaña: '
                     '${summary.heldForPeriod}',
-                  ),
-                  subtitle: const Text(
+                body:
                     'El período de la campaña local no cabe en el de la '
                     'campaña del sindicato, o no se ha comprobado. No se '
                     'envían ni se borran: fije el fin previsto o actualice '
                     'las referencias en «Vincular con el sindicato».',
-                  ),
-                  trailing: TextButton(
-                    onPressed: () => context.push('/sindicato/vinculos'),
-                    child: const Text('Revisar'),
-                  ),
+                action: TextButton(
+                  onPressed: () => context.push('/sindicato/vinculos'),
+                  child: const Text('Revisar'),
                 ),
               ),
-            ],
-            if (summary.count(OutboxStatus.restorePaused) > 0) ...[
-              const SizedBox(height: 8),
-              Card(
-                child: ListTile(
-                  leading: const Icon(Icons.restore),
-                  title: const Text('Envíos pausados por una restauración'),
-                  subtitle: const Text(
-                    'No se publican solos. Revíselos y libérelos si son suyos.',
-                  ),
-                  trailing: TextButton(
-                    onPressed: _releaseRestored,
-                    child: const Text('Liberar'),
-                  ),
+            if (summary.count(OutboxStatus.restorePaused) > 0)
+              _SyncNotice(
+                icon: Icons.restore,
+                title: 'Envíos pausados por una restauración',
+                body:
+                    'No se publican solos. Revíselos y libérelos si son '
+                    'suyos.',
+                action: TextButton(
+                  onPressed: _releaseRestored,
+                  child: const Text('Liberar'),
                 ),
               ),
-            ],
             // 422 CONTRACT_VERSION_MISMATCH: pausado por versión; sólo el
             // titular lo reanuda, normalmente tras actualizar la aplicación.
             // Sin consultas nuevas: el contador ya está en el resumen.
-            if (summary.count(OutboxStatus.versionMismatch) > 0) ...[
-              const SizedBox(height: 8),
-              Card(
+            if (summary.count(OutboxStatus.versionMismatch) > 0)
+              _SyncNotice(
                 key: const Key('version-mismatch'),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    const ListTile(
-                      leading: Icon(Icons.system_update_alt),
-                      title: Text(
-                        'Envíos pausados por una versión distinta de la '
-                        'aplicación',
-                      ),
-                      subtitle: Text(
-                        'El sindicato no los aceptó con la versión anterior. '
-                        'No se reanudan solos ni se borran: actualice la '
-                        'aplicación y vuelva a intentarlo.',
-                      ),
-                    ),
-                    // La etiqueta es larga: debajo del texto, nunca al lado,
-                    // para que quepa con fuente ampliada en 360 px.
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: Padding(
-                        padding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
-                        child: TextButton(
-                          onPressed: _resumeVersionMismatch,
-                          child: const Text('Reintentar con esta versión'),
-                        ),
-                      ),
-                    ),
-                  ],
+                icon: Icons.system_update_alt,
+                title:
+                    'Envíos pausados por una versión distinta de la '
+                    'aplicación',
+                body:
+                    'El sindicato no los aceptó con la versión anterior. '
+                    'No se reanudan solos ni se borran: actualice la '
+                    'aplicación y vuelva a intentarlo.',
+                // La etiqueta es larga: debajo del texto, nunca al lado,
+                // para que quepa con fuente ampliada en 360 px.
+                action: TextButton(
+                  onPressed: _resumeVersionMismatch,
+                  child: const Text('Reintentar con esta versión'),
                 ),
               ),
-            ],
           ],
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
+          const SizedBox(height: 16),
+          AgroGroup(
             children: [
-              OutlinedButton.icon(
-                onPressed: () => context.push('/sindicato/vinculos'),
-                icon: const Icon(Icons.link),
-                label: const Text('Vincular con el sindicato'),
+              RdmCRow(
+                title: 'Productos y campañas',
+                detail: 'Vincular con el sindicato',
+                onTap: () => context.push('/sindicato/vinculos'),
               ),
-              OutlinedButton.icon(
-                onPressed: () => context.push('/planificacion/necesidades'),
-                icon: const Icon(Icons.playlist_add_check),
-                label: const Text('Necesidades declaradas'),
+              RdmCRow(
+                title: 'Necesidad declarada',
+                detail: 'Lo que solicita para la campaña',
+                onTap: () => context.push('/planificacion/necesidades'),
               ),
-              OutlinedButton.icon(
+              RdmCRow(
                 key: const Key('open-consumption-publish'),
-                onPressed: () => context.push('/sincronizacion/consumo'),
-                icon: const Icon(Icons.water_drop_outlined),
-                label: const Text('Consumo para el sindicato'),
+                title: 'Consumo para el sindicato',
+                detail: 'Totales de lo que usted aplicó',
+                onTap: () => context.push('/sincronizacion/consumo'),
               ),
             ],
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 16),
+          const SectionHeader(title: 'Envíos'),
+          const SizedBox(height: 10),
           FutureBuilder<List<OutboxEntry>>(
             future: entries,
             builder: (context, snapshot) {
@@ -305,59 +251,72 @@ class _SyncStatusScreenState extends ConsumerState<SyncStatusScreen> {
               }
               final list = snapshot.data!;
               if (list.isEmpty) {
-                return const EmptyState(
+                return const RdmCEmpty(
                   icon: Icons.cloud_done_outlined,
                   message: 'Todavía no hay nada que enviar al sindicato.',
                 );
               }
-              return Card(
-                child: Column(
-                  children: [
-                    for (final entry in list) ...[
-                      ListTile(
-                        title: Text(rowTitle(entry)),
-                        subtitle: Text(rowSubtitle(entry)),
-                        isThreeLine: true,
-                        // C-05: el conflicto se decide y el rechazo se
-                        // revisa donde vive la proyección, no aquí.
-                        trailing: needsDecision(entry)
-                            ? TextButton(
+              return AgroGroup(
+                children: [
+                  for (final entry in list)
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        RdmCRow(
+                          title: rowTitle(entry),
+                          detail: rowSubtitle(entry),
+                          // C-05: el conflicto se decide y el rechazo se
+                          // revisa donde vive la proyección, no aquí.
+                          actions: [
+                            if (needsDecision(entry))
+                              TextButton(
                                 key: Key('decide-${entry.operationId}'),
                                 onPressed: () =>
                                     context.push(decisionRoute(entry)),
                                 child: Text(decisionLabel(entry)),
-                              )
-                            : null,
-                      ),
-                      // El código técnico y los intentos quedan para el
-                      // diagnóstico, plegados; nunca en el texto principal.
-                      if (hasTechnicalDetail(entry))
-                        ExpansionTile(
-                          key: Key('detail-${entry.operationId}'),
-                          dense: true,
-                          tilePadding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                          ),
-                          title: Text(
-                            'Detalle técnico',
-                            style: Theme.of(context).textTheme.bodySmall,
-                          ),
-                          children: [
-                            Padding(
-                              padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-                              child: Align(
-                                alignment: Alignment.centerLeft,
-                                child: Text(
-                                  technicalDetail(entry),
-                                  style: Theme.of(context).textTheme.bodySmall,
-                                ),
                               ),
-                            ),
                           ],
                         ),
-                    ],
-                  ],
-                ),
+                        // El código técnico y los intentos quedan para el
+                        // diagnóstico, plegados; nunca en el texto
+                        // principal.
+                        if (hasTechnicalDetail(entry))
+                          Material(
+                            type: MaterialType.transparency,
+                            child: ExpansionTile(
+                              key: Key('detail-${entry.operationId}'),
+                              dense: true,
+                              shape: const Border(),
+                              collapsedShape: const Border(),
+                              tilePadding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                              ),
+                              title: Text(
+                                'Detalle técnico',
+                                style: AgroText.detail,
+                              ),
+                              children: [
+                                Padding(
+                                  padding: const EdgeInsets.fromLTRB(
+                                    16,
+                                    0,
+                                    16,
+                                    12,
+                                  ),
+                                  child: Align(
+                                    alignment: Alignment.centerLeft,
+                                    child: Text(
+                                      technicalDetail(entry),
+                                      style: AgroText.detail,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                      ],
+                    ),
+                ],
               );
             },
           ),
@@ -365,6 +324,113 @@ class _SyncStatusScreenState extends ConsumerState<SyncStatusScreen> {
       ),
     );
   }
+}
+
+/// Resumen de la cola: cuántos envíos hay en cada estado (palabra y número)
+/// y la última confirmación del sindicato.
+class _SummaryCard extends StatelessWidget {
+  const _SummaryCard({required this.summary});
+  final SyncQueueSummary summary;
+
+  @override
+  Widget build(BuildContext context) {
+    final counts = [
+      for (final status in OutboxStatus.values)
+        if (summary.count(status) > 0)
+          StatusBadge(
+            label: '${outboxStatusLabel(status)}: ${summary.count(status)}',
+            tone: rdmCOutboxTone(status),
+          ),
+    ];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (counts.isNotEmpty)
+          AgroGroup(
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(16),
+                child: Wrap(spacing: 6, runSpacing: 6, children: counts),
+              ),
+            ],
+          ),
+        // A todo el ancho y fuera de la tarjeta: con 360 dp y la letra al
+        // 130 % la fecha cabe entera en dos líneas como máximo.
+        Padding(
+          padding: const EdgeInsets.fromLTRB(4, 8, 4, 0),
+          child: Text(
+            // Lenguaje del agricultor (bloque X01): «confirmación» en vez de
+            // «ACK». Es el mismo estado real (`lastAcceptedAt`): que no haya
+            // confirmación no dice que Central no recibiera el envío.
+            summary.lastAcceptedAt == null
+                ? 'Todavía sin confirmación'
+                : 'Última confirmación: ${formatDate(summary.lastAcceptedAt)}',
+            // 12 px que siguen la escala del teléfono (el chip anterior no la
+            // seguía): con 360 dp y 130 % la fecha cabe en dos líneas.
+            style: AgroText.detail.copyWith(
+              color: AgroColors.ink,
+              fontSize: 12,
+              height: 18 / 12,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// Aviso con título, explicación y, si hay, la acción debajo (nunca al
+/// lado: con la letra ampliada no cabría).
+class _SyncNotice extends StatelessWidget {
+  const _SyncNotice({
+    super.key,
+    required this.icon,
+    required this.title,
+    required this.body,
+    this.action,
+  });
+
+  final IconData icon;
+  final String title;
+  final String body;
+  final Widget? action;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(top: 8),
+    child: Container(
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 8),
+      decoration: BoxDecoration(
+        color: AgroColors.warnBg,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, color: AgroColors.warnInk, size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: AgroText.question.copyWith(color: AgroColors.warnInk),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  body,
+                  style: AgroText.detail.copyWith(color: AgroColors.warnInk),
+                ),
+                if (action != null)
+                  Align(alignment: Alignment.centerRight, child: action),
+              ],
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
 }
 
 /// Nombre local del producto y de la campaña; «sin vínculo» si el vínculo ya

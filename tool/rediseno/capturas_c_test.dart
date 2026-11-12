@@ -18,6 +18,8 @@ import 'package:agroquimicos/domain/sync/sync_types.dart' show ProjectionType;
 import 'package:agroquimicos/presentation/screens/central_binding_screen.dart';
 import 'package:agroquimicos/presentation/screens/consumption_publish_screen.dart';
 import 'package:agroquimicos/presentation/screens/declared_needs_screen.dart';
+import 'package:agroquimicos/presentation/screens/sync_status_screen.dart';
+import 'package:agroquimicos/presentation/screens/union_screen.dart';
 import 'package:agroquimicos/presentation/theme/agro_theme.dart';
 import 'package:agroquimicos/presentation/widgets/label_photo_sheet.dart';
 import 'package:agroquimicos/services/sync/sync_providers.dart';
@@ -292,5 +294,11 @@ void main() {
       scrollable: find.byType(Scrollable).first,
     );
     await shot(tester, '6.5b_consumo_final');
+
+    await pumpRouted(tester, const UnionScreen(), overrides);
+    await shot(tester, '1.5_sindicato');
+
+    await pumpRouted(tester, const SyncStatusScreen(), overrides);
+    await shot(tester, '7.x_sincronizacion');
   });
 }
