@@ -6,6 +6,8 @@
 /// guardan datos ni deciden reglas: cada pantalla les pasa su estado.
 library;
 
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import '../theme/agro_theme.dart';
@@ -1009,6 +1011,11 @@ class InPageSheet extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final height = MediaQuery.sizeOf(context).height;
+    // Nunca bajo la barra de estado, aunque el velo la cubra.
+    final maxHeight = math.min(
+      height * 0.92,
+      height - MediaQuery.paddingOf(context).top - 24,
+    );
     return Stack(
       children: [
         Positioned.fill(
@@ -1029,7 +1036,7 @@ class InPageSheet extends StatelessWidget {
               ),
               clipBehavior: Clip.antiAlias,
               child: ConstrainedBox(
-                constraints: BoxConstraints(maxHeight: height * 0.92),
+                constraints: BoxConstraints(maxHeight: maxHeight),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.stretch,

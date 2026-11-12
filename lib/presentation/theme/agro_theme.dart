@@ -177,7 +177,9 @@ ThemeData buildAgroTheme() {
   final scheme = ColorScheme.fromSeed(seedColor: AgroColors.link).copyWith(
     primary: AgroColors.ink,
     onPrimary: Colors.white,
-    primaryContainer: AgroColors.lime,
+    // Las pantallas anteriores usan `primaryContainer` para paneles y avisos:
+    // un tono suave. El lima intenso queda para las acciones del rediseño.
+    primaryContainer: const Color(0xFFE3F6A8),
     onPrimaryContainer: AgroColors.ink,
     secondaryContainer: const Color(0xFFDDEFB6),
     onSecondaryContainer: AgroColors.ink,

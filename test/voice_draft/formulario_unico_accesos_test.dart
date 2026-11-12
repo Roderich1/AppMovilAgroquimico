@@ -13,6 +13,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import '../support/f04_mode_ui_harness.dart';
 import '../voice/support/fake_speech_transcription_port.dart';
+import '../support/purchase_form_driver.dart';
 
 typedef Row = Map<String, Object?>;
 
@@ -59,6 +60,7 @@ void main() {
   }
 
   Future<void> tapKey(WidgetTester tester, String key) async {
+    await preparePurchaseKey(tester, key);
     await tester.ensureVisible(find.byKey(Key(key)));
     await tester.pump();
     await tester.tap(find.byKey(Key(key)));
@@ -99,6 +101,7 @@ void main() {
     w.c.read(routerProvider).push('/compras/nueva');
     await waitFor(tester, find.byKey(const Key('compra-completar-voz')));
     await settle(tester);
+    await openPurchaseLine(tester);
     await tester.enterText(
       find.byWidgetPredicate(
         (x) => x is TextField && x.decoration?.labelText == 'Cantidad comprada',
@@ -136,11 +139,13 @@ void main() {
     await tapKey(tester, 'voz-hablar');
     await tapKey(tester, 'voz-terminar');
     expect(
-      find.byKey(const Key('purchase-personal-allocation-0')),
+      find.textContaining('el destinatario dictado no se usó'),
       findsOneWidget,
     );
+    // En la hoja del producto: todo para el titular.
+    await openPurchaseLine(tester);
     expect(
-      find.textContaining('el destinatario dictado no se usó'),
+      find.byKey(const Key('purchase-personal-allocation-0')),
       findsOneWidget,
     );
   });
@@ -158,24 +163,31 @@ void main() {
       return w.database;
     }
 
-    String? product(WidgetTester tester) => tester
-        .widgetList<AdaptiveEntityPicker<Row>>(
-          find.byWidgetPredicate(
-            (x) => x is AdaptiveEntityPicker<Row> && x.label == 'Producto',
-          ),
-        )
-        .first
-        .value?['name']
-        ?.toString();
+    // Rediseño: producto y campos están en la hoja del producto 1.
+    Future<String?> product(WidgetTester tester) async {
+      await openPurchaseLine(tester);
+      return tester
+          .widgetList<AdaptiveEntityPicker<Row>>(
+            find.byWidgetPredicate(
+              (x) => x is AdaptiveEntityPicker<Row> && x.label == 'Producto',
+            ),
+          )
+          .first
+          .value?['name']
+          ?.toString();
+    }
 
-    String field(WidgetTester tester, String label) => tester
-        .widget<TextField>(
-          find.byWidgetPredicate(
-            (x) => x is TextField && x.decoration?.labelText == label,
-          ),
-        )
-        .controller!
-        .text;
+    Future<String> field(WidgetTester tester, String label) async {
+      await openPurchaseLine(tester);
+      return tester
+          .widget<TextField>(
+            find.byWidgetPredicate(
+              (x) => x is TextField && x.decoration?.labelText == label,
+            ),
+          )
+          .controller!
+          .text;
+    }
 
     Future<int> purchases(WidgetTester tester, AppDatabase db) async =>
         (await tester.runAsync(
@@ -185,11 +197,12 @@ void main() {
     testWidgets('«Hoy compré fungicida demo»: línea incompleta a la vista; '
         'continuar la rechaza', (tester) async {
       final db = await dictateInForm(tester, 'Hoy compré fungicida demo');
-      expect(product(tester), 'Fungicida DEMO');
-      expect(field(tester, 'Cantidad comprada'), '');
+      expect(await product(tester), 'Fungicida DEMO');
+      expect(await field(tester, 'Cantidad comprada'), '');
       expect(find.text('Falta: cantidad'), findsOneWidget);
+      await closePurchaseLine(tester);
       await tapKey(tester, 'purchase-continue');
-      expect(find.text('Paso 1 de 2 · Proveedor y productos'), findsOneWidget);
+      expect(find.text('¿Qué compró?'), findsOneWidget);
       expect(await purchases(tester, db), 0);
     });
 
@@ -197,7 +210,8 @@ void main() {
       tester,
     ) async {
       final db = await dictateInForm(tester, 'No compré fungicida demo');
-      expect(product(tester), isNull);
+      expect(await product(tester), isNull);
+      await closePurchaseLine(tester);
       expect(
         tester.widget<Text>(find.byKey(const Key('voz-panel-mensaje'))).data,
         contains('No cambió el formulario'),
@@ -212,13 +226,13 @@ void main() {
           tester,
           'Compré dos litros de Fungicida DEMO con un total de 100Bs',
         );
-        expect(field(tester, 'Precio BOB/L'), '');
+        expect(await field(tester, 'Precio por L'), '');
         expect(
           find.textContaining('Se dijo un importe total: 100 Bs'),
           findsOneWidget,
         );
         await tapKey(tester, 'voz-opcion-price@1-0');
-        expect(field(tester, 'Precio BOB/L'), '50');
+        expect(await field(tester, 'Precio por L'), '50');
         expect(await purchases(tester, db), 0);
       },
     );
@@ -226,7 +240,7 @@ void main() {
     testWidgets('«Compréfungicida DEMO.» (verbo pegado): línea incompleta a la '
         'vista', (tester) async {
       final db = await dictateInForm(tester, 'Compréfungicida DEMO.');
-      expect(product(tester), 'Fungicida DEMO');
+      expect(await product(tester), 'Fungicida DEMO');
       expect(find.text('Falta: cantidad'), findsOneWidget);
       expect(await purchases(tester, db), 0);
     });

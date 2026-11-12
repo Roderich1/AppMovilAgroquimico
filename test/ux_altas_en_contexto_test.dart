@@ -24,6 +24,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'support/f04_mode_ui_harness.dart';
+import 'support/purchase_form_driver.dart';
 
 typedef Row = Map<String, Object?>;
 
@@ -102,29 +103,52 @@ void main() {
 
   Future<void> openPurchase(WidgetTester tester, ProviderContainer c) async {
     c.read(routerProvider).push('/compras/nueva');
-    await waitFor(tester, field('Cantidad comprada'));
+    await waitFor(tester, find.byKey(const Key('purchase-add-line')));
     await settle(tester);
   }
 
-  /// Proveedor, Glifosato, 2 L a 45 Bs/L y una segunda línea vacía.
+  /// Líneas de la compra (tarjetas del paso 1, con o sin hoja abierta).
+  int lineCount() => find
+      .byWidgetPredicate(
+        (w) =>
+            w.key is ValueKey<String> &&
+            RegExp(r'^purchase-line-\d+$')
+                .hasMatch((w.key! as ValueKey<String>).value),
+        skipOffstage: false,
+      )
+      .evaluate()
+      .length;
+
+  /// Proveedor, Glifosato, 2 L a 45 Bs/L y una segunda línea vacía, con la
+  /// hoja de la línea 2 abierta (rediseño: cada producto en su hoja).
   Future<void> fillDraft(WidgetTester tester) async {
     await choose(tester, 'Proveedor', 'Proveedor');
+    await openPurchaseLine(tester);
     await choose(tester, 'Producto', 'Glifosato');
     await tester.enterText(field('Cantidad comprada'), '2');
-    await tester.enterText(field('Precio BOB/L'), '45');
+    await tester.enterText(field('Precio por L'), '45');
     await settle(tester);
-    await tester.tap(find.text('Añadir otro producto'));
-    await settle(tester);
-    expect(find.text('Productos (2)'), findsOneWidget);
+    await openPurchaseLine(tester, 1);
+    expect(find.byKey(const Key('purchase-line-sheet-1')), findsOneWidget);
+    expect(lineCount(), 2);
   }
 
-  void expectLineOneKept(WidgetTester tester) {
+  /// La línea 1, el proveedor y la fecha siguen como estaban.
+  Future<void> expectLineOneKept(WidgetTester tester) async {
+    await closePurchaseLine(tester);
     expect(pickerAt(tester, 'Proveedor').value?['name'], 'Proveedor');
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('purchase-date')),
+        matching: find.textContaining('Hoy, '),
+      ),
+      findsOneWidget,
+    );
+    expect(lineCount(), 2);
+    await openPurchaseLine(tester);
     expect(pickerAt(tester, 'Producto').value?['name'], 'Glifosato');
     expect(fieldText(tester, 'Cantidad comprada'), '2');
-    expect(fieldText(tester, 'Precio BOB/L'), '45');
-    expect(find.textContaining('(hoy)'), findsOneWidget);
-    expect(find.text('Productos (2)'), findsOneWidget);
+    expect(fieldText(tester, 'Precio por L'), '45');
   }
 
   /// «Guardar» del alta y espera a que [done] se cumpla: el alta, la
@@ -154,20 +178,22 @@ void main() {
     await openPurchase(tester, c);
     await fillDraft(tester);
 
-    await openCreate(tester, 'Producto', 'Crear producto', position: 1);
+    // Con la hoja de la línea 2 abierta, su selector es el único a la vista.
+    await openCreate(tester, 'Producto', 'Crear producto');
     expect(find.text('Nuevo producto'), findsOneWidget);
     await tester.enterText(field('Producto'), 'Mancozeb UX');
     await tester.tap(find.text('Kilogramos'));
     await save(
       tester,
       'el alta del producto',
-      () => pickerAt(tester, 'Producto', 1).value != null,
+      () => pickerAt(tester, 'Producto').value != null,
     );
 
     expect(find.text('Nuevo producto'), findsNothing);
-    expect(pickerAt(tester, 'Producto', 1).value?['name'], 'Mancozeb UX');
-    expect(pickerAt(tester, 'Producto', 1).value?['unit'], 'KG');
-    expectLineOneKept(tester);
+    expect(find.byKey(const Key('purchase-line-sheet-1')), findsOneWidget);
+    expect(pickerAt(tester, 'Producto').value?['name'], 'Mancozeb UX');
+    expect(pickerAt(tester, 'Producto').value?['unit'], 'KG');
+    await expectLineOneKept(tester);
     final products = await rows(tester, s.database, 'products');
     expect([for (final p in products) p['name']], contains('Mancozeb UX'));
   });
@@ -179,6 +205,7 @@ void main() {
     final c = await pumpModeApp(tester, s.database);
     await openPurchase(tester, c);
     await fillDraft(tester);
+    await closePurchaseLine(tester);
 
     await openCreate(tester, 'Proveedor', 'Crear proveedor');
     await tester.enterText(field('Nombre del proveedor'), 'Agro Sur UX');
@@ -189,9 +216,10 @@ void main() {
     );
 
     expect(pickerAt(tester, 'Proveedor').value?['name'], 'Agro Sur UX');
+    await openPurchaseLine(tester);
     expect(pickerAt(tester, 'Producto').value?['name'], 'Glifosato');
     expect(fieldText(tester, 'Cantidad comprada'), '2');
-    expect(fieldText(tester, 'Precio BOB/L'), '45');
+    expect(fieldText(tester, 'Precio por L'), '45');
   });
 
   testWidgets('(i) Compra: al cerrar el selector (elegir o crear) el foco no '
@@ -207,35 +235,36 @@ void main() {
             ?.findAncestorWidgetOfExactType<EditableText>() !=
         null;
 
-    // `enterText` deja el foco en el precio, como al teclearlo.
-    await tester.enterText(field('Precio BOB/L'), '45');
+    // Rediseño: el selector junto al precio es el del producto, en la hoja
+    // de la línea. `enterText` deja el foco en el precio, como al teclearlo.
+    await openPurchaseLine(tester);
+    await tester.enterText(field('Precio por L'), '45');
     await settle(tester);
     expect(textFocused(), isTrue);
-    await tester.tap(picker('Proveedor'));
+    await tester.tap(picker('Producto'));
     await settle(tester);
     await tester.tap(
       find
           .descendant(
             of: find.byType(BottomSheet),
-            // El título de la hoja también dice «Proveedor»: la fila es la última.
-            matching: find.text('Proveedor'),
+            matching: find.text('Glifosato'),
           )
           .last,
     );
     await settle(tester);
     expect(textFocused(), isFalse, reason: 'tras elegir en la hoja');
 
-    await tester.enterText(field('Precio BOB/L'), '45');
+    await tester.enterText(field('Precio por L'), '45');
     await settle(tester);
-    await openCreate(tester, 'Proveedor', 'Crear proveedor');
-    await tester.enterText(field('Nombre del proveedor'), 'Agro Foco UX');
+    await openCreate(tester, 'Producto', 'Crear producto');
+    await tester.enterText(field('Producto'), 'Foco UX');
     await save(
       tester,
-      'el alta del proveedor',
-      () => pickerAt(tester, 'Proveedor').value?['name'] == 'Agro Foco UX',
+      'el alta del producto',
+      () => pickerAt(tester, 'Producto').value?['name'] == 'Foco UX',
     );
     expect(textFocused(), isFalse, reason: 'tras crear desde la hoja');
-    expect(fieldText(tester, 'Precio BOB/L'), '45');
+    expect(fieldText(tester, 'Precio por L'), '45');
   });
 
   testWidgets('(c) Compra: cancelar el alta no cambia el borrador ni escribe '
@@ -246,14 +275,16 @@ void main() {
     await openPurchase(tester, c);
     await fillDraft(tester);
     final before = await rows(tester, s.database, 'suppliers');
+    await closePurchaseLine(tester);
 
     await openCreate(tester, 'Proveedor', 'Crear proveedor');
     await tester.enterText(field('Nombre del proveedor'), 'No se guarda');
     await tester.tap(find.text('Cancelar'));
     await settle(tester);
 
-    expectLineOneKept(tester);
-    expect(pickerAt(tester, 'Producto', 1).value, isNull);
+    await expectLineOneKept(tester);
+    await openPurchaseLine(tester, 1);
+    expect(pickerAt(tester, 'Producto').value, isNull);
     expect(
       await rows(tester, s.database, 'suppliers'),
       hasLength(before.length),
@@ -275,6 +306,7 @@ void main() {
     );
     await openPurchase(tester, c);
     await fillDraft(tester);
+    await closePurchaseLine(tester);
 
     await openCreate(tester, 'Proveedor', 'Crear proveedor');
     await tester.enterText(field('Nombre del proveedor'), 'Falla UX');
@@ -285,8 +317,8 @@ void main() {
     );
 
     expect(find.text('No se pudo guardar el proveedor.'), findsOneWidget);
-    expectLineOneKept(tester);
-    expect(find.text('Paso 1 de 2 · Proveedor y productos'), findsOneWidget);
+    await expectLineOneKept(tester);
+    expect(find.text('¿Qué compró?', skipOffstage: false), findsOneWidget);
   });
 
   testWidgets('(e) Planificación: «Crear chaco» y «Crear producto» quedan '

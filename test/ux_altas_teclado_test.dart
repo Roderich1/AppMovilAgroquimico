@@ -13,6 +13,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'support/f04_mode_ui_harness.dart';
+import 'support/purchase_form_driver.dart';
 
 typedef Row = Map<String, Object?>;
 
@@ -77,7 +78,17 @@ void main() {
         'por encima del teclado', (tester) async {
       phone(tester, scale);
       await purchaseForm(tester, 'kb-a-$scale');
-      // Al 200 % la línea queda fuera de lo construido por la lista.
+      // Rediseño: el selector del producto está en la hoja «Producto 1».
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('purchase-add-line')),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await tester.ensureVisible(find.byKey(const Key('purchase-add-line')));
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('purchase-add-line')));
+      await settle(tester);
+      // Al 200 % la fila puede quedar fuera de lo construido por la hoja.
       await tester.scrollUntilVisible(
         picker('Producto'),
         200,

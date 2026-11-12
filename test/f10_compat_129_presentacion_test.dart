@@ -39,6 +39,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'support/f04_app_access.dart';
+import 'support/purchase_form_driver.dart';
 
 /// Un teléfono físico tal como lo describe el `MediaQuery`: tamaño físico,
 /// densidad y insets del sistema (barra de estado y barra de navegación de
@@ -231,15 +232,28 @@ void main() {
 
       // Cabecera de la sección de productos, antes de desplazar: la lista es
       // perezosa y lo desplazado fuera de la ventana deja de existir.
+      // Rediseño: la cabecera es «Productos de esta compra» y, con la línea
+      // vacía, la acción es «Añadir producto», que abre su hoja.
       await tester.scrollUntilVisible(
-        find.text('Productos (1)'),
+        find.text('Productos de esta compra'),
         200,
         scrollable: find.byType(Scrollable).first,
       );
       await settle(tester);
-      expectWordsWhole(tester, find.text('Productos (1)'), 'cabecera');
-      expectWordsWhole(tester, find.text('Añadir otro producto'), 'acción');
-      expectOnScreen(tester, find.text('Añadir otro producto'), size);
+      expectWordsWhole(
+        tester,
+        find.text('Productos de esta compra'),
+        'cabecera',
+      );
+      await tester.scrollUntilVisible(
+        find.text('Añadir producto'),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      await settle(tester);
+      expectWordsWhole(tester, find.text('Añadir producto'), 'acción');
+      expectOnScreen(tester, find.text('Añadir producto'), size);
+      await openPurchaseLine(tester);
 
       final productPicker = find.byWidgetPredicate(
         (w) =>

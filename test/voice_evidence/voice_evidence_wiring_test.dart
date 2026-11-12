@@ -11,6 +11,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import '../support/f04_mode_ui_harness.dart';
 import '../voice/support/fake_speech_transcription_port.dart';
+import '../support/purchase_form_driver.dart';
 
 /// Cableado de la evidencia de dictado (#167) en «Nueva compra» con
 /// «Completar por voz» (formulario único, F09), en la app real con base en
@@ -103,6 +104,7 @@ void main() {
 
   /// Registrar por el procedimiento habitual del formulario.
   Future<void> register(WidgetTester tester) async {
+    await closePurchaseLine(tester);
     await tapKey(tester, 'purchase-continue');
     await tapKey(tester, 'purchase-paid-no');
     await tapKey(tester, 'purchase-confirm');
@@ -110,12 +112,9 @@ void main() {
 
   /// Cancelar el formulario: Atrás y «Descartar cambios».
   Future<void> cancel(WidgetTester tester) async {
-    await tester.tap(
-      find.descendant(
-        of: find.byType(AppBar).last,
-        matching: find.byIcon(Icons.arrow_back),
-      ),
-    );
+    // Rediseño: el Volver del formulario es el botón redondo de la cabecera.
+    await closePurchaseLine(tester);
+    await tester.tap(find.byKey(const Key('purchase-close')));
     await settle(tester);
     await tester.tap(find.text('Descartar cambios'));
     await settle(tester);

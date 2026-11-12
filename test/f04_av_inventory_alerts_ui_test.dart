@@ -29,6 +29,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'support/f04_mode_fixtures.dart';
 import 'support/f04_mode_ui_harness.dart';
 import 'support/f04_owner_pin.dart';
+import 'support/purchase_form_driver.dart';
 
 typedef Row = Map<String, Object?>;
 
@@ -94,12 +95,14 @@ void main() {
     );
     final c = await pumpModeApp(tester, s.database);
     c.read(routerProvider).push('/compras/nueva');
-    await waitFor(tester, field('Cantidad comprada'));
+    await waitFor(tester, find.byKey(const Key('purchase-add-line')));
     await settle(tester);
     for (final (label, name) in [
       ('Proveedor', 'Proveedor'),
       ('Producto', 'Glifosato'),
     ]) {
+      // Rediseño: el producto se elige en la hoja «Producto 1».
+      if (label == 'Producto') await openPurchaseLine(tester);
       final picker = tester.widget<AdaptiveEntityPicker<Row>>(
         find.byWidgetPredicate(
           (w) => w is AdaptiveEntityPicker<Row> && w.label == label,
@@ -110,15 +113,16 @@ void main() {
       );
       await settle(tester);
     }
+    await openPurchaseLine(tester);
     await tester.enterText(field('Cantidad comprada'), '2');
-    await tester.enterText(field('Precio BOB/L'), '45');
+    await openPurchaseLine(tester);
+    await tester.enterText(field('Precio por L'), '45');
     await settle(tester);
 
-    // Plegado y opcional: sin abrirlo, la compra sería «sin fecha».
-    expect(
-      find.text('Sin datos: el lote quedará «sin fecha registrada».'),
-      findsOneWidget,
-    );
+    // Plegado y opcional: sin abrirlo, la compra sería «sin fecha» (sin
+    // resumen bajo el título).
+    expect(find.text('Vencimiento y lote (opcional)'), findsOneWidget);
+    expect(find.textContaining('Vence el'), findsNothing);
     await tapKey(tester, 'purchase-lot-data-0');
     // Más de 100 caracteres: se conserva lo escrito, se señala y no se
     // puede seguir a la revisión.
@@ -128,6 +132,7 @@ void main() {
     );
     await settle(tester);
     expect(find.text('101/100'), findsOneWidget);
+    await closePurchaseLine(tester);
     await tapKey(tester, 'purchase-continue');
     expect(find.byKey(const Key('purchase-review-lot-0')), findsNothing);
     expect(
@@ -162,6 +167,7 @@ void main() {
       findsWidgets,
     );
 
+    await closePurchaseLine(tester);
     await tapKey(tester, 'purchase-continue');
     expect(find.byKey(const Key('purchase-review-lot-0')), findsOneWidget);
     await tester.tap(find.byKey(const Key('purchase-paid-no')));

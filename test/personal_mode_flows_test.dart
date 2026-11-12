@@ -20,6 +20,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'support/f04_mode_fixtures.dart';
 import 'support/f04_mode_ui_harness.dart';
+import 'support/purchase_form_driver.dart';
 
 typedef Row = Map<String, Object?>;
 
@@ -213,8 +214,9 @@ void main() {
       final c = await pumpModeApp(tester, s.database);
 
       c.read(routerProvider).push('/compras/nueva');
-      await waitFor(tester, field('Cantidad comprada'));
+      await waitFor(tester, find.byKey(const Key('purchase-add-line')));
       await settle(tester);
+      await openPurchaseLine(tester);
       expect(find.text('¿Para quién es?'), findsOneWidget);
       // El selector de persona aparece sólo tras elegir «Toda para una
       // persona» (pilotos X01/X02): se elige para contar sus campos.
@@ -233,21 +235,28 @@ void main() {
         OperationMode.personal,
       );
       c.read(routerProvider).push('/compras/nueva');
-      await waitFor(tester, field('Cantidad comprada'));
+      await waitFor(tester, find.byKey(const Key('purchase-add-line')));
       await settle(tester);
+      await openPurchaseLine(tester);
       expect(find.text('¿Para quién es?'), findsNothing);
-      expect(find.text('Toda para una persona'), findsNothing);
+      expect(find.text('Una persona'), findsNothing);
       expect(picker('Persona'), findsNothing);
       expect(find.text('Para el titular: Titular'), findsOneWidget);
       expect(inputCount(tester), lessThan(sharedInputs));
 
+      await closePurchaseLine(tester);
       await choose(tester, 'Proveedor', 'Proveedor');
+      await openPurchaseLine(tester);
       await choose(tester, 'Producto', 'Glifosato');
+      await openPurchaseLine(tester);
       await tester.enterText(field('Cantidad comprada'), '4');
-      await tester.enterText(field('Precio BOB/L'), '50');
+      await openPurchaseLine(tester);
+      await tester.enterText(field('Precio por L'), '50');
       await settle(tester);
       // Paso 2: la pregunta explícita; paga el titular, sin elegir pagador.
+      await closePurchaseLine(tester);
       await tester.ensureVisible(find.byKey(const Key('purchase-continue')));
+      await closePurchaseLine(tester);
       await tester.tap(find.byKey(const Key('purchase-continue')));
       await settle(tester);
       expect(find.text('Pagador'), findsNothing);
@@ -462,7 +471,7 @@ void main() {
       final s = await activatedHousehold(tester, 'cambio');
       final c = await pumpModeApp(tester, s.database);
       c.read(routerProvider).push('/compras/nueva');
-      await waitFor(tester, field('Cantidad comprada'));
+      await waitFor(tester, find.byKey(const Key('purchase-add-line')));
       await settle(tester);
       expect(find.byKey(const Key('mode-changed-notice')), findsNothing);
 

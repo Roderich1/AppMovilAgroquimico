@@ -24,6 +24,8 @@ Future<void> openPurchaseLine(WidgetTester tester, [int index = 0]) async {
   final target = card.evaluate().isNotEmpty
       ? card
       : find.byKey(const Key('purchase-add-line'));
+  // Fuera de «Nueva compra» (aplicación, plan…) no hay hoja que abrir.
+  if (target.evaluate().isEmpty) return;
   await tester.ensureVisible(target);
   await tester.pump();
   // En la parte de arriba de la tarjeta: debajo puede haber una revisión de

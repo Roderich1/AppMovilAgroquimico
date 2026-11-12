@@ -28,6 +28,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'support/f04_mode_ui_harness.dart';
+import 'support/purchase_form_driver.dart';
 
 typedef Row = Map<String, Object?>;
 
@@ -110,6 +111,7 @@ void main() {
 
     // El agricultor elige UN producto, escribe la cantidad y confirma.
     await tapKey(tester, 'application-add-product');
+    await openPurchaseLine(tester);
     await choose(tester, 'Producto', 'Glifosato');
     await tester.enterText(
       find.byKey(const Key('application-line-quantity')),
@@ -138,18 +140,22 @@ void main() {
     final h = s.household;
     final c = await pumpModeApp(tester, s.database);
     c.read(routerProvider).push('/compras/nueva');
-    await waitFor(tester, field('Cantidad comprada'));
+    await waitFor(tester, find.byKey(const Key('purchase-add-line')));
     await settle(tester);
 
     await choose(tester, 'Proveedor', 'Proveedor');
+    await openPurchaseLine(tester);
     await choose(tester, 'Producto', 'Glifosato');
+    await openPurchaseLine(tester);
     await tester.enterText(field('Cantidad comprada'), '2');
-    await tester.enterText(field('Precio BOB/L'), '45');
+    await openPurchaseLine(tester);
+    await tester.enterText(field('Precio por L'), '45');
     // Destinatario explícito: toda la línea para el titular (la cantidad se
     // deriva de la comprada; no se reteclea).
     await tapKey(tester, 'purchase-alloc-single-0');
     await choose(tester, 'Persona', 'Titular');
     await settle(tester);
+    await closePurchaseLine(tester);
     await tapKey(tester, 'purchase-continue');
 
     // Quiere dejar el pago registrado. Ninguna persona es ADMIN: con la regla

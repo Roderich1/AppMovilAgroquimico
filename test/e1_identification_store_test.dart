@@ -193,35 +193,34 @@ void main() {
       await store.markPhotoSent(id, row.photoSha256Consented!);
     }
 
-    test(
-      '«Enviar ahora» sobre una foto con reintento la deja vencida, no definitiva (emulador 2026-11-11)',
-      () async {
-        final withPhoto = id;
-        await store.markPhotoFailed(
-          withPhoto,
-          'PHOTO_STORAGE_UNAVAILABLE',
-          retryAt: now.add(const Duration(minutes: 5)),
-        );
-        expect((await store.byId(withPhoto))!.photoRetryable, isTrue);
+    test('«Enviar ahora» sobre una foto con reintento la deja vencida, no definitiva (emulador 2026-11-11)', () async {
+      final withPhoto = id;
+      await store.markPhotoFailed(
+        withPhoto,
+        'PHOTO_STORAGE_UNAVAILABLE',
+        retryAt: now.add(const Duration(minutes: 5)),
+      );
+      expect((await store.byId(withPhoto))!.photoRetryable, isTrue);
 
-        await store.sendNow(withPhoto);
-        await store.sendNow(withPhoto); // doble toque
-        final row = (await store.byId(withPhoto))!;
-        expect(row.photoSendStatus, IdentificationPhotoStatus.failed);
-        expect(row.photoRetryable, isTrue, reason: 'sigue siendo reintentable');
-        expect(row.photoNextAttemptAt, isNotNull);
-        expect(
-          (await store.withPendingWork(memberA.tenantId, includePaused: false))
-              .map((r) => r.requestId),
-          contains(withPhoto),
-        );
+      await store.sendNow(withPhoto);
+      await store.sendNow(withPhoto); // doble toque
+      final row = (await store.byId(withPhoto))!;
+      expect(row.photoSendStatus, IdentificationPhotoStatus.failed);
+      expect(row.photoRetryable, isTrue, reason: 'sigue siendo reintentable');
+      expect(row.photoNextAttemptAt, isNotNull);
+      expect(
+        (await store.withPendingWork(
+          memberA.tenantId,
+          includePaused: false,
+        )).map((r) => r.requestId),
+        contains(withPhoto),
+      );
 
-        // Un fallo definitivo (sin fecha) sigue sin volver a la cola.
-        await store.markPhotoFailed(withPhoto, 'IMAGE_INVALID');
-        await store.sendNow(withPhoto);
-        expect((await store.byId(withPhoto))!.photoRetryable, isFalse);
-      },
-    );
+      // Un fallo definitivo (sin fecha) sigue sin volver a la cola.
+      await store.markPhotoFailed(withPhoto, 'IMAGE_INVALID');
+      await store.sendNow(withPhoto);
+      expect((await store.byId(withPhoto))!.photoRetryable, isFalse);
+    });
 
     test('reemplazar y enviar: consentimiento nuevo con su fecha y la nueva huella', () async {
       await markSent();

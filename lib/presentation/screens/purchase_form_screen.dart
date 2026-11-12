@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart' show SynchronousFuture;
 import 'package:flutter/material.dart';
@@ -268,7 +269,12 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen>
   bool dirty = false;
 
   void _markDirty() {
-    setState(() => dirty = true);
+    setState(() {
+      dirty = true;
+      // El aviso de validación de la hoja era sobre lo que había: al editar
+      // deja de valer (el error del campo también se borra).
+      _lineProblem = null;
+    });
     voice?.reconcile(_voiceTarget.snapshot());
   }
 
@@ -881,7 +887,10 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen>
     },
     child: Scaffold(
       bottomNavigationBar: _bottomBar(),
+      // Con la hoja de un producto abierta, el velo cubre también la franja
+      // de la barra de estado, como en el prototipo.
       body: SafeArea(
+        top: editingLineId == null || step != _PurchaseStep.items,
         child: FutureBuilder<_PurchaseCatalogs>(
           future: catalogs,
           builder: (context, snapshot) {
@@ -1639,8 +1648,17 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen>
       // (UIBUG-040).
       LayoutBuilder(
         builder: (context, constraints) {
-          final scale = MediaQuery.textScalerOf(context).scale(1);
-          if (constraints.maxWidth >= 2 * 150 * scale + 10) {
+          // Lado a lado sólo si la etiqueta flotante más larga cabe entera en
+          // media fila, medida con la letra y la escala reales (UIBUG-040).
+          final floating =
+              (Theme.of(context).textTheme.bodyLarge ??
+                      const TextStyle(fontSize: 16))
+                  .copyWith(fontSize: 12);
+          final widest = [
+            'Cantidad comprada',
+            hasProduct ? 'Precio por $unit' : 'Precio por unidad',
+          ].map((t) => measureText(context, t, floating)).fold(0.0, math.max);
+          if (constraints.maxWidth >= 2 * (widest + 40) + 10) {
             return Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -2353,6 +2371,10 @@ class _LotDataSection extends StatelessWidget {
     data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
     child: ExpansionTile(
       key: Key('purchase-lot-data-$index'),
+      // Con datos (o un error en ellos) se abre desplegada: lo escrito y su
+      // aviso quedan a la vista al volver a la hoja.
+      initiallyExpanded:
+          line.expiryDay != null || line.lotNumber.text.trim().isNotEmpty,
       tilePadding: const EdgeInsets.fromLTRB(16, 2, 10, 2),
       shape: const Border(),
       collapsedShape: const Border(),

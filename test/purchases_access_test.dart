@@ -125,7 +125,7 @@ void main() {
     await settle(tester, frames: 30);
 
     expect(
-      find.text('Paso 1 de 2 · Proveedor y productos'),
+      find.text('¿Qué compró?'),
       findsOneWidget,
       reason: 'Operaciones -> Compras -> Nueva compra debe abrir el formulario',
     );

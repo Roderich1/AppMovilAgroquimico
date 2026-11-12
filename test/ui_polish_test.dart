@@ -9,9 +9,12 @@ import 'package:agroquimicos/presentation/screens/purchase_form_screen.dart';
 import 'package:agroquimicos/presentation/screens/transfer_form_screen.dart';
 import 'package:agroquimicos/presentation/widgets/adaptive_entity_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+
+import 'support/purchase_form_driver.dart';
 
 /// Cierre del lote de defectos de interfaz que quedaban abiertos tras la
 /// auditoría del Pixel 8: 023, 031, 037, 038, 039, 040, 041, 047 y 060.
@@ -217,6 +220,7 @@ void main() {
     ) async {
       await resize(tester, pixel8Portrait);
       await pump(tester, const PurchaseFormScreen(), inScaffold: false);
+      await openPurchaseLine(tester);
 
       // Ninguna etiqueta termina en la barra huérfana.
       final orphan = find.byWidgetPredicate(
@@ -244,6 +248,12 @@ void main() {
 
       // Las filas de reparto existen sólo al elegir «Repartir entre varias»
       // (pilotos X01/X02): dos filas vacías.
+      await openPurchaseLine(tester);
+      // En la hoja, la opción puede quedar debajo: se desplaza hasta ella.
+      await tester.ensureVisible(
+        find.byKey(const Key('purchase-alloc-split-0')),
+      );
+      await tester.pump();
       await tester.tap(find.byKey(const Key('purchase-alloc-split-0')));
       await tester.pump();
 
@@ -277,9 +287,18 @@ void main() {
       await resize(tester, pixel8Portrait);
       await pump(tester, const PurchaseFormScreen(), inScaffold: false);
 
-      // Recién abierta: en compartido lo primero que falta es decidir para
-      // quién es (pilotos X01/X02); nada se declara terminado.
-      expect(find.textContaining('Pendiente de destinatario'), findsOneWidget);
+      // Recién abierta: una línea vacía no tiene tarjeta, sólo «Añadir
+      // producto»; nada se declara terminado. En su hoja, lo primero que
+      // falta en compartido es decidir para quién es (pilotos X01/X02).
+      expect(find.text('Añadir producto'), findsOneWidget);
+      expect(find.textContaining('· asignado'), findsNothing);
+      expect(find.textContaining('· Asignado'), findsNothing);
+      expect(find.textContaining('Repartida:'), findsNothing);
+      await openPurchaseLine(tester);
+      expect(
+        find.text('Elija una opción para indicar a quién va este producto.'),
+        findsOneWidget,
+      );
       expect(find.textContaining('· asignado'), findsNothing);
       expect(find.textContaining('· Asignado'), findsNothing);
       expect(find.textContaining('Repartida:'), findsNothing);
@@ -290,6 +309,7 @@ void main() {
     ) async {
       await resize(tester, pixel8Portrait);
       await pump(tester, const PurchaseFormScreen(), inScaffold: false);
+      await openPurchaseLine(tester);
 
       await tester.enterText(
         find.byWidgetPredicate(
@@ -300,10 +320,18 @@ void main() {
         '20',
       );
       await tester.pump();
-      // Con cantidad y sin decidir el destinatario, sigue faltando éste.
+      // Con cantidad y sin decidir el destinatario, la tarjeta dice que
+      // falta éste.
+      await closePurchaseLine(tester);
       expect(find.textContaining('Pendiente de destinatario'), findsOneWidget);
 
       // «Repartir entre varias» con filas sin persona: falta la persona.
+      await openPurchaseLine(tester);
+      // En la hoja, la opción puede quedar debajo: se desplaza hasta ella.
+      await tester.ensureVisible(
+        find.byKey(const Key('purchase-alloc-split-0')),
+      );
+      await tester.pump();
       await tester.tap(find.byKey(const Key('purchase-alloc-split-0')));
       await tester.pump();
       expect(find.textContaining('Pendiente de persona'), findsOneWidget);
@@ -317,14 +345,22 @@ void main() {
       await resize(tester, pixel8Portrait);
       await pump(tester, const PurchaseFormScreen(), inScaffold: false);
 
-      // UIBUG-041: con relleno superior 0 la etiqueta flotante "Producto" se
-      // dibujaba sobre la cabecera de la tarjeta. Se comprueba la causa —el
-      // contenedor— y no la posición de ese texto concreto.
-      final tile = tester.widget<ExpansionTile>(
-        find.byType(ExpansionTile).first,
+      // UIBUG-041: con relleno superior 0 la etiqueta flotante del primer
+      // campo se dibujaba sobre la cabecera de la tarjeta. En la hoja
+      // «Producto n» el producto es una fila sin etiqueta flotante y la
+      // etiqueta del primer campo de texto queda entera debajo de ella.
+      await openPurchaseLine(tester);
+      final producto = tester.getRect(
+        find.byWidgetPredicate(
+          (w) =>
+              w is AdaptiveEntityPicker<Map<String, Object?>> &&
+              w.label == 'Producto',
+        ),
       );
-      final padding = tile.childrenPadding! as EdgeInsets;
-      expect(padding.top, greaterThan(0));
+      expect(
+        tester.getRect(find.text('Cantidad comprada')).top,
+        greaterThanOrEqualTo(producto.bottom),
+      );
     });
   });
 
@@ -355,10 +391,19 @@ void main() {
       // exactamente la compresión artificial que este defecto prohíbe.
       await resize(tester, pixel8Portrait);
       await pump(tester, const PurchaseFormScreen(), inScaffold: false);
+      await openPurchaseLine(tester);
 
+      // Cantidad y precio van lado a lado sólo si caben enteros; la moneda,
+      // debajo, a su propio ancho.
       final cantidad = tester.getRect(find.text('Cantidad comprada'));
-      final moneda = tester.getRect(find.text('Moneda'));
+      final moneda = tester.getRect(
+        find.byKey(const Key('purchase-currency-0')),
+      );
       expect(moneda.top, greaterThan(cantidad.bottom));
+      final label = tester.renderObject<RenderParagraph>(
+        find.text('Cantidad comprada'),
+      );
+      expect(label.didExceedMaxLines, isFalse);
     });
   });
 

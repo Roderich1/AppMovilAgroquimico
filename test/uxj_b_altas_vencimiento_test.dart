@@ -43,6 +43,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'support/f04_mode_fixtures.dart';
 import 'support/f04_mode_ui_harness.dart';
+import 'support/purchase_form_driver.dart';
 
 typedef Row = Map<String, Object?>;
 
@@ -51,6 +52,9 @@ void main() {
 
   Finder picker(String label) => find.byWidgetPredicate(
     (w) => w is AdaptiveEntityPicker<Row> && w.label == label,
+    // Rediseño: con la hoja de un producto abierta, el proveedor sigue en
+    // la página, fuera de escena.
+    skipOffstage: false,
   );
 
   AdaptiveEntityPicker<Row> pickerAt(
@@ -99,6 +103,14 @@ void main() {
     String createLabel, {
     int position = 0,
   }) async {
+    // Rediseño: el proveedor está en la página; producto y persona, en la
+    // hoja del producto.
+    if (label == 'Proveedor') {
+      await closePurchaseLine(tester);
+    } else if ((label == 'Producto' || label == 'Persona') &&
+        !purchaseLineSheetOpen()) {
+      await openPurchaseLine(tester);
+    }
     final target = picker(label).at(position);
     await tester.ensureVisible(target);
     await tester.pump();
@@ -132,24 +144,30 @@ void main() {
 
   Future<void> openPurchase(WidgetTester tester, ProviderContainer c) async {
     c.read(routerProvider).push('/compras/nueva');
-    await waitFor(tester, field('Cantidad comprada'));
+    await waitFor(tester, find.byKey(const Key('purchase-add-line')));
     await settle(tester);
   }
 
   /// Proveedor y Glifosato, 2 L a 45 Bs/L, en la línea 1.
   Future<void> fillLineOne(WidgetTester tester) async {
     await choose(tester, 'Proveedor', 'Proveedor');
+    await openPurchaseLine(tester);
     await choose(tester, 'Producto', 'Glifosato');
+    await openPurchaseLine(tester);
     await tester.enterText(field('Cantidad comprada'), '2');
-    await tester.enterText(field('Precio BOB/L'), '45');
+    await openPurchaseLine(tester);
+    await tester.enterText(field('Precio por L'), '45');
     await settle(tester);
   }
 
-  void expectLineOneKept(WidgetTester tester) {
+  Future<void> expectLineOneKept(WidgetTester tester) async {
+    if (find.byKey(const Key('purchase-line-sheet-0')).evaluate().isEmpty) {
+      await openPurchaseLine(tester);
+    }
     expect(pickerAt(tester, 'Producto').value?['name'], 'Glifosato');
     expect(fieldText(tester, 'Cantidad comprada'), '2');
-    expect(fieldText(tester, 'Precio BOB/L'), '45');
-    expect(find.textContaining('(hoy)'), findsOneWidget);
+    expect(fieldText(tester, 'Precio por L'), '45');
+    expect(find.textContaining('Hoy, ', skipOffstage: false), findsOneWidget);
   }
 
   /// Compra con vencimiento: [quantity] de [product] para [person].
@@ -201,6 +219,7 @@ void main() {
     await openPurchase(tester, c);
 
     expect(pickerAt(tester, 'Proveedor').items, isEmpty);
+    await openPurchaseLine(tester);
     expect(pickerAt(tester, 'Producto').items, isEmpty);
     await tester.enterText(field('Cantidad comprada'), '3');
     await settle(tester);
@@ -224,7 +243,7 @@ void main() {
     expect(pickerAt(tester, 'Proveedor').value?['name'], 'Agro Nuevo');
     expect(pickerAt(tester, 'Producto').value?['name'], 'Mancozeb');
     expect(fieldText(tester, 'Cantidad comprada'), '3');
-    expect(find.text('Paso 1 de 2 · Proveedor y productos'), findsOneWidget);
+    expect(find.text('¿Qué compró?', skipOffstage: false), findsOneWidget);
   });
 
   testWidgets('(c2) con un proveedor elegido, crear otro deja elegido el '
@@ -248,7 +267,7 @@ void main() {
     expect([
       for (final row in pickerAt(tester, 'Proveedor').items) row['name'],
     ], containsAll(['Agro Sur', 'Proveedor']));
-    expectLineOneKept(tester);
+    await expectLineOneKept(tester);
     // Unos fotogramas más: la autoselección del único proveedor anterior no
     // vuelve a pisar lo creado.
     await settle(tester);
@@ -270,7 +289,7 @@ void main() {
     await settle(tester);
 
     expect(find.text('Nuevo producto'), findsNothing);
-    expectLineOneKept(tester);
+    await expectLineOneKept(tester);
     expect(pickerAt(tester, 'Proveedor').value?['name'], 'Proveedor');
     expect(
       await rows(tester, s.database, 'products'),
@@ -298,7 +317,7 @@ void main() {
 
     expect(pickerAt(tester, 'Persona').value?['name'], 'Primo');
     expect(find.byKey(const Key('purchase-alloc-derived-0')), findsOneWidget);
-    expectLineOneKept(tester);
+    await expectLineOneKept(tester);
     expect(pickerAt(tester, 'Proveedor').value?['name'], 'Proveedor');
     final people = await rows(tester, s.database, 'persons');
     expect(
@@ -317,7 +336,7 @@ void main() {
     );
     expect(pickerAt(tester, 'Persona', 0).value, isNull);
     expect(pickerAt(tester, 'Persona', 1).value?['name'], 'Tío');
-    expectLineOneKept(tester);
+    await expectLineOneKept(tester);
   });
 
   testWidgets('(c5) «Añadir otro producto» agrega una línea; «Crear producto» '
@@ -327,13 +346,18 @@ void main() {
     final c = await pumpModeApp(tester, s.database);
     await openPurchase(tester, c);
 
+    // Rediseño: con la línea vacía la acción dice «Añadir producto» y abre
+    // su hoja; dentro, «Añadir otro» agrega la línea 2. «Crear producto» es
+    // la fila del selector, otra acción.
     expect(find.text('Agregar producto'), findsNothing);
-    expect(find.text('Añadir otro producto'), findsOneWidget);
+    expect(find.text('Añadir producto'), findsOneWidget);
     await tapKey(tester, 'purchase-add-line');
-    expect(find.text('Productos (2)'), findsOneWidget);
-    for (var i = 0; i < 2; i++) {
-      expect(pickerAt(tester, 'Producto', i).createLabel, 'Crear producto');
-    }
+    expect(pickerAt(tester, 'Producto').createLabel, 'Crear producto');
+    await tapKey(tester, 'purchase-line-next');
+    expect(find.byKey(const Key('purchase-line-sheet-1')), findsOneWidget);
+    expect(pickerAt(tester, 'Producto').createLabel, 'Crear producto');
+    await closePurchaseLine(tester);
+    expect(find.text('Añadir otro producto'), findsOneWidget);
   });
 
   testWidgets('(c6) revisión: el total una sola vez y «¿Ya pagaste al '
@@ -345,21 +369,37 @@ void main() {
     await fillLineOne(tester);
     await tapKey(tester, 'purchase-alloc-single-0');
     await choose(tester, 'Persona', 'Hermana');
+    await closePurchaseLine(tester);
     await tapKey(tester, 'purchase-continue');
 
-    expect(find.text('Paso 2 de 2 · Revisión y pago'), findsOneWidget);
-    expect(find.text(formatBob(9000)), findsOneWidget);
+    expect(find.text('Revise y confirme'), findsOneWidget);
+    // El importe: el subtotal de la única línea y el total, ambos en el
+    // resumen; la pregunta del pago no lo repite.
+    expect(
+      tester.widget<Text>(find.byKey(const Key('purchase-total'))).data,
+      formatBob(9000),
+    );
+    expect(find.text(formatBob(9000)), findsNWidgets(2));
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('purchase-paid-choice')),
+        matching: find.textContaining(formatBob(9000)),
+      ),
+      findsNothing,
+    );
     expect(find.textContaining('Importe'), findsNothing);
-    expect(find.text('¿Ya pagaste al proveedor?'), findsOneWidget);
+    expect(find.text('¿Ya pagó al proveedor?'), findsOneWidget);
     expect(find.text('¿Pagaste toda esta compra?'), findsNothing);
     // El reparto sigue a la vista para revisar.
     expect(
-      tester.widget<Text>(find.byKey(const Key('purchase-review-line-0'))).data,
+      tester
+          .widget<Text>(find.byKey(const Key('purchase-review-recipient-0')))
+          .data,
       contains('Para: Hermana'),
     );
 
     await tapKey(tester, 'purchase-confirm');
-    expect(find.text('Indica si ya pagaste al proveedor.'), findsOneWidget);
+    expect(find.text('Indique si ya pagó al proveedor.'), findsOneWidget);
     expect(await rows(tester, s.database, 'purchases'), isEmpty);
   });
 
@@ -437,6 +477,7 @@ void main() {
     await tapKey(tester, 'application-continue');
 
     await tapKey(tester, 'application-add-product');
+    await openPurchaseLine(tester);
     await choose(tester, 'Producto', 'Glifosato');
     await tester.enterText(
       find.byKey(const Key('application-line-quantity')),
@@ -451,15 +492,19 @@ void main() {
     );
 
     await tapKey(tester, 'application-register-purchase');
-    await waitFor(tester, field('Cantidad comprada'));
+    await waitFor(tester, find.byKey(const Key('purchase-add-line')));
     await settle(tester);
-    expect(find.text('Nueva compra'), findsOneWidget);
+    expect(find.text('¿Qué compró?'), findsOneWidget);
+    await openPurchaseLine(tester);
     await choose(tester, 'Producto', 'Mancozeb');
+    await openPurchaseLine(tester);
     await tester.enterText(field('Cantidad comprada'), '3');
-    await tester.enterText(field('Precio BOB/L'), '10');
+    await openPurchaseLine(tester);
+    await tester.enterText(field('Precio por L'), '10');
     await settle(tester);
     await tapKey(tester, 'purchase-alloc-single-0');
     await choose(tester, 'Persona', 'Hermana');
+    await closePurchaseLine(tester);
     await tapKey(tester, 'purchase-continue');
     await tapKey(tester, 'purchase-paid-no');
     await tapKey(tester, 'purchase-confirm');
@@ -510,6 +555,7 @@ void main() {
     await choose(tester, 'Chaco', 'Chaco hermana');
     await tapKey(tester, 'application-continue');
     await tapKey(tester, 'application-add-product');
+    await openPurchaseLine(tester);
     await choose(tester, 'Producto', 'Glifosato');
     await tester.enterText(
       find.byKey(const Key('application-line-quantity')),

@@ -30,6 +30,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'support/f04_app_access.dart';
 import 'support/f04_mode_fixtures.dart';
+import 'support/purchase_form_driver.dart';
 
 class _WorkspacePaths extends PathProviderPlatform {
   _WorkspacePaths(this.directory);
@@ -385,10 +386,12 @@ void main() {
       );
 
       c.read(routerProvider).push('/compras/nueva');
-      await waitFor(tester, find.text('Añadir otro producto'));
+      await waitFor(tester, find.byKey(const Key('purchase-add-line')));
       await settle(tester);
       // Paso 1: proveedor y una línea; en propio no hay reparto que elegir.
       for (final label in ['Proveedor', 'Producto']) {
+        // Rediseño: el producto se elige en la hoja «Producto 1».
+        if (label == 'Producto') await openPurchaseLine(tester);
         final w = tester.widget<AdaptiveEntityPicker<Map<String, Object?>>>(
           find.byWidgetPredicate(
             (w) =>
@@ -404,11 +407,13 @@ void main() {
         '1',
       );
       await tester.enterText(
-        find.widgetWithText(TextField, 'Precio BOB/L'),
+        find.widgetWithText(TextField, 'Precio por L'),
         '10',
       );
       await settle(tester);
+      await closePurchaseLine(tester);
       await tester.ensureVisible(find.byKey(const Key('purchase-continue')));
+      await closePurchaseLine(tester);
       await tester.tap(find.byKey(const Key('purchase-continue')));
       await settle(tester);
       // Paso 2 (piloto X01): ningún selector de pagador; con «Sí» paga el

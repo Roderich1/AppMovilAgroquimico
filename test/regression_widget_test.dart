@@ -13,6 +13,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+import 'support/purchase_form_driver.dart';
+
 void main() {
   sqfliteFfiInit();
 
@@ -87,6 +89,7 @@ void main() {
       ),
     );
     await settle(tester);
+    await openPurchaseLine(tester);
     // La cantidad de la línea es "Cantidad comprada"; las de las asignaciones
     // son "Cantidad" (UIBUG-038). Se apunta a la de la línea.
     final quantity = find.byWidgetPredicate(
