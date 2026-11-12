@@ -7,7 +7,10 @@ import '../../domain/read_models.dart';
 import '../../domain/reports/report_composer.dart';
 import '../../services/reports/report_export_service.dart';
 import '../../services/reports/report_storage.dart';
+import '../theme/agro_theme.dart';
+import '../widgets/agro_ui.dart';
 import '../widgets/common.dart';
+import '../widgets/rdm_c_page.dart';
 
 /// Selección y exportación de reportes (Lote H).
 ///
@@ -221,7 +224,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
   );
 
   @override
-  Widget build(BuildContext context) => PageFrame(
+  Widget build(BuildContext context) => RdmCPage(
     title: 'Reportes',
     subtitle: 'Exporta inventario, costos y cuentas a Excel o PDF.',
     child: FutureBuilder<_Filters>(
@@ -242,32 +245,52 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            _sectionTitle(context, 'Reporte'),
-            Card(
-              child: RadioGroup<ReportKind>(
-                groupValue: _kind,
-                // `RadioGroup` exige un manejador no nulo, así que la guarda
-                // de "ocupado" va dentro: durante una exportación no se puede
-                // cambiar lo que se está exportando.
-                onChanged: (value) {
-                  if (busy || value == null) return;
-                  setState(() => _kind = value);
-                },
-                child: Column(
-                  children: [
-                    for (final kind in ReportKind.values)
-                      RadioListTile<ReportKind>(
-                        value: kind,
-                        title: Text(kind.label),
-                        subtitle: Text(kind.description),
+            _sectionTitle(context, '¿Qué quiere exportar?'),
+            // Rediseño (lámina «Reportes»): cada reporte es una tarjeta que
+            // se elige; el grupo de opciones exclusivas es el de antes.
+            RadioGroup<ReportKind>(
+              groupValue: _kind,
+              // `RadioGroup` exige un manejador no nulo, así que la guarda
+              // de "ocupado" va dentro: durante una exportación no se puede
+              // cambiar lo que se está exportando.
+              onChanged: (value) {
+                if (busy || value == null) return;
+                setState(() => _kind = value);
+              },
+              child: Column(
+                children: [
+                  for (final kind in ReportKind.values)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 8),
+                      child: Material(
+                        color: AgroColors.surface,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(20),
+                          side: BorderSide(
+                            color: kind == _kind
+                                ? AgroColors.ink
+                                : Colors.transparent,
+                            width: 2,
+                          ),
+                        ),
+                        clipBehavior: Clip.antiAlias,
+                        child: RadioListTile<ReportKind>(
+                          value: kind,
+                          controlAffinity: ListTileControlAffinity.trailing,
+                          title: Text(kind.label, style: AgroText.value),
+                          subtitle: Text(kind.description),
+                        ),
                       ),
-                  ],
-                ),
+                    ),
+                ],
               ),
             ),
-            const SizedBox(height: 18),
-            _sectionTitle(context, 'Filtros'),
-            Card(
+            const SizedBox(height: 10),
+            // `Material`, no un `Container`: los desplegables lo necesitan
+            // aunque la pantalla se abra sin `Scaffold`.
+            Material(
+              color: AgroColors.surface,
+              borderRadius: BorderRadius.circular(20),
               child: Padding(
                 padding: const EdgeInsets.all(12),
                 child: Column(
@@ -345,59 +368,45 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                 ),
               ),
             ),
-            const SizedBox(height: 18),
-            _sectionTitle(context, 'Formato'),
-            Card(
-              child: RadioGroup<ReportFormat>(
-                groupValue: _format,
-                // `RadioGroup` exige un manejador no nulo, así que la guarda
-                // de "ocupado" va dentro: durante una exportación no se puede
-                // cambiar lo que se está exportando.
-                onChanged: (value) {
-                  if (busy || value == null) return;
-                  setState(() => _format = value);
-                },
-                child: Column(
-                  children: [
-                    for (final format in ReportFormat.values)
-                      RadioListTile<ReportFormat>(
-                        value: format,
-                        title: Text(format.label),
-                        subtitle: Text(format.description),
-                      ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 18),
-            Card(
-              color: Theme.of(context).colorScheme.errorContainer,
-              child: Padding(
-                padding: const EdgeInsets.all(14),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Icon(Icons.lock_open_outlined),
-                    const SizedBox(width: 10),
-                    // Sin `Expanded` un aviso de dos líneas desborda la fila al
-                    // 130 %, como pasaba en la cinta de campaña (UIBUG-067).
-                    Expanded(
-                      child: Text(
-                        'El archivo contiene información sensible y NO va '
-                        'cifrado. Se guarda en el teléfono; la aplicación no '
-                        'lo envía a ningún sitio.',
-                      ),
+            const SizedBox(height: 16),
+            // Formato: dos opciones, como en la lámina; su descripción
+            // (qué trae cada archivo) queda debajo.
+            Row(
+              children: [
+                Expanded(child: Text('Formato', style: AgroText.question)),
+                const SizedBox(width: 12),
+                Flexible(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 220),
+                    child: SegmentToggle<ReportFormat>(
+                      semanticLabel: 'Formato',
+                      options: [
+                        for (final format in ReportFormat.values)
+                          ToggleOption(format, format.label),
+                      ],
+                      selected: _format,
+                      onChanged: busy
+                          ? null
+                          : (value) => setState(() => _format = value),
                     ),
-                  ],
+                  ),
                 ),
-              ),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Text(_format.description, style: AgroText.detail),
+            const SizedBox(height: 16),
+            const NoticeBox(
+              tone: NoticeTone.warning,
+              icon: Icons.lock_open_outlined,
+              text:
+                  'El archivo contiene información sensible y NO va '
+                  'cifrado. Se guarda en el teléfono; la aplicación no lo '
+                  'envía a ningún sitio.',
             ),
             if (_location != null) ...[
               const SizedBox(height: 10),
-              Text(
-                'Se guardará en: $_location',
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
+              Text('Se guardará en: $_location', style: AgroText.detail),
             ],
             if (blocker != null) ...[
               const SizedBox(height: 10),
@@ -422,6 +431,9 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
               ),
             ] else
               FilledButton.icon(
+                style: FilledButton.styleFrom(
+                  minimumSize: const Size.fromHeight(56),
+                ),
                 onPressed: blocker != null ? null : _export,
                 icon: const Icon(Icons.save_alt_outlined),
                 label: Text('Exportar ${_format.label}'),
@@ -434,10 +446,6 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
 
   Widget _sectionTitle(BuildContext context, String text) => Padding(
     padding: const EdgeInsets.only(bottom: 8),
-    child: Text(
-      text,
-      style: Theme.of(context).textTheme.titleMedium
-          ?.copyWith(fontWeight: FontWeight.w700),
-    ),
+    child: Semantics(header: true, child: Text(text, style: AgroText.h2)),
   );
 }
