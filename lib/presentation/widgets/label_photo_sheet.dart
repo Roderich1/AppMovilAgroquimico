@@ -8,8 +8,11 @@ import '../../data/sync/identification_request_store.dart';
 import '../../domain/sync/identification_view.dart';
 import '../../services/sync/sync_providers.dart'
     show identificationRequestStoreProvider;
+import '../theme/agro_theme.dart';
+import 'agro_ui.dart';
 import 'common.dart';
 import 'identification_texts.dart' show labelPhotosNotInBackups;
+import 'rdm_c_page.dart';
 
 /// Elige una imagen con la cámara o la galería; null si se cancela. Las
 /// pruebas la sustituyen.
@@ -27,10 +30,8 @@ Future<void> showLabelPhotoSheet(
   required int productId,
   required String productName,
   LabelPhotoPicker picker = _systemPicker,
-}) => showModalBottomSheet<void>(
-  context: context,
-  isScrollControlled: true,
-  showDragHandle: true,
+}) => showRdmCSheet<void>(
+  context,
   builder: (_) => LabelPhotoSheet(
     productId: productId,
     productName: productName,
@@ -235,101 +236,169 @@ class _LabelPhotoSheetState extends ConsumerState<LabelPhotoSheet> {
     };
   }
 
+  /// Tono de la etiqueta de lo que tiene el sindicato; el texto dice el
+  /// estado.
+  BadgeTone _noteTone(ProductPhoto? photo, IdentificationRequest request) =>
+      switch (request.photoSendStatus) {
+        IdentificationPhotoStatus.sent =>
+          photo != null && photo.sha256 == request.photoSha256Consented
+              ? BadgeTone.voice
+              : BadgeTone.neutral,
+        IdentificationPhotoStatus.failed =>
+          request.photoRetryable ? BadgeTone.review : BadgeTone.missing,
+        IdentificationPhotoStatus.removed => BadgeTone.neutral,
+        _ => BadgeTone.review,
+      };
+
   @override
-  Widget build(BuildContext context) => SafeArea(
-    child: Padding(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-      child: FutureBuilder<_SheetData>(
-        future: data,
-        builder: (context, snapshot) {
-          if (snapshot.hasError) {
-            return Text(friendlyError(snapshot.error!));
-          }
-          if (!snapshot.hasData) {
-            return const Padding(
-              padding: EdgeInsets.all(24),
-              child: Center(child: CircularProgressIndicator()),
-            );
-          }
-          final photo = snapshot.data!.photo;
-          final request = snapshot.data!.request;
-          final note = _unionNote(photo, request);
-          return Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(
-                'Foto de la etiqueta',
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-              Text(widget.productName),
-              const SizedBox(height: 12),
-              if (busy) const LinearProgressIndicator(),
-              if (photo == null)
-                const Text(
-                  'Sin foto. La foto se guarda sólo en este teléfono, sin '
-                  'ubicación ni otros datos de la cámara.',
-                )
-              else if (!photo.exists)
-                const Text('La foto ya no está en este teléfono.')
-              else
-                ConstrainedBox(
-                  constraints: const BoxConstraints(maxHeight: 320),
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(8),
-                    child: Image.file(
-                      photo.file,
-                      key: ValueKey(photo.sha256),
-                      fit: BoxFit.contain,
-                      errorBuilder: (_, _, _) =>
-                          const Text('No se pudo mostrar la foto.'),
-                    ),
-                  ),
+  Widget build(BuildContext context) => FutureBuilder<_SheetData>(
+    future: data,
+    builder: (context, snapshot) {
+      if (snapshot.hasError) {
+        return RdmCSheetBody(
+          title: 'Foto de la etiqueta',
+          subtitle: widget.productName,
+          children: [Text(friendlyError(snapshot.error!))],
+        );
+      }
+      if (!snapshot.hasData) {
+        return const Padding(
+          padding: EdgeInsets.all(24),
+          child: Center(child: CircularProgressIndicator()),
+        );
+      }
+      final photo = snapshot.data!.photo;
+      final request = snapshot.data!.request;
+      final note = _unionNote(photo, request);
+      return RdmCSheetBody(
+        title: 'Foto de la etiqueta',
+        subtitle: widget.productName,
+        actions: photo == null
+            ? [
+                PrimaryActionButton(
+                  label: 'Tomar foto',
+                  icon: Icons.photo_camera_outlined,
+                  iconFirst: true,
+                  onPressed: busy
+                      ? null
+                      : () => _pick(ImageSource.camera, request),
                 ),
-              if (note != null) ...[const SizedBox(height: 8), Text(note)],
-              const SizedBox(height: 8),
-              Text(
-                labelPhotosNotInBackups,
-                style: Theme.of(context).textTheme.bodySmall,
-              ),
-              const SizedBox(height: 12),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: photo == null
-                    ? [
-                        FilledButton.icon(
-                          onPressed: busy
-                              ? null
-                              : () => _pick(ImageSource.camera, request),
-                          icon: const Icon(Icons.photo_camera_outlined),
-                          label: const Text('Tomar foto'),
-                        ),
-                        OutlinedButton.icon(
-                          onPressed: busy
-                              ? null
-                              : () => _pick(ImageSource.gallery, request),
-                          icon: const Icon(Icons.photo_library_outlined),
-                          label: const Text('Elegir de la galería'),
-                        ),
-                      ]
-                    : [
-                        FilledButton.icon(
-                          onPressed: busy ? null : () => _replace(request),
-                          icon: const Icon(Icons.flip_camera_android_outlined),
-                          label: const Text('Reemplazar'),
-                        ),
-                        OutlinedButton.icon(
-                          onPressed: busy ? null : () => _remove(request),
-                          icon: const Icon(Icons.delete_outline),
-                          label: const Text('Quitar'),
-                        ),
-                      ],
-              ),
-            ],
-          );
-        },
+                SecondaryActionButton(
+                  label: 'Elegir de la galería',
+                  icon: Icons.photo_library_outlined,
+                  onPressed: busy
+                      ? null
+                      : () => _pick(ImageSource.gallery, request),
+                ),
+              ]
+            : [
+                PrimaryActionButton(
+                  label: 'Reemplazar',
+                  icon: Icons.flip_camera_android_outlined,
+                  iconFirst: true,
+                  onPressed: busy ? null : () => _replace(request),
+                ),
+                SecondaryActionButton(
+                  label: 'Quitar',
+                  icon: Icons.delete_outline,
+                  onPressed: busy ? null : () => _remove(request),
+                ),
+              ],
+        children: [
+          if (busy) ...[
+            const LinearProgressIndicator(),
+            const SizedBox(height: 8),
+          ],
+          _PhotoArea(
+            photo: photo,
+            badge: note == null
+                ? null
+                : StatusBadge(label: note, tone: _noteTone(photo, request!)),
+          ),
+          const SizedBox(height: 12),
+          const NoticeBox(text: labelPhotosNotInBackups),
+        ],
+      );
+    },
+  );
+}
+
+/// Recuadro de la foto: la imagen, o el aviso de que no hay o ya no está.
+/// La etiqueta de lo que tiene el sindicato va arriba, sobre la foto.
+class _PhotoArea extends StatelessWidget {
+  const _PhotoArea({required this.photo, required this.badge});
+  final ProductPhoto? photo;
+  final Widget? badge;
+
+  @override
+  Widget build(BuildContext context) {
+    final current = photo;
+    final Widget body;
+    if (current == null) {
+      body = const _PhotoMessage(
+        icon: Icons.add_a_photo_outlined,
+        text:
+            'Sin foto. La foto se guarda sólo en este teléfono, sin '
+            'ubicación ni otros datos de la cámara.',
+      );
+    } else if (!current.exists) {
+      body = const _PhotoMessage(
+        icon: Icons.image_not_supported_outlined,
+        text: 'La foto ya no está en este teléfono.',
+      );
+    } else {
+      body = ConstrainedBox(
+        constraints: const BoxConstraints(maxHeight: 320),
+        child: Image.file(
+          current.file,
+          key: ValueKey(current.sha256),
+          fit: BoxFit.contain,
+          errorBuilder: (_, _, _) => const _PhotoMessage(
+            icon: Icons.broken_image_outlined,
+            text: 'No se pudo mostrar la foto.',
+          ),
+        ),
+      );
+    }
+    return Container(
+      decoration: BoxDecoration(
+        color: AgroColors.track,
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: AgroColors.handle),
       ),
+      clipBehavior: Clip.antiAlias,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (badge != null)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
+              child: Align(alignment: Alignment.centerLeft, child: badge),
+            ),
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child: Center(child: body),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PhotoMessage extends StatelessWidget {
+  const _PhotoMessage({required this.icon, required this.text});
+  final IconData icon;
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 24, horizontal: 8),
+    child: Column(
+      children: [
+        Icon(icon, size: 36, color: AgroColors.muted),
+        const SizedBox(height: 8),
+        Text(text, textAlign: TextAlign.center, style: AgroText.detail),
+      ],
     ),
   );
 }

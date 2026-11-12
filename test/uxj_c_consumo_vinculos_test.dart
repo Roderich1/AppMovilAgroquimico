@@ -9,6 +9,7 @@ import 'dart:convert';
 import 'package:agroquimicos/app.dart';
 import 'package:agroquimicos/data/sync/central_binding_store.dart';
 import 'package:agroquimicos/data/sync/consumption_publisher.dart';
+import 'package:agroquimicos/presentation/widgets/rdm_c_page.dart' show RdmCRow;
 import 'package:agroquimicos/domain/sync/central_references.dart';
 import 'package:agroquimicos/domain/sync/sync_types.dart';
 import 'package:agroquimicos/presentation/screens/central_binding_screen.dart';
@@ -367,7 +368,7 @@ void main() {
       ),
     );
     Finder productRow(String label) =>
-        find.ancestor(of: find.text(label), matching: find.byType(ListTile));
+        find.ancestor(of: find.text(label), matching: find.byType(RdmCRow));
     expect(
       find.descendant(
         of: productRow('Herbicida local (L)'),
@@ -389,6 +390,9 @@ void main() {
       ),
       findsOneWidget,
     );
+    // Rediseño (sesión C): las campañas están en su pestaña.
+    await tester.tap(find.byKey(const Key('binding-tab-campaigns')));
+    await settle(tester);
     final campaign = find.byKey(Key('campaign-binding-${fixture.campaignId}'));
     for (final text in [
       'Requiere atención: El período local no cabe en el de la campaña del '
@@ -465,7 +469,7 @@ void main() {
       await tester.tap(find.text('Actualizar'));
       await settle(tester);
       Finder productRow(String label) =>
-          find.ancestor(of: find.text(label), matching: find.byType(ListTile));
+          find.ancestor(of: find.text(label), matching: find.byType(RdmCRow));
       expect(
         find.descendant(
           of: productRow('Herbicida local (L)'),
@@ -485,6 +489,8 @@ void main() {
         ),
         findsOneWidget,
       );
+      await tester.tap(find.byKey(const Key('binding-tab-campaigns')));
+      await settle(tester);
       expect(
         find.descendant(
           of: find.byKey(Key('campaign-binding-${fixture.campaignId}')),
