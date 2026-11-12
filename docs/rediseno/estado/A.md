@@ -1,7 +1,7 @@
 # Estado de la sesión A
 
 - Dueño del worktree: sesión proyectoagro-4d desde 2026-11-12 (hora local en el commit)
-- Base incorporada: B0 (33e581f)
+- Base incorporada: B1 (`0a2e321`, avance rápido: entregas 1 y 2 ya integradas)
 
 ## Entregas listas
 
@@ -9,6 +9,7 @@
 |---|---|---|---|---|---|
 | 1 | `65e48f8` (serie `be78956`, `76b7afd`, `65e48f8`) | `/aplicaciones/nueva`: paso 1 «¿Dónde aplicó?», paso 2 «¿Qué aplicó?» con hoja de producto y «Dosis y costo», paso 3 «Revise y confirme»; panel de voz anclado, aviso tras dictar, revisión de chaco de otra persona; aplicación desde un plan | ver «Entrega 1 · pruebas» | `flutter test tool/rediseno/capturas_a_test.dart` (100 %, `RDM_TEXT_SCALE=1.3`/`2.0`, `RDM_WIDTH=360`) → `build/rediseno_capturas_a/` (no versionado) | ver «Entrega 1 · diferencias» |
 | 2 | `1c7ff89` (serie `ede5ffc`, `b7298a6`, `1c7ff89`) | `/planificacion/nueva`: «¿Qué piensa aplicar?», chaco y área, tarjetas de producto con dosis, «Necesita» y cobertura; panel de voz anclado, aviso tras dictar, conflicto de chaco y área | ver «Entrega 2 · pruebas» | mismo arnés (`3.5*`, `3.6*`) | ver «Entrega 2 · diferencias» |
+| 3 | ver «Entrega 3» (serie `0f082b6`, `26ed816`, `97aa823` y este estado) | Revisión A-1 (puntos 1 y 2) en `/aplicaciones/nueva` y `/planificacion/nueva`; listas `/aplicaciones` y `/planificacion` (punto 3) | ver «Entrega 3 · pruebas» | arnés con la vista entera; `3.7*`, `3.8*`; lado a lado en `build/rediseno_lado_a_lado/` | ver «Entrega 3 · diferencias» |
 
 ## Entrega 1 · aplicación (2026-11-12)
 
@@ -76,16 +77,50 @@ Archivos: `lib/presentation/screens/plan_form_screen.dart` (sólo presentación;
 | Etiqueta «Cubierto · hay 8 L» | Igual; además «Falta comprar … · hay …» (ámbar) y «Escriba la dosis» (gris) | Estados que la lámina no dibuja; el texto, no sólo el color, dice el estado. |
 | Sin título de barra | «Nuevo plan · <campaña>» y el micrófono | Conserva `form-dictar`. |
 
+## Entrega 3 · revisión A-1 y listas (2026-11-12)
+
+Archivos: `application_form_screen.dart` y `plan_form_screen.dart` (sólo `hint:` y `BadgeTone.ok`), `applications_screen.dart`, `planning_screen.dart`, `widgets/rdm_a_list.dart` (nuevo: cabecera de lista, botón de registro, vacío), `tool/rediseno/capturas_a_test.dart`; pruebas `f04_effective_date_form` y `uxj_a_navegacion`.
+
+### Correcciones de A-1
+
+1. Capturas de hojas: `shot()` copiado del arnés de B1 (vista entera); recapturadas todas (100 %, 130 %, 200 %, 360 dp). `3.2h_hoja_producto` ya muestra la hoja.
+2. «Persona» usa `AdaptiveEntityPicker(rowStyle:, hint:)` (clave `application-person-hint`); el chaco del plan, `hint:` (clave `plan-farm-owner`); «Cubierto», `BadgeTone.ok`.
+3. Listas rediseñadas (abajo).
+
+### Pruebas
+
+- `flutter analyze` de los seis archivos: sin avisos.
+- Verdes (`--concurrency=2`): `plan_lifecycle_ui`, `uxj_a_navegacion`, `f04_effective_date_form`, `e12_pending_operation_return`, `destructive_actions`, `f10_x01_aplicacion_productos`, `voice_draft/aplicacion_formulario_unico`, `voice_draft/plan_formulario_unico`, `uxj_b_altas_vencimiento`, `fix_aplicacion_hoja_existencias`, `plan_application_area_precision`, `ux_altas_en_contexto`, `personal_mode_flows`, `regression_widget`, `responsive_v5`, `f10_x01_inicio_mas`, `f10_x01_regresiones`, `fix_aplicacion_costo_cargo`, `fix_aplicacion_dosis_area`, `f10_d03_existencia_historica_form`, `voice_draft/formulario_unico_accesos`.
+- `f04_admin_owner_restore_ui`: una vez falló «restaurar desde Liquidación … deja la navegación en propio» corriendo en par con otro archivo; sola pasó dos veces seguidas. No usa estas pantallas: intermitencia de concurrencia (ver «Hallazgos fuera de alcance»).
+- Adaptadas: el botón de la lista se busca por «Registrar aplicación»; el aviso tras registrar se comprueba con «Aplicación registrada» (antes «Aplicación multiproducto confirmada»).
+
+### Recorrido para revisarlo
+
+1. Actividad › Aplicaciones: «Registrar aplicación» (sin campaña activa: «Falta una campaña activa» › «Ir a campañas»). Filtro de campaña y búsqueda. Cada fila: persona · chaco, campaña · n productos, productos, costo y «Revertir» (motivo y PIN del titular). Una revertida: etiqueta «Revertida», quién la autorizó y costo tachado.
+2. Actividad › Planificación: «Nuevo plan». «Para el sindicato · Necesidad declarada» abre la necesidad declarada. Filtro de campaña, «Mostrar planes aplicados». Cada plan: chaco · responsable, campaña · n productos, «Pendiente» o «Aplicado»; al desplegar, cada producto (área, dosis, cantidad) y «Aplicar este plan» (sólo pendientes; al volver la lista se recarga).
+
+### Diferencias (no hay lámina de estas listas)
+
+| Antes | Ahora | Motivo |
+|---|---|---|
+| «Registrar» | «Registrar aplicación» / «Nuevo plan» | Revisión A-1: sin botón flotante desde B1, el botón dice qué registra. |
+| Título de `PageFrame` | Cabecera del rediseño (`RdmAListPage`, igual que la de C) | Lenguaje del bloque 1. |
+| «n producto(s)» | «1 producto» / «n productos» | Plural correcto. |
+| Chip «Aplicado» en lugar del indicador | Etiqueta «Pendiente»/«Aplicado» bajo la fila; el indicador de despliegue queda libre | El estado siempre en palabras (UIBUG-046). |
+| Icono ↩ «Revertir» | Botón con texto «Revertir» (mismo nombre accesible) | Acción explícita. |
+| «Aplicación multiproducto confirmada.» | «Aplicación registrada.» | Mismo texto que la hoja «Registrar»; sin jerga. |
+
 ## En curso
 
-- Listas `/aplicaciones` y `/planificacion` (sin lámina propia): pendiente de saber si se rediseñan aquí o las sustituye Actividad (sesión B).
+- Nada. Alcance de A cubierto (aplicación, plan, sus voces y sus listas); a la espera de la revisión.
 
 ## Solicitudes al orquestador
 
-- No bloqueante: `BadgeTone` no tiene un tono «correcto/cubierto»; uso `BadgeTone.voice` (mismo lima que la lámina) para «Cubierto». Un `BadgeTone.ok` lo dejaría claro.
+- ~~`BadgeTone.ok`~~: hecho en B1 y usado.
 
-- No bloqueante: `ValueRow` no tiene línea secundaria; la de «Persona» va como texto propio dentro del grupo (`application-person-hint`). Si sirve a otras sesiones, un `hint:` en `ValueRow`/`AdaptiveEntityPicker(rowStyle:)`.
-- No bloqueante: `side_by_side.py` falla con `python -I` (no encuentra PIL); comparé lámina y captura por separado.
+- ~~`hint:` en `ValueRow`~~: hecho en B1 y usado.
+- ~~PIL~~: resuelto con el venv de `_artefactos/rediseno/herramientas`.
+- No bloqueante: `RdmAListPage` (A) y `RdmCPage` (C) son la misma cabecera; si se promueve una a `agro_ui.dart`, la uso.
 
 ## Bloqueos y decisiones del autor
 
@@ -96,3 +131,5 @@ Archivos: `lib/presentation/screens/plan_form_screen.dart` (sólo presentación;
   - Decisión del orquestador: se conserva el rótulo «Persona», con la línea secundaria neutra «Responsable del chaco · se usan sus productos». El modo propio («Aplica el titular») no cambia. No hay campo nuevo ni efecto distinto. Por eso no se usa «Quién aplicó» (lámina 3.1).
 
 ## Hallazgos fuera de alcance
+
+- `test/f04_admin_owner_restore_ui_test.dart` («restaurar desde Liquidación una copia del mismo Member en inventario propio…»): falló una vez en par con `formulario_unico_accesos` (`--concurrency=2`, esperaba modo propio y leyó compartido); sola pasa. Posible intermitencia por tiempo; no se tocó.
