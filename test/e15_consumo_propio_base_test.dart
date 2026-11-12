@@ -384,12 +384,15 @@ void main() {
       );
       await settle(tester);
       expect(find.text('Ver movimientos propios'), findsOneWidget);
-      expect(find.text('Registrar pago'), findsOneWidget);
+      expect(
+        find.widgetWithText(PopupMenuItem<String>, 'Registrar pago'),
+        findsOneWidget,
+      );
       expect(find.text('Registrar adelanto'), findsNothing);
       await tester.tap(find.text('Ver movimientos propios'));
       await settle(tester);
       Finder inDialog(String text) => find.descendant(
-        of: find.byType(AlertDialog),
+        of: find.byType(Dialog),
         matching: find.textContaining(text),
       );
       expect(inDialog('Movimientos propios · Titular'), findsOneWidget);
@@ -566,15 +569,26 @@ void main() {
       final familiar = find
           .ancestor(of: find.text('Familiar Demo'), matching: find.byType(Card))
           .first;
+      // Rediseño: el pago es un botón de la tarjeta; en inventario propio el
+      // familiar no lo tiene y la tarjeta lo dice.
       final items = await menuOf(familiar);
       expect([
         for (final i in items)
           if (i.enabled) i.value,
       ], isNot(contains('pay')));
       expect(
-        items.where((i) => !i.enabled).length,
-        1,
-        reason: '«Inventario propio: pagos sólo del titular»',
+        find.descendant(
+          of: familiar,
+          matching: find.widgetWithText(FilledButton, 'Registrar pago'),
+        ),
+        findsNothing,
+      );
+      expect(
+        find.descendant(
+          of: familiar,
+          matching: find.text('Inventario propio: pagos sólo del titular'),
+        ),
+        findsOneWidget,
       );
     });
 

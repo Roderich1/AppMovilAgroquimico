@@ -3,7 +3,9 @@ import 'package:flutter/material.dart';
 import '../../domain/account_ledger.dart';
 import '../../domain/account_texts.dart';
 import '../../domain/money.dart';
+import '../theme/agro_theme.dart';
 import 'common.dart';
+import 'rdm_b_ui.dart' show IconCircle;
 
 /// Ancho a partir del cual el importe de cada fila cabe en una columna
 /// lateral junto a un concepto legible. Por debajo (teléfonos) la fila usa la
@@ -23,7 +25,6 @@ class AccountStatementView extends StatelessWidget {
     final account = statement.account;
     final ledger = statement.ledger;
     final period = statement.period;
-    final theme = Theme.of(context);
     final bold = const TextStyle(fontWeight: FontWeight.w700);
     final debts = statement.debts;
     final composition = creditCompositionLine(account);
@@ -33,90 +34,105 @@ class AccountStatementView extends StatelessWidget {
       builder: (context, constraints) {
         final narrow = constraints.maxWidth < statementWideWidth;
         return ListView(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
           children: [
-            Text(
-              'Deuda pendiente por origen (a hoy)',
-              style: theme.textTheme.titleSmall?.copyWith(
-                fontWeight: FontWeight.w700,
-              ),
-            ),
-            if (debts.isEmpty) const Text('Sin cargos.'),
-            for (final debt in debts) ...[
-              Text(originDebtLine(ledger.campaignName(debt.campaignId), debt)),
-              if (debt.releasedMinor > 0)
+            _StatementGroup(
+              children: [
+                Text('Deuda pendiente por origen (a hoy)', style: _heading),
+                if (debts.isEmpty) const Text('Sin cargos.'),
+                for (final debt in debts) ...[
+                  Text(
+                    originDebtLine(ledger.campaignName(debt.campaignId), debt),
+                  ),
+                  if (debt.releasedMinor > 0)
+                    Text(
+                      releasedLine(ledger.campaignName(debt.campaignId), debt),
+                      style: AgroText.detail,
+                    ),
+                ],
                 Text(
-                  releasedLine(ledger.campaignName(debt.campaignId), debt),
-                  style: theme.textTheme.bodySmall,
+                  'Deuda pendiente total ${bob(account.pendingMinor)}',
+                  style: bold,
                 ),
-            ],
-            Text(
-              'Deuda pendiente total ${bob(account.pendingMinor)}',
-              style: bold,
+                Text(
+                  'A favor (no aplicado a deuda) ${bob(account.creditMinor)}',
+                ),
+                if (composition != null)
+                  Text(composition, style: AgroText.detail),
+                Text(netLine(account), style: bold),
+                // E-15: un titular anterior conserva su consumo propio, aparte.
+                if (!statement.isCurrentOwner && statement.hasOwnRecords)
+                  Text(
+                    formerOwnerLine(ledger.ownConsumption(account.person.id)),
+                  ),
+              ],
             ),
-            Text('A favor (no aplicado a deuda) ${bob(account.creditMinor)}'),
-            if (composition != null)
-              Text(composition, style: theme.textTheme.bodySmall),
-            Text(netLine(account), style: bold),
-            // E-15: un titular anterior conserva su consumo propio, aparte.
-            if (!statement.isCurrentOwner && statement.hasOwnRecords)
-              Text(formerOwnerLine(ledger.ownConsumption(account.person.id))),
-            const Divider(height: 24),
-            Text(
-              statementHeader(statement),
-              style: theme.textTheme.titleSmall?.copyWith(
-                fontWeight: FontWeight.w700,
-              ),
+            const SizedBox(height: 16),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
+              child: Text(statementHeader(statement), style: _heading),
             ),
             if (noMovements)
               const EmptyState(
                 icon: Icons.receipt_long_outlined,
                 message: 'Sin movimientos.',
               )
-            else ...[
-              if (period != null)
-                MovementTile(
-                  narrow: narrow,
-                  leading: const Icon(Icons.history),
-                  title: openingLabel(period),
-                  amount: formatBob(statement.openingMinor!),
-                ),
-              for (final line in statement.lines)
-                Builder(
-                  builder: (_) {
-                    final entry = line.entry;
-                    final amount = entry.amountMinor;
-                    final status = statusText(ledger, account, entry);
-                    return MovementTile(
+            else
+              _StatementGroup(
+                padded: false,
+                children: [
+                  if (period != null)
+                    MovementTile(
                       narrow: narrow,
-                      leading: Icon(
-                        amount > 0
-                            ? Icons.add_circle_outline
-                            : Icons.remove_circle_outline,
-                        color: amount > 0 ? Colors.orange : Colors.green,
-                      ),
-                      title: conceptLabel(entry.concept),
-                      subtitle:
-                          [
-                            formatDate(entry.transactionDate),
-                            transactionTypeLabel(entry.type),
-                            ?entry.farmName,
-                            entryCampaignText(ledger, account, entry),
-                          ].join(' · ') +
-                          (status.isEmpty ? '' : '\n$status'),
-                      amount: amount > 0
-                          ? '+${formatBob(amount)}'
-                          : formatBob(amount),
-                      detail: 'Acumulado ${formatBob(line.balanceMinor)}',
-                    );
-                  },
-                ),
-              MovementTile(
-                narrow: narrow,
-                leading: const Icon(Icons.flag_outlined),
-                title: closingLabel(statement),
-                amount: formatBob(statement.closingMinor),
+                      leading: const IconCircle(icon: Icons.history),
+                      title: openingLabel(period),
+                      amount: formatBob(statement.openingMinor!),
+                    ),
+                  for (final line in statement.lines)
+                    Builder(
+                      builder: (_) {
+                        final entry = line.entry;
+                        final amount = entry.amountMinor;
+                        final status = statusText(ledger, account, entry);
+                        return MovementTile(
+                          narrow: narrow,
+                          // Cargo: suma a la cuenta; pago o crédito: resta. El
+                          // signo del importe lo dice además del icono.
+                          leading: amount > 0
+                              ? const IconCircle(
+                                  icon: Icons.spa_outlined,
+                                  background: AgroColors.ink,
+                                  foreground: AgroColors.lime,
+                                )
+                              : const IconCircle(
+                                  icon: Icons.arrow_upward,
+                                  background: Color(0xFFE3F6A8),
+                                  foreground: Color(0xFF24400A),
+                                ),
+                          title: conceptLabel(entry.concept),
+                          subtitle:
+                              [
+                                formatDate(entry.transactionDate),
+                                transactionTypeLabel(entry.type),
+                                ?entry.farmName,
+                                entryCampaignText(ledger, account, entry),
+                              ].join(' · ') +
+                              (status.isEmpty ? '' : '\n$status'),
+                          amount: amount > 0
+                              ? '+${formatBob(amount)}'
+                              : formatBob(amount),
+                          detail: 'Acumulado ${formatBob(line.balanceMinor)}',
+                        );
+                      },
+                    ),
+                  MovementTile(
+                    narrow: narrow,
+                    leading: const IconCircle(icon: Icons.flag_outlined),
+                    title: closingLabel(statement),
+                    amount: formatBob(statement.closingMinor),
+                  ),
+                ],
               ),
-            ],
           ],
         );
       },
@@ -156,13 +172,29 @@ class MovementTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    const bold = TextStyle(fontWeight: FontWeight.w700);
+    const bold = TextStyle(
+      fontWeight: FontWeight.w700,
+      color: AgroColors.ink,
+      fontFeatures: [FontFeature.tabularFigures()],
+    );
+    const titleStyle = TextStyle(
+      fontSize: 16,
+      height: 21 / 16,
+      fontWeight: FontWeight.w700,
+      color: AgroColors.ink,
+    );
     if (!narrow) {
       return ListTile(
         leading: leading,
-        title: Text(title, maxLines: 2, overflow: TextOverflow.ellipsis),
-        subtitle: subtitle == null ? null : Text(subtitle!),
+        title: Text(
+          title,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: titleStyle,
+        ),
+        subtitle: subtitle == null
+            ? null
+            : Text(subtitle!, style: AgroText.detail),
         // Ancho acotado para el importe: sin esto la descripción se partía
         // por carácter (UIBUG-021).
         trailing: detail == null
@@ -183,7 +215,7 @@ class MovementTile extends StatelessWidget {
                       detail!,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodySmall,
+                      style: AgroText.detail,
                     ),
                   ],
                 ),
@@ -192,23 +224,19 @@ class MovementTile extends StatelessWidget {
     }
     return ListTile(
       leading: leading,
-      title: Text(title),
+      title: Text(title, style: titleStyle),
       subtitle: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (subtitle != null) Text(subtitle!),
+          if (subtitle != null) Text(subtitle!, style: AgroText.detail),
           Padding(
             padding: const EdgeInsets.only(top: 4),
             child: Wrap(
               spacing: 12,
               crossAxisAlignment: WrapCrossAlignment.end,
               children: [
-                Text(
-                  amount,
-                  style: theme.textTheme.bodyMedium?.merge(bold) ?? bold,
-                ),
-                if (detail != null)
-                  Text(detail!, style: theme.textTheme.bodySmall),
+                Text(amount, style: bold.copyWith(fontSize: 16)),
+                if (detail != null) Text(detail!, style: AgroText.detail),
               ],
             ),
           ),
@@ -230,72 +258,134 @@ class OwnMovementsView extends StatelessWidget {
     final ledger = statement.ledger;
     final own = statement.ownAccount;
     final personId = own.person.id;
-    final theme = Theme.of(context);
-    final heading = theme.textTheme.titleSmall?.copyWith(
-      fontWeight: FontWeight.w700,
-    );
+    const heading = _heading;
     final total = ledger.ownConsumption(personId);
     return LayoutBuilder(
       builder: (context, constraints) {
         final narrow = constraints.maxWidth < statementWideWidth;
         return ListView(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
           children: [
-            Text('Consumo aplicado (costo FIFO)', style: heading),
-            for (final row in ledger.ownConsumptionByCampaign(personId))
-              if (row.consumption.activeCount > 0)
-                Text(
-                  ownCampaignLine(
-                    ledger.campaignName(row.campaignId),
-                    row.consumption,
+            _StatementGroup(
+              children: [
+                Text('Consumo aplicado (costo FIFO)', style: heading),
+                for (final row in ledger.ownConsumptionByCampaign(personId))
+                  if (row.consumption.activeCount > 0)
+                    Text(
+                      ownCampaignLine(
+                        ledger.campaignName(row.campaignId),
+                        row.consumption,
+                      ),
+                    ),
+                if (total.reversedCount > 0)
+                  Text(
+                    'Aplicaciones revertidas: ${total.reversedCount} '
+                    '(${bob(total.reversedCostMinor)})',
                   ),
+                Text(
+                  'Consumo aplicado · todas las campañas '
+                  '${bob(total.activeCostMinor)}',
+                  style: const TextStyle(fontWeight: FontWeight.w700),
                 ),
-            if (total.reversedCount > 0)
-              Text(
-                'Aplicaciones revertidas: ${total.reversedCount} '
-                '(${bob(total.reversedCostMinor)})',
-              ),
-            Text(
-              'Consumo aplicado · todas las campañas '
-              '${bob(total.activeCostMinor)}',
-              style: const TextStyle(fontWeight: FontWeight.w700),
+              ],
             ),
-            const Divider(height: 24),
-            Text(
-              'Asientos de su cuenta (registro, no deuda) · '
-              '${ownScopeLabel(statement.period, statement.today)}',
-              style: heading,
+            const SizedBox(height: 16),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
+              child: Text(
+                'Asientos de su cuenta (registro, no deuda) · '
+                '${ownScopeLabel(statement.period, statement.today)}',
+                style: heading,
+              ),
             ),
             if (statement.ownLines.isEmpty)
-              const Text('Sin asientos en su cuenta.'),
-            for (final entry in statement.ownLines)
-              Builder(
-                builder: (_) {
-                  final status = statusText(
-                    ledger,
-                    own,
-                    entry,
-                    ownRecord: true,
-                  );
-                  return MovementTile(
-                    narrow: narrow,
-                    title: conceptLabel(entry.concept),
-                    subtitle:
-                        [
-                          formatDate(entry.transactionDate),
-                          transactionTypeLabel(entry.type),
-                          ?entry.farmName,
-                          entryCampaignText(ledger, own, entry),
-                        ].join(' · ') +
-                        (status.isEmpty ? '' : '\n$status'),
-                    amount: entry.amountMinor > 0
-                        ? '+${formatBob(entry.amountMinor)}'
-                        : formatBob(entry.amountMinor),
-                  );
-                },
+              const _StatementGroup(
+                children: [Text('Sin asientos en su cuenta.')],
+              )
+            else
+              _StatementGroup(
+                padded: false,
+                children: [
+                  for (final entry in statement.ownLines)
+                    Builder(
+                      builder: (_) {
+                        final status = statusText(
+                          ledger,
+                          own,
+                          entry,
+                          ownRecord: true,
+                        );
+                        return MovementTile(
+                          narrow: narrow,
+                          title: conceptLabel(entry.concept),
+                          subtitle:
+                              [
+                                formatDate(entry.transactionDate),
+                                transactionTypeLabel(entry.type),
+                                ?entry.farmName,
+                                entryCampaignText(ledger, own, entry),
+                              ].join(' · ') +
+                              (status.isEmpty ? '' : '\n$status'),
+                          amount: entry.amountMinor > 0
+                              ? '+${formatBob(entry.amountMinor)}'
+                              : formatBob(entry.amountMinor),
+                        );
+                      },
+                    ),
+                ],
               ),
           ],
         );
       },
     );
   }
+}
+
+const _heading = TextStyle(
+  fontSize: 16,
+  height: 22 / 16,
+  fontWeight: FontWeight.w700,
+  color: AgroColors.ink,
+);
+
+/// Grupo blanco del estado de cuenta: el resumen (con margen) o la lista de
+/// movimientos (sin margen, filas separadas por una línea fina).
+class _StatementGroup extends StatelessWidget {
+  const _StatementGroup({required this.children, this.padded = true});
+  final List<Widget> children;
+  final bool padded;
+
+  @override
+  Widget build(BuildContext context) => Card(
+    clipBehavior: Clip.antiAlias,
+    child: padded
+        ? Padding(
+            padding: const EdgeInsets.all(16),
+            child: DefaultTextStyle.merge(
+              style: const TextStyle(
+                fontSize: 15,
+                height: 21 / 15,
+                color: AgroColors.ink,
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: children,
+              ),
+            ),
+          )
+        : Column(
+            children: [
+              for (final (i, child) in children.indexed) ...[
+                if (i > 0)
+                  const Divider(
+                    height: 1,
+                    indent: 16,
+                    endIndent: 16,
+                    color: AgroColors.line,
+                  ),
+                child,
+              ],
+            ],
+          ),
+  );
 }

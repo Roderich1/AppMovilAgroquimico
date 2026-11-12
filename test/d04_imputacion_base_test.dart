@@ -333,7 +333,7 @@ void main() {
       await tester.tap(find.text('Ver detalle cronológico'));
       await settle(tester);
       Finder inDialog(String text) => find.descendant(
-        of: find.byType(AlertDialog),
+        of: find.byType(Dialog),
         matching: find.textContaining(text),
       );
       expect(inDialog('Deuda pendiente por origen (a hoy)'), findsOneWidget);
@@ -353,7 +353,7 @@ void main() {
       await tester.drag(
         find
             .descendant(
-              of: find.byType(AlertDialog),
+              of: find.byType(Dialog),
               matching: find.byType(ListView),
             )
             .first,
@@ -378,14 +378,12 @@ void main() {
       await tester.tap(
         find.descendant(
           of: card('Familiar Demo'),
-          matching: find.byType(PopupMenuButton<String>),
+          matching: find.widgetWithText(FilledButton, 'Registrar pago'),
         ),
       );
       await settle(tester);
-      await tester.tap(find.text('Registrar pago'));
-      await settle(tester);
       Finder inDialog(String text) => find.descendant(
-        of: find.byType(AlertDialog),
+        of: find.byKey(const Key('payment-sheet')),
         matching: find.text(text),
       );
       expect(inDialog('Se registra en: Invierno 2026'), findsOneWidget);
@@ -401,7 +399,7 @@ void main() {
       );
       await tester.enterText(
         find.descendant(
-          of: find.byType(AlertDialog),
+          of: find.byKey(const Key('payment-sheet')),
           matching: find.byType(TextField),
         ),
         '50',
