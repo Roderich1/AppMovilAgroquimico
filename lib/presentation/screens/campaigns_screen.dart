@@ -5,7 +5,10 @@ import '../../app.dart';
 import '../../domain/money.dart';
 import '../widgets/campaign_actions.dart';
 import '../widgets/catalog_dialogs.dart';
+import '../theme/agro_theme.dart';
+import '../widgets/agro_ui.dart';
 import '../widgets/common.dart';
+import '../widgets/rdm_c_page.dart';
 
 /// Campañas, con acceso propio desde Operaciones. Arriba la campaña actual
 /// (la activa: la que reciben las compras, aplicaciones y planes nuevos) y
@@ -70,20 +73,112 @@ class _CampaignsScreenState extends ConsumerState<CampaignsScreen> {
 
   /// Menú de una campaña. Sólo se activa una planificada (UIBUG-059) y sólo
   /// se cierra la activa; el repositorio lo exige igual.
-  Widget _menu(Map<String, Object?> row) => PopupMenuButton<String>(
-    tooltip: 'Opciones de ${row['name']}',
-    onSelected: (value) => _onMenu(value, row),
-    itemBuilder: (_) => [
-      const PopupMenuItem(value: 'edit', child: Text('Editar nombre')),
-      if (row['status'] == 'PLANNED')
-        const PopupMenuItem(value: 'activate', child: Text('Activar')),
-      if (row['status'] == 'ACTIVE')
-        const PopupMenuItem(value: 'close', child: Text('Cerrar')),
-    ],
+  Widget _menu(Map<String, Object?> row, {Color color = AgroColors.ink}) =>
+      PopupMenuButton<String>(
+        tooltip: 'Opciones de ${row['name']}',
+        icon: Icon(Icons.more_vert, color: color),
+        onSelected: (value) => _onMenu(value, row),
+        itemBuilder: (_) => [
+          const PopupMenuItem(value: 'edit', child: Text('Editar nombre')),
+          if (row['status'] == 'PLANNED')
+            const PopupMenuItem(value: 'activate', child: Text('Activar')),
+          if (row['status'] == 'ACTIVE')
+            const PopupMenuItem(value: 'close', child: Text('Cerrar')),
+        ],
+      );
+
+  /// Cifra pequeña de la tarjeta oscura («Empezó», «Fin previsto»).
+  Widget _dateBox(String label, String value) => Container(
+    padding: const EdgeInsets.fromLTRB(14, 10, 14, 12),
+    decoration: BoxDecoration(
+      color: AgroColors.inkSoft,
+      borderRadius: BorderRadius.circular(16),
+    ),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          label,
+          style: AgroText.label.copyWith(color: AgroColors.onInkMuted),
+        ),
+        Text(value, style: AgroText.value.copyWith(color: Colors.white)),
+      ],
+    ),
+  );
+
+  /// Tarjeta oscura de la campaña actual (lámina «Campañas»).
+  Widget _current(Map<String, Object?>? row) => Material(
+    key: const Key('campaigns-current'),
+    color: AgroColors.ink,
+    borderRadius: BorderRadius.circular(28),
+    child: Padding(
+      padding: const EdgeInsets.fromLTRB(20, 16, 8, 20),
+      child: row == null
+          ? Padding(
+              padding: const EdgeInsets.only(right: 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const StatusBadge(
+                    label: 'Sin campaña activa',
+                    tone: BadgeTone.review,
+                  ),
+                  const SizedBox(height: 10),
+                  // El efecto, no una instrucción: sin campaña activa no se
+                  // registran operaciones nuevas.
+                  Text(
+                    'No se pueden registrar compras, aplicaciones ni planes '
+                    'nuevos.',
+                    style: AgroText.value.copyWith(color: Colors.white),
+                  ),
+                ],
+              ),
+            )
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    const Expanded(
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: StatusBadge(
+                          label: 'Campaña actual',
+                          tone: BadgeTone.ok,
+                        ),
+                      ),
+                    ),
+                    _menu(row, color: Colors.white),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                Padding(
+                  padding: const EdgeInsets.only(right: 12),
+                  child: Text(
+                    row['name'].toString(),
+                    style: AgroText.h1.copyWith(color: Colors.white),
+                  ),
+                ),
+                const SizedBox(height: 14),
+                Padding(
+                  padding: const EdgeInsets.only(right: 12),
+                  child: Wrap(
+                    spacing: 10,
+                    runSpacing: 10,
+                    children: [
+                      _dateBox('Empezó', formatDate(row['start_date'])),
+                      if (row['end_date'] != null)
+                        _dateBox('Fin previsto', formatDate(row['end_date'])),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+    ),
   );
 
   @override
-  Widget build(BuildContext context) => PageFrame(
+  Widget build(BuildContext context) => RdmCPage(
     title: 'Campañas',
     action: FilledButton.icon(
       key: const Key('campaigns-add'),
@@ -107,58 +202,25 @@ class _CampaignsScreenState extends ConsumerState<CampaignsScreen> {
         final all = snapshot.data!;
         final current = all.where((row) => row['status'] == 'ACTIVE');
         final others = all.where((row) => row['status'] != 'ACTIVE').toList();
-        final theme = Theme.of(context);
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            Card(
-              key: const Key('campaigns-current'),
-              color: theme.colorScheme.primaryContainer,
-              child: current.isEmpty
-                  ? const ListTile(
-                      contentPadding: EdgeInsets.all(16),
-                      leading: Icon(Icons.warning_amber_outlined),
-                      title: Text(
-                        'Sin campaña activa',
-                        style: TextStyle(fontWeight: FontWeight.w800),
-                      ),
-                      // El efecto, no una instrucción: sin campaña activa no
-                      // se registran operaciones nuevas.
-                      subtitle: Text(
-                        'No se pueden registrar compras, aplicaciones ni '
-                        'planes nuevos.',
-                      ),
-                    )
-                  : ListTile(
-                      contentPadding: const EdgeInsets.fromLTRB(16, 12, 4, 12),
-                      leading: const Icon(Icons.calendar_month_outlined),
-                      title: Text(
-                        current.first['name'].toString(),
-                        style: const TextStyle(fontWeight: FontWeight.w800),
-                      ),
-                      subtitle: Text(
-                        'Actual · desde ${formatDate(current.first['start_date'])}'
-                        '${current.first['end_date'] == null ? '' : ' · fin previsto ${formatDate(current.first['end_date'])}'}',
-                      ),
-                      trailing: _menu(current.first),
-                    ),
-            ),
-            if (others.isNotEmpty) ...[
-              const SizedBox(height: 16),
-              const SectionHeading(title: 'Otras campañas'),
+            _current(current.isEmpty ? null : current.first),
+            const SizedBox(height: 16),
+            if (others.isEmpty)
+              Text('No hay otras campañas.', style: AgroText.detail)
+            else ...[
+              const SectionHeader(title: 'Otras campañas'),
               const SizedBox(height: 8),
-              Card(
-                child: ListView.separated(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  itemCount: others.length,
-                  separatorBuilder: (_, __) => const Divider(height: 1),
-                  itemBuilder: (_, index) => ListTile(
-                    title: Text(others[index]['name'].toString()),
-                    subtitle: Text(campaignSubtitle(others[index], all)),
-                    trailing: _menu(others[index]),
-                  ),
-                ),
+              AgroGroup(
+                children: [
+                  for (final row in others)
+                    RdmCRow(
+                      title: row['name'].toString(),
+                      detail: campaignSubtitle(row, all),
+                      trailing: _menu(row),
+                    ),
+                ],
               ),
             ],
           ],

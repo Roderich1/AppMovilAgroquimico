@@ -162,6 +162,8 @@ class AppShell extends StatefulWidget {
     // (láminas «Ajustes» y «Respaldos», sin botón flotante).
     '/mas',
     '/respaldo-remoto',
+    // Reportes tiene su propia acción, «Exportar …» (lámina sin flotante).
+    '/reportes',
   };
 
   /// Si esta ruta oculta el FAB global. El detalle de compra es de sólo
