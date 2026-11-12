@@ -61,6 +61,8 @@ void main() {
   final out = Directory(
     Platform.environment['RDM_SHOTS'] ?? 'build/rediseno_capturas',
   )..createSync(recursive: true);
+  final width =
+      double.tryParse(Platform.environment['RDM_WIDTH'] ?? '') ?? 390.0;
   final scale =
       double.tryParse(Platform.environment['RDM_TEXT_SCALE'] ?? '') ?? 1.0;
 
@@ -91,6 +93,14 @@ void main() {
   );
   Future<void> tapKey(WidgetTester tester, String key) async {
     await preparePurchaseKey(tester, key);
+    // Con la letra grande puede no estar construido todavía: desplazar.
+    if (find.byKey(Key(key)).evaluate().isEmpty) {
+      await tester.scrollUntilVisible(
+        find.byKey(Key(key)),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+    }
     await tester.ensureVisible(find.byKey(Key(key)));
     await tester.pump();
     await tester.tap(find.byKey(Key(key)));
@@ -99,7 +109,7 @@ void main() {
 
   testWidgets('compra: recorrido de capturas', (tester) async {
     await tester.runAsync(_loadFonts);
-    tester.view.physicalSize = const Size(390 * 2, 844 * 2);
+    tester.view.physicalSize = Size(width * 2, 844 * 2);
     tester.view.devicePixelRatio = 2;
     tester.platformDispatcher.textScaleFactorTestValue = scale;
     addTearDown(tester.view.reset);
@@ -128,7 +138,9 @@ void main() {
     );
     c.read(routerProvider).push('/compras/nueva');
     await waitFor(tester, find.byKey(const Key('purchase-add-line')));
-    final tag = scale == 1.0 ? '' : '_x${scale.toString().replaceAll('.', '')}';
+    final tag =
+        '${scale == 1.0 ? '' : '_x${scale.toString().replaceAll('.', '')}'}'
+        '${width == 390 ? '' : '_w${width.round()}'}';
 
     await shot(tester, '2.1_paso1_vacio$tag');
     await tapKey(tester, 'compra-completar-voz');

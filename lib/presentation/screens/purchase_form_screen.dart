@@ -2041,51 +2041,42 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen>
             for (var index = 0; index < lines.length; index++)
               Padding(
                 padding: const EdgeInsets.only(bottom: 10),
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            '${productName(lines[index].productId)} · '
-                            '${formatQuantity(lines[index].quantityBase, productUnit(lines[index].productId))}',
-                            key: Key('purchase-review-line-$index'),
-                            style: const TextStyle(
-                              fontSize: 16,
-                              height: 22 / 16,
-                              fontWeight: FontWeight.w700,
-                              color: AgroColors.ink,
-                            ),
-                          ),
-                          Text(
-                            _recipientSummary(
-                              lines[index],
-                              personName,
-                              productUnit(lines[index].productId),
-                              ownerName,
-                            ),
-                            key: Key('purchase-review-recipient-$index'),
-                            style: AgroText.detail,
-                          ),
-                          if (lines[index].expiryDay != null ||
-                              lines[index].lotNumberValue != null)
-                            Text(
-                              _lotDataSummary(lines[index]),
-                              key: Key('purchase-review-lot-$index'),
-                              style: AgroText.detail,
-                            ),
-                        ],
+                child: AmountAside(
+                  amount: formatBob(lines[index].subtotalBob),
+                  amountKey: Key('purchase-review-subtotal-$index'),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '${productName(lines[index].productId)} · '
+                        '${formatQuantity(lines[index].quantityBase, productUnit(lines[index].productId))}',
+                        key: Key('purchase-review-line-$index'),
+                        style: const TextStyle(
+                          fontSize: 16,
+                          height: 22 / 16,
+                          fontWeight: FontWeight.w700,
+                          color: AgroColors.ink,
+                        ),
                       ),
-                    ),
-                    const SizedBox(width: 10),
-                    Text(
-                      formatBob(lines[index].subtotalBob),
-                      key: Key('purchase-review-subtotal-$index'),
-                      style: AgroText.amount,
-                    ),
-                  ],
+                      Text(
+                        _recipientSummary(
+                          lines[index],
+                          personName,
+                          productUnit(lines[index].productId),
+                          ownerName,
+                        ),
+                        key: Key('purchase-review-recipient-$index'),
+                        style: AgroText.detail,
+                      ),
+                      if (lines[index].expiryDay != null ||
+                          lines[index].lotNumberValue != null)
+                        Text(
+                          _lotDataSummary(lines[index]),
+                          key: Key('purchase-review-lot-$index'),
+                          style: AgroText.detail,
+                        ),
+                    ],
+                  ),
                 ),
               ),
             const Divider(height: 14),

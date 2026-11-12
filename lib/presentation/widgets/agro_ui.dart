@@ -11,6 +11,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../theme/agro_theme.dart';
+import 'common.dart' show measureText;
 
 /// Botón redondo de 44 px con sólo un icono (Volver, Cerrar, Ajustes).
 class CircleIconButton extends StatelessWidget {
@@ -374,6 +375,61 @@ class SectionHeader extends StatelessWidget {
   );
 }
 
+/// Texto a la izquierda y un importe a la derecha; si con la letra actual no
+/// queda ancho para el texto sin partir palabras, el importe baja debajo,
+/// alineado a la derecha.
+class AmountAside extends StatelessWidget {
+  const AmountAside({
+    super.key,
+    required this.child,
+    required this.amount,
+    this.amountStyle = AgroText.amount,
+    this.amountKey,
+    this.minTextWidth = 150,
+  });
+
+  final Widget child;
+  final String? amount;
+  final TextStyle amountStyle;
+  final Key? amountKey;
+
+  /// Ancho mínimo del texto (a letra 100 %) para dejar el importe al lado.
+  final double minTextWidth;
+
+  @override
+  Widget build(BuildContext context) {
+    final value = amount;
+    if (value == null) return child;
+    final text = Text(value, key: amountKey, style: amountStyle);
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final scale = MediaQuery.textScalerOf(context).scale(1);
+        final amountWidth = measureText(context, value, amountStyle);
+        final side =
+            constraints.maxWidth - amountWidth - 10 >= minTextWidth * scale;
+        if (side) {
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(child: child),
+              const SizedBox(width: 10),
+              text,
+            ],
+          );
+        }
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            child,
+            const SizedBox(height: 4),
+            Align(alignment: Alignment.centerRight, child: text),
+          ],
+        );
+      },
+    );
+  }
+}
+
 /// Tarjeta de una línea de la operación: nombre, detalle, importe y flecha.
 ///
 /// [footer] va debajo, dentro de la misma tarjeta (lo que falta o hay que
@@ -425,33 +481,32 @@ class ItemCard extends StatelessWidget {
               child: Row(
                 children: [
                   Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          title,
-                          style: AgroText.value.copyWith(height: 22 / 17),
-                        ),
-                        if (subtitle != null)
-                          Padding(
-                            padding: const EdgeInsets.only(top: 2),
-                            child: Text(
-                              subtitle!,
-                              style: subtitleStyle ?? AgroText.detail,
+                    child: AmountAside(
+                      amount: amount,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            title,
+                            style: AgroText.value.copyWith(height: 22 / 17),
+                          ),
+                          if (subtitle != null)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 2),
+                              child: Text(
+                                subtitle!,
+                                style: subtitleStyle ?? AgroText.detail,
+                              ),
                             ),
-                          ),
-                        if (badge != null)
-                          Padding(
-                            padding: const EdgeInsets.only(top: 6),
-                            child: badge!,
-                          ),
-                      ],
+                          if (badge != null)
+                            Padding(
+                              padding: const EdgeInsets.only(top: 6),
+                              child: badge!,
+                            ),
+                        ],
+                      ),
                     ),
                   ),
-                  if (amount != null) ...[
-                    const SizedBox(width: 10),
-                    Text(amount!, style: AgroText.amount),
-                  ],
                   const SizedBox(width: 4),
                   const Icon(Icons.chevron_right, color: AgroColors.muted),
                 ],
