@@ -29,7 +29,7 @@ Worktree temporal `_wt/RDM-BASE` (detached en `01b2576`): sólo para comparar co
 | 4 · Sindicato, convocatorias, vínculos, identificación, fotos, sincronización | Hecho (sesión C) | Entregas C1–C4 sobre la rama F. |
 | 5 · ajustes, datos, campañas, reportes, modo, respaldos, acceso, PIN, tardías, confirmaciones | Hecho (orquestador) | Acceso/PIN/tardías con `AgroAppBar`; confirmaciones como diálogos con el estilo nuevo. |
 
-**Estado al cierre del 2026-11-12:** integración `feat/rediseno-movil` con todas las entregas y la rama funcional F; suite completa 3044/3/0 sobre `6b397c9`; APK `6b397c9` instalada en el AVD propio `RDM_Pixel8` (`emulator-5556`) y recorrida (activación, titular, campaña, compra sin conexión, persistencia). Evidencia: `docs/evidence/rediseno-movil/2026-11-12/integracion/README.md`. **Nada revisado por el usuario todavía.**
+**Estado (noche del 2026-11-12):** integración `feat/rediseno-movil` con todas las entregas y la rama funcional F (sin P-A); suite completa 3044/3/0 sobre `6b397c9`; **candidata `d6c4c4d`** (+ corrección de Actividad/Almacén hallada en el segundo recorrido) instalada en el AVD propio `RDM_Pixel8` (`emulator-5556`, «AC RDM»), sin túnel. Recorridos: activación, titular, campaña, compra sin conexión, persistencia, transferencia, plan, aplicación, pago, Excel, PDF, borrador. Guía para el autor: `docs/rediseno/REVISION_AUTOR.md`; comparativas en `integracion/comparativas/`. Evidencia: `docs/evidence/rediseno-movil/2026-11-12/integracion/README.md`. **Nada revisado por el usuario todavía.**
 
 ## Bloque 1 — lo hecho
 
@@ -82,17 +82,20 @@ Worktree temporal `_wt/RDM-BASE` (detached en `01b2576`): sólo para comparar co
 
 ## Pendientes concretos (cierre del 2026-11-12)
 
-1. **Revisión del autor** de la candidata (`emulator-5556`, `.rdm` `6b397c9`) y de las comparativas; ninguna pantalla está aceptada por el usuario.
+1. **Revisión del autor** de la candidata (`emulator-5556`, «AC RDM» `d6c4c4d`) con `REVISION_AUTOR.md` y las comparativas; ninguna pantalla está aceptada por el usuario.
 2. **Decisiones del autor anotadas (no tomadas aquí):** «Persona» en la aplicación con «Responsable del chaco · se usan sus productos» en lugar de «Quién aplicó»; CONV-3 trata de «tú» (rama F); UIBUG-023 (sin tabla en pantalla ancha de Almacén); «sólo él puede aprobar» en el texto del PIN (género, texto anterior al rediseño).
-3. **`.rdm` antigua (`2d6aa0d`) en el `Pixel_8` compartido:** desinstalarla (es de esta tarea, datos sintéticos) la próxima vez que ese emulador esté arrancado, o actualizarla si hay espacio. No se arrancó para no competir por memoria.
-4. **f08_prev_01_previo_ui_test:** falló en 2 de 5 suites completas de la rama y pasó en las dos últimas; la prueba y el código de respaldos son idénticos a `01b2576`; bajo carga en `01b2576` pasó 3 de 3; la comparación en HEAD quedó sin hacer (se cortó por memoria). Hipótesis: el presupuesto de tiempo real de `settleRegistry` (100 × 5 ms) no alcanza a la escritura en disco bajo carga. Sin clasificar del todo.
+3. **`.rdm` antigua (`2d6aa0d`) en el `Pixel_8` compartido:** identificada como antigua y **no se desinstala** por ahora (indicación del autor del 2026-11-12); no usarla para revisar.
+4. **f08_prev_01_previo_ui_test:** falló en 2 de 5 suites completas de la rama y pasó en las dos últimas; la prueba y el código de respaldos son idénticos a `01b2576`; bajo carga en `01b2576` pasó 3 de 3; la comparación en HEAD quedó sin hacer (se cortó por memoria). **Investigado** (`docs/rediseno/F08_PREV_01_INTERMITENTE.md`): las vueltas no cambian con carga ni entre rama y base; una retención real de ≥2 s en la acción reproduce el mismo mensaje. Causa de la retención en la suite: sin observar. **Abierto.**
 5. **Intermitencias vistas en suites completas y no reproducidas aisladas:** `e2_joint_purchase_screens` (una vez), `f10_x01_pago_datos` (2 de 7 ejecuciones), `f10_x01_inicio_mas` (una vez en pareja). Patrón: esperas de vueltas fijas frente a E/S real. Sin corregir.
 6. **Voz con una persona real** en un teléfono físico (precisión no medida).
-7. Recorrer en el emulador aplicación, plan, pago, transferencia y convocatorias con datos (hoy: pruebas + arnés).
+7. ~~Recorrer aplicación, plan, pago, transferencia~~ (hecho, segundo recorrido). **Convocatorias con servidor, vínculos, necesidad/consumo publicados y reautenticación: bloqueados** porque abrir el túnel fue denegado por los permisos de la sesión; la sesión quedó pidiendo «Volver a autenticar» tras «Actualizar» sin servidor (previsto).
 8. Foto de la etiqueta desde el detalle de Producto (solicitud 4 de B): hoy se llega por Datos › Productos › menú.
 9. `RdmCPage`/`RdmAListPage`/`ScreenTitleBar` hacen lo mismo: unificarlas en `agro_ui.dart` cuando no haya sesiones trabajando (limpieza, sin cambio visual).
 10. La lámina «Nuevo período histórico» corresponde a la función de **Operaciones tardías** (botón «Período histórico»), no a Campañas: se dejó con su diálogo vigente.
 
+11. **P-A** (sustitución de responsable de convocatoria): no integrada; la sesión F la implementa (ver `COORDINACION.md`).
+12. PDF «Estado de cuenta»: columnas truncadas con «…» en A4 vertical (maquetación anterior al rediseño; no se tocó).
+
 ## Siguiente acción concreta
 
-Esperar la revisión del autor sobre la candidata integrada (`6b397c9` en `emulator-5556`). Sus correcciones se reparten por `COORDINACION.md` (las sesiones A, B y C están en espera, sin tocar sus worktrees). Para reabrir el entorno: `RDM_SERIAL=emulator-5556`, `rdm_env.sh up` (Back congelado `_wt/RDM-BE`), `rdm_env.sh tunnel`, recompilar desde el mismo SHA si hace falta sincronizar.
+Esperar la revisión del autor sobre la candidata integrada (`d6c4c4d` en `emulator-5556`, «AC RDM»). Si el autor abre o autoriza el túnel: recorrer convocatorias (participar, estados de envío), vínculos y publicación de consumo, y volver a autenticar. Cuando la sesión F entregue P-A: integrarla según `COORDINACION.md`. Sus correcciones se reparten por `COORDINACION.md` (las sesiones A, B y C están en espera, sin tocar sus worktrees). Para reabrir el entorno: `RDM_SERIAL=emulator-5556`, `rdm_env.sh up` (Back congelado `_wt/RDM-BE`), `rdm_env.sh tunnel` (necesita permiso), recompilar desde el mismo SHA con `build-app` e `install-app`.

@@ -89,7 +89,9 @@ Pruebas: cada sesión adapta las pruebas que rompan sus propios cambios (cambia 
 
 ## Estado al cierre (2026-11-12)
 
-Las sesiones A, B y C terminaron su alcance y quedan **en espera** sin tocar sus worktrees. Integración en `feat/rediseno-movil` (`6b397c9` verificado: suite 3044/3/0, APK instalada en `emulator-5556`). Pendientes y decisiones del autor: `REDISENO_MOVIL_CONTINUIDAD.md`, «Pendientes concretos».
+Las sesiones A, B y C terminaron su alcance y quedan **en espera** sin tocar sus worktrees (se reactivan sólo para correcciones concretas). Integración en `feat/rediseno-movil`: `6b397c9` con suite completa 3044/3/0; **candidata para la revisión del autor: `d6c4c4d`** (`6b397c9` + corrección de Actividad/Almacén al volver de «+ Registrar», hallada en el recorrido; pruebas focalizadas 159/0 y regresión propia), instalada en `emulator-5556` («AC RDM»). Guía de revisión: `REVISION_AUTOR.md`. Pendientes y decisiones del autor: `REDISENO_MOVIL_CONTINUIDAD.md`, «Pendientes concretos».
+
+**Rama funcional F y P-A (2026-11-12):** la integración contiene F hasta `e1f6e25` y usa el Back congelado `5b394f2` (contrato de convocatorias 2, P-C, CONV-3, N7, Excel único). **P-A (sustitución de la persona responsable de una convocatoria) NO está integrada**: estaba pendiente de decisión y la sesión F empezó a implementarla el 2026-11-12 en `_wt/ET2-MOB`/`_wt/ET2-BE` (contrato 3, esquema v19, widget propio `joint_purchase_responsible_review.dart` con una sola llamada en `joint_purchase_detail_screen.dart`; el servidor sigue respondiendo contrato 2 a quien manda 2). Al recibir sus SHA, el orquestador fusiona su rama sin recrear sus reglas ni tocar sus textos, aplica el estilo de las tarjetas de convocatoria al widget nuevo si hace falta, corre sus pruebas focalizadas y la suite, y recompila.
 
 ## Bases publicadas
 
@@ -125,5 +127,6 @@ Las sesiones A, B y C terminaron su alcance y quedan **en espera** sin tocar sus
 | 2026-11-12 | A | `458803a` (entregas 6–7: Personas, Cuentas, pago, cuenta, propios) | merge tras B4 | sin flotante en Personas y Cuentas | implementado · probado automáticamente · no recorrido · no revisado por el usuario. **Grupo Personas completo.** |
 | 2026-11-12 | B | `7f0bfab` (entrega 5: producto, avisos, estimación) | merge tras `1a04963` (+ detalle de producto sin flotante) | Estimación conserva su aspecto claro (alcance F12 intacto); Producto sin pestañas, secciones apiladas | implementado · probado automáticamente · no recorrido · no revisado por el usuario. **B completo.** |
 | 2026-11-12 | B | `8e97b78` (entrega 1: Inicio y Almacén) | merge tras `6f08f9c` | `revisiones/B-1.md` | implementado · probado automáticamente · no recorrido · no revisado por el usuario |
+| 2026-11-12 | orquestador | `d6c4c4d` (corrección: Actividad y Almacén releen al volver de «+ Registrar»; regresión `test/rdm_registrar_relee_test.dart`) | en la rama | recorrido del emulador (`integracion/README.md`, `f14`) | implementado · probado automáticamente (focalizadas) · recorrido en emulador · no revisado por el usuario |
 
 Estados posibles de una pantalla: implementado · probado automáticamente · recorrido en emulador · revisado por el usuario. Sólo el autor marca «revisado por el usuario».
