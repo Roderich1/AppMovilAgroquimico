@@ -522,7 +522,8 @@ void main() {
 
         // El texto del actor no va en el lateral: usa el ancho de la fila
         // salvo el icono inicial y la flecha de desplegar (≈ 128 dp de 328).
-        final card = tester.getRect(find.byType(Card));
+        // Rediseño B: las transferencias van en un grupo blanco.
+        final card = tester.getRect(find.byKey(const Key('transfers-group')));
         final actorRect = tester.getRect(actor);
         expect(actorRect.width, greaterThan(card.width * 0.55));
         // El título conserva el ancho de la fila (no se parte en columnas

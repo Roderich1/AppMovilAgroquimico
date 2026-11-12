@@ -224,6 +224,17 @@ void main() {
     await shot(tester, 'B_2.8_compra_detalle_sin_pagar');
   });
 
+  shadowTest('transferencias', (tester) async {
+    final r = await seeded(tester, 'rdm-b-transferencias');
+    await go(tester, r.c, '/operaciones');
+    r.c.read(routerProvider).push('/transferencias');
+    await settle(tester);
+    await shot(tester, 'B_transferencias_lista');
+    r.c.read(routerProvider).push('/transferencias/nueva');
+    await settle(tester);
+    await shot(tester, 'B_5.4_transferencia_vacia');
+  });
+
   shadowTest('actividad vacia', (tester) async {
     await setView(tester);
     final s = await activatedHousehold(tester, 'rdm-b-actividad-vacia');

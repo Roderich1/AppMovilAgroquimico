@@ -8,7 +8,9 @@ import '../../domain/money.dart';
 import '../../domain/operation_mode.dart';
 import '../../domain/person_roles.dart';
 import '../../operation_mode_controller.dart';
+import '../theme/agro_theme.dart';
 import '../widgets/adaptive_entity_picker.dart';
+import '../widgets/agro_ui.dart';
 import '../widgets/common.dart';
 import '../widgets/mode_notice.dart';
 
@@ -245,185 +247,235 @@ class _TransferFormScreenState extends ConsumerState<TransferFormScreen> {
       if (!didPop && !saving) requestClose();
     },
     child: Scaffold(
-      appBar: AppBar(
-        title: const Text('Nueva transferencia'),
-        leading: IconButton(
-          onPressed: saving ? null : requestClose,
-          icon: const Icon(Icons.arrow_back),
-        ),
-        actions: [
-          if (saving)
-            const Padding(
-              padding: EdgeInsets.all(16),
-              child: SizedBox.square(
-                dimension: 20,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              ),
-            ),
-        ],
-      ),
       bottomNavigationBar: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(12),
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+          decoration: const BoxDecoration(
+            color: AgroColors.surface,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+          ),
           child: FutureBuilder<List<Map<String, Object?>>>(
             future: peopleFuture,
             builder: (context, snapshot) => FilledButton.icon(
               onPressed: saving || !snapshot.hasData
                   ? null
                   : () => submit(snapshot.data!),
-              icon: const Icon(Icons.check),
-              label: const Text('Revisar y confirmar'),
+              style: FilledButton.styleFrom(
+                backgroundColor: AgroColors.ink,
+                foregroundColor: Colors.white,
+                minimumSize: const Size(0, 56),
+                shape: const StadiumBorder(),
+              ),
+              icon: const Icon(Icons.check, color: AgroColors.lime),
+              label: const Text(
+                'Revisar y confirmar',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+              ),
             ),
           ),
         ),
       ),
-      body: FutureBuilder<List<Map<String, Object?>>>(
-        future: peopleFuture,
-        builder: (context, snapshot) {
-          if (snapshot.hasError)
-            return EmptyState(
-              icon: Icons.error_outline,
-              message: friendlyError(snapshot.error!),
+      body: SafeArea(
+        child: FutureBuilder<List<Map<String, Object?>>>(
+          future: peopleFuture,
+          builder: (context, snapshot) {
+            final header = FlowTopBar(
+              onBack: saving ? null : requestClose,
+              label: 'Nueva transferencia',
+              trailing: saving
+                  ? const SizedBox.square(
+                      dimension: 44,
+                      child: Padding(
+                        padding: EdgeInsets.all(12),
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    )
+                  : null,
             );
-          if (!snapshot.hasData)
-            return const Center(child: CircularProgressIndicator());
-          final people = snapshot.data!;
-          final origin = people.where((p) => p['id'] == fromId).firstOrNull;
-          final destination = people.where((p) => p['id'] == toId).firstOrNull;
-          final query = search.text.trim().toLowerCase();
-          final visible = available
-              .where((r) => matchesSearch(r['product_name'] as String, query))
-              .toList();
-          return SafeArea(
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-              children: [
-                Text(
-                  '1. Origen',
-                  style: Theme.of(context).textTheme.titleMedium
-                      ?.copyWith(fontWeight: FontWeight.w800),
-                ),
-                const SizedBox(height: 8),
-                AdaptiveEntityPicker<Map<String, Object?>>(
-                  label: 'Persona origen',
-                  items: people,
-                  value: origin,
-                  labelOf: (p) => p['name'] as String,
-                  // Mismo criterio de subtítulo que el selector de destino y
-                  // que el del formulario de compra (UIBUG-054/016).
-                  secondaryOf: (p) => personRoleLabel(p['role']),
-                  onChanged: selectOrigin,
-                ),
-                const SizedBox(height: 20),
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        '2. Productos disponibles',
-                        style: Theme.of(context).textTheme.titleMedium
-                            ?.copyWith(fontWeight: FontWeight.w800),
+            if (snapshot.hasError) {
+              return ListView(
+                padding: const EdgeInsets.all(16),
+                children: [
+                  header,
+                  EmptyState(
+                    icon: Icons.error_outline,
+                    message: friendlyError(snapshot.error!),
+                  ),
+                ],
+              );
+            }
+            if (!snapshot.hasData) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            final people = snapshot.data!;
+            final origin = people.where((p) => p['id'] == fromId).firstOrNull;
+            final destination = people
+                .where((p) => p['id'] == toId)
+                .firstOrNull;
+            final query = search.text.trim().toLowerCase();
+            final visible = available
+                .where((r) => matchesSearch(r['product_name'] as String, query))
+                .toList();
+            final originName = origin?['name'] as String?;
+            // Todo el formulario construido (no ListView): con muchas líneas
+            // los selectores de arriba siguen existiendo al teclear abajo.
+            return SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  header,
+                  const SizedBox(height: 12),
+                  const Text('¿Quién entrega a quién?', style: AgroText.h1),
+                  const SizedBox(height: 12),
+                  AgroGroup(
+                    children: [
+                      AdaptiveEntityPicker<Map<String, Object?>>(
+                        label: 'Persona origen',
+                        rowStyle: true,
+                        items: people,
+                        value: origin,
+                        labelOf: (p) => p['name'] as String,
+                        // Mismo criterio de subtítulo que el selector de
+                        // destino y que el del formulario de compra
+                        // (UIBUG-054/016).
+                        secondaryOf: (p) => personRoleLabel(p['role']),
+                        onChanged: selectOrigin,
+                      ),
+                      AdaptiveEntityPicker<Map<String, Object?>>(
+                        label: 'Persona destino',
+                        rowStyle: true,
+                        items: people.where((p) => p['id'] != fromId).toList(),
+                        value: destination,
+                        labelOf: (p) => p['name'] as String,
+                        secondaryOf: (p) => personRoleLabel(p['role']),
+                        onChanged: (p) => setState(() {
+                          toId = p?['id'] as int?;
+                          dirty = true;
+                        }),
+                        enabled: fromId != null,
+                        placeholder: fromId == null
+                            ? 'Elija primero quién entrega'
+                            : 'Elegir',
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  // D-07: una entrega no es una venta ni un préstamo.
+                  const NoticeBox(
+                    icon: Icons.info_outline,
+                    text:
+                        'Una transferencia no genera deuda entre las personas.',
+                  ),
+                  const SizedBox(height: 20),
+                  // Antes de elegir origen la sección mostraba un `0` a secas,
+                  // que se leía como un dato real (UIBUG-060): el recuento sólo
+                  // aparece con un origen del que contar.
+                  SectionHeader(
+                    title: '¿Qué entrega?',
+                    trailing: fromId == null ? null : '${available.length}',
+                  ),
+                  const SizedBox(height: 8),
+                  // Estado vacío explícito: dice qué falta hacer.
+                  if (fromId == null)
+                    const EmptyState(
+                      icon: Icons.person_search_outlined,
+                      message: 'Seleccione un origen para ver su inventario.',
+                    ),
+                  if (fromId != null && available.length >= 8) ...[
+                    TextField(
+                      controller: search,
+                      onChanged: (_) => setState(() {}),
+                      decoration: const InputDecoration(
+                        prefixIcon: Icon(Icons.search),
+                        labelText: 'Buscar producto',
+                        isDense: true,
                       ),
                     ),
-                    // Antes de elegir origen la sección mostraba un `0` a
-                    // secas, que se leía como un dato real ("esta persona
-                    // tiene 0") cuando en realidad todavía no se había
-                    // preguntado por nadie (UIBUG-060). El recuento sólo
-                    // aparece cuando hay un origen del que contar.
-                    if (fromId != null) Text('${available.length}'),
+                    const SizedBox(height: 8),
                   ],
-                ),
-                const SizedBox(height: 8),
-                // Estado vacío explícito: dice qué falta hacer en vez de
-                // dejar la sección en blanco tras el encabezado.
-                if (fromId == null)
-                  const EmptyState(
-                    icon: Icons.person_search_outlined,
-                    message: 'Seleccione un origen para ver su inventario.',
-                  ),
-                if (fromId != null && available.length >= 8)
-                  TextField(
-                    controller: search,
-                    onChanged: (_) => setState(() {}),
-                    decoration: const InputDecoration(
-                      prefixIcon: Icon(Icons.search),
-                      labelText: 'Buscar producto',
-                      isDense: true,
+                  if (loadingProducts) const LinearProgressIndicator(),
+                  if (!loadingProducts && fromId != null && available.isEmpty)
+                    const EmptyState(
+                      icon: Icons.inventory_2_outlined,
+                      message: 'Esta persona no tiene stock disponible.',
                     ),
-                  ),
-                if (loadingProducts) const LinearProgressIndicator(),
-                if (!loadingProducts && fromId != null && available.isEmpty)
-                  const EmptyState(
-                    icon: Icons.inventory_2_outlined,
-                    message: 'Esta persona no tiene stock disponible.',
-                  ),
-                if (available.isNotEmpty)
-                  // Sin cota de altura: la lista crece con su contenido y el
-                  // desplazamiento es el del formulario, de modo que ninguna
-                  // fila queda seccionada sin señal de continuidad
-                  // (UIBUG-055).
-                  Card(
-                    child: ListView.builder(
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      itemCount: visible.length,
-                      itemBuilder: (context, index) {
-                        final row = visible[index];
-                        final id = row['product_id'] as int;
-                        final unit = row['unit'] as String;
-                        return ListTile(
-                          title: Text(
-                            row['product_name'] as String,
-                            style: const TextStyle(fontWeight: FontWeight.w700),
+                  if (available.isNotEmpty)
+                    // Sin cota de altura: la lista crece con su contenido y el
+                    // desplazamiento es el del formulario (UIBUG-055).
+                    AgroGroup(
+                      children: [
+                        for (final row in visible)
+                          _ProductLine(
+                            row: row,
+                            owner: originName,
+                            controller: quantities[row['product_id'] as int],
+                            onChanged: () => setState(() => dirty = true),
                           ),
-                          subtitle: Text(
-                            '${formatQuantity(row['available_base'] as int, unit)} disponibles · ${row['lot_count']} lote(s) · costo de referencia ${formatBob(row['next_fifo_cost_minor'] as int)}/$unit',
-                          ),
-                          trailing: SizedBox(
-                            width: 105,
-                            child: TextField(
-                              controller: quantities[id],
-                              onChanged: (_) => setState(() => dirty = true),
-                              keyboardType:
-                                  const TextInputType.numberWithOptions(
-                                    decimal: true,
-                                  ),
-                              decoration: InputDecoration(
-                                labelText: unit,
-                                // El `0` es una pista, no texto que haya que
-                                // borrar antes de escribir (UIBUG-034).
-                                hintText: '0',
-                                isDense: true,
-                              ),
-                            ),
-                          ),
-                        );
-                      },
+                      ],
                     ),
-                  ),
-                const SizedBox(height: 20),
-                Text(
-                  '3. Destino',
-                  style: Theme.of(context).textTheme.titleMedium
-                      ?.copyWith(fontWeight: FontWeight.w800),
-                ),
-                const SizedBox(height: 8),
-                AdaptiveEntityPicker<Map<String, Object?>>(
-                  label: 'Persona destino',
-                  items: people.where((p) => p['id'] != fromId).toList(),
-                  value: destination,
-                  labelOf: (p) => p['name'] as String,
-                  secondaryOf: (p) => personRoleLabel(p['role']),
-                  onChanged: (p) => setState(() {
-                    toId = p?['id'] as int?;
-                    dirty = true;
-                  }),
-                  enabled: fromId != null,
-                ),
-              ],
-            ),
-          );
-        },
+                ],
+              ),
+            );
+          },
+        ),
       ),
     ),
   );
+}
+
+/// Un producto del origen con su cantidad a entregar: cuánto tiene la
+/// persona, en cuántos lotes y el costo de referencia del siguiente lote
+/// (FIFO), que no es un precio.
+class _ProductLine extends StatelessWidget {
+  const _ProductLine({
+    required this.row,
+    required this.owner,
+    required this.controller,
+    required this.onChanged,
+  });
+
+  final Map<String, Object?> row;
+  final String? owner;
+  final TextEditingController? controller;
+  final VoidCallback onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final unit = row['unit'] as String;
+    final stock = formatQuantity(row['available_base'] as int, unit);
+    return ListTile(
+      contentPadding: const EdgeInsets.fromLTRB(16, 6, 12, 6),
+      title: Text(
+        row['product_name'] as String,
+        style: const TextStyle(
+          fontSize: 16,
+          fontWeight: FontWeight.w700,
+          color: AgroColors.ink,
+        ),
+      ),
+      subtitle: Text(
+        '${owner == null ? stock : '$owner tiene $stock'} disponibles · '
+        '${row['lot_count']} lote(s) · costo de referencia '
+        '${formatBob(row['next_fifo_cost_minor'] as int)}/$unit',
+        style: AgroText.detail,
+      ),
+      trailing: SizedBox(
+        width: 105,
+        child: TextField(
+          controller: controller,
+          onChanged: (_) => onChanged(),
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          style: AgroText.value,
+          decoration: InputDecoration(
+            labelText: unit,
+            // El `0` es una pista, no texto que haya que borrar antes de
+            // escribir (UIBUG-034).
+            hintText: '0',
+            isDense: true,
+          ),
+        ),
+      ),
+    );
+  }
 }

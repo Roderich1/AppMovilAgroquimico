@@ -10,7 +10,10 @@ import '../../app.dart';
 import '../../domain/money.dart';
 import '../../domain/operation_mode.dart';
 import '../../operation_mode_controller.dart';
+import '../theme/agro_theme.dart';
+import '../widgets/agro_ui.dart';
 import '../widgets/common.dart';
+import '../widgets/rdm_b_ui.dart';
 import '../widgets/mode_notice.dart';
 
 class TransfersScreen extends ConsumerStatefulWidget {
@@ -77,100 +80,145 @@ class _TransfersScreenState extends ConsumerState<TransfersScreen> {
       ? SharedOnlyNotice(onBack: () => context.go('/operaciones'))
       : _list(context);
 
-  Widget _list(BuildContext context) => PageFrame(
-    title: 'Transferencias',
-    // D-07 (RN-35): una transferencia es una entrega de producto, no una
-    // venta ni un cargo; el costo que se muestra es sólo de referencia.
-    subtitle:
-        'Entregas de producto de una persona a otra. No generan deuda; el '
-        'costo es sólo de referencia.',
-    action: FilledButton.icon(
-      onPressed: () async {
-        final saved = await context.push<bool>('/transferencias/nueva');
-        if (saved == true && mounted) refresh();
-      },
-      icon: const Icon(Icons.add),
-      label: const Text('Nueva'),
-    ),
-    child: FutureBuilder<List<Map<String, Object?>>>(
-      future: future,
-      builder: (context, snapshot) {
-        if (snapshot.hasError)
-          return EmptyState(
-            icon: Icons.error_outline,
-            message: friendlyError(snapshot.error!),
-          );
-        if (!snapshot.hasData)
-          return const Center(child: CircularProgressIndicator());
-        if (snapshot.data!.isEmpty)
-          return const EmptyState(
-            icon: Icons.swap_horiz,
-            message: 'No hay transferencias.',
-          );
-        return Card(
-          child: ListView.separated(
-            shrinkWrap: true,
-            physics: const NeverScrollableScrollPhysics(),
-            itemCount: snapshot.data!.length,
-            separatorBuilder: (_, _) => const Divider(height: 1),
-            itemBuilder: (context, index) {
-              final row = snapshot.data![index];
-              return ExpansionTile(
-                leading: const Icon(Icons.swap_horiz),
-                title: Text(
-                  '${row['from_person_name']} → ${row['to_person_name']}',
-                ),
-                // Una revertida no lleva texto en el lateral: «Revertida» y
-                // quién la autorizó y por qué van debajo, con todo el ancho de
-                // la fila. En el lateral estrechaban el título y el resumen
-                // hasta desbordar la fila (bloque de experiencia 2026-10-30,
-                // A3). El lateral queda para la flecha de desplegar.
-                subtitle: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (row['status'] != 'CONFIRMED')
-                      Text(
-                        operationStatusLabel(row['status']),
-                        style: const TextStyle(fontWeight: FontWeight.w700),
-                      ),
-                    Text(
-                      '${formatDate(row['transfer_date'])} · '
-                      '${formatItemsSummary(row['products_summary'])}\n'
-                      '$transferNoDebtLabel',
-                    ),
-                    if (row['status'] != 'CONFIRMED')
-                      ReversalActorText(
-                        operationType: 'TRANSFER',
-                        operationId: row['id']! as int,
-                      ),
-                  ],
-                ),
-                trailing: row['status'] == 'CONFIRMED'
-                    ? IconButton(
-                        tooltip: 'Revertir',
-                        onPressed: () => reverse(row),
-                        icon: const Icon(Icons.undo),
-                      )
-                    : null,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        '${row['item_count']} producto(s) · ${row['lot_count']} lote(s) · costo de referencia ${formatBob(row['total_cost_bob_minor'] as int)}\n'
-                        'Es el costo de compra del producto entregado, no un '
-                        'precio de venta. La entrega no genera deuda.',
-                      ),
-                    ),
-                  ),
-                ],
-              );
-            },
+  Future<void> _new() async {
+    final saved = await context.push<bool>('/transferencias/nueva');
+    if (saved == true && mounted) refresh();
+  }
+
+  Widget _list(BuildContext context) => RdmScrollPage(
+    children: [
+      ScreenTitleBar(
+        title: 'Transferencias',
+        leading: const RdmBackButton(),
+        actions: [
+          FilledButton.icon(
+            onPressed: _new,
+            style: FilledButton.styleFrom(
+              backgroundColor: AgroColors.lime,
+              foregroundColor: AgroColors.ink,
+              minimumSize: const Size(0, 44),
+              shape: const StadiumBorder(),
+            ),
+            icon: const Icon(Icons.add),
+            label: const Text(
+              'Nueva',
+              style: TextStyle(fontWeight: FontWeight.w700),
+            ),
           ),
-        );
-      },
-    ),
+        ],
+      ),
+      const SizedBox(height: 8),
+      // D-07: lo que es (y no es) una transferencia, con el texto vigente.
+      const NoticeBox(
+        icon: Icons.info_outline,
+        text:
+            'Entregas de producto de una persona a otra. No generan deuda; el '
+            'costo es sólo de referencia.',
+      ),
+      const SizedBox(height: 12),
+      FutureBuilder<List<Map<String, Object?>>>(
+        future: future,
+        builder: (context, snapshot) {
+          if (snapshot.hasError) {
+            return EmptyState(
+              icon: Icons.error_outline,
+              message: friendlyError(snapshot.error!),
+            );
+          }
+          if (!snapshot.hasData) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          if (snapshot.data!.isEmpty) {
+            return const EmptyState(
+              icon: Icons.swap_horiz,
+              message: 'No hay transferencias.',
+            );
+          }
+          return AgroGroup(
+            key: const Key('transfers-group'),
+            children: [
+              for (final row in snapshot.data!)
+                _TransferRow(row: row, onReverse: () => reverse(row)),
+            ],
+          );
+        },
+      ),
+    ],
   );
+}
+
+/// Una transferencia: de quién a quién, fecha y productos, «Entrega sin
+/// deuda»; al desplegar, productos, lotes y el costo de referencia. Las
+/// revertidas dicen su estado con texto y su auditoría.
+class _TransferRow extends StatelessWidget {
+  const _TransferRow({required this.row, required this.onReverse});
+
+  final Map<String, Object?> row;
+  final VoidCallback onReverse;
+
+  @override
+  Widget build(BuildContext context) {
+    final confirmed = row['status'] == 'CONFIRMED';
+    return Theme(
+      data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+      child: ExpansionTile(
+        key: Key('transfer-row-${row['id']}'),
+        tilePadding: const EdgeInsets.fromLTRB(14, 4, 8, 4),
+        childrenPadding: const EdgeInsets.fromLTRB(68, 0, 16, 12),
+        leading: const IconCircle(icon: Icons.swap_horiz),
+        title: Text(
+          '${row['from_person_name']} → ${row['to_person_name']}',
+          style: const TextStyle(
+            fontSize: 16,
+            height: 21 / 16,
+            fontWeight: FontWeight.w700,
+            color: AgroColors.ink,
+          ),
+        ),
+        subtitle: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (!confirmed) ...[
+              const SizedBox(height: 4),
+              StatusBadge(
+                label: operationStatusLabel(row['status']),
+                tone: BadgeTone.neutral,
+              ),
+              const SizedBox(height: 4),
+            ],
+            Text(
+              '${formatDate(row['transfer_date'])} · '
+              '${formatItemsSummary(row['products_summary'])}\n'
+              '$transferNoDebtLabel',
+              style: AgroText.detail,
+            ),
+            if (!confirmed)
+              ReversalActorText(
+                operationType: 'TRANSFER',
+                operationId: row['id']! as int,
+              ),
+          ],
+        ),
+        trailing: confirmed
+            ? IconButton(
+                tooltip: 'Revertir',
+                onPressed: onReverse,
+                icon: const Icon(Icons.undo),
+              )
+            : null,
+        children: [
+          Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              '${row['item_count']} producto(s) · ${row['lot_count']} lote(s) · costo de referencia ${formatBob(row['total_cost_bob_minor'] as int)}\n'
+              'Es el costo de compra del producto entregado, no un '
+              'precio de venta. La entrega no genera deuda.',
+              style: AgroText.detail,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
