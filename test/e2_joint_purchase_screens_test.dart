@@ -187,6 +187,12 @@ void main() {
       find.text('Convocatoria cerrada: ya no admite cambios.'),
       findsOneWidget,
     );
+    // CONV-2 (E2 §10.2): la coordinación ya no es sólo «el responsable».
+    expect(
+      tester.widget<Text>(find.byKey(const Key('joint-not-a-debt'))).data,
+      'Participar no es una compra ni genera una deuda: la persona '
+      'responsable y quienes ella autorice coordinan la compra y la entrega.',
+    );
     expect(
       tester
           .widget<ButtonStyleButton>(find.byKey(const Key('joint-participate')))

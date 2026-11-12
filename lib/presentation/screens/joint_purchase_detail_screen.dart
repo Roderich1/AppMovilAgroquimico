@@ -244,8 +244,10 @@ class _JointPurchaseDetailScreenState
           const Text('Todavía no participa en esta convocatoria.'),
         const SizedBox(height: 4),
         const Text(
-          'Participar no es una compra ni genera una deuda: el responsable '
-          'coordina la compra y la entrega.',
+          'Participar no es una compra ni genera una deuda: la persona '
+          'responsable y quienes ella autorice coordinan la compra y la '
+          'entrega.',
+          key: Key('joint-not-a-debt'),
         ),
         if (!call.isOpen)
           Padding(
