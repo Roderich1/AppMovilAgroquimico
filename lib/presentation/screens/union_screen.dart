@@ -103,7 +103,7 @@ class _UnionScreenState extends ConsumerState<UnionScreen> {
                     : jointPurchaseNoticeText(notice),
                 badges: [
                   if (notice != null)
-                    const StatusBadge(label: 'Nueva', tone: BadgeTone.voice),
+                    const StatusBadge(label: 'Nueva', tone: BadgeTone.ok),
                 ],
                 onTap: () => context.push('/compras-conjuntas'),
               ),

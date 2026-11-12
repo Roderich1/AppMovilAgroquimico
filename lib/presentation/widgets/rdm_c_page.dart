@@ -62,112 +62,6 @@ class RdmCTitle extends StatelessWidget {
   );
 }
 
-/// [SegmentToggle] que, si con la letra actual algún rótulo no cabe en su
-/// mitad sin partir una palabra, apila las opciones una debajo de otra con
-/// el mismo aspecto (elegida en verde oscuro, negrita y marca).
-class RdmCToggle<T> extends StatelessWidget {
-  const RdmCToggle({
-    super.key,
-    required this.options,
-    required this.selected,
-    required this.onChanged,
-    this.semanticLabel,
-  });
-
-  final List<ToggleOption<T>> options;
-  final T? selected;
-  final ValueChanged<T> onChanged;
-  final String? semanticLabel;
-
-  static const _style = TextStyle(fontSize: 14, fontWeight: FontWeight.w700);
-
-  @override
-  Widget build(BuildContext context) => LayoutBuilder(
-    builder: (context, constraints) {
-      // 8 de la pista, 4 entre opciones, 16 de relleno y 20 de la marca.
-      final segment =
-          (constraints.maxWidth - 8 - 4 * (options.length - 1)) /
-              options.length -
-          36;
-      final fits = options.every(
-        (option) => measureText(context, option.label, _style) <= segment,
-      );
-      if (fits) {
-        return SegmentToggle<T>(
-          options: options,
-          selected: selected,
-          onChanged: onChanged,
-          semanticLabel: semanticLabel,
-        );
-      }
-      return Semantics(
-        label: semanticLabel,
-        container: true,
-        child: Container(
-          padding: const EdgeInsets.all(4),
-          decoration: BoxDecoration(
-            color: AgroColors.track,
-            borderRadius: BorderRadius.circular(24),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              for (var i = 0; i < options.length; i++) ...[
-                if (i > 0) const SizedBox(height: 4),
-                _stacked(options[i]),
-              ],
-            ],
-          ),
-        ),
-      );
-    },
-  );
-
-  Widget _stacked(ToggleOption<T> option) {
-    final on = option.value == selected;
-    return Semantics(
-      key: option.key,
-      button: true,
-      selected: on,
-      inMutuallyExclusiveGroup: true,
-      label: option.label,
-      excludeSemantics: true,
-      child: Material(
-        color: on ? AgroColors.ink : Colors.transparent,
-        shape: const StadiumBorder(),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: () => onChanged(option.value),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                if (on) ...[
-                  const Icon(Icons.check, size: 16, color: AgroColors.lime),
-                  const SizedBox(width: 4),
-                ],
-                Flexible(
-                  child: Text(
-                    option.label,
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 14,
-                      height: 18 / 14,
-                      fontWeight: on ? FontWeight.w700 : FontWeight.w500,
-                      color: on ? Colors.white : AgroColors.ink,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 /// Página de consulta con la cabecera del prototipo: «Volver» redondo a la
 /// izquierda, una acción breve a la derecha y el título grande debajo.
 ///
@@ -589,7 +483,7 @@ class RdmCInfoRow extends StatelessWidget {
 /// aceptado → verde; en camino o pausado → ámbar; conflicto o rechazo →
 /// rojo; sin envío o descartado → gris.
 BadgeTone rdmCOutboxTone(OutboxStatus? status) => switch (status) {
-  OutboxStatus.acked => BadgeTone.voice,
+  OutboxStatus.acked => BadgeTone.ok,
   OutboxStatus.conflict ||
   OutboxStatus.rejected ||
   OutboxStatus.failed => BadgeTone.missing,

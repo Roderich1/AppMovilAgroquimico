@@ -266,7 +266,7 @@ class _ConsumptionPublishScreenState
 
   static BadgeTone _stateTone(ConsumptionSendState state) => switch (state) {
     ConsumptionSendState.pending => BadgeTone.review,
-    ConsumptionSendState.sent => BadgeTone.voice,
+    ConsumptionSendState.sent => BadgeTone.ok,
     ConsumptionSendState.attention => BadgeTone.missing,
   };
 

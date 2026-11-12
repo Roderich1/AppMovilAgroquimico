@@ -1,7 +1,7 @@
 # Estado de la sesión C
 
 - Dueño del worktree: proyectoagro-78 (sesión C) desde 2026-11-12 07:09
-- Base incorporada: B0 (33e581f)
+- Base incorporada: B1 (0a2e321, fusionada en a14bc67)
 
 ## Entregas listas
 
@@ -57,6 +57,11 @@ Conservado en Sincronización: «Sincronizar ahora» expreso; conteos por estado
 | Sincronización: (sin lámina propia) | Estilo de las demás pantallas de C | — |
 | Títulos | Reducción mínima sólo si la palabra más larga no cabe | Las pruebas de legibilidad (#97) usan glifos cuadrados; con fuentes reales no se reduce. |
 
+### Revisión C-1 — respuesta (commit de corrección abajo)
+
+1. Selector Productos · Campañas: `RdmCToggle` retirado; la pantalla usa el `SegmentToggle` de B1. **Sigue saliendo apilado en el arnés al 100 %/390 dp**, y no por la pantalla: `SegmentToggle._labelStyle` no tiene `fontFamily`, así que `measureText` mide con la fuente por defecto del motor (en el arnés, la de pruebas: 1 em por letra). Sonda del 2026-11-12: «Productos · 5» negrita 14 px mide **182 px** sin familia y **89,6 px** con DM Sans; el hueco es 137 px. En el teléfono la fuente por defecto es Roboto y cabría, pero la medida debe usar la fuente con que se dibuja. Ver solicitud 7.
+2. `BadgeTone.ok` en lugar de `voice` para los estados positivos (recibido, aceptado, enviado, «Nueva»).
+
 ## En curso
 
 - Nada en curso entre las pantallas independientes: entregas 1–3 cubren Sindicato, Necesidad, Consumo, Vinculos, Identificacion, Etiqueta y Sincronización.
@@ -64,11 +69,12 @@ Conservado en Sincronización: «Sincronizar ahora» expreso; conteos por estado
 
 ## Solicitudes al orquestador
 
-1. **Promoción opcional** de `RdmCPage` (cabecera de consulta: Volver redondo, acción breve, título grande), `RdmCSheetBody`/`showRdmCSheet` (hoja con título y Cerrar), `RdmCRow`, `RdmCToggle` (selector que se apila si no cabe) y `rdmCTitleScaler` (títulos hasta 1,4×) a `agro_ui.dart`, si sirven a A/B.
-2. **`SegmentToggle` a 200 %** parte palabras en la mitad del ancho («Producto/s»). Propuesta: apilar las opciones si no caben (como `RdmCToggle`).
-3. **FAB global** en `/planificacion/necesidades`, `/sincronizacion/consumo` y `/sindicato/vinculos`: compite con la acción propia de la pantalla («Declarar», «Publicar») y tapa el final de la lista. Pedir que se oculte en esas rutas (y en `/sindicato`) cuando llegue la barra nueva (B1). Mientras tanto, «Declarar» y «Publicar» quedan en el contenido, no flotantes.
-4. **Ruta `/sindicato`**: el esqueleto ya está en `union_screen.dart`; falta cablearla (B1). La pestaña no tiene «Volver» si es raíz (`canPop` falso).
+1. **Promoción opcional** (pendiente hasta las cabeceras de B; `RdmCToggle` ya no existe) de `RdmCPage` (cabecera de consulta: Volver redondo, acción breve, título grande), `RdmCSheetBody`/`showRdmCSheet` (hoja con título y Cerrar), `RdmCRow`, `RdmCToggle` (selector que se apila si no cabe) y `rdmCTitleScaler` (títulos hasta 1,4×) a `agro_ui.dart`, si sirven a A/B.
+2. ~~`SegmentToggle` a 200 %~~: resuelto en B1.
+3. ~~FAB global~~ (resuelto en B1; «Declarar» sigue en la cabecera). Texto original: **FAB global** en `/planificacion/necesidades`, `/sincronizacion/consumo` y `/sindicato/vinculos`: compite con la acción propia de la pantalla («Declarar», «Publicar») y tapa el final de la lista. Pedir que se oculte en esas rutas (y en `/sindicato`) cuando llegue la barra nueva (B1). Mientras tanto, «Declarar» y «Publicar» quedan en el contenido, no flotantes.
+4. ~~Ruta `/sindicato`~~ (cableada en B1). Texto original: **Ruta `/sindicato`**: el esqueleto ya está en `union_screen.dart`; falta cablearla (B1). La pestaña no tiene «Volver» si es raíz (`canPop` falso).
 5. **Contadores de la pestaña Sindicato** (opcional): un proveedor de resumen de una sola consulta con necesidades activas, totales de consumo por publicar y solicitudes de identificación en trámite, si el autor quiere las pastillas de la lámina. No lo creo yo: es `lib/services/**`/`lib/data/**`.
+7. **`SegmentToggle` mide sin la fuente con que dibuja** (`agro_ui.dart`): añadir `fontFamily: AgroFonts.body` a `_labelStyle` (y lo mismo en cualquier `measureText` con estilo sin familia, p. ej. `AmountAside` usa `AgroText.amount`, que sí la tiene). Con eso el arnés muestra el selector lado a lado al 100 % y lo apila a 200 %, como se pidió.
 6. **`f10_sync_textos_confirmacion_test`**: el chip anterior no seguía la escala del teléfono; la línea «Última confirmación» ahora sí (12 px escalados, fuera de la tarjeta, para caber en 2 líneas a 360 dp/130 % con la fuente de pruebas). Revisar si se prefiere otro tamaño.
 
 ## Bloqueos y decisiones del autor
