@@ -1,9 +1,25 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../theme/agro_theme.dart';
 import 'agro_ui.dart';
 import 'common.dart' show showSuccess;
+
+/// Cambia cada vez que se cierra un formulario abierto desde la hoja
+/// «Registrar». Las pestañas con historial o existencias (Actividad, Almacén)
+/// lo escuchan para releer: la hoja abre los formularios por su cuenta y ellas
+/// no se enteran de que se volvió (defecto del recorrido del 2026-11-12).
+final registerRevisionProvider = NotifierProvider<RegisterRevision, int>(
+  RegisterRevision.new,
+);
+
+class RegisterRevision extends Notifier<int> {
+  @override
+  int build() => 0;
+
+  void bump() => state++;
+}
 
 /// Hoja «Registrar» (rediseño, lámina «Registrar»), abierta desde el botón
 /// flotante del shell.
@@ -32,9 +48,14 @@ Future<void> showRegisterSheet(
       WidgetsBinding.instance.addPostFrameCallback((_) async {
         if (!context.mounted) return;
         final saved = await context.push<bool>(path);
-        if (done != null && saved == true && context.mounted) {
-          showSuccess(context, done);
-        }
+        if (!context.mounted) return;
+        // Se relee aunque no diga «guardado»: desde `/voz` se llega a un
+        // formulario y se vuelve sin resultado.
+        ProviderScope.containerOf(
+          context,
+          listen: false,
+        ).read(registerRevisionProvider.notifier).bump();
+        if (done != null && saved == true) showSuccess(context, done);
       });
     }
 

@@ -11,6 +11,7 @@ import '../theme/agro_theme.dart';
 import '../widgets/agro_ui.dart';
 import '../widgets/common.dart';
 import '../widgets/rdm_b_ui.dart';
+import '../widgets/register_sheet.dart' show registerRevisionProvider;
 import 'inventory_alerts_screen.dart';
 
 /// Almacén (antes «Inventario», lámina 1.4).
@@ -91,7 +92,14 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
   }
 
   @override
-  Widget build(BuildContext context) => FutureBuilder<InventoryAlerts>(
+  Widget build(BuildContext context) {
+    // Lo registrado desde la hoja «+ Registrar» del shell (una compra, una
+    // transferencia o una aplicación cambian las existencias).
+    ref.listen(registerRevisionProvider, (_, _) => refresh());
+    return _page(context);
+  }
+
+  Widget _page(BuildContext context) => FutureBuilder<InventoryAlerts>(
     future: alerts,
     builder: (context, alertSnap) => RdmScrollPage(
       children: [

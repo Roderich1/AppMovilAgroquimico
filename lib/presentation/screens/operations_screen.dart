@@ -10,6 +10,7 @@ import '../theme/agro_theme.dart';
 import '../widgets/agro_ui.dart';
 import '../widgets/common.dart';
 import '../widgets/rdm_b_ui.dart';
+import '../widgets/register_sheet.dart' show registerRevisionProvider;
 
 /// Actividad (lámina 1.3; antes «Operaciones»).
 ///
@@ -114,6 +115,8 @@ class _OperationsScreenState extends ConsumerState<OperationsScreen> {
     ref.listen(operationModeProvider, (previous, next) {
       if (previous != next) _refresh();
     });
+    // Lo registrado desde la hoja «+ Registrar» del shell.
+    ref.listen(registerRevisionProvider, (_, _) => _refresh());
     // En propio no hay transferencias: si el filtro quedó en ellas al
     // cambiar de modo, vuelve a «Todo».
     final current = personal && filter == _Filter.transfers
