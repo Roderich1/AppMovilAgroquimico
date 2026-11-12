@@ -69,6 +69,7 @@ class JointPurchaseOp {
     required this.lastCode,
     required this.createdAt,
     required this.updatedAt,
+    this.responsibleVersion,
   });
 
   final String operationId;
@@ -77,6 +78,10 @@ class JointPurchaseOp {
   final String memberId;
   final int sequence;
   final String kind;
+
+  /// P-A C1: la versión de la responsabilidad que mostraba el teléfono al
+  /// aceptar el consentimiento (sólo una primera confirmación la lleva).
+  final int? responsibleVersion;
 
   /// product_ref → cantidad en unidad base, en el orden en que se envía.
   final Map<String, int> lines;
@@ -122,6 +127,7 @@ class JointPurchaseOp {
     lastCode: row['last_code'] as String?,
     createdAt: row['created_at']! as String,
     updatedAt: row['updated_at']! as String,
+    responsibleVersion: row['responsible_version'] as int?,
   );
 
   static Map<String, int> _decodeLines(String? stored) {
@@ -153,12 +159,22 @@ class JointPurchaseConsentOp {
     required this.lastCode,
     required this.createdAt,
     required this.updatedAt,
+    this.responsibleVersion,
+    this.authorizeResponsible = false,
   });
 
   final String operationId;
   final String callId;
   final String tenantId;
   final String memberId;
+
+  /// P-A C1: la versión de la responsabilidad que mostraba el teléfono al
+  /// decidir. Null en decisiones guardadas antes del contrato 3.
+  final int? responsibleVersion;
+
+  /// P-A C1: esta decisión autoriza a la responsable de [responsibleVersion]
+  /// (acción propia, separada de las cantidades).
+  final bool authorizeResponsible;
 
   /// Orden propio de las decisiones de esta convocatoria y titular.
   final int sequence;
@@ -184,6 +200,8 @@ class JointPurchaseConsentOp {
     'sequence': sequence,
     'scope': scope,
     'consent': {'version': consentVersion, 'decided_at': decidedAt},
+    if (responsibleVersion != null) 'responsible_version': responsibleVersion,
+    if (authorizeResponsible) 'authorize_responsible': true,
   };
 
   static JointPurchaseConsentOp fromRow(Map<String, Object?> row) =>
@@ -202,6 +220,8 @@ class JointPurchaseConsentOp {
         lastCode: row['last_code'] as String?,
         createdAt: row['created_at']! as String,
         updatedAt: row['updated_at']! as String,
+        responsibleVersion: row['responsible_version'] as int?,
+        authorizeResponsible: (row['authorize_responsible'] as int? ?? 0) == 1,
       );
 }
 
@@ -226,6 +246,7 @@ class JointPurchaseCall {
     required this.latestOp,
     this.finishedAt,
     this.latestConsentOp,
+    this.responsibleVersion,
   });
 
   final String callId;
@@ -258,6 +279,32 @@ class JointPurchaseCall {
   /// sigue siendo lo que dice [serverParticipation].
   JointPurchaseConsentOp? get pendingConsentOp =>
       latestConsentOp?.isAwaitingSend == true ? latestConsentOp : null;
+
+  /// P-A (E2 §12): versión de la responsabilidad según la última consulta;
+  /// null en una copia guardada antes del contrato 3.
+  final int? responsibleVersion;
+
+  /// P-A C1: el sindicato dice que este agricultor todavía no autorizó a la
+  /// persona responsable actual, en una convocatoria no cancelada y con una
+  /// participación vigente. Sus datos siguen restringidos para ella.
+  bool get needsResponsibleReview =>
+      status != JointPurchaseCallStatus.cancelled &&
+      serverParticipation?.isActive == true &&
+      serverParticipation?.needsResponsibleAuthorization == true;
+
+  /// P-A C1: una autorización preparada en el teléfono para una responsable
+  /// que ya no es la vigente (cambió otra vez antes de enviarla, o el
+  /// sindicato la rechazó por eso): hay que revisar de nuevo.
+  bool get authorizationOutdated {
+    final op = latestConsentOp;
+    if (op == null || !op.authorizeResponsible) return false;
+    if (op.sendStatus == JointPurchaseOpStatus.rejected) {
+      return op.lastCode == 'RESPONSIBLE_CHANGED' && needsResponsibleReview;
+    }
+    return op.isAwaitingSend &&
+        responsibleVersion != null &&
+        op.responsibleVersion != responsibleVersion;
+  }
 
   /// Fecha de término según el sindicato (UTC), o null (abierta, o copia
   /// anterior a v17 todavía sin actualizar).
@@ -313,6 +360,7 @@ class JointPurchaseCall {
     latestOp: latestOp,
     finishedAt: row['finished_at'] as String?,
     latestConsentOp: latestConsentOp,
+    responsibleVersion: row['responsible_version'] as int?,
   );
 }
 
@@ -507,6 +555,7 @@ class JointPurchaseStore {
       'server_time_at_fetch': view.serverTime,
       'seen_at': sameOwner ? existing.single['seen_at'] : null,
       'finished_at': view.finishedAt,
+      'responsible_version': view.responsibleVersion,
     }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
@@ -786,8 +835,7 @@ class JointPurchaseStore {
     // E2 §10.6: sin participación en el sindicato, la confirmación lleva el
     // consentimiento aceptado; con ella, nunca.
     final carriesConsent =
-        kind == JointPurchaseOpKind.confirm &&
-        call.serverParticipation == null;
+        kind == JointPurchaseOpKind.confirm && call.serverParticipation == null;
     if (carriesConsent && consentAcceptedAt == null) {
       throw JointPurchaseException(
         'Debe aceptar el texto de consentimiento vigente para participar.',
@@ -895,6 +943,8 @@ class JointPurchaseStore {
           : null,
       'consent_version': carriesConsent ? jointPurchaseConsentVersion : null,
       'consent_accepted_at': carriesConsent ? consentAcceptedAt : null,
+      // P-A C1: la responsable que se mostró al aceptar (sólo al participar).
+      'responsible_version': carriesConsent ? call.responsibleVersion : null,
       'send_status': JointPurchaseOpStatus.pendingSend,
       'attempts': 0,
       'created_at': now,
@@ -917,10 +967,18 @@ class JointPurchaseStore {
   /// queda `SUPERSEDED`; repetir la misma pendiente no crea otra. Devuelve
   /// null si [scope] ya es lo vigente en el sindicato: no se envía nada (y
   /// una decisión contraria pendiente queda sin efecto).
+  ///
+  /// P-A C1 (E2 §12): [authorizeResponsible] autoriza a la persona
+  /// responsable actual (la de la última consulta) con el alcance [scope]
+  /// que el agricultor eligió de forma explícita: autorizarla sólo a ella
+  /// nunca amplía a los colaboradores. Mientras no la autorice, ampliar no se
+  /// ofrece. Cada decisión lleva la versión de la responsabilidad que se
+  /// mostró: una pendiente para otra responsable nunca vale para la vigente.
   Future<JointPurchaseConsentOp?> decideConsent({
     required String callId,
     required String scope,
     required DateTime decidedAt,
+    bool authorizeResponsible = false,
   }) async {
     if (!JointPurchaseConsentScope.all.contains(scope)) {
       throw JointPurchaseException('Decisión no reconocida.');
@@ -958,10 +1016,25 @@ class JointPurchaseStore {
           'sobre una participación.',
         );
       }
-      if (scope == JointPurchaseConsentScope.collaborators &&
+      if ((scope == JointPurchaseConsentScope.collaborators ||
+              authorizeResponsible) &&
           call.status == JointPurchaseCallStatus.cancelled) {
         throw JointPurchaseException(
           'La convocatoria está cancelada: no se amplía la autorización.',
+        );
+      }
+      if (authorizeResponsible && call.responsibleVersion == null) {
+        throw JointPurchaseException(
+          'Actualice primero la convocatoria: falta saber quién es la persona '
+          'responsable actual.',
+        );
+      }
+      // Sin autorizar a la responsable actual no se amplía a sus colaboradores.
+      if (scope == JointPurchaseConsentScope.collaborators &&
+          !authorizeResponsible &&
+          server?.needsResponsibleAuthorization == true) {
+        throw JointPurchaseException(
+          'Primero autorice a la nueva persona responsable.',
         );
       }
       final existing = (await txn.query(
@@ -971,7 +1044,11 @@ class JointPurchaseStore {
         orderBy: 'sequence DESC',
       )).map(JointPurchaseConsentOp.fromRow).toList();
       final pending = existing.where((op) => op.isAwaitingSend).toList();
-      if (pending.isNotEmpty && pending.first.scope == scope) {
+      if (pending.isNotEmpty &&
+          pending.first.scope == scope &&
+          pending.first.authorizeResponsible == authorizeResponsible &&
+          (!authorizeResponsible ||
+              pending.first.responsibleVersion == call.responsibleVersion)) {
         return pending.first.operationId;
       }
       final now = _now();
@@ -988,8 +1065,13 @@ class JointPurchaseStore {
         ],
       );
       // Lo mismo que ya rige en el sindicato no se vuelve a enviar (si había
-      // otra decisión pendiente, sólo queda sin efecto).
-      if (server?.consentScope == scope) return null;
+      // otra decisión pendiente, sólo queda sin efecto). Autorizar a la
+      // responsable actual sólo es «lo mismo» si el sindicato ya dijo que lo
+      // está.
+      if (server?.consentScope == scope &&
+          (!authorizeResponsible || server?.responsibleAuthorized == true)) {
+        return null;
+      }
       final sequence =
           max(
             existing.isEmpty ? 0 : existing.first.sequence,
@@ -1010,6 +1092,8 @@ class JointPurchaseStore {
         'attempts': 0,
         'created_at': now,
         'updated_at': now,
+        'responsible_version': call.responsibleVersion,
+        'authorize_responsible': authorizeResponsible ? 1 : 0,
       });
       return operationId;
     });
@@ -1094,15 +1178,27 @@ class JointPurchaseStore {
     }
   });
 
-  Future<void> markConsentRejected(JointPurchaseConsentOp op, String code) =>
-      _write(
-        (txn) => _transitionConsent(
-          txn,
-          op,
-          JointPurchaseOpStatus.rejected,
-          code: code,
-        ),
-      );
+  /// Rechazo definitivo con [code]. Si el sindicato devolvió la
+  /// participación vigente (P-A: `RESPONSIBLE_CHANGED`,
+  /// `AUTHORIZATION_REQUIRED`), se adopta como cualquier respuesta: sólo lo
+  /// más nuevo.
+  Future<void> markConsentRejected(
+    JointPurchaseConsentOp op,
+    String code, {
+    JointPurchaseParticipation? participation,
+  }) => _write((txn) async {
+    if (!await _transitionConsent(
+      txn,
+      op,
+      JointPurchaseOpStatus.rejected,
+      code: code,
+    )) {
+      return;
+    }
+    if (participation != null) {
+      await _adoptFor(txn, op.callId, op.memberId, participation);
+    }
+  });
 
   Future<void> markConsentAuthPaused(JointPurchaseConsentOp op, String code) =>
       _write(

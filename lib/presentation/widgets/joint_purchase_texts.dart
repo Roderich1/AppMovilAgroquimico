@@ -187,7 +187,8 @@ const jointPurchaseListTemporaryText =
 // --- Autorización (E2 §10.6, P-C) -------------------------------------------
 
 /// Título de la acción que amplía quién ve los datos.
-const jointPurchaseWidenLabel = 'Autorizar también a la Directiva o la '
+const jointPurchaseWidenLabel =
+    'Autorizar también a la Directiva o la '
     'Administración';
 
 /// Título de la acción que reduce a sólo la persona responsable.
@@ -251,9 +252,53 @@ String jointPurchaseWhoCanSeeText(JointPurchaseCall call) {
         'cantidades. Después podrá autorizar, si quiere, también a '
         '$authorized.';
   }
+  // P-A C1 (E2 §12): la responsable cambió y el sindicato dice que usted
+  // todavía no la autorizó: nadie ve sus datos, tampoco quienes ella autorice.
+  if (server.needsResponsibleAuthorization) {
+    return 'Por ahora nadie de la Directiva ni de la Administración puede ver '
+        'su nombre ni sus cantidades: la persona responsable cambió y usted '
+        'todavía no autorizó a $responsible.';
+  }
   if (server.coversCollaborators) {
     return 'Pueden ver su nombre y sus cantidades $responsible y '
         '$authorized, porque usted lo autorizó.';
   }
   return 'Sólo $responsible puede ver su nombre y sus cantidades.';
 }
+
+// --- Nueva persona responsable (E2 §12, P-A C1) ------------------------------
+
+/// Título de la acción que autoriza a la persona responsable actual.
+const jointPurchaseResponsibleReviewLabel = 'Revisar autorización';
+
+String _responsibleOf(JointPurchaseCall call) =>
+    call.responsibleName ?? 'la nueva persona responsable';
+
+/// Aviso del detalle: la responsable cambió y no se supone nada.
+String jointPurchaseResponsibleChangedText(JointPurchaseCall call) =>
+    'La persona responsable de esta compra conjunta cambió: ahora es '
+    '${_responsibleOf(call)}. Su autorización anterior no vale para ella: no '
+    'puede ver su nombre ni sus cantidades hasta que usted la autorice. Su '
+    'participación y sus cantidades no cambian.';
+
+/// Una autorización preparada que todavía no llegó: nunca se anuncia como
+/// aplicada.
+String jointPurchaseResponsiblePendingText(JointPurchaseCall call) =>
+    'Autorización pendiente de envío. Hasta que el sindicato la reciba, '
+    '${_responsibleOf(call)} sigue sin ver sus datos.';
+
+/// La responsable volvió a cambiar antes de que llegara la autorización.
+const jointPurchaseResponsibleOutdatedText =
+    'La persona responsable volvió a cambiar antes de que llegara su '
+    'autorización: esa autorización no vale para la nueva. Revise de nuevo.';
+
+/// Casilla principal del diálogo: nunca marcada de antemano.
+String jointPurchaseResponsibleCheck(JointPurchaseCall call) =>
+    'Autorizo a ${_responsibleOf(call)} a ver mi nombre y las cantidades que '
+    'solicito en esta convocatoria, para coordinar la compra y la entrega.';
+
+/// Segunda casilla, aparte y sin marcar: autorizar sólo a la responsable no
+/// amplía a nadie más.
+const jointPurchaseResponsibleCollaboratorsCheck =
+    'También autorizo a las personas de la Directiva o la Administración que '
+    'ella autorice para esta convocatoria.';

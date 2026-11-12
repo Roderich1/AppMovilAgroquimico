@@ -578,7 +578,7 @@ void main() {
       'created_at': '2026-11-11T00:00:00.000Z',
       'updated_at': '2026-11-11T00:00:00.000Z',
     });
-    final before = await dumpTables(legacy);
+    final before = withoutV19(await dumpTables(legacy));
     await legacy.close();
     expect(before.containsKey('joint_purchase_consent_ops'), isFalse);
 
@@ -589,9 +589,97 @@ void main() {
       AppDatabase.schemaVersion,
     );
     expect(await db.query('joint_purchase_consent_ops'), isEmpty);
-    final after = await dumpTables(db, except: {'joint_purchase_consent_ops'});
+    final after = withoutV19(
+      await dumpTables(db, except: {'joint_purchase_consent_ops'}),
+    );
     // Nada cambia: ni la copia de la participación ni lo pendiente de envío.
     expect(after, before);
+  });
+
+  test('v18 → v19 conserva convocatorias, participaciones y decisiones pendientes; las columnas nuevas quedan sin dato', () async {
+    final path = await seededAt(8);
+    final current = openDb(path);
+    await current.database;
+    await current.close();
+
+    // Una base v18: las mismas tablas sin las columnas de P-A.
+    final legacy = await databaseFactoryFfi.openDatabase(path);
+    for (final table in AppDatabase.jointPurchaseResponsibleColumns.entries) {
+      for (final column in table.value.keys) {
+        await legacy.execute('ALTER TABLE ${table.key} DROP COLUMN $column');
+      }
+    }
+    await legacy.execute('PRAGMA user_version = 18');
+    await legacy.insert('joint_purchase_calls', {
+      'call_id': 'c-v18',
+      'tenant_id': memberA.tenantId,
+      'member_id': memberA.memberId,
+      'name': 'Convocatoria de v18',
+      'status': 'OPEN',
+      'deadline_at': '2026-12-01T00:00:00.000Z',
+      'products_json': '[]',
+      'server_participation_json':
+          '{"status":"ACTIVE","consent":{"version":"CONV-3"}}',
+      'fetched_at': '2026-11-12T00:00:00.000Z',
+      'server_time_at_fetch': '2026-11-12T00:00:00.000Z',
+      'finished_at': null,
+    });
+    await legacy.insert('joint_purchase_participation_ops', {
+      'operation_id': 'op-v18',
+      'call_id': 'c-v18',
+      'tenant_id': memberA.tenantId,
+      'member_id': memberA.memberId,
+      'sequence': 2,
+      'kind': 'CONFIRM',
+      'lines_json': '[]',
+      'send_status': 'PENDING_SEND',
+      'created_at': '2026-11-12T00:00:00.000Z',
+      'updated_at': '2026-11-12T00:00:00.000Z',
+    });
+    await legacy.insert('joint_purchase_consent_ops', {
+      'operation_id': 'consent-v18',
+      'call_id': 'c-v18',
+      'tenant_id': memberA.tenantId,
+      'member_id': memberA.memberId,
+      'sequence': 1,
+      'scope': 'COLLABORATORS',
+      'consent_version': 'CONV-3',
+      'decided_at': '2026-11-12T00:00:00.000Z',
+      'send_status': 'PENDING_SEND',
+      'created_at': '2026-11-12T00:00:00.000Z',
+      'updated_at': '2026-11-12T00:00:00.000Z',
+    });
+    final before = await dumpTables(legacy);
+    await legacy.close();
+
+    final migrated = openDb(path);
+    final db = await migrated.database;
+    expect(
+      (await db.rawQuery('PRAGMA user_version')).single.values.single,
+      AppDatabase.schemaVersion,
+    );
+    final after = await dumpTables(db);
+    // Lo existente no cambia; las columnas nuevas no se rellenan (no se sabe
+    // a qué responsable se refería lo guardado antes): NULL, o 0 en
+    // «autoriza», que una decisión anterior nunca hizo.
+    expect(withoutV19(after), before);
+    expect(
+      after['joint_purchase_calls']!.single['responsible_version'],
+      isNull,
+    );
+    expect(
+      after['joint_purchase_participation_ops']!.single['responsible_version'],
+      isNull,
+    );
+    final decision = after['joint_purchase_consent_ops']!.single;
+    expect(
+      [
+        decision['responsible_version'],
+        decision['authorize_responsible'],
+        decision['send_status'],
+      ],
+      [null, 0, 'PENDING_SEND'],
+    );
   });
 
   test('la migración a v17 es idempotente sobre una base ya migrada', () async {
@@ -638,3 +726,20 @@ void main() {
     await database.close();
   });
 }
+
+/// Quita las columnas de v19 (P-A, E2 §12) para comparar con una base anterior.
+Map<String, List<Map<String, Object?>>> withoutV19(
+  Map<String, List<Map<String, Object?>>> tables,
+) => {
+  for (final entry in tables.entries)
+    entry.key: [
+      for (final row in entry.value)
+        {
+          for (final column in row.entries)
+            if (!(AppDatabase.jointPurchaseResponsibleColumns[entry.key]
+                    ?.containsKey(column.key) ??
+                false))
+              column.key: column.value,
+        },
+    ],
+};

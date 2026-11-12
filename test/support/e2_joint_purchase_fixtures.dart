@@ -29,6 +29,9 @@ Map<String, Object?> callJson({
   String closedAt = '2026-11-20T22:00:00.000Z',
   String cancelledAt = '2026-11-12T10:00:00.000Z',
   Map<String, Object?> extra = const {},
+  // P-A (contrato 3): versión de la responsabilidad; null = no se envía.
+  int? responsibleVersion,
+  String responsibleName = 'Responsable sintético',
 }) => {
   'call_id': id,
   'name': name,
@@ -40,7 +43,10 @@ Map<String, Object?> callJson({
   'cancelled_at': status == 'CANCELLED' ? cancelledAt : null,
   'server_time': '2026-11-11T18:20:05.120Z',
   'accepts_operations': status == 'OPEN',
-  'responsible': {'name': 'Responsable sintético'},
+  'responsible': {
+    'name': responsibleName,
+    if (responsibleVersion != null) 'version': responsibleVersion,
+  },
   'products': [
     {
       'product_ref': litreRef,
@@ -76,6 +82,8 @@ Map<String, Object?> participationJson({
   // anterior a §10.6 (el teléfono lo deduce del texto aceptado).
   String? consentScope,
   int consentScopeSequence = 0,
+  // P-A C1 (contrato 3): `{authorized, version}`; null = no se envía.
+  Map<String, Object?>? responsibleAuthorization,
 }) => {
   'status': withdrawn ? 'WITHDRAWN' : 'ACTIVE',
   'lines': withdrawn
@@ -104,6 +112,8 @@ Map<String, Object?> participationJson({
       'received_at': '2026-11-12T10:00:05.000Z',
       'sequence': consentScopeSequence,
     },
+  if (responsibleAuthorization != null)
+    'responsible_authorization': responsibleAuthorization,
 };
 
 /// Raíz de la vista por defecto (`contractVersion`, `server_time`,

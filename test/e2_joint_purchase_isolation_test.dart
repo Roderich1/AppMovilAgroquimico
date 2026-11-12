@@ -458,7 +458,7 @@ void main() {
         );
         // N7: otra versión del contrato (la anterior o una futura) es una
         // incompatibilidad de versión, no un fallo temporal.
-        for (final other in [1, 3]) {
+        for (final other in [1, 2, 4]) {
           rejectsPage({
             ...historyJson([oldCallJson(callId)]),
             'contractVersion': other,

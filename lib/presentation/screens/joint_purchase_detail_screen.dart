@@ -7,6 +7,7 @@ import '../../domain/numeric_input.dart' show formatForInput, parseBaseQuantity;
 import '../../domain/sync/joint_purchase_call_view.dart';
 import '../../services/sync/sync_providers.dart';
 import '../widgets/common.dart';
+import '../widgets/joint_purchase_responsible_review.dart';
 import '../widgets/joint_purchase_texts.dart';
 import 'joint_purchases_screen.dart' show refreshProblem;
 
@@ -331,6 +332,9 @@ class _JointPurchaseDetailScreenState
             jointPurchaseConsentResultText(call)!,
             key: const Key('joint-consent-result'),
           ),
+        // P-A C1 (E2 §12): la persona responsable cambió; autorizarla es una
+        // acción propia, aparte de las cantidades (se muestra sola si aplica).
+        JointPurchaseResponsibleReview(call: call, onChanged: _reload),
         if (!call.isOpen)
           Padding(
             padding: const EdgeInsets.only(top: 8),
@@ -357,11 +361,14 @@ class _JointPurchaseDetailScreenState
                 icon: const Icon(Icons.person_remove_outlined),
                 label: const Text('Retirar participación'),
               ),
-            if (canDecide && effectiveScope != widen)
+            // Sin autorizar a la responsable actual no se amplía (P-A C1).
+            if (canDecide &&
+                effectiveScope != widen &&
+                !call.needsResponsibleReview)
               OutlinedButton.icon(
                 key: const Key('joint-consent-widen'),
-                onPressed: busy ||
-                        call.status == JointPurchaseCallStatus.cancelled
+                onPressed:
+                    busy || call.status == JointPurchaseCallStatus.cancelled
                     ? null
                     : () => _decide(call, widen),
                 icon: const Icon(Icons.group_add_outlined),
