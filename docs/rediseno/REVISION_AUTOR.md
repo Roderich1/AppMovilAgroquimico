@@ -4,13 +4,13 @@
 
 **Datos sintéticos** (inventario compartido, campaña «Invierno 2026»): Rosa Vargas (titular, Chaco Norte 3 ha) y Juan Mamani (familiar, Chaco Rio 2 ha); una compra de 5 L de «Herbicida sin red» a 80 Bs sin pagar (400,00 Bs); transferencia de 2 L Rosa → Juan; un plan para Chaco Rio aplicado (1 L, cargo de 80,00 Bs a Juan) y otro pendiente para Chaco Norte; pago de 50,00 Bs de Juan (le quedan 30,00 Bs).
 
-**Versión instalada (noche del 2026-11-12):** «AC RDM» `d9893bc` (rediseño + P-A + sin «+ Registrar» en Convocatorias + «¿De quién son los productos?» + «sólo la persona titular»), SHA-256 `3630ff1d…0b65`, `lastUpdateTime` 20:12:54, conectada a la Central aislada por un túnel temporal; cuenta en línea autenticada. Además de los datos de abajo hay dos convocatorias sintéticas: «Convocatoria P-A sustitución» (abierta, 12 KG, responsable sustituida y ya autorizada) y «Convocatoria P-A cerrada» (4 L, cerrada, sustituida y autorizada). **P-A está aceptada funcionalmente por usted (no visualmente).**
+**Versión instalada (noche del 2026-11-12):** «AC RDM» `fc12123` (rediseño + P-A + sin «+ Registrar» en Convocatorias + «¿De quién son los productos?» + «sólo la persona titular» + **la lista termina por encima de «+ Registrar»** + Almacén ancho en dos columnas), SHA-256 `ba6c4560…7582`, `lastUpdateTime` 21:57:23, conectada a la Central aislada por un túnel temporal; cuenta en línea autenticada. Además de los datos de abajo hay dos convocatorias sintéticas: «Convocatoria P-A sustitución» (abierta, 12 KG, responsable sustituida y ya autorizada) y «Convocatoria P-A cerrada» (4 L, cerrada, sustituida y autorizada). **P-A está aceptada funcionalmente por usted (no visualmente).**
 
 **Comparativas lámina | integración:** `docs/evidence/rediseno-movil/2026-11-12/integracion/comparativas/` (49, nombradas por número de lámina). Las capturas de la derecha salen del arnés sobre la rama integrada (fuentes reales, 390×844) o del emulador cuando se indica.
 
 ## 1. Inicio y navegación
 
-- **Mirar:** las 5 pestañas y su rótulo; «+ Registrar» en Actividad y Almacén (se recoge al desplazar); la hoja Registrar (Compra/Aplicación grandes; Plan, Pago, Transferencia, voz); Atrás desde subpantallas vuelve a la pestaña; el engranaje de Inicio abre «Ajustes y datos».
+- **Mirar:** las 5 pestañas y su rótulo; «+ Registrar» en Actividad y Almacén (se recoge al desplazar; la lista termina por encima del botón y nada pasa por detrás, en vertical y en horizontal); la hoja Registrar (Compra/Aplicación grandes; Plan, Pago, Transferencia, voz); Atrás desde subpantallas vuelve a la pestaña; el engranaje de Inicio abre «Ajustes y datos».
 - **Diferencias:** Inicio conserva «Ver cuánto queda», «Enviar al sindicato», «Cuenta en línea» y los saldos principales; «Para atender» cuenta lotes («1 lote vencido…»); las cifras dicen «de todas las campañas»; no hay aviso de «Nueva compra conjunta» en Inicio; sin «+ Registrar» en pantallas con acción propia (Personas, Cuentas, Sindicato, listas).
 - **Comparativas:** `1.2`, `1.3`, `1.4`, `1.5`, `1.6`, `1.7`.
 
@@ -30,7 +30,7 @@
 ## 4. Actividad, Almacén y Personas
 
 - **Mirar:** filtros de Actividad (Todo, Compras, Aplicaciones, Planes, Transferencias) y «Reportes» arriba; Almacén con «Previsto en planes»; detalle de producto; Personas → persona, cuenta, «Registrar pago» (hoja), propios y costos por chaco; transferencia.
-- **Diferencias:** «Previsto en planes» en lugar de «Reservado»; producto en secciones seguidas (sin pestañas); transferencia con «Persona origen/destino» y sin botón de intercambio; Personas con cifras de todas las campañas; agregar personas está en Ajustes › Datos (Personas no tiene «Agregar»); en pantalla ancha Almacén no usa tabla (decisión suya: no restaurarla; ver `integracion/almacen_ancho_w900.png` y `_w1280.png`, aceptación visual pendiente).
+- **Diferencias:** «Previsto en planes» en lugar de «Reservado»; producto en secciones seguidas (sin pestañas); transferencia con «Persona origen/destino» y sin botón de intercambio; Personas con cifras de todas las campañas; agregar personas está en Ajustes › Datos (Personas no tiene «Agregar»); en pantalla ancha Almacén no usa tabla (decisión suya: no restaurarla); desde `fc12123` pone las tarjetas de dos en dos para que la existencia quede junto al nombre (Pixel 8 en horizontal con letra normal, 900 y 1280 dp; con letra ampliada vuelve a una columna). Ver `integracion/almacen_flotante_w900.png`, `_w1280.png` y `j03`/`j04` del emulador; antes: `almacen_ancho_*`. Aceptación visual pendiente.
 - **Comparativas:** `1.4`, `1.5`, `2.8`, `4.1`–`4.3`, `5.1`–`5.7`.
 
 ## 5. Sindicato y convocatorias
