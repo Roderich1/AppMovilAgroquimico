@@ -202,14 +202,44 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
                         : 'Ningún producto coincide con "${_search.text.trim()}".',
                   )
                 else
-                  for (final row in rows) ...[
-                    _ProductCard(
-                      row: row,
-                      alerts: alertSnap.data,
-                      onTap: () => _openProduct(row.productId),
-                    ),
-                    const SizedBox(height: 10),
-                  ],
+                  // En pantalla ancha (desde 720 de lista) las tarjetas van de
+                  // dos en dos: a todo el ancho la existencia quedaba lejos
+                  // del nombre (revisión del autor, 2026-11-12). No es una
+                  // tabla: cada tarjeta conserva su lectura, sus avisos y su
+                  // toque; el orden sigue siendo por filas.
+                  LayoutBuilder(
+                    builder: (context, constraints) {
+                      Widget card(InventoryLineRead row) => _ProductCard(
+                        row: row,
+                        alerts: alertSnap.data,
+                        onTap: () => _openProduct(row.productId),
+                      );
+                      final columns = constraints.maxWidth >= 720 ? 2 : 1;
+                      return Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          for (var i = 0; i < rows.length; i += columns) ...[
+                            if (columns == 1)
+                              card(rows[i])
+                            else
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Expanded(child: card(rows[i])),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: i + 1 < rows.length
+                                        ? card(rows[i + 1])
+                                        : const SizedBox.shrink(),
+                                  ),
+                                ],
+                              ),
+                            const SizedBox(height: 10),
+                          ],
+                        ],
+                      );
+                    },
+                  ),
               ],
             );
           },

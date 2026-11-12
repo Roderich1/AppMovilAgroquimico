@@ -208,9 +208,11 @@ class AppShell extends StatefulWidget {
   /// «Nuevo» al que sustituye: la reserva vertical no cambia. Es más
   /// estrecho, así que tapa menos ancho del contenido.
   ///
-  /// Se publica con [ContentInsets] para que el contenido desplazable termine
-  /// por encima del FAB en TODAS las pantallas del shell, en vez de que cada una
-  /// invente su relleno (UIBUG-008, UIBUG-009).
+  /// Desde el 2026-11-12 es el alto de la franja que el shell deja bajo la
+  /// vista desplazable cuando hay botón (el contenido nunca pasa por detrás
+  /// de él). Antes se publicaba con [ContentInsets] como relleno al final de
+  /// cada página (UIBUG-008, UIBUG-009), que sólo protegía la última fila al
+  /// terminar de desplazar.
   static const double fabReserve = 88;
 
   @override
@@ -293,23 +295,35 @@ class _AppShellState extends State<AppShell> {
     // El FAB desaparece con el teclado abierto (UIBUG-009) y en las rutas que
     // ya tienen su propia acción primaria (UIBUG-047).
     final showFab = !keyboardOpen && !widget.hidesGlobalFab;
+    // **La lista termina por encima de «+ Registrar» (2026-11-12, revisión
+    // del autor).** Antes el contenido pasaba por detrás del botón y sólo se
+    // reservaba su alto al FINAL de la página (`ContentInsets`): con la lista
+    // arriba, el botón tapaba la existencia de la tarjeta que quedaba debajo
+    // (Almacén, Actividad). Ahora la zona del botón —su margen de 16, sus 56
+    // de alto y 16 de aire— queda fuera de la vista desplazable, dentro del
+    // área segura y por encima de la barra inferior: ninguna fila pasa por
+    // detrás, en ninguna posición del desplazamiento. El alto del botón no
+    // crece con la letra (Material fija 56), así que la franja tampoco.
+    // Las páginas ya no necesitan reservarlo al final (`bottomReserve: 0`).
+    final content =
+        context.findAncestorWidgetOfExactType<UncontrolledProviderScope>() ==
+            null
+        ? widget.child
+        // Indicador de sincronización (RF-18). Sólo con estado de la app
+        // disponible; sin nada pendiente deja el contenido intacto.
+        : SyncAwareBody(child: widget.child);
     final body = NotificationListener<UserScrollNotification>(
       onNotification: _onScroll,
       child: SafeArea(
-        child: ContentInsets(
-          // Sin FAB no hay nada que esquivar: reservar su alto dejaría un hueco
-          // muerto al final de la página.
-          bottomReserve: showFab ? AppShell.fabReserve : 0,
-          // Indicador de sincronización (RF-18). Sólo con estado de la app
-          // disponible; sin nada pendiente deja el contenido intacto.
-          child:
-              context
-                      .findAncestorWidgetOfExactType<
-                        UncontrolledProviderScope
-                      >() ==
-                  null
-              ? widget.child
-              : SyncAwareBody(child: widget.child),
+        child: Column(
+          children: [
+            Expanded(child: ContentInsets(bottomReserve: 0, child: content)),
+            if (showFab)
+              const SizedBox(
+                key: Key('shell-registrar-zona'),
+                height: AppShell.fabReserve,
+              ),
+          ],
         ),
       ),
     );
