@@ -122,7 +122,7 @@ void main() {
           isFalse,
         );
 
-        // En ancho (lista ≥ 720) las tarjetas van de dos en dos; en estrecho,
+        // En ancho (lista ≥ 640 × escala de la letra) las tarjetas van de dos en dos; en estrecho,
         // una por fila. Ningún nombre ni cantidad se pierde.
         position.jumpTo(0);
         await tester.pump();
@@ -134,9 +134,17 @@ void main() {
         // Márgenes de 16 a cada lado de la lista.
         expect(
           twoColumns,
-          viewport.width - 32 >= 720,
+          viewport.width - 32 >= 640 * scale,
           reason: 'columnas por ancho ${viewport.width}: $rects',
         );
+        // El Pixel 8 en horizontal con letra normal es el caso ancho real:
+        // ahí la existencia tiene que quedar cerca del nombre.
+        if (view.size == const Size(915, 412) && scale == 1.0) {
+          expect(twoColumns, isTrue, reason: 'Pixel 8 horizontal: $rects');
+        }
+        if (view.size.width < 600) {
+          expect(twoColumns, isFalse, reason: 'teléfono vertical: $rects');
+        }
         for (final text in const [
           'Fungicida sistémico de amplio espectro Carbendazim 50 SC',
           'Urea granulada',

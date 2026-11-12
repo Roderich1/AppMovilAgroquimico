@@ -202,11 +202,14 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
                         : 'Ningún producto coincide con "${_search.text.trim()}".',
                   )
                 else
-                  // En pantalla ancha (desde 720 de lista) las tarjetas van de
-                  // dos en dos: a todo el ancho la existencia quedaba lejos
-                  // del nombre (revisión del autor, 2026-11-12). No es una
-                  // tabla: cada tarjeta conserva su lectura, sus avisos y su
-                  // toque; el orden sigue siendo por filas.
+                  // En pantalla ancha (desde 640 de lista: el Pixel 8 en
+                  // horizontal da ~700) las tarjetas van de dos en dos, cada
+                  // una de al menos 315, tan ancha como en un teléfono: a
+                  // todo el ancho la existencia quedaba lejos del nombre
+                  // (revisión del autor, 2026-11-12). No es una tabla: cada
+                  // tarjeta conserva su lectura, sus avisos y su toque; el
+                  // orden sigue siendo por filas. Con letra ampliada hace
+                  // falta más ancho (640 × escala).
                   LayoutBuilder(
                     builder: (context, constraints) {
                       Widget card(InventoryLineRead row) => _ProductCard(
@@ -214,7 +217,14 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
                         alerts: alertSnap.data,
                         onTap: () => _openProduct(row.productId),
                       );
-                      final columns = constraints.maxWidth >= 720 ? 2 : 1;
+                      // Con letra grande la tarjeta crece en alto: en horizontal
+                      // dejaría de caber entera en la vista. El umbral crece
+                      // con la escala de la letra.
+                      final columns =
+                          constraints.maxWidth >=
+                              MediaQuery.textScalerOf(context).scale(640)
+                          ? 2
+                          : 1;
                       return Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
