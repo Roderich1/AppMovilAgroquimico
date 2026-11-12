@@ -8,9 +8,9 @@ Lo mantiene la sesión B en su rama. Rutas tal como están en `lib/app.dart` (ba
 |---|---|---|---|---|---|
 | 1.2 Inicio | `/` | `dashboard_screen.dart` | P | pestaña Inicio | **implementado + probado (entrega 1)** |
 | 1.4 Almacén | `/inventario` | `inventory_screen.dart` | P | pestaña Almacén; Inicio › «Ver cuánto queda» | **implementado + probado (entrega 1)** |
-| 4.2 Avisos | `/inventario/avisos` | `inventory_alerts_screen.dart` | P | Almacén (fichas y «Todos los avisos»); Inicio › «Para atender» | resumen con unidades (entrega 1); pantalla pendiente |
-| 4.1 Producto | `/inventario/:id` | `inventory_detail_screen.dart` | P | Almacén (fila); Avisos (fila) | pendiente |
-| 4.3 Estimación | `/inventario/estimacion` | `estimation_screen.dart` | P | Almacén › «Estimación del consumo» | pendiente |
+| 4.2 Avisos | `/inventario/avisos` | `inventory_alerts_screen.dart` | P | Almacén (fichas y «Todos los avisos»); Inicio › «Para atender» | **implementado + probado (entrega 5)** |
+| 4.1 Producto | `/inventario/:id` | `inventory_detail_screen.dart` | P | Almacén (fila); Avisos (fila) | **implementado + probado (entrega 5)** |
+| 4.3 Estimación | `/inventario/estimacion` | `estimation_screen.dart` | P | Almacén › «Estimación del consumo» | **implementado + probado (entrega 5)** |
 | 1.3 Actividad | `/operaciones` | `operations_screen.dart` | P | pestaña Actividad | **implementado + probado (entrega 2)** |
 | — Compras (lista) | `/compras` | `purchases_screen.dart` | P | Actividad › Compras › «Lista de compras»; Inicio › «compras con saldo por pagar» | **implementado + probado (entrega 3)** |
 | 2.8 Compra · detalle | `/compras/detalle/:id` | `purchase_detail_screen.dart` | P | Compras (fila); Actividad (fila) | **implementado + probado (entrega 3)** |
