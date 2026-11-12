@@ -5,6 +5,8 @@ import '../../app.dart';
 import '../../data/operation_mode_store.dart';
 import '../../domain/operation_mode.dart';
 import '../../operation_mode_controller.dart';
+import '../theme/agro_theme.dart';
+import '../widgets/agro_ui.dart';
 import '../widgets/common.dart';
 
 /// Qué significa cada modalidad, con las mismas palabras en la elección
@@ -149,79 +151,142 @@ class _OperationModeScreenState extends ConsumerState<OperationModeScreen> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('Modo de uso')),
     body: SafeArea(
       child: FutureBuilder<OperationMode>(
         future: _current,
         builder: (context, snapshot) {
           final mode = snapshot.data;
+          final header = Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+            child: Row(
+              children: [
+                CircleIconButton(
+                  icon: Icons.arrow_back,
+                  tooltip: 'Volver',
+                  onPressed: () => Navigator.of(context).maybePop(),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Semantics(
+                    header: true,
+                    child: Text('Modo de uso', style: AgroText.h1),
+                  ),
+                ),
+              ],
+            ),
+          );
           if (mode == null) {
-            return const Center(child: CircularProgressIndicator());
+            return Column(
+              children: [
+                header,
+                const Expanded(
+                  child: Center(child: CircularProgressIndicator()),
+                ),
+              ],
+            );
           }
           final target = mode == OperationMode.shared
               ? OperationMode.personal
               : OperationMode.shared;
           final blocked = _blocked;
-          return ListView(
-            padding: const EdgeInsets.all(20),
+          return Column(
             children: [
-              Text(
-                mode == OperationMode.shared
-                    ? 'Modalidad actual: inventario compartido'
-                    : 'Modalidad actual: inventario propio',
-                key: const Key('mode-current'),
-                style: Theme.of(context).textTheme.titleMedium,
-              ),
-              const SizedBox(height: 4),
-              Text(
-                operationModeExplanation(mode),
-                key: const Key('mode-current-explanation'),
-              ),
-              const SizedBox(height: 16),
-              Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(14),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Si cambia a ${operationModeTitle(target).toLowerCase()}',
-                        style: const TextStyle(fontWeight: FontWeight.w700),
+              header,
+              Expanded(
+                child: ListView(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+                  children: [
+                    // Rediseño (lámina «Modo de uso»): la modalidad en uso en
+                    // una tarjeta oscura y la otra en blanco, con lo que hace.
+                    Material(
+                      color: AgroColors.ink,
+                      borderRadius: BorderRadius.circular(28),
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const StatusBadge(
+                              label: 'En uso',
+                              tone: BadgeTone.ok,
+                            ),
+                            const SizedBox(height: 10),
+                            Text(
+                              mode == OperationMode.shared
+                                  ? 'Modalidad actual: inventario compartido'
+                                  : 'Modalidad actual: inventario propio',
+                              key: const Key('mode-current'),
+                              style: AgroText.h2.copyWith(color: Colors.white),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              operationModeExplanation(mode),
+                              key: const Key('mode-current-explanation'),
+                              style: AgroText.detail.copyWith(
+                                color: AgroColors.onInkMuted,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                      const SizedBox(height: 4),
-                      Text(
-                        operationModeExplanation(target),
-                        key: const Key('mode-target-explanation'),
+                    ),
+                    const SizedBox(height: 12),
+                    Material(
+                      color: AgroColors.surface,
+                      borderRadius: BorderRadius.circular(28),
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Si cambia a '
+                              '${operationModeTitle(target).toLowerCase()}',
+                              style: AgroText.h2,
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              operationModeExplanation(target),
+                              key: const Key('mode-target-explanation'),
+                              style: AgroText.detail,
+                            ),
+                          ],
+                        ),
                       ),
-                      const SizedBox(height: 8),
-                      const Text(
-                        'Cambiar no borra ni reasigna registros y no necesita '
-                        'conexión.',
+                    ),
+                    const SizedBox(height: 12),
+                    const NoticeBox(
+                      icon: Icons.check,
+                      text:
+                          'Cambiar no borra ni reasigna registros y no '
+                          'necesita conexión.',
+                    ),
+                    if (blocked != null) ...[
+                      const SizedBox(height: 12),
+                      NoticeBox(
+                        key: const Key('mode-blocked'),
+                        tone: NoticeTone.danger,
+                        text: blocked,
                       ),
                     ],
-                  ),
+                  ],
                 ),
               ),
-              if (blocked != null) ...[
-                const SizedBox(height: 16),
-                Card(
-                  key: const Key('mode-blocked'),
-                  color: Theme.of(context).colorScheme.errorContainer,
-                  child: Padding(
-                    padding: const EdgeInsets.all(14),
-                    child: Text(blocked),
+              BottomPanel(
+                children: [
+                  FilledButton(
+                    key: const Key('mode-change'),
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size.fromHeight(56),
+                    ),
+                    onPressed: _saving ? null : () => _change(target),
+                    child: Text(
+                      target == OperationMode.personal
+                          ? 'Cambiar a inventario propio'
+                          : 'Cambiar a inventario compartido',
+                    ),
                   ),
-                ),
-              ],
-              const SizedBox(height: 16),
-              FilledButton(
-                key: const Key('mode-change'),
-                onPressed: _saving ? null : () => _change(target),
-                child: Text(
-                  target == OperationMode.personal
-                      ? 'Cambiar a inventario propio'
-                      : 'Cambiar a inventario compartido',
-                ),
+                ],
               ),
             ],
           );
