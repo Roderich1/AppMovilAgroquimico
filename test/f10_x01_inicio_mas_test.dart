@@ -93,8 +93,8 @@ void main() {
     // Registrar aplicación abre su formulario.
     await tapKey(tester, 'home-registrar-aplicacion');
     await waitFor(tester, picker('Chaco'));
-    expect(find.text('Nueva aplicación'), findsOneWidget);
-    expect(find.text('Paso 1 de 3 · Persona y chaco'), findsOneWidget);
+    expect(find.byKey(const Key('application-step')), findsOneWidget);
+    expect(find.text('¿Dónde aplicó?'), findsOneWidget);
     c.read(routerProvider).pop();
     await settle(tester);
 
