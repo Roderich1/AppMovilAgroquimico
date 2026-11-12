@@ -129,7 +129,7 @@ void main() {
           ).compose(
             ReportRequest(
               kind: ReportKind.accountStatement,
-              format: ReportFormat.csv,
+              format: ReportFormat.xlsx,
               personId: e.titular,
             ),
           );

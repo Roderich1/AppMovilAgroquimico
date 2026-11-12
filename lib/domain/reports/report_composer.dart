@@ -4,8 +4,8 @@
 /// [ReportTable]. No sabe de SQLite, de Riverpod, de widgets ni de archivos:
 /// eso lo hace el servicio de exportación, que es quien lee y quien escribe.
 ///
-/// Los totales se suman aquí, una sola vez y con enteros, para que CSV y PDF no
-/// puedan discrepar.
+/// Los totales se suman aquí, una sola vez y con enteros, para que Excel y PDF
+/// no puedan discrepar.
 library;
 
 import '../account_ledger.dart';
@@ -201,8 +201,8 @@ class ReportComposer {
   /// Resumen de una campaña. La campaña es obligatoria.
   ///
   /// Cantidad e importe van en columnas distintas en vez de compartir una
-  /// columna "valor": mezclar conteos e importes en la misma columna deja un
-  /// CSV que ninguna hoja de cálculo puede tipar.
+  /// columna "valor": mezclar conteos e importes en la misma columna deja una
+  /// columna que ninguna hoja de cálculo puede tipar.
   ReportTable campaignSummary({
     required CampaignSummaryRead summary,
     required String campaignName,

@@ -81,6 +81,15 @@ Consultas tipadas: `campaigns`, `people`, `inventorySummary`, `settlements`, `to
 | REQ-005 | Apóstrofo en celdas de TEXTO que empiezan por `=`, `+`, `-`, `@`, tabulador o CR, incluidos título, filtros y cabeceras | `report_csv_test.dart` |
 | REQ-006 | Sin red y sin escritura: la base queda idéntica byte a byte | `report_export_service_test.dart` |
 
+> **Nota del 2026-11-12.** El CSV se sustituyó por Excel (`.xlsx`) por decisión del autor; el
+> PDF no cambia. La tabla de arriba describe el CSV tal como se verificó entonces. Hoy:
+> REQ-001 «Excel y PDF reciben el mismo `ReportTable`» (`report_pdf_test.dart` § equivalencia
+> entre Excel y PDF); REQ-002, REQ-004 y REQ-005 en `report_xlsx_test.dart` (libro que se
+> descomprime y se valida con un analizador XML estricto; registros y columnas idénticos a los
+> del CSV para los cinco reportes; números en celdas numéricas; textos `inlineStr`, sin
+> fórmulas); REQ-006 sigue en `report_export_service_test.dart`. Comprobado sólo en el host
+> (pruebas de Flutter); no hay verificación en teléfono ni en emulador de esta sustitución.
+
 ### EVO-006 — PDF
 
 | ID | Cómo se cumple | Test |

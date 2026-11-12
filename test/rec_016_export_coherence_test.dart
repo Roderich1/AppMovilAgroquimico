@@ -25,19 +25,19 @@
 // Todas las aplicaciones son de Ana, que paga por consumo: sus cargos son los
 // costos de cada aplicación y la reversión de A3 abona 60,00 en la Campaña 1.
 
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:agroquimicos/data/agro_repository.dart';
 import 'package:agroquimicos/data/app_database.dart';
 import 'package:agroquimicos/domain/models.dart';
 import 'package:agroquimicos/domain/reports/report_composer.dart';
-import 'package:agroquimicos/services/reports/csv_report_generator.dart';
 import 'package:agroquimicos/services/reports/report_export_service.dart';
 import 'package:agroquimicos/services/reports/report_storage.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+
+import 'support/xlsx_reader.dart';
 
 void main() {
   sqfliteFfiInit();
@@ -161,19 +161,21 @@ void main() {
     if (await root.exists()) await root.delete(recursive: true);
   });
 
-  /// Registros del CSV exportado, sin el BOM. Se omite el de «Generado»: su
-  /// hora local depende de la zona del equipo y no es parte del contenido.
+  /// Registros del Excel exportado, en la forma `;` del antiguo CSV
+  /// (`support/xlsx_reader.dart`; desde el 2026-11-12 los reportes se exportan
+  /// a Excel). `xlsxRecords` falla si algún número quedó en una celda de
+  /// texto. Se omite el de «Generado»: su hora local depende de la zona del
+  /// equipo y no es parte del contenido.
   Future<List<String>> exported(ReportKind kind, {int? campaignId}) async {
     final stored = await service.export(
       ReportRequest(
         kind: kind,
-        format: ReportFormat.csv,
+        format: ReportFormat.xlsx,
         campaignId: campaignId,
       ),
     );
-    final bytes = await File(stored.path).readAsBytes();
-    expect(bytes.sublist(0, utf8Bom.length), utf8Bom);
-    final records = utf8.decode(bytes.sublist(utf8Bom.length)).split('\r\n');
+    expect(stored.fileName, endsWith('.xlsx'));
+    final records = xlsxRecords(await File(stored.path).readAsBytes());
     expect(records[1], startsWith('Generado;'));
     return [records[0], ...records.skip(2)];
   }
@@ -236,7 +238,6 @@ void main() {
         'Paraquat;4,5;KG;227,50',
         '',
         'Costo total (Bs);827,50',
-        '',
       ]);
     });
 
@@ -250,7 +251,6 @@ void main() {
         'Paraquat;1;KG;50,00',
         '',
         'Costo total (Bs);530,00',
-        '',
       ]);
     });
 
@@ -264,7 +264,6 @@ void main() {
         'Paraquat;3,5;KG;177,50',
         '',
         'Costo total (Bs);297,50',
-        '',
       ]);
     });
   });
@@ -283,7 +282,6 @@ void main() {
         'Chaco Grande;Ana Familiar;10;590,00;59,00',
         '',
         'Costo total (Bs);827,50',
-        '',
       ]);
     });
 
@@ -298,7 +296,6 @@ void main() {
         'Chaco Grande;Ana Familiar;10;470,00;47,00',
         '',
         'Costo total (Bs);530,00',
-        '',
       ]);
     });
 
@@ -313,7 +310,6 @@ void main() {
         'Chaco Grande;Ana Familiar;10;120,00;12,00',
         '',
         'Costo total (Bs);297,50',
-        '',
       ]);
     });
   });
@@ -339,7 +335,6 @@ void main() {
             'Compras (Bs);1100,00',
             'Aplicaciones (Bs);530,00',
             'Deuda pendiente por origen (Bs);530,00',
-            '',
           ],
         );
       },
@@ -361,7 +356,6 @@ void main() {
           'Compras (Bs);110,00',
           'Aplicaciones (Bs);297,50',
           'Deuda pendiente por origen (Bs);297,50',
-          '',
         ],
       );
     });

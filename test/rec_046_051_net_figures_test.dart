@@ -30,8 +30,7 @@
 // El físico, el valor (6 + 1 L a Bs 100,00 = Bs 700,00), FIFO y los costos no
 // cambian. Reutiliza `rec_046_inventory_detail_test.dart` para la procedencia y
 // los filtros de lotes, y `report_export_service_test.dart:328` para la
-// paridad del CSV de inventario sin reversiones.
-import 'dart:convert';
+// paridad del CSV de inventario sin reversiones (desde el 2026-11-12, Excel).
 import 'dart:io';
 
 import 'package:agroquimicos/app.dart';
@@ -42,7 +41,6 @@ import 'package:agroquimicos/domain/models.dart';
 import 'package:agroquimicos/domain/reports/report_composer.dart';
 import 'package:agroquimicos/presentation/screens/inventory_detail_screen.dart';
 import 'package:agroquimicos/presentation/screens/person_detail_screen.dart';
-import 'package:agroquimicos/services/reports/csv_report_generator.dart';
 import 'package:agroquimicos/services/reports/report_export_service.dart';
 import 'package:agroquimicos/services/reports/report_storage.dart';
 import 'package:flutter/material.dart';
@@ -53,6 +51,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'support/f04_app_access.dart';
 import 'support/f04_mode_fixtures.dart';
+import 'support/xlsx_reader.dart';
 
 void main() {
   sqfliteFfiInit();
@@ -395,7 +394,7 @@ void main() {
       },
     );
 
-    test('el CSV de inventario sigue mostrando físico, comprometido, '
+    test('el Excel de inventario sigue mostrando físico, comprometido, '
         'proyectado y valor', () async {
       final root = await Directory.systemTemp.createTemp('agro_rec_neto_');
       addTearDown(() => root.delete(recursive: true));
@@ -409,15 +408,15 @@ void main() {
       final stored = await service.export(
         const ReportRequest(
           kind: ReportKind.inventory,
-          format: ReportFormat.csv,
+          format: ReportFormat.xlsx,
         ),
       );
-      final content = utf8.decode(
-        (await File(stored.path).readAsBytes()).sublist(utf8Bom.length),
-      );
-      expect(content, contains('\r\nAtrazina;KG;0;0;0;0,00\r\n'));
-      expect(content, contains('\r\nGlifosato;L;7;0;7;700,00\r\n'));
-      expect(content, contains('Valor total (Bs);700,00'));
+      // Registros completos del libro en la forma `;` del antiguo CSV, con
+      // cada número en una celda numérica (`support/xlsx_reader.dart`).
+      final records = xlsxRecords(await File(stored.path).readAsBytes());
+      expect(records, contains('Atrazina;KG;0;0;0;0,00'));
+      expect(records, contains('Glifosato;L;7;0;7;700,00'));
+      expect(records, contains('Valor total (Bs);700,00'));
     });
   });
 
