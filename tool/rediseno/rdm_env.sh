@@ -18,11 +18,14 @@ set -uo pipefail
 ROOT=/c/Users/MSI/Documents/ProyectoDeGrado/ProyectoAgro
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MOB=$(cd "$here/../.." && pwd)
-# Back de la etapa 2 (contrato de la base 01b2576): sólo se ejecuta su dist.
-BE=$ROOT/_wt/ET2-BE/Back
+# Back CONGELADO propio (worktree detached _wt/RDM-BE en 5b394f2, contrato
+# de convocatorias 2 + migración P-C, que corresponde a la rama F integrada
+# en el rediseño). Desde el 2026-11-12 ya no se usa _wt/ET2-BE, que cambia
+# con el trabajo de otra sesión. Sólo se ejecuta su dist.
+BE=$ROOT/_wt/RDM-BE/Back
 CENTRAL=$ROOT/_wt/DEMO-BE/tool/demo/demo-central.cjs
-RICA=$ROOT/_wt/ET2-BE/tool/demo-rica/demo-rica.cjs
-GATE_JS=$ROOT/_wt/ET2-BE/tool/etapa1/api_gate.cjs
+RICA=$ROOT/_wt/RDM-BE/tool/demo-rica/demo-rica.cjs
+GATE_JS=$ROOT/_wt/RDM-BE/tool/etapa1/api_gate.cjs
 TUNNEL=$ROOT/_wt/RICA-MOB/tool/f03_res_01/tunnel.sh
 CLOUDFLARED=$ROOT/_wt/tools/cloudflared-2026.10.0/cloudflared-windows-amd64.exe
 RUN=${RDM_RUN:-/c/Users/MSI/AppData/Local/Temp/agro_rdm}; mkdir -p "$RUN" "$RUN/photos" "$RUN/backups"
