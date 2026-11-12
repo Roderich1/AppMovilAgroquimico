@@ -242,7 +242,7 @@ class _LabelPhotoSheetState extends ConsumerState<LabelPhotoSheet> {
       switch (request.photoSendStatus) {
         IdentificationPhotoStatus.sent =>
           photo != null && photo.sha256 == request.photoSha256Consented
-              ? BadgeTone.voice
+              ? BadgeTone.ok
               : BadgeTone.neutral,
         IdentificationPhotoStatus.failed =>
           request.photoRetryable ? BadgeTone.review : BadgeTone.missing,

@@ -1,12 +1,15 @@
 # Estado de la sesión C
 
 - Dueño del worktree: proyectoagro-78 (sesión C) desde 2026-11-12 07:09
-- Base incorporada: B0 (33e581f)
+- Base incorporada: B1 (0a2e321, fusionada en a14bc67)
 
 ## Entregas listas
 
 | n | SHA | Pantallas / rutas | Pruebas corridas | Capturas | Diferencias con la lámina |
 |---|---|---|---|---|---|
+| 1b | 578d0c6 | Corrección C-1: Vínculos con `SegmentToggle` de B1; `BadgeTone.ok` en estados positivos (todas las pantallas de C) | analyze sin avisos; los 13 archivos de prueba de las entregas 1–3 verdes sobre B1 | todas regeneradas sobre B1 a 100/130/200 % y 360 dp | Selector aún apilado en el arnés al 100 %: solicitud 7 |
+| 3 | 94a79bf | Sindicato (`union_screen.dart`, ruta `/sindicato` por cablear) y Sincronización (`/sincronizacion`, `sync_status_screen.dart`) | analyze sin avisos; `rdm_c_union_screen_test` (nueva, 4), `sync_screens_test`, `f10_mensajes_autorizacion_test`, `f10_sync_release_refresh_test`, `f10_sync_textos_confirmacion_test`, `f10_sync_version_mismatch_resume_test`, `f10_legibility_97_test`, `oe3_fab_sincronizacion_test` verdes | `1.5_sindicato*`, `7.x_sincronizacion*` | Ver «Entrega 3» |
+| 2 | 7081df4 | Necesidad (`/planificacion/necesidades`) y Consumo (`/sincronizacion/consumo`) | analyze sin avisos; `sync_screens_test`, `consumption_publish_screen_test`, `uxj_c_consumo_vinculos_test` + los de la entrega 1 (23 verdes) | `6.4_necesidad*`, `6.5_consumo*`, `6.5b_consumo_final*` | Ver «Entrega 2» |
 | 1 | 225acc3 | Vinculos (`/sindicato/vinculos`, `central_binding_screen.dart`), hoja Identificacion (`rdm_c_identification.dart`), hoja Etiqueta (`label_photo_sheet.dart`) | `flutter analyze` de lo tocado sin avisos; `flutter test --concurrency=2`: `e1_binding_screen_identification_test`, `e1_catalog_label_photo_test`, `f04_c2_binding_screen_test`, `uxj_c_consumo_vinculos_test`, `sync_screens_test` (21 verdes) | `flutter test tool/rediseno/capturas_c_test.dart` → `build/rediseno_capturas_c/4.4*`, `4.5*`, `4.6*` a 390×844, 130 %, 200 % y 360 dp (sin versionar, datos sintéticos) | Ver «Entrega 1» abajo |
 
 ### Entrega 1 — detalle
@@ -27,18 +30,53 @@ Contratos usados: E1 §5.2–§5.6 y §9 (`_wt/ET2-BE` `docs/architecture/E1_*`)
 | Títulos a 200 % | Títulos grandes hasta 1,4×; el resto del texto al 200 % | Con 200 % «Sincronización» o «identificación» se partían por dentro en 360 dp. |
 | Selector Productos · Campañas a 200 % | Opciones apiladas si no caben | El `SegmentToggle` compartido partía «Productos». |
 
+### Entrega 2 — detalle
+
+Conservado: declarar con fecha → campaña → producto vinculado → cantidad y confirmación expresa; cambiar cantidad (sustituye, no suma), anular con confirmación, declarar de nuevo, historial de versiones, resolver conflicto (keepMine/withdraw, «Usted decide»), aviso C-02 con «Sincronizar ahora», relectura tras cada ciclo del worker. Consumo: vista previa que no escribe, «Publicar» expreso sólo con cambios, «Sin cambios / Nuevo / Cambió (antes…)», conflicto «Enviar mi total actual», «Retirar del sindicato» con confirmación, rechazo terminal, exclusiones (familiares o terceros, revertidas, sin vínculo), relectura tras cada ciclo. Contratos: F06 §3/F06-COLL-04 (necesidad), MOB #33/F04 §2.4 (consumo expreso; F06-ADR-006 sigue Proposed: sin envío automático).
+
+| Lámina | App | Motivo |
+|---|---|---|
+| Necesidad: «Invierno 2026 · no cambia su almacén» como subtítulo | Campaña en cada tarjeta; subtítulo «Lo que usted solicita… No cambia su inventario.» | Puede haber necesidades de varias campañas. |
+| Necesidad: «Aceptada el 11/11/2026» | Frase vigente del envío («Aceptada por el sindicato: fecha», «Guardada, pendiente de envío», «En conflicto…») | Distingue guardado en el teléfono de aceptado por el sindicato (C-01/C-03). |
+| Necesidad: «+ Declarar» flotante | «+ Declarar» en la cabecera | El FAB global ya flota abajo (solicitud 3). |
+| Necesidad: «Cambiar cantidad», «Historial», ⋮ | Iguales; con conflicto sin decidir, «Resolver conflicto…» visible; «Anular» en ⋮ | El conflicto no se esconde en un menú. |
+| Consumo: «Por publicar» | «Pendiente / Enviado / Requiere atención» + la frase de qué pasaría al publicar | Palabras pedidas por el autor el 2026-11-05 (UXJ-C). |
+| Consumo: «No se publica 1 aplicación…» plegado | Bloque «No se publica» visible | No se oculta por qué algo no se envía. |
+| Consumo: «Publicar 6 L al sindicato» fijo abajo | «Publicar consumo al sindicato» al final de la lista | No se suman litros y kilos; el FAB global tapaba un botón fijo. |
+| Declarar / cambiar cantidad / historial como hojas | Siguen siendo diálogos | La lámina no los muestra; son confirmaciones probadas (bloque 5 del orquestador). |
+
+### Entrega 3 — detalle
+
+Conservado en Sincronización: «Sincronizar ahora» expreso; conteos por estado; última confirmación (sin «ACK»); avisos de pausa por autorización, retención por período («Revisar»), restauración («Liberar» con confirmación) y versión («Reintentar con esta versión» con confirmación); filas con qué es, estado, fechas y explicación; «Decidir…/Revisar…» hacia la pantalla de la proyección; detalle técnico plegado.
+
+| Lámina | App | Motivo |
+|---|---|---|
+| Sindicato: «Último envío: hoy, 11/11/2026» | «Última confirmación: fecha» / «Todavía sin confirmación» | Es el dato real (`lastAcceptedAt`); no hay fecha de «último envío». |
+| Sindicato: «1 envío por hacer» | «N envíos pendientes» / «Nada pendiente de envío» y «N requieren atención» | Cuenta sólo la cola de totales propios (necesidad y consumo). |
+| Sindicato: tarjeta de la convocatoria abierta con «Usted pidió 12 L…» | Fila «Convocatorias» con el aviso vigente de convocatoria nueva («Nueva») | Leer convocatorias y participación exigiría consultas nuevas y la API que cambia la sesión F. Se completa cuando llegue la base nueva. |
+| Sindicato: pastillas «1 aceptada», «1 por publicar», «1 en trámite» | Sin contadores por entrada | Requerirían consultas nuevas en la pestaña (y hacen frágiles las pruebas con `settle` fijo). Si se quieren, pedir un proveedor de resumen (solicitud 5). |
+| Sincronización: (sin lámina propia) | Estilo de las demás pantallas de C | — |
+| Títulos | Reducción mínima sólo si la palabra más larga no cabe | Las pruebas de legibilidad (#97) usan glifos cuadrados; con fuentes reales no se reduce. |
+
+### Revisión C-1 — respuesta (commit de corrección abajo)
+
+1. Selector Productos · Campañas: `RdmCToggle` retirado; la pantalla usa el `SegmentToggle` de B1. **Sigue saliendo apilado en el arnés al 100 %/390 dp**, y no por la pantalla: `SegmentToggle._labelStyle` no tiene `fontFamily`, así que `measureText` mide con la fuente por defecto del motor (en el arnés, la de pruebas: 1 em por letra). Sonda del 2026-11-12: «Productos · 5» negrita 14 px mide **182 px** sin familia y **89,6 px** con DM Sans; el hueco es 137 px. En el teléfono la fuente por defecto es Roboto y cabría, pero la medida debe usar la fuente con que se dibuja. Ver solicitud 7.
+2. `BadgeTone.ok` en lugar de `voice` para los estados positivos (recibido, aceptado, enviado, «Nueva»).
+
 ## En curso
 
-- Entrega 2: Necesidad (`/planificacion/necesidades`) y Consumo (`/sincronizacion/consumo`).
-- Después: Sindicato (`union_screen.dart`) y Sincronización (`/sincronizacion`).
+- Nada en curso entre las pantallas independientes: entregas 1–3 cubren Sindicato, Necesidad, Consumo, Vinculos, Identificacion, Etiqueta y Sincronización.
 - **Esperando base nueva** (rama de la sesión F): Convocatorias, Convocatoria, Participar (`joint_purchases_screen.dart`, `joint_purchase_detail_screen.dart`). No se tocan.
 
 ## Solicitudes al orquestador
 
-1. **Promoción opcional** de `RdmCPage` (cabecera de consulta: Volver redondo, acción breve, título grande), `RdmCSheetBody`/`showRdmCSheet` (hoja con título y Cerrar), `RdmCRow`, `RdmCToggle` (selector que se apila si no cabe) y `rdmCTitleScaler` (títulos hasta 1,4×) a `agro_ui.dart`, si sirven a A/B.
-2. **`SegmentToggle` a 200 %** parte palabras en la mitad del ancho («Producto/s»). Propuesta: apilar las opciones si no caben (como `RdmCToggle`).
-3. **FAB global** en `/planificacion/necesidades`, `/sincronizacion/consumo` y `/sindicato/vinculos`: compite con la acción propia de la pantalla («Declarar», «Publicar») y tapa el final de la lista. Pedir que se oculte en esas rutas (y en `/sindicato`) cuando llegue la barra nueva (B1). Mientras tanto, «Declarar» y «Publicar» quedan en el contenido, no flotantes.
-4. **Ruta `/sindicato`**: el esqueleto ya está en `union_screen.dart`; falta cablearla (B1).
+1. **Promoción opcional** (pendiente hasta las cabeceras de B; `RdmCToggle` ya no existe) de `RdmCPage` (cabecera de consulta: Volver redondo, acción breve, título grande), `RdmCSheetBody`/`showRdmCSheet` (hoja con título y Cerrar), `RdmCRow`, `RdmCToggle` (selector que se apila si no cabe) y `rdmCTitleScaler` (títulos hasta 1,4×) a `agro_ui.dart`, si sirven a A/B.
+2. ~~`SegmentToggle` a 200 %~~: resuelto en B1.
+3. ~~FAB global~~ (resuelto en B1; «Declarar» sigue en la cabecera). Texto original: **FAB global** en `/planificacion/necesidades`, `/sincronizacion/consumo` y `/sindicato/vinculos`: compite con la acción propia de la pantalla («Declarar», «Publicar») y tapa el final de la lista. Pedir que se oculte en esas rutas (y en `/sindicato`) cuando llegue la barra nueva (B1). Mientras tanto, «Declarar» y «Publicar» quedan en el contenido, no flotantes.
+4. ~~Ruta `/sindicato`~~ (cableada en B1). Texto original: **Ruta `/sindicato`**: el esqueleto ya está en `union_screen.dart`; falta cablearla (B1). La pestaña no tiene «Volver» si es raíz (`canPop` falso).
+5. **Contadores de la pestaña Sindicato** (opcional): un proveedor de resumen de una sola consulta con necesidades activas, totales de consumo por publicar y solicitudes de identificación en trámite, si el autor quiere las pastillas de la lámina. No lo creo yo: es `lib/services/**`/`lib/data/**`.
+7. **`SegmentToggle` mide sin la fuente con que dibuja** (`agro_ui.dart`): añadir `fontFamily: AgroFonts.body` a `_labelStyle` (y lo mismo en cualquier `measureText` con estilo sin familia, p. ej. `AmountAside` usa `AgroText.amount`, que sí la tiene). Con eso el arnés muestra el selector lado a lado al 100 % y lo apila a 200 %, como se pidió.
+6. **`f10_sync_textos_confirmacion_test`**: el chip anterior no seguía la escala del teléfono; la línea «Última confirmación» ahora sí (12 px escalados, fuera de la tarjeta, para caber en 2 líneas a 360 dp/130 % con la fuente de pruebas). Revisar si se prefiere otro tamaño.
 
 ## Bloqueos y decisiones del autor
 

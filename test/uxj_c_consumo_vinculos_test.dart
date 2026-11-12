@@ -98,6 +98,16 @@ void main() {
   Finder rowText(String productRef, String text) =>
       find.descendant(of: row(productRef), matching: find.textContaining(text));
 
+  /// Rediseño (sesión C): la cantidad y la palabra del estado van en
+  /// widgets distintos de la misma fila; la fila tiene las dos.
+  Finder rowAmountState(String productRef, String amount, String state) =>
+      find.byWidgetPredicate(
+        (widget) =>
+            widget.key == Key('consumption-$campaignRef-$productRef') &&
+            rowText(productRef, amount).evaluate().length == 1 &&
+            rowText(productRef, state).evaluate().length == 1,
+      );
+
   testWidgets('estados Pendiente y Enviado derivados de la outbox', (
     tester,
   ) async {
@@ -112,11 +122,11 @@ void main() {
       await f.apply(f.ownerPersonId, {f.extraLitreProductId: 400});
       return f;
     });
-    expect(rowText(litreRef, '2,5 L · Enviado'), findsOneWidget);
+    expect(rowAmountState(litreRef, '2,5 L', 'Enviado'), findsOneWidget);
     expect(rowText(litreRef, 'Aceptado por el sindicato'), findsOneWidget);
-    expect(rowText(kiloRef, '1,5 KG · Pendiente'), findsOneWidget);
+    expect(rowAmountState(kiloRef, '1,5 KG', 'Pendiente'), findsOneWidget);
     expect(rowText(kiloRef, 'Guardado, pendiente de envío'), findsOneWidget);
-    expect(rowText(extraLitreRef, '0,4 L · Pendiente'), findsOneWidget);
+    expect(rowAmountState(extraLitreRef, '0,4 L', 'Pendiente'), findsOneWidget);
     expect(
       rowText(extraLitreRef, 'Nuevo: se publicará si pulsa «Publicar»'),
       findsOneWidget,
@@ -140,9 +150,12 @@ void main() {
         );
         return f;
       });
-      expect(rowText(litreRef, '2,5 L · Requiere atención'), findsOneWidget);
+      expect(
+        rowAmountState(litreRef, '2,5 L', 'Requiere atención'),
+        findsOneWidget,
+      );
       expect(rowText(litreRef, 'Falta verificar el acceso.'), findsOneWidget);
-      expect(rowText(kiloRef, '1,5 KG · Pendiente'), findsOneWidget);
+      expect(rowAmountState(kiloRef, '1,5 KG', 'Pendiente'), findsOneWidget);
       expect(rowText(kiloRef, 'Falta verificar el acceso'), findsNothing);
     },
   );
@@ -188,7 +201,10 @@ void main() {
         );
         return f;
       });
-      expect(rowText(litreRef, '2,5 L · Requiere atención'), findsOneWidget);
+      expect(
+        rowAmountState(litreRef, '2,5 L', 'Requiere atención'),
+        findsOneWidget,
+      );
       expect(
         rowText(
           litreRef,
@@ -199,7 +215,10 @@ void main() {
       );
       // m3 de B: el mensaje de CAMPAIGN_NOT_OPEN no dice «sellada».
       expect(rowText(litreRef, 'sellada'), findsNothing);
-      expect(rowText(kiloRef, '1,5 KG · Requiere atención'), findsOneWidget);
+      expect(
+        rowAmountState(kiloRef, '1,5 KG', 'Requiere atención'),
+        findsOneWidget,
+      );
       expect(
         rowText(kiloRef, 'Esta campaña está sellada en el sindicato'),
         findsOneWidget,

@@ -623,7 +623,7 @@ class _CentralBindingScreenState extends ConsumerState<CentralBindingScreen> {
               ),
               const SizedBox(height: 12),
             ],
-            RdmCToggle<_BindingTab>(
+            SegmentToggle<_BindingTab>(
               semanticLabel: 'Mostrar productos o campañas',
               selected: tab,
               onChanged: (value) => setState(() => tab = value),
