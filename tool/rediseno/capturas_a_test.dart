@@ -585,4 +585,32 @@ void main() {
     await settle(tester);
     await shot(tester, '5.3b_cuentas_costos');
   });
+
+  shotsTest('personas: lista de personas', (tester) async {
+    final s = await setUp(tester, 'rdm-a-personas', const []);
+    final h = s.h;
+    await tester.runAsync(() async {
+      for (final (person, farm) in [
+        (h.relative, h.relativeFarm),
+        (h.titular, h.titularFarm),
+      ]) {
+        await h.repo.confirmApplication(
+          ApplicationDraft(
+            personId: person,
+            farmId: farm,
+            campaignId: h.campaign,
+            appliedAt: DateTime.now(),
+            lines: [
+              ApplicationLineDraft(productId: h.product, quantityBase: 1500),
+            ],
+          ),
+        );
+      }
+    });
+    final c = await pumpModeApp(tester, s.database);
+    c.read(routerProvider).go('/personas');
+    await waitFor(tester, find.byKey(const Key('persons-receivable')));
+    await settle(tester);
+    await shot(tester, '5.1_personas');
+  });
 }
