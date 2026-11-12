@@ -1,9 +1,6 @@
-import 'dart:io';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:path/path.dart' as p;
 
 import '../../app.dart';
 import '../../data/typed_reads.dart';
@@ -14,17 +11,15 @@ import '../../domain/money.dart';
 import '../../domain/operation_mode.dart';
 import '../../domain/read_models.dart';
 import '../../domain/reports/report_composer.dart';
-import '../../domain/restore_ownership.dart';
-import '../../guarded_restore.dart';
 import '../../operation_mode_controller.dart';
 import '../theme/agro_theme.dart';
 import '../widgets/account_statement_view.dart';
 import '../widgets/agro_ui.dart';
 import '../widgets/common.dart';
+import '../widgets/local_backup_actions.dart';
 import '../widgets/rdm_a_payment.dart';
 import '../widgets/rdm_a_people.dart';
 import '../widgets/rdm_b_ui.dart' show BigFigure, RdmScrollPage, splitBob;
-import '../widgets/identification_texts.dart' show labelPhotosNotInBackups;
 
 class SettlementsScreen extends ConsumerStatefulWidget {
   const SettlementsScreen({super.key});
@@ -415,180 +410,6 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
     );
   }
 
-  Future<void> _backup() async {
-    try {
-      final result = await ref.read(backupServiceProvider).export();
-      if (!mounted) return;
-      final photos = result.attachmentCount == 1
-          ? '1 fotografía de factura'
-          : '${result.attachmentCount} fotografías de factura';
-      showSuccess(
-        context,
-        'Respaldo guardado en ${result.path} (base de datos y $photos). '
-        '$labelPhotosNotInBackups',
-      );
-      // Una discrepancia no puede quedarse en silencio: si una factura ya no
-      // tiene su foto en el teléfono, el usuario tiene que enterarse ahora y
-      // no el día que necesite restaurar.
-      if (result.hasWarnings) await _showNotices('Respaldo', result.warnings);
-    } catch (error) {
-      if (mounted) showError(context, error);
-    }
-  }
-
-  /// Avisos que acompañan a una operación que sí terminó.
-  Future<void> _showNotices(String title, List<String> notices) async {
-    if (!mounted || notices.isEmpty) return;
-    await showDialog<void>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        icon: const Icon(Icons.warning_amber_outlined),
-        title: Text(title),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [for (final notice in notices) Text('· $notice')],
-        ),
-        actions: [
-          FilledButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Entendido'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// Restauración: valida el archivo, comprueba de quién es, avisa de que
-  /// reemplaza todo y sólo entonces sustituye la base, en exclusiva y
-  /// recalculando la autorización (`GuardedRestore`). La copia previa se
-  /// conserva siempre.
-  Future<void> _restore() async {
-    final service = ref.read(backupServiceProvider);
-    final guarded = ref.read(guardedRestoreProvider);
-    final List<File> backups;
-    try {
-      backups = await service.listAvailableBackups();
-    } catch (error) {
-      if (mounted) showError(context, error);
-      return;
-    }
-    if (!mounted) return;
-    if (backups.isEmpty) {
-      // No es un error: es una indicación normal la primera vez (UIBUG-050).
-      showSuccess(
-        context,
-        'Todavía no hay ningún respaldo. Use "Exportar respaldo" para crear el '
-        'primero.',
-      );
-      return;
-    }
-
-    final chosen = await showDialog<File>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Restaurar respaldo'),
-        content: SizedBox(
-          width: 520,
-          height: 320,
-          child: ListView(
-            children: [
-              for (final file in backups)
-                ListTile(
-                  leading: const Icon(Icons.restore_page_outlined),
-                  title: Text(p.basename(file.path)),
-                  subtitle: Text(
-                    '${file.statSync().modified.toString().substring(0, 16)} · '
-                    '${(file.statSync().size / 1024).round()} KB',
-                  ),
-                  onTap: () => Navigator.pop(dialogContext, file),
-                ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Cancelar'),
-          ),
-        ],
-      ),
-    );
-    if (chosen == null || !mounted) return;
-
-    final validation = await service.validate(chosen.path);
-    if (!mounted) return;
-    if (!validation.isValid) {
-      showError(context, validation.problem!);
-      return;
-    }
-
-    // De quién es la copia, antes de pedir confirmación. Una copia ajena o
-    // ilegible no llega a ofrecerse (y la restauración lo vuelve a comprobar).
-    final RestoreOwnershipVerdict ownership;
-    try {
-      ownership = await guarded.preview(chosen.path);
-    } on Object catch (error) {
-      if (mounted) showError(context, error);
-      return;
-    }
-    if (!mounted) return;
-    if (!ownership.accepted) {
-      showError(context, ownership.message);
-      return;
-    }
-
-    // Qué trae exactamente el archivo, antes de reemplazar nada. El formato
-    // histórico sólo guarda la base: conviene saberlo ANTES de aceptar.
-    final contents = validation.isLegacyWithoutPhotos
-        ? 'Formato histórico: contiene la base de datos, pero NO las '
-              'fotografías de factura. Las fotografías actuales del teléfono '
-              'se conservan.'
-        : 'Contiene la base de datos y ${validation.attachmentCount} '
-              'fotografía(s) de factura. $labelPhotosNotInBackups';
-
-    final confirmed = await confirmDestructiveAction(
-      context,
-      title: '¿Restaurar este respaldo?',
-      detail:
-          '${p.basename(chosen.path)}\n'
-          'Esquema versión ${validation.schemaVersion}\n'
-          '$contents\n'
-          '${ownership.message}\n\n'
-          'TODOS los datos actuales se reemplazarán por los del respaldo. '
-          'Se guardará automáticamente una copia de los datos actuales por si '
-          'necesita volver atrás.',
-      confirmLabel: 'Restaurar',
-    );
-    if (!confirmed || !mounted) return;
-
-    // El aviso sobrevive a la navegación: si la base restaurada no habilita
-    // operaciones, el router lleva a la pantalla de acceso.
-    final messenger = ScaffoldMessenger.of(context);
-    final errorColor = Theme.of(context).colorScheme.error;
-    try {
-      final result = (await guarded.restore(chosen.path)).result;
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text(
-            'Respaldo restaurado (${result.restoredAttachments} '
-            'fotografía(s)). Copia de los datos anteriores: '
-            '${result.safetyCopyPath}',
-          ),
-        ),
-      );
-      if (!mounted) return;
-      _refresh();
-      if (result.warnings.isNotEmpty) {
-        await _showNotices('Restauración', result.warnings);
-      }
-    } catch (error) {
-      // También si la pantalla ya no está: un «No pudimos confirmar…» no
-      // puede perderse (F08-PREV-01).
-      showErrorOn(messenger, errorColor, error);
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     // Defensivo: si la modalidad cambia con la pantalla abierta (p. ej. al
@@ -615,10 +436,12 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
             // Carpeta, no nube (UIBUG-049): el menú es del respaldo local. La
             // copia en el servidor (F08) es una entrada aparte y explícita.
             icon: const Icon(Icons.folder_outlined, color: AgroColors.onInk),
+            // Mismo procedimiento que la pantalla «Respaldos»
+            // (`local_backup_actions.dart`).
             onSelected: (value) => switch (value) {
-              'export' => _backup(),
+              'export' => exportLocalBackup(context, ref),
               'remote' => context.push('/respaldo-remoto'),
-              _ => _restore(),
+              _ => restoreLocalBackup(context, ref, onRestored: _refresh),
             },
             itemBuilder: (_) => const [
               PopupMenuItem(
