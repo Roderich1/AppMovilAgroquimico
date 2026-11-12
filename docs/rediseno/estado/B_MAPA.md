@@ -15,8 +15,8 @@ Lo mantiene la sesión B en su rama. Rutas tal como están en `lib/app.dart` (ba
 | — Compras (lista) | `/compras` | `purchases_screen.dart` | P | Actividad › Compras › «Lista de compras»; Inicio › «compras con saldo por pagar» | **implementado + probado (entrega 3)** |
 | 2.8 Compra · detalle | `/compras/detalle/:id` | `purchase_detail_screen.dart` | P | Compras (fila); Actividad (fila) | **implementado + probado (entrega 3)** |
 | — Aplicaciones / Planificación (listas) | `/aplicaciones`, `/planificacion` | (de A) | P | Actividad › filtro › «Lista de …»; «Aplicar» de un plan abre `/aplicaciones/nueva?planId=` | sólo enlace |
-| — Transferencias (lista) | `/transferencias` | `transfers_screen.dart` | P | Actividad › Transferencias › «Lista de transferencias»; fila de transferencia; sólo en compartido | pendiente |
-| 5.4 Nueva transferencia | `/transferencias/nueva` | `transfer_form_screen.dart` | P | hoja «Registrar» (B1); Transferencias | pendiente |
+| — Transferencias (lista) | `/transferencias` | `transfers_screen.dart` | P | Actividad › Transferencias › «Lista de transferencias»; fila de transferencia; sólo en compartido | **implementado + probado (entrega 4)** |
+| 5.4 Nueva transferencia | `/transferencias/nueva` | `transfer_form_screen.dart` | P | hoja «Registrar» (B1); Transferencias | **implementado + probado (entrega 4)** |
 | 1.5–5.7 Personas, Persona, Cuenta, Pago, Propios, Costos, Bitácora | `/personas`, `/personas/:id`, `/liquidacion`, `/chacos/:id` | — | — | — | **cedidas a la sesión A** (2026-11-12); Inicio enlaza `/personas/:id` |
 
 Tipos: P = pantalla (ruta), H = hoja, E = estado de otra lámina.

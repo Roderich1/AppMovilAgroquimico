@@ -333,6 +333,10 @@ void main() {
       for (final name in names) {
         await quantity(tester, name, '1');
       }
+      // Rediseño B: el destino va arriba, junto al origen; tras teclear la
+      // última línea se vuelve a él.
+      await tester.ensureVisible(find.text('Persona destino'));
+      await tester.pump();
       await choose(tester, 'Persona destino', 'Don Carlos');
 
       // Teléfono pequeño para la confirmación.
