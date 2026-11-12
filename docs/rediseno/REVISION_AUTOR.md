@@ -4,7 +4,7 @@
 
 **Datos sintéticos** (inventario compartido, campaña «Invierno 2026»): Rosa Vargas (titular, Chaco Norte 3 ha) y Juan Mamani (familiar, Chaco Rio 2 ha); una compra de 5 L de «Herbicida sin red» a 80 Bs sin pagar (400,00 Bs); transferencia de 2 L Rosa → Juan; un plan para Chaco Rio aplicado (1 L, cargo de 80,00 Bs a Juan) y otro pendiente para Chaco Norte; pago de 50,00 Bs de Juan (le quedan 30,00 Bs).
 
-**Versión instalada (noche del 2026-11-12):** `91f2e73` (rediseño + P-A), conectada a la Central aislada por un túnel temporal; cuenta en línea autenticada. Además de los datos de abajo hay dos convocatorias sintéticas: «Convocatoria P-A sustitución» (abierta, 12 KG, responsable sustituida y ya autorizada) y «Convocatoria P-A cerrada» (4 L, cerrada, sustituida y autorizada). En Convocatorias todavía aparece el «+ Registrar» flotante: corregido en la rama (`9264191`), no instalado.
+**Versión instalada (noche del 2026-11-12):** «AC RDM» `d9893bc` (rediseño + P-A + sin «+ Registrar» en Convocatorias + «¿De quién son los productos?» + «sólo la persona titular»), SHA-256 `3630ff1d…0b65`, `lastUpdateTime` 20:12:54, conectada a la Central aislada por un túnel temporal; cuenta en línea autenticada. Además de los datos de abajo hay dos convocatorias sintéticas: «Convocatoria P-A sustitución» (abierta, 12 KG, responsable sustituida y ya autorizada) y «Convocatoria P-A cerrada» (4 L, cerrada, sustituida y autorizada). **P-A está aceptada funcionalmente por usted (no visualmente).**
 
 **Comparativas lámina | integración:** `docs/evidence/rediseno-movil/2026-11-12/integracion/comparativas/` (49, nombradas por número de lámina). Las capturas de la derecha salen del arnés sobre la rama integrada (fuentes reales, 390×844) o del emulador cuando se indica.
 
@@ -24,13 +24,13 @@
 ## 3. Aplicación y planificación
 
 - **Mirar:** «Persona → Chaco → Fecha», la mezcla con «Hay 3 L · quedarán 2 L», paso 3 «Se cargará a … », plan con dosis por ha y «Necesita».
-- **Diferencias:** «Persona» con «Responsable del chaco · se usan sus productos» en vez de «Quién aplicó» (**decisión suya pendiente**); el área es un campo aparte con «ha»; el plan añade productos con selector + «Agregar al plan»; estados del plan en texto.
+- **Diferencias:** «¿De quién son los productos?» (decisión suya del 2026-11-12) con «Responsable del chaco · se usan sus productos», en vez de «Quién aplicó»; el área es un campo aparte con «ha»; el plan añade productos con selector + «Agregar al plan»; estados del plan en texto.
 - **Comparativas:** `3.1`–`3.6`.
 
 ## 4. Actividad, Almacén y Personas
 
 - **Mirar:** filtros de Actividad (Todo, Compras, Aplicaciones, Planes, Transferencias) y «Reportes» arriba; Almacén con «Previsto en planes»; detalle de producto; Personas → persona, cuenta, «Registrar pago» (hoja), propios y costos por chaco; transferencia.
-- **Diferencias:** «Previsto en planes» en lugar de «Reservado»; producto en secciones seguidas (sin pestañas); transferencia con «Persona origen/destino» y sin botón de intercambio; Personas con cifras de todas las campañas; agregar personas está en Ajustes › Datos (Personas no tiene «Agregar»); en pantalla ancha Almacén no usa tabla (UIBUG-023, **decisión suya**).
+- **Diferencias:** «Previsto en planes» en lugar de «Reservado»; producto en secciones seguidas (sin pestañas); transferencia con «Persona origen/destino» y sin botón de intercambio; Personas con cifras de todas las campañas; agregar personas está en Ajustes › Datos (Personas no tiene «Agregar»); en pantalla ancha Almacén no usa tabla (decisión suya: no restaurarla; ver `integracion/almacen_ancho_w900.png` y `_w1280.png`, aceptación visual pendiente).
 - **Comparativas:** `1.4`, `1.5`, `2.8`, `4.1`–`4.3`, `5.1`–`5.7`.
 
 ## 5. Sindicato y convocatorias
@@ -44,7 +44,7 @@
 ## 6. Ajustes, reportes y respaldos
 
 - **Mirar:** «Ajustes y datos» (Datos, Seguridad, Uso), Datos, Campañas, Reportes (tipo, campaña/persona, Excel/PDF, aviso de archivo sin cifrar), Respaldos (nube y «En este teléfono»), PIN, Modo de uso, Tardías, confirmaciones.
-- **Diferencias:** Reportes no se repite en Ajustes (está en Actividad); Excel es la única exportación de hoja de cálculo (rama F); confirmaciones como diálogos con el estilo nuevo (no hojas); «Nuevo período histórico» sigue siendo el diálogo de Tardías; texto del PIN «sólo él puede aprobar» (anterior al rediseño, **decisión suya**).
+- **Diferencias:** Reportes no se repite en Ajustes (está en Actividad); Excel es la única exportación de hoja de cálculo (rama F); confirmaciones como diálogos con el estilo nuevo (no hojas); «Nuevo período histórico» sigue siendo el diálogo de Tardías; texto del PIN: «sólo la persona titular puede aprobar» (decisión suya del 2026-11-12).
 - **Comparativas:** `7.1`–`7.8`, `8.1`, `9.1`.
 
 ## Cómo devolver la valoración

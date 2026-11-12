@@ -91,6 +91,19 @@ Autorizado por el autor el 2026-11-12 (actualizar la candidata conservando datos
 
 **Defecto hallado:** en Convocatorias y su detalle, el «+ Registrar» del shell tapaba «Continuar» de la hoja de cantidades (`g02`). Corregido en la rama (`9264191`, regresión en `oe3_fab_sincronizacion_test.dart`); **no** está en la APK instalada.
 
+## Candidata `d9893bc` (noche del 2026-11-12, `h02`–`h05`)
+
+Autorizado por el autor en esta sesión: instalar la candidata con `9264191` y, antes, (b) «¿De quién son los productos?» y (c) «sólo la persona titular puede aprobar».
+
+- **Código:** `d9893bc` = `79de523` (suite completa 3055/3/0, código de `9264191`) + `d9893bc` (sólo rótulos de (b) y (c) y las pruebas que buscaban el selector por «Persona»). Pruebas focalizadas tras (b)/(c): 49/0 + 2/0 (`rdm_textos_autor_test.dart`); análisis sin avisos. Sin suite completa sobre `d9893bc` (cambio de rótulos; decisión del autor de no repetirla si el código es el mismo — aquí no es idéntico, se declara).
+- **Túnel:** el temporal anterior murió en el corte de internet (Cloudflare: «Tunnel not found»); se cerró y se abrió otro.
+- **APK:** compilada con el árbol limpio en `d9893bc`; SHA-256 **`3630ff1d11948008b1682f5fdc0619cf09fbb0b7d3de9412bc15f27466270b65`**, igual en el archivo y en el `base.apk` del dispositivo; `lastUpdateTime=2026-11-12 20:12:54` (misma instalación, `firstInstallTime` 13:11:32). Conservada como `agrocuentas.rdm-d9893bc-profile-x64.apk`; las anteriores (`d6c4c4d`, `91f2e73`) siguen guardadas.
+- **Datos:** esquema 19 y conteos idénticos antes y después de instalar y tras reiniciar el emulador (incluidas 2 convocatorias, 3 operaciones de participación y 2 de consentimiento).
+- **Emulador sin DNS tras el corte:** resolvía nada (llegaba por IP). Se reinició `RDM_Pixel8` (sin wipe) con `-dns-server 8.8.8.8,1.1.1.1`; la app se cerró con `am force-stop` (sin borrar datos) para salir del estado «resultado remoto sin confirmar» que la instantánea había conservado; se volvió a autenticar con la cuenta sintética.
+- **Convocatorias → hoja de cantidades:** sin «+ Registrar» en la lista, el detalle ni la hoja (`h02`, `h03`); con el teclado abierto «Continuar» queda entero sobre el teclado (`h04`); Atrás (oculta el teclado y luego cierra) y «Cerrar» cierran la hoja sin enviar (servidor 8000/12000/12000, 3 operaciones en el teléfono; al reabrir muestra lo del sindicato).
+- **Almacén ancho (d):** capturas del arnés sobre la rama a 900 y 1280 dp con nombres largos, L y KG, vencimientos, previsto y avisos (`almacen_ancho_w900.png`, `almacen_ancho_w1280.png`, búsqueda vacía `almacen_ancho_busqueda_*`): conserva búsqueda, actualizar, avisos, estimación, cantidades con unidad, valor y etiquetas; filas a todo el ancho; el «+ Registrar» tapa la existencia del último producto con la lista arriba (solicitud 2 de B, pendiente). Aceptación visual pendiente del autor.
+- **Abierta en Inicio** al terminar (`h05`), con el túnel abierto.
+
 ## No verificado aquí (declarado)
 
 - **Voz:** el AVD propio arrancó sin audio; la integración de estados de voz se verificó en el bloque 1 (`d02`–`d08`) y por pruebas; la precisión del reconocimiento con voz humana sigue pendiente de un teléfono físico. No se guardó audio ni transcripción.
