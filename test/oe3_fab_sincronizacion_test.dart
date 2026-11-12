@@ -42,7 +42,10 @@ const _screens = <_Screen>[
 const _scales = [1.0, 1.3, 2.0];
 
 /// Nombre accesible del botón flotante: describe la acción real.
-const _fabName = 'Registrar operación';
+// Rediseño (2026-11-12, lámina «Actividad»): «+ Registrar», con el nombre
+// visible, que es también el nombre accesible.
+const _fabName = 'Registrar';
+const _fabKey = Key('shell-registrar');
 
 void main() {
   sqfliteFfiInit();
@@ -301,8 +304,8 @@ void main() {
     for (final screen in _screens) {
       for (final scale in _scales) {
         final label = '${screen.name}, letra ${(scale * 100).round()} %';
-        testWidgets('sólo el icono «+», ≥48×48, nombre accesible único; se '
-            'toca y abre su menú; no tapa la última fila ($label)', (
+        testWidgets('«+ Registrar», ≥48×48, nombre accesible único; se '
+            'toca y abre su hoja; no tapa la última fila ($label)', (
           tester,
         ) async {
           configure(tester, screen, scale);
@@ -314,13 +317,12 @@ void main() {
 
           final fab = find.byType(FloatingActionButton);
           expect(fab, findsOneWidget);
-          // Sin etiqueta visible: ningún texto dentro del botón.
           expect(find.text('Nuevo'), findsNothing);
+          expect(tester.widget<FloatingActionButton>(fab).isExtended, isTrue);
           expect(
-            find.descendant(of: fab, matching: find.byType(Text)),
-            findsNothing,
+            find.descendant(of: fab, matching: find.text(_fabName)),
+            findsOneWidget,
           );
-          expect(tester.widget<FloatingActionButton>(fab).isExtended, isFalse);
           expect(
             find.descendant(of: fab, matching: find.byIcon(Icons.add)),
             findsOneWidget,
@@ -330,23 +332,22 @@ void main() {
           expect(size.height, greaterThanOrEqualTo(48), reason: '$size');
           expect(tester, meetsGuideline(androidTapTargetGuideline));
 
-          // Nombre accesible: «Registrar operación», una sola vez, en el
-          // propio botón; «Nuevo» no se anuncia.
+          // Nombre accesible: «Registrar», una sola vez, en el propio botón;
+          // «Nuevo» no se anuncia.
           bool names(SemanticsNode node, String text) =>
               node.label.contains(text) || node.tooltip.contains(text);
           expect(
-            find.semantics.byPredicate((node) => names(node, _fabName)),
+            find.semantics.byPredicate(
+              (node) => node.label == _fabName || node.tooltip == _fabName,
+            ),
             findsOne,
           );
           expect(
             find.semantics.byPredicate((node) => names(node, 'Nuevo')),
             findsNothing,
           );
-          // Lo que anuncia el lector de pantalla: el nodo del botón con su
-          // semántica agrupada.
           final data = tester.getSemantics(fab).getSemanticsData();
-          expect(data.tooltip, _fabName);
-          expect(data.label, isEmpty);
+          expect(data.label, _fabName);
           expect(data.flagsCollection.isButton, isTrue);
           expect(data.hasAction(SemanticsAction.tap), isTrue);
 
@@ -378,9 +379,9 @@ void main() {
           expect(sheet, findsOneWidget);
           final sheetRect = tester.getRect(sheet);
           for (final option in const [
-            'Planificación',
             'Compra',
             'Aplicación',
+            'Plan de aplicación',
             'Pago',
             'Transferencia',
           ]) {
@@ -395,19 +396,28 @@ void main() {
               reason: '«$option» visible dentro del menú $sheetRect',
             );
           }
+          // «Completar por voz» va al final; a 200 % se alcanza desplazando.
+          final voice = find.descendant(
+            of: sheet,
+            matching: find.text('Completar por voz'),
+          );
+          expect(voice, findsOneWidget);
+          await tester.ensureVisible(voice);
+          await tester.pumpAndSettle();
+          expect(sheetRect.contains(tester.getCenter(voice)), isTrue);
           expect(tester.takeException(), isNull);
           semantics.dispose();
         });
       }
     }
 
-    testWidgets('app real: el «+» de Operaciones abre el menú y «Compra» '
+    testWidgets('app real: «Registrar» de Actividad abre la hoja y «Compra» '
         'lleva al formulario, como antes', (tester) async {
       final s = await harness.activatedHousehold(tester, 'fab-compra');
       final c = await harness.pumpModeApp(tester, s.database);
       c.read(routerProvider).go('/operaciones');
       await harness.settle(tester);
-      await tester.tap(find.byTooltip(_fabName));
+      await tester.tap(find.byKey(_fabKey));
       await harness.settle(tester);
       await tester.tap(
         find.descendant(

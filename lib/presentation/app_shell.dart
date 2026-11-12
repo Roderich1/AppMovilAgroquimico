@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart'
 import 'package:go_router/go_router.dart';
 
 import 'widgets/common.dart';
+import 'widgets/register_sheet.dart';
 import 'widgets/sync_status_banner.dart';
 
 class AppShell extends StatelessWidget {
@@ -22,41 +23,86 @@ class AppShell extends StatelessWidget {
   /// responsables (RF-06, RF-11; #26). El router además saca de sus rutas.
   final bool transfersEnabled;
 
-  static const destinations = <({String path, IconData icon, String label})>[
-    (path: '/', icon: Icons.space_dashboard_outlined, label: 'Inicio'),
-    (path: '/operaciones', icon: Icons.task_alt_outlined, label: 'Operaciones'),
-    (
-      path: '/inventario',
-      icon: Icons.inventory_2_outlined,
-      label: 'Inventario',
-    ),
-    (path: '/personas', icon: Icons.people_alt_outlined, label: 'Personas'),
-    (
-      path: '/liquidacion',
-      icon: Icons.account_balance_wallet_outlined,
-      label: 'Cuentas',
-    ),
-  ];
+  /// Barra del rediseño (2026-11-12, láminas «Inicio», «Actividad»,
+  /// «Almacén», «Personas» y «Sindicato»). Las rutas de siempre se conservan:
+  /// «Actividad» es `/operaciones` y «Almacén» es `/inventario`. «Cuentas»
+  /// (`/liquidacion`) deja de ser pestaña y vive bajo Personas; «Más» y los
+  /// ajustes viven bajo Inicio. Ningún acceso se pierde: sólo cambia qué
+  /// pestaña queda resaltada y a dónde vuelve Atrás.
+  static const destinations =
+      <({String path, IconData icon, IconData selectedIcon, String label})>[
+        (
+          path: '/',
+          icon: Icons.home_outlined,
+          selectedIcon: Icons.home,
+          label: 'Inicio',
+        ),
+        (
+          path: '/operaciones',
+          icon: Icons.notes_outlined,
+          selectedIcon: Icons.notes,
+          label: 'Actividad',
+        ),
+        (
+          path: '/inventario',
+          icon: Icons.inventory_2_outlined,
+          selectedIcon: Icons.inventory_2,
+          label: 'Almacén',
+        ),
+        (
+          path: '/personas',
+          icon: Icons.people_alt_outlined,
+          selectedIcon: Icons.people_alt,
+          label: 'Personas',
+        ),
+        (
+          path: '/sindicato',
+          icon: Icons.hub_outlined,
+          selectedIcon: Icons.hub,
+          label: 'Sindicato',
+        ),
+      ];
 
-  /// Subdestinos que viven bajo la sección **Operaciones**.
-  static const operationsSubRoutes = <String>{
-    '/catalogos',
-    '/campanas',
-    '/planificacion',
-    '/compras',
-    '/aplicaciones',
-    '/transferencias',
-    '/reportes',
-    '/voz',
-    // «Más»: las funciones poco frecuentes, agrupadas (piloto X01).
-    '/mas',
-    // E2: «Compras conjuntas» se abre desde «Más».
-    '/compras-conjuntas',
+  /// Rutas que cuelgan de cada pestaña (además de la propia raíz y sus
+  /// `raíz/…`). El orden importa: `/planificacion/necesidades` es del
+  /// Sindicato aunque `/planificacion` sea de Actividad.
+  static const sectionRoutes = <String, List<String>>{
+    '/sindicato': [
+      '/sincronizacion',
+      '/compras-conjuntas',
+      '/planificacion/necesidades',
+    ],
+    '/inventario': [],
+    '/personas': ['/chacos', '/liquidacion'],
+    '/operaciones': [
+      '/planificacion',
+      '/compras',
+      '/aplicaciones',
+      '/transferencias',
+      '/reportes',
+      '/voz',
+    ],
   };
 
-  /// Rutas de detalle que no son destinos propios: heredan el destino desde el
-  /// que se entra. `/chacos/:id` se alcanza desde Personas.
-  static const _detailOwners = <String, String>{'/chacos': '/personas'};
+  /// Subdestinos de Actividad (antes «Operaciones»). Se conserva el nombre
+  /// público para quien lo consulta.
+  static Set<String> get operationsSubRoutes =>
+      sectionRoutes['/operaciones']!.toSet();
+
+  static bool _under(String location, String path) =>
+      location == path || location.startsWith('$path/');
+
+  /// Raíz de la pestaña a la que pertenece [location]. Lo que no cuelga de
+  /// ninguna (Más, Catálogos, Campañas, respaldos…) es de Inicio.
+  static String sectionOf(String location) {
+    for (final entry in sectionRoutes.entries) {
+      if (_under(location, entry.key) ||
+          entry.value.any((path) => _under(location, path))) {
+        return entry.key;
+      }
+    }
+    return '/';
+  }
 
   /// Rutas que ya tienen su propia acción primaria y donde el FAB global
   /// competiría con ella (UIBUG-047).
@@ -98,6 +144,8 @@ class AppShell extends StatelessWidget {
     '/inventario/avisos',
     '/inventario/estimacion',
     '/sincronizacion',
+    // Sindicato: su acción es «Enviar»; no inicia operaciones.
+    '/sindicato',
   };
 
   /// Si esta ruta oculta el FAB global. El detalle de compra es de sólo
@@ -106,26 +154,8 @@ class AppShell extends StatelessWidget {
       _routesWithoutGlobalFab.contains(location) ||
       location.startsWith('/compras/detalle/');
 
-  int get selectedIndex {
-    if (operationsSubRoutes.any(
-      (path) => location == path || location.startsWith('$path/'),
-    )) {
-      return 1;
-    }
-    // Sin esto `/chacos/:id` no coincidía con nada y caía por defecto a 0, de
-    // modo que la barra resaltaba "Inicio" estando en la bitácora (UIBUG-062).
-    for (final entry in _detailOwners.entries) {
-      if (location == entry.key || location.startsWith('${entry.key}/')) {
-        return destinations.indexWhere((item) => item.path == entry.value);
-      }
-    }
-    final exact = destinations.indexWhere((item) => item.path == location);
-    if (exact >= 0) return exact;
-    final nested = destinations.indexWhere(
-      (item) => item.path != '/' && location.startsWith('${item.path}/'),
-    );
-    return nested < 0 ? 0 : nested;
-  }
+  int get selectedIndex =>
+      destinations.indexWhere((item) => item.path == sectionOf(location));
 
   /// A dónde lleva Atrás cuando no hay nada que desapilar.
   ///
@@ -136,12 +166,10 @@ class AppShell extends StatelessWidget {
   /// alcanzados sin apilar (por ejemplo desde el FAB) vuelven a Operaciones.
   String? get backFallback {
     if (location == '/') return null;
-    if (operationsSubRoutes.any(
-      (path) => location == path || location.startsWith('$path/'),
-    )) {
-      return '/operaciones';
-    }
-    return '/';
+    final section = sectionOf(location);
+    // Desde una raíz que no es Inicio, a Inicio; desde un subdestino, a la
+    // raíz de su pestaña.
+    return location == section ? '/' : section;
   }
 
   /// Alto del `FloatingActionButton` más su margen.
@@ -226,6 +254,7 @@ class AppShell extends StatelessWidget {
                           for (final item in destinations)
                             NavigationRailDestination(
                               icon: Icon(item.icon),
+                              selectedIcon: Icon(item.selectedIcon),
                               label: Text(item.label),
                             ),
                         ],
@@ -265,7 +294,11 @@ class AppShell extends StatelessWidget {
                 context.go(destinations[index].path),
             destinations: [
               for (final item in destinations)
-                NavigationDestination(icon: Icon(item.icon), label: item.label),
+                NavigationDestination(
+                  icon: Icon(item.icon),
+                  selectedIcon: Icon(item.selectedIcon),
+                  label: item.label,
+                ),
             ],
           ),
         ),
@@ -285,7 +318,11 @@ class AppShell extends StatelessWidget {
     double width,
   ) {
     final theme = Theme.of(context);
-    final base = theme.textTheme.labelMedium ?? const TextStyle(fontSize: 12);
+    // Rediseño: 14 px y seminegrita (la lámina usa 15; 14 cabe en 360 dp).
+    final base = (theme.textTheme.labelMedium ?? const TextStyle()).copyWith(
+      fontSize: 14,
+      fontWeight: FontWeight.w600,
+    );
     // `NavigationBar` limita por sí misma la escala de sus etiquetas a 1,3.
     final scaler = MediaQuery.textScalerOf(context).clamp(maxScaleFactor: 1.3);
     final slot = width / destinations.length - 2 * _labelMargin;
@@ -309,6 +346,7 @@ class AppShell extends StatelessWidget {
             : states.contains(WidgetState.selected)
             ? colors.onSurface
             : colors.onSurfaceVariant,
+        fontWeightDelta: states.contains(WidgetState.selected) ? 1 : 0,
       ),
     );
   }
@@ -329,123 +367,19 @@ class AppShell extends StatelessWidget {
     );
   }
 
-  /// Botón flotante de creación: sólo el icono «+» (decisión del autor,
-  /// 2026-11-03). Sin etiqueta visible; el nombre accesible lo da el
-  /// `tooltip` y describe la acción real, «Registrar operación». El
-  /// `FloatingActionButton` agrupa su semántica, así que el nombre se
-  /// anuncia una sola vez. Superficie táctil de 56×56, por encima del
-  /// mínimo de 48×48.
+  /// Botón flotante «Registrar» (rediseño, lámina «Actividad»): lima, con
+  /// el icono «+» y el nombre visible, que es también su nombre accesible.
+  /// Abre la hoja «Registrar» (lámina «Registrar»).
   ///
   /// Sin `Hero`: ningún formulario tiene un «+» al que animarlo, y al
   /// ocultarse y volver con el teclado durante una transición coincidían dos
   /// con la etiqueta por defecto (aserción de depuración, 2026-11-05).
-  Widget _newButton(BuildContext context) => FloatingActionButton(
+  Widget _newButton(BuildContext context) => FloatingActionButton.extended(
+    key: const Key('shell-registrar'),
     heroTag: null,
-    tooltip: 'Registrar operación',
-    onPressed: () => showModalBottomSheet<void>(
-      context: context,
-      showDragHandle: true,
-      // Con la letra al 200 % las filas no caben en la altura por defecto
-      // (9/16 de la pantalla): la hoja crece y, si aun así no cabe, se
-      // desplaza.
-      isScrollControlled: true,
-      builder: (sheetContext) => SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.only(bottom: 8),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
-                child: Text(
-                  'Registrar operación',
-                  style: Theme.of(sheetContext).textTheme.titleMedium
-                      ?.copyWith(fontWeight: FontWeight.w800),
-                ),
-              ),
-              // Cada acción abre directamente su formulario de registro
-              // (2026-11-05). Primero las tres de cada día; después, tras un
-              // separador, el pago (sigue en Cuentas, donde se elige la
-              // cuenta) y la transferencia (sólo en inventario compartido).
-              //
-              // `done` es el aviso al volver con la operación guardada; nulo
-              // para los destinos que no son formularios. Los formularios
-              // están FUERA del ShellRoute y se apilan con `push`: con `go`
-              // se reemplaza toda la pila y el botón atrás del formulario deja
-              // la aplicación sin ninguna página que mostrar.
-              for (final action in [
-                (
-                  label: 'Compra',
-                  hint: null,
-                  icon: Icons.shopping_bag_outlined,
-                  path: '/compras/nueva',
-                  done: 'Compra registrada.',
-                ),
-                (
-                  label: 'Aplicación',
-                  hint: null,
-                  icon: Icons.agriculture_outlined,
-                  path: '/aplicaciones/nueva',
-                  done: 'Aplicación registrada.',
-                ),
-                (
-                  label: 'Planificación',
-                  hint: null,
-                  icon: Icons.event_note_outlined,
-                  path: '/planificacion/nueva',
-                  done: 'Plan guardado.',
-                ),
-                null,
-                (
-                  label: 'Pago',
-                  hint: 'En Cuentas',
-                  icon: Icons.payments_outlined,
-                  path: '/liquidacion',
-                  done: null,
-                ),
-                if (transfersEnabled)
-                  (
-                    label: 'Transferencia',
-                    hint: null,
-                    icon: Icons.swap_horiz,
-                    path: '/transferencias/nueva',
-                    done: 'Transferencia registrada.',
-                  ),
-              ])
-                if (action == null)
-                  const Divider(indent: 24, endIndent: 24)
-                else
-                  ListTile(
-                    minTileHeight: 64,
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 24),
-                    leading: CircleAvatar(child: Icon(action.icon)),
-                    title: Text(
-                      action.label,
-                      style: const TextStyle(fontWeight: FontWeight.w600),
-                    ),
-                    subtitle: action.hint == null ? null : Text(action.hint!),
-                    onTap: () {
-                      Navigator.of(sheetContext).pop();
-                      WidgetsBinding.instance.addPostFrameCallback((_) async {
-                        if (!context.mounted) return;
-                        final done = action.done;
-                        if (done == null) {
-                          context.go(action.path);
-                          return;
-                        }
-                        final saved = await context.push<bool>(action.path);
-                        if (saved == true && context.mounted) {
-                          showSuccess(context, done);
-                        }
-                      });
-                    },
-                  ),
-            ],
-          ),
-        ),
-      ),
-    ),
-    child: const Icon(Icons.add),
+    onPressed: () =>
+        showRegisterSheet(context, transfersEnabled: transfersEnabled),
+    icon: const Icon(Icons.add),
+    label: const Text('Registrar'),
   );
 }

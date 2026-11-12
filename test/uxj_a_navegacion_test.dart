@@ -13,16 +13,19 @@
 //   (f) Al volver de un formulario, la pantalla de debajo no conserva una
 //       flecha «Volver» que no lleva a ningún sitio.
 import 'package:agroquimicos/app.dart';
+import 'package:agroquimicos/presentation/screens/applications_screen.dart';
 import 'package:agroquimicos/presentation/screens/campaigns_screen.dart';
 import 'package:agroquimicos/presentation/screens/operations_screen.dart';
 import 'package:agroquimicos/presentation/screens/reports_screen.dart';
+import 'package:agroquimicos/presentation/widgets/agro_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'support/f04_mode_ui_harness.dart';
 
-const _fabName = 'Registrar operación';
+// Rediseño (2026-11-12): «+ Registrar» con nombre visible.
+const _fab = Key('shell-registrar');
 
 void main() {
   sqfliteFfiInit();
@@ -57,7 +60,10 @@ void main() {
       );
       await settle(tester);
       expect(find.byType(screen), findsOneWidget);
-      expect(selectedTab(tester), 1, reason: 'Operaciones marcada');
+      // Rediseño (2026-11-12): Campañas es un ajuste y cuelga de Inicio;
+      // Reportes sigue en Actividad. Atrás vuelve igual a Actividad.
+      final tab = screen == CampaignsScreen ? 0 : 1;
+      expect(selectedTab(tester), tab, reason: 'pestaña de $title');
 
       // Atrás del sistema, como en el teléfono.
       await tester.binding.handlePopRoute();
@@ -80,14 +86,20 @@ void main() {
     final c = await pumpModeApp(tester, s.database);
     c.read(routerProvider).go('/aplicaciones');
     await settle(tester);
-    await tester.tap(find.text('Registrar'));
+    // El botón de la lista, no el «+ Registrar» del shell.
+    await tester.tap(
+      find.descendant(
+        of: find.byType(ApplicationsScreen),
+        matching: find.text('Registrar'),
+      ),
+    );
     await settle(tester);
     expect(find.text('Falta una campaña activa'), findsOneWidget);
     await tester.tap(find.text('Ir a campañas'));
     await settle(tester);
     expect(find.byType(CampaignsScreen), findsOneWidget);
     expect(find.text('Sin campaña activa'), findsWidgets);
-    expect(selectedTab(tester), 1);
+    expect(selectedTab(tester), 0, reason: 'Campañas cuelga de Inicio');
   });
 
   for (final scale in [1.0, 2.0]) {
@@ -98,7 +110,7 @@ void main() {
       final c = await pumpModeApp(tester, s.database);
       c.read(routerProvider).go('/operaciones');
       await settle(tester);
-      await tester.tap(find.byTooltip(_fabName));
+      await tester.tap(find.byKey(_fab));
       await settle(tester);
       final sheet = find.byType(BottomSheet);
       expect(sheet, findsOneWidget);
@@ -107,15 +119,28 @@ void main() {
       for (final option in const [
         'Compra',
         'Aplicación',
-        'Planificación',
+        'Plan de aplicación',
         'Pago',
         'Transferencia',
       ]) {
         final label = find.descendant(of: sheet, matching: find.text(option));
         expect(label, findsOneWidget, reason: option);
-        final row = find.ancestor(of: label, matching: find.byType(ListTile));
+        // Compra y Aplicación son botones grandes (lado a lado si caben); el
+        // resto, filas; la voz, un panel punteado.
+        final row = find
+            .ancestor(
+              of: label,
+              matching: find.byWidgetPredicate(
+                (w) => w is ListTile || w is ActionTile || w is DashedPanel,
+              ),
+            )
+            .first;
         final rect = tester.getRect(row);
-        expect(rect.top, greaterThan(previousTop), reason: 'orden: $option');
+        expect(
+          rect.top,
+          greaterThanOrEqualTo(previousTop),
+          reason: 'orden: $option',
+        );
         previousTop = rect.top;
         expect(
           screen.intersect(rect) == rect,
@@ -124,6 +149,20 @@ void main() {
         );
         expect(rect.height, greaterThanOrEqualTo(48), reason: option);
       }
+      // «Completar por voz» (nuevo en la hoja, 2026-11-12) va al final: con
+      // la letra al 200 % se alcanza desplazando la hoja.
+      final voice = find.descendant(
+        of: sheet,
+        matching: find.text('Completar por voz'),
+      );
+      expect(voice, findsOneWidget);
+      await tester.ensureVisible(voice);
+      await settle(tester);
+      expect(
+        screen.contains(tester.getCenter(voice)),
+        isTrue,
+        reason: '«Completar por voz» alcanzable',
+      );
       expect(tester.takeException(), isNull);
     });
   }
@@ -135,7 +174,7 @@ void main() {
     final c = await pumpModeApp(tester, s.database);
     c.read(routerProvider).go('/operaciones');
     await settle(tester);
-    final fab = tester.getRect(find.byTooltip(_fabName));
+    final fab = tester.getRect(find.byKey(_fab));
     final cards = find.descendant(
       of: find.byType(OperationsScreen),
       matching: find.byType(Card),

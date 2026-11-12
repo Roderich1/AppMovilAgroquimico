@@ -422,7 +422,7 @@ void main() {
     await settle(tester);
     expect(find.byKey(const Key('campaigns-current')), findsOneWidget);
     expect(find.text('Campaña 1'), findsOneWidget);
-    expect(find.byTooltip('Registrar operación'), findsNothing);
+    expect(find.byKey(const Key('shell-registrar')), findsNothing);
     expect(find.byKey(const Key('campaigns-add')), findsOneWidget);
   });
 
@@ -433,7 +433,7 @@ void main() {
     c.read(routerProvider).go('/operaciones');
     await settle(tester);
 
-    await tester.tap(find.byTooltip('Registrar operación'));
+    await tester.tap(find.byKey(const Key('shell-registrar')));
     await settle(tester);
     await tester.tap(find.text('Aplicación'));
     await settle(tester);

@@ -153,7 +153,7 @@ void main() {
       final repo = (await tester.runAsync(fixture))!;
       await pumpApp(tester, repo);
 
-      await tester.tap(find.text('Operaciones').first);
+      await tester.tap(find.text('Actividad').first);
       await settle(tester);
       await tester.tap(find.text('Compras'));
       await settle(tester, frames: 30);
@@ -177,7 +177,7 @@ void main() {
     final repo = (await tester.runAsync(fixture))!;
     await pumpApp(tester, repo);
 
-    await tester.tap(find.text('Operaciones').first);
+    await tester.tap(find.text('Actividad').first);
     await settle(tester);
     await tester.tap(find.text('Más'));
     await settle(tester);
@@ -204,10 +204,10 @@ void main() {
     await pumpApp(tester, repo);
 
     for (final label in const [
-      'Operaciones',
-      'Inventario',
+      'Actividad',
+      'Almacén',
       'Personas',
-      'Cuentas',
+      'Sindicato',
       'Inicio',
     ]) {
       await tester.tap(find.text(label).first);
