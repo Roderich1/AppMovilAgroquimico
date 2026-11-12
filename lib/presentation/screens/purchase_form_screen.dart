@@ -895,7 +895,7 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen>
           future: catalogs,
           builder: (context, snapshot) {
             final header = Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
               child: _header(),
             );
             // Sin esta rama, un fallo al cargar los catálogos dejaba el
@@ -942,7 +942,7 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen>
                       Expanded(
                         child: ListView(
                           key: const Key('purchase-scroll'),
-                          padding: const EdgeInsets.fromLTRB(16, 16, 16, 24),
+                          padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
                           children: [
                             if (modeChanged) ...[
                               const ModeChangedNotice(),

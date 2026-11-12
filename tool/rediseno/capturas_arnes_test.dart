@@ -121,7 +121,19 @@ void main() {
     });
     // Sin micrófono: el puerto falso no oye nada (no hay dictado en estas
     // capturas).
-    final port = FakeSpeechTranscriptionPort(script: const []);
+    // Un turno SINTÉTICO (texto inyectado, no reconocimiento) para ver la
+    // revisión tras dictar: precio sin «el litro» → por revisar.
+    final port = FakeSpeechTranscriptionPort(
+      script: const [
+        FakeTurn(
+          segment:
+              'compra de diez litros de Glifosato a 50 bolivianos, '
+              'proveedor Agroinsumos del Valle',
+          endsOnStop: true,
+        ),
+      ],
+      repeatLast: false,
+    );
     final c = await pumpModeApp(
       tester,
       s.database,
@@ -145,7 +157,19 @@ void main() {
     await shot(tester, '2.1_paso1_vacio$tag');
     await tapKey(tester, 'compra-completar-voz');
     await shot(tester, '2.2_panel_voz$tag');
-    await tapKey(tester, 'voz-panel-cerrar');
+    await tapKey(tester, 'voz-hablar');
+    await tapKey(tester, 'voz-terminar');
+    await shot(tester, '2.5_tras_dictar_sintetico$tag');
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('voz-descartar-price@1')),
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await settle(tester);
+    await shot(tester, '2.5b_revision_precio_sintetico$tag');
+    await tester.drag(find.byType(Scrollable).first, const Offset(0, 2000));
+    await settle(tester);
+    await tapKey(tester, 'voz-deshacer');
 
     await choose(tester, 'Proveedor', 'Agroinsumos del Valle');
     await openPurchaseLine(tester);
