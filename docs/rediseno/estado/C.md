@@ -1,7 +1,7 @@
 # Estado de la sesión C
 
-- Dueño del worktree: (libre: la sesión que lo tome escribe aquí su nombre, fecha y hora)
-- Base incorporada: B0
+- Dueño del worktree: proyectoagro-78 (sesión C) desde 2026-11-12 07:09
+- Base incorporada: B0 (33e581f)
 
 ## Entregas listas
 
