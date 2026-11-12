@@ -208,11 +208,18 @@ class ValueRow extends StatelessWidget {
     this.labelKey,
     this.valueKey,
     this.errorText,
+    this.hint,
+    this.hintKey,
   });
 
   final String label;
   final Key? labelKey;
   final Key? valueKey;
+
+  /// Línea secundaria bajo el valor, en gris (p. ej. «Responsable del chaco
+  /// · se usan sus productos»). Pedida por la sesión A (2026-11-12).
+  final String? hint;
+  final Key? hintKey;
 
   /// Error de validación debajo del valor, con icono (no sólo color).
   final String? errorText;
@@ -231,6 +238,7 @@ class ValueRow extends StatelessWidget {
       enabled: onTap != null,
       label: label,
       value: empty ? 'Sin elegir' : value,
+      hint: hint,
       excludeSemantics: true,
       child: InkWell(
         onTap: onTap,
@@ -253,6 +261,15 @@ class ValueRow extends StatelessWidget {
                             ? AgroText.value.copyWith(color: AgroColors.muted)
                             : AgroText.value,
                       ),
+                      if (hint != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 2),
+                          child: Text(
+                            hint!,
+                            key: hintKey,
+                            style: AgroText.detail,
+                          ),
+                        ),
                       if (errorText != null)
                         Padding(
                           padding: const EdgeInsets.only(top: 2),
@@ -299,7 +316,7 @@ class ValueRow extends StatelessWidget {
 
 /// Tono de una etiqueta de estado. Cada tono lleva además un texto: el color
 /// nunca es lo único que dice el estado.
-enum BadgeTone { voice, review, missing, neutral }
+enum BadgeTone { voice, review, missing, neutral, ok }
 
 /// Etiqueta pequeña con punto y texto («Por voz», «Revise el precio»).
 class StatusBadge extends StatelessWidget {
@@ -314,6 +331,9 @@ class StatusBadge extends StatelessWidget {
       BadgeTone.review => (AgroColors.warnBg, const Color(0xFF5A3A00)),
       BadgeTone.missing => (const Color(0xFFFFDAD6), const Color(0xFF8C1D18)),
       BadgeTone.neutral => (AgroColors.track, AgroColors.ink),
+      // Estado conforme («Cubierto», «Vinculado»): mismo lima suave que «Por
+      // voz»; el texto dice el estado.
+      BadgeTone.ok => (const Color(0xFFE3F6A8), const Color(0xFF24400A)),
     };
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
@@ -966,30 +986,62 @@ class SegmentToggle<T> extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scaler = MediaQuery.textScalerOf(context);
-    return Semantics(
-      label: semanticLabel,
-      container: true,
-      child: Container(
-        constraints: BoxConstraints(minHeight: height),
-        padding: const EdgeInsets.all(4),
-        decoration: BoxDecoration(
-          color: AgroColors.track,
-          borderRadius: BorderRadius.circular(height),
-        ),
-        child: IntrinsicHeight(
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              for (var i = 0; i < options.length; i++) ...[
-                if (i > 0) const SizedBox(width: 4),
-                Expanded(child: _segment(options[i], scaler)),
-              ],
-            ],
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Si con la letra actual algún rótulo no cabe en su parte sin partir
+        // una palabra, las opciones se apilan con el mismo aspecto
+        // (propuesta de la sesión C, 2026-11-12). 8 de la pista, 4 entre
+        // opciones, 16 de relleno y 20 de la marca de elegida.
+        final segment = constraints.hasBoundedWidth
+            ? (constraints.maxWidth - 8 - 4 * (options.length - 1)) /
+                      options.length -
+                  36
+            : double.infinity;
+        final fits = options.every(
+          (option) =>
+              measureText(context, option.label, _labelStyle) <= segment,
+        );
+        return Semantics(
+          label: semanticLabel,
+          container: true,
+          child: Container(
+            constraints: BoxConstraints(minHeight: height),
+            padding: const EdgeInsets.all(4),
+            decoration: BoxDecoration(
+              color: AgroColors.track,
+              borderRadius: BorderRadius.circular(fits ? height : 24),
+            ),
+            child: fits
+                ? IntrinsicHeight(
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        for (var i = 0; i < options.length; i++) ...[
+                          if (i > 0) const SizedBox(width: 4),
+                          Expanded(child: _segment(options[i], scaler)),
+                        ],
+                      ],
+                    ),
+                  )
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      for (var i = 0; i < options.length; i++) ...[
+                        if (i > 0) const SizedBox(height: 4),
+                        _segment(options[i], scaler),
+                      ],
+                    ],
+                  ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
+
+  static const _labelStyle = TextStyle(
+    fontSize: 14,
+    fontWeight: FontWeight.w700,
+  );
 
   Widget _segment(ToggleOption<T> option, TextScaler scaler) {
     final on = option.value == selected;

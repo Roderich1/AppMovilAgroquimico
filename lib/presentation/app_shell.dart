@@ -144,8 +144,17 @@ class AppShell extends StatelessWidget {
     '/inventario/avisos',
     '/inventario/estimacion',
     '/sincronizacion',
-    // Sindicato: su acción es «Enviar»; no inicia operaciones.
+    // Sindicato: su acción es «Enviar»; no inicia operaciones. Necesidad,
+    // Consumo y Vínculos tienen su propia acción («Declarar», «Publicar»,
+    // «Actualizar») y el botón les tapaba el final de la lista (sesión C).
     '/sindicato',
+    '/planificacion/necesidades',
+    '/sincronizacion/consumo',
+    '/sindicato/vinculos',
+    // Las listas de Aplicaciones y Planificación tienen su propio botón de
+    // registro: dos «Registrar» iguales competirían (sesión A).
+    '/aplicaciones',
+    '/planificacion',
   };
 
   /// Si esta ruta oculta el FAB global. El detalle de compra es de sólo
