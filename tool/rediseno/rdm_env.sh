@@ -83,6 +83,8 @@ case "${1:-}" in
     cd "$MOB"
     gradle=android/app/build.gradle.kts; manifest=android/app/src/main/AndroidManifest.xml
     [ -z "$(git status --porcelain -- "$gradle" "$manifest")" ] || { echo "ABORTADO: $gradle o $manifest tienen cambios"; exit 1; }
+    # Estado del árbol ANTES del parche temporal de gradle y manifiesto.
+    short=$(git rev-parse --short HEAD); dirty=$([ -n "$(git status --porcelain --untracked-files=no)" ] && echo "+cambios" || true)
     trap 'git checkout -q -- "$gradle" "$manifest"' EXIT
     mkdir -p "$RUN/apk"
     python -I - "$gradle" "$manifest" "$SUFFIX" "$LABEL" <<'PY'
@@ -96,7 +98,6 @@ m = pathlib.Path(manifest); t = m.read_text(encoding='utf-8')
 assert t.count('android:label="agroquimicos"') == 1, 'label no encontrado'
 m.write_text(t.replace('android:label="agroquimicos"', f'android:label="{label}"'), encoding='utf-8', newline='')
 PY
-    short=$(git rev-parse --short HEAD); dirty=$([ -n "$(git status --porcelain --untracked-files=no)" ] && echo "+cambios" || true)
     flutter build apk --profile --target-platform android-x64 --dart-define=AGRO_API_BASE_URL="$origin" \
       --dart-define=AGRO_APP_COMMIT="$short$dirty" > "$RUN/apk/build.log" 2>&1 || { tail -20 "$RUN/apk/build.log"; exit 1; }
     cp build/app/outputs/flutter-apk/app-profile.apk "$RUN/apk/agrocuentas$SUFFIX-profile-x64.apk"
