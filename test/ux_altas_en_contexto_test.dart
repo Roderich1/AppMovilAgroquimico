@@ -12,8 +12,9 @@
 //   (e) Planificación: «Crear chaco» y «Crear producto» quedan elegidos;
 //   (f) Aplicación: «Crear chaco» con el dueño ya decidido; el selector de
 //       productos (existencias) no ofrece altas;
-//   (g) Operaciones muestra Campañas (con la actual) y Reportes; Más ya no
-//       repite Reportes; Campañas es una pantalla propia sin «+»;
+//   (g) Inicio muestra la campaña actual y lleva a Campañas y a Ajustes;
+//       Actividad lleva a Reportes; Más ya no repite Reportes; Campañas es
+//       una pantalla propia sin «+»;
 //   (h) el «+» abre directamente el formulario de aplicación.
 import 'package:agroquimicos/app.dart';
 import 'package:agroquimicos/data/agro_repository.dart';
@@ -400,25 +401,34 @@ void main() {
     }
   });
 
-  testWidgets('(g) Operaciones: Campañas con la actual y Reportes; Más no '
-      'repite Reportes; Campañas sin «+»', (tester) async {
+  // Rediseño (2026-11-12): Campañas y Ajustes (Más) se abren desde Inicio
+  // (campaña de la cabecera y engranaje); Reportes, desde la cabecera de
+  // Actividad. Más sigue sin repetir Reportes.
+  testWidgets('(g) Inicio: campaña actual y Ajustes; Actividad: Reportes; Más '
+      'no repite Reportes; Campañas sin «+»', (tester) async {
     bigSurface(tester);
     final s = await activatedHousehold(tester, 'ux-g');
     final c = await pumpModeApp(tester, s.database);
     c.read(routerProvider).go('/operaciones');
     await settle(tester);
+    expect(find.byTooltip('Reportes'), findsOneWidget);
 
-    expect(find.text('Campañas'), findsOneWidget);
-    expect(find.text('Actual: Campaña 1'), findsOneWidget);
-    expect(find.text('Reportes'), findsOneWidget);
-
-    await tester.tap(find.text('Más'));
+    c.read(routerProvider).go('/');
+    await settle(tester);
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('home-active-campaign')),
+        matching: find.textContaining('Campaña 1'),
+      ),
+      findsOneWidget,
+    );
+    await tester.tap(find.byTooltip('Ajustes y datos'));
     await settle(tester);
     expect(find.text('Reportes'), findsNothing);
     await tester.tap(find.byTooltip('Volver'));
     await settle(tester);
 
-    await tester.tap(find.text('Campañas'));
+    await tester.tap(find.byKey(const Key('home-active-campaign')));
     await settle(tester);
     expect(find.byKey(const Key('campaigns-current')), findsOneWidget);
     expect(find.text('Campaña 1'), findsOneWidget);

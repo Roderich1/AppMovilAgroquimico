@@ -1,12 +1,14 @@
 # Estado de la sesión C
 
 - Dueño del worktree: proyectoagro-78 (sesión C) desde 2026-11-12 07:09
-- Base incorporada: B1 (0a2e321, fusionada en a14bc67)
+- Base incorporada: B2 (794a44b, avance rápido)
 
 ## Entregas listas
 
 | n | SHA | Pantallas / rutas | Pruebas corridas | Capturas | Diferencias con la lámina |
 |---|---|---|---|---|---|
+| 4 | f8e758e | Convocatorias (`/compras-conjuntas`), Convocatoria (`/compras-conjuntas/:id`) y hoja Participar, sobre la rama F | analyze sin avisos; `e2_joint_purchase_screens_test` (16, sin adaptar), `hierarchical_navigation_test` y los 13 archivos de las entregas 1–3 (98 verdes en total) | `6.1_convocatorias*`, `6.1b_…historial*`, `6.2_convocatoria*`, `6.2b_…quien_ve*`, `6.2c_autorizar_tambien*`, `6.2d_…sin_participar*`, `6.3_participar*`, `6.3b_consentimiento*` | Ver «Entrega 4» |
+| 2b | 74f5cc5 | Corrección C-2: rótulos de la tarjeta de necesidad sin «…» | ídem | `6.4_necesidad*` | — |
 | 1b | 578d0c6 | Corrección C-1: Vínculos con `SegmentToggle` de B1; `BadgeTone.ok` en estados positivos (todas las pantallas de C) | analyze sin avisos; los 13 archivos de prueba de las entregas 1–3 verdes sobre B1 | todas regeneradas sobre B1 a 100/130/200 % y 360 dp | Selector aún apilado en el arnés al 100 %: solicitud 7 |
 | 3 | 94a79bf | Sindicato (`union_screen.dart`, ruta `/sindicato` por cablear) y Sincronización (`/sincronizacion`, `sync_status_screen.dart`) | analyze sin avisos; `rdm_c_union_screen_test` (nueva, 4), `sync_screens_test`, `f10_mensajes_autorizacion_test`, `f10_sync_release_refresh_test`, `f10_sync_textos_confirmacion_test`, `f10_sync_version_mismatch_resume_test`, `f10_legibility_97_test`, `oe3_fab_sincronizacion_test` verdes | `1.5_sindicato*`, `7.x_sincronizacion*` | Ver «Entrega 3» |
 | 2 | 7081df4 | Necesidad (`/planificacion/necesidades`) y Consumo (`/sincronizacion/consumo`) | analyze sin avisos; `sync_screens_test`, `consumption_publish_screen_test`, `uxj_c_consumo_vinculos_test` + los de la entrega 1 (23 verdes) | `6.4_necesidad*`, `6.5_consumo*`, `6.5b_consumo_final*` | Ver «Entrega 2» |
@@ -63,10 +65,32 @@ Conservado en Sincronización: «Sincronizar ahora» expreso; conteos por estado
 1. Selector Productos · Campañas: `RdmCToggle` retirado; la pantalla usa el `SegmentToggle` de B1. **Sigue saliendo apilado en el arnés al 100 %/390 dp**, y no por la pantalla: `SegmentToggle._labelStyle` no tiene `fontFamily`, así que `measureText` mide con la fuente por defecto del motor (en el arnés, la de pruebas: 1 em por letra). Sonda del 2026-11-12: «Productos · 5» negrita 14 px mide **182 px** sin familia y **89,6 px** con DM Sans; el hueco es 137 px. En el teléfono la fuente por defecto es Roboto y cabría, pero la medida debe usar la fuente con que se dibuja. Ver solicitud 7.
 2. `BadgeTone.ok` en lugar de `voice` para los estados positivos (recibido, aceptado, enviado, «Nueva»).
 
+### Entrega 4 — detalle
+
+Conservado de la rama F y de E2: «Actualizar» y «Enviar ahora» expresos (sin notificaciones push); estados distintos (pendiente de envío, se reintentará, verifique el acceso, recibida, retiro recibido, fuera de plazo, rechazada con motivo, cerrada, cancelada, sin efecto) y nunca «recibida» para lo que sólo está en el teléfono; «El sindicato tiene: …» junto a «Pendiente de envío: …»; consolidado al cierre; historial: lo guardado se ve sin conexión, «Consultar historial», «Ver más», faltan N, fin, y los avisos de versión, sin conexión y fallo temporal (N7); abrir marca «vista» sólo en el teléfono; participar pide CONV-3 sólo la primera vez y su casilla empieza sin marcar; modificar cantidades no cambia la autorización; «Autorizar también…» (`JointPurchaseWidenDialog`, casilla sin marcar) y «Reducir a sólo la persona responsable» (confirmación) aparte de las cantidades, con la decisión pendiente que no se anuncia como aplicada y su resultado; «quién ve» según el alcance **aplicado** en el sindicato; botones desactivados en cerrada/cancelada con explicación; participar no crea compra, deuda ni inventario; la necesidad declarada sólo como referencia.
+
+Contratos usados: E2 §5, §10.1–§10.3 y §10.6 (CONV-3, P-C, N7) en `_wt/ET2-BE` y la rama F integrada en B2; textos de `joint_purchase_texts.dart` sin tocar.
+
+| Lámina | App | Motivo |
+|---|---|---|
+| Convocatorias: «Actualizado hoy, 9:30» | Sin hora de actualización | La lista no expone esa hora; no se inventa. |
+| Convocatorias: «Cierra (hora del sindicato) Hoy, 21:59» | «Fecha límite: dd/mm/aaaa hh:mm (según la hora del sindicato)» | Texto vigente (E2-D4); sin «hoy» relativo. |
+| Convocatorias: «Otros estados (ejemplos)» | «Terminadas hace menos de 180 días» y «Historial» | Distingue el filtro de 180 días del historial (no es un borrado). Las pendientes y fuera de plazo se ven con su convocatoria, abierta o no. |
+| Convocatoria: «Coordina Directiva» | «Responsable: nombre» | Quien coordina es la persona responsable, no «la Directiva». |
+| Convocatoria: «Su pedido» con cantidades por producto | «Su participación» con el texto vigente («El sindicato tiene: …», «Pendiente de envío: …») y los productos aparte | Los textos vigentes ya dicen lo aceptado y lo pendiente sin mezclarlos. |
+| Convocatoria: (sin sección) | «Quién ve sus datos» con «Autorizar también…» / «Reducir…» | Autorización separada de las cantidades (P-C, rama F). |
+| Participar: «¿Cuánto solicita?» con la casilla «la Directiva verá mi nombre…» marcada | Hoja «Cantidades que solicita» y, sólo la primera vez, el diálogo CONV-3 con la casilla sin marcar | Consentimiento vigente, nuevo sin marcar y aparte de las cantidades. |
+| Participar: «Declaró necesitar 20 L» | «Su necesidad declarada: 20 L» | Referencia que no se suma (E2 §5.2). |
+
+### Revisión C-2 — respuesta
+
+1. «Cambiar cantidad…»: no era un recorte sino el carácter «…» del propio rótulo (convención de «abre un diálogo»). Quitado en «Cambiar cantidad», «Declarar de nuevo» y «Resolver conflicto» (`74f5cc5`).
+2. Rama F conservada en Convocatorias, Convocatoria y Participar (entrega 4).
+
 ## En curso
 
-- Nada en curso entre las pantallas independientes: entregas 1–3 cubren Sindicato, Necesidad, Consumo, Vinculos, Identificacion, Etiqueta y Sincronización.
-- **Esperando base nueva** (rama de la sesión F): Convocatorias, Convocatoria, Participar (`joint_purchases_screen.dart`, `joint_purchase_detail_screen.dart`). No se tocan.
+- Nada en curso: las nueve láminas de C (Sindicato, Convocatorias, Convocatoria, Participar, Necesidad, Consumo, Vinculos, Identificacion, Etiqueta) y Sincronización están entregadas.
+- ~~Esperando base nueva~~: desbloqueado en B2; hecho en la entrega 4.
 
 ## Solicitudes al orquestador
 
@@ -80,8 +104,8 @@ Conservado en Sincronización: «Sincronizar ahora» expreso; conteos por estado
 
 ## Bloqueos y decisiones del autor
 
-- Convocatorias, Convocatoria y Participar: bloqueadas hasta integrar la rama de la sesión F (consentimiento separado de cantidades, P-C, N7, esquema v18) y el texto exacto de CONV-2 (N5) pendiente del autor.
+- ~~Convocatorias bloqueadas~~: desbloqueadas en B2 (rama F, CONV-3).
 
 ## Hallazgos fuera de alcance
 
-- Ninguno por ahora.
+- El texto CONV-3 (`jointPurchaseConsentText`, sólo lectura) trata de «tú» («tu nombre», «solicitas», «si tú lo autorizas») mientras el resto de la app usa «usted». No lo cambio: es texto de consentimiento con versión; decisión del autor.

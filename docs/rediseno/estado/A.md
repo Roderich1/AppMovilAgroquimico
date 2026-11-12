@@ -1,7 +1,7 @@
 # Estado de la sesión A
 
 - Dueño del worktree: sesión proyectoagro-4d desde 2026-11-12 (hora local en el commit)
-- Base incorporada: B1 (`0a2e321`, avance rápido: entregas 1 y 2 ya integradas)
+- Base incorporada: B2 (`794a44b`) + coordinación `b70d37e` (grupo Personas cedido por B)
 
 ## Entregas listas
 
@@ -10,6 +10,7 @@
 | 1 | `65e48f8` (serie `be78956`, `76b7afd`, `65e48f8`) | `/aplicaciones/nueva`: paso 1 «¿Dónde aplicó?», paso 2 «¿Qué aplicó?» con hoja de producto y «Dosis y costo», paso 3 «Revise y confirme»; panel de voz anclado, aviso tras dictar, revisión de chaco de otra persona; aplicación desde un plan | ver «Entrega 1 · pruebas» | `flutter test tool/rediseno/capturas_a_test.dart` (100 %, `RDM_TEXT_SCALE=1.3`/`2.0`, `RDM_WIDTH=360`) → `build/rediseno_capturas_a/` (no versionado) | ver «Entrega 1 · diferencias» |
 | 2 | `1c7ff89` (serie `ede5ffc`, `b7298a6`, `1c7ff89`) | `/planificacion/nueva`: «¿Qué piensa aplicar?», chaco y área, tarjetas de producto con dosis, «Necesita» y cobertura; panel de voz anclado, aviso tras dictar, conflicto de chaco y área | ver «Entrega 2 · pruebas» | mismo arnés (`3.5*`, `3.6*`) | ver «Entrega 2 · diferencias» |
 | 3 | `55bbbf0` (serie `0f082b6`, `26ed816`, `97aa823`, `55bbbf0`) | Revisión A-1 (puntos 1 y 2) en `/aplicaciones/nueva` y `/planificacion/nueva`; listas `/aplicaciones` y `/planificacion` (punto 3) | ver «Entrega 3 · pruebas» | arnés con la vista entera; `3.7*`, `3.8*`; lado a lado en `build/rediseno_lado_a_lado/` | ver «Entrega 3 · diferencias» |
+| 4–5 | `9d41017` (serie `1001218`, `ec5f7e8`, `0ef45e7`, `a6de432`, `cd2fb23`, `9d41017`) | Pruebas del arreglo de «Deshacer» de B2; `/chacos/:id` (Bitácora); `/personas/:id` (Persona) | ver «Entregas 4 y 5 · pruebas» | `5.7*`, `5.2*` | ver «Entregas 4 y 5 · diferencias» |
 
 ## Entrega 1 · aplicación (2026-11-12)
 
@@ -110,9 +111,42 @@ Archivos: `application_form_screen.dart` y `plan_form_screen.dart` (sólo `hint:
 | Icono ↩ «Revertir» | Botón con texto «Revertir» (mismo nombre accesible) | Acción explícita. |
 | «Aplicación multiproducto confirmada.» | «Aplicación registrada.» | Mismo texto que la hoja «Registrar»; sin jerga. |
 
+## Entregas 4 y 5 · B2, Bitácora y Persona (2026-11-12)
+
+### Arreglo de «Deshacer» de B2
+
+- Dos pruebas nuevas (`voice_draft/aplicacion_formulario_unico`, `voice_draft/plan_formulario_unico`): deshacer el dictado retira la revisión del chaco ajeno (aplicación) y la elección de chaco y área (plan) que planteó; vuelven «Continuar» / «Guardar plan»; lo elegido a mano sigue. **Fallan con la versión anterior de `voice_form_dictation.dart` (`acce0ad`) y pasan con B2**: comprobado restaurando el archivo sólo en local y devolviéndolo después (sin cambios en el árbol).
+
+### Bitácora (`/chacos/:id`, `farm_logbook_screen.dart`)
+
+- Cabecera oscura con el chaco, «Bitácora · responsable · ha» y dos cifras: «Aplicado» y «Por hectárea», **todas las campañas**, del mismo informe que «Costo por chaco» (`farmCostReportTyped`, sin cálculo nuevo; una lectura más).
+- Aplicaciones agrupadas por mes («Noviembre 2026»), en tarjetas; cada línea se despliega con área, dosis, teórico, real, costo y lotes (texto sin cambios). Revertida: tachada y «Revertida».
+
+### Persona (`/personas/:id`, `person_detail_screen.dart`)
+
+- Cabecera oscura: nombre, rol y saldo (texto sin cambios) y la cifra: «Debe / A favor / Sin saldo · todas las campañas» (`account.netMinor`) o, para el titular, «Consumo propio · no es deuda».
+- Pestañas en pastilla (la elegida en verde oscuro con marca) y filas en grupos blancos. Mismos datos y textos.
+
+### Pruebas
+
+- Verdes: `rec_015_logbook_profile`, `rec_046_051_net_figures`, `hierarchical_navigation`, `error_states`, `voice_draft/aplicacion_formulario_unico`, `voice_draft/plan_formulario_unico`, `voice_draft/formulario_unico_accesos`, `plan_lifecycle_ui`. Analyze limpio. Ninguna prueba adaptada en estas entregas.
+- Capturas 100 % y 200 %: `5.7_bitacora`, `5.7b_bitacora_detalle`, `5.2_persona`, `5.2b_persona_cuenta`, `5.2c_persona_titular`.
+
+### Diferencias con las láminas (Bitacora, Persona)
+
+| Lámina | App | Motivo |
+|---|---|---|
+| «Por hacer» con el plan del chaco y «Aplicar» | No | `plans()` no devuelve el chaco por id y el repositorio está fuera de alcance; «Aplicar este plan» sigue en Planificación. |
+| «aplicó Rosa Vargas» | «… · <persona>» (texto vigente) | La persona es la responsable, no quien aplicó (ver «Persona»). |
+| Cifras de la campaña | «todas las campañas» | La bitácora no se filtra por campaña; se dice el alcance. |
+| Día grande a la izquierda | Fecha en la línea | El hueco del desplegable no admite el bloque (desbordaba). |
+| Persona: «Registrar pago» en la cabecera | No (todavía) | El pago vive en Cuentas; se añadirá cuando el pago sea compartido (entrega de Cuentas). |
+| Pestañas «Resumen · Cuenta · Chacos · Aplicado · Tiene» | «Resumen · Chacos · Aplicaciones · Inventario · Cuenta» | Rótulos vigentes y más claros; mismo contenido. |
+| «Tiene en su poder» y «Ver la cuenta completa» en el resumen | En sus pestañas (Inventario, Cuenta) | Contenido vigente sin duplicar. |
+
 ## En curso
 
-- Nada. Alcance de A cubierto (aplicación, plan, sus voces y sus listas); a la espera de la revisión.
+- Personas (`/personas`), Cuentas (`/liquidacion`) con Pago, Propios y Costos por chaco.
 
 ## Solicitudes al orquestador
 
