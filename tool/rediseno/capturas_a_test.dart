@@ -98,11 +98,15 @@ void main() {
 
   Future<void> shot(WidgetTester tester, String name) async {
     await settle(tester);
-    final boundary = tester.renderObject<RenderRepaintBoundary>(
-      find.byType(RepaintBoundary).first,
-    );
+    // La vista entera (también las hojas modales y los diálogos), no sólo la
+    // página: se captura la capa raíz de la vista (como el arnés de B1).
+    final view = tester.binding.renderViews.first;
+    final layer = view.debugLayer! as OffsetLayer;
     final bytes = await tester.runAsync(() async {
-      final image = await boundary.toImage(pixelRatio: 2);
+      // La capa raíz ya aplica la densidad: se recorta en píxeles físicos.
+      final image = await layer.toImage(
+        Offset.zero & (view.size * tester.view.devicePixelRatio),
+      );
       final data = await image.toByteData(format: ui.ImageByteFormat.png);
       return data!.buffer.asUint8List();
     });
@@ -354,5 +358,61 @@ void main() {
     await tapKey(tester, 'voz-terminar');
     await settle(tester);
     await shot(tester, '3.6c_plan_conflicto_sintetico');
+  });
+
+  testWidgets('listas: aplicaciones y planificación', (tester) async {
+    final s = await setUp(tester, 'rdm-a-listas', const []);
+    final h = s.h;
+    await tester.runAsync(() async {
+      await h.repo.confirmApplication(
+        ApplicationDraft(
+          personId: h.relative,
+          farmId: h.relativeFarm,
+          campaignId: h.campaign,
+          appliedAt: DateTime.now(),
+          lines: [
+            ApplicationLineDraft(productId: h.product, quantityBase: 1500),
+          ],
+        ),
+      );
+      final applied = await h.repo.addPlanMulti(
+        farmId: h.titularFarm,
+        campaignId: h.campaign,
+        areaM2: 10000,
+        items: [PlanItemDraft(productId: h.product, doseBasePerHa: 1000)],
+      );
+      await h.repo.confirmApplication(
+        ApplicationDraft(
+          personId: h.titular,
+          farmId: h.titularFarm,
+          campaignId: h.campaign,
+          appliedAt: DateTime.now(),
+          planId: applied,
+          lines: [
+            ApplicationLineDraft(productId: h.product, quantityBase: 1000),
+          ],
+        ),
+      );
+      await h.repo.addPlanMulti(
+        farmId: h.relativeFarm,
+        campaignId: h.campaign,
+        areaM2: 5000,
+        items: [PlanItemDraft(productId: h.product, doseBasePerHa: 2000)],
+      );
+    });
+    final c = await pumpModeApp(tester, s.database);
+    c.read(routerProvider).go('/aplicaciones');
+    await waitFor(tester, find.byKey(const Key('applications-register')));
+    await settle(tester);
+    await shot(tester, '3.7_lista_aplicaciones');
+    c.read(routerProvider).go('/planificacion');
+    await waitFor(tester, find.byKey(const Key('planning-new')));
+    await settle(tester);
+    await tester.tap(find.byType(ExpansionTile).first);
+    await settle(tester);
+    await shot(tester, '3.8_lista_planes');
+    await tester.tap(find.text('Mostrar planes aplicados'));
+    await settle(tester);
+    await shot(tester, '3.8b_lista_planes_con_aplicados');
   });
 }
