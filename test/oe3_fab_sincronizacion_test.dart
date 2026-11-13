@@ -141,7 +141,7 @@ void main() {
       expect(find.byType(FloatingActionButton), findsOneWidget);
 
       c.read(routerProvider).go('/sincronizacion');
-      await harness.waitFor(tester, find.text('Sincronizar ahora'));
+      await harness.waitFor(tester, find.text('Enviar pendientes'));
       await harness.settle(tester);
       expect(harness.currentPath(c), '/sincronizacion');
       expect(find.byType(SyncStatusScreen), findsOneWidget);

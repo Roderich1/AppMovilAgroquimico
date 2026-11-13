@@ -290,7 +290,7 @@ class _DeclaredNeedsScreenState extends ConsumerState<DeclaredNeedsScreen> {
   @override
   Widget build(BuildContext context) {
     // Un ciclo del worker que no salió de esta pantalla (temporizador,
-    // reconexión, «Sincronizar ahora») también cambia el estado de envío. Lo
+    // reconexión, «Enviar pendientes») también cambia el estado de envío. Lo
     // último de cada ciclo es publicar el resumen nuevo: entonces se relee la
     // lista. Visto en el POCO: la necesidad seguía «Pendiente» después del ACK
     // hasta volver a entrar.

@@ -1,7 +1,8 @@
 // Inicio y «Más» tras el piloto X01: cuatro accesos principales con icono y
 // texto que llevan al inicio real de cada registro; las funciones poco
 // frecuentes agrupadas en «Más» con todos sus accesos; sin «Nuevo» flotante
-// que compita en Inicio. «Enviar al sindicato» sólo abre la pantalla.
+// que compita en Inicio. «Sindicato» sólo abre la pantalla (la misma que la
+// pestaña, revisión del autor del 2026-11-12).
 import 'package:agroquimicos/app.dart';
 import 'package:agroquimicos/presentation/app_shell.dart';
 import 'package:agroquimicos/presentation/widgets/adaptive_entity_picker.dart';
@@ -75,7 +76,7 @@ void main() {
       'Registrar compra',
       'Registrar aplicación',
       'Ver cuánto queda',
-      'Enviar al sindicato',
+      'Envíos, convocatorias y lo que comparte',
     ]) {
       expect(find.text(label), findsOneWidget, reason: label);
     }
@@ -108,13 +109,14 @@ void main() {
     c.read(routerProvider).go('/');
     await settle(tester);
 
-    // Enviar al sindicato abre la pantalla y no publica nada: ni una
-    // petición, y «Sincronizar ahora» sigue siendo una acción aparte.
+    // «Sindicato» abre la pantalla principal de Sindicato (la de la
+    // pestaña) y no publica ni consulta nada: ni una petición. Enviar y
+    // actualizar siguen siendo acciones aparte.
     final requestsBefore = offline.requests;
     await tapKey(tester, 'home-enviar-sindicato');
-    await waitFor(tester, find.text('Sincronizar ahora'));
-    expect(find.text('Sincronización'), findsWidgets);
-    expect(find.text('Sincronizar ahora'), findsOneWidget);
+    await waitFor(tester, find.byKey(const Key('union-status')));
+    expect(currentPath(c), '/sindicato');
+    expect(find.byKey(const Key('union-refresh')), findsOneWidget);
     expect(offline.requests, requestsBefore);
   });
 

@@ -24,10 +24,15 @@ String actionLabel(SyncAction action) => switch (action) {
   SyncAction.cancel => 'Retirar',
 };
 
+/// «Estado de los envíos» (pantalla secundaria de Sindicato, revisión del
+/// autor del 2026-11-12): sin repetir el menú de Sindicato.
 /// Estado de lo que se envía al sindicato (RF-18): pendiente, enviando,
 /// sincronizado, conflicto, rechazado o pausado, con la fecha de la última
 /// confirmación de Central.
-/// No muestra nada de otras personas: la outbox sólo tiene totales propios.
+/// No muestra nada de otras personas: la outbox sólo tiene totales propios
+/// de necesidad declarada y consumo. Las participaciones en convocatorias y
+/// las solicitudes de identificación (con foto) tienen su propio estado y
+/// su propio consentimiento en sus pantallas: este texto no las abarca.
 class SyncStatusScreen extends ConsumerStatefulWidget {
   const SyncStatusScreen({super.key});
   @override
@@ -124,8 +129,11 @@ class _SyncStatusScreenState extends ConsumerState<SyncStatusScreen> {
     final sync = ref.watch(syncControllerProvider);
     final summary = sync.summary;
     return RdmCPage(
-      title: 'Sincronización',
-      subtitle: 'Lo que se envía al sindicato: sólo totales propios.',
+      title: 'Envíos',
+      subtitle:
+          'Necesidad declarada y consumo: se envían sólo sus totales. '
+          'Convocatorias e identificación de productos muestran su estado '
+          'en su propia pantalla.',
       action: FilledButton.icon(
         onPressed: sync.busy ? null : _syncNow,
         style: FilledButton.styleFrom(
@@ -134,12 +142,12 @@ class _SyncStatusScreenState extends ConsumerState<SyncStatusScreen> {
           minimumSize: const Size(0, 44),
         ),
         icon: const Icon(Icons.sync),
-        label: const Text('Sincronizar ahora'),
+        label: const Text('Enviar pendientes'),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // Sin botón propio: «Sincronizar ahora» ya es la acción de la
+          // Sin botón propio: «Enviar pendientes» ya es la acción de la
           // página.
           if (sync.message != null) ...[
             SyncNoticeCard(message: sync.message!),
@@ -148,7 +156,7 @@ class _SyncStatusScreenState extends ConsumerState<SyncStatusScreen> {
           if (summary != null) ...[
             _SummaryCard(summary: summary),
             // C40/C22 (#18): tras un 403, verificar el acceso no reanuda nada
-            // por sí solo; la acción explícita es «Sincronizar ahora».
+            // por sí solo; la acción explícita es «Enviar pendientes».
             if (summary.count(OutboxStatus.authPaused) > 0)
               const _SyncNotice(
                 icon: Icons.lock_outline,
@@ -157,7 +165,7 @@ class _SyncStatusScreenState extends ConsumerState<SyncStatusScreen> {
                     'El sindicato no autorizó esta cuenta o este '
                     'dispositivo. No se reanudan solos: con el acceso '
                     'verificado de la cuenta del titular, pulse '
-                    '«Sincronizar ahora».',
+                    '«Enviar pendientes».',
               ),
             // D-F04-C2: intenciones que nunca salieron y no se envían porque
             // el período local de su campaña no cabe en el central (o no se
@@ -214,28 +222,7 @@ class _SyncStatusScreenState extends ConsumerState<SyncStatusScreen> {
               ),
           ],
           const SizedBox(height: 16),
-          AgroGroup(
-            children: [
-              RdmCRow(
-                title: 'Productos y campañas',
-                detail: 'Vincular con el sindicato',
-                onTap: () => context.push('/sindicato/vinculos'),
-              ),
-              RdmCRow(
-                title: 'Necesidad declarada',
-                detail: 'Lo que solicita para la campaña',
-                onTap: () => context.push('/planificacion/necesidades'),
-              ),
-              RdmCRow(
-                key: const Key('open-consumption-publish'),
-                title: 'Consumo para el sindicato',
-                detail: 'Totales de lo que usted aplicó',
-                onTap: () => context.push('/sincronizacion/consumo'),
-              ),
-            ],
-          ),
-          const SizedBox(height: 16),
-          const SectionHeader(title: 'Envíos'),
+          const SectionHeader(title: 'Historial de envíos'),
           const SizedBox(height: 10),
           FutureBuilder<List<OutboxEntry>>(
             future: entries,

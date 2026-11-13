@@ -72,7 +72,7 @@ String outboxStatusPhrase(
 }
 
 /// Aviso del worker (`SyncState.message`): por qué no pudo enviar y, si se
-/// le pasa [onSyncNow], la acción pertinente («Sincronizar ahora», que
+/// le pasa [onSyncNow], la acción pertinente («Enviar pendientes», que
 /// verifica el acceso de forma explícita). La misma tarjeta en
 /// Sincronización, Necesidad declarada y Consumo.
 class SyncNoticeCard extends StatelessWidget {
@@ -103,7 +103,7 @@ class SyncNoticeCard extends StatelessWidget {
                 key: const Key('sync-now-notice'),
                 onPressed: busy ? null : onSyncNow,
                 icon: const Icon(Icons.sync),
-                label: const Text('Sincronizar ahora'),
+                label: const Text('Enviar pendientes'),
               ),
             ),
           ),

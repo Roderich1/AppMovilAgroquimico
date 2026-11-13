@@ -171,8 +171,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
             children: [
               // Los avisos de sesión y de acceso, y los accesos principales
               // (piloto X01), no dependen del resumen: se muestran aunque los
-              // datos tarden o fallen. «Enviar al sindicato» abre la pantalla
-              // de sincronización y no publica nada por sí solo.
+              // datos tarden o fallen. «Sindicato» abre la misma pantalla que
+              // la pestaña (revisión del autor del 2026-11-12) y no envía
+              // nada por sí solo.
               _SessionArea(existingSession, top: true),
               const _InstallationAccessNotice(),
               const _JointPurchaseNotice(),
@@ -207,9 +208,10 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                   ),
                   LinkRow(
                     key: const Key('home-enviar-sindicato'),
-                    icon: Icons.cloud_upload_outlined,
-                    title: 'Enviar al sindicato',
-                    onTap: () => context.push('/sincronizacion'),
+                    icon: Icons.hub_outlined,
+                    title: 'Sindicato',
+                    subtitle: 'Envíos, convocatorias y lo que comparte',
+                    onTap: () => context.go('/sindicato'),
                   ),
                 ],
               ),
@@ -404,7 +406,7 @@ class _SessionArea extends ConsumerWidget {
             label: const Text('Verificar acceso en línea'),
           ),
       // «PIN del titular» pasó a Más y «Sincronización con el sindicato»
-      // es el acceso «Enviar al sindicato» (piloto X01): aquí quedan sólo
+      // es el acceso «Sindicato» (piloto X01): aquí quedan sólo
       // los avisos y acciones de la sesión.
     ];
     final box = Container(
@@ -542,7 +544,9 @@ class _HomeHeader extends StatelessWidget {
                                   children: [
                                     Flexible(
                                       child: Text(
-                                        active?.name ?? 'Sin campaña activa',
+                                        active == null
+                                            ? 'Sin campaña activa'
+                                            : 'Campaña activa: ${active.name}',
                                         style: const TextStyle(
                                           fontSize: 13,
                                           fontWeight: FontWeight.w700,
@@ -586,6 +590,8 @@ class _HomeHeader extends StatelessWidget {
               ),
             )
           else if (data != null) ...[
+            const _ScopePill(),
+            const SizedBox(height: 10),
             Padding(
               padding: const EdgeInsets.only(right: 8),
               child: personal ? _personalHero(data) : _sharedHero(data),
@@ -596,12 +602,6 @@ class _HomeHeader extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.only(right: 8),
               child: _Figures(items: _figures(data.summary)),
-            ),
-            const SizedBox(height: 10),
-            const Text(
-              'Cifras de todas las campañas',
-              key: Key('home-figures-scope'),
-              style: TextStyle(fontSize: 12, color: AgroColors.onInkMuted),
             ),
           ],
         ],
@@ -718,6 +718,41 @@ class _HomeHeader extends StatelessWidget {
         ),
     ];
   }
+}
+
+/// Alcance de las cifras de la cabecera, visible antes de la cifra
+/// principal (revisión del autor del 2026-11-12): `dashboard()` suma todas
+/// las campañas, y la pastilla de arriba es la campaña activa, no un filtro.
+/// No cambia ningún cálculo: sólo dice el alcance real.
+class _ScopePill extends StatelessWidget {
+  const _ScopePill();
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+    decoration: const ShapeDecoration(
+      color: AgroColors.inkSoft,
+      shape: StadiumBorder(),
+    ),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Icon(Icons.layers_outlined, size: 16, color: AgroColors.onInk),
+        const SizedBox(width: 6),
+        Flexible(
+          child: Text(
+            'Cifras de todas las campañas',
+            key: const Key('home-figures-scope'),
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: AgroColors.onInk,
+            ),
+          ),
+        ),
+      ],
+    ),
+  );
 }
 
 /// Cifras pequeñas de la cabecera, en columnas. Si con la letra del teléfono

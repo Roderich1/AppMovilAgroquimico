@@ -179,11 +179,12 @@ String blockerMessage(SyncBlocker blocker) => switch (blocker) {
     'El sindicato no autorizó esta cuenta o este dispositivo. Los envíos '
         'quedan pausados; nada se borró. No se reanudan solos: cuando el '
         'sindicato lo autorice, verifique el acceso con la cuenta del titular '
-        'y pulse «Sincronizar ahora».',
+        'y pulse «Enviar pendientes».',
   SyncBlocker.versionMismatch =>
     'Esta versión de la aplicación no es compatible con el sindicato. '
         'Actualice la aplicación; los envíos quedan guardados. Después de '
-        'actualizar, en Sincronización pulse «Reintentar con esta versión».',
+        'actualizar, en Sindicato › Envíos pulse «Reintentar con esta '
+        'versión».',
   SyncBlocker.unreachable =>
     'No se pudo confirmar el envío. Se reintentará con el mismo contenido.',
   SyncBlocker.throttled => 'El sindicato pidió esperar. Se reintentará.',
@@ -195,7 +196,7 @@ final syncControllerProvider = NotifierProvider<SyncController, SyncState>(
   SyncController.new,
 );
 
-/// Disparadores del worker: al iniciar, tras encolar, «Sincronizar ahora» y
+/// Disparadores del worker: al iniciar, tras encolar, «Enviar pendientes» y
 /// un temporizador mientras la app está abierta. Sin acceso verificado no
 /// envía nada ni hace llamadas de red: la verificación (refresh) es siempre
 /// una acción explícita del agricultor.
@@ -264,7 +265,7 @@ class SyncController extends Notifier<SyncState> {
     }
   }
 
-  /// «Sincronizar ahora»: si no hay acceso vigente, lo verifica primero (el
+  /// «Enviar pendientes»: si no hay acceso vigente, lo verifica primero (el
   /// agricultor lo pidió) y reanuda lo pausado por autorización del mismo
   /// titular.
   Future<SyncRunReport?> syncNow() async {

@@ -12,15 +12,24 @@ import '../widgets/joint_purchase_texts.dart' show jointPurchaseNoticeText;
 import '../widgets/rdm_c_page.dart';
 import '../widgets/sync_status_banner.dart'
     show SyncNoticeCard, syncSummaryProvider;
+import 'joint_purchases_screen.dart' show refreshProblem;
 
-/// «Sindicato» (rediseño, lámina «Sindicato»): punto de entrada a lo que se
-/// comparte con el sindicato. Esqueleto creado por el orquestador; contenido
-/// de la sesión C (`docs/rediseno/COORDINACION.md`).
+/// «Sindicato»: la única pantalla principal de lo que se comparte con el
+/// sindicato. Llegan aquí la pestaña y el acceso «Sindicato» de Inicio
+/// (revisión del autor del 2026-11-12). Entrar no envía ni consulta nada.
 ///
-/// Sólo muestra lo que ya exponen los proveedores sin consultas nuevas: el
-/// resumen de la cola de envíos (totales propios) y el aviso de convocatoria
-/// nueva. Cada pantalla conserva sus guardas y sus reglas; «Enviar» es la
-/// misma acción expresa que «Sincronizar ahora».
+/// Tres operaciones distintas, con su nombre real:
+/// - «Enviar pendientes»: la acción expresa de siempre (C-02, `syncNow`):
+///   verifica el acceso si hace falta, reanuda lo pausado por autorización
+///   del titular y envía lo que espera (necesidad y consumo; en el mismo
+///   ciclo, participaciones y solicitudes de identificación pendientes).
+///   Sólo aparece si hay totales por enviar o que requieren atención.
+/// - «Actualizar»: consulta las convocatorias del sindicato
+///   (`refreshJointPurchases`, el mismo «Actualizar» de Convocatorias, que
+///   también envía las participaciones pendientes). Siempre disponible: no
+///   depende de que haya envíos pendientes.
+/// - «Ver estado de los envíos»: la pantalla secundaria con cada envío, su
+///   último intento y el detalle técnico.
 class UnionScreen extends ConsumerStatefulWidget {
   const UnionScreen({super.key});
 
@@ -52,8 +61,11 @@ class UnionScreen extends ConsumerStatefulWidget {
 }
 
 class _UnionScreenState extends ConsumerState<UnionScreen> {
-  /// Misma acción expresa que «Sincronizar ahora» (C-02): verifica el acceso
-  /// si hace falta y lanza un ciclo; el motivo de no enviar se muestra aquí.
+  /// Aviso de la última consulta de convocatorias, o null.
+  String? refreshNotice;
+  bool refreshing = false;
+
+  /// «Enviar pendientes»: misma acción expresa que en Estado de los envíos.
   Future<void> _send() async {
     final report = await ref.read(syncControllerProvider.notifier).syncNow();
     if (!mounted) return;
@@ -63,11 +75,37 @@ class _UnionScreenState extends ConsumerState<UnionScreen> {
       showSuccess(
         context,
         report.sent == 0
-            ? 'No hay envíos pendientes.'
+            ? 'No había envíos pendientes.'
             : 'Aceptados: ${report.accepted}. Conflictos: ${report.conflicts}. '
                   'Rechazados: ${report.rejected}.',
       );
     }
+  }
+
+  /// «Actualizar»: consulta las convocatorias del sindicato.
+  Future<void> _refresh() async {
+    setState(() {
+      refreshing = true;
+      refreshNotice = null;
+    });
+    String? problem;
+    try {
+      final report = await ref
+          .read(syncControllerProvider.notifier)
+          .refreshJointPurchases();
+      problem = refreshProblem(report);
+    } on SyncAccessUnavailable catch (error) {
+      problem = error.message;
+    } on Object catch (error) {
+      problem = friendlyError(error);
+    }
+    if (!mounted) return;
+    ref.invalidate(syncSummaryProvider);
+    setState(() {
+      refreshing = false;
+      refreshNotice = problem;
+    });
+    if (problem == null) showSuccess(context, 'Convocatorias consultadas.');
   }
 
   @override
@@ -82,13 +120,22 @@ class _UnionScreenState extends ConsumerState<UnionScreen> {
         children: [
           _SendCard(
             summary: summary,
-            busy: sync.busy,
-            onOpen: () => context.push('/sincronizacion'),
+            sending: sync.busy,
+            refreshing: refreshing,
             onSend: _send,
+            onRefresh: _refresh,
+            onStatus: () => context.push('/sincronizacion'),
           ),
           if (sync.message != null) ...[
             const SizedBox(height: 10),
             SyncNoticeCard(message: sync.message!),
+          ],
+          if (refreshNotice != null) ...[
+            const SizedBox(height: 10),
+            SyncNoticeCard(
+              key: const Key('union-refresh-notice'),
+              message: refreshNotice!,
+            ),
           ],
           const SizedBox(height: 16),
           const SectionHeader(title: 'Compras conjuntas'),
@@ -129,26 +176,31 @@ class _UnionScreenState extends ConsumerState<UnionScreen> {
   }
 }
 
-/// Tarjeta oscura de la lámina: cuántos envíos de totales propios esperan,
-/// la última confirmación del sindicato y «Enviar». Tocarla abre
-/// Sincronización con el detalle.
+/// Tarjeta oscura: qué espera envío (necesidad declarada y consumo), la
+/// última confirmación del sindicato y las tres operaciones. «Enviar
+/// pendientes» sólo aparece si hay algo que enviar o que atender;
+/// «Actualizar» y «Ver estado de los envíos», siempre.
 class _SendCard extends StatelessWidget {
   const _SendCard({
     required this.summary,
-    required this.busy,
-    required this.onOpen,
+    required this.sending,
+    required this.refreshing,
     required this.onSend,
+    required this.onRefresh,
+    required this.onStatus,
   });
 
   final SyncQueueSummary? summary;
-  final bool busy;
-  final VoidCallback onOpen;
+  final bool sending;
+  final bool refreshing;
   final VoidCallback onSend;
+  final VoidCallback onRefresh;
+  final VoidCallback onStatus;
 
   String get _headline {
     final waiting = summary?.waiting ?? 0;
     if (summary == null) return 'Envíos al sindicato';
-    if (waiting == 0) return 'Nada pendiente de envío';
+    if (waiting == 0) return 'Nada por enviar';
     return waiting == 1 ? '1 envío pendiente' : '$waiting envíos pendientes';
   }
 
@@ -156,7 +208,9 @@ class _SendCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final current = summary;
     final attention = current?.needsAttention ?? 0;
+    final canSend = (current?.waiting ?? 0) > 0 || attention > 0;
     final lines = <String>[
+      if (current != null) 'Necesidad declarada y consumo',
       if (current != null)
         // «Confirmación» y no «envío»: es el estado real (`lastAcceptedAt`).
         current.lastAcceptedAt == null
@@ -167,6 +221,17 @@ class _SendCard extends StatelessWidget {
             ? '1 requiere atención'
             : '$attention requieren atención',
     ];
+    final busy = sending || refreshing;
+    Widget spinner() => const SizedBox.square(
+      dimension: 18,
+      child: CircularProgressIndicator(strokeWidth: 2),
+    );
+    final limeStyle = FilledButton.styleFrom(
+      backgroundColor: AgroColors.lime,
+      foregroundColor: AgroColors.ink,
+      minimumSize: const Size(0, 52),
+    );
+    final refreshIcon = refreshing ? spinner() : const Icon(Icons.refresh);
     return Semantics(
       container: true,
       child: Material(
@@ -174,51 +239,64 @@ class _SendCard extends StatelessWidget {
         color: AgroColors.ink,
         borderRadius: BorderRadius.circular(28),
         clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: onOpen,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 18, 16, 18),
-            child: Wrap(
-              alignment: WrapAlignment.spaceBetween,
-              crossAxisAlignment: WrapCrossAlignment.center,
-              spacing: 12,
-              runSpacing: 12,
-              children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      _headline,
-                      style: AgroText.h2.copyWith(color: Colors.white),
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 18, 16, 8),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(_headline, style: AgroText.h2.copyWith(color: Colors.white)),
+              for (final line in lines)
+                Text(
+                  line,
+                  style: AgroText.detail.copyWith(color: AgroColors.onInkMuted),
+                ),
+              const SizedBox(height: 14),
+              Wrap(
+                spacing: 10,
+                runSpacing: 10,
+                children: [
+                  if (canSend) ...[
+                    FilledButton.icon(
+                      key: const Key('union-send'),
+                      onPressed: busy ? null : onSend,
+                      style: limeStyle,
+                      icon: sending ? spinner() : const Icon(Icons.upload),
+                      label: const Text('Enviar pendientes'),
                     ),
-                    for (final line in lines)
-                      Text(
-                        line,
-                        style: AgroText.detail.copyWith(
-                          color: AgroColors.onInkMuted,
-                        ),
+                    OutlinedButton.icon(
+                      key: const Key('union-refresh'),
+                      onPressed: busy ? null : onRefresh,
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.white,
+                        side: const BorderSide(color: AgroColors.onInkMuted),
+                        minimumSize: const Size(0, 52),
                       ),
-                  ],
+                      icon: refreshIcon,
+                      label: const Text('Actualizar'),
+                    ),
+                  ] else
+                    FilledButton.icon(
+                      key: const Key('union-refresh'),
+                      onPressed: busy ? null : onRefresh,
+                      style: limeStyle,
+                      icon: refreshIcon,
+                      label: const Text('Actualizar'),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 2),
+              TextButton.icon(
+                key: const Key('union-status'),
+                onPressed: onStatus,
+                style: TextButton.styleFrom(
+                  foregroundColor: AgroColors.onInk,
+                  padding: const EdgeInsets.symmetric(horizontal: 4),
+                  minimumSize: const Size(0, 48),
                 ),
-                FilledButton.icon(
-                  key: const Key('union-send'),
-                  onPressed: busy ? null : onSend,
-                  style: FilledButton.styleFrom(
-                    backgroundColor: AgroColors.lime,
-                    foregroundColor: AgroColors.ink,
-                    minimumSize: const Size(0, 52),
-                  ),
-                  icon: busy
-                      ? const SizedBox.square(
-                          dimension: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.sync),
-                  label: const Text('Enviar'),
-                ),
-              ],
-            ),
+                icon: const Icon(Icons.chevron_right),
+                label: const Text('Ver estado de los envíos'),
+              ),
+            ],
           ),
         ),
       ),

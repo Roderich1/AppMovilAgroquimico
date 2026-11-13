@@ -2,6 +2,7 @@
 import 'package:agroquimicos/app.dart';
 import 'package:agroquimicos/data/sync/joint_purchase_store.dart'
     show JointPurchaseNotice;
+import 'package:agroquimicos/presentation/screens/sync_status_screen.dart';
 import 'package:agroquimicos/presentation/screens/union_screen.dart';
 import 'package:agroquimicos/services/sync/sync_providers.dart';
 import 'package:flutter/material.dart';
@@ -70,7 +71,7 @@ void main() {
     tester,
   ) async {
     await pumpUnion(tester);
-    expect(find.text('Nada pendiente de envío'), findsOneWidget);
+    expect(find.text('Nada por enviar'), findsOneWidget);
     expect(find.text('Todavía sin confirmación'), findsOneWidget);
     expect(find.text('Nueva'), findsNothing);
     expect(
@@ -110,10 +111,61 @@ void main() {
     );
   });
 
+  // Revisión del autor del 2026-11-12: enviar, consultar novedades y ver el
+  // estado son operaciones distintas; consultar no depende de que haya algo
+  // pendiente.
+  testWidgets('sin envíos pendientes: no ofrece «Enviar», sí «Actualizar» '
+      'habilitado y el estado de los envíos', (tester) async {
+    await pumpUnion(tester);
+    expect(find.text('Enviar pendientes'), findsNothing);
+    expect(find.text('Enviar'), findsNothing);
+    final refresh = tester.widget<ButtonStyleButton>(
+      find.byKey(const Key('union-refresh')),
+    );
+    expect(refresh.onPressed, isNotNull);
+    expect(find.text('Actualizar'), findsOneWidget);
+    expect(find.text('Ver estado de los envíos'), findsOneWidget);
+  });
+
+  testWidgets('con un envío pendiente: «Enviar pendientes» y «Actualizar» '
+      'por separado', (tester) async {
+    await pumpUnion(tester, declare: true);
+    expect(find.text('Enviar pendientes'), findsOneWidget);
+    expect(find.text('Actualizar'), findsOneWidget);
+    expect(find.text('Necesidad declarada y consumo'), findsOneWidget);
+  });
+
+  testWidgets('el estado de los envíos no repite el menú de Sindicato ni '
+      'resume como «sólo totales» lo que envían otras pantallas', (
+    tester,
+  ) async {
+    final fixture = await pumpUnion(tester);
+    await tester.pumpWidget(const SizedBox());
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          databaseProvider.overrideWithValue(fixture.database),
+          syncOutboxStoreProvider.overrideWithValue(fixture.outbox),
+        ],
+        child: const MaterialApp(home: Scaffold(body: SyncStatusScreen())),
+      ),
+    );
+    await settle(tester);
+    expect(find.text('Envíos'), findsOneWidget);
+    expect(find.text('Productos y campañas'), findsNothing);
+    expect(find.text('Necesidad declarada'), findsNothing);
+    expect(find.text('Consumo para el sindicato'), findsNothing);
+    expect(find.textContaining('sólo totales propios'), findsNothing);
+    expect(
+      find.textContaining('Convocatorias e identificación de productos'),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('cada entrada abre su pantalla de siempre', (tester) async {
     await pumpUnion(tester);
     for (final (key, path) in [
-      ('union-sync', '/sincronizacion'),
+      ('union-status', '/sincronizacion'),
       ('union-joint-purchases', '/compras-conjuntas'),
       ('union-needs', '/planificacion/necesidades'),
       ('union-consumption', '/sincronizacion/consumo'),

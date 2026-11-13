@@ -5,7 +5,7 @@
 //   a autenticar…»: no explicaba que la cuenta no es la del titular.
 // - C40/C22: tras un 403, los envíos quedan «Pausado: autorización». Verificar
 //   el acceso no los reanuda (por diseño: no hay reanudación automática); hace
-//   falta «Sincronizar ahora», y ninguna pantalla lo decía.
+//   falta «Enviar pendientes», y ninguna pantalla lo decía.
 // - C23: con el registro del dispositivo revocado, el mensaje no decía que
 //   los datos se conservan ni cuál es el camino para recuperarlos.
 //
@@ -68,10 +68,10 @@ void main() {
       expect(message, contains('libere'));
     });
 
-    test('403: la acción explícita para reanudar es «Sincronizar ahora»', () {
+    test('403: la acción explícita para reanudar es «Enviar pendientes»', () {
       final message = blockerMessage(SyncBlocker.forbidden);
       expect(message, contains('nada se borró'));
-      expect(message, contains('Sincronizar ahora'));
+      expect(message, contains('Enviar pendientes'));
     });
 
     test('otra cuenta en sesión: por qué no se envía', () {
@@ -83,7 +83,7 @@ void main() {
 
   testWidgets(
     'Sincronización explica lo pausado por autorización; abrirla no envía y '
-    'sólo «Sincronizar ahora» lo reanuda',
+    'sólo «Enviar pendientes» lo reanuda',
     (tester) async {
       Future<void> settle() async {
         for (var round = 0; round < 6; round++) {
@@ -151,14 +151,14 @@ void main() {
         find.textContaining('Envíos pausados por autorización'),
         findsOneWidget,
       );
-      expect(find.textContaining('pulse «Sincronizar ahora»'), findsOneWidget);
+      expect(find.textContaining('pulse «Enviar pendientes»'), findsOneWidget);
       expect(
         (await tester.runAsync(fixture.outbox.entries))!.single.status,
         OutboxStatus.authPaused,
       );
 
       // La acción explícita sí lo reanuda, con el mismo ID.
-      await tester.tap(find.text('Sincronizar ahora'));
+      await tester.tap(find.text('Enviar pendientes'));
       await settle();
       final container = ProviderScope.containerOf(
         tester.element(find.byType(SyncStatusScreen)),

@@ -132,7 +132,7 @@ class AppShell extends StatefulWidget {
   ///
   /// En «Sincronización» (POCO, 2026-11-03) el FAB tapaba «Reintentar con
   /// esta versión» y el toque abría el menú de creación en vez de reanudar
-  /// los envíos. La pantalla ya tiene su acción, «Sincronizar ahora», y no
+  /// los envíos. La pantalla ya tiene su acción, «Enviar pendientes», y no
   /// inicia operaciones.
   static const _routesWithoutGlobalFab = <String>{
     '/',

@@ -138,7 +138,7 @@ void main() {
     for (final scale in scales) {
       final label = '${width.toInt()} dp, fuente ${(scale * 100).round()} %';
 
-      testWidgets('Sincronización: título entero y «Sincronizar ahora» '
+      testWidgets('Envíos: título entero y «Enviar pendientes» '
           'visible ($label)', (tester) async {
         await tester.binding.setSurfaceSize(Size(width, 1400));
         addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -157,9 +157,9 @@ void main() {
           ),
         );
         await settle(tester);
-        expectWhole(tester, find.text('Sincronización'), 'título');
-        expectWhole(tester, find.text('Sincronizar ahora'), 'acción');
-        expectOnScreen(tester, find.text('Sincronizar ahora'), width);
+        expectWhole(tester, find.text('Envíos'), 'título');
+        expectWhole(tester, find.text('Enviar pendientes'), 'acción');
+        expectOnScreen(tester, find.text('Enviar pendientes'), width);
         await tester.runAsync(seeded.database.close);
       });
 

@@ -381,7 +381,7 @@ void main() {
         'Registrar compra',
         'Registrar aplicación',
         'Ver cuánto queda',
-        'Enviar al sindicato',
+        'Envíos, convocatorias y lo que comparte',
       ]) {
         expectWordsWhole(tester, find.text(access), 'acceso «$access»');
       }
