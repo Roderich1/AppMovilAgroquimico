@@ -1070,9 +1070,12 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen>
         individualHint: personalOwnerId != null
             ? 'Diga producto, cantidad y precio'
             : null,
-        example:
-            '«Doce litros de herbicida a ciento dieciocho, de Agroinsumos, '
-            'para Rosa»',
+        // En modo individual el ejemplo no nombra destinatario: la compra es
+        // del titular (recorrido del emulador, 2026-11-13).
+        example: personalOwnerId != null
+            ? '«Doce litros de herbicida a ciento dieciocho, de Agroinsumos»'
+            : '«Doce litros de herbicida a ciento dieciocho, de Agroinsumos, '
+                  'para Rosa»',
         onClose: () => setState(() => showVoice = false),
         // Sólo en la compilación de diagnóstico: modelo del próximo turno y
         // métricas sin texto.
