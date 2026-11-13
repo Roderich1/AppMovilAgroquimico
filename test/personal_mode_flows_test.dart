@@ -358,14 +358,9 @@ void main() {
       // Las personas ya registradas siguen a la vista.
       expect(find.text('Hermana'), findsOneWidget);
 
-      // En modo individual «Chacos» también es una pestaña de la barra:
-      // se toca la de Catálogos.
-      await tester.tap(
-        find.descendant(
-          of: find.byType(ChoiceChip),
-          matching: find.text('Chacos'),
-        ),
-      );
+      // En modo individual «Chacos» también es una pestaña de la barra
+      // (2026-11-13): se toca el chip de la sección de Datos.
+      await tester.tap(find.widgetWithText(ChoiceChip, 'Chacos'));
       await settle(tester);
       await tester.tap(find.text('Agregar chaco'));
       await settle(tester);
@@ -481,7 +476,7 @@ void main() {
             of: find.text('Hermana'),
             matching: find.byType(Card),
           ),
-          matching: find.text('Inventario propio: sin pagos de cuenta'),
+          matching: find.text('Modo individual: sin pagos de cuenta'),
         ),
         findsOneWidget,
       );

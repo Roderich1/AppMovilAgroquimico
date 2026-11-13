@@ -334,7 +334,7 @@ class _PersonsScreenState extends ConsumerState<PersonsScreen> {
             child: EmptyState(
               icon: Icons.account_balance_wallet_outlined,
               message: personal
-                  ? 'En inventario propio no hay cuentas por cobrar.'
+                  ? 'En modo individual no hay cuentas por cobrar.'
                   : 'Registra familiares o terceros para ver su liquidación.',
             ),
           ),
@@ -350,7 +350,7 @@ class _PersonsScreenState extends ConsumerState<PersonsScreen> {
             // El repositorio los rechaza igual.
             onPay: personal ? null : () => _pay(ledger, row.personId),
             blockedNote: personal
-                ? 'Inventario propio: sin pagos de cuenta'
+                ? 'Modo individual: sin pagos de cuenta'
                 : null,
             onStatement: () => _statement(ledger, row.personId, !personal),
             onExport: () =>

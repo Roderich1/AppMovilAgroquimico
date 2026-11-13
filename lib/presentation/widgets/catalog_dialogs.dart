@@ -104,8 +104,8 @@ Future<int?> createPersonFromDialog(
   if (operating.mode == OperationMode.personal) {
     showError(
       context,
-      'En inventario propio registra sólo el titular. Para agregar '
-      'responsables, cambie a inventario compartido en Modo de uso.',
+      'En modo individual registra sólo el titular. Para agregar '
+      'responsables, cambie a «Modo con varias personas» en Modo de uso.',
     );
     return null;
   }
