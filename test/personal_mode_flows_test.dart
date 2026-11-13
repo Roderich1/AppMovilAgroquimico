@@ -358,7 +358,9 @@ void main() {
       // Las personas ya registradas siguen a la vista.
       expect(find.text('Hermana'), findsOneWidget);
 
-      await tester.tap(find.text('Chacos'));
+      // En modo individual «Chacos» también es una pestaña de la barra
+      // (2026-11-13): se toca el chip de la sección de Datos.
+      await tester.tap(find.widgetWithText(ChoiceChip, 'Chacos'));
       await settle(tester);
       await tester.tap(find.text('Agregar chaco'));
       await settle(tester);
