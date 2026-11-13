@@ -169,6 +169,9 @@ class IndCFarmCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final area = farm.hasArea ? formatHectares(farm.areaM2) : null;
+    // Con la letra muy ampliada la superficie va debajo del nombre: a la
+    // derecha dejaba una palabra por línea en los nombres largos.
+    final stacked = MediaQuery.textScalerOf(context).scale(10) >= 15;
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Material(
@@ -203,6 +206,17 @@ class IndCFarmCard extends StatelessWidget {
                         ].join(' · '),
                         style: AgroText.detail.copyWith(fontSize: 15),
                       ),
+                      if (stacked && area != null) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          area,
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w700,
+                            color: AgroColors.ink,
+                          ),
+                        ),
+                      ],
                       if (!farm.hasArea) ...[
                         const SizedBox(height: 6),
                         const StatusBadge(
@@ -214,7 +228,7 @@ class IndCFarmCard extends StatelessWidget {
                     ],
                   ),
                 ),
-                if (area != null) ...[
+                if (area != null && !stacked) ...[
                   const SizedBox(width: 12),
                   ConstrainedBox(
                     constraints: const BoxConstraints(maxWidth: 110),

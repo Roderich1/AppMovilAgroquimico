@@ -101,22 +101,24 @@ class _IndCChacoCostsScreenState extends ConsumerState<IndCChacoCostsScreen> {
             onCampaign: _setCampaign,
           ),
           const SizedBox(height: 12),
+          // Rótulos cortos: «Por producto» no cabe en un tercio a 360–390 dp
+          // y el selector se apilaría (regla de `SegmentToggle`).
           SegmentToggle<IndCCostView>(
-            semanticLabel: 'Ver costos',
+            semanticLabel: 'Costos por',
             options: const [
               ToggleOption(
                 IndCCostView.farm,
-                'Por chaco',
+                'Chacos',
                 key: Key('ind-costos-por-chaco'),
               ),
               ToggleOption(
                 IndCCostView.product,
-                'Por producto',
+                'Productos',
                 key: Key('ind-costos-por-producto'),
               ),
               ToggleOption(
                 IndCCostView.campaign,
-                'Por campaña',
+                'Campañas',
                 key: Key('ind-costos-por-campana'),
               ),
             ],
