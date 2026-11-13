@@ -239,7 +239,12 @@ class AppShell extends StatefulWidget {
       // Convocatorias y su detalle (láminas 6.1–6.3, sin flotante): en el
       // emulador tapaba «Continuar» de la hoja de cantidades (2026-11-12).
       location == '/compras-conjuntas' ||
-      location.startsWith('/compras-conjuntas/');
+      location.startsWith('/compras-conjuntas/') ||
+      // Chacos del modo individual (I-40 a I-43, sin flotante): la lista
+      // tiene «Agregar chaco» y el detalle sus propias acciones.
+      // En el modo con varias personas la bitácora de un chaco no cambia.
+      (personalMode &&
+          (location == '/chacos' || location.startsWith('/chacos/')));
 
   int get selectedIndex => _items.indexWhere(
     (item) => item.path == sectionOf(location, personal: personalMode),

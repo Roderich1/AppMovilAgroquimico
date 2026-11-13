@@ -23,16 +23,12 @@ import '../widgets/rdm_b_ui.dart' show RdmBackButton, RdmScrollPage, splitBob;
 /// Pestañas de «Costos».
 enum IndCCostView { farm, product, campaign }
 
-/// Abre «Costos» encima de la pantalla actual, dentro de la misma pestaña.
-///
-/// Se apila con el `Navigator` porque la base común no tiene todavía una
-/// ruta propia (petición al orquestador: `/chacos/costos`); Atrás vuelve a
-/// donde se abrió.
+/// Abre «Costos» (`/chacos/costos`) apilado: Atrás vuelve a donde se abrió.
 Future<void> openIndCCosts(BuildContext context, {int? campaignId}) =>
-    Navigator.of(context).push<void>(
-      MaterialPageRoute(
-        builder: (_) => IndCChacoCostsScreen(initialCampaignId: campaignId),
-      ),
+    context.push<void>(
+      campaignId == null
+          ? '/chacos/costos'
+          : '/chacos/costos?campana=$campaignId',
     );
 
 typedef _CostsData = ({
