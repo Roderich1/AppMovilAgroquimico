@@ -187,8 +187,11 @@ void main() {
       expect(content, contains('Jos\xE9 Mu\xF1oz \xCD\xF1iguez'));
     });
 
+    // Ronda 2 (2026-11-12, encargo del autor): antes «se recorta con
+    // elipsis»; ahora se parte en líneas dentro de su columna y no se pierde
+    // nada. Sigue sin invadir columnas (lo mide rdm2_c_pdf_estado_cuenta).
     test(
-      'un nombre larguísimo se recorta con elipsis y no invade columnas',
+      'un nombre larguísimo se parte en líneas, entero, sin elipsis',
       () {
         final long =
             'Chaco de la Comunidad San Juan de la Frontera Norte Alta '
@@ -206,9 +209,14 @@ void main() {
           ],
         );
         final content = read(table);
-        expect(content, isNot(contains(long)));
         // 0x85 es la elipsis en WinAnsi.
-        expect(content, contains('\x85'));
+        expect(content, isNot(contains('\x85')));
+        final lines = pdf.layout(table).rowLines.single.first;
+        expect(lines.length, greaterThan(1));
+        expect(lines.join(' '), long);
+        for (final line in lines) {
+          expect(content, contains('($line)'));
+        }
       },
     );
 
