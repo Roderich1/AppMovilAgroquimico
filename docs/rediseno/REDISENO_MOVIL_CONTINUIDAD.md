@@ -115,3 +115,12 @@ Esperar la revisión de diseño del autor sobre la candidata `fc12123` (recorrid
   - decisiones 1 a 5 del README;
   - simplificar la tarjeta del titular en Cuentas.
 - **Túnel:** abierto para la revisión del autor; cerrarlo con `rdm_env.sh untunnel` cuando ya no se use.
+
+## E4: acceso por rol y sin K = 3 (sesión C, 2026-11-13)
+
+- **Rama:** `feat/acceso-rol-sin-k-c` desde `507efc8`; código `01d80c3`. Sin push ni fusión.
+- **Esquema v20** (aditivo): tabla `joint_purchase_access_ops` para `ADMINISTRATION`/`TOTALS_ONLY`; nada guardado se toca. Es la versión mínima compatible con el contrato 4 del agricultor.
+- **Contrato 4:** cabecera `X-Joint-Purchase-Contract: 4`, `CONV-4` y su ayuda byte a byte, «Revisar quién puede ver mi participación» (también en cerradas) y «Retirar la autorización»; ampliar, reducir y autorizar a la responsable se retiran del flujo; las decisiones anteriores pendientes salen tal cual.
+- **Emisor:** `CONSENT_VERSION_RETIRED`, `APP_UPDATE_REQUIRED` y `WIDENING_NOT_ALLOWED` definitivos; sin reintento infinito.
+- **Evidencia:** `docs/evidence/E4_ACCESO_ROL_MOBILE_2026-11-13.md` (pruebas focalizadas 172/0; sin suite completa ni recorrido).
+- **Pendiente:** suite completa, APK y recorrido conjunto con el Backend de E4 y una app anterior (orquestador); revisión del autor.
