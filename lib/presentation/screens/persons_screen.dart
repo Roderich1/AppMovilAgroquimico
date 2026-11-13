@@ -14,6 +14,7 @@ import '../theme/agro_theme.dart';
 import '../widgets/agro_ui.dart';
 import '../widgets/common.dart';
 import '../widgets/rdm_a_payment.dart';
+import '../widgets/rdm2_c_person_search.dart';
 import '../widgets/rdm_a_people.dart';
 import '../widgets/rdm_b_ui.dart' show BigFigure, RdmScrollPage, splitBob;
 
@@ -141,16 +142,13 @@ class _PersonsScreenState extends ConsumerState<PersonsScreen> {
     final owner = ledger.ownerPersonId;
     final personal = ref.watch(operationModeProvider) == OperationMode.personal;
     final rows = profilesRows
-        .where((row) => matchesSearch(row['name'] as String, query))
+        .where((row) => matchesPersonSearch(row['name'] as String, query))
         .toList();
     return [
-      TextField(
-        onChanged: (value) => setState(() => query = value.trim()),
-        decoration: const InputDecoration(
-          prefixIcon: Icon(Icons.search),
-          labelText: 'Buscar persona',
-          isDense: true,
-        ),
+      // La misma regla y el mismo campo que Cuentas (ronda 2, P1b).
+      Rdm2cPersonSearchField(
+        query: query,
+        onChanged: (value) => setState(() => query = value),
       ),
       const SizedBox(height: 12),
       // Cuentas ya no es pestaña: se llega desde aquí (B1).
@@ -165,14 +163,12 @@ class _PersonsScreenState extends ConsumerState<PersonsScreen> {
         ],
       ),
       const SizedBox(height: 12),
-      if (rows.isEmpty)
-        EmptyState(
-          icon: query.isEmpty
-              ? Icons.people_alt_outlined
-              : Icons.search_off_outlined,
-          message: query.isEmpty
-              ? 'Aún no hay personas registradas.'
-              : 'Ninguna persona coincide con "$query".',
+      if (rows.isEmpty && profilesRows.isNotEmpty)
+        Rdm2cNoPersonMatches(query: query)
+      else if (rows.isEmpty)
+        const EmptyState(
+          icon: Icons.people_alt_outlined,
+          message: 'Aún no hay personas registradas.',
         )
       else
         for (final row in rows)
@@ -181,12 +177,9 @@ class _PersonsScreenState extends ConsumerState<PersonsScreen> {
             row: row,
             ledger: ledger,
             isOwner: row['id'] == owner,
-            // En inventario propio sólo el titular registra pagos (#26); su
-            // pago propio (Q-2) se registra en Cuentas.
-            onPay:
-                row['id'] == owner ||
-                    row['role'] == 'ADMIN' ||
-                    (personal && row['id'] != owner)
+            // Al titular no se le registran pagos de cuenta (decisión del
+            // autor del 2026-11-12) y en inventario propio nadie los recibe.
+            onPay: row['id'] == owner || row['role'] == 'ADMIN' || personal
                 ? null
                 : () => _pay(ledger, row['id']! as int),
             onStatement: row['role'] == 'ADMIN'

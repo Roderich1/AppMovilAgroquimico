@@ -198,14 +198,15 @@ void main() {
       );
       final own = find.byKey(const Key('own-consumption-card'));
       // Rediseño: en la tarjeta de una persona «Registrar pago» es un botón
-      // visible; el titular lo conserva en su menú (Q-2).
+      // visible. Ronda 2 (2026-11-12): el autor revisó Q-2 y el titular ya
+      // no tiene «Registrar pago» en su menú (antes: lo conservaba).
       expect(_payIn(person), findsOneWidget);
       expect(
         await menuOf(tester, person),
         isNot(contains('Registrar adelanto')),
       );
       final labels = await menuOf(tester, own);
-      expect(labels, contains('Registrar pago'));
+      expect(labels, isNot(contains('Registrar pago')));
       expect(labels, isNot(contains('Registrar adelanto')));
     });
 

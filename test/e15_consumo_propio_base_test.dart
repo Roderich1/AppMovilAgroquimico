@@ -63,7 +63,15 @@ void main() {
       await e.apply(e.titular, e.chacoNorte, DateTime(2026, 10, 20), {
         'Glifosato': 1000,
       });
-      await e.w.pay(e.titular, 4500, campaign: e.w.invierno, date: at(10, 21));
+      // Ronda 2 (2026-11-12): ya no se registra un pago al titular (revisión
+      // de Q-2 del autor); se siembra el asiento como lo dejaba el menú Q-2
+      // para comprobar cómo se lee.
+      await e.w.rawPayment(
+        e.titular,
+        4500,
+        campaign: e.w.invierno,
+        date: at(10, 21),
+      );
       expect((await e.w.repo.dashboard()).receivedMinor, 0);
     });
 
@@ -253,12 +261,24 @@ void main() {
       await e.apply(e.titular, e.chacoNorte, DateTime.now(), {
         'Glifosato': 1000,
       });
-      final payment = await e.w.pay(
-        e.titular,
-        4500,
-        date: DateTime(2026, 9, 1).toUtc().toIso8601String(),
+      // Ronda 2 (2026-11-12): el pago propio ya no se registra (antes se
+      // imputaba a su cargo propio, {own: 4500}); el cargo por cobrar sigue.
+      await expectLater(
+        e.w.pay(
+          e.titular,
+          4500,
+          date: DateTime(2026, 9, 1).toUtc().toIso8601String(),
+        ),
+        throwsA(isA<BusinessRuleException>()),
       );
-      expect(await e.w.allocationsOf(payment), {own: 4500});
+      expect(
+        await (await e.w.db).query(
+          'payment_allocations',
+          where: 'charge_transaction_id=?',
+          whereArgs: [own],
+        ),
+        isEmpty,
+      );
       expect((await e.w.repo.dashboard()).familyReceivableMinor, 4500);
     });
 
@@ -374,8 +394,8 @@ void main() {
       );
       // «Titular» sólo aparece en su tarjeta, nunca como deudor.
       expect(find.text('Titular'), findsOneWidget);
-      // Criterio Q-2: conserva su pago (#26). Desde el bloque de experiencia
-      // del 2026-10-30 hay un único «Registrar pago» (RN-39).
+      // Ronda 2 (2026-11-12): el autor revisó Q-2; el titular ya no tiene
+      // «Registrar pago» (antes lo conservaba, #26).
       await tester.tap(
         find.descendant(
           of: own,
@@ -386,7 +406,7 @@ void main() {
       expect(find.text('Ver movimientos propios'), findsOneWidget);
       expect(
         find.widgetWithText(PopupMenuItem<String>, 'Registrar pago'),
-        findsOneWidget,
+        findsNothing,
       );
       expect(find.text('Registrar adelanto'), findsNothing);
       await tester.tap(find.text('Ver movimientos propios'));
@@ -518,8 +538,10 @@ void main() {
       );
     });
 
-    testWidgets('E15-05 · modo propio con familiar: el titular conserva pago y '
-        'el familiar tiene el menú deshabilitado (D-04: sin tarjeta)', (
+    // Ronda 2 (2026-11-12): antes «el titular conserva pago»; con la revisión
+    // de Q-2 del autor nadie recibe pagos de cuenta en inventario propio.
+    testWidgets('E15-05 · modo propio con familiar: el titular no tiene pago '
+        'y el familiar tampoco (D-04: sin tarjeta)', (
       tester,
     ) async {
       final e = (await tester.runAsync(() async {
@@ -565,7 +587,7 @@ void main() {
       expect([
         for (final i in ownItems)
           if (i.enabled) i.value,
-      ], allOf(contains('pay'), isNot(contains('advance'))));
+      ], allOf(contains('detail'), isNot(contains('pay')), isNot(contains('advance'))));
       final familiar = find
           .ancestor(of: find.text('Familiar Demo'), matching: find.byType(Card))
           .first;
@@ -586,7 +608,7 @@ void main() {
       expect(
         find.descendant(
           of: familiar,
-          matching: find.text('Inventario propio: pagos sólo del titular'),
+          matching: find.text('Inventario propio: sin pagos de cuenta'),
         ),
         findsOneWidget,
       );

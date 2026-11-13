@@ -7,6 +7,7 @@
 // compila. La prueba que falla por aserción sobre D-04 es
 // `e15_consumo_propio_base_test.dart`.
 
+import 'package:agroquimicos/data/agro_repository.dart';
 import 'package:agroquimicos/data/operation_mode_store.dart';
 import 'package:agroquimicos/domain/account_ledger.dart';
 import 'package:agroquimicos/domain/account_texts.dart';
@@ -206,13 +207,31 @@ void main() {
       'Glifosato': 1000,
       'Bellator': 200,
     });
-    final payment = await e.w.repo.registerAccountPayment(
-      personId: e.titular,
-      campaignId: e.w.invierno,
-      amountBobMinor: 8100,
-      date: DateTime.parse(at(10, 21)),
+    // Ronda 2 (2026-11-12): el autor revisó Q-2 y ya no se registra un pago
+    // de cuenta al titular. Lo que se comprueba aquí es la LECTURA de un
+    // asiento así ya guardado: se siembra como lo dejaba el menú Q-2 (pago
+    // imputado a su cargo propio), y registrar uno nuevo se rechaza.
+    await expectLater(
+      e.w.repo.registerAccountPayment(
+        personId: e.titular,
+        campaignId: e.w.invierno,
+        amountBobMinor: 8100,
+        date: DateTime.parse(at(10, 21)),
+      ),
+      throwsA(isA<BusinessRuleException>()),
     );
-    expect(payment.imputed.single.amountMinor, 8100);
+    final ownCharge = (await (await e.w.db).query(
+      'account_transactions',
+      where: "person_id=? AND type='USAGE_CHARGE'",
+      whereArgs: [e.titular],
+    )).single['id']! as int;
+    final historical = await e.w.rawPayment(
+      e.titular,
+      8100,
+      campaign: e.w.invierno,
+      date: at(10, 21),
+    );
+    await e.w.rawAllocation(historical, ownCharge, 8100);
     final l = await ledger();
     expect(l.ownConsumption(e.titular).activeCostMinor, 8100);
     expect(
@@ -418,15 +437,28 @@ void main() {
       expect(dash.familyCreditMinor, 8100);
     });
 
-    test('A1 · pago de P1 con fecha de su intervalo: es propio, se imputa a su '
-        'cargo propio y P1 queda con N = 0', () async {
+    // Ronda 2 (2026-11-12): un pago con fecha de su intervalo sería propio, y
+    // desde la revisión de Q-2 del autor no se registra. Antes: «es propio,
+    // se imputa a su cargo propio y P1 queda con N = 0».
+    test('A1 · pago de P1 con fecha de su intervalo: se rechaza (sería '
+        'propio) y P1 sigue con N = 0', () async {
       final own = await changedOwner();
-      final payment = await e.w.repo.registerAccountPayment(
-        personId: e.titular,
-        amountBobMinor: 8100,
-        date: DateTime(2026, 9, 1),
+      await expectLater(
+        e.w.repo.registerAccountPayment(
+          personId: e.titular,
+          amountBobMinor: 8100,
+          date: DateTime(2026, 9, 1),
+        ),
+        throwsA(isA<BusinessRuleException>()),
       );
-      expect(await e.w.allocationsOf(payment.paymentId), {own: 8100});
+      expect(
+        await (await e.w.db).query(
+          'payment_allocations',
+          where: 'charge_transaction_id=?',
+          whereArgs: [own],
+        ),
+        isEmpty,
+      );
       final l = await ledger();
       expect(l.account(e.titular).netMinor, 0);
       expect(l.account(e.titular).entries, isEmpty);
@@ -451,12 +483,25 @@ void main() {
                   whereArgs: [application],
                 )).single['id']!
                 as int;
-        final payment = await e.w.repo.registerAccountPayment(
-          personId: e.titular,
-          amountBobMinor: 4500,
-          date: DateTime(2026, 9, 1),
+        // Ronda 2 (2026-11-12): el pago propio ya no se registra; antes se
+        // imputaba a su cargo propio ({own: 4500}). El cargo por cobrar sigue
+        // intacto igual.
+        await expectLater(
+          e.w.repo.registerAccountPayment(
+            personId: e.titular,
+            amountBobMinor: 4500,
+            date: DateTime(2026, 9, 1),
+          ),
+          throwsA(isA<BusinessRuleException>()),
         );
-        expect(await e.w.allocationsOf(payment.paymentId), {own: 4500});
+        expect(
+          await (await e.w.db).query(
+            'payment_allocations',
+            where: 'charge_transaction_id IN (?, ?)',
+            whereArgs: [own, receivable],
+          ),
+          isEmpty,
+        );
         final l = await ledger();
         expect(l.account(e.titular).charges.containsKey(receivable), isTrue);
         expect(l.account(e.titular).netMinor, 4500);

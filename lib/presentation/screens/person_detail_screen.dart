@@ -94,9 +94,9 @@ class _PersonDetailScreenState extends ConsumerState<PersonDetailScreen> {
       final s = d.statement;
       final ownCost = s.ledger.ownConsumption(personId).activeCostMinor;
       final net = s.account.netMinor;
-      // En inventario propio sólo el titular registra pagos (#26); el pago
-      // propio del titular (Q-2) se registra en Cuentas. ADMIN no participa
-      // en la liquidación.
+      // Al titular no se le registran pagos de cuenta (decisión del autor del
+      // 2026-11-12, que revisa Q-2); en inventario propio nadie los recibe y
+      // ADMIN no participa en la liquidación.
       final canPay =
           !s.isCurrentOwner &&
           d.profile['role'] != 'ADMIN' &&

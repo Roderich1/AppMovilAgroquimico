@@ -16,6 +16,7 @@ import '../theme/agro_theme.dart';
 import '../widgets/agro_ui.dart';
 import '../widgets/common.dart';
 import '../widgets/local_backup_actions.dart';
+import '../widgets/rdm2_c_person_search.dart';
 import '../widgets/rdm_a_payment.dart';
 import '../widgets/rdm_a_people.dart';
 import '../widgets/rdm_b_ui.dart' show BigFigure, RdmScrollPage, splitBob;
@@ -98,7 +99,6 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
   Future<void> _record(
     AccountSummary person, {
     required List<CampaignRead> campaigns,
-    bool ownRecord = false,
   }) async {
     // D-04: la campaña elegida sólo es la de registro; la imputación va a la
     // deuda más antigua de cualquier campaña.
@@ -109,7 +109,6 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
       campaign: campaigns
           .where((campaign) => campaign.id == selectedCampaignId)
           .firstOrNull,
-      ownRecord: ownRecord,
     );
     if (recorded && mounted) _refresh();
   }
@@ -228,10 +227,8 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
                   switch (value) {
                     case 'detail':
                       _ownMovements(ownerId, person.name);
-                    case 'export':
-                      _exportStatement(summary);
                     default:
-                      _record(summary, campaigns: campaigns, ownRecord: true);
+                      _exportStatement(summary);
                   }
                 },
                 itemBuilder: (_) => const [
@@ -243,9 +240,8 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
                     value: 'export',
                     child: Text('Exportar movimientos propios'),
                   ),
-                  // Criterio Q-2: el titular conserva su pago (#26); se
-                  // registra aparte, nunca como cobro.
-                  PopupMenuItem(value: 'pay', child: Text('Registrar pago')),
+                  // Sin «Registrar pago»: el titular no se debe a sí mismo
+                  // (decisión del autor del 2026-11-12, que revisa Q-2).
                 ],
               ),
             ],
@@ -296,8 +292,10 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
     final caption = filtered
         ? pendingCaption(campaignName ?? 'campaña')
         : netCaptionAll;
-    // En inventario propio sólo el titular registra pagos (#26).
-    final canPay = !personal || row.personId == ownerPersonId;
+    // Al titular no se le registran pagos de cuenta (decisión del autor del
+    // 2026-11-12) y en inventario propio no hay cuentas por cobrar: nadie
+    // recibe pagos. El repositorio los rechaza igual.
+    final canPay = !personal && row.personId != ownerPersonId;
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Card(
@@ -366,7 +364,7 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
                 Padding(
                   padding: const EdgeInsets.only(bottom: 4),
                   child: Text(
-                    'Inventario propio: pagos sólo del titular',
+                    'Inventario propio: sin pagos de cuenta',
                     key: Key('account-pay-blocked-${row.personId}'),
                     style: AgroText.detail,
                   ),
@@ -460,9 +458,17 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
           final ownerId = ledger.ownerPersonId;
           final personal =
               ref.watch(operationModeProvider) == OperationMode.personal;
-          final visibleSettlements = settlements.where((row) {
-            return personQuery.isEmpty || matchesSearch(row.name, personQuery);
-          }).toList();
+          // Una sola regla para Personas y Cuentas (ronda 2, P1b): también
+          // la tarjeta del titular se filtra.
+          final visibleSettlements = settlements
+              .where((row) => matchesPersonSearch(row.name, personQuery))
+              .toList();
+          final ownerVisible =
+              ownerId != null &&
+              matchesPersonSearch(
+                ledger.account(ownerId).person.name,
+                personQuery,
+              );
           if (settlements.isEmpty && ownerId == null) {
             return const Card(
               child: EmptyState(
@@ -501,19 +507,16 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
                 },
               ),
               const SizedBox(height: 12),
-              TextField(
-                onChanged: (value) => setState(() {
-                  personQuery = value.trim().toLowerCase();
-                }),
-                decoration: const InputDecoration(
-                  prefixIcon: Icon(Icons.search),
-                  labelText: 'Buscar persona',
-                  isDense: true,
-                ),
+              Rdm2cPersonSearchField(
+                query: personQuery,
+                onChanged: (value) => setState(() => personQuery = value),
               ),
               const SizedBox(height: 16),
-              if (ownerId != null)
-                _ownCard(context, ledger, ownerId, campaigns),
+              if (ownerVisible) _ownCard(context, ledger, ownerId, campaigns),
+              if (!ownerVisible &&
+                  visibleSettlements.isEmpty &&
+                  (ownerId != null || settlements.isNotEmpty))
+                Rdm2cNoPersonMatches(query: personQuery),
               if (settlements.isEmpty)
                 Card(
                   child: EmptyState(
