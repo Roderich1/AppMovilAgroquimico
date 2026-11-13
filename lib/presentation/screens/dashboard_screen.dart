@@ -171,9 +171,15 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     ExistingSessionStartupState existingSession,
   ) {
     final personal = ref.watch(operationModeProvider) == OperationMode.personal;
-    // Las cifras dependen del modo: al cambiarlo se vuelven a leer.
+    // Las cifras del modo individual dependen del modo: se vuelven a leer
+    // sólo si entra o sale el modo individual (también la primera lectura,
+    // de `null` a individual). De `null` a compartido no cambia nada que
+    // mostrar y una segunda lectura sería trabajo de más.
     ref.listen(operationModeProvider, (previous, next) {
-      if (previous != next) _refresh();
+      if ((previous == OperationMode.personal) !=
+          (next == OperationMode.personal)) {
+        _refresh();
+      }
     });
     return FutureBuilder<_DashboardData>(
       future: future,

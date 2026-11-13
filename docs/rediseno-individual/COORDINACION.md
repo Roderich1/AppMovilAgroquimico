@@ -46,3 +46,12 @@ Un archivo sólo lo edita su propietario. Si otra sesión necesita un cambio, lo
 
 | Fecha | Sesión | Commit | Resultado de la revisión |
 |---|---|---|---|
+| 2026-11-13 | ORQ | `cfaadc6`, `2796943` | Inicio I-01/I-02, Registrar I-03, Ajustes I-50, Modo I-51/I-52, envíos I-53; `ind_orq_test` 11/11; capturas `orq/`. |
+| 2026-11-13 | C | `64ce789` → merge `652889d` | Revisada: lista, detalle, costos y vacío según láminas; Bs/ha sobre `farms.area_m2`, «No disponible» sin cero. Peticiones aplicadas en `727f819` (ruta `/chacos/costos`, sin flotante en Chacos sólo en modo individual). |
+| 2026-11-13 | A | `b563eef` → merge `025d32e` | Revisada: compra sin destinatario, revisión con saldo al proveedor, aplicación «Sale de su almacén», plan con revisión, voz Escuchando/Procesando/Cancelar. Pendiente del autor: ¿mismo panel de voz en el modo con varias personas? |
+| 2026-11-13 | B | `6f9d0e0` → merge `a4a2c76` | Revisada: Almacén sin persona, detalle, Actividad sin repetir titular, Proveedores con «Pagar» (efecto en `provider_payments`, sin `account_transactions`). Peticiones aplicadas en `1f46a9c` (ruta `/proveedores`, textos de `mode_notice`). P-3 (id del titular en movimientos) no aplicada: comparación por nombre declarada. |
+| 2026-11-13 | ORQ | `1f46a9c` | Mensajes del repositorio y almacenes con «modo individual»; `flutter analyze` sin avisos; suite completa en curso. |
+
+## Reasignaciones
+
+- Tras cerrar cada sesión, sus archivos pasan al ORQ para la integración (p. ej. `ind_c_chaco_costs_screen.dart`: `openIndCCosts` usa ya la ruta).

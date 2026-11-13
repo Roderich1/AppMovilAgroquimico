@@ -25,11 +25,9 @@ enum IndCCostView { farm, product, campaign }
 
 /// Abre «Costos» (`/chacos/costos`) apilado: Atrás vuelve a donde se abrió.
 Future<void> openIndCCosts(BuildContext context, {int? campaignId}) =>
-    context.push<void>(
-      campaignId == null
-          ? '/chacos/costos'
-          : '/chacos/costos?campana=$campaignId',
-    );
+    campaignId == null
+    ? context.push<void>('/chacos/costos')
+    : context.push<void>('/chacos/costos?campana=$campaignId');
 
 typedef _CostsData = ({
   IndCChacos chacos,
