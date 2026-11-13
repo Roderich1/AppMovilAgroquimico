@@ -5,6 +5,8 @@ import 'package:go_router/go_router.dart';
 import '../../data/sync/sync_outbox_store.dart';
 import '../../domain/sync/sync_types.dart';
 import '../../services/sync/sync_providers.dart';
+import '../../operation_mode_controller.dart' show personalModeProvider;
+import 'ind_connection_sheet.dart';
 
 /// Resumen de la outbox para el indicador. Nunca falla: sin base legible
 /// devuelve null y el indicador no se muestra (Riverpod reintentaría un
@@ -148,7 +150,11 @@ class SyncAwareBody extends ConsumerWidget {
         Material(
           color: Theme.of(context).colorScheme.secondaryContainer,
           child: InkWell(
-            onTap: () => context.push('/sincronizacion'),
+            // Modo individual (I-53): una hoja con los envíos pendientes y
+            // «Enviar ahora»; las decisiones siguen en Sincronización.
+            onTap: ref.read(personalModeProvider)
+                ? () => showIndConnectionSheet(context)
+                : () => context.push('/sincronizacion'),
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               child: Row(

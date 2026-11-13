@@ -595,7 +595,7 @@ void main() {
         expect(find.text('Transferencias'), findsNothing);
         c.read(routerProvider).go('/mas');
         await settle(tester);
-        expect(find.text('Ahora: inventario propio'), findsOneWidget);
+        expect(find.text('Modo individual'), findsOneWidget);
       },
     );
   });

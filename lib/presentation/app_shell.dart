@@ -523,8 +523,11 @@ class _AppShellState extends State<AppShell> {
       extendedPadding: _fabExtended
           ? null
           : const EdgeInsets.symmetric(horizontal: 16),
-      onPressed: () =>
-          showRegisterSheet(context, transfersEnabled: widget.transfersEnabled),
+      onPressed: () => showRegisterSheet(
+        context,
+        transfersEnabled: widget.transfersEnabled,
+        personalMode: widget.personalMode,
+      ),
       icon: const Icon(Icons.add),
       label: const Text('Registrar'),
     ),

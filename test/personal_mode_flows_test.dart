@@ -98,7 +98,7 @@ void main() {
       // La modalidad vigente se lee en Más, Modo de uso (piloto X01).
       c.read(routerProvider).go('/mas');
       await settle(tester);
-      expect(find.text('Ahora: inventario compartido'), findsOneWidget);
+      expect(find.text('Ahora: modo con varias personas'), findsOneWidget);
     });
 
     testWidgets('propio: abrir directamente una ruta de transferencias '
@@ -358,7 +358,14 @@ void main() {
       // Las personas ya registradas siguen a la vista.
       expect(find.text('Hermana'), findsOneWidget);
 
-      await tester.tap(find.text('Chacos'));
+      // En modo individual «Chacos» también es una pestaña de la barra:
+      // se toca la de Catálogos.
+      await tester.tap(
+        find.descendant(
+          of: find.byType(ChoiceChip),
+          matching: find.text('Chacos'),
+        ),
+      );
       await settle(tester);
       await tester.tap(find.text('Agregar chaco'));
       await settle(tester);

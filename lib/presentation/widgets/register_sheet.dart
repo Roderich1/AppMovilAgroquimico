@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../theme/agro_theme.dart';
 import 'agro_ui.dart';
 import 'common.dart' show showSuccess;
+import '../screens/ind_home.dart' show indProvidersRoute;
 
 /// Cambia cada vez que se cierra un formulario abierto desde la hoja
 /// «Registrar». Las pestañas con historial o existencias (Actividad, Almacén)
@@ -36,6 +37,10 @@ class RegisterRevision extends Notifier<int> {
 Future<void> showRegisterSheet(
   BuildContext context, {
   required bool transfersEnabled,
+  // Modo individual (lámina I-03): «Pago a un proveedor» en vez de «Pago»
+  // en Cuentas (no hay cobros a personas) y la voz dentro de cada
+  // formulario. Transferencia ya depende de [transfersEnabled].
+  bool personalMode = false,
 }) => showModalBottomSheet<void>(
   context: context,
   // Con la letra al 200 % la hoja crece y, si aun así no cabe, se desplaza.
@@ -134,20 +139,35 @@ Future<void> showRegisterSheet(
                   onTap: () =>
                       open('/planificacion/nueva', done: 'Plan guardado.'),
                 ),
-                row(
-                  key: const Key('register-payment'),
-                  icon: Icons.payments_outlined,
-                  label: 'Pago',
-                  hint: 'En Cuentas',
-                  onTap: () {
-                    // Pago se elige en Cuentas (no es un formulario): se va a
-                    // la pantalla, sin apilar.
-                    Navigator.of(sheetContext).pop();
-                    WidgetsBinding.instance.addPostFrameCallback((_) {
-                      if (context.mounted) context.go('/liquidacion');
-                    });
-                  },
-                ),
+                if (personalMode)
+                  row(
+                    key: const Key('register-provider-payment'),
+                    icon: Icons.payments_outlined,
+                    label: 'Pago a un proveedor',
+                    onTap: () {
+                      // Se paga desde la compra con saldo (Proveedores): se
+                      // va a la pantalla, sin apilar.
+                      Navigator.of(sheetContext).pop();
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        if (context.mounted) context.go(indProvidersRoute);
+                      });
+                    },
+                  )
+                else
+                  row(
+                    key: const Key('register-payment'),
+                    icon: Icons.payments_outlined,
+                    label: 'Pago',
+                    hint: 'En Cuentas',
+                    onTap: () {
+                      // Pago se elige en Cuentas (no es un formulario): se va a
+                      // la pantalla, sin apilar.
+                      Navigator.of(sheetContext).pop();
+                      WidgetsBinding.instance.addPostFrameCallback((_) {
+                        if (context.mounted) context.go('/liquidacion');
+                      });
+                    },
+                  ),
                 if (transfersEnabled)
                   row(
                     key: const Key('register-transfer'),
@@ -161,34 +181,45 @@ Future<void> showRegisterSheet(
               ],
             ),
             const SizedBox(height: 12),
-            DashedPanel(
-              key: const Key('register-voice'),
-              onTap: () => open('/voz'),
-              child: Row(
-                children: [
-                  const Icon(Icons.mic_none, color: AgroColors.ink),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Completar por voz', style: AgroText.question),
-                        // Con la letra muy grande la aclaración se omite para
-                        // que todas las opciones quepan sin desplazarse.
-                        if (MediaQuery.textScalerOf(context).scale(1) <
-                            1.5) ...[
-                          const SizedBox(height: 2),
-                          Text(
-                            'Compra, aplicación o plan con el panel de voz',
-                            style: AgroText.detail,
-                          ),
+            if (personalMode)
+              const Padding(
+                key: Key('register-voice-note'),
+                padding: EdgeInsets.symmetric(horizontal: 4),
+                child: Text(
+                  'Compra, aplicación y plan se pueden completar por voz '
+                  'dentro de su formulario.',
+                  style: AgroText.detail,
+                ),
+              )
+            else
+              DashedPanel(
+                key: const Key('register-voice'),
+                onTap: () => open('/voz'),
+                child: Row(
+                  children: [
+                    const Icon(Icons.mic_none, color: AgroColors.ink),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text('Completar por voz', style: AgroText.question),
+                          // Con la letra muy grande la aclaración se omite para
+                          // que todas las opciones quepan sin desplazarse.
+                          if (MediaQuery.textScalerOf(context).scale(1) <
+                              1.5) ...[
+                            const SizedBox(height: 2),
+                            Text(
+                              'Compra, aplicación o plan con el panel de voz',
+                              style: AgroText.detail,
+                            ),
+                          ],
                         ],
-                      ],
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
           ],
         ),
       ),

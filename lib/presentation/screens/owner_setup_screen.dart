@@ -15,7 +15,8 @@ import '../../services/auth/local_owner_credential.dart';
 import '../../services/auth/local_owner_credential_providers.dart';
 import '../widgets/agro_ui.dart';
 import '../widgets/common.dart';
-import 'operation_mode_screen.dart' show operationModeExplanation;
+import 'operation_mode_screen.dart'
+    show operationModeExplanation, operationModeTitle;
 
 /// Elección explícita del titular tras activar (criterio C, CU-01, CU-05).
 ///
@@ -181,7 +182,7 @@ class _OwnerSetupScreenState extends ConsumerState<OwnerSetupScreen> {
           await OperationModeStore(database)
               .apply(OperationMode.personal, confirmed: true);
         } on ModeTransitionException catch (error) {
-          modeNotice = '${error.message} Queda en inventario compartido.';
+          modeNotice = '${error.message} Queda en el modo con varias personas.';
         }
       }
       await controller.refresh();
@@ -197,9 +198,9 @@ class _OwnerSetupScreenState extends ConsumerState<OwnerSetupScreen> {
           extra:
               modeNotice ??
               (_mode == OperationMode.personal
-                  ? 'Usa inventario propio; puede cambiarlo en Ajustes y datos '
+                  ? 'Usa el modo individual; puede cambiarlo en Ajustes y datos '
                         '› Modo de uso.'
-                  : 'Usa inventario compartido; puede cambiarlo en '
+                  : 'Usa el modo con varias personas; puede cambiarlo en '
                         'Ajustes y datos › Modo de uso.'),
         );
         return;
@@ -209,9 +210,9 @@ class _OwnerSetupScreenState extends ConsumerState<OwnerSetupScreen> {
         context,
         modeNotice ??
             (_mode == OperationMode.personal
-                ? 'Titular vinculado. Usa inventario propio; puede cambiarlo '
+                ? 'Titular vinculado. Usa el modo individual; puede cambiarlo '
                       'en Ajustes y datos › Modo de uso.'
-                : 'Titular vinculado. Usa inventario compartido; puede '
+                : 'Titular vinculado. Usa el modo con varias personas; puede '
                       'cambiarlo en Ajustes y datos › Modo de uso.'),
       );
       context.go('/');
@@ -307,7 +308,7 @@ class _OwnerSetupScreenState extends ConsumerState<OwnerSetupScreen> {
                 ),
               const SizedBox(height: 20),
               Text(
-                'Modalidad de inventario',
+                'Modo de uso',
                 style: Theme.of(context).textTheme.titleMedium,
               ),
               const Text(
@@ -325,7 +326,7 @@ class _OwnerSetupScreenState extends ConsumerState<OwnerSetupScreen> {
                     RadioListTile<OperationMode>(
                       key: const Key('owner-mode-shared'),
                       value: OperationMode.shared,
-                      title: const Text('Compartido'),
+                      title: Text(operationModeTitle(OperationMode.shared)),
                       subtitle: Text(
                         operationModeExplanation(OperationMode.shared),
                       ),
@@ -333,7 +334,7 @@ class _OwnerSetupScreenState extends ConsumerState<OwnerSetupScreen> {
                     RadioListTile<OperationMode>(
                       key: const Key('owner-mode-personal'),
                       value: OperationMode.personal,
-                      title: const Text('Propio'),
+                      title: Text(operationModeTitle(OperationMode.personal)),
                       subtitle: Text(
                         operationModeExplanation(OperationMode.personal),
                       ),
