@@ -266,6 +266,11 @@ String jointPurchaseWhoCanSeeText(JointPurchaseCall call) {
     JointPurchaseConsentScope.totalsOnly =>
       'Usted retiró la autorización: $nobody. Sus cantidades siguen contando '
           'en los totales por producto, que se muestran sin nombres.',
+    // Verificación E4 (D2): en una cancelada no hay revisión (E4 §4.2), así
+    // que no se invita a hacerla.
+    _ when call.status == JointPurchaseCallStatus.cancelled =>
+      'Su participación se registró con un texto anterior. La convocatoria '
+          'está cancelada y ya no admite cambios: $nobody.',
     _ =>
       'Su participación se registró con un texto anterior. Con las reglas '
           'actuales, $nobody hasta que usted revise quién puede ver su '
