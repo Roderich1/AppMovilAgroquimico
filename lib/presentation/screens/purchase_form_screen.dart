@@ -1066,10 +1066,12 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen>
       return VoiceFormPanel(
         dictation: voice!,
         docked: true,
-        // Modo individual: láminas I-13 e I-14.
-        individualHint: personalOwnerId != null
+        // Láminas I-13 e I-14, en ambos modos. Con varias personas la voz
+        // también puede decir para quién es la compra; en modo individual
+        // la compra es del titular.
+        listeningHint: personalOwnerId != null
             ? 'Diga producto, cantidad y precio'
-            : null,
+            : 'Diga producto, cantidad, precio y para quién',
         // En modo individual el ejemplo no nombra destinatario: la compra es
         // del titular (recorrido del emulador, 2026-11-13).
         example: personalOwnerId != null
@@ -1276,8 +1278,6 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen>
       if (voice != null && _voiceBanner && !showVoice) ...[
         VoiceResultBanner(
           dictation: voice!,
-          // Modo individual: lámina I-15.
-          individual: personalOwnerId != null,
           onDictateMore: saving ? null : _openVoice,
           onDismiss: () => setState(() => _voiceBanner = false),
         ),
