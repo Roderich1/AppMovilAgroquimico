@@ -20,7 +20,7 @@ import '../../services/auth/existing_session_startup.dart';
 import '../../services/auth/remote_session_coordinator.dart';
 import '../../services/auth/remote_session_providers.dart';
 import '../../services/sync/sync_providers.dart'
-    show jointPurchaseNoticeProvider;
+    show jointPurchaseAccessReviewCountProvider, jointPurchaseNoticeProvider;
 import '../theme/agro_theme.dart';
 import '../widgets/agro_ui.dart';
 import '../widgets/common.dart';
@@ -210,6 +210,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               _SessionArea(existingSession, top: true),
               const _InstallationAccessNotice(),
               const _JointPurchaseNotice(),
+              const _JointPurchaseAccessReviewNotice(),
               const SizedBox(height: 4),
               if (personal && data?.individual?.campaignEmpty == true)
                 IndHomeFirstSteps(
@@ -1029,32 +1030,82 @@ class _JointPurchaseNotice extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final notice = ref.watch(jointPurchaseNoticeProvider).value;
     if (notice == null) return const SizedBox.shrink();
+    return _JointPurchaseNoticeCard(
+      cardKey: const Key('joint-purchase-notice'),
+      icon: Icons.campaign_outlined,
+      text: jointPurchaseNoticeText(notice),
+      onTap: () => context.push(
+        notice.total > 1
+            ? '/compras-conjuntas'
+            : '/compras-conjuntas/${notice.callId}',
+      ),
+    );
+  }
+}
+
+/// E4 (2026-11-13): «Revise quién puede ver su participación…» mientras
+/// alguna convocatoria del titular tenga un alcance anterior a CONV-4 o una
+/// decisión pendiente con texto anterior. En los dos modos, con el mismo
+/// aspecto que el aviso de convocatoria nueva. Sólo lectura local; abre la
+/// lista de compras conjuntas, donde cada convocatoria ofrece la revisión.
+class _JointPurchaseAccessReviewNotice extends ConsumerWidget {
+  const _JointPurchaseAccessReviewNotice();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final count = ref.watch(jointPurchaseAccessReviewCountProvider).value ?? 0;
+    if (count <= 0) return const SizedBox.shrink();
+    return _JointPurchaseNoticeCard(
+      cardKey: const Key('joint-purchase-access-review-notice'),
+      icon: Icons.visibility_outlined,
+      text: jointPurchaseAccessReviewNoticeText(count),
+      onTap: () => context.push('/compras-conjuntas'),
+    );
+  }
+}
+
+/// Texto del aviso de revisión de acceso (E4).
+String jointPurchaseAccessReviewNoticeText(int count) => count == 1
+    ? 'Revise quién puede ver su participación en una compra conjunta'
+    : 'Revise quién puede ver su participación en $count compras conjuntas';
+
+class _JointPurchaseNoticeCard extends StatelessWidget {
+  const _JointPurchaseNoticeCard({
+    required this.cardKey,
+    required this.icon,
+    required this.text,
+    required this.onTap,
+  });
+
+  final Key cardKey;
+  final IconData icon;
+  final String text;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
       child: Material(
         color: AgroColors.warnBg,
         borderRadius: BorderRadius.circular(20),
         child: InkWell(
-          key: const Key('joint-purchase-notice'),
+          key: cardKey,
           borderRadius: BorderRadius.circular(20),
-          onTap: () => context.push(
-            notice.total > 1
-                ? '/compras-conjuntas'
-                : '/compras-conjuntas/${notice.callId}',
-          ),
+          onTap: onTap,
           child: Padding(
             padding: const EdgeInsets.fromLTRB(14, 12, 10, 12),
             child: Row(
               children: [
-                const IconCircle(
-                  icon: Icons.campaign_outlined,
+                IconCircle(
+                  icon: icon,
                   background: AgroColors.warnInk,
                   foreground: AgroColors.warnBg,
                 ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Text(
-                    jointPurchaseNoticeText(notice),
+                    text,
                     style: const TextStyle(
                       fontSize: 15,
                       height: 20 / 15,

@@ -5,6 +5,7 @@
 // lista separa las recientes del «Historial» (E2 §10.1), que se consulta por
 // páginas con conexión y avisa sin ella. Sin red real; datos sintéticos.
 import 'package:agroquimicos/app.dart';
+import 'package:agroquimicos/data/app_database.dart';
 import 'package:agroquimicos/data/sync/joint_purchase_store.dart';
 import 'package:agroquimicos/domain/sync/joint_purchase_call_view.dart';
 import 'package:agroquimicos/presentation/screens/joint_purchase_detail_screen.dart';
@@ -26,6 +27,7 @@ import 'support/e2_joint_purchase_fixtures.dart';
 import 'support/f04_mode_fixtures.dart';
 import 'support/f04_mode_ui_harness.dart' as ui;
 import 'support/f05_sync_fixtures.dart';
+import 'support/ind_a_household.dart';
 
 void main() {
   sqfliteFfiInit();
@@ -264,29 +266,31 @@ void main() {
     });
   }
 
-  testWidgets('cancelada con alcance anterior: no invita a revisar (verificación E4, D2)', (
-    tester,
-  ) async {
-    final s = await pumpDetail(tester);
-    await tester.runAsync(
-      () => seedCalls(s.store, memberA, [
-        callJson(
-          status: 'CANCELLED',
-          participation: participationJson(
-            consentVersion: 'CONV-3',
-            consentScope: 'RESPONSIBLE_ONLY',
-            consentScopeVersion: 'CONV-3',
+  testWidgets(
+    'cancelada con alcance anterior: no invita a revisar (verificación E4, D2)',
+    (tester) async {
+      final s = await pumpDetail(tester);
+      await tester.runAsync(
+        () => seedCalls(s.store, memberA, [
+          callJson(
+            status: 'CANCELLED',
+            participation: participationJson(
+              consentVersion: 'CONV-3',
+              consentScope: 'RESPONSIBLE_ONLY',
+              consentScopeVersion: 'CONV-3',
+            ),
           ),
-        ),
-      ]),
-    );
-    s.c.read(jointPurchaseRevisionProvider.notifier).bump();
-    await settle(tester);
-    final text =
-        tester.widget<Text>(find.byKey(const Key('joint-who-can-see'))).data!;
-    expect(text, contains('está cancelada y ya no admite cambios'));
-    expect(text, isNot(contains('revise')));
-  });
+        ]),
+      );
+      s.c.read(jointPurchaseRevisionProvider.notifier).bump();
+      await settle(tester);
+      final text = tester
+          .widget<Text>(find.byKey(const Key('joint-who-can-see')))
+          .data!;
+      expect(text, contains('está cancelada y ya no admite cambios'));
+      expect(text, isNot(contains('revise')));
+    },
+  );
 
   testWidgets('convocatoria cerrada: botones desactivados con explicación', (
     tester,
@@ -350,6 +354,90 @@ void main() {
       expect(find.byKey(const Key('union-joint-purchases')), findsOneWidget);
     },
   );
+
+  // --- E4 (cierre 2026-11-13): aviso de revisión en Inicio, en los dos modos
+
+  Map<String, Object?> legacyCall() => callJson(
+    deadlineAt: '2099-12-31T22:00:00.000Z',
+    participation: participationJson(
+      consentVersion: 'CONV-3',
+      consentScope: 'RESPONSIBLE_ONLY',
+      consentScopeVersion: 'CONV-3',
+    ),
+  );
+
+  Future<void> expectAccessReviewNotice(
+    WidgetTester tester,
+    AppDatabase database,
+  ) async {
+    final offline = ui.OfflineTransport();
+    await ui.pumpModeApp(tester, database, transport: offline);
+    expect(
+      find.text(
+        'Revise quién puede ver su participación en una compra conjunta',
+      ),
+      findsOneWidget,
+    );
+    await tester.tap(
+      find.byKey(const Key('joint-purchase-access-review-notice')),
+    );
+    await ui.settle(tester);
+    expect(find.byType(JointPurchasesScreen), findsOneWidget);
+    // Sólo lectura local: el aviso no envía nada ni cambia el alcance.
+    expect(offline.requests, 0);
+    expect(
+      await tester.runAsync(
+        () => JointPurchaseStore(database).consentOps(callId),
+      ),
+      isEmpty,
+    );
+  }
+
+  testWidgets('E4: Inicio con varias personas avisa «Revise quién puede ver su '
+      'participación» si hay un alcance anterior a CONV-4', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 2400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final h = await ui.activatedHousehold(tester, 'e4_inicio_varias');
+    await tester.runAsync(
+      () => seedCalls(JointPurchaseStore(h.database), memberA, [legacyCall()]),
+    );
+    await expectAccessReviewNotice(tester, h.database);
+  });
+
+  testWidgets(
+    'E4: Inicio en modo individual muestra el mismo aviso de revisión',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(800, 2400));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final h = await personalHousehold(tester, 'e4_inicio_individual');
+      await tester.runAsync(
+        () =>
+            seedCalls(JointPurchaseStore(h.database), memberA, [legacyCall()]),
+      );
+      await expectAccessReviewNotice(tester, h.database);
+    },
+  );
+
+  testWidgets('E4: con CONV-4 vigente no hay aviso de revisión en Inicio', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(800, 2400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final h = await ui.activatedHousehold(tester, 'e4_inicio_conv4');
+    await tester.runAsync(
+      () => seedCalls(JointPurchaseStore(h.database), memberA, [
+        callJson(
+          deadlineAt: '2099-12-31T22:00:00.000Z',
+          participation: participationJson(),
+        ),
+      ]),
+    );
+    await ui.pumpModeApp(tester, h.database, transport: ui.OfflineTransport());
+    expect(
+      find.byKey(const Key('joint-purchase-access-review-notice')),
+      findsNothing,
+    );
+  });
 
   // --- E2 §10.1: historial en la misma pantalla ---------------------------
 
