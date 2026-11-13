@@ -16,6 +16,7 @@ import '../theme/agro_theme.dart';
 import '../widgets/agro_ui.dart';
 import '../widgets/common.dart';
 import '../widgets/local_backup_actions.dart';
+import '../widgets/rdm2_c_person_search.dart';
 import '../widgets/rdm_a_payment.dart';
 import '../widgets/rdm_a_people.dart';
 import '../widgets/rdm_b_ui.dart' show BigFigure, RdmScrollPage, splitBob;
@@ -457,9 +458,17 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
           final ownerId = ledger.ownerPersonId;
           final personal =
               ref.watch(operationModeProvider) == OperationMode.personal;
-          final visibleSettlements = settlements.where((row) {
-            return personQuery.isEmpty || matchesSearch(row.name, personQuery);
-          }).toList();
+          // Una sola regla para Personas y Cuentas (ronda 2, P1b): también
+          // la tarjeta del titular se filtra.
+          final visibleSettlements = settlements
+              .where((row) => matchesPersonSearch(row.name, personQuery))
+              .toList();
+          final ownerVisible =
+              ownerId != null &&
+              matchesPersonSearch(
+                ledger.account(ownerId).person.name,
+                personQuery,
+              );
           if (settlements.isEmpty && ownerId == null) {
             return const Card(
               child: EmptyState(
@@ -498,19 +507,16 @@ class _SettlementsScreenState extends ConsumerState<SettlementsScreen> {
                 },
               ),
               const SizedBox(height: 12),
-              TextField(
-                onChanged: (value) => setState(() {
-                  personQuery = value.trim().toLowerCase();
-                }),
-                decoration: const InputDecoration(
-                  prefixIcon: Icon(Icons.search),
-                  labelText: 'Buscar persona',
-                  isDense: true,
-                ),
+              Rdm2cPersonSearchField(
+                query: personQuery,
+                onChanged: (value) => setState(() => personQuery = value),
               ),
               const SizedBox(height: 16),
-              if (ownerId != null)
-                _ownCard(context, ledger, ownerId, campaigns),
+              if (ownerVisible) _ownCard(context, ledger, ownerId, campaigns),
+              if (!ownerVisible &&
+                  visibleSettlements.isEmpty &&
+                  (ownerId != null || settlements.isNotEmpty))
+                Rdm2cNoPersonMatches(query: personQuery),
               if (settlements.isEmpty)
                 Card(
                   child: EmptyState(
