@@ -421,7 +421,8 @@ void main() {
     expect(find.text('Una persona'), findsNothing);
     expect(find.text('Repartir entre varias'), findsNothing);
     expect(picker('Persona'), findsNothing);
-    expect(find.text('Para el titular: Titular'), findsOneWidget);
+    // Rediseño individual (lámina I-11): la hoja no repite el titular.
+    expect(find.textContaining('Para el titular'), findsNothing);
     // Con el producto elegido, la tarjeta dice lo que falta: la cantidad,
     // nunca el destinatario.
     await choose(tester, 'Producto', 'Glifosato');

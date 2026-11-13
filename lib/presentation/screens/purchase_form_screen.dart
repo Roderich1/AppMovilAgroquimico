@@ -382,6 +382,14 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     initVoiceEvidence();
+    // Rediseño individual (2026-11-13): si la modalidad cambia con un
+    // dictado en curso, se cancela; su resultado tardío no llega al
+    // formulario (que además queda bloqueado por `ModeChangedNotice`).
+    ref.listenManual(operationModeProvider, (_, next) {
+      if (modeChangedSince(loadedMode, next) && (voice?.busy ?? false)) {
+        voice!.cancel();
+      }
+    });
     catalogs = _loadCatalogs();
     if (widget.voice) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -895,7 +903,7 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen>
         builder: (context, snapshot) {
           final header = Padding(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-            child: _header(),
+            child: _header(snapshot.data),
           );
           // Sin esta rama, un fallo al cargar los catálogos dejaba el
           // formulario girando indefinidamente, sin explicación ni salida.
@@ -993,10 +1001,18 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen>
   _PurchaseLineEditor? get _editingLine =>
       lines.where((line) => line.id == editingLineId).firstOrNull;
 
-  /// Volver, «Paso n de 2», el acceso a la voz y la barra de pasos.
-  Widget _header() {
+  /// Volver, «Paso n de 2», el acceso a la voz y la barra de pasos. En modo
+  /// individual el rótulo lleva también la campaña de la compra (lámina
+  /// I-10: «Paso 1 de 2 · Invierno 2026»).
+  Widget _header([_PurchaseCatalogs? data]) {
     final review = step == _PurchaseStep.review;
     final busy = voice?.busy ?? false;
+    final campaign = personalOwnerId == null || data == null
+        ? null
+        : data.campaigns
+              .where((c) => c['id'] == campaignId)
+              .map((c) => c['name']?.toString())
+              .firstOrNull;
     return Column(
       children: [
         FlowTopBar(
@@ -1007,7 +1023,9 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen>
               : review
               ? _backToItems
               : _close,
-          label: 'Paso ${review ? 2 : 1} de 2',
+          label: campaign == null
+              ? 'Paso ${review ? 2 : 1} de 2'
+              : 'Paso ${review ? 2 : 1} de 2 · $campaign',
           labelKey: const Key('purchase-step'),
           // F09 (formulario único): la voz completa ESTE formulario; no abre
           // otra pantalla ni descarta nada. Desde la revisión vuelve al paso
@@ -1048,6 +1066,10 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen>
       return VoiceFormPanel(
         dictation: voice!,
         docked: true,
+        // Modo individual: láminas I-13 e I-14.
+        individualHint: personalOwnerId != null
+            ? 'Diga producto, cantidad y precio'
+            : null,
         example:
             '«Doce litros de herbicida a ciento dieciocho, de Agroinsumos, '
             'para Rosa»',
@@ -1251,6 +1273,8 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen>
       if (voice != null && _voiceBanner && !showVoice) ...[
         VoiceResultBanner(
           dictation: voice!,
+          // Modo individual: lámina I-15.
+          individual: personalOwnerId != null,
           onDictateMore: saving ? null : _openVoice,
           onDismiss: () => setState(() => _voiceBanner = false),
         ),
@@ -1364,10 +1388,10 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen>
   /// tarjeta declara.
   String _allocationStatus(_PurchaseLineEditor line, _PurchaseCatalogs data) {
     final unit = _productOf(data, line.productId)?['unit']?.toString() ?? '';
+    // Modo individual (lámina I-10): todo es del titular, así que la tarjeta
+    // no lo repite; sólo avisa si falta la cantidad.
     if (personalOwnerId != null) {
-      return line.quantityBase <= 0
-          ? 'Pendiente de cantidad'
-          : 'Para el titular';
+      return line.quantityBase <= 0 ? 'Pendiente de cantidad' : '';
     }
     switch (line.allocationMode) {
       case null:
@@ -1430,7 +1454,9 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen>
     // no: es un dato secundario que se ve en la hoja y en la revisión.
     final subtitle = [
       if (amounts.isNotEmpty) amounts,
-      _allocationStatus(line, data),
+      if (_allocationStatus(line, data) case final status
+          when status.isNotEmpty)
+        status,
       if (line.expiryDay != null) 'Vence el ${displayDay(line.expiryDay!)}',
     ].join(' · ');
     final complete =
@@ -1780,16 +1806,10 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen>
       ],
       ..._missing(line, line.voiceFields(personalOwnerId == null)),
       const SizedBox(height: 16),
-      // En propio la línea entera es del titular: no hay reparto (#26).
-      if (personalOwnerId != null)
-        NoticeBox(
-          key: Key('purchase-personal-allocation-$index'),
-          icon: Icons.person_outline,
-          text:
-              'Para el titular: '
-              '${_ownerName(data) ?? 'Titular'}',
-        )
-      else ...[
+      // Modo individual: la línea entera es del titular (#26) y la hoja no
+      // pregunta ni repite para quién es (lámina I-11). El repositorio vuelve
+      // a exigir el titular al guardar.
+      if (personalOwnerId == null) ...[
         ..._recipientSection(data, line, index, unit),
         _lineMark(
           line,
@@ -2058,7 +2078,9 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen>
                   style: AgroText.value,
                 ),
                 Text(
-                  _dayLabel(effectiveDay),
+                  personalOwnerId == null
+                      ? _dayLabel(effectiveDay)
+                      : '${_dayLabel(effectiveDay)} · entra a su almacén',
                   key: const Key('purchase-review-date'),
                   style: AgroText.detail,
                 ),
@@ -2085,16 +2107,19 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen>
                           color: AgroColors.ink,
                         ),
                       ),
-                      Text(
-                        _recipientSummary(
-                          lines[index],
-                          personName,
-                          productUnit(lines[index].productId),
-                          ownerName,
+                      // Modo individual: sin «Para: titular» en cada línea
+                      // (lámina I-12); la cabecera dice que entra a su almacén.
+                      if (personalOwnerId == null)
+                        Text(
+                          _recipientSummary(
+                            lines[index],
+                            personName,
+                            productUnit(lines[index].productId),
+                            ownerName,
+                          ),
+                          key: Key('purchase-review-recipient-$index'),
+                          style: AgroText.detail,
                         ),
-                        key: Key('purchase-review-recipient-$index'),
-                        style: AgroText.detail,
-                      ),
                       if (_lotDataSummary(lines[index]) case final lot?)
                         Text(
                           lot,
@@ -2199,6 +2224,17 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen>
               enabled: !saving,
             ),
           ],
+        ),
+        false when personalOwnerId != null => NoticeBox(
+          key: const Key('purchase-no-payment'),
+          icon: Icons.schedule_outlined,
+          tone: NoticeTone.warning,
+          // Lámina I-12. Es el saldo de ESTA compra con el proveedor (no el
+          // total adeudado, que puede incluir compras anteriores).
+          text:
+              'Esta compra quedará por pagar: ${formatBob(totalBob)} con '
+              '$supplierName. Podrá pagarlo después desde Registrar › Pago '
+              'a un proveedor.',
         ),
         false => const NoticeBox(
           key: Key('purchase-no-payment'),

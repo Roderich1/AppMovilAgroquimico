@@ -244,7 +244,8 @@ void main() {
       expect(find.text('¿Para quién es?'), findsNothing);
       expect(find.text('Una persona'), findsNothing);
       expect(picker('Persona'), findsNothing);
-      expect(find.text('Para el titular: Titular'), findsOneWidget);
+      // Rediseño individual (lámina I-11): la hoja no repite el titular.
+      expect(find.textContaining('Para el titular'), findsNothing);
       expect(inputCount(tester), lessThan(sharedInputs));
 
       await closePurchaseLine(tester);
@@ -306,10 +307,9 @@ void main() {
       await waitFor(tester, picker('Chaco'));
       await settle(tester);
       expect(picker('Persona'), findsNothing);
-      expect(
-        find.byKey(const Key('application-personal-owner')),
-        findsOneWidget,
-      );
+      // Rediseño individual (lámina I-20): ni selector de persona ni fila
+      // «Aplica el titular»; el repositorio aplica al titular al guardar.
+      expect(find.byKey(const Key('application-personal-owner')), findsNothing);
       final farms = tester
           .widget<AdaptiveEntityPicker<Row>>(picker('Chaco'))
           .items;

@@ -121,9 +121,11 @@ class _PurchaseVoice implements VoiceFormTarget<VoicePurchaseDraft> {
     final r = interpretPurchase(text, shadow, catalog!);
     if (r.otherIntent != null) _notices.add(_otherIntent(r.otherIntent!));
     if (r.ignoredRecipient != null) {
+      // Modo individual (lámina I-15): un nombre dictado no crea ni asigna
+      // persona; se dice qué completa este formulario, sin repetir lo dicho.
       _notices.add(
-        'En inventario propio la compra es del titular: el destinatario '
-        'dictado no se usó.',
+        'Parte del dictado no corresponde a este formulario y no se usó. '
+        'Aquí se completan proveedor, fecha, producto, cantidad y precio.',
       );
     }
     if (r.unplacedPrice != null) _notices.add(r.unplacedPrice!.message);
