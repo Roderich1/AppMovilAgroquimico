@@ -14,6 +14,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import '../support/f04_mode_ui_harness.dart';
 import '../voice/support/fake_speech_transcription_port.dart';
 import '../support/purchase_form_driver.dart';
+import '../support_rdm2/a_purchase_sheet.dart';
 
 typedef Row = Map<String, Object?>;
 
@@ -59,11 +60,13 @@ void main() {
     return (database: s.database, c: c);
   }
 
+  // Ronda 2 (sesión A): con la hoja abierta la página sigue detrás, a la
+  // vista; se toca lo alcanzable (la hoja, o la página tras cerrarla).
   Future<void> tapKey(WidgetTester tester, String key) async {
-    await preparePurchaseKey(tester, key);
-    await tester.ensureVisible(find.byKey(Key(key)));
+    await prepareReachableKey(tester, key);
+    await tester.ensureVisible(reachable(find.byKey(Key(key))));
     await tester.pump();
-    await tester.tap(find.byKey(Key(key)));
+    await tester.tap(reachable(find.byKey(Key(key))));
     await settle(tester);
   }
 
@@ -199,7 +202,7 @@ void main() {
       final db = await dictateInForm(tester, 'Hoy compré fungicida demo');
       expect(await product(tester), 'Fungicida DEMO');
       expect(await field(tester, 'Cantidad comprada'), '');
-      expect(find.text('Falta: cantidad'), findsOneWidget);
+      expect(reachable(find.text('Falta: cantidad')), findsOneWidget);
       await closePurchaseLine(tester);
       await tapKey(tester, 'purchase-continue');
       expect(find.text('¿Qué compró?'), findsOneWidget);
@@ -228,7 +231,7 @@ void main() {
         );
         expect(await field(tester, 'Precio por L'), '');
         expect(
-          find.textContaining('Se dijo un importe total: 100 Bs'),
+          reachable(find.textContaining('Se dijo un importe total: 100 Bs')),
           findsOneWidget,
         );
         await tapKey(tester, 'voz-opcion-price@1-0');
@@ -241,7 +244,7 @@ void main() {
         'vista', (tester) async {
       final db = await dictateInForm(tester, 'Compréfungicida DEMO.');
       expect(await product(tester), 'Fungicida DEMO');
-      expect(find.text('Falta: cantidad'), findsOneWidget);
+      expect(reachable(find.text('Falta: cantidad')), findsOneWidget);
       expect(await purchases(tester, db), 0);
     });
   });

@@ -887,21 +887,21 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen>
     },
     child: Scaffold(
       bottomNavigationBar: _bottomBar(),
-      // Con la hoja de un producto abierta, el velo cubre también la franja
-      // de la barra de estado, como en el prototipo.
-      body: SafeArea(
-        top: editingLineId == null || step != _PurchaseStep.items,
-        child: FutureBuilder<_PurchaseCatalogs>(
-          future: catalogs,
-          builder: (context, snapshot) {
-            final header = Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-              child: _header(),
-            );
-            // Sin esta rama, un fallo al cargar los catálogos dejaba el
-            // formulario girando indefinidamente, sin explicación ni salida.
-            if (snapshot.hasError) {
-              return Column(
+      // La página va dentro del área segura; la hoja de un producto, con su
+      // velo, por encima de todo el cuerpo (también la franja de la barra de
+      // estado), como una hoja modal.
+      body: FutureBuilder<_PurchaseCatalogs>(
+        future: catalogs,
+        builder: (context, snapshot) {
+          final header = Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+            child: _header(),
+          );
+          // Sin esta rama, un fallo al cargar los catálogos dejaba el
+          // formulario girando indefinidamente, sin explicación ni salida.
+          if (snapshot.hasError) {
+            return SafeArea(
+              child: Column(
                 children: [
                   header,
                   Expanded(
@@ -911,59 +911,81 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen>
                     ),
                   ),
                 ],
-              );
-            }
-            if (!snapshot.hasData) {
-              return Column(
+              ),
+            );
+          }
+          if (!snapshot.hasData) {
+            return SafeArea(
+              child: Column(
                 children: [
                   header,
                   const Expanded(
                     child: Center(child: CircularProgressIndicator()),
                   ),
                 ],
-              );
-            }
-            final data = snapshot.data!;
-            final modeChanged = modeChangedSince(
-              loadedMode,
-              ref.watch(operationModeProvider),
+              ),
             );
-            final editing = _editingLine;
-            // Con la hoja abierta, la página queda fuera de escena (como el
-            // velo del prototipo) pero viva: al cerrar la hoja vuelve igual,
-            // con su desplazamiento.
-            return Stack(
-              children: [
-                Offstage(
-                  offstage: editing != null && step == _PurchaseStep.items,
-                  child: Column(
-                    children: [
-                      header,
-                      Expanded(
-                        child: ListView(
-                          key: const Key('purchase-scroll'),
-                          padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+          }
+          final data = snapshot.data!;
+          final modeChanged = modeChangedSince(
+            loadedMode,
+            ref.watch(operationModeProvider),
+          );
+          final editing = _editingLine;
+          final sheetOpen = editing != null && step == _PurchaseStep.items;
+          // Con la hoja abierta, la página real sigue detrás, a la vista
+          // bajo el velo y viva (el mismo borrador, el mismo
+          // desplazamiento), pero inerte: ni toques, ni foco, ni lector de
+          // pantalla llegan a ella. Los envoltorios están siempre, con la
+          // hoja abierta o no, para que la página no se reconstruya desde
+          // cero al abrirla o cerrarla.
+          return Stack(
+            children: [
+              Positioned.fill(
+                child: ExcludeSemantics(
+                  key: const Key('purchase-page'),
+                  excluding: sheetOpen,
+                  child: ExcludeFocus(
+                    excluding: sheetOpen,
+                    child: IgnorePointer(
+                      ignoring: sheetOpen,
+                      child: SafeArea(
+                        child: Column(
                           children: [
-                            if (modeChanged) ...[
-                              const ModeChangedNotice(),
-                              const SizedBox(height: 12),
-                            ],
-                            if (step == _PurchaseStep.items)
-                              ..._itemsStep(context, data)
-                            else
-                              ..._reviewStep(context, data),
+                            header,
+                            Expanded(
+                              child: ListView(
+                                key: const Key('purchase-scroll'),
+                                padding: const EdgeInsets.fromLTRB(
+                                  16,
+                                  8,
+                                  16,
+                                  24,
+                                ),
+                                children: [
+                                  if (modeChanged) ...[
+                                    const ModeChangedNotice(),
+                                    const SizedBox(height: 12),
+                                  ],
+                                  if (step == _PurchaseStep.items)
+                                    ..._itemsStep(context, data)
+                                  else
+                                    ..._reviewStep(context, data),
+                                ],
+                              ),
+                            ),
                           ],
                         ),
                       ),
-                    ],
+                    ),
                   ),
                 ),
-                if (editing != null && step == _PurchaseStep.items)
-                  _lineSheet(context, data, editing),
-              ],
-            );
-          },
-        ),
+              ),
+              if (sheetOpen)
+                Positioned.fill(child: _lineSheet(context, data, editing)),
+            ],
+          );
+        },
       ),
     ),
   );
@@ -1404,9 +1426,12 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen>
       if (line.quantityBase > 0) formatQuantity(line.quantityBase, unit),
       if (line.priceMinor > 0) _priceText(line),
     ].join(' × ');
+    // Cantidad, persona y, si lo hay, el vencimiento. El número del envase
+    // no: es un dato secundario que se ve en la hoja y en la revisión.
     final subtitle = [
       if (amounts.isNotEmpty) amounts,
       _allocationStatus(line, data),
+      if (line.expiryDay != null) 'Vence el ${displayDay(line.expiryDay!)}',
     ].join(' · ');
     final complete =
         line.quantityBase > 0 &&
@@ -1775,9 +1800,11 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen>
         ),
       ],
       const SizedBox(height: 12),
+      // Vencimiento a la vista; el número del envase, aparte y plegado.
       AgroGroup(
         children: [
-          _LotDataSection(index: index, line: line, onChanged: _markDirty),
+          _ExpiryRow(index: index, line: line, onChanged: _markDirty),
+          _PackageDataSection(index: index, line: line, onChanged: _markDirty),
         ],
       ),
       if (lines.length > 1) ...[
@@ -2068,10 +2095,9 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen>
                         key: Key('purchase-review-recipient-$index'),
                         style: AgroText.detail,
                       ),
-                      if (lines[index].expiryDay != null ||
-                          lines[index].lotNumberValue != null)
+                      if (_lotDataSummary(lines[index]) case final lot?)
                         Text(
-                          _lotDataSummary(lines[index]),
+                          lot,
                           key: Key('purchase-review-lot-$index'),
                           style: AgroText.detail,
                         ),
@@ -2311,26 +2337,31 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen>
   }
 }
 
-/// Vencimiento y número de lote de una línea, en palabras.
-String _lotDataSummary(_PurchaseLineEditor line) {
-  final expiry = line.expiryDay == null
-      ? 'Sin fecha de vencimiento'
-      : 'Vence el ${displayDay(line.expiryDay!)}';
-  final lot = line.lotNumberValue == null
-      ? 'sin número de lote'
-      : 'lote ${line.lotNumberValue}';
-  return '$expiry · $lot';
+/// Vencimiento y número de lote del envase de una línea, en palabras, para
+/// los resúmenes. Sólo lo que hay: la ausencia de un dato opcional no se
+/// repite en cada línea («sin número de lote»), y el lote nunca se nombra
+/// por su identificador interno. Nulo si no hay ninguno de los dos.
+String? _lotDataSummary(_PurchaseLineEditor line) {
+  final parts = [
+    if (line.expiryDay != null) 'Vence el ${displayDay(line.expiryDay!)}',
+    if (line.lotNumberValue != null) _packageLotText(line.lotNumberValue!),
+  ];
+  return parts.isEmpty ? null : parts.join(' · ');
 }
+
+/// «Lote del envase GL-2611-07»: el número que escribió la persona, tal como
+/// figura en el envase (el del fabricante), nunca uno generado.
+String _packageLotText(String number) => 'Lote del envase $number';
 
 /// Contador del número de lote en caracteres Unicode, como los cuenta el
 /// repositorio.
 String lotNumberCounter(String text) =>
     '${text.trim().runes.length}/${AgroRepository.maxLotNumberLength}';
 
-/// Vencimiento y número de lote de la línea (F04-AV, RF-42). Opcionales y
-/// plegados: una compra sin estos datos se registra igual que antes.
-class _LotDataSection extends StatelessWidget {
-  const _LotDataSection({
+/// Vencimiento de la línea (F04-AV, RF-42): opcional y a la vista. Sin
+/// fecha, el lote se guarda «sin fecha registrada», como siempre.
+class _ExpiryRow extends StatelessWidget {
+  const _ExpiryRow({
     required this.index,
     required this.line,
     required this.onChanged,
@@ -2358,80 +2389,105 @@ class _LotDataSection extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) => Theme(
-    data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-    child: ExpansionTile(
-      key: Key('purchase-lot-data-$index'),
-      // Con datos (o un error en ellos) se abre desplegada: lo escrito y su
-      // aviso quedan a la vista al volver a la hoja.
-      initiallyExpanded:
-          line.expiryDay != null || line.lotNumber.text.trim().isNotEmpty,
-      tilePadding: const EdgeInsets.fromLTRB(16, 2, 10, 2),
-      shape: const Border(),
-      collapsedShape: const Border(),
-      iconColor: AgroColors.ink,
-      collapsedIconColor: AgroColors.muted,
-      childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 14),
-      title: const Text(
-        'Vencimiento y lote (opcional)',
-        style: TextStyle(
-          fontSize: 15,
-          height: 20 / 15,
-          fontWeight: FontWeight.w500,
-          color: AgroColors.ink,
+  Widget build(BuildContext context) => Row(
+    children: [
+      Expanded(
+        child: ValueRow(
+          key: Key('purchase-expiry-$index'),
+          label: 'Vencimiento (opcional)',
+          value: line.expiryDay == null
+              ? null
+              : 'Vence el ${displayDay(line.expiryDay!)}',
+          placeholder: 'Elegir fecha',
+          trailing: const Icon(Icons.event_outlined, color: AgroColors.muted),
+          onTap: () => _pickExpiry(context),
         ),
       ),
-      // Sin datos no hay subtítulo: el lote se guarda «sin fecha
-      // registrada», como siempre.
-      subtitle: line.expiryDay == null && line.lotNumberValue == null
-          ? null
-          : Text(_lotDataSummary(line), style: AgroText.detail),
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: OutlinedButton.icon(
-                key: Key('purchase-expiry-$index'),
-                onPressed: () => _pickExpiry(context),
-                style: OutlinedButton.styleFrom(minimumSize: const Size(0, 48)),
-                icon: const Icon(Icons.event_outlined),
-                label: Text(
-                  line.expiryDay == null
-                      ? 'Elegir fecha de vencimiento'
-                      : 'Vence el ${displayDay(line.expiryDay!)}',
-                ),
-              ),
-            ),
-            if (line.expiryDay != null)
-              IconButton(
-                key: Key('purchase-expiry-clear-$index'),
-                tooltip: 'Quitar la fecha de vencimiento',
-                onPressed: () {
-                  line.expiryDay = null;
-                  onChanged();
-                },
-                icon: const Icon(Icons.close),
-              ),
-          ],
-        ),
-        const SizedBox(height: 10),
-        // Sin maxLength: lo pegado no se recorta; el exceso se señala y
-        // bloquea la revisión (decisión del autor del 2026-11-01).
-        TextField(
-          key: Key('purchase-lot-number-$index'),
-          controller: line.lotNumber,
-          onChanged: (_) => onChanged(),
-          decoration: InputDecoration(
-            labelText: 'Número de lote (opcional)',
-            helperText: 'Como figura en el envase.',
-            counterText: lotNumberCounter(line.lotNumber.text),
-            errorText: AgroRepository.lotNumberLengthError(line.lotNumber.text),
-            errorMaxLines: 3,
+      if (line.expiryDay != null)
+        Padding(
+          padding: const EdgeInsets.only(right: 4),
+          child: IconButton(
+            key: Key('purchase-expiry-clear-$index'),
+            tooltip: 'Quitar la fecha de vencimiento',
+            onPressed: () {
+              line.expiryDay = null;
+              onChanged();
+            },
+            icon: const Icon(Icons.close),
           ),
         ),
-      ],
-    ),
+    ],
   );
+}
+
+/// «Más datos del envase»: el número de lote que trae el envase (el del
+/// fabricante), opcional y plegado. Lo escribe la persona tal como figura;
+/// la aplicación nunca lo inventa, y el identificador interno del lote no se
+/// muestra. Una compra sin él se registra igual que antes.
+class _PackageDataSection extends StatelessWidget {
+  const _PackageDataSection({
+    required this.index,
+    required this.line,
+    required this.onChanged,
+  });
+  final int index;
+  final _PurchaseLineEditor line;
+  final VoidCallback onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final number = line.lotNumberValue;
+    return Theme(
+      data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+      child: ExpansionTile(
+        key: Key('purchase-lot-data-$index'),
+        // Con un número (o un error en él) se abre desplegada: lo escrito y
+        // su aviso quedan a la vista al volver a la hoja.
+        initiallyExpanded: line.lotNumber.text.trim().isNotEmpty,
+        tilePadding: const EdgeInsets.fromLTRB(16, 2, 10, 2),
+        shape: const Border(),
+        collapsedShape: const Border(),
+        iconColor: AgroColors.ink,
+        collapsedIconColor: AgroColors.muted,
+        // Arriba, sitio para el rótulo flotante del campo: el despliegue
+        // recorta lo que sobresale.
+        childrenPadding: const EdgeInsets.fromLTRB(14, 8, 14, 14),
+        title: const Text(
+          'Más datos del envase',
+          style: TextStyle(
+            fontSize: 15,
+            height: 20 / 15,
+            fontWeight: FontWeight.w500,
+            color: AgroColors.ink,
+          ),
+        ),
+        subtitle: number == null
+            ? null
+            : Text(_packageLotText(number), style: AgroText.detail),
+        children: [
+          // Sin maxLength: lo pegado no se recorta; el exceso se señala y
+          // bloquea la revisión (decisión del autor del 2026-11-01).
+          TextField(
+            key: Key('purchase-lot-number-$index'),
+            controller: line.lotNumber,
+            onChanged: (_) => onChanged(),
+            decoration: InputDecoration(
+              labelText: 'Número de lote del envase (opcional)',
+              helperText:
+                  'Tal como figura en el envase. Si no tiene, '
+                  'déjelo vacío.',
+              helperMaxLines: 3,
+              counterText: lotNumberCounter(line.lotNumber.text),
+              errorText: AgroRepository.lotNumberLengthError(
+                line.lotNumber.text,
+              ),
+              errorMaxLines: 3,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 /// Fila de una asignación: persona (flex 3) y cantidad (flex 2) cuando caben;

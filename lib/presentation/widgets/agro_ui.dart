@@ -1296,8 +1296,16 @@ class NoticeBox extends StatelessWidget {
 }
 
 /// Hoja inferior dentro de la misma página: el borrador sigue siendo uno
-/// solo y lo que se escribe en la hoja ya está en él. Tapa el contenido con
-/// un velo; tocar el velo o «Cerrar» la cierra sin perder nada.
+/// solo y lo que se escribe en la hoja ya está en él. Encima de la página,
+/// que se sigue viendo detrás atenuada por un velo semitransparente (el mismo
+/// que el de las hojas modales de Aplicación); tocar el velo o «Cerrar» la
+/// cierra sin perder nada. Quien la usa deja la página inerte mientras está
+/// abierta (sin toques, foco ni semántica), porque la página no es parte de
+/// la hoja.
+///
+/// La altura se ajusta al contenido y al espacio que queda (teclado
+/// incluido): el título y las acciones quedan fijos y el contenido se
+/// desplaza.
 class InPageSheet extends StatelessWidget {
   const InPageSheet({
     super.key,
@@ -1314,103 +1322,124 @@ class InPageSheet extends StatelessWidget {
   final List<Widget> actions;
   final Key? closeKey;
 
+  /// Velo sobre la página: negro al 54 %, como el de `showModalBottomSheet`
+  /// (Aplicación › Añadir producto). Sin desenfoque: en teléfonos modestos
+  /// cuesta un fotograma y no aporta.
+  static const Color veilColor = Colors.black54;
+
+  /// Clave del velo, para las pruebas.
+  static const Key veilKey = ValueKey('in-page-sheet-veil');
+
   @override
   Widget build(BuildContext context) {
-    final height = MediaQuery.sizeOf(context).height;
-    // Nunca bajo la barra de estado, aunque el velo la cubra.
-    final maxHeight = math.min(
-      height * 0.92,
-      height - MediaQuery.paddingOf(context).top - 24,
-    );
+    // Con el teclado abierto fuera de un `Scaffold` que ya se encoja, la
+    // hoja sube por encima de él.
+    final keyboard = MediaQuery.viewInsetsOf(context).bottom;
+    final top = MediaQuery.paddingOf(context).top;
     return Stack(
       children: [
         Positioned.fill(
           child: ModalBarrier(
-            color: const Color(0xFF56635B),
+            key: veilKey,
+            color: veilColor,
             dismissible: true,
             onDismiss: onClose,
             semanticsLabel: 'Cerrar $title',
           ),
         ),
-        Align(
-          alignment: Alignment.bottomCenter,
-          child: BlockSemantics(
-            child: Material(
-              color: AgroColors.canvas,
-              shape: const RoundedRectangleBorder(
-                borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
-              ),
-              clipBehavior: Clip.antiAlias,
-              child: ConstrainedBox(
-                constraints: BoxConstraints(maxHeight: maxHeight),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    const SizedBox(height: 10),
-                    Center(
-                      child: Container(
-                        width: 40,
-                        height: 4,
-                        decoration: BoxDecoration(
-                          color: AgroColors.handle,
-                          borderRadius: BorderRadius.circular(99),
-                        ),
-                      ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-                      child: Row(
-                        children: [
-                          Expanded(
-                            child: Semantics(
-                              header: true,
-                              namesRoute: true,
-                              child: Text(title, style: AgroText.sheetTitle),
-                            ),
-                          ),
-                          CircleIconButton(
-                            key: closeKey,
-                            icon: Icons.close,
-                            tooltip: 'Cerrar',
-                            onPressed: onClose,
-                          ),
-                        ],
-                      ),
-                    ),
-                    Flexible(
-                      child: SingleChildScrollView(
-                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.stretch,
-                          children: children,
-                        ),
-                      ),
-                    ),
-                    if (actions.isNotEmpty)
-                      SafeArea(
-                        top: false,
-                        child: Padding(
-                          padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
-                          child: Row(
-                            children: [
-                              for (var i = 0; i < actions.length; i++) ...[
-                                if (i > 0) const SizedBox(width: 10),
-                                Expanded(child: actions[i]),
-                              ],
-                            ],
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-            ),
+        Padding(
+          padding: EdgeInsets.only(bottom: keyboard),
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              // Nunca bajo la barra de estado, y siempre con una franja de
+              // la página a la vista arriba: se ve que es una hoja.
+              final height = constraints.maxHeight;
+              final maxHeight = math.max(
+                0.0,
+                math.min(height * 0.92, height - top - 24),
+              );
+              return Align(
+                alignment: Alignment.bottomCenter,
+                child: BlockSemantics(child: _sheet(maxHeight)),
+              );
+            },
           ),
         ),
       ],
     );
   }
+
+  Widget _sheet(double maxHeight) => Material(
+    color: AgroColors.canvas,
+    shape: const RoundedRectangleBorder(
+      borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+    ),
+    clipBehavior: Clip.antiAlias,
+    child: ConstrainedBox(
+      constraints: BoxConstraints(maxHeight: maxHeight),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          const SizedBox(height: 10),
+          Center(
+            child: Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: AgroColors.handle,
+                borderRadius: BorderRadius.circular(99),
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Semantics(
+                    header: true,
+                    namesRoute: true,
+                    child: Text(title, style: AgroText.sheetTitle),
+                  ),
+                ),
+                CircleIconButton(
+                  key: closeKey,
+                  icon: Icons.close,
+                  tooltip: 'Cerrar',
+                  onPressed: onClose,
+                ),
+              ],
+            ),
+          ),
+          Flexible(
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: children,
+              ),
+            ),
+          ),
+          if (actions.isNotEmpty)
+            SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+                child: Row(
+                  children: [
+                    for (var i = 0; i < actions.length; i++) ...[
+                      if (i > 0) const SizedBox(width: 10),
+                      Expanded(child: actions[i]),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+        ],
+      ),
+    ),
+  );
 }
 
 /// Barra superior de las pantallas fuera de las pestañas (acceso, titular,
