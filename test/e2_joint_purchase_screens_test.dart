@@ -264,29 +264,31 @@ void main() {
     });
   }
 
-  testWidgets('cancelada con alcance anterior: no invita a revisar (verificación E4, D2)', (
-    tester,
-  ) async {
-    final s = await pumpDetail(tester);
-    await tester.runAsync(
-      () => seedCalls(s.store, memberA, [
-        callJson(
-          status: 'CANCELLED',
-          participation: participationJson(
-            consentVersion: 'CONV-3',
-            consentScope: 'RESPONSIBLE_ONLY',
-            consentScopeVersion: 'CONV-3',
+  testWidgets(
+    'cancelada con alcance anterior: no invita a revisar (verificación E4, D2)',
+    (tester) async {
+      final s = await pumpDetail(tester);
+      await tester.runAsync(
+        () => seedCalls(s.store, memberA, [
+          callJson(
+            status: 'CANCELLED',
+            participation: participationJson(
+              consentVersion: 'CONV-3',
+              consentScope: 'RESPONSIBLE_ONLY',
+              consentScopeVersion: 'CONV-3',
+            ),
           ),
-        ),
-      ]),
-    );
-    s.c.read(jointPurchaseRevisionProvider.notifier).bump();
-    await settle(tester);
-    final text =
-        tester.widget<Text>(find.byKey(const Key('joint-who-can-see'))).data!;
-    expect(text, contains('está cancelada y ya no admite cambios'));
-    expect(text, isNot(contains('revise')));
-  });
+        ]),
+      );
+      s.c.read(jointPurchaseRevisionProvider.notifier).bump();
+      await settle(tester);
+      final text = tester
+          .widget<Text>(find.byKey(const Key('joint-who-can-see')))
+          .data!;
+      expect(text, contains('está cancelada y ya no admite cambios'));
+      expect(text, isNot(contains('revise')));
+    },
+  );
 
   testWidgets('convocatoria cerrada: botones desactivados con explicación', (
     tester,

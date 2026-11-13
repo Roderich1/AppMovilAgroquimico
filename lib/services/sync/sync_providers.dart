@@ -135,18 +135,19 @@ final jointPurchaseNoticeProvider =
 /// CONV-4 o una decisión pendiente con texto anterior). Sólo lectura local;
 /// null si no se puede leer (un aviso nunca impide mostrar Inicio). Lo usa el
 /// aviso de Inicio; el destino es `/compras-conjuntas`.
-final jointPurchaseAccessReviewCountProvider =
-    FutureProvider.autoDispose<int?>((ref) async {
-      ref.watch(jointPurchaseRevisionProvider);
-      try {
-        final calls = await ref
-            .watch(jointPurchaseStoreProvider)
-            .callsForActiveOwner();
-        return calls.where((call) => call.needsAccessReview).length;
-      } on Object {
-        return null;
-      }
-    });
+final jointPurchaseAccessReviewCountProvider = FutureProvider.autoDispose<int?>(
+  (ref) async {
+    ref.watch(jointPurchaseRevisionProvider);
+    try {
+      final calls = await ref
+          .watch(jointPurchaseStoreProvider)
+          .callsForActiveOwner();
+      return calls.where((call) => call.needsAccessReview).length;
+    } on Object {
+      return null;
+    }
+  },
+);
 
 final syncWorkerProvider = Provider<SyncWorker>(
   (ref) => SyncWorker(
