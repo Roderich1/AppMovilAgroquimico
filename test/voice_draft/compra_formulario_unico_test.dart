@@ -9,6 +9,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import '../support/f04_mode_ui_harness.dart';
 import '../support/purchase_form_driver.dart';
+import '../support_rdm2/a_purchase_sheet.dart';
 import '../voice/support/fake_speech_transcription_port.dart';
 
 typedef Row = Map<String, Object?>;
@@ -59,11 +60,13 @@ void main() {
     return (database: s.database, c: c);
   }
 
+  // Ronda 2 (sesión A): con la hoja abierta la página sigue detrás, a la
+  // vista; se toca lo alcanzable (la hoja, o la página tras cerrarla).
   Future<void> tapKey(WidgetTester tester, String key) async {
-    await preparePurchaseKey(tester, key);
-    await tester.ensureVisible(find.byKey(Key(key)));
+    await prepareReachableKey(tester, key);
+    await tester.ensureVisible(reachable(find.byKey(Key(key))));
     await tester.pump();
-    await tester.tap(find.byKey(Key(key)));
+    await tester.tap(reachable(find.byKey(Key(key))));
     await settle(tester);
   }
 
@@ -332,7 +335,10 @@ void main() {
     );
     expect(await text(tester, 'Cantidad comprada', 1), '10');
     expect(await picked(tester, 'Producto', 1), isNull);
-    expect(find.byKey(const Key('voz-revisar-product@2')), findsOneWidget);
+    expect(
+      reachable(find.byKey(const Key('voz-revisar-product@2'))),
+      findsOneWidget,
+    );
     // En la tarjeta de la línea 2 también, con «Elegir otro» para escribirlo.
     await closePurchaseLine(tester);
     expect(find.byKey(const Key('voz-revisar-product@2')), findsOneWidget);
@@ -449,8 +455,11 @@ void main() {
     await dictate(tester);
     expect(await text(tester, 'Cantidad comprada'), '10');
     expect(await text(tester, 'Precio por L'), '');
-    expect(find.byKey(const Key('voz-revisar-price@1')), findsOneWidget);
-    expect(find.text('Falta: precio'), findsOneWidget);
+    expect(
+      reachable(find.byKey(const Key('voz-revisar-price@1'))),
+      findsOneWidget,
+    );
+    expect(reachable(find.text('Falta: precio')), findsOneWidget);
     // Además de las opciones del intérprete, se puede escribir otro valor:
     // lleva a la hoja del producto, con el campo a la vista.
     await closePurchaseLine(tester);

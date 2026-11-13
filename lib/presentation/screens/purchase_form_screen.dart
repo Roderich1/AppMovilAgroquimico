@@ -887,21 +887,21 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen>
     },
     child: Scaffold(
       bottomNavigationBar: _bottomBar(),
-      // Con la hoja de un producto abierta, el velo cubre también la franja
-      // de la barra de estado, como en el prototipo.
-      body: SafeArea(
-        top: editingLineId == null || step != _PurchaseStep.items,
-        child: FutureBuilder<_PurchaseCatalogs>(
-          future: catalogs,
-          builder: (context, snapshot) {
-            final header = Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-              child: _header(),
-            );
-            // Sin esta rama, un fallo al cargar los catálogos dejaba el
-            // formulario girando indefinidamente, sin explicación ni salida.
-            if (snapshot.hasError) {
-              return Column(
+      // La página va dentro del área segura; la hoja de un producto, con su
+      // velo, por encima de todo el cuerpo (también la franja de la barra de
+      // estado), como una hoja modal.
+      body: FutureBuilder<_PurchaseCatalogs>(
+        future: catalogs,
+        builder: (context, snapshot) {
+          final header = Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+            child: _header(),
+          );
+          // Sin esta rama, un fallo al cargar los catálogos dejaba el
+          // formulario girando indefinidamente, sin explicación ni salida.
+          if (snapshot.hasError) {
+            return SafeArea(
+              child: Column(
                 children: [
                   header,
                   Expanded(
@@ -911,59 +911,81 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen>
                     ),
                   ),
                 ],
-              );
-            }
-            if (!snapshot.hasData) {
-              return Column(
+              ),
+            );
+          }
+          if (!snapshot.hasData) {
+            return SafeArea(
+              child: Column(
                 children: [
                   header,
                   const Expanded(
                     child: Center(child: CircularProgressIndicator()),
                   ),
                 ],
-              );
-            }
-            final data = snapshot.data!;
-            final modeChanged = modeChangedSince(
-              loadedMode,
-              ref.watch(operationModeProvider),
+              ),
             );
-            final editing = _editingLine;
-            // Con la hoja abierta, la página queda fuera de escena (como el
-            // velo del prototipo) pero viva: al cerrar la hoja vuelve igual,
-            // con su desplazamiento.
-            return Stack(
-              children: [
-                Offstage(
-                  offstage: editing != null && step == _PurchaseStep.items,
-                  child: Column(
-                    children: [
-                      header,
-                      Expanded(
-                        child: ListView(
-                          key: const Key('purchase-scroll'),
-                          padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
+          }
+          final data = snapshot.data!;
+          final modeChanged = modeChangedSince(
+            loadedMode,
+            ref.watch(operationModeProvider),
+          );
+          final editing = _editingLine;
+          final sheetOpen = editing != null && step == _PurchaseStep.items;
+          // Con la hoja abierta, la página real sigue detrás, a la vista
+          // bajo el velo y viva (el mismo borrador, el mismo
+          // desplazamiento), pero inerte: ni toques, ni foco, ni lector de
+          // pantalla llegan a ella. Los envoltorios están siempre, con la
+          // hoja abierta o no, para que la página no se reconstruya desde
+          // cero al abrirla o cerrarla.
+          return Stack(
+            children: [
+              Positioned.fill(
+                child: ExcludeSemantics(
+                  key: const Key('purchase-page'),
+                  excluding: sheetOpen,
+                  child: ExcludeFocus(
+                    excluding: sheetOpen,
+                    child: IgnorePointer(
+                      ignoring: sheetOpen,
+                      child: SafeArea(
+                        child: Column(
                           children: [
-                            if (modeChanged) ...[
-                              const ModeChangedNotice(),
-                              const SizedBox(height: 12),
-                            ],
-                            if (step == _PurchaseStep.items)
-                              ..._itemsStep(context, data)
-                            else
-                              ..._reviewStep(context, data),
+                            header,
+                            Expanded(
+                              child: ListView(
+                                key: const Key('purchase-scroll'),
+                                padding: const EdgeInsets.fromLTRB(
+                                  16,
+                                  8,
+                                  16,
+                                  24,
+                                ),
+                                children: [
+                                  if (modeChanged) ...[
+                                    const ModeChangedNotice(),
+                                    const SizedBox(height: 12),
+                                  ],
+                                  if (step == _PurchaseStep.items)
+                                    ..._itemsStep(context, data)
+                                  else
+                                    ..._reviewStep(context, data),
+                                ],
+                              ),
+                            ),
                           ],
                         ),
                       ),
-                    ],
+                    ),
                   ),
                 ),
-                if (editing != null && step == _PurchaseStep.items)
-                  _lineSheet(context, data, editing),
-              ],
-            );
-          },
-        ),
+              ),
+              if (sheetOpen)
+                Positioned.fill(child: _lineSheet(context, data, editing)),
+            ],
+          );
+        },
       ),
     ),
   );

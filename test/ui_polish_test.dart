@@ -15,6 +15,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'support/purchase_form_driver.dart';
+import 'support_rdm2/a_purchase_sheet.dart';
 
 /// Cierre del lote de defectos de interfaz que quedaban abiertos tras la
 /// auditoría del Pixel 8: 023, 031, 037, 038, 039, 040, 041, 047 y 060.
@@ -345,7 +346,12 @@ void main() {
       await tester.pump();
       await tester.tap(find.byKey(const Key('purchase-alloc-split-0')));
       await tester.pump();
-      expect(find.textContaining('Pendiente de persona'), findsOneWidget);
+      // Ronda 2 (sesión A): la tarjeta de la línea sigue a la vista detrás
+      // de la hoja; se mira lo alcanzable, como antes (la hoja).
+      expect(
+        reachable(find.textContaining('Pendiente de persona')),
+        findsOneWidget,
+      );
       expect(find.textContaining('· Asignado'), findsNothing);
       expect(find.textContaining('Repartida:'), findsNothing);
     });
