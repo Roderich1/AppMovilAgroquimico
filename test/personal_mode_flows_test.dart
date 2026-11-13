@@ -474,7 +474,7 @@ void main() {
             of: find.text('Hermana'),
             matching: find.byType(Card),
           ),
-          matching: find.text('Inventario propio: sin pagos de cuenta'),
+          matching: find.text('Modo individual: sin pagos de cuenta'),
         ),
         findsOneWidget,
       );

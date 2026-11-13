@@ -512,7 +512,7 @@ void main() {
       await settle(tester);
       expect(find.byKey(const Key('own-consumption-card')), findsOneWidget);
       expect(
-        find.text('En inventario propio no hay cuentas por cobrar.'),
+        find.text('En modo individual no hay cuentas por cobrar.'),
         findsOneWidget,
       );
     });
@@ -557,9 +557,7 @@ void main() {
     // Ronda 2 (2026-11-12): antes «el titular conserva pago»; con la revisión
     // de Q-2 del autor nadie recibe pagos de cuenta en inventario propio.
     testWidgets('E15-05 · modo propio con familiar: el titular no tiene pago '
-        'y el familiar tampoco (D-04: sin tarjeta)', (
-      tester,
-    ) async {
+        'y el familiar tampoco (D-04: sin tarjeta)', (tester) async {
       final e = (await tester.runAsync(() async {
         final e = await E15World.create();
         await OperationModeStore(e.w.database)
@@ -600,10 +598,17 @@ void main() {
       final ownItems = await menuOf(
         find.byKey(const Key('own-consumption-card')),
       );
-      expect([
-        for (final i in ownItems)
-          if (i.enabled) i.value,
-      ], allOf(contains('detail'), isNot(contains('pay')), isNot(contains('advance'))));
+      expect(
+        [
+          for (final i in ownItems)
+            if (i.enabled) i.value,
+        ],
+        allOf(
+          contains('detail'),
+          isNot(contains('pay')),
+          isNot(contains('advance')),
+        ),
+      );
       final familiar = find
           .ancestor(of: find.text('Familiar Demo'), matching: find.byType(Card))
           .first;
@@ -624,7 +629,7 @@ void main() {
       expect(
         find.descendant(
           of: familiar,
-          matching: find.text('Inventario propio: sin pagos de cuenta'),
+          matching: find.text('Modo individual: sin pagos de cuenta'),
         ),
         findsOneWidget,
       );
@@ -657,9 +662,7 @@ void main() {
       expect(
         find.descendant(
           of: card,
-          matching: find.text(
-            'Saldo neto · todas las campañas ${bs(4500)}',
-          ),
+          matching: find.text('Saldo neto · todas las campañas ${bs(4500)}'),
         ),
         findsOneWidget,
       );
