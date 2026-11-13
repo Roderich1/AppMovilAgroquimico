@@ -607,7 +607,14 @@ class Rdm2cFarmCostCard extends StatelessWidget {
                   runSpacing: 4,
                   children: [
                     perHectare == null
-                        ? const Text('sin superficie', style: AgroText.detail)
+                        ? Text(
+                            // Modo individual: sin aplicaciones no hay costo
+                            // que repartir (como «Costos › Por chaco»).
+                            row.applicationCount == 0
+                                ? 'sin aplicaciones'
+                                : 'sin superficie',
+                            style: AgroText.detail,
+                          )
                         : BigFigure(
                             number: splitBob(perHectare).number,
                             unit: 'Bs por ha',

@@ -15,6 +15,7 @@ library;
 import 'dart:typed_data';
 
 import '../../data/agro_repository.dart';
+import '../../data/ind_c_chacos_reads.dart';
 import '../../data/typed_reads.dart';
 import '../../domain/reports/report_composer.dart';
 import '../../domain/reports/report_table.dart';
@@ -143,21 +144,29 @@ class ReportExportService {
         );
 
       case ReportKind.productCost:
+        // Decisión C (2026-11-13): como «Costo por chaco».
+        final products = await _repository.productCostLines(
+          campaignId: request.campaignId,
+        );
         return _composer.productCost(
           generatedAt: generatedAt,
           campaignName: campaignName,
-          lines: await _repository.productCostReportTyped(
-            campaignId: request.campaignId,
-          ),
+          productScope: products.ownerOnly ? ownerProductsScope : null,
+          lines: products.lines,
         );
 
       case ReportKind.farmCost:
+        // Decisión C (2026-11-13): en modo individual, el mismo alcance que
+        // «Costos › Por chaco» (sólo los chacos del titular); en el modo con
+        // varias personas, lo de siempre.
+        final farms = await _repository.farmCostLines(
+          campaignId: request.campaignId,
+        );
         return _composer.farmCost(
           generatedAt: generatedAt,
           campaignName: campaignName,
-          lines: await _repository.farmCostReportTyped(
-            campaignId: request.campaignId,
-          ),
+          farmScope: farms.ownerOnly ? ownerFarmsScope : null,
+          lines: farms.lines,
         );
 
       case ReportKind.campaignSummary:

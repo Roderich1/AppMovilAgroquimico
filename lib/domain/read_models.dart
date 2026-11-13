@@ -362,6 +362,7 @@ class FarmCostRead {
     required this.ownerName,
     required this.areaM2,
     required this.totalCostBobMinor,
+    this.applicationCount,
   });
 
   static const source = 'farmCostReport';
@@ -372,13 +373,21 @@ class FarmCostRead {
   final int areaM2;
   final int totalCostBobMinor;
 
+  /// Aplicaciones no revertidas del alcance, cuando la lectura las cuenta
+  /// (lecturas de «Chacos» del modo individual). `farmCostReport` no las
+  /// cuenta y deja `null`: su costo por hectárea no cambia.
+  final int? applicationCount;
+
   /// Costo por hectárea en centavos, con el mismo redondeo entero que usa la
   /// pantalla de Liquidación. `null` cuando no se puede calcular.
   ///
   /// El esquema declara `CHECK(area_m2 > 0)`, así que el divisor cero no
   /// debería existir; la guarda está porque un reporte no puede reventar por
-  /// una fila anómala que la base antigua sí pudiera contener.
+  /// una fila anómala que la base antigua sí pudiera contener. Con
+  /// [applicationCount] igual a cero no hay costo que repartir: «No
+  /// disponible», como en «Costos › Por chaco» (I-42).
   int? get costPerHectareMinor {
+    if (applicationCount == 0) return null;
     if (areaM2 <= 0 || totalCostBobMinor < 0) return null;
     return divideRoundedHalfUp(totalCostBobMinor * 10000, areaM2);
   }
