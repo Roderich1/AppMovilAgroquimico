@@ -126,9 +126,11 @@ void main() {
     await tester.enterText(field('Precio por L'), '45');
     await settle(tester);
 
-    // Plegado y opcional: sin abrirlo, la compra sería «sin fecha» (sin
-    // resumen bajo el título).
-    expect(find.text('Vencimiento y lote (opcional)'), findsOneWidget);
+    // Opcional: sin tocarlo, la compra sería «sin fecha» (sin resumen).
+    // Ronda 2 del rediseño (sesión A): el vencimiento está a la vista y el
+    // número del envase, plegado en «Más datos del envase».
+    expect(find.text('Vencimiento (opcional)'), findsOneWidget);
+    expect(find.text('Más datos del envase'), findsOneWidget);
     expect(find.textContaining('Vence el'), findsNothing);
     await tapKey(tester, 'purchase-lot-data-0');
     // Más de 100 caracteres: se conserva lo escrito, se señala y no se
@@ -169,10 +171,9 @@ void main() {
     );
     await settle(tester);
     final todayDay = localDay(DateTime.now());
-    expect(
-      find.text('Vence el ${displayDay(todayDay)} · lote GLI-77'),
-      findsWidgets,
-    );
+    // Ronda 2 (sesión A): fecha y número del envase, cada uno en su sitio.
+    expect(find.text('Vence el ${displayDay(todayDay)}'), findsWidgets);
+    expect(find.text('Lote del envase GLI-77'), findsOneWidget);
 
     await closePurchaseLine(tester);
     await tapKey(tester, 'purchase-continue');
