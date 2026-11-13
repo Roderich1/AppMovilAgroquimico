@@ -155,7 +155,7 @@ class OperationModeStore {
         if (!decision.allowed) {
           throw ModeTransitionException(
             decision.blocks.contains(ModeTransitionBlock.ownerRequired)
-                ? 'El inventario propio necesita un titular vinculado.'
+                ? 'El modo individual necesita un titular vinculado.'
                 : 'Hay existencias, planes o saldos de otras personas. '
                       'Resuélvalos en modo compartido antes de pasar a propio.',
             decision: decision,

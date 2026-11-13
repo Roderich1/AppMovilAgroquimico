@@ -663,7 +663,7 @@ void main() {
           isA<PersonalModeRestrictionException>().having(
             (e) => e.message,
             'message',
-            contains('cambie a inventario compartido'),
+            contains('cambie al modo con varias personas'),
           ),
         ),
       );

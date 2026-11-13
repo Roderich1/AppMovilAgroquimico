@@ -94,9 +94,9 @@ void main() {
     setUpView(tester);
     final s = await activatedHousehold(tester, 'ind-orq-vacio');
     await tester.runAsync(
-      () => OperationModeStore(
-        s.database,
-      ).apply(OperationMode.personal, confirmed: true),
+      () =>
+          OperationModeStore(s.database)
+              .apply(OperationMode.personal, confirmed: true),
     );
     await pumpModeApp(tester, s.database);
     await shot(tester, 'o02_inicio_vacio');
@@ -121,9 +121,8 @@ void main() {
         method: PaymentMethod.cash,
       );
       await h.apply(h.titular, h.titularFarm, 4000);
-      await OperationModeStore(
-        s.database,
-      ).apply(OperationMode.personal, confirmed: true);
+      await OperationModeStore(s.database)
+          .apply(OperationMode.personal, confirmed: true);
     });
     final c = await pumpModeApp(tester, s.database);
     await shot(tester, 'o01_inicio');

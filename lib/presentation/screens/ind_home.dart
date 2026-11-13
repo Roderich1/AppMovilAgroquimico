@@ -21,6 +21,7 @@ import '../../domain/read_models.dart';
 import '../theme/agro_theme.dart';
 import '../widgets/agro_ui.dart';
 import '../widgets/rdm_b_ui.dart';
+import 'ind_b_suppliers_screen.dart' show indProvidersPath;
 
 /// Cifras del Inicio individual. `campaign` es la campaña activa (la de la
 /// pastilla de la cabecera); sin campaña activa no hay cifras de campaña.
@@ -558,9 +559,9 @@ class IndHomeAlerts extends StatelessWidget {
   }
 }
 
-/// Destino de «compras pendientes de pago». Se ajusta cuando la sesión B
-/// publique la pantalla de Proveedores (I-05).
-const indProvidersRoute = '/compras';
+/// Destino de «compras pendientes de pago» y de «Pago a un proveedor»:
+/// Proveedores y saldo (I-05, sesión B).
+const indProvidersRoute = indProvidersPath;
 
 class _AlertCard extends StatelessWidget {
   const _AlertCard({

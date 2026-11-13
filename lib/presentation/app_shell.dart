@@ -133,6 +133,8 @@ class AppShell extends StatefulWidget {
       '/transferencias',
       '/reportes',
       '/voz',
+      // Modo individual (I-05).
+      '/proveedores',
     ],
   };
 
@@ -226,6 +228,8 @@ class AppShell extends StatefulWidget {
     '/respaldo-remoto',
     // Reportes tiene su propia acción, «Exportar …» (lámina sin flotante).
     '/reportes',
+    // Proveedores (I-05): «Pagar» en cada proveedor con saldo.
+    '/proveedores',
   };
 
   /// Si esta ruta oculta el FAB global. El detalle de compra es de sólo

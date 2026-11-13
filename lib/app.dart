@@ -28,6 +28,7 @@ import 'presentation/screens/declared_needs_screen.dart';
 import 'presentation/screens/first_activation_screen.dart';
 import 'presentation/screens/reauthentication_screen.dart';
 import 'presentation/screens/farm_logbook_screen.dart';
+import 'presentation/screens/ind_b_suppliers_screen.dart';
 import 'presentation/screens/ind_c_chaco_costs_screen.dart';
 import 'presentation/screens/ind_chacos_screen.dart';
 import 'presentation/screens/inventory_alerts_screen.dart';
@@ -198,6 +199,11 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: '/aplicaciones',
             builder: (_, __) => const ApplicationsScreen(),
+          ),
+          // Modo individual (I-05): compras, pagos y saldo por proveedor.
+          GoRoute(
+            path: indProvidersPath,
+            builder: (_, __) => const SuppliersBalanceScreen(),
           ),
           GoRoute(
             path: '/liquidacion',
