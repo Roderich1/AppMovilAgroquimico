@@ -609,6 +609,18 @@ class VoiceFormPanel extends StatelessWidget {
       ),
       child: const Text('Cancelar'),
     );
+    final terminate = FilledButton(
+      key: const Key('voz-terminar'),
+      onPressed: d.finish,
+      style: FilledButton.styleFrom(
+        backgroundColor: AgroColors.lime,
+        foregroundColor: AgroColors.ink,
+        minimumSize: const Size(0, 56),
+        textStyle: _bigLabel,
+      ),
+      child: const Text('Terminar'),
+    );
+    final stacked = MediaQuery.textScalerOf(context).scale(10) > 13;
     final content = Column(
       mainAxisSize: MainAxisSize.min,
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -660,25 +672,17 @@ class VoiceFormPanel extends StatelessWidget {
           ],
         ),
         const SizedBox(height: 16),
-        if (recording)
+        if (recording && stacked) ...[
+          // Letra grande: uno sobre otro, para que «Cancelar» no se parta.
+          terminate,
+          const SizedBox(height: 10),
+          cancel,
+        ] else if (recording)
           Row(
             children: [
               Expanded(flex: 2, child: cancel),
               const SizedBox(width: 10),
-              Expanded(
-                flex: 3,
-                child: FilledButton(
-                  key: const Key('voz-terminar'),
-                  onPressed: d.finish,
-                  style: FilledButton.styleFrom(
-                    backgroundColor: AgroColors.lime,
-                    foregroundColor: AgroColors.ink,
-                    minimumSize: const Size(0, 56),
-                    textStyle: _bigLabel,
-                  ),
-                  child: const Text('Terminar'),
-                ),
-              ),
+              Expanded(flex: 3, child: terminate),
             ],
           )
         else
@@ -1121,6 +1125,10 @@ class VoiceResultBanner extends StatelessWidget {
                             foregroundColor: Colors.white,
                             side: const BorderSide(color: AgroColors.onInk),
                             minimumSize: const Size(0, 44),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 20,
+                              vertical: 8,
+                            ),
                             shape: const StadiumBorder(),
                           ),
                           child: const Text('Deshacer último dictado'),

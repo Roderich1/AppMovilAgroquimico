@@ -235,8 +235,8 @@ void main() {
   });
 
   testWidgets(
-    'propia con cobro por consumo: «Costo propio», y se dice que queda '
-    'anotado en su cuenta',
+    'modo individual con cobro por consumo: costo del chaco que no es deuda, '
+    'y se dice que queda anotado como consumo propio',
     (tester) async {
       await tester.binding.setSurfaceSize(const Size(800, 2400));
       addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -256,10 +256,11 @@ void main() {
       await mixAndReview(tester);
 
       expectCosts(tester, s.household.product, bellator);
+      // Rediseño individual (lámina I-22).
       expect(
         find.text(
-          'Costo propio: ${formatBob(4000)} (queda anotado en la cuenta de '
-          'Titular)',
+          'Se suma a los costos de Chaco titular en esta campaña. No es una '
+          'deuda. Queda anotado como consumo propio.',
         ),
         findsOneWidget,
       );

@@ -105,7 +105,10 @@ void main() {
       await tester.scrollUntilVisible(
         picker(label),
         200,
-        scrollable: find.byType(Scrollable).first,
+        // Con la hoja del producto abierta se desplaza la hoja, no la página.
+        scrollable: purchaseLineSheetOpen()
+            ? find.byType(Scrollable).last
+            : find.byType(Scrollable).first,
       );
     }
     final w = tester.widget<AdaptiveEntityPicker<Row>>(picker(label).last);
@@ -185,6 +188,13 @@ void main() {
       find.byKey(const Key('purchase-add-line')),
     );
     await choose(tester, 'Proveedor', 'Agroinsumos');
+    // Con la letra grande «Añadir producto» queda bajo el pliegue.
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('purchase-add-line')),
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await settle(tester);
     await openPurchaseLine(tester);
     await shot(tester, 'I-11a_hoja_vacia');
     await choose(tester, 'Producto', 'Herbicida');
