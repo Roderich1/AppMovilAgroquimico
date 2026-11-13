@@ -398,6 +398,8 @@ void main() {
       "AND name LIKE 'idx_joint_purchase_%' ORDER BY name",
     );
     expect(indexes.map((row) => row['name']), [
+      // v20 (E4 §4.2): la cola de decisiones del alcance nuevo.
+      'idx_joint_purchase_access_ops_status',
       'idx_joint_purchase_calls_unseen',
       // v18 (E2 §10.6): la cola de decisiones sobre el consentimiento.
       'idx_joint_purchase_consent_ops_status',
@@ -546,6 +548,8 @@ void main() {
     await current.close();
 
     final legacy = await databaseFactoryFfi.openDatabase(path);
+    // v20 primero: su disparador lee la cola v18.
+    await dropJointPurchaseAccessSchemaV20(legacy);
     await legacy.execute('DROP TABLE joint_purchase_consent_ops');
     await legacy.execute('PRAGMA user_version = 17');
     // Una participación aceptada guardada antes de §10.6 (sin consent_scope)
@@ -590,7 +594,10 @@ void main() {
     );
     expect(await db.query('joint_purchase_consent_ops'), isEmpty);
     final after = withoutV19(
-      await dumpTables(db, except: {'joint_purchase_consent_ops'}),
+      await dumpTables(
+        db,
+        except: {'joint_purchase_consent_ops', 'joint_purchase_access_ops'},
+      ),
     );
     // Nada cambia: ni la copia de la participación ni lo pendiente de envío.
     expect(after, before);
@@ -609,6 +616,7 @@ void main() {
         await legacy.execute('ALTER TABLE ${table.key} DROP COLUMN $column');
       }
     }
+    await dropJointPurchaseAccessSchemaV20(legacy);
     await legacy.execute('PRAGMA user_version = 18');
     await legacy.insert('joint_purchase_calls', {
       'call_id': 'c-v18',
@@ -658,7 +666,7 @@ void main() {
       (await db.rawQuery('PRAGMA user_version')).single.values.single,
       AppDatabase.schemaVersion,
     );
-    final after = await dumpTables(db);
+    final after = await dumpTables(db, except: {'joint_purchase_access_ops'});
     // Lo existente no cambia; las columnas nuevas no se rellenan (no se sabe
     // a qué responsable se refería lo guardado antes): NULL, o 0 en
     // «autoriza», que una decisión anterior nunca hizo.
@@ -680,6 +688,150 @@ void main() {
       ],
       [null, 0, 'PENDING_SEND'],
     );
+  });
+
+  test('v19 → v20 conserva convocatorias, participaciones con alcance anterior y decisiones pendientes; añade la cola nueva vacía', () async {
+    final path = await seededAt(8);
+    final current = openDb(path);
+    await current.database;
+    await current.close();
+
+    // Una base v19: todo menos lo que añade v20.
+    final legacy = await databaseFactoryFfi.openDatabase(path);
+    await dropJointPurchaseAccessSchemaV20(legacy);
+    await legacy.execute('PRAGMA user_version = 19');
+    // Participación aceptada con CONV-3 (alcance anterior, con la
+    // autorización de P-A guardada), una confirmación y una decisión de
+    // ampliar pendientes, una reducción ya rechazada y la versión de la
+    // responsabilidad de v19.
+    const participation =
+        '{"status":"ACTIVE","lines":[{"product_ref":"p","base_unit":"ML",'
+        '"quantity_base":"1000"}],"last_sequence":1,"last_operation_id":"o",'
+        '"accepted_at":"2026-11-12T00:00:00.000Z","consent":{"version":'
+        '"CONV-3","accepted_at":"2026-11-12T00:00:00.000Z","received_at":'
+        '"2026-11-12T00:00:01.000Z"},"consent_scope":{"scope":'
+        '"RESPONSIBLE_ONLY","version":"CONV-3","decided_at":null,'
+        '"received_at":null,"sequence":0},"responsible_authorization":'
+        '{"authorized":true,"version":1}}';
+    await legacy.insert('joint_purchase_calls', {
+      'call_id': 'c-v19',
+      'tenant_id': memberA.tenantId,
+      'member_id': memberA.memberId,
+      'name': 'Convocatoria de v19',
+      'status': 'CLOSED',
+      'deadline_at': '2026-11-12T00:00:00.000Z',
+      'products_json': '[]',
+      'server_participation_json': participation,
+      'fetched_at': '2026-11-12T00:00:00.000Z',
+      'server_time_at_fetch': '2026-11-12T00:00:00.000Z',
+      'finished_at': '2026-11-12T00:00:00.000Z',
+      'responsible_version': 2,
+    });
+    await legacy.insert('joint_purchase_participation_ops', {
+      'operation_id': 'op-v19',
+      'call_id': 'c-v19',
+      'tenant_id': memberA.tenantId,
+      'member_id': memberA.memberId,
+      'sequence': 2,
+      'kind': 'CONFIRM',
+      'lines_json': '[]',
+      'consent_version': 'CONV-3',
+      'consent_accepted_at': '2026-11-12T00:00:00.000Z',
+      'responsible_version': 2,
+      'send_status': 'PENDING_SEND',
+      'created_at': '2026-11-12T00:00:00.000Z',
+      'updated_at': '2026-11-12T00:00:00.000Z',
+    });
+    for (final (id, sequence, scope, status, authorize) in [
+      ('consent-v19-a', 1, 'RESPONSIBLE_ONLY', 'REJECTED', 0),
+      ('consent-v19-b', 2, 'COLLABORATORS', 'PENDING_SEND', 1),
+    ]) {
+      await legacy.insert('joint_purchase_consent_ops', {
+        'operation_id': id,
+        'call_id': 'c-v19',
+        'tenant_id': memberA.tenantId,
+        'member_id': memberA.memberId,
+        'sequence': sequence,
+        'scope': scope,
+        'consent_version': 'CONV-3',
+        'decided_at': '2026-11-12T00:00:00.000Z',
+        'send_status': status,
+        'created_at': '2026-11-12T00:00:00.000Z',
+        'updated_at': '2026-11-12T00:00:00.000Z',
+        'responsible_version': 2,
+        'authorize_responsible': authorize,
+      });
+    }
+    final before = await dumpTables(legacy);
+    final columnsBefore = await columnsOf(legacy);
+    await legacy.close();
+    expect(before.containsKey('joint_purchase_access_ops'), isFalse);
+
+    final migrated = openDb(path);
+    final db = await migrated.database;
+    expect(
+      (await db.rawQuery('PRAGMA user_version')).single.values.single,
+      AppDatabase.schemaVersion,
+    );
+    expect(AppDatabase.schemaVersion, 20);
+    expect(await db.query('joint_purchase_access_ops'), isEmpty);
+    // Nada existente cambia: ni columnas, ni filas, ni lo pendiente, ni la
+    // participación con su alcance anterior (no se reinterpreta).
+    final columnsAfter = await columnsOf(db);
+    for (final entry in columnsBefore.entries) {
+      expect(columnsAfter[entry.key], entry.value, reason: entry.key);
+    }
+    expect(await dumpTables(db, except: {'joint_purchase_access_ops'}), before);
+    final triggers = await db.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type='trigger' "
+      "AND tbl_name='joint_purchase_access_ops'",
+    );
+    expect(triggers.map((row) => row['name']), [
+      'trg_joint_purchase_access_ops_sequence',
+    ]);
+  });
+
+  test('la migración a v20 es idempotente y el motor rechaza alcances anteriores en la cola nueva', () async {
+    final path = await tempDbPath('v20_twice');
+    final first = openDb(path);
+    await first.database;
+    await first.close();
+    // Migración interrumpida: la tabla creada, user_version 19.
+    final raw = await databaseFactoryFfi.openDatabase(path);
+    await raw.execute('PRAGMA user_version = 19');
+    await raw.close();
+
+    final second = openDb(path);
+    final db = await second.database;
+    expect(await db.query('joint_purchase_access_ops'), isEmpty);
+    Map<String, Object?> row(String scope, String status) => {
+      'operation_id': 'x-$scope-$status',
+      'call_id': 'c',
+      'tenant_id': 't',
+      'member_id': 'm',
+      'sequence': 1,
+      'scope': scope,
+      'consent_version': 'CONV-4',
+      'decided_at': 'x',
+      'send_status': status,
+      'created_at': 'x',
+      'updated_at': 'x',
+    };
+    for (final bad in [
+      row('COLLABORATORS', 'PENDING_SEND'),
+      row('RESPONSIBLE_ONLY', 'PENDING_SEND'),
+      row('ADMINISTRATION', 'SENT'),
+    ]) {
+      await expectLater(
+        db.insert('joint_purchase_access_ops', bad),
+        throwsA(isA<DatabaseException>()),
+      );
+    }
+    await db.insert(
+      'joint_purchase_access_ops',
+      row('TOTALS_ONLY', 'PENDING_SEND'),
+    );
+    await second.close();
   });
 
   test('la migración a v17 es idempotente sobre una base ya migrada', () async {
@@ -726,6 +878,11 @@ void main() {
     await database.close();
   });
 }
+
+/// Quita todo lo que añadió v20 (E4): la cola de decisiones del alcance nuevo
+/// (su índice y su disparador caen con ella).
+Future<void> dropJointPurchaseAccessSchemaV20(DatabaseExecutor db) =>
+    db.execute('DROP TABLE IF EXISTS joint_purchase_access_ops');
 
 /// Quita las columnas de v19 (P-A, E2 §12) para comparar con una base anterior.
 Map<String, List<Map<String, Object?>>> withoutV19(
