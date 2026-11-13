@@ -798,10 +798,8 @@ class _PlanFormScreenState extends ConsumerState<PlanFormScreen>
       return VoiceFormPanel(
         dictation: voice!,
         docked: true,
-        // Modo individual: láminas I-13 e I-14.
-        individualHint: _personal
-            ? 'Diga chaco, superficie, producto y dosis'
-            : null,
+        // Láminas I-13 e I-14, en ambos modos (la guía es la misma).
+        listeningHint: 'Diga chaco, superficie, producto y dosis',
         example:
             '«Chaco Norte, tres hectáreas, fungicida a dos litros por '
             'hectárea»',
@@ -900,8 +898,6 @@ class _PlanFormScreenState extends ConsumerState<PlanFormScreen>
       return [
         VoiceResultBanner(
           dictation: voice!,
-          // Modo individual: lámina I-15.
-          individual: _personal,
           onDictateMore: saving ? null : _openVoice,
           onDismiss: () => setState(() => _voiceBanner = false),
         ),

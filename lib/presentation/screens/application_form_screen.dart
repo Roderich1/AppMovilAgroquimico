@@ -1097,10 +1097,9 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen>
       return VoiceFormPanel(
         dictation: voice!,
         docked: true,
-        // Modo individual: láminas I-13 e I-14.
-        individualHint: personalMode
-            ? 'Diga chaco, superficie, producto y cantidad'
-            : null,
+        // Láminas I-13 e I-14, en ambos modos: el responsable es el dueño
+        // del chaco, así que la guía es la misma.
+        listeningHint: 'Diga chaco, superficie, producto y cantidad',
         example: '«En el chaco Norte, tres hectáreas, dos litros de herbicida»',
         engineHint:
             'Hable por frases cortas y pulse «Terminar» al acabar. Lo dictado '
@@ -1195,8 +1194,6 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen>
       return [
         VoiceResultBanner(
           dictation: voice!,
-          // Modo individual: lámina I-15.
-          individual: personalMode,
           onDictateMore: saving ? null : _openVoice,
           onDismiss: () => setState(() => _voiceBanner = false),
         ),
