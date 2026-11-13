@@ -237,7 +237,11 @@ void main() {
     Finder rich(String text) => find.textContaining(text, findRichText: true);
     await waitFor(tester, rich('Vencimiento: sin fecha registrada'));
     expect(rich('Vencimiento: sin fecha registrada'), findsOneWidget);
-    expect(rich('Número de lote: sin registrar'), findsOneWidget);
+    // Ronda 2 del rediseño (decisión del autor del 2026-11-12): sin número
+    // del fabricante no se escribe «sin registrar»; el rótulo sólo aparece
+    // si hay número.
+    expect(rich('Lote del fabricante'), findsNothing);
+    expect(rich('Número de lote'), findsNothing);
 
     final itemId = (await rows(
       tester,
@@ -292,8 +296,8 @@ void main() {
     await waitFor(tester, find.byKey(const Key('owner-pin-input')));
     await tester.enterText(find.byKey(const Key('owner-pin-input')), '284917');
     await tapKey(tester, 'owner-pin-submit');
-    await waitFor(tester, rich('Número de lote: L-9'));
-    expect(rich('Número de lote: L-9'), findsOneWidget);
+    await waitFor(tester, rich('Lote del fabricante: L-9'));
+    expect(rich('Lote del fabricante: L-9'), findsOneWidget);
     expect(
       rich('Correcciones: 1 (las cantidades no cambiaron)'),
       findsOneWidget,
@@ -338,7 +342,7 @@ void main() {
     c.read(routerProvider).pop();
     await settle(tester);
     c.read(routerProvider).push('/compras/detalle/$purchaseId');
-    await waitFor(tester, rich('Número de lote: L-9'));
+    await waitFor(tester, rich('Lote del fabricante: L-9'));
     expect(find.byKey(Key('purchase-lot-data-correct-$itemId')), findsNothing);
     expect(
       find.byKey(Key('purchase-lot-data-history-$itemId')),
@@ -377,8 +381,9 @@ void main() {
     await tester.ensureVisible(lotsTile);
     await tester.tap(lotsTile);
     await settle(tester);
+    // Ronda 2: cada lote es una tarjeta; el texto empieza con mayúscula.
     expect(
-      find.textContaining('sin fecha de vencimiento registrada'),
+      find.textContaining('Sin fecha de vencimiento registrada'),
       findsOneWidget,
     );
 
@@ -639,7 +644,15 @@ void main() {
     await tapKey(tester, 'inventory-alerts-entry');
     await waitFor(tester, find.byKey(const Key('alerts-expired')));
     expect(find.text('Lotes vencidos (1)'), findsOneWidget);
-    expect(find.text('Glifosato · lote VIEJO'), findsOneWidget);
+    // Ronda 2: el título es el producto; el número del fabricante, aparte.
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('alerts-expired')),
+        matching: find.text('Glifosato'),
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('Lote del fabricante: VIEJO'), findsOneWidget);
     expect(
       find.text(
         'Venció el ${displayDay(yesterday)}, hace 1 día · Quedan 3 L · Titular',
@@ -686,14 +699,16 @@ void main() {
       ),
       findsOneWidget,
     );
+    expect(find.text('Lotes sin fecha de vencimiento (1)'), findsOneWidget);
+    // Ronda 2: sin «sin número de lote»; el lote sin fecha sigue listado.
     expect(
-      find.text('Lotes sin fecha de vencimiento (1)'),
+      find.descendant(
+        of: find.byKey(const Key('alerts-unknown')),
+        matching: find.text('Glifosato'),
+      ),
       findsOneWidget,
     );
-    expect(
-      find.textContaining('Glifosato · sin número de lote'),
-      findsOneWidget,
-    );
+    expect(find.textContaining('sin número de lote'), findsNothing);
     expect(find.byKey(const Key('alerts-clock-warning')), findsNothing);
     // El plazo inicial se explica y se dice dónde cambiarlo (rediseño B: en
     // el diálogo «i» de la cabecera, no como párrafo permanente).

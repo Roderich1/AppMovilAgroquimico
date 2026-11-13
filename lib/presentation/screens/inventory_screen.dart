@@ -10,6 +10,7 @@ import '../../domain/read_models.dart';
 import '../theme/agro_theme.dart';
 import '../widgets/agro_ui.dart';
 import '../widgets/common.dart';
+import '../widgets/rdm2_b_lotes.dart';
 import '../widgets/rdm_b_ui.dart';
 import '../widgets/register_sheet.dart' show registerRevisionProvider;
 import 'inventory_alerts_screen.dart';
@@ -22,8 +23,9 @@ import 'inventory_alerts_screen.dart';
 ///   existencia total con la que se puede usar.
 /// - **Previsto en planes**: `committedBase`, lo que piden los planes
 ///   pendientes de la campaña activa. No es una reserva: no aparta nada.
-/// - **Quedarán**: `projectedBase` = existencia − previsto; si es negativo,
-///   «faltarán».
+/// - **Quedarían**: `projectedBase` = existencia − previsto; si es negativo,
+///   «faltarían». Es una proyección por si se aplican los planes (ronda 2
+///   del rediseño, 2026-11-12), no lo que hay ahora.
 /// Los avisos cuentan **lotes** (vencimientos) y **productos** (existencia
 /// baja), como dice cada rótulo.
 class InventoryScreen extends ConsumerStatefulWidget {
@@ -388,10 +390,6 @@ class _ProductCard extends StatelessWidget {
     final near = alerts?.near.where((a) => a.lot.productId == id) ?? [];
     final low = alerts?.lowStock.where((a) => a.line.productId == id) ?? [];
     final expiredBase = expired.fold(0, (sum, a) => sum + a.lot.remainingBase);
-    final nearestDays = near
-        .map((a) => a.days)
-        .whereType<int>()
-        .fold<int?>(null, (m, d) => m == null || d < m ? d : m);
     final badges = <Widget>[
       if (expired.isNotEmpty)
         StatusBadge(
@@ -400,18 +398,16 @@ class _ProductCard extends StatelessWidget {
               : '${expired.length} lotes vencidos',
           tone: BadgeTone.missing,
         ),
+      // Ronda 2: con la cantidad afectada, para que no se lea como si
+      // venciera todo el producto.
       if (today.isNotEmpty)
         StatusBadge(
-          label: today.length == 1
-              ? 'Lote vence hoy'
-              : '${today.length} lotes vencen hoy',
+          label: todayExpiryBadge(today, row.unit),
           tone: BadgeTone.review,
         ),
       if (near.isNotEmpty)
         StatusBadge(
-          label: nearestDays == null
-              ? 'Por vencer'
-              : 'Vence en ${alertCount(nearestDays, 'día', 'días')}',
+          label: nearExpiryBadge(near, row.unit),
           tone: BadgeTone.review,
         ),
       if (low.any((a) => a.line.isTotal))
@@ -427,7 +423,7 @@ class _ProductCard extends StatelessWidget {
     final details = <String>[
       if (row.committedBase != 0)
         'Previsto en planes ${formatQuantity(row.committedBase, row.unit)} · '
-            '${projected < 0 ? 'faltarán ${formatQuantity(-projected, row.unit)}' : 'quedarán ${formatQuantity(projected, row.unit)}'}',
+            '${projected < 0 ? 'faltarían ${formatQuantity(-projected, row.unit)}' : 'quedarían ${formatQuantity(projected, row.unit)}'}',
       if (expiredBase > 0)
         'Incluye ${formatQuantity(expiredBase, row.unit)} vencidos',
       'Valor ${formatBob(row.availableValueBobMinor)}',

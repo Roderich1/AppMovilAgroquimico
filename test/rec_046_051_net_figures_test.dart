@@ -475,9 +475,10 @@ void main() {
       );
       expect(metric('Comprado neto', '10 L'), findsOneWidget);
       expect(metric('Consumido neto', '3 L'), findsOneWidget);
-      // El físico va en grande, con el número y la unidad por separado.
-      expect(metric('Físico', '7'), findsOneWidget);
-      expect(metric('Físico', 'L'), findsOneWidget);
+      // El físico va en grande, con el número y la unidad por separado
+      // (ronda 2: rotulado «Hay ahora»).
+      expect(metric('Hay ahora', '7'), findsOneWidget);
+      expect(metric('Hay ahora', 'L'), findsOneWidget);
       // Las explicaciones se abren con «i» en la cabecera (sin párrafos
       // permanentes); el texto es el mismo.
       await tester.tap(find.byKey(const Key('inventory-info')));
@@ -485,7 +486,7 @@ void main() {
       expect(
         find.text(
           'Neto: no cuenta lo revertido. Comprado neto menos consumido '
-          'neto es el físico.',
+          'neto es lo que hay ahora.',
         ),
         findsOneWidget,
       );
@@ -493,20 +494,17 @@ void main() {
         find.text(
           'Asignación neta: lo comprado para esta persona, más lo que '
           'recibió y menos lo que entregó por transferencias. No cuenta lo '
-          'revertido. Restando lo consumido queda su físico.',
+          'revertido. Restando lo consumido queda lo que tiene. En «Quién '
+          'lo tiene», «Usó 1 L de 3 L» es su consumido neto de su '
+          'asignación neta.',
         ),
         findsOneWidget,
       );
       await tester.tap(find.text('Cerrar'));
       await settle(tester);
-      expect(
-        find.text('Asignación neta 9 L · consumido neto 3 L'),
-        findsOneWidget,
-      );
-      expect(
-        find.text('Asignación neta 1 L · consumido neto 0 L'),
-        findsOneWidget,
-      );
+      // Ronda 2: «Usó <consumido neto> de <asignación neta>».
+      expect(find.text('Usó 3 L de 9 L'), findsOneWidget);
+      expect(find.text('Usó 0 L de 1 L'), findsOneWidget);
       expect(find.text('Caro'), findsNothing);
       expect(find.text('Comprado'), findsNothing);
       expect(find.text('Consumido'), findsNothing);
