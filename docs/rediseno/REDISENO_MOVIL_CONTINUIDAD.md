@@ -103,3 +103,15 @@ Worktree temporal `_wt/RDM-BASE` (detached en `01b2576`): sólo para comparar co
 ## Siguiente acción concreta
 
 Esperar la revisión de diseño del autor sobre la candidata `fc12123` (recorrido Inicio → Compra → Aplicación/Plan → Almacén → Personas → Sindicato) en `emulator-5556` («AC RDM», conectada, abierta en Inicio). Si el túnel muere (corte de internet), hay que abrir otro y recompilar; si el emulador pierde el DNS, reiniciarlo con `-dns-server 8.8.8.8,1.1.1.1` y `am force-stop` de la app. Si el autor abre o autoriza el túnel: recorrer convocatorias (participar, estados de envío), vínculos y publicación de consumo, y volver a autenticar. P-A ya está en la rama: decidir con el autor si la candidata a revisar pasa a `91f2e73` (requiere Back `49ed870` para convocatorias). Sus correcciones se reparten por `COORDINACION.md` (las sesiones A, B y C están en espera, sin tocar sus worktrees). Para reabrir el entorno: `RDM_SERIAL=emulator-5556`, `rdm_env.sh up` (Back congelado `_wt/RDM-BE`), `rdm_env.sh tunnel` (necesita permiso), recompilar desde el mismo SHA con `build-app` e `install-app`.
+
+## Ronda 2 (revisión del autor del 2026-11-12, noche)
+
+- **Orquestador:** la sesión `proyectoagro-5c`, por traspaso de `proyectoagro-5e`. Organización en `RONDA2_CORRECCIONES.md`; sesiones A, B y C en `_wt/RDM2-A/B/C`, ya terminadas e integradas.
+- **Código final:** `b5df71d`. Suite completa 3125/3/0. Instalado en `emulator-5556` (APK `6aeef0d5…73c1`) con los datos conservados.
+- **Evidencia, decisiones abiertas y guía de revisión:** `docs/evidence/rediseno-movil/2026-11-12/ronda2/README.md`.
+- **Pendiente:**
+  - aceptación visual del autor;
+  - revisión funcional de Sindicato con la Web;
+  - decisiones 1 a 5 del README;
+  - simplificar la tarjeta del titular en Cuentas.
+- **Túnel:** abierto para la revisión del autor; cerrarlo con `rdm_env.sh untunnel` cuando ya no se use.
