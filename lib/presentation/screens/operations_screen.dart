@@ -4,18 +4,19 @@ import 'package:go_router/go_router.dart';
 
 import '../../app.dart';
 import '../../domain/money.dart';
-import '../../domain/operation_mode.dart';
+import '../../domain/person_roles.dart' show PersonPurpose;
 import '../../operation_mode_controller.dart';
 import '../theme/agro_theme.dart';
 import '../widgets/agro_ui.dart';
 import '../widgets/common.dart';
 import '../widgets/rdm_b_ui.dart';
 import '../widgets/register_sheet.dart' show registerRevisionProvider;
+import 'ind_b_suppliers_screen.dart';
 
 /// Actividad (lámina 1.3; antes «Operaciones»).
 ///
 /// Un historial único, del más reciente al más antiguo, de compras,
-/// aplicaciones y transferencias (éstas sólo en inventario compartido), con
+/// aplicaciones y transferencias (éstas sólo en el modo con varias personas), con
 /// «Por hacer» para los planes pendientes. Lee las mismas listas que las
 /// pantallas de cada operación (`purchases()`, `applications()`, `plans()`,
 /// `transfers()`) y no cambia ninguna cifra.
@@ -25,6 +26,13 @@ import '../widgets/register_sheet.dart' show registerRevisionProvider;
 /// ver la factura; aplicaciones y planes: los de la sesión A). Actividad
 /// sólo abre: el detalle de una compra, la lista de cada tipo y el
 /// formulario de aplicación de un plan («Aplicar», como en Planificación).
+///
+/// **Modo individual** (lámina I-04, 2026-11-13): las mismas operaciones,
+/// sin repetir el nombre del titular en cada fila (una aplicación o un plan
+/// de otra persona, de la historia anterior al cambio de modo, conserva su
+/// nombre), y arriba «Proveedores y saldos» con lo que se debe a
+/// proveedores de todas las campañas (el mismo saldo que Inicio). Sin
+/// transferencias (ya antes). El modo con varias personas no cambia.
 class OperationsScreen extends ConsumerStatefulWidget {
   const OperationsScreen({super.key});
 
@@ -45,6 +53,8 @@ typedef _ActivityData = ({
   List<_Row> plans,
   List<_Row> transfers,
   bool transfersShown,
+  SupplierDebt? supplierDebt,
+  String? titularName,
 });
 
 const _purchaseLimit = 200;
@@ -64,20 +74,37 @@ class _OperationsScreenState extends ConsumerState<OperationsScreen> {
     super.dispose();
   }
 
-  bool get _personal =>
-      ref.read(operationModeProvider) == OperationMode.personal;
+  bool get _personal => ref.read(personalModeProvider);
 
   Future<_ActivityData> _load() async {
     final repo = ref.read(repositoryProvider);
     final shared = !_personal;
+    // En propio, todas las compras (sin límite) en la misma consulta: el
+    // saldo con proveedores es de todas las campañas, como en Inicio, y con
+    // el límite de 200 se contaría de menos. El historial sigue mostrando
+    // las 200 más recientes. En compartido, exactamente lo de antes.
+    final purchases = await repo.purchases(
+      limit: shared ? _purchaseLimit : 1 << 30,
+    );
+    String? titularName;
+    if (!shared) {
+      final read = await repo.peopleAndContextFor(PersonPurpose.providerPayer);
+      for (final person in read.people) {
+        if (person['id'] == read.context.ownerPersonId) {
+          titularName = person['name'] as String?;
+        }
+      }
+    }
     return (
-      purchases: await repo.purchases(limit: _purchaseLimit),
+      purchases: shared ? purchases : purchases.take(_purchaseLimit).toList(),
       applications: await repo.applications(limit: _applicationLimit),
       plans: await repo.plans(),
       transfers: shared
           ? await repo.transfers(limit: _transferLimit)
           : const <_Row>[],
       transfersShown: shared,
+      supplierDebt: shared ? null : supplierDebt(purchases),
+      titularName: titularName,
     );
   }
 
@@ -109,7 +136,7 @@ class _OperationsScreenState extends ConsumerState<OperationsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final personal = ref.watch(operationModeProvider) == OperationMode.personal;
+    final personal = ref.watch(personalModeProvider);
     // Al cambiar de modo con la pantalla abierta, se relee (las
     // transferencias aparecen o desaparecen).
     ref.listen(operationModeProvider, (previous, next) {
@@ -183,9 +210,11 @@ class _OperationsScreenState extends ConsumerState<OperationsScreen> {
             autofocus: true,
             onChanged: (value) =>
                 setState(() => query = value.trim().toLowerCase()),
-            decoration: const InputDecoration(
-              prefixIcon: Icon(Icons.search),
-              labelText: 'Buscar proveedor, persona, chaco o producto',
+            decoration: InputDecoration(
+              prefixIcon: const Icon(Icons.search),
+              labelText: personal
+                  ? 'Buscar proveedor, chaco o producto'
+                  : 'Buscar proveedor, persona, chaco o producto',
             ),
           ),
         ],
@@ -235,11 +264,26 @@ class _OperationsScreenState extends ConsumerState<OperationsScreen> {
                 child: Center(child: CircularProgressIndicator()),
               );
             }
-            return _ActivityBody(
-              data: snapshot.data!,
+            final data = snapshot.data!;
+            final debt = data.supplierDebt;
+            final body = _ActivityBody(
+              data: data,
               filter: current,
               query: query,
               onOpen: _open,
+              titularName: personal ? data.titularName : null,
+            );
+            if (!personal || debt == null) return body;
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const SizedBox(height: 12),
+                _SuppliersBanner(
+                  debt: debt,
+                  onTap: () => _open(context.push(indProvidersPath)),
+                ),
+                body,
+              ],
             );
           },
         ),
@@ -342,12 +386,23 @@ class _ActivityBody extends StatelessWidget {
     required this.filter,
     required this.query,
     required this.onOpen,
+    this.titularName,
   });
 
   final _ActivityData data;
   final _Filter filter;
   final String query;
   final void Function(Future<Object?> navigation) onOpen;
+
+  /// Modo individual: el titular, cuyo nombre no se repite en cada fila.
+  final String? titularName;
+
+  /// «Chaco Norte» si la persona es el titular (modo individual); si no,
+  /// «Chaco Norte · Beto».
+  String _withPerson(Object? place, Object? person) =>
+      titularName != null && person == titularName
+      ? '$place'
+      : '$place · $person';
 
   ({List<_Entry> entries, bool truncated}) _entries() {
     final entries = <_Entry>[];
@@ -387,7 +442,7 @@ class _ActivityBody extends StatelessWidget {
             icon: Icons.spa_outlined,
             iconBg: AgroColors.ink,
             iconFg: AgroColors.lime,
-            title: '${row['farm_name']} · ${row['person_name']}',
+            title: _withPerson(row['farm_name'], row['person_name']),
             subtitle: [
               _shortDay(_parse(row['applied_at'])),
               'Aplicación',
@@ -490,7 +545,7 @@ class _ActivityBody extends StatelessWidget {
       if (showPlans) ...[
         const GroupLabel('Por hacer'),
         for (final plan in plans) ...[
-          _PlanCard(plan: plan, onOpen: onOpen),
+          _PlanCard(plan: plan, onOpen: onOpen, titularName: titularName),
           const SizedBox(height: 8),
         ],
       ] else if (filter == _Filter.plans && query.isEmpty)
@@ -596,9 +651,12 @@ List<_Plan> _groupPlans(List<_Row> rows) {
 }
 
 class _PlanCard extends StatelessWidget {
-  const _PlanCard({required this.plan, required this.onOpen});
+  const _PlanCard({required this.plan, required this.onOpen, this.titularName});
   final _Plan plan;
   final void Function(Future<Object?> navigation) onOpen;
+
+  /// Modo individual: un plan del titular no repite su nombre.
+  final String? titularName;
 
   @override
   Widget build(BuildContext context) {
@@ -653,7 +711,9 @@ class _PlanCard extends StatelessWidget {
                         ),
                         Text(
                           [
-                            plan.owner,
+                            if (titularName == null ||
+                                plan.owner != titularName)
+                              plan.owner,
                             ...plan.items,
                             if (plan.plannedDate != null)
                               'para el ${formatDate(plan.plannedDate)}',
@@ -768,4 +828,55 @@ class _EntryRow extends StatelessWidget {
       ),
     );
   }
+}
+
+/// «Proveedores y saldos» (lámina I-04): lo que se debe a proveedores, de
+/// todas las campañas, y el acceso a pagarlo. La misma cifra que Inicio.
+class _SuppliersBanner extends StatelessWidget {
+  const _SuppliersBanner({required this.debt, required this.onTap});
+  final SupplierDebt debt;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Material(
+    color: AgroColors.ink,
+    borderRadius: BorderRadius.circular(22),
+    child: InkWell(
+      key: const Key('activity-suppliers'),
+      borderRadius: BorderRadius.circular(22),
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(18, 14, 12, 14),
+        child: Row(
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Proveedores y saldos',
+                    style: TextStyle(
+                      fontSize: 18,
+                      height: 24 / 18,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white,
+                    ),
+                  ),
+                  Text(
+                    supplierDebtLine(debt),
+                    style: const TextStyle(
+                      fontSize: 15,
+                      color: AgroColors.onInkMuted,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            const Icon(Icons.chevron_right, color: AgroColors.lime),
+          ],
+        ),
+      ),
+    ),
+  );
 }
