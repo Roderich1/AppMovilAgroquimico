@@ -148,8 +148,11 @@ class IndHomeHero extends StatelessWidget {
             'aplicado. Toque la campaña arriba.',
             style: _muted,
           ),
-          const SizedBox(height: 14),
-          debtCard,
+          // Sin deuda no se muestra una cifra en cero (I-02).
+          if (f.providerDebtMinor > 0) ...[
+            const SizedBox(height: 14),
+            debtCard,
+          ],
         ],
       );
     }
@@ -440,7 +443,7 @@ class IndHomeLinks extends StatelessWidget {
           key: const Key('home-ver-cuanto-queda'),
           title: 'Ver cuánto queda',
           titleStyle: _linkTitle,
-          trailing: f == null
+          trailing: f == null || f.productsWithStock == 0
               ? null
               : count(_plural(f.productsWithStock, 'producto', 'productos')),
           onTap: () => context.go('/inventario'),

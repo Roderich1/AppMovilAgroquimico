@@ -2232,7 +2232,7 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen>
           // Lámina I-12. Es el saldo de ESTA compra con el proveedor (no el
           // total adeudado, que puede incluir compras anteriores).
           text:
-              'Esta compra quedará por pagar: ${formatBob(totalBob)} con '
+              'Esta compra quedará por pagar: ${formatBob(totalBob).trim()} con '
               '$supplierName. Podrá pagarlo después desde Registrar › Pago '
               'a un proveedor.',
         ),

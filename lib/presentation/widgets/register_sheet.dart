@@ -144,14 +144,10 @@ Future<void> showRegisterSheet(
                     key: const Key('register-provider-payment'),
                     icon: Icons.payments_outlined,
                     label: 'Pago a un proveedor',
-                    onTap: () {
-                      // Se paga desde la compra con saldo (Proveedores): se
-                      // va a la pantalla, sin apilar.
-                      Navigator.of(sheetContext).pop();
-                      WidgetsBinding.instance.addPostFrameCallback((_) {
-                        if (context.mounted) context.go(indProvidersRoute);
-                      });
-                    },
+                    // Se paga desde la compra con saldo (Proveedores). Se
+                    // APILA: Atrás vuelve a donde estaba (recorrido del
+                    // emulador, 2026-11-13: con `go` no había flecha).
+                    onTap: () => open(indProvidersRoute),
                   )
                 else
                   row(
