@@ -190,35 +190,32 @@ void main() {
     // Ronda 2 (2026-11-12, encargo del autor): antes «se recorta con
     // elipsis»; ahora se parte en líneas dentro de su columna y no se pierde
     // nada. Sigue sin invadir columnas (lo mide rdm2_c_pdf_estado_cuenta).
-    test(
-      'un nombre larguísimo se parte en líneas, entero, sin elipsis',
-      () {
-        final long =
-            'Chaco de la Comunidad San Juan de la Frontera Norte Alta '
-            'Sector Tres Ampliación Segunda';
-        final table = composer.farmCost(
-          generatedAt: now,
-          lines: [
-            FarmCostRead(
-              farmId: 1,
-              farmName: long,
-              ownerName: 'Ana',
-              areaM2: 100000,
-              totalCostBobMinor: 0,
-            ),
-          ],
-        );
-        final content = read(table);
-        // 0x85 es la elipsis en WinAnsi.
-        expect(content, isNot(contains('\x85')));
-        final lines = pdf.layout(table).rowLines.single.first;
-        expect(lines.length, greaterThan(1));
-        expect(lines.join(' '), long);
-        for (final line in lines) {
-          expect(content, contains('($line)'));
-        }
-      },
-    );
+    test('un nombre larguísimo se parte en líneas, entero, sin elipsis', () {
+      final long =
+          'Chaco de la Comunidad San Juan de la Frontera Norte Alta '
+          'Sector Tres Ampliación Segunda';
+      final table = composer.farmCost(
+        generatedAt: now,
+        lines: [
+          FarmCostRead(
+            farmId: 1,
+            farmName: long,
+            ownerName: 'Ana',
+            areaM2: 100000,
+            totalCostBobMinor: 0,
+          ),
+        ],
+      );
+      final content = read(table);
+      // 0x85 es la elipsis en WinAnsi.
+      expect(content, isNot(contains('\x85')));
+      final lines = pdf.layout(table).rowLines.single.first;
+      expect(lines.length, greaterThan(1));
+      expect(lines.join(' '), long);
+      for (final line in lines) {
+        expect(content, contains('($line)'));
+      }
+    });
 
     test('un importe grande se escribe entero, sin recortar', () {
       final table = composer.accountStatement(

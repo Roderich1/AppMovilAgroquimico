@@ -220,11 +220,13 @@ void main() {
       ),
       throwsA(isA<BusinessRuleException>()),
     );
-    final ownCharge = (await (await e.w.db).query(
-      'account_transactions',
-      where: "person_id=? AND type='USAGE_CHARGE'",
-      whereArgs: [e.titular],
-    )).single['id']! as int;
+    final ownCharge =
+        (await (await e.w.db).query(
+              'account_transactions',
+              where: "person_id=? AND type='USAGE_CHARGE'",
+              whereArgs: [e.titular],
+            )).single['id']!
+            as int;
     final historical = await e.w.rawPayment(
       e.titular,
       8100,

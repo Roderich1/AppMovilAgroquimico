@@ -156,8 +156,11 @@ void main() {
         expect(find.textContaining('Estado de cuenta · '), findsOneWidget);
         await tester.tap(find.text('Cerrar'));
         await settle(tester);
-        expect(// Ronda 2: `/liquidacion` muestra Personas › Cuentas.
-        find.text('Personas'), findsOneWidget);
+        expect(
+          // Ronda 2: `/liquidacion` muestra Personas › Cuentas.
+          find.text('Personas'),
+          findsOneWidget,
+        );
       }
       expect(tester.takeException(), isNull);
     },
