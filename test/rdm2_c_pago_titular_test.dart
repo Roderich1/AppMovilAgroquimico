@@ -30,8 +30,8 @@ import 'support_rdm2/c_seed.dart';
 void main() {
   sqfliteFfiInit();
 
-  Future<int> paymentRows(E15World e, int person) async => (await (await e.w.db)
-      .query(
+  Future<int> paymentRows(E15World e, int person) async =>
+      (await (await e.w.db).query(
         'account_transactions',
         where: "person_id=? AND type IN ('PAYMENT','ADVANCE')",
         whereArgs: [person],
@@ -50,27 +50,30 @@ void main() {
     setUp(() async => e = await E15World.create());
     tearDown(() => e.close());
 
-    test('pago y adelanto al titular vigente: rechazados, sin escribir', () async {
-      await e.seedE1501();
-      for (final advance in [false, true]) {
+    test(
+      'pago y adelanto al titular vigente: rechazados, sin escribir',
+      () async {
+        await e.seedE1501();
+        for (final advance in [false, true]) {
+          await expectLater(
+            e.w.repo.registerAccountPayment(
+              personId: e.titular,
+              campaignId: e.w.invierno,
+              amountBobMinor: 8100,
+              advance: advance,
+            ),
+            rejectedForOwner(),
+          );
+        }
+        // También por la entrada antigua y con una fecha anterior al vínculo
+        // (todo lo del titular vigente es propio, criterio Q-3).
         await expectLater(
-          e.w.repo.registerAccountPayment(
-            personId: e.titular,
-            campaignId: e.w.invierno,
-            amountBobMinor: 8100,
-            advance: advance,
-          ),
+          e.w.pay(e.titular, 100, date: at(1, 1)),
           rejectedForOwner(),
         );
-      }
-      // También por la entrada antigua y con una fecha anterior al vínculo
-      // (todo lo del titular vigente es propio, criterio Q-3).
-      await expectLater(
-        e.w.pay(e.titular, 100, date: at(1, 1)),
-        rejectedForOwner(),
-      );
-      expect(await paymentRows(e, e.titular), 0);
-    });
+        expect(await paymentRows(e, e.titular), 0);
+      },
+    );
 
     test('las demás personas siguen pagando como siempre', () async {
       await e.seedE1501();
@@ -105,43 +108,45 @@ void main() {
       );
     });
 
-    test('las compras y los pagos a proveedores del titular no cambian', () async {
-      final purchase = await e.w.repo.confirmPurchase(
-        PurchaseDraft(
-          supplierId: e.supplier,
-          campaignId: e.w.invierno,
-          purchaseDate: DateTime(2026, 7, 1),
-          items: [
-            PurchaseItemDraft(
-              productId: e.products['Glifosato']!,
-              quantityBase: 2000,
-              currency: CurrencyCode.bob,
-              originalUnitPriceMinor: 4500,
-              allocations: [
-                AllocationDraft(personId: e.titular, quantityBase: 2000),
-              ],
-            ),
-          ],
-        ),
-      );
-      await e.w.repo.addProviderPayment(
-        purchaseId: purchase,
-        payerPersonId: e.titular,
-        amountBobMinor: 9000,
-        method: PaymentMethod.cash,
-      );
-      final paid = await (await e.w.db).query(
-        'provider_payments',
-        where: 'purchase_id=? AND payer_person_id=?',
-        whereArgs: [purchase, e.titular],
-      );
-      expect(paid.single['amount_bob_minor'], 9000);
-    });
+    test(
+      'las compras y los pagos a proveedores del titular no cambian',
+      () async {
+        final purchase = await e.w.repo.confirmPurchase(
+          PurchaseDraft(
+            supplierId: e.supplier,
+            campaignId: e.w.invierno,
+            purchaseDate: DateTime(2026, 7, 1),
+            items: [
+              PurchaseItemDraft(
+                productId: e.products['Glifosato']!,
+                quantityBase: 2000,
+                currency: CurrencyCode.bob,
+                originalUnitPriceMinor: 4500,
+                allocations: [
+                  AllocationDraft(personId: e.titular, quantityBase: 2000),
+                ],
+              ),
+            ],
+          ),
+        );
+        await e.w.repo.addProviderPayment(
+          purchaseId: purchase,
+          payerPersonId: e.titular,
+          amountBobMinor: 9000,
+          method: PaymentMethod.cash,
+        );
+        final paid = await (await e.w.db).query(
+          'provider_payments',
+          where: 'purchase_id=? AND payer_person_id=?',
+          whereArgs: [purchase, e.titular],
+        );
+        expect(paid.single['amount_bob_minor'], 9000);
+      },
+    );
 
     test('inventario propio: nadie recibe pagos de cuenta', () async {
-      await OperationModeStore(
-        e.w.database,
-      ).apply(OperationMode.personal, confirmed: true);
+      await OperationModeStore(e.w.database)
+          .apply(OperationMode.personal, confirmed: true);
       await expectLater(
         e.w.repo.registerAccountPayment(
           personId: e.titular,
@@ -179,74 +184,85 @@ void main() {
     });
   });
 
-  group('asiento histórico de pago del titular, imputado a su cargo propio', () {
-    // El caso visto en el emulador el 2026-11-12: un «Pago» del titular
-    // «registrado en Invierno 2026», «Imputado: Invierno 2026 22,00 Bs».
-    late E15World e;
-    late int paymentId;
-    setUp(() async {
-      e = await E15World.create();
-      await e.seedE1501();
-      final db = await e.w.db;
-      final charge = (await db.query(
-        'account_transactions',
-        where: "person_id=? AND type='USAGE_CHARGE'",
-        whereArgs: [e.titular],
-      )).single;
-      paymentId = await db.insert('account_transactions', {
-        'person_id': e.titular,
-        'campaign_id': e.w.invierno,
-        'transaction_date': at(11, 12, 9),
-        'type': 'PAYMENT',
-        'amount_bob_minor_signed': -2200,
-        'reference_type': 'PAYMENT',
+  group(
+    'asiento histórico de pago del titular, imputado a su cargo propio',
+    () {
+      // El caso visto en el emulador el 2026-11-12: un «Pago» del titular
+      // «registrado en Invierno 2026», «Imputado: Invierno 2026 22,00 Bs».
+      late E15World e;
+      late int paymentId;
+      setUp(() async {
+        e = await E15World.create();
+        await e.seedE1501();
+        final db = await e.w.db;
+        final charge = (await db.query(
+          'account_transactions',
+          where: "person_id=? AND type='USAGE_CHARGE'",
+          whereArgs: [e.titular],
+        )).single;
+        paymentId = await db.insert('account_transactions', {
+          'person_id': e.titular,
+          'campaign_id': e.w.invierno,
+          'transaction_date': at(11, 12, 9),
+          'type': 'PAYMENT',
+          'amount_bob_minor_signed': -2200,
+          'reference_type': 'PAYMENT',
+        });
+        await db.insert('payment_allocations', {
+          'payment_transaction_id': paymentId,
+          'charge_transaction_id': charge['id'],
+          'amount_bob_minor': 2200,
+        });
       });
-      await db.insert('payment_allocations', {
-        'payment_transaction_id': paymentId,
-        'charge_transaction_id': charge['id'],
-        'amount_bob_minor': 2200,
-      });
-    });
-    tearDown(() => e.close());
+      tearDown(() => e.close());
 
-    test('se lee como registro propio, con su imputación, y no como cobro', () async {
-      final ledger = await e.w.repo.accountLedger();
-      final own = ledger.ownAccount(e.titular);
-      final entry = own.entries.singleWhere((x) => x.id == paymentId);
-      expect(
-        statusText(ledger, own, entry, ownRecord: true),
-        'Imputado: Invierno 2026 ${bob(2200)}',
+      test(
+        'se lee como registro propio, con su imputación, y no como cobro',
+        () async {
+          final ledger = await e.w.repo.accountLedger();
+          final own = ledger.ownAccount(e.titular);
+          final entry = own.entries.singleWhere((x) => x.id == paymentId);
+          expect(
+            statusText(ledger, own, entry, ownRecord: true),
+            'Imputado: Invierno 2026 ${bob(2200)}',
+          );
+          expect(ownRecordTotals(own).paymentsMinor, 2200);
+          expect(ledger.account(e.titular).entries, isEmpty);
+          expect(ledger.receivedMinor(), 0);
+          expect(
+            ledger.summaries().map((row) => row.personId),
+            isNot(contains(e.titular)),
+          );
+        },
       );
-      expect(ownRecordTotals(own).paymentsMinor, 2200);
-      expect(ledger.account(e.titular).entries, isEmpty);
-      expect(ledger.receivedMinor(), 0);
-      expect(
-        ledger.summaries().map((row) => row.personId),
-        isNot(contains(e.titular)),
-      );
-    });
 
-    test('la guarda no lo toca y el estado de cuenta y el PDF lo incluyen', () async {
-      await expectLater(
-        e.w.repo.registerAccountPayment(
-          personId: e.titular,
-          amountBobMinor: 100,
-        ),
-        rejectedForOwner(),
+      test(
+        'la guarda no lo toca y el estado de cuenta y el PDF lo incluyen',
+        () async {
+          await expectLater(
+            e.w.repo.registerAccountPayment(
+              personId: e.titular,
+              amountBobMinor: 100,
+            ),
+            rejectedForOwner(),
+          );
+          expect(await paymentRows(e, e.titular), 1);
+          final statement = await e.w.repo.accountStatement(e.titular);
+          expect(statement.ownLines.map((x) => x.id), contains(paymentId));
+          final table = const ReportComposer().ownStatement(
+            statement: statement,
+            generatedAt: DateTime(2026, 11, 12, 10),
+          );
+          final content = latin1.decode(
+            const PdfReportGenerator().generate(table),
+          );
+          expect(content, startsWith('%PDF-1.4'));
+          expect(content, contains('(22,00)'));
+          expect(content, contains('Pagos y ajustes registrados'));
+        },
       );
-      expect(await paymentRows(e, e.titular), 1);
-      final statement = await e.w.repo.accountStatement(e.titular);
-      expect(statement.ownLines.map((x) => x.id), contains(paymentId));
-      final table = const ReportComposer().ownStatement(
-        statement: statement,
-        generatedAt: DateTime(2026, 11, 12, 10),
-      );
-      final content = latin1.decode(const PdfReportGenerator().generate(table));
-      expect(content, startsWith('%PDF-1.4'));
-      expect(content, contains('(22,00)'));
-      expect(content, contains('Pagos y ajustes registrados'));
-    });
-  });
+    },
+  );
 
   test('la consulta de sólo lectura encuentra los mismos asientos que el '
       'criterio de clase (Q-3) y no cambia nada', () async {
@@ -272,9 +288,9 @@ void main() {
     final formerInside = await rawPayment(e.titular, at(10, 24), 300);
     final tercero = await e.w.pay(e.w.tercero, 900, date: at(10, 2));
 
-    final sql = File(
-      'tool/rediseno/asientos_pago_titular.sql',
-    ).readAsStringSync().trim();
+    final sql = File('tool/rediseno/asientos_pago_titular.sql')
+        .readAsStringSync()
+        .trim();
     final before = await db.query('account_transactions');
     final found = {
       for (final row in await db.rawQuery(sql)) row['asiento_id']! as int,
@@ -369,9 +385,8 @@ void main() {
       );
       final c = await pumpModeApp(tester, w.database);
       await tester.runAsync(() async {
-        await OperationModeStore(
-          w.database,
-        ).apply(OperationMode.personal, confirmed: true);
+        await OperationModeStore(w.database)
+            .apply(OperationMode.personal, confirmed: true);
         await c.read(operationModeProvider.notifier).reload();
       });
       for (final route in ['/personas', '/liquidacion']) {

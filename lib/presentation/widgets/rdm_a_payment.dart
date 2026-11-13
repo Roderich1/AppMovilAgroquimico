@@ -10,15 +10,17 @@ library;
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../app.dart';
 import '../../domain/account_ledger.dart';
 import '../../domain/campaign_calendar.dart';
 import '../../domain/read_models.dart' show CampaignRead;
+import '../../domain/reports/report_composer.dart' show ReportKind;
 
 import '../../domain/account_texts.dart';
 import '../theme/agro_theme.dart';
-import 'account_statement_view.dart';
+import 'rdm2_c_account_detail.dart';
 import 'agro_ui.dart';
 import 'common.dart';
 
@@ -250,7 +252,8 @@ class _PaymentSheetState extends State<_PaymentSheet> {
   }
 }
 
-/// Campaña de registro de un pago como período (para su texto).
+/// Campaña de registro de un pago como período (para su texto y para
+/// [recordAccountPayment]).
 CampaignPeriod? rdmAPeriodOf(CampaignRead? campaign) => campaign == null
     ? null
     : CampaignPeriod.fromRow({
@@ -269,12 +272,12 @@ Future<bool> recordAccountPayment(
   BuildContext context,
   WidgetRef ref, {
   required AccountSummary person,
-  required CampaignRead? campaign,
+  required CampaignPeriod? campaign,
 }) async {
   final amount = await showAccountPaymentSheet(
     context,
     personName: person.name,
-    registration: registrationText(rdmAPeriodOf(campaign), DateTime.now()),
+    registration: registrationText(campaign, DateTime.now()),
     netMinor: person.account.netMinor,
   );
   if (amount == null || !context.mounted) return false;
@@ -294,30 +297,60 @@ Future<bool> recordAccountPayment(
   }
 }
 
-/// Estado de cuenta de una persona a pantalla completa (lámina Cuenta).
-Future<void> showAccountStatement(
+/// Exportar desde un detalle: cierra el diálogo y abre Reportes situado en
+/// el estado de cuenta de la persona, con el período elegido. Sin router (p.
+/// ej. una pantalla montada sola en una prueba) no se ofrece.
+void Function(int?)? _exportFrom(BuildContext context, int personId) {
+  final router = GoRouter.maybeOf(context);
+  if (router == null) return null;
+  return (campaignId) {
+    Navigator.of(context, rootNavigator: true).pop();
+    router.push(
+      '/reportes?tipo=${ReportKind.accountStatement.name}'
+      '&persona=$personId'
+      '${campaignId == null ? '' : '&campana=$campaignId'}',
+    );
+  };
+}
+
+/// Estado de cuenta de una persona a pantalla completa (lámina Cuenta), con
+/// la estructura común de los detalles (ronda 2, P2). Con [canPay] ofrece
+/// «Registrar pago». Devuelve `true` si se registró un pago.
+Future<bool> showAccountStatement(
   BuildContext context,
   WidgetRef ref, {
   required int personId,
   required String name,
   int? campaignId,
+  bool canPay = false,
 }) async {
   final statement = await ref
       .read(repositoryProvider)
       .accountStatement(personId, campaignId: campaignId);
-  if (!context.mounted) return;
+  if (!context.mounted) return false;
+  final outcome = Rdm2cDetailOutcome();
+  final export = _exportFrom(context, personId);
   await showDialog<void>(
     context: context,
     builder: (_) => RdmAFullScreenSheet(
       overline: 'Cuenta',
       title: 'Estado de cuenta · $name',
-      child: AccountStatementView(statement: statement),
+      child: Rdm2cAccountDetail(
+        statement: statement,
+        campaignId: campaignId,
+        own: false,
+        outcome: outcome,
+        // Nunca al titular vigente (decisión del autor del 2026-11-12).
+        canPay: canPay && !statement.isCurrentOwner,
+        onExport: export,
+      ),
     ),
   );
+  return outcome.recorded;
 }
 
 /// «Movimientos propios» del titular a pantalla completa (lámina Propios,
-/// E-15 §B.2).
+/// E-15 §B.2), con la misma estructura que el estado de cuenta y sin pago.
 Future<void> showOwnMovements(
   BuildContext context,
   WidgetRef ref, {
@@ -329,12 +362,19 @@ Future<void> showOwnMovements(
       .read(repositoryProvider)
       .accountStatement(personId, campaignId: campaignId);
   if (!context.mounted) return;
+  final export = _exportFrom(context, personId);
   await showDialog<void>(
     context: context,
     builder: (_) => RdmAFullScreenSheet(
       overline: 'Titular · no es deuda',
       title: 'Movimientos propios · $name',
-      child: OwnMovementsView(statement: statement),
+      child: Rdm2cAccountDetail(
+        statement: statement,
+        campaignId: campaignId,
+        own: true,
+        outcome: Rdm2cDetailOutcome(),
+        onExport: export,
+      ),
     ),
   );
 }
