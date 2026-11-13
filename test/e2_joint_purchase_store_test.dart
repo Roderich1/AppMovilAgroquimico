@@ -80,13 +80,13 @@ void main() {
   );
 
   test(
-    'confirmar: PENDING_SEND con UUID v4, sequence 1, consentimiento CONV-3',
+    'confirmar: PENDING_SEND con UUID v4, sequence 1, consentimiento CONV-4',
     () async {
       final op = await confirm({litreRef: 25000, kiloRef: 4500});
       expect(uuidV4Lowercase.hasMatch(op.operationId), isTrue);
       expect(op.sequence, 1);
       expect(op.sendStatus, JointPurchaseOpStatus.pendingSend);
-      expect(op.consentVersion, 'CONV-3');
+      expect(op.consentVersion, 'CONV-4');
       expect(op.consentAcceptedAt, now.toIso8601String());
       expect(op.wireLines, [
         {'product_ref': litreRef, 'quantity_base': '25000'},
@@ -538,7 +538,7 @@ void main() {
     },
   );
 
-  test('CONV-1 pendiente de antes de actualizar: se conserva; confirmar lo mismo con CONV-3 la sustituye', () async {
+  test('CONV-1 pendiente de antes de actualizar: se conserva; confirmar lo mismo con CONV-4 la sustituye', () async {
     await insertOp(
       callId,
       JointPurchaseOpStatus.pendingSend,
@@ -549,7 +549,7 @@ void main() {
 
     final renewed = await confirm({litreRef: 1000});
     expect(renewed.operationId, isNot(legacy.operationId));
-    expect(renewed.consentVersion, 'CONV-3');
+    expect(renewed.consentVersion, 'CONV-4');
     expect(renewed.sequence, 2);
     expect(
       (await store.op(legacy.operationId))!.sendStatus,
@@ -567,117 +567,341 @@ void main() {
     );
   });
 
-  // --- E2 §10.6 (P-C) --------------------------------------------------------
+  // --- E4 §4.2: quién ve sus datos (reescritas desde P-C, E2 §10.6) ---------
 
-  test('P-C: sin participación no hay decisión; la primera confirmación exige el consentimiento', () async {
+  /// Una decisión anterior a E4 guardada en la cola v18/v19, tal como la
+  /// dejó la aplicación anterior.
+  Future<void> insertLegacyDecision({
+    required String scope,
+    required int sequence,
+    String status = JointPurchaseOpStatus.pendingSend,
+    String operationId = '5e1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d',
+    bool authorizeResponsible = false,
+  }) async => (await fixture.database.database).insert(
+    JointPurchaseStore.consentOpsTable,
+    {
+      'operation_id': operationId,
+      'call_id': callId,
+      'tenant_id': memberA.tenantId,
+      'member_id': memberA.memberId,
+      'sequence': sequence,
+      'scope': scope,
+      'consent_version': 'CONV-3',
+      'decided_at': '2026-11-12T09:00:00.000Z',
+      'send_status': status,
+      'attempts': 0,
+      'created_at': '2026-11-12T09:00:00.000Z',
+      'updated_at': '2026-11-12T09:00:00.000Z',
+      'responsible_version': authorizeResponsible ? 1 : null,
+      'authorize_responsible': authorizeResponsible ? 1 : 0,
+    },
+  );
+
+  Future<JointPurchaseConsentOp?> decide(String scope) =>
+      store.decideAccess(callId: callId, scope: scope, decidedAt: now);
+
+  test('E4: sin participación no hay decisión; la primera confirmación exige el consentimiento CONV-4', () async {
     await expectLater(
-      store.decideConsent(
-        callId: callId,
-        scope: JointPurchaseConsentScope.collaborators,
-        decidedAt: now,
-      ),
+      decide(JointPurchaseConsentScope.administration),
       throwsA(isA<BusinessRuleException>()),
     );
     await expectLater(
       store.confirm(callId: callId, lines: {litreRef: 1000}),
       throwsA(isA<BusinessRuleException>()),
     );
-    expect(await store.ops(callId), isEmpty);
-    // Con la primera confirmación pendiente ya se puede decidir.
-    await confirm({litreRef: 1000});
-    final widen = await store.decideConsent(
-      callId: callId,
-      scope: JointPurchaseConsentScope.collaborators,
-      decidedAt: now,
+    // Un texto anterior no se acepta para una confirmación nueva.
+    await expectLater(
+      store.confirm(
+        callId: callId,
+        lines: {litreRef: 1000},
+        consentVersion: jointPurchaseConsentV3Version,
+        consentAcceptedAt: now,
+      ),
+      throwsA(isA<BusinessRuleException>()),
     );
-    expect(widen!.sequence, 1);
+    expect(await store.ops(callId), isEmpty);
+    // Con la primera confirmación (CONV-4) pendiente: revisar no envía nada
+    // (la creará con ADMINISTRATION) y retirar se ordena después.
+    await confirm({litreRef: 1000});
+    final call = (await store.call(callId))!;
+    expect(call.pendingInitialScope, JointPurchaseConsentScope.administration);
+    expect(call.canRetractAccess, isTrue);
+    expect(call.canReviewAccess, isFalse);
+    expect(await decide(JointPurchaseConsentScope.administration), isNull);
+    final retract = (await decide(JointPurchaseConsentScope.totalsOnly))!;
+    expect(retract.sequence, 1);
+    expect(retract.legacy, isFalse);
+    expect(retract.consentVersion, 'CONV-4');
+    expect(retract.wireBody, {
+      'operation_id': retract.operationId,
+      'sequence': 1,
+      'scope': 'TOTALS_ONLY',
+      'consent': {'version': 'CONV-4', 'decided_at': now.toIso8601String()},
+    });
   });
 
-  test('P-C: con participación en el sindicato, modificar no lleva consentimiento y la decisión tiene su orden', () async {
+  test('E4: participación anterior: modificar no lleva consentimiento; revisar tiene su orden, doble toque y no toca cantidades', () async {
     await seedCalls(store, memberA, [
       callJson(
         participation: participationJson(
+          consentVersion: jointPurchaseConsentV3Version,
           consentScope: 'COLLABORATORS',
+          consentScopeVersion: jointPurchaseConsentV3Version,
           consentScopeSequence: 4,
         ),
       ),
     ]);
+    final before = (await store.call(callId))!;
+    expect(before.needsAccessReview, isTrue);
     final modified = await confirm({litreRef: 2000});
     expect(modified.consentVersion, isNull);
     expect(modified.consentAcceptedAt, isNull);
+    // Cambiar cantidades no decide nada sobre quién ve los datos.
+    expect(await store.consentOps(callId), isEmpty);
 
-    // Lo que ya rige no se envía otra vez.
-    expect(
-      await store.decideConsent(
-        callId: callId,
-        scope: JointPurchaseConsentScope.collaborators,
-        decidedAt: now,
-      ),
-      isNull,
-    );
-    final reduce = (await store.decideConsent(
-      callId: callId,
-      scope: JointPurchaseConsentScope.responsibleOnly,
-      decidedAt: now,
-    ))!;
-    expect(reduce.sequence, 5);
-    expect(reduce.consentVersion, jointPurchaseConsentVersion);
+    final review = (await decide(JointPurchaseConsentScope.administration))!;
+    expect(review.sequence, 5);
+    expect(review.scope, 'ADMINISTRATION');
+    expect(review.consentVersion, 'CONV-4');
+    expect(review.wireBody.containsKey('authorize_responsible'), isFalse);
+    expect(review.wireBody.containsKey('responsible_version'), isFalse);
     // Doble toque: la misma decisión pendiente.
-    final again = await store.decideConsent(
-      callId: callId,
-      scope: JointPurchaseConsentScope.responsibleOnly,
-      decidedAt: now,
-    );
-    expect(again!.operationId, reduce.operationId);
-    // Volver a lo que rige deja sin efecto la pendiente y no envía nada.
     expect(
-      await store.decideConsent(
-        callId: callId,
-        scope: JointPurchaseConsentScope.collaborators,
-        decidedAt: now,
-      ),
-      isNull,
+      (await decide(JointPurchaseConsentScope.administration))!.operationId,
+      review.operationId,
     );
+    final pendingCall = (await store.call(callId))!;
+    expect(pendingCall.needsAccessReview, isFalse);
+    expect(pendingCall.canRetractAccess, isTrue);
+    // Lo aplicado sigue siendo lo del sindicato: nada se anuncia como hecho.
+    expect(pendingCall.appliedScope, 'COLLABORATORS');
+    // Retirar una autorización que nunca salió: sólo queda sin efecto.
+    expect(await decide(JointPurchaseConsentScope.totalsOnly), isNull);
     expect(
-      (await store.consentOp(reduce.operationId))!.sendStatus,
+      (await store.consentOp(review.operationId))!.sendStatus,
       JointPurchaseOpStatus.superseded,
     );
-    // Las cantidades pendientes siguen intactas.
+    // Sin nada pendiente, no hay autorización que retirar.
+    await expectLater(
+      decide(JointPurchaseConsentScope.totalsOnly),
+      throwsA(isA<BusinessRuleException>()),
+    );
+    // Las cantidades pendientes y la participación guardada siguen intactas.
     expect(
       (await store.op(modified.operationId))!.sendStatus,
       JointPurchaseOpStatus.pendingSend,
     );
+    expect(
+      (await store.call(callId))!.serverParticipation!.encode(),
+      before.serverParticipation!.encode(),
+    );
   });
 
-  test(
-    'P-C: en una convocatoria cancelada se reduce pero no se amplía',
-    () async {
-      await seedCalls(store, memberA, [
-        callJson(
-          status: 'CANCELLED',
-          participation: participationJson(
-            consentScope: 'COLLABORATORS',
-            consentScopeSequence: 1,
-          ),
+  test('E4: con ADMINISTRATION aplicada se retira la autorización (TOTALS_ONLY) sin retirar la participación', () async {
+    await seedCalls(store, memberA, [
+      callJson(
+        participation: participationJson(
+          consentScope: 'ADMINISTRATION',
+          consentScopeSequence: 0,
         ),
-      ]);
-      final reduce = await store.decideConsent(
-        callId: callId,
-        scope: JointPurchaseConsentScope.responsibleOnly,
-        decidedAt: now,
-      );
-      expect(reduce, isNotNull);
-      await seedCalls(store, memberA, [
-        callJson(status: 'CANCELLED', participation: participationJson()),
-      ]);
-      await expectLater(
-        store.decideConsent(
-          callId: callId,
-          scope: JointPurchaseConsentScope.collaborators,
-          decidedAt: now,
+      ),
+    ]);
+    final call = (await store.call(callId))!;
+    expect(call.canRetractAccess, isTrue);
+    expect(call.canReviewAccess, isFalse);
+    expect(call.needsAccessReview, isFalse);
+    expect(await decide(JointPurchaseConsentScope.administration), isNull);
+    final retract = (await decide(JointPurchaseConsentScope.totalsOnly))!;
+    expect(retract.sequence, 1);
+    expect(await store.ops(callId), isEmpty);
+    // Volver a autorizar deja sin efecto la retirada pendiente.
+    expect(await decide(JointPurchaseConsentScope.administration), isNull);
+    expect(
+      (await store.consentOp(retract.operationId))!.sendStatus,
+      JointPurchaseOpStatus.superseded,
+    );
+    // Tras retirarla (aplicada), se puede revisar de nuevo, sin etiqueta de
+    // transición.
+    await seedCalls(store, memberA, [
+      callJson(
+        participation: participationJson(
+          consentScope: 'TOTALS_ONLY',
+          consentScopeSequence: 1,
         ),
-        throwsA(isA<BusinessRuleException>()),
-      );
-    },
-  );
+      ),
+    ]);
+    final retracted = (await store.call(callId))!;
+    expect(retracted.canReviewAccess, isTrue);
+    expect(retracted.needsAccessReview, isFalse);
+    expect(retracted.serverParticipation!.isActive, isTrue);
+  });
+
+  test('E4: en una convocatoria cerrada se revisa sin reabrirla ni tocar lo consolidado; en una cancelada no se decide nada', () async {
+    await seedCalls(store, memberA, [
+      callJson(
+        status: 'CLOSED',
+        participation: participationJson(consentScope: 'RESPONSIBLE_ONLY'),
+        closing: {
+          'cutoff_at': deadline,
+          'closed_at': deadline,
+          'included': true,
+          'lines': [
+            {
+              'product_ref': litreRef,
+              'base_unit': 'ML',
+              'quantity_base': '25000',
+            },
+          ],
+        },
+      ),
+    ]);
+    final db = await fixture.database.database;
+    final rowBefore = (await db.query(JointPurchaseStore.callsTable)).single;
+    final closed = (await store.call(callId))!;
+    expect(closed.needsAccessReview, isTrue);
+    final review = (await decide(JointPurchaseConsentScope.administration))!;
+    expect(review.sequence, 1);
+    expect((await db.query(JointPurchaseStore.callsTable)).single, rowBefore);
+    expect(await store.ops(callId), isEmpty);
+
+    await seedCalls(store, memberA, [
+      callJson(
+        status: 'CANCELLED',
+        participation: participationJson(consentScope: 'ADMINISTRATION'),
+      ),
+    ]);
+    final cancelled = (await store.call(callId))!;
+    expect(cancelled.canReviewAccess, isFalse);
+    expect(cancelled.canRetractAccess, isFalse);
+    expect(cancelled.needsAccessReview, isFalse);
+    for (final scope in JointPurchaseConsentScope.decisions) {
+      await expectLater(decide(scope), throwsA(isA<BusinessRuleException>()));
+    }
+    // Ampliar o reducir con los alcances anteriores ya no se prepara.
+    for (final scope in JointPurchaseConsentScope.legacy) {
+      await expectLater(decide(scope), throwsA(isA<BusinessRuleException>()));
+    }
+  });
+
+  test('E4: una decisión anterior pendiente se conserva y se envía tal cual; el orden es único entre las dos colas', () async {
+    await seedCalls(store, memberA, [
+      callJson(participation: participationJson(consentScope: 'COLLABORATORS')),
+    ]);
+    await insertLegacyDecision(
+      scope: 'RESPONSIBLE_ONLY',
+      sequence: 2,
+      authorizeResponsible: true,
+    );
+    final legacy = (await store.sendableConsent(
+      memberA,
+      includePaused: false,
+    )).single;
+    expect(legacy.legacy, isTrue);
+    expect(legacy.isRetiredOption, isTrue);
+    expect(legacy.wireBody, {
+      'operation_id': legacy.operationId,
+      'sequence': 2,
+      'scope': 'RESPONSIBLE_ONLY',
+      'consent': {
+        'version': 'CONV-3',
+        'decided_at': '2026-11-12T09:00:00.000Z',
+      },
+      'responsible_version': 1,
+      'authorize_responsible': true,
+    });
+    final call = (await store.call(callId))!;
+    expect(call.pendingConsentOp!.operationId, legacy.operationId);
+
+    // Una decisión nueva continúa el orden de las dos colas y deja sin efecto
+    // (sin borrarla) la pendiente anterior.
+    final review = (await decide(JointPurchaseConsentScope.administration))!;
+    expect(review.sequence, 3);
+    final all = await store.consentOps(callId);
+    expect(all.map((op) => (op.sequence, op.legacy, op.sendStatus)), [
+      (2, true, JointPurchaseOpStatus.superseded),
+      (3, false, JointPurchaseOpStatus.pendingSend),
+    ]);
+    expect(
+      (await store.sendableConsent(
+        memberA,
+        includePaused: false,
+      )).single.operationId,
+      review.operationId,
+    );
+    // El motor rechaza un orden que ya usa la cola anterior y un alcance
+    // anterior en la cola nueva.
+    final db = await fixture.database.database;
+    Map<String, Object?> row(String id, int sequence, String scope) => {
+      'operation_id': id,
+      'call_id': callId,
+      'tenant_id': memberA.tenantId,
+      'member_id': memberA.memberId,
+      'sequence': sequence,
+      'scope': scope,
+      'consent_version': 'CONV-4',
+      'decided_at': 'x',
+      'send_status': 'PENDING_SEND',
+      'created_at': 'x',
+      'updated_at': 'x',
+    };
+    await expectLater(
+      db.insert(
+        JointPurchaseStore.accessOpsTable,
+        row('4e1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d', 2, 'TOTALS_ONLY'),
+      ),
+      throwsA(isA<DatabaseException>()),
+    );
+    await expectLater(
+      db.insert(
+        JointPurchaseStore.accessOpsTable,
+        row('3e1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d', 9, 'COLLABORATORS'),
+      ),
+      throwsA(isA<DatabaseException>()),
+    );
+  });
+
+  test('E4: una respuesta atrasada no pisa una decisión más nueva ni cantidades más nuevas', () async {
+    await seedCalls(store, memberA, [
+      callJson(
+        participation: participationJson(
+          lines: {litreRef: 30000},
+          lastSequence: 3,
+          consentScope: 'ADMINISTRATION',
+          consentScopeSequence: 0,
+        ),
+      ),
+    ]);
+    final retract = (await decide(JointPurchaseConsentScope.totalsOnly))!;
+    // Mientras tanto, el sindicato ya aplicó una decisión posterior (orden 2)
+    // con cantidades más nuevas.
+    await seedCalls(store, memberA, [
+      callJson(
+        participation: participationJson(
+          lines: {litreRef: 30000},
+          lastSequence: 3,
+          consentScope: 'ADMINISTRATION',
+          consentScopeSequence: 2,
+        ),
+      ),
+    ]);
+    // Llega tarde la respuesta de la retirada (orden 1) con cantidades
+    // anteriores: no restaura ni el alcance ni las cantidades.
+    final late = JointPurchaseParticipation.fromJson(
+      participationJson(
+        lines: {litreRef: 10000},
+        lastSequence: 1,
+        consentScope: 'TOTALS_ONLY',
+        consentScopeSequence: 1,
+      ),
+    );
+    await store.markConsentReceived(retract, late);
+    final stored = (await store.call(callId))!.serverParticipation!;
+    expect(stored.consentScope, 'ADMINISTRATION');
+    expect(stored.consentScopeSequence, 2);
+    expect(stored.lines, {litreRef: 30000});
+    expect(stored.lastSequence, 3);
+    // Repetirla no cambia nada: ya es terminal.
+    await store.markConsentReceived(retract, late);
+    expect((await store.consentOp(retract.operationId))!.attempts, 1);
+  });
 }

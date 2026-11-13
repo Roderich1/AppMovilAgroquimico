@@ -116,9 +116,17 @@ class JointPurchaseHistoryResult {
 ///   `CANCELLED`, `DRAFT` → `REJECTED` (y la copia local toma el estado).
 /// - `409 STALE_SEQUENCE` → `SUPERSEDED` y se adopta la participación
 ///   vigente del servidor.
+/// - E4 §7.2: `409 CONSENT_VERSION_RETIRED`, `APP_UPDATE_REQUIRED` y
+///   `WIDENING_NOT_ALLOWED` → `REJECTED` con su código, sin reintento: el
+///   mismo envío recibiría siempre lo mismo. Nada se borra.
 /// - Otros 400/404/409/413/422 → `REJECTED` con su código.
 /// - 401/403 → `AUTH_PAUSED` y el ciclo se detiene.
-/// - 5xx, 429, red o respuesta inválida → sigue `PENDING_SEND` con
+/// - Un 2xx con `outcome: ACCEPTED` que no se puede leer (otra versión del
+///   contrato) → `RECEIVED` sin adoptar esa respuesta
+///   ([JointPurchaseCodes.responseUnreadable]): llegó, y reenviarlo daría
+///   siempre la misma respuesta. Lo vigente lo trae la lista.
+/// - 5xx, 429, red o una respuesta que no es del sindicato (por ejemplo, la
+///   página de un portal de acceso) → sigue `PENDING_SEND` con
 ///   [SyncBackoff].
 ///
 /// Nunca envía si la cuenta en sesión no es la del titular, ni operaciones
@@ -328,6 +336,16 @@ class JointPurchaseSender {
   static String _authCode(JointPurchaseResponse response) =>
       response.statusCode == 401 ? 'AUTH_REQUIRED' : 'FORBIDDEN';
 
+  /// Un 2xx con forma de respuesta del sindicato (`outcome: ACCEPTED`) que no
+  /// respeta el contrato 4: no es un fallo pasajero, se repetiría igual.
+  static bool _acceptedButUnreadable(Object? body) =>
+      body is Map<String, dynamic> && body['outcome'] == 'ACCEPTED';
+
+  /// E4 §7.2: rechazos definitivos del agricultor, sin reintento.
+  static bool _definitive(JointPurchaseResponse response) =>
+      response.statusCode == 409 &&
+      JointPurchaseErrorCodes.definitive.contains(response.errorCode);
+
   /// E2 §10.6: el consentimiento sólo viaja en la confirmación que lo
   /// guardó (la primera participación); modificar no lo lleva.
   Map<String, Object?> _body(JointPurchaseOp op) => op.isWithdraw
@@ -351,8 +369,14 @@ class JointPurchaseSender {
   ///
   /// - `ACCEPTED` → `RECEIVED` (aplicada en el sindicato).
   /// - `STALE_SEQUENCE` → `SUPERSEDED`: una decisión posterior ya rige.
-  /// - `PARTICIPATION_REQUIRED` (la primera confirmación aún no llegó), 5xx,
-  ///   429, red o respuesta inválida → sigue pendiente y se reintenta.
+  /// - `CONSENT_VERSION_RETIRED` (una ampliación o autorización anterior a
+  ///   E4), `WIDENING_NOT_ALLOWED` (cancelada) y `APP_UPDATE_REQUIRED` →
+  ///   `REJECTED`, definitivos.
+  /// - `PARTICIPATION_REQUIRED` → se reintenta sólo mientras la primera
+  ///   confirmación siga por enviar; si no, `REJECTED` (antes se reintentaba
+  ///   para siempre).
+  /// - 5xx, 429, red o respuesta que no es del sindicato → sigue pendiente y
+  ///   se reintenta.
   /// - Otros 400/404/409/422 → `REJECTED` con su código.
   Future<bool> _sendConsent(
     JointPurchaseApi api,
@@ -372,6 +396,15 @@ class JointPurchaseSender {
       try {
         participation = parseAcceptedResponse(response.body, products);
       } on JointPurchaseFormatException {
+        if (_acceptedButUnreadable(response.body)) {
+          await _store.markConsentReceived(
+            op,
+            null,
+            code: JointPurchaseCodes.responseUnreadable,
+          );
+          report.received++;
+          return true;
+        }
         await _store.scheduleConsentRetry(
           op,
           'INVALID_RESPONSE',
@@ -391,6 +424,11 @@ class JointPurchaseSender {
       report.superseded++;
       return true;
     }
+    if (_definitive(response)) {
+      await _store.markConsentRejected(op, response.errorCode!);
+      report.rejected++;
+      return true;
+    }
     // P-A C1: la responsable cambió antes de que llegara la decisión, o se
     // intentó ampliar sin autorizarla. Rechazo definitivo (no se reintenta:
     // el agricultor revisa de nuevo); se adopta la participación vigente.
@@ -406,7 +444,18 @@ class JointPurchaseSender {
       report.rejected++;
       return true;
     }
-    if (status == 409 && response.errorCode == 'PARTICIPATION_REQUIRED') {
+    if (status == 409 &&
+        response.errorCode == JointPurchaseErrorCodes.participationRequired) {
+      // Sin una primera confirmación por enviar, la participación nunca
+      // llegará: reintentar sería infinito.
+      if (!await _store.confirmAwaitingSend(op.callId, op.memberId)) {
+        await _store.markConsentRejected(
+          op,
+          JointPurchaseErrorCodes.participationRequired,
+        );
+        report.rejected++;
+        return true;
+      }
       await _store.scheduleConsentRetry(
         op,
         'PARTICIPATION_REQUIRED',
@@ -450,6 +499,11 @@ class JointPurchaseSender {
       try {
         participation = parseAcceptedResponse(response.body, products);
       } on JointPurchaseFormatException {
+        if (_acceptedButUnreadable(response.body)) {
+          await _store.markReceivedUnreadable(op);
+          report.received++;
+          return true;
+        }
         await _store.scheduleRetry(
           op,
           'INVALID_RESPONSE',
@@ -495,6 +549,11 @@ class JointPurchaseSender {
     if (status == 409 && response.errorCode == 'STALE_SEQUENCE') {
       await _store.markStale(op, error?.participation);
       report.superseded++;
+      return true;
+    }
+    if (_definitive(response)) {
+      await _store.markRejected(op, response.errorCode!);
+      report.rejected++;
       return true;
     }
     if (status != null && const {400, 404, 409, 413, 422}.contains(status)) {

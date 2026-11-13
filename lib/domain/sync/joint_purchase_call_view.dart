@@ -9,40 +9,108 @@ import 'dart:convert';
 import 'operation_id.dart';
 
 /// Versión del contrato de las rutas del agricultor que lee este teléfono
-/// (E2 §10.6 y P-A §12: la autorización de la persona responsable actual).
-/// Se pide con [jointPurchaseContractHeader]; una respuesta con otra versión
-/// es una incompatibilidad de versión, no un fallo temporal.
-const int jointPurchaseContractVersion = 3;
+/// (E4 §3.3: acceso por rol y consentimiento `CONV-4`). Se pide con
+/// [jointPurchaseContractHeader]; una respuesta con otra versión es una
+/// incompatibilidad de versión («Actualice la aplicación», E4 §7.1), no un
+/// fallo temporal.
+///
+/// Versión mínima compatible con el servidor de E4: la primera compilación
+/// que lee el contrato 4 y abre la base con el esquema SQLite v20
+/// (`AppDatabase.jointPurchaseRoleAccessSinceVersion`).
+const int jointPurchaseContractVersion = 4;
 const String jointPurchaseContractHeader = 'X-Joint-Purchase-Contract';
 
-/// Versión vigente del texto de consentimiento de la participación (E2 §10.6,
-/// N5). Explica los dos alcances: aceptarla al participar por primera vez da
-/// «sólo la persona responsable»; ampliar es una decisión aparte. Las
-/// operaciones preparadas antes con `CONV-1` o `CONV-2` se envían tal como se
-/// guardaron: el servidor sigue aceptándolas con el alcance de su texto.
-const String jointPurchaseConsentVersion = 'CONV-3';
+/// Versión vigente del texto de consentimiento de la participación (E4
+/// §4.1). Aceptarla al participar por primera vez da el alcance
+/// `ADMINISTRATION`; las operaciones preparadas antes con `CONV-1`, `CONV-2`
+/// o `CONV-3` se envían tal como se guardaron y el sindicato las acepta con
+/// el alcance de su texto, nunca como `CONV-4` (E4 §7.2).
+const String jointPurchaseConsentVersion = 'CONV-4';
 
-/// Texto exacto `CONV-3`. Si el texto cambia, cambia la versión.
+/// Texto exacto `CONV-4`, copiado byte a byte de
+/// `E4_EJEMPLOS_RESPUESTAS.md` §0 (`CONSENT_V4_TEXT` del Backend). Si el
+/// texto cambia, cambia la versión.
 const String jointPurchaseConsentText =
-    'La persona responsable de esta compra conjunta podrá ver tu nombre y las '
-    'cantidades que solicitas. Si tú lo autorizas, también podrán verlos las '
-    'personas de la Directiva o la Administración que ella autorice para esta '
-    'convocatoria. Los datos se usan para coordinar la compra y la entrega. '
-    'Esta confirmación no genera una deuda.';
+    'Las personas de Administración habilitadas de su sindicato podrán ver su '
+    'nombre y las cantidades que solicita para coordinar esta compra conjunta '
+    'y su entrega. La Directiva podrá consultar los totales por producto, sin '
+    'el detalle identificado de su participación. Los totales pueden '
+    'mostrarse aunque participe una sola persona. Esta participación no '
+    'genera una deuda.';
+
+/// Ayuda exacta de `CONV-4` (`CONSENT_V4_HELP`, E4 §4.1): forma parte del
+/// texto aceptado; si cambia, cambia la versión.
+const String jointPurchaseConsentHelp =
+    'Aunque el total no muestre nombres, con pocas participaciones podría '
+    'deducirse cuánto solicitó una persona.';
+
+/// Versión anterior (2026-11-12, P-C): sólo la llevan operaciones y
+/// participaciones guardadas antes de E4.
+const String jointPurchaseConsentV3Version = 'CONV-3';
 
 /// Versión anterior (2026-11-11): su texto ya cubría a los colaboradores.
 const String jointPurchaseConsentV2Version = 'CONV-2';
 
-/// Alcance del consentimiento vigente según el servidor (E2 §10.6).
+/// Alcance del consentimiento vigente según el servidor (E4 §4.2).
 abstract final class JointPurchaseConsentScope {
+  /// Anterior a E4 (`CONV-1`, `CONV-3` o una reducción): nadie ve el
+  /// detalle identificado; no cubre los totales con pocas personas.
   static const responsibleOnly = 'RESPONSIBLE_ONLY';
+
+  /// Anterior a E4 (`CONV-2` o una ampliación): ya no se puede obtener
+  /// (`409 CONSENT_VERSION_RETIRED`); nadie ve el detalle identificado.
   static const collaborators = 'COLLABORATORS';
-  static const all = {responsibleOnly, collaborators};
+
+  /// `CONV-4`: la Administración habilitada ve el nombre y las cantidades;
+  /// la Directiva, sólo los totales.
+  static const administration = 'ADMINISTRATION';
+
+  /// D-05: el agricultor retiró la autorización `CONV-4` sin retirar su
+  /// participación. Nadie ve el detalle; los totales sí la cuentan.
+  static const totalsOnly = 'TOTALS_ONLY';
+
+  static const all = {
+    responsibleOnly,
+    collaborators,
+    administration,
+    totalsOnly,
+  };
+
+  /// Alcances anteriores a E4: la participación se puede revisar con
+  /// «Revisar quién puede ver mi participación».
+  static const legacy = {responsibleOnly, collaborators};
+
+  /// Las decisiones que el teléfono prepara desde E4 (cola v20).
+  static const decisions = {administration, totalsOnly};
 }
 
 /// Versión anterior (E2-D9): sólo la llevan operaciones guardadas antes de
 /// actualizar la aplicación. Nunca se ofrece para una confirmación nueva.
 const String jointPurchaseLegacyConsentVersion = 'CONV-1';
+
+/// Alcance con que el sindicato crea una participación nueva según el texto
+/// que aceptó (E4 §3.3 y §7.2): `CONV-4` → `ADMINISTRATION`; `CONV-2` →
+/// `COLLABORATORS`; las demás → `RESPONSIBLE_ONLY`.
+String initialConsentScope(String consentVersion) => switch (consentVersion) {
+  jointPurchaseConsentVersion => JointPurchaseConsentScope.administration,
+  jointPurchaseConsentV2Version => JointPurchaseConsentScope.collaborators,
+  _ => JointPurchaseConsentScope.responsibleOnly,
+};
+
+/// Códigos de rechazo definitivos del agricultor añadidos o usados por E4
+/// (§3.3, §4.2 y §7.2). Ninguno lleva datos de otras personas; repetir la
+/// misma operación devuelve el mismo código, así que nunca se reintentan.
+abstract final class JointPurchaseErrorCodes {
+  static const consentVersionRetired = 'CONSENT_VERSION_RETIRED';
+  static const appUpdateRequired = 'APP_UPDATE_REQUIRED';
+  static const wideningNotAllowed = 'WIDENING_NOT_ALLOWED';
+  static const participationRequired = 'PARTICIPATION_REQUIRED';
+  static const definitive = {
+    consentVersionRetired,
+    appUpdateRequired,
+    wideningNotAllowed,
+  };
+}
 
 /// Filtro de presentación (E2 §10.1 a): una convocatoria terminada hace más
 /// de estos días se muestra en «Historial», no en la vista por defecto. No
@@ -216,23 +284,23 @@ class JointPurchaseParticipation {
   final String? consentScopeDecidedAt;
   final String? consentScopeReceivedAt;
 
-  /// P-A C1 (E2 §12): si el agricultor autorizó a la persona responsable
-  /// ACTUAL de la convocatoria, según el sindicato. Null = desconocido (copia
-  /// guardada antes del contrato 3, o una respuesta que no lo trae): nunca se
-  /// supone autorizada ni restringida por eso.
+  /// P-A C1 (E2 §12), **sólo historia**: lo que dijo el contrato 3 sobre la
+  /// autorización de la persona responsable, en copias guardadas antes de
+  /// E4. Desde E4 no decide quién ve nada (E4 §6.3) y el contrato 4 ya no lo
+  /// envía; se conserva para no perder lo guardado.
   final bool? responsibleAuthorized;
-
-  /// La versión de la responsabilidad que cubre su autorización (null si
-  /// ninguna o si no se sabe).
   final int? responsibleAuthorizationVersion;
 
   bool get isActive => status == JointPurchaseParticipationStatus.active;
 
-  /// El sindicato dijo que falta autorizar a la responsable actual.
-  bool get needsResponsibleAuthorization => responsibleAuthorized == false;
+  /// E4 §4.2: la Administración habilitada ve el nombre y las cantidades.
+  bool get coversDetail =>
+      consentScope == JointPurchaseConsentScope.administration;
 
-  bool get coversCollaborators =>
-      consentScope == JointPurchaseConsentScope.collaborators;
+  /// Alcance anterior a E4: nadie ve el detalle identificado hasta que el
+  /// agricultor revise quién puede ver su participación.
+  bool get hasLegacyScope =>
+      JointPurchaseConsentScope.legacy.contains(consentScope);
 
   /// La misma participación con el alcance de [other] (para no perder una
   /// decisión más nueva al adoptar una respuesta de cantidades más nueva).
@@ -252,8 +320,8 @@ class JointPurchaseParticipation {
         consentScopeSequence: other.consentScopeSequence,
         consentScopeDecidedAt: other.consentScopeDecidedAt,
         consentScopeReceivedAt: other.consentScopeReceivedAt,
-        // La autorización viaja con las decisiones sobre el consentimiento
-        // (P-A §12); si [other] no la trae, se conserva la conocida.
+        // Historia de P-A (contrato 3): si [other] no la trae (contrato 4),
+        // se conserva la guardada.
         responsibleAuthorized:
             other.responsibleAuthorized ?? responsibleAuthorized,
         responsibleAuthorizationVersion: other.responsibleAuthorized != null
@@ -315,14 +383,20 @@ class JointPurchaseParticipation {
 
   /// [products] (product_ref → unidad base), si se da, limita las líneas a
   /// los productos de la convocatoria con su misma unidad base.
+  ///
+  /// [stored]: una copia guardada en el teléfono, que puede traer
+  /// `responsible_authorization` (contrato 3, historia). En una respuesta
+  /// del sindicato (contrato 4) esa clave ya no existe y se rechaza, como
+  /// cualquier clave desconocida.
   factory JointPurchaseParticipation.fromJson(
     Object? raw, {
     Map<String, String>? products,
+    bool stored = false,
   }) {
     final json = _object(raw);
     _knownKeys(
       json,
-      {..._keys, 'consent_scope', 'responsible_authorization'},
+      {..._keys, 'consent_scope', if (stored) 'responsible_authorization'},
       optional: const {'consent_scope', 'responsible_authorization'},
     );
     final status = _oneOf(json['status'], const {
@@ -366,9 +440,7 @@ class JointPurchaseParticipation {
     String? scopeReceivedAt;
     if (json['consent_scope'] == null) {
       // Copia anterior a §10.6: el alcance de su texto, orden 0.
-      scope = consentVersion == jointPurchaseConsentV2Version
-          ? JointPurchaseConsentScope.collaborators
-          : JointPurchaseConsentScope.responsibleOnly;
+      scope = initialConsentScope(consentVersion);
       scopeVersion = consentVersion;
       scopeSequence = 0;
     } else {
@@ -418,7 +490,7 @@ class JointPurchaseParticipation {
 
   static JointPurchaseParticipation? decode(String? stored) => stored == null
       ? null
-      : JointPurchaseParticipation.fromJson(jsonDecode(stored));
+      : JointPurchaseParticipation.fromJson(jsonDecode(stored), stored: true);
 }
 
 /// Una convocatoria de la lista del agricultor (`GET /me/joint-purchase-calls`,
@@ -439,7 +511,6 @@ class JointPurchaseCallView {
     required this.participation,
     required this.closingIncluded,
     this.finishedAt,
-    this.responsibleVersion,
   });
 
   final String callId;
@@ -467,10 +538,6 @@ class JointPurchaseCallView {
   /// sólo el filtro de presentación (E2 §10.1 a).
   final String? finishedAt;
 
-  /// P-A (E2 §12): versión de la responsabilidad (la sube cada sustitución).
-  /// Sólo en el contrato 3.
-  final int? responsibleVersion;
-
   bool get isFinished => status != JointPurchaseCallStatus.open;
 
   /// Lo que el teléfono guarda como «lo aceptado»: en `CLOSED`, la
@@ -496,7 +563,10 @@ class JointPurchaseCallView {
     'closing',
   };
   static const _campaignKeys = {'campaign_ref', 'name'};
-  static const _responsibleKeys = {'name', 'version'};
+
+  /// Contrato 4 (E4 §3.3): sólo el nombre de quien coordina, sin versión de
+  /// la responsabilidad (la responsabilidad ya no decide el acceso).
+  static const _responsibleKeys = {'name'};
   static const _closingKeys = {'cutoff_at', 'closed_at', 'included', 'lines'};
   static const _closingLineKeys = {'product_ref', 'base_unit', 'quantity_base'};
 
@@ -515,12 +585,7 @@ class JointPurchaseCallView {
       _invalid();
     }
     final responsible = _object(json['responsible']);
-    _knownKeys(responsible, _responsibleKeys, optional: const {'version'});
-    final responsibleVersion = responsible['version'];
-    if (responsibleVersion != null &&
-        (responsibleVersion is! int || responsibleVersion < 1)) {
-      _invalid();
-    }
+    _knownKeys(responsible, _responsibleKeys);
     final openedAt = _optionalInstant(json['opened_at']);
     // Abierta ⇒ con fecha de apertura (E2 §3).
     if (status == JointPurchaseCallStatus.open && openedAt == null) _invalid();
@@ -577,7 +642,6 @@ class JointPurchaseCallView {
         JointPurchaseCallStatus.cancelled => cancelledAt,
         _ => null,
       },
-      responsibleVersion: responsibleVersion as int?,
     );
   }
 
@@ -600,8 +664,8 @@ class JointPurchaseCallView {
 }
 
 /// Vista por defecto del agricultor (`GET /me/joint-purchase-calls`, E2
-/// §4.2 y §10.1): `{contractVersion: 1, server_time, consent: {version,
-/// text}, history: {older_count}, calls: [...]}`.
+/// §4.2, §10.1 y E4 §3.3): `{contractVersion: 4, server_time, consent:
+/// {version, text, help}, history: {older_count}, calls: [...]}`.
 class JointPurchaseCallList {
   const JointPurchaseCallList({
     required this.serverTime,
@@ -625,9 +689,9 @@ class JointPurchaseCallList {
   };
 
   /// Lista cerrada en la raíz (todas las claves obligatorias). El
-  /// consentimiento que anuncia el servidor debe ser exactamente el `CONV-2`
-  /// de este teléfono: si cambió, la aplicación tiene que actualizarse antes
-  /// de pedir uno nuevo (E2 §10.2).
+  /// consentimiento que anuncia el servidor debe ser exactamente el `CONV-4`
+  /// de este teléfono, con su ayuda: si cambió, la aplicación tiene que
+  /// actualizarse antes de pedir uno nuevo (E2 §10.2, E4 §4.1).
   factory JointPurchaseCallList.fromJson(Object? raw) {
     final json = _object(raw);
     _requireContract(json);
@@ -842,13 +906,19 @@ void _requireContract(Map<String, dynamic> json) {
 }
 
 /// El consentimiento publicado debe ser exactamente el vigente de este
-/// teléfono; otro texto o versión exige actualizar la aplicación (N7).
+/// teléfono (versión, texto y ayuda); otro texto, otra ayuda u otra versión
+/// exigen actualizar la aplicación (N7, E4 §4.1).
 void _requireConsent(Object? raw) {
   final consent = _object(raw);
-  _knownKeys(consent, const {'version', 'text'});
-  if (consent['version'] is! String || consent['text'] is! String) _invalid();
+  _knownKeys(consent, const {'version', 'text', 'help'});
+  if (consent['version'] is! String ||
+      consent['text'] is! String ||
+      consent['help'] is! String) {
+    _invalid();
+  }
   if (consent['version'] != jointPurchaseConsentVersion ||
-      consent['text'] != jointPurchaseConsentText) {
+      consent['text'] != jointPurchaseConsentText ||
+      consent['help'] != jointPurchaseConsentHelp) {
     throw const JointPurchaseVersionException();
   }
 }

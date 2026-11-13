@@ -1,6 +1,6 @@
 /// Presentación de las compras conjuntas en el rediseño (sesión C). Los
 /// textos de estado, consentimiento y alcance son los vigentes de
-/// `joint_purchase_texts.dart` (CONV-3, E2 §10.6); aquí sólo se dibujan.
+/// `joint_purchase_texts.dart` (CONV-4, E4 §4); aquí sólo se dibujan.
 library;
 
 import 'package:flutter/material.dart';
@@ -10,13 +10,16 @@ import 'agro_ui.dart';
 
 /// Tono de una etiqueta de convocatoria o de participación. El texto dice el
 /// estado; el tono sólo lo acompaña: abierta, nueva o recibido → verde;
-/// pendiente → ámbar; fuera de plazo o rechazada → rojo; cerrada, cancelada
+/// pendiente o revisar → ámbar; fuera de plazo o rechazada → rojo; cerrada, cancelada
 /// o sin efecto → gris.
 BadgeTone jointPurchaseChipTone(String chip) {
   if (chip.startsWith('Rechazada') || chip == 'Fuera de plazo') {
     return BadgeTone.missing;
   }
-  if (chip.startsWith('Pendiente')) return BadgeTone.review;
+  // «Revisar autorización» (E4): una acción que falta, como lo pendiente.
+  if (chip.startsWith('Pendiente') || chip.startsWith('Revisar')) {
+    return BadgeTone.review;
+  }
   if (chip == 'Nueva' ||
       chip == 'Abierta' ||
       chip.endsWith('recibida') ||
