@@ -55,3 +55,6 @@ Un archivo sólo lo edita su propietario. Si otra sesión necesita un cambio, lo
 ## Reasignaciones
 
 - Tras cerrar cada sesión, sus archivos pasan al ORQ para la integración (p. ej. `ind_c_chaco_costs_screen.dart`: `openIndCCosts` usa ya la ruta).
+| 2026-11-13 | ORQ | `580fbb0` | 2 defectos nuevos de la suite completa corregidos (guardia de rutas, temporizador en Inicio). |
+| 2026-11-13 | ORQ | `9510fc6`, `b8248fb` | Recorrido en emulator-5556: 4 defectos corregidos; candidata `.ind` `3ee883f7…` instalada con `install -r` y datos conservados. |
+| 2026-11-13 | `cb` | `9da5054` (no estable) | No se fusiona. El aviso de Inicio queda definido para activarlo al fusionar (ENTREGA §Pendiente). |
