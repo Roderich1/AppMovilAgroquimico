@@ -6,11 +6,13 @@ import '../../data/typed_reads.dart';
 import '../../domain/campaign_calendar.dart' show storedLocalDay;
 import '../../domain/money.dart';
 import '../../domain/read_models.dart' show FarmCostRead;
+import '../../operation_mode_controller.dart' show personalModeProvider;
 import '../theme/agro_theme.dart';
 import '../widgets/common.dart';
 import '../widgets/rdm_a_list.dart' show RdmAEmpty;
 import '../widgets/rdm_a_people.dart';
 import '../widgets/rdm_b_ui.dart' show GroupLabel, RdmScrollPage, splitBob;
+import 'ind_c_chaco_detail_screen.dart';
 
 typedef _FarmData = ({
   Map<String, Object?> farm,
@@ -23,9 +25,20 @@ typedef _FarmData = ({
 
 /// Bitácora de un chaco: lo aplicado y su costo, y cada aplicación por mes
 /// con sus datos (área, dosis, teórico, real, costo y lotes al desplegarla).
+///
+/// En modo individual `/chacos/:id` muestra el detalle del chaco (lámina
+/// I-41, [IndCChacoDetailScreen]); desde él, «Ver bitácora completa» abre
+/// esta bitácora con [logbook].
 class FarmLogbookScreen extends ConsumerWidget {
-  const FarmLogbookScreen({super.key, required this.farmId});
+  const FarmLogbookScreen({
+    super.key,
+    required this.farmId,
+    this.logbook = false,
+  });
   final int farmId;
+
+  /// Fuerza la bitácora también en modo individual.
+  final bool logbook;
   Future<_FarmData> _load(WidgetRef ref) async {
     final repo = ref.read(repositoryProvider);
     final farm = await repo.farmProfile(farmId);
@@ -39,7 +52,15 @@ class FarmLogbookScreen extends ConsumerWidget {
   }
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) => FutureBuilder<_FarmData>(
+  Widget build(BuildContext context, WidgetRef ref) =>
+      ref.watch(personalModeProvider) && !logbook
+      ? IndCChacoDetailScreen(farmId: farmId)
+      : _logbook(context, ref);
+
+  Widget _logbook(
+    BuildContext context,
+    WidgetRef ref,
+  ) => FutureBuilder<_FarmData>(
     future: _load(ref),
     builder: (context, snapshot) {
       if (snapshot.hasError) {
