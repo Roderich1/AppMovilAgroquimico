@@ -561,9 +561,18 @@ class VoiceFormPanel extends StatelessWidget {
     this.onClose,
     this.diagnostics,
     this.docked = false,
+    this.individualHint,
   });
 
   final VoiceFormDictation<dynamic> dictation;
+
+  /// Modo individual (láminas I-13 e I-14): no nulo, «Escuchando» se muestra
+  /// en la hoja oscura con esta guía de lo que se dicta en el formulario
+  /// («Diga producto, cantidad y precio») y «Cancelar» / «Terminar» lado a
+  /// lado; «Procesando tu voz» dice que los datos aparecerán para revisarlos.
+  /// Sólo presentación: el dictado, sus fases y sus botones son los mismos.
+  /// Nulo (modo con varias personas): sin cambios.
+  final String? individualHint;
 
   /// Instrumentos de diagnóstico del motor. Sólo los pasa la compilación de
   /// diagnóstico (`AGRO_VOICE_DIAG=true`); en la de presentación es nulo.
@@ -583,11 +592,174 @@ class VoiceFormPanel extends StatelessWidget {
     fontWeight: FontWeight.w700,
   );
 
+  /// «Escuchando» y «Procesando tu voz» del modo individual (I-13, I-14).
+  Widget _individualBusy(BuildContext context, VoiceFormDictation<dynamic> d) {
+    final recording = d.phase == VoiceFormPhase.recording;
+    final onInk = recording ? Colors.white : AgroColors.ink;
+    final soft = recording ? AgroColors.onInk : AgroColors.muted;
+    final cancel = OutlinedButton(
+      key: const Key('voz-cancelar-dictado'),
+      onPressed: d.cancel,
+      style: OutlinedButton.styleFrom(
+        foregroundColor: onInk,
+        side: BorderSide(color: recording ? AgroColors.onInk : AgroColors.ink),
+        minimumSize: const Size(0, 56),
+        textStyle: _bigLabel,
+        shape: const StadiumBorder(),
+      ),
+      child: const Text('Cancelar'),
+    );
+    final content = Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            Container(
+              width: 48,
+              height: 48,
+              decoration: BoxDecoration(
+                color: recording ? AgroColors.lime : AgroColors.chip,
+                shape: BoxShape.circle,
+              ),
+              child: recording
+                  ? const Icon(Icons.mic, color: AgroColors.ink)
+                  : const Padding(
+                      padding: EdgeInsets.all(12),
+                      child: CircularProgressIndicator(
+                        strokeWidth: 3,
+                        color: AgroColors.ink,
+                        semanticsLabel: 'Procesando lo dictado',
+                      ),
+                    ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: Semantics(
+                liveRegion: true,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      recording ? 'Escuchando' : 'Procesando tu voz',
+                      key: const Key('voz-panel-estado'),
+                      style: AgroText.h2.copyWith(color: onInk),
+                    ),
+                    Text(
+                      recording
+                          ? individualHint!
+                          : 'Los datos aparecerán en el formulario para que '
+                                'los revise.',
+                      key: const Key('voz-panel-guia'),
+                      style: AgroText.detail.copyWith(color: soft),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+        if (recording)
+          Row(
+            children: [
+              Expanded(flex: 2, child: cancel),
+              const SizedBox(width: 10),
+              Expanded(
+                flex: 3,
+                child: FilledButton(
+                  key: const Key('voz-terminar'),
+                  onPressed: d.finish,
+                  style: FilledButton.styleFrom(
+                    backgroundColor: AgroColors.lime,
+                    foregroundColor: AgroColors.ink,
+                    minimumSize: const Size(0, 56),
+                    textStyle: _bigLabel,
+                  ),
+                  child: const Text('Terminar'),
+                ),
+              ),
+            ],
+          )
+        else
+          cancel,
+        const SizedBox(height: 10),
+        Text(
+          recording
+              ? 'Nada se guarda solo: usted revisa y confirma.'
+              : 'Lo que ya escribió a mano se conserva.',
+          textAlign: TextAlign.center,
+          style: AgroText.label.copyWith(color: soft),
+        ),
+        if (diagnostics != null) ...[const Divider(), diagnostics!],
+      ],
+    );
+    final background = recording ? AgroColors.ink : AgroColors.surface;
+    if (!docked) {
+      return Container(
+        key: const Key('voz-panel'),
+        padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+        decoration: BoxDecoration(
+          color: background,
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: content,
+      );
+    }
+    return Semantics(
+      key: const Key('voz-panel'),
+      container: true,
+      label: 'Completar por voz',
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: background,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x2E0F2A1D),
+              blurRadius: 24,
+              offset: Offset(0, -8),
+            ),
+          ],
+        ),
+        child: SafeArea(
+          top: false,
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    margin: const EdgeInsets.only(bottom: 12),
+                    decoration: BoxDecoration(
+                      color: recording ? AgroColors.inkSoft : AgroColors.handle,
+                      borderRadius: BorderRadius.circular(99),
+                    ),
+                  ),
+                ),
+                content,
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: dictation,
     builder: (context, _) {
       final d = dictation;
+      if (individualHint != null &&
+          (d.phase == VoiceFormPhase.recording ||
+              d.phase == VoiceFormPhase.processing)) {
+        return _individualBusy(context, d);
+      }
       final (icon, status, mic) = switch (d.phase) {
         VoiceFormPhase.opening => (
           Icons.mic_none,
@@ -865,17 +1037,131 @@ class VoiceResultBanner extends StatelessWidget {
     required this.dictation,
     required this.onDictateMore,
     this.onDismiss,
+    this.individual = false,
   });
 
   final VoiceFormDictation<dynamic> dictation;
   final VoidCallback? onDictateMore;
   final VoidCallback? onDismiss;
 
+  /// Modo individual (lámina I-15): «Dictar más» en lima y «Deshacer último
+  /// dictado» como botón contorneado, lado a lado; los avisos (lo que no se
+  /// usó) van en un recuadro aparte, debajo. Sólo presentación.
+  final bool individual;
+
   static const _onInk = TextStyle(
     fontSize: 14,
     height: 20 / 14,
     color: Colors.white,
   );
+
+  Widget _individualBanner(VoiceFormDictation<dynamic> d, String message) =>
+      Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Container(
+            key: const Key('voz-resultado'),
+            padding: const EdgeInsets.fromLTRB(16, 14, 8, 14),
+            decoration: BoxDecoration(
+              color: AgroColors.ink,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Semantics(
+                        liveRegion: true,
+                        child: Text(
+                          message,
+                          key: const Key('voz-panel-mensaje'),
+                          style: _onInk.copyWith(
+                            fontSize: 16,
+                            height: 22 / 16,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ),
+                    if (onDismiss != null)
+                      IconButton(
+                        key: const Key('voz-resultado-cerrar'),
+                        tooltip: 'Ocultar este aviso',
+                        onPressed: onDismiss,
+                        color: AgroColors.onInk,
+                        icon: const Icon(Icons.close, size: 20),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: [
+                      FilledButton(
+                        key: const Key('voz-dictar-mas'),
+                        onPressed: onDictateMore,
+                        style: FilledButton.styleFrom(
+                          backgroundColor: AgroColors.lime,
+                          foregroundColor: AgroColors.ink,
+                          minimumSize: const Size(0, 44),
+                        ),
+                        child: const Text('Dictar más'),
+                      ),
+                      if (d.canUndo)
+                        OutlinedButton(
+                          key: const Key('voz-deshacer'),
+                          onPressed: d.undoLast,
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: Colors.white,
+                            side: const BorderSide(color: AgroColors.onInk),
+                            minimumSize: const Size(0, 44),
+                            shape: const StadiumBorder(),
+                          ),
+                          child: const Text('Deshacer último dictado'),
+                        ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          for (final (i, notice) in d.notices.indexed)
+            Padding(
+              padding: const EdgeInsets.only(top: 10),
+              child: Container(
+                padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+                decoration: BoxDecoration(
+                  color: AgroColors.track,
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(Icons.info_outline, color: AgroColors.muted),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        notice,
+                        key: Key('voz-panel-aviso-$i'),
+                        style: const TextStyle(
+                          fontSize: 15,
+                          height: 21 / 15,
+                          color: AgroColors.ink,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+        ],
+      );
 
   @override
   Widget build(BuildContext context) => ListenableBuilder(
@@ -886,6 +1172,7 @@ class VoiceResultBanner extends StatelessWidget {
           ? 'Queda 1 campo dictado por revisar.'
           : 'Quedan ${d.pendingCount} campos dictados por revisar.';
       final message = d.message ?? (d.hasPending ? pending : 'Dictado listo.');
+      if (individual) return _individualBanner(d, message);
       return Container(
         key: const Key('voz-resultado'),
         padding: const EdgeInsets.fromLTRB(14, 10, 6, 10),
