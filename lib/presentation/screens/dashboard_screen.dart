@@ -26,6 +26,7 @@ import '../widgets/agro_ui.dart';
 import '../widgets/common.dart';
 import '../widgets/joint_purchase_texts.dart' show jointPurchaseNoticeText;
 import '../widgets/rdm_b_ui.dart';
+import 'ind_home.dart';
 
 /// Lo que Inicio lee. Los avisos de inventario y las compras se leen aparte
 /// del resumen: si fallan, Inicio sigue mostrando las cifras y dice qué no
@@ -36,6 +37,11 @@ typedef _DashboardData = ({
   InventoryAlerts? alerts,
   Object? alertsError,
   int? purchasesWithBalance,
+  // Modo individual (I-01/I-02): cifras de la campaña activa y saldo con
+  // proveedores. `null` en el modo con varias personas o si no se pudieron
+  // calcular.
+  IndHomeFigures? individual,
+  Object? individualError,
 });
 
 class DashboardScreen extends ConsumerStatefulWidget {
@@ -55,6 +61,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
   Future<_DashboardData> _load() async {
     final repo = ref.read(repositoryProvider);
+    final personal = ref.read(operationModeProvider) == OperationMode.personal;
     final summary = await repo.dashboard();
     final campaigns = await repo.campaignsTyped();
     InventoryAlerts? alerts;
@@ -65,11 +72,12 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
       alertsError = error;
     }
     int? withBalance;
+    List<Map<String, Object?>>? purchaseRows;
     try {
       // Compras confirmadas cuyo total supera lo pagado al proveedor: el
       // mismo saldo que «Registrar pago al proveedor» propone en Compras.
       // Sin límite de filas: con el de 200 se contarían de menos.
-      final purchases = await repo.purchases(limit: 1 << 30);
+      final purchases = purchaseRows = await repo.purchases(limit: 1 << 30);
       withBalance = purchases
           .where(
             (row) =>
@@ -81,12 +89,27 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     } catch (_) {
       withBalance = null;
     }
+    IndHomeFigures? individual;
+    Object? individualError;
+    if (personal && purchaseRows != null) {
+      try {
+        individual = await loadIndHomeFigures(
+          repo,
+          campaigns: campaigns,
+          purchases: purchaseRows,
+        );
+      } catch (error) {
+        individualError = error;
+      }
+    }
     return (
       summary: summary,
       campaigns: campaigns,
       alerts: alerts,
       alertsError: alertsError,
       purchasesWithBalance: withBalance,
+      individual: individual,
+      individualError: individualError,
     );
   }
 
@@ -148,6 +171,16 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     ExistingSessionStartupState existingSession,
   ) {
     final personal = ref.watch(operationModeProvider) == OperationMode.personal;
+    // Las cifras del modo individual dependen del modo: se vuelven a leer
+    // sólo si entra o sale el modo individual (también la primera lectura,
+    // de `null` a individual). De `null` a compartido no cambia nada que
+    // mostrar y una segunda lectura sería trabajo de más.
+    ref.listen(operationModeProvider, (previous, next) {
+      if ((previous == OperationMode.personal) !=
+          (next == OperationMode.personal)) {
+        _refresh();
+      }
+    });
     return FutureBuilder<_DashboardData>(
       future: future,
       builder: (context, snapshot) {
@@ -178,43 +211,58 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               const _InstallationAccessNotice(),
               const _JointPurchaseNotice(),
               const SizedBox(height: 4),
-              ActionTileRow(
-                tiles: [
-                  ActionTile(
-                    key: const Key('home-registrar-compra'),
-                    icon: Icons.shopping_bag_outlined,
-                    label: 'Registrar compra',
-                    onTap: _newPurchase,
-                    minHeight: 108,
+              if (personal && data?.individual?.campaignEmpty == true)
+                IndHomeFirstSteps(
+                  figures: data!.individual!,
+                  onFarms: () => context.go('/chacos'),
+                  onPurchase: _newPurchase,
+                  onApplication: _newApplication,
+                )
+              else ...[
+                ActionTileRow(
+                  tiles: [
+                    ActionTile(
+                      key: const Key('home-registrar-compra'),
+                      icon: Icons.shopping_bag_outlined,
+                      label: 'Registrar compra',
+                      onTap: _newPurchase,
+                      minHeight: 108,
+                    ),
+                    ActionTile(
+                      key: const Key('home-registrar-aplicacion'),
+                      icon: Icons.spa_outlined,
+                      label: 'Registrar aplicación',
+                      onTap: _newApplication,
+                      tone: ActionTileTone.surface,
+                      minHeight: 108,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                if (personal)
+                  IndHomeLinks(
+                    figures: data?.individual,
+                    onOpen: _openAndRefresh,
+                  )
+                else
+                  AgroGroup(
+                    children: [
+                      LinkRow(
+                        key: const Key('home-ver-cuanto-queda'),
+                        icon: Icons.inventory_2_outlined,
+                        title: 'Ver cuánto queda',
+                        onTap: () => context.go('/inventario'),
+                      ),
+                      LinkRow(
+                        key: const Key('home-enviar-sindicato'),
+                        icon: Icons.hub_outlined,
+                        title: 'Sindicato',
+                        subtitle: 'Envíos, convocatorias y lo que comparte',
+                        onTap: () => context.go('/sindicato'),
+                      ),
+                    ],
                   ),
-                  ActionTile(
-                    key: const Key('home-registrar-aplicacion'),
-                    icon: Icons.spa_outlined,
-                    label: 'Registrar aplicación',
-                    onTap: _newApplication,
-                    tone: ActionTileTone.surface,
-                    minHeight: 108,
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              AgroGroup(
-                children: [
-                  LinkRow(
-                    key: const Key('home-ver-cuanto-queda'),
-                    icon: Icons.inventory_2_outlined,
-                    title: 'Ver cuánto queda',
-                    onTap: () => context.go('/inventario'),
-                  ),
-                  LinkRow(
-                    key: const Key('home-enviar-sindicato'),
-                    icon: Icons.hub_outlined,
-                    title: 'Sindicato',
-                    subtitle: 'Envíos, convocatorias y lo que comparte',
-                    onTap: () => context.go('/sindicato'),
-                  ),
-                ],
-              ),
+              ],
               if (snapshot.hasError)
                 Padding(
                   padding: const EdgeInsets.only(top: 16),
@@ -225,7 +273,25 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                     text: friendlyError(snapshot.error!),
                   ),
                 )
-              else if (data != null) ...[
+              else if (data != null && personal) ...[
+                if (data.individualError != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 16),
+                    child: NoticeBox(
+                      key: const Key('ind-home-figures-error'),
+                      tone: NoticeTone.danger,
+                      icon: Icons.error_outline,
+                      text: friendlyError(data.individualError!),
+                    ),
+                  ),
+                IndHomeAlerts(
+                  alerts: data.alerts,
+                  alertsError: data.alertsError,
+                  figures: data.individual,
+                  purchasesError: data.purchasesWithBalance == null,
+                  onOpen: _openAndRefresh,
+                ),
+              ] else if (data != null) ...[
                 const SizedBox(height: 18),
                 const Padding(
                   padding: EdgeInsets.only(left: 4, bottom: 8),
@@ -500,26 +566,36 @@ class _HomeHeader extends StatelessWidget {
         children: [
           Row(
             children: [
+              // Modo individual (I-01): la cabecera es la campaña y el
+              // engranaje; el título queda para el lector de pantalla, sin
+              // ocupar lugar ni correr la pastilla.
+              if (personal)
+                Semantics(
+                  header: true,
+                  label: 'Inicio',
+                  child: const SizedBox(key: Key('page-frame-title')),
+                ),
               Expanded(
                 child: Wrap(
                   spacing: 10,
                   runSpacing: 6,
                   crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
-                    Semantics(
-                      header: true,
-                      label: 'Inicio',
-                      child: const Text(
-                        'Agrocuentas',
-                        key: Key('page-frame-title'),
-                        style: TextStyle(
-                          fontFamily: AgroFonts.display,
-                          fontSize: 20,
-                          fontWeight: FontWeight.w700,
-                          color: Colors.white,
+                    if (!personal)
+                      Semantics(
+                        header: true,
+                        label: 'Inicio',
+                        child: const Text(
+                          'Agrocuentas',
+                          key: Key('page-frame-title'),
+                          style: TextStyle(
+                            fontFamily: AgroFonts.display,
+                            fontSize: 20,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.white,
+                          ),
                         ),
                       ),
-                    ),
                     if (data != null)
                       Semantics(
                         label: active == null
@@ -546,6 +622,8 @@ class _HomeHeader extends StatelessWidget {
                                       child: Text(
                                         active == null
                                             ? 'Sin campaña activa'
+                                            : personal
+                                            ? active.name
                                             : 'Campaña activa: ${active.name}',
                                         style: const TextStyle(
                                           fontSize: 13,
@@ -589,7 +667,13 @@ class _HomeHeader extends StatelessWidget {
                 child: CircularProgressIndicator(color: AgroColors.lime),
               ),
             )
-          else if (data != null) ...[
+          else if (data != null && personal) ...[
+            if (data.individual != null)
+              Padding(
+                padding: const EdgeInsets.only(right: 8, top: 4),
+                child: IndHomeHero(figures: data.individual!),
+              ),
+          ] else if (data != null) ...[
             const _ScopePill(),
             const SizedBox(height: 10),
             Padding(

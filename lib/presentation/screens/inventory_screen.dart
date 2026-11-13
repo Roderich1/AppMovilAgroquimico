@@ -7,6 +7,7 @@ import '../../data/typed_reads.dart';
 import '../../domain/inventory_alerts.dart';
 import '../../domain/money.dart';
 import '../../domain/read_models.dart';
+import '../../operation_mode_controller.dart' show personalModeProvider;
 import '../theme/agro_theme.dart';
 import '../widgets/agro_ui.dart';
 import '../widgets/common.dart';
@@ -28,6 +29,13 @@ import 'inventory_alerts_screen.dart';
 ///   del rediseño, 2026-11-12), no lo que hay ahora.
 /// Los avisos cuentan **lotes** (vencimientos) y **productos** (existencia
 /// baja), como dice cada rótulo.
+///
+/// **Modo individual** (láminas I-30, I-32 e I-33, 2026-11-13): las mismas
+/// cifras y avisos, con el buscador siempre visible, filtros «Todos», «Por
+/// vencer» y «Con planes», los avisos en una píldora de la cabecera y un
+/// estado vacío que lleva a registrar una compra. Sin «Poco por
+/// responsable»: el titular es el único responsable. El modo con varias
+/// personas no cambia.
 class InventoryScreen extends ConsumerStatefulWidget {
   const InventoryScreen({super.key});
   @override
@@ -42,6 +50,9 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
   late Future<InventoryAlerts> alerts;
   String query = '';
   bool searching = false;
+
+  /// Filtro del modo individual (lámina I-30).
+  _PersonalFilter personalFilter = _PersonalFilter.all;
   final _search = TextEditingController();
 
   @override
@@ -98,8 +109,172 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
     // Lo registrado desde la hoja «+ Registrar» del shell (una compra, una
     // transferencia o una aplicación cambian las existencias).
     ref.listen(registerRevisionProvider, (_, _) => refresh());
-    return _page(context);
+    return ref.watch(personalModeProvider)
+        ? _personalPage(context)
+        : _page(context);
   }
+
+  Future<void> _newPurchase() async {
+    await context.push('/compras/nueva');
+    if (mounted) refresh();
+  }
+
+  Future<void> _newApplication() async {
+    await context.push('/aplicaciones/nueva');
+    if (mounted) refresh();
+  }
+
+  /// Almacén del modo individual (láminas I-30, I-32, I-33).
+  Widget _personalPage(BuildContext context) => FutureBuilder<InventoryAlerts>(
+    future: alerts,
+    builder: (context, alertSnap) => FutureBuilder<List<InventoryLineRead>>(
+      future: future,
+      builder: (context, snapshot) {
+        // Sólo productos con algo que contar: comprados, usados, en
+        // existencia o previstos en planes. Un producto del catálogo que
+        // nunca entró no es parte de su almacén (sigue en Ajustes ›
+        // productos); así «todavía no tiene productos» es cierto.
+        final all = snapshot.data?.where(inPersonalStore).toList();
+        final alertData = alertSnap.data;
+        final title = ScreenTitleBar(
+          title: 'Almacén',
+          actions: [
+            if (all != null && all.isNotEmpty && alertData != null)
+              _AlertsPill(
+                count: personalAlertCount(alertData),
+                onTap: _openAlerts,
+              ),
+          ],
+        );
+        if (snapshot.hasError) {
+          return RdmScrollPage(
+            children: [
+              title,
+              EmptyState(
+                icon: Icons.error_outline,
+                message: friendlyError(snapshot.error!),
+              ),
+            ],
+          );
+        }
+        if (all == null) {
+          return RdmScrollPage(
+            children: [
+              title,
+              const Padding(
+                padding: EdgeInsets.all(24),
+                child: Center(child: CircularProgressIndicator()),
+              ),
+            ],
+          );
+        }
+        if (all.isEmpty) {
+          return RdmScrollPage(
+            children: [
+              title,
+              _PersonalEmpty(onPurchase: _newPurchase),
+            ],
+          );
+        }
+        bool inFilter(InventoryLineRead row) => switch (personalFilter) {
+          _PersonalFilter.all => true,
+          _PersonalFilter.expiring =>
+            alertData != null &&
+                [
+                  ...alertData.dueToday,
+                  ...alertData.near,
+                ].any((a) => a.lot.productId == row.productId),
+          _PersonalFilter.withPlans => row.committedBase != 0,
+        };
+        final rows = all
+            .where((r) => matchesSearch(r.productName, query) && inFilter(r))
+            .toList();
+        return RdmScrollPage(
+          children: [
+            title,
+            const SizedBox(height: 8),
+            TextField(
+              key: const Key('inventory-search'),
+              controller: _search,
+              onChanged: (value) =>
+                  setState(() => query = value.trim().toLowerCase()),
+              decoration: const InputDecoration(
+                prefixIcon: Icon(Icons.search),
+                hintText: 'Buscar producto',
+              ),
+            ),
+            const SizedBox(height: 10),
+            FilterPillBar(
+              children: [
+                for (final (value, label) in const [
+                  (_PersonalFilter.all, 'Todos'),
+                  (_PersonalFilter.expiring, 'Por vencer'),
+                  (_PersonalFilter.withPlans, 'Con planes'),
+                ])
+                  FilterPill(
+                    key: Key('inventory-filter-${value.name}'),
+                    label: label,
+                    selected: personalFilter == value,
+                    onSelected: () => setState(() => personalFilter = value),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            if (rows.isEmpty)
+              EmptyState(
+                icon: Icons.search_off_outlined,
+                message: query.isNotEmpty
+                    ? 'Ningún producto coincide con "${_search.text.trim()}".'
+                    : personalFilter == _PersonalFilter.expiring
+                    ? 'Ningún producto vence pronto.'
+                    : 'Ningún producto está previsto en planes.',
+              )
+            else
+              _ProductGrid(
+                rows: rows,
+                cardOf: (row) => _ProductCard(
+                  row: row,
+                  alerts: alertData,
+                  personal: true,
+                  onTap: () => _openProduct(row.productId),
+                ),
+              ),
+            const SizedBox(height: 6),
+            AgroGroup(
+              children: [
+                LinkRow(
+                  key: const Key('inventory-alerts-entry'),
+                  icon: Icons.warning_amber_outlined,
+                  title: 'Todos los avisos',
+                  subtitle: alertSnap.hasError
+                      ? 'No se pudieron calcular. Ábralos para ver el motivo.'
+                      : alertData != null
+                      ? inventoryAlertsSummary(alertData)
+                      : 'Calculando…',
+                  onTap: _openAlerts,
+                ),
+                LinkRow(
+                  key: const Key('inventory-estimation-entry'),
+                  icon: Icons.insights_outlined,
+                  title: 'Estimación del consumo',
+                  subtitle: 'Referencia; no cambia el inventario.',
+                  onTap: _openEstimation,
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Center(
+              child: TextButton(
+                key: const Key('inventory-new-application'),
+                onPressed: _newApplication,
+                child: const Text('Registrar una aplicación'),
+              ),
+            ),
+          ],
+        );
+      },
+    ),
+  );
 
   Widget _page(BuildContext context) => FutureBuilder<InventoryAlerts>(
     future: alerts,
@@ -204,57 +379,216 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
                         : 'Ningún producto coincide con "${_search.text.trim()}".',
                   )
                 else
-                  // En pantalla ancha (desde 640 de lista: el Pixel 8 en
-                  // horizontal da ~700) las tarjetas van de dos en dos, cada
-                  // una de al menos 315, tan ancha como en un teléfono: a
-                  // todo el ancho la existencia quedaba lejos del nombre
-                  // (revisión del autor, 2026-11-12). No es una tabla: cada
-                  // tarjeta conserva su lectura, sus avisos y su toque; el
-                  // orden sigue siendo por filas. Con letra ampliada hace
-                  // falta más ancho (640 × escala).
-                  LayoutBuilder(
-                    builder: (context, constraints) {
-                      Widget card(InventoryLineRead row) => _ProductCard(
-                        row: row,
-                        alerts: alertSnap.data,
-                        onTap: () => _openProduct(row.productId),
-                      );
-                      // Con letra grande la tarjeta crece en alto: en horizontal
-                      // dejaría de caber entera en la vista. El umbral crece
-                      // con la escala de la letra.
-                      final columns =
-                          constraints.maxWidth >=
-                              MediaQuery.textScalerOf(context).scale(640)
-                          ? 2
-                          : 1;
-                      return Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          for (var i = 0; i < rows.length; i += columns) ...[
-                            if (columns == 1)
-                              card(rows[i])
-                            else
-                              Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Expanded(child: card(rows[i])),
-                                  const SizedBox(width: 10),
-                                  Expanded(
-                                    child: i + 1 < rows.length
-                                        ? card(rows[i + 1])
-                                        : const SizedBox.shrink(),
-                                  ),
-                                ],
-                              ),
-                            const SizedBox(height: 10),
-                          ],
-                        ],
-                      );
-                    },
+                  _ProductGrid(
+                    rows: rows,
+                    cardOf: (row) => _ProductCard(
+                      row: row,
+                      alerts: alertSnap.data,
+                      onTap: () => _openProduct(row.productId),
+                    ),
                   ),
               ],
             );
           },
+        ),
+      ],
+    ),
+  );
+}
+
+enum _PersonalFilter { all, expiring, withPlans }
+
+/// Si un producto se muestra en el Almacén del modo individual: tiene
+/// compras o consumos netos, existencia o lo piden planes pendientes.
+@visibleForTesting
+bool inPersonalStore(InventoryLineRead row) =>
+    row.purchasedBase != 0 ||
+    row.consumedBase != 0 ||
+    row.availableBase != 0 ||
+    row.committedBase != 0;
+
+/// Avisos de inventario que cuenta la píldora del modo individual: lotes
+/// vencidos, que vencen hoy o pronto, y productos con poca existencia en el
+/// total (las mismas listas que «Avisos de inventario»).
+@visibleForTesting
+int personalAlertCount(InventoryAlerts alerts) =>
+    alerts.expired.length +
+    alerts.dueToday.length +
+    alerts.near.length +
+    alerts.lowStock.where((a) => a.line.isTotal).length;
+
+/// Tarjetas de producto: de una en una o, en pantalla ancha (desde 640 de
+/// lista: el Pixel 8 en horizontal da ~700), de dos en dos, cada una de al
+/// menos 315, tan ancha como en un teléfono: a todo el ancho la existencia
+/// quedaba lejos del nombre (revisión del autor, 2026-11-12). No es una
+/// tabla: cada tarjeta conserva su lectura, sus avisos y su toque; el orden
+/// sigue siendo por filas. Con letra grande la tarjeta crece en alto: en
+/// horizontal dejaría de caber entera en la vista, así que el umbral crece
+/// con la escala de la letra (640 × escala).
+class _ProductGrid extends StatelessWidget {
+  const _ProductGrid({required this.rows, required this.cardOf});
+
+  final List<InventoryLineRead> rows;
+  final Widget Function(InventoryLineRead row) cardOf;
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      final columns =
+          constraints.maxWidth >= MediaQuery.textScalerOf(context).scale(640)
+          ? 2
+          : 1;
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (var i = 0; i < rows.length; i += columns) ...[
+            if (columns == 1)
+              cardOf(rows[i])
+            else
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(child: cardOf(rows[i])),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: i + 1 < rows.length
+                        ? cardOf(rows[i + 1])
+                        : const SizedBox.shrink(),
+                  ),
+                ],
+              ),
+            const SizedBox(height: 10),
+          ],
+        ],
+      );
+    },
+  );
+}
+
+/// Píldora de avisos de la cabecera del modo individual (lámina I-30), con
+/// texto además del color. Abre «Avisos de inventario».
+class _AlertsPill extends StatelessWidget {
+  const _AlertsPill({required this.count, required this.onTap});
+
+  final int count;
+  final VoidCallback onTap;
+
+  static const _warnInk = Color(0xFF5A3A00);
+
+  @override
+  Widget build(BuildContext context) {
+    final label = switch (count) {
+      0 => 'Sin avisos',
+      1 => '1 aviso',
+      _ => '$count avisos',
+    };
+    final ink = count == 0 ? AgroColors.ink : _warnInk;
+    return Material(
+      color: count == 0 ? AgroColors.surface : AgroColors.warnBg,
+      shape: const StadiumBorder(),
+      child: InkWell(
+        key: const Key('inventory-alerts-pill'),
+        customBorder: const StadiumBorder(),
+        onTap: onTap,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 44),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (count > 0) ...[
+                  Container(
+                    width: 8,
+                    height: 8,
+                    decoration: const BoxDecoration(
+                      color: _warnInk,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                ],
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: ink,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Almacén sin productos en el modo individual (lámina I-32). Sin
+/// cantidades en cero: no hay nada que mostrar.
+class _PersonalEmpty extends StatelessWidget {
+  const _PersonalEmpty({required this.onPurchase});
+
+  final VoidCallback onPurchase;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    key: const Key('inventory-empty'),
+    padding: const EdgeInsets.fromLTRB(8, 64, 8, 24),
+    child: Column(
+      children: [
+        Container(
+          width: 72,
+          height: 72,
+          decoration: BoxDecoration(
+            color: AgroColors.ink,
+            borderRadius: BorderRadius.circular(22),
+          ),
+          child: const Icon(
+            Icons.inventory_2_outlined,
+            size: 34,
+            color: AgroColors.lime,
+          ),
+        ),
+        const SizedBox(height: 18),
+        Semantics(
+          header: true,
+          child: const Text(
+            'Su almacén todavía no tiene productos',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              fontFamily: AgroFonts.display,
+              fontSize: 22,
+              height: 28 / 22,
+              fontWeight: FontWeight.w800,
+              color: AgroColors.ink,
+            ),
+          ),
+        ),
+        const SizedBox(height: 8),
+        const Text(
+          'Los productos entran al registrar una compra. No hay cantidades '
+          'que mostrar.',
+          textAlign: TextAlign.center,
+          style: AgroText.detail,
+        ),
+        const SizedBox(height: 16),
+        FilledButton(
+          key: const Key('inventory-empty-purchase'),
+          style: FilledButton.styleFrom(
+            backgroundColor: AgroColors.lime,
+            foregroundColor: AgroColors.ink,
+            minimumSize: const Size(0, 52),
+            padding: const EdgeInsets.symmetric(horizontal: 28),
+            shape: const StadiumBorder(),
+          ),
+          onPressed: onPurchase,
+          child: const Text(
+            'Registrar una compra',
+            textAlign: TextAlign.center,
+            style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700),
+          ),
         ),
       ],
     ),
@@ -375,11 +709,16 @@ class _ProductCard extends StatelessWidget {
     required this.row,
     required this.alerts,
     required this.onTap,
+    this.personal = false,
   });
 
   final InventoryLineRead row;
   final InventoryAlerts? alerts;
   final VoidCallback onTap;
+
+  /// Modo individual: el titular es el único responsable; no hay «Poco por
+  /// responsable» (la existencia baja es la del total).
+  final bool personal;
 
   @override
   Widget build(BuildContext context) {
@@ -412,7 +751,7 @@ class _ProductCard extends StatelessWidget {
         ),
       if (low.any((a) => a.line.isTotal))
         const StatusBadge(label: 'Queda poco', tone: BadgeTone.neutral)
-      else if (low.isNotEmpty)
+      else if (low.isNotEmpty && !personal)
         const StatusBadge(
           label: 'Poco por responsable',
           tone: BadgeTone.neutral,

@@ -264,8 +264,9 @@ void main() {
       await settle(tester);
 
       expect(tester.takeException(), isNull);
-      // Sólo el titular y su chaco, seleccionados solos por ser únicos.
-      expect(find.text('Agricultor'), findsWidgets);
+      // Sólo el chaco del titular, seleccionado solo por ser único. Desde el
+      // rediseño individual (lámina I-20) el formulario no muestra al
+      // titular: la aplicación es suya sin nombrarlo.
       expect(find.text('Chaco agricultor'), findsOneWidget);
       expect(find.text('Esposa'), findsNothing);
     },
@@ -595,7 +596,7 @@ void main() {
         expect(find.text('Transferencias'), findsNothing);
         c.read(routerProvider).go('/mas');
         await settle(tester);
-        expect(find.text('Ahora: inventario propio'), findsOneWidget);
+        expect(find.text('Modo individual'), findsOneWidget);
       },
     );
   });

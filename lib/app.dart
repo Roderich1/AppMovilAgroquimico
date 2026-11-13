@@ -28,6 +28,9 @@ import 'presentation/screens/declared_needs_screen.dart';
 import 'presentation/screens/first_activation_screen.dart';
 import 'presentation/screens/reauthentication_screen.dart';
 import 'presentation/screens/farm_logbook_screen.dart';
+import 'presentation/screens/ind_b_suppliers_screen.dart';
+import 'presentation/screens/ind_c_chaco_costs_screen.dart';
+import 'presentation/screens/ind_chacos_screen.dart';
 import 'presentation/screens/inventory_alerts_screen.dart';
 import 'presentation/screens/inventory_detail_screen.dart';
 import 'presentation/screens/inventory_screen.dart';
@@ -154,6 +157,8 @@ final routerProvider = Provider<GoRouter>((ref) {
             location: state.uri.path,
             transfersEnabled:
                 ref.watch(operationModeProvider) != OperationMode.personal,
+            personalMode:
+                ref.watch(operationModeProvider) == OperationMode.personal,
             child: child,
           ),
         ),
@@ -194,6 +199,11 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: '/aplicaciones',
             builder: (_, __) => const ApplicationsScreen(),
+          ),
+          // Modo individual (I-05): compras, pagos y saldo por proveedor.
+          GoRoute(
+            path: indProvidersPath,
+            builder: (_, __) => const SuppliersBalanceScreen(),
           ),
           GoRoute(
             path: '/liquidacion',
@@ -238,6 +248,19 @@ final routerProvider = Provider<GoRouter>((ref) {
             path: '/personas/:id',
             builder: (_, state) => PersonDetailScreen(
               personId: int.parse(state.pathParameters['id']!),
+            ),
+          ),
+          // Modo individual (lámina I-40): lista de chacos del titular. En el
+          // modo con varias personas los chacos siguen bajo Personas.
+          GoRoute(path: '/chacos', builder: (_, __) => const ChacosScreen()),
+          // Costos por chaco, producto y campaña (I-42). Antes de
+          // '/chacos/:id', que tomaría «costos» como un id.
+          GoRoute(
+            path: '/chacos/costos',
+            builder: (_, state) => IndCChacoCostsScreen(
+              initialCampaignId: int.tryParse(
+                state.uri.queryParameters['campana'] ?? '',
+              ),
             ),
           ),
           GoRoute(

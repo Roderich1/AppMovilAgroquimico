@@ -381,8 +381,10 @@ void main() {
     await waitFor(tester, picker('Chaco'));
     await settle(tester);
     expect(picker(applicationPersonLabel), findsNothing);
-    expect(find.byKey(const Key('application-personal-owner')), findsOneWidget);
-    expect(find.text('Titular'), findsWidgets);
+    // Rediseño individual (lámina I-20): sin fila «Aplica el titular» ni
+    // «Quién aplicó»; la persona sigue siendo el titular (se comprueba abajo
+    // en la fila guardada).
+    expect(find.byKey(const Key('application-personal-owner')), findsNothing);
     await choose(tester, 'Chaco', 'Chaco titular');
     await tapKey(tester, 'application-continue');
     await addProduct(tester, 'Glifosato', '1');

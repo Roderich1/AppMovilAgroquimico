@@ -120,7 +120,7 @@ void main() {
     expect(find.byType(PurchaseFormScreen), findsOneWidget);
   });
 
-  testWidgets('inventario propio: la persona dictada se ignora y se avisa; '
+  testWidgets('modo individual: la persona dictada se ignora y se avisa; '
       'la compra es del titular', (tester) async {
     final w = await open(tester, 'acc-propio', const [
       FakeTurn(
@@ -141,15 +141,19 @@ void main() {
     await settle(tester);
     await tapKey(tester, 'voz-hablar');
     await tapKey(tester, 'voz-terminar');
+    // Rediseño individual (lámina I-15): se dice qué completa el formulario.
     expect(
-      find.textContaining('el destinatario dictado no se usó'),
+      find.textContaining('Parte del dictado no corresponde a este formulario'),
       findsOneWidget,
     );
-    // En la hoja del producto: todo para el titular.
+    expect(find.textContaining('Hermana'), findsNothing);
+    // En la hoja del producto no se pregunta para quién es ni se repite el
+    // titular: la línea entera es suya (lo exige el repositorio al guardar).
     await openPurchaseLine(tester);
+    expect(find.text('¿Para quién es?'), findsNothing);
     expect(
       find.byKey(const Key('purchase-personal-allocation-0')),
-      findsOneWidget,
+      findsNothing,
     );
   });
 

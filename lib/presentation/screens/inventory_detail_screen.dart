@@ -7,8 +7,8 @@ import '../../data/app_database.dart';
 import '../../domain/campaign_calendar.dart';
 import '../../domain/inventory_alerts.dart';
 import '../../domain/money.dart';
-import '../../domain/operation_mode.dart';
-import '../../operation_mode_controller.dart';
+import '../../domain/person_roles.dart' show PersonPurpose;
+import '../../operation_mode_controller.dart' show personalModeProvider;
 import '../../services/auth/local_owner_credential.dart'
     show AuthorizationPurpose;
 import '../theme/agro_theme.dart';
@@ -23,6 +23,7 @@ typedef _InventoryDetail = ({
   List<Map<String, Object?>> distribution,
   List<Map<String, Object?>> lots,
   ProductAlertSettings alertSettings,
+  String? titularName,
 });
 
 /// Movimientos más recientes que se ven en el detalle; el resto, en el
@@ -46,6 +47,12 @@ const _movementsPage = 20;
 /// Las cifras y cálculos son los de antes (`inventoryProductHeader`,
 /// `inventoryProductDistribution`, `inventoryProductLots`); sólo cambia la
 /// presentación. Las lecturas se hacen una vez al abrir (B-15).
+///
+/// **Modo individual** (lámina I-31, 2026-11-13): sin «Quién lo tiene» (todo
+/// es del titular), «Tiene ahora» en la cabecera, lo previsto en planes con
+/// su proyección y la aclaración de que un plan no descuenta existencias, y
+/// los movimientos y lotes sin repetir el nombre del titular. Mismas
+/// lecturas y cifras; el modo con varias personas no cambia.
 class InventoryDetailScreen extends ConsumerStatefulWidget {
   const InventoryDetailScreen({super.key, required this.productId});
   final int productId;
@@ -73,7 +80,22 @@ class _InventoryDetailScreenState extends ConsumerState<InventoryDetailScreen> {
       distribution: await repo.inventoryProductDistribution(widget.productId),
       lots: await repo.inventoryProductLots(widget.productId),
       alertSettings: await repo.productAlertSettings(widget.productId),
+      // Sólo en propio (una consulta más): el nombre del titular, para no
+      // repetirlo en cada movimiento y lote y conservar el de otra persona
+      // en la historia anterior al cambio de modo.
+      titularName: ref.read(personalModeProvider)
+          ? await _titularName(repo)
+          : null,
     );
+  }
+
+  static Future<String?> _titularName(AgroRepository repo) async {
+    final read = await repo.peopleAndContextFor(PersonPurpose.providerPayer);
+    final owner = read.context.ownerPersonId;
+    for (final person in read.people) {
+      if (person['id'] == owner) return person['name'] as String?;
+    }
+    return null;
   }
 
   /// Configura el nivel mínimo y el plazo de aviso (RF-44). Corresponde al
@@ -131,70 +153,84 @@ class _InventoryDetailScreenState extends ConsumerState<InventoryDetailScreen> {
 
   /// El historial completo, en su propia vista (el detalle sólo muestra los
   /// más recientes).
-  Future<void> _openHistory(String productName, String unit) =>
-      Navigator.of(context).push<void>(
-        MaterialPageRoute(
-          builder: (_) => _MovementsHistoryPage(
-            productId: widget.productId,
-            productName: productName,
-            unit: unit,
-          ),
-        ),
-      );
+  Future<void> _openHistory(
+    String productName,
+    String unit,
+    String? titularName,
+  ) => Navigator.of(context).push<void>(
+    MaterialPageRoute(
+      builder: (_) => _MovementsHistoryPage(
+        productId: widget.productId,
+        productName: productName,
+        unit: unit,
+        titularName: titularName,
+      ),
+    ),
+  );
 
   /// Lo que significan las cifras: se abre con «i» en la cabecera, sin
   /// párrafos permanentes. Los términos técnicos («neto», «asignación neta»)
   /// se explican aquí.
-  Future<void> _showInfo() => showDialog<void>(
+  Future<void> _showInfo(bool personal) => showDialog<void>(
     context: context,
     builder: (dialogContext) => AlertDialog(
       key: const Key('inventory-info-dialog'),
       title: const Text('Qué significan estas cifras'),
-      content: const SingleChildScrollView(
+      content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
+            const Text(
               'Cuánto hay, de qué compras viene y en qué se usó. El '
               'inventario continúa entre campañas.',
             ),
-            SizedBox(height: 10),
+            const SizedBox(height: 10),
             Text(
-              'Hay ahora: lo que queda entre todas las personas (en el '
-              'cálculo, el físico). Los vencimientos dicen qué cantidad '
-              'vence y cuándo, según la fecha de cada lote.',
+              personal
+                  ? 'Tiene ahora: lo que queda en su almacén (en el cálculo, '
+                        'el físico). Los vencimientos dicen qué cantidad vence '
+                        'y cuándo, según la fecha de cada lote.'
+                  : 'Hay ahora: lo que queda entre todas las personas (en el '
+                        'cálculo, el físico). Los vencimientos dicen qué '
+                        'cantidad vence y cuándo, según la fecha de cada lote.',
             ),
-            SizedBox(height: 10),
-            Text(
+            const SizedBox(height: 10),
+            const Text(
               'Neto: no cuenta lo revertido. Comprado neto menos consumido '
               'neto es lo que hay ahora.',
             ),
-            SizedBox(height: 10),
-            Text(
+            const SizedBox(height: 10),
+            const Text(
               'Previsto en planes: lo que piden los planes pendientes de la '
               'campaña activa. No aparta producto: «Quedarían» es lo que hay '
               'ahora menos lo previsto, una proyección por si se aplican los '
               'planes. Si es negativo, faltaría producto.',
             ),
-            SizedBox(height: 10),
-            Text(
-              'Asignación neta: lo comprado para esta persona, más lo que '
-              'recibió y menos lo que entregó por transferencias. No cuenta lo '
-              'revertido. Restando lo consumido queda lo que tiene. En «Quién '
-              'lo tiene», «Usó 1 L de 3 L» es su consumido neto de su '
-              'asignación neta.',
-            ),
-            SizedBox(height: 10),
-            Text(
+            // En propio no hay asignaciones a otras personas ni pases.
+            if (!personal) ...[
+              const SizedBox(height: 10),
+              const Text(
+                'Asignación neta: lo comprado para esta persona, más lo que '
+                'recibió y menos lo que entregó por transferencias. No cuenta '
+                'lo revertido. Restando lo consumido queda lo que tiene. En '
+                '«Quién lo tiene», «Usó 1 L de 3 L» es su consumido neto de '
+                'su asignación neta.',
+              ),
+            ],
+            const SizedBox(height: 10),
+            const Text(
               'Valor a costo de compra: lo que hay ahora, valorado al costo '
               'de cada lote. No es una deuda ni un saldo.',
             ),
-            SizedBox(height: 10),
+            const SizedBox(height: 10),
             Text(
-              'Lo que explica el saldo: compras, aplicaciones, pases '
-              '(entregas sin deuda) y reversiones, del más reciente al más '
-              'antiguo.',
+              personal
+                  ? 'Lo que explica el saldo: compras, aplicaciones y '
+                        'reversiones, del más reciente al más antiguo.'
+                  : 'Lo que explica el saldo: compras, aplicaciones, pases '
+                        '(entregas sin deuda) y reversiones, del más reciente '
+                        'al más antiguo.',
             ),
           ],
         ),
@@ -228,6 +264,9 @@ class _InventoryDetailScreenState extends ConsumerState<InventoryDetailScreen> {
       }
       final data = snapshot.data!;
       final h = data.header;
+      // Sin modalidad conocida se presenta la compartida, la de defecto
+      // (operation_mode_controller.dart).
+      final personal = ref.watch(personalModeProvider);
       final productName = h['product_name'] as String;
       final unit = h['unit'] as String;
       final physical = h['physical_base'] as int;
@@ -255,44 +294,56 @@ class _InventoryDetailScreenState extends ConsumerState<InventoryDetailScreen> {
           unit: unit,
           portions: portions,
           leadDays: lead,
-          onInfo: _showInfo,
+          personal: personal,
+          onInfo: () => _showInfo(personal),
         ),
         children: [
-          const _SectionTitle('Quién lo tiene'),
-          AgroGroup(
-            key: const Key('inventory-distribution'),
-            children: [
-              for (final row in data.distribution)
-                // Material propio: el grupo blanco tiene color de fondo.
-                _onWhite(
-                  ListTile(
-                    title: Text(
-                      row['person_name'] as String,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                        color: AgroColors.ink,
+          // En propio todo es del titular: «Quién lo tiene» repetiría su
+          // nombre con la misma cifra de la cabecera (lámina I-31).
+          if (!personal) ...[
+            const _SectionTitle('Quién lo tiene'),
+            AgroGroup(
+              key: const Key('inventory-distribution'),
+              children: [
+                for (final row in data.distribution)
+                  // Material propio: el grupo blanco tiene color de fondo.
+                  _onWhite(
+                    ListTile(
+                      title: Text(
+                        row['person_name'] as String,
+                        style: const TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w700,
+                          color: AgroColors.ink,
+                        ),
+                      ),
+                      // Consumido neto de su asignación neta (los términos,
+                      // en «i»).
+                      subtitle: Text(
+                        'Usó ${formatQuantity(row['consumed_base'] as int, unit)} '
+                        'de ${formatQuantity(row['assigned_base'] as int, unit)}',
+                        style: AgroText.detail,
+                      ),
+                      trailing: Text(
+                        formatQuantity(row['available_base'] as int, unit),
+                        style: AgroText.amount,
                       ),
                     ),
-                    // Consumido neto de su asignación neta (los términos, en
-                    // «i»).
-                    subtitle: Text(
-                      'Usó ${formatQuantity(row['consumed_base'] as int, unit)} '
-                      'de ${formatQuantity(row['assigned_base'] as int, unit)}',
-                      style: AgroText.detail,
-                    ),
-                    trailing: Text(
-                      formatQuantity(row['available_base'] as int, unit),
-                      style: AgroText.amount,
-                    ),
                   ),
-                ),
-            ],
-          ),
+              ],
+            ),
+          ],
           // Sólo cuando hay planes pendientes que piden este producto.
           if (committed != 0) ...[
-            const SizedBox(height: 18),
-            _PlansCard(physical: physical, committed: committed, unit: unit),
+            if (!personal) const SizedBox(height: 18),
+            if (personal)
+              _PersonalPlansCard(
+                physical: physical,
+                committed: committed,
+                unit: unit,
+              )
+            else
+              _PlansCard(physical: physical, committed: committed, unit: unit),
           ],
           const SizedBox(height: 18),
           Padding(
@@ -335,12 +386,18 @@ class _InventoryDetailScreenState extends ConsumerState<InventoryDetailScreen> {
                 key: const Key('inventory-movements'),
                 children: [
                   for (final row in rows.take(_recentMovements))
-                    _MovementTile(row: row, unit: unit),
+                    _MovementTile(
+                      row: row,
+                      unit: unit,
+                      personal: personal,
+                      titularName: data.titularName,
+                    ),
                   if (hasMore)
                     _onWhite(
                       TextButton.icon(
                         key: const Key('inventory-movements-all'),
-                        onPressed: () => _openHistory(productName, unit),
+                        onPressed: () =>
+                            _openHistory(productName, unit, data.titularName),
                         icon: const Icon(Icons.history),
                         label: const Text('Ver todo el historial'),
                       ),
@@ -351,7 +408,14 @@ class _InventoryDetailScreenState extends ConsumerState<InventoryDetailScreen> {
           ),
           const SizedBox(height: 22),
           const GroupLabel('Más datos'),
-          _LotsPanel(lots: data.lots, unit: unit, today: today, lead: lead),
+          _LotsPanel(
+            lots: data.lots,
+            unit: unit,
+            today: today,
+            lead: lead,
+            personal: personal,
+            titularName: data.titularName,
+          ),
           const SizedBox(height: 12),
           AgroGroup(
             key: const Key('inventory-totals'),
@@ -377,9 +441,7 @@ class _InventoryDetailScreenState extends ConsumerState<InventoryDetailScreen> {
           _AlertSettingsCard(
             settings: data.alertSettings,
             onConfigure: () => _configureAlerts(data.alertSettings),
-            // Sin modalidad conocida se presenta la compartida, la de
-            // defecto (operation_mode_controller.dart).
-            shared: ref.watch(operationModeProvider) != OperationMode.personal,
+            shared: !personal,
           ),
         ],
       );
@@ -412,6 +474,7 @@ class _Header extends StatelessWidget {
     required this.portions,
     required this.leadDays,
     required this.onInfo,
+    this.personal = false,
   });
 
   final String productName;
@@ -420,6 +483,10 @@ class _Header extends StatelessWidget {
   final List<ExpiryPortion> portions;
   final int leadDays;
   final VoidCallback onInfo;
+
+  /// Modo individual: «Tiene ahora» (todo es del titular) en vez de «Hay
+  /// ahora» (entre todas las personas). La cifra es la misma.
+  final bool personal;
 
   /// Como mucho tres líneas de vencimiento; el resto se ve en los lotes.
   static const _maxLines = 3;
@@ -508,15 +575,17 @@ class _Header extends StatelessWidget {
                 ),
                 const SizedBox(height: 2),
                 Semantics(
-                  label: 'Hay ahora: ${formatQuantity(physical, unit)}',
+                  label:
+                      '${personal ? 'Tiene ahora' : 'Hay ahora'}: '
+                      '${formatQuantity(physical, unit)}',
                   excludeSemantics: true,
                   child: Column(
                     key: const Key('metric-Hay ahora'),
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text(
-                        'Hay ahora',
-                        style: TextStyle(
+                      Text(
+                        personal ? 'Tiene ahora' : 'Hay ahora',
+                        style: const TextStyle(
                           fontSize: 13,
                           color: AgroColors.onInkMuted,
                         ),
@@ -601,6 +670,89 @@ class _PlansCard extends StatelessWidget {
   }
 }
 
+/// Lo previsto en planes en el modo individual (lámina I-31): la cifra, una
+/// barra con la parte de lo que tiene ahora que piden los planes y la
+/// proyección en una frase. Mismas cifras que [_PlansCard]; un plan no
+/// aparta ni descuenta producto.
+class _PersonalPlansCard extends StatelessWidget {
+  const _PersonalPlansCard({
+    required this.physical,
+    required this.committed,
+    required this.unit,
+  });
+
+  final int physical;
+  final int committed;
+  final String unit;
+
+  @override
+  Widget build(BuildContext context) {
+    final projected = physical - committed;
+    final short = projected < 0;
+    // Parte de lo que hay que piden los planes; llena si piden más de lo
+    // que hay (o si no hay nada).
+    final share = physical <= 0 ? 1.0 : (committed / physical).clamp(0.0, 1.0);
+    final barColor = short ? AgroColors.danger : const Color(0xFFC77700);
+    final text = short
+        ? 'Proyección: si ejecuta sus planes faltarían '
+              '${formatQuantity(-projected, unit)}. Un plan no descuenta '
+              'existencias.'
+        : 'Proyección: si ejecuta sus planes quedarán '
+              '${formatQuantity(projected, unit)}. Un plan no descuenta '
+              'existencias.';
+    return Container(
+      key: const Key('inventory-plans'),
+      decoration: BoxDecoration(
+        color: AgroColors.surface,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+      child: Semantics(
+        label: 'Previsto en planes: ${formatQuantity(committed, unit)}. $text',
+        excludeSemantics: true,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            AmountAside(
+              amount: formatQuantity(committed, unit),
+              amountStyle: AgroText.amount,
+              minTextWidth: 140,
+              child: const Text(
+                'Previsto en planes',
+                style: TextStyle(
+                  fontSize: 17,
+                  height: 22 / 17,
+                  fontWeight: FontWeight.w700,
+                  color: AgroColors.ink,
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(6),
+              child: LinearProgressIndicator(
+                key: const Key('inventory-plans-bar'),
+                value: share,
+                minHeight: 10,
+                color: barColor,
+                backgroundColor: AgroColors.canvas,
+              ),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              text,
+              key: const Key('inventory-plans-projection'),
+              style: AgroText.detail.copyWith(
+                color: short ? AgroColors.danger : null,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 /// Cifra con su rótulo en una fila blanca («Comprado neto 9 L»). La clave
 /// `metric-<rótulo>` la usan las pruebas.
 class _FigureRow extends StatelessWidget {
@@ -675,12 +827,19 @@ class _LotsPanel extends StatelessWidget {
     required this.unit,
     required this.today,
     required this.lead,
+    this.personal = false,
+    this.titularName,
   });
 
   final List<Map<String, Object?>> lots;
   final String unit;
   final String today;
   final int lead;
+
+  /// Modo individual: los lotes del titular sin su nombre; los de otra
+  /// persona (si quedaran) con el suyo.
+  final bool personal;
+  final String? titularName;
 
   String _expiryText(ExpiryStatus status, String? day) => switch (status) {
     ExpiryStatus.expired => 'Venció el ${displayDay(day!)}',
@@ -739,7 +898,12 @@ class _LotsPanel extends StatelessWidget {
                     );
                     return LotCard(
                       key: Key('inventory-lot-$i'),
-                      person: lot['owner_name'] as String,
+                      person:
+                          personal &&
+                              titularName != null &&
+                              lot['owner_name'] == titularName
+                          ? null
+                          : lot['owner_name'] as String,
                       quantity: formatQuantity(
                         lot['available_base'] as int,
                         unit,
@@ -773,11 +937,13 @@ class _MovementsHistoryPage extends ConsumerStatefulWidget {
     required this.productId,
     required this.productName,
     required this.unit,
+    this.titularName,
   });
 
   final int productId;
   final String productName;
   final String unit;
+  final String? titularName;
 
   @override
   ConsumerState<_MovementsHistoryPage> createState() =>
@@ -826,7 +992,12 @@ class _MovementsHistoryPageState extends ConsumerState<_MovementsHistoryPage> {
                 key: const Key('inventory-history'),
                 children: [
                   for (final row in snapshot.data!.take(limit))
-                    _MovementTile(row: row, unit: widget.unit),
+                    _MovementTile(
+                      row: row,
+                      unit: widget.unit,
+                      personal: ref.watch(personalModeProvider),
+                      titularName: widget.titularName,
+                    ),
                   if (snapshot.data!.length > limit)
                     _onWhite(
                       TextButton.icon(
@@ -1135,14 +1306,29 @@ class _AlertSettingsDialogState extends State<AlertSettingsDialog> {
 /// Una fila de `inventory_movements` en palabras: tipo con su contraparte,
 /// fecha local, persona y cantidad con signo en la unidad mayor.
 class _MovementTile extends StatelessWidget {
-  const _MovementTile({required this.row, required this.unit});
+  const _MovementTile({
+    required this.row,
+    required this.unit,
+    this.personal = false,
+    this.titularName,
+  });
   final Map<String, Object?> row;
   final String unit;
+  final String? titularName;
+
+  /// Modo individual (lámina I-31): «Compra · proveedor» y sin el nombre del
+  /// titular en cada fila. Un movimiento de otra persona (historia anterior
+  /// al cambio de modo) conserva su nombre.
+  final bool personal;
 
   String get _label {
     final farm = row['farm_name'] ?? 'chaco';
     final other = row['counterpart_name'] ?? 'otra persona';
+    final supplier = row['supplier_name'];
     return switch (row['type']) {
+      'PURCHASE_IN' when personal && supplier != null => 'Compra · $supplier',
+      'PURCHASE_REVERSAL' when personal && supplier != null =>
+        'Compra revertida · $supplier',
       'PURCHASE_IN' => 'Compra',
       'PURCHASE_REVERSAL' => 'Compra revertida',
       'APPLICATION_OUT' => 'Aplicación en $farm',
@@ -1175,14 +1361,27 @@ class _MovementTile extends StatelessWidget {
     final quantity = row['quantity_signed'] as int;
     final supplier = row['supplier_name'];
     final note = _accountNote;
+    // En propio el proveedor ya va en el título de la compra, y el titular
+    // no se repite; el nombre de otra persona (historia) sí se conserva.
+    final isPurchase =
+        row['type'] == 'PURCHASE_IN' || row['type'] == 'PURCHASE_REVERSAL';
+    final ownerIsOther =
+        titularName == null || row['owner_name'] != titularName;
     return _onWhite(
       ListTile(
         leading: IconCircle(icon: _icon),
         title: Text(_label),
         subtitle: Text(
-          '${formatDate(row['movement_date'])} · ${row['owner_name']}'
-          '${supplier == null ? '' : ' · $supplier'}'
-          '${note == null ? '' : ' · $note'}',
+          personal
+              ? [
+                  formatDate(row['movement_date']),
+                  if (ownerIsOther) '${row['owner_name']}',
+                  if (supplier != null && !isPurchase) '$supplier',
+                  ?note,
+                ].join(' · ')
+              : '${formatDate(row['movement_date'])} · ${row['owner_name']}'
+                    '${supplier == null ? '' : ' · $supplier'}'
+                    '${note == null ? '' : ' · $note'}',
         ),
         trailing: Text(
           '${quantity < 0 ? '-' : '+'}${formatQuantity(quantity.abs(), unit)}',

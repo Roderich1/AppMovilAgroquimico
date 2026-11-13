@@ -253,8 +253,8 @@ class _CatalogsScreenState extends ConsumerState<CatalogsScreen>
           const NoticeBox(
             key: Key('catalogs-personal-persons-notice'),
             text:
-                'Inventario propio: registra sólo el titular. Para agregar '
-                'responsables, cambie a inventario compartido en Modo de uso. '
+                'Modo individual: registra sólo el titular. Para agregar '
+                'responsables, cambie a «Modo con varias personas» en Modo de uso. '
                 'Las personas ya registradas y su historial se conservan.',
           ),
           const SizedBox(height: 12),

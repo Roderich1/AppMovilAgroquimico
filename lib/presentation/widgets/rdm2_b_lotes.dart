@@ -257,7 +257,9 @@ class LotCard extends StatelessWidget {
     this.fromTransfer = false,
   });
 
-  final String person;
+  /// Quién lo tiene. `null` en el modo individual para un lote del titular:
+  /// la fila empieza entonces por la fecha de compra (lámina I-31).
+  final String? person;
   final String quantity;
 
   /// Fecha de compra ya formateada (dd/mm/aaaa).
@@ -289,24 +291,30 @@ class LotCard extends StatelessWidget {
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Expanded(child: Text(person, style: AgroText.question)),
+            Expanded(
+              child: Text(
+                person ?? 'Comprado el $purchaseDay',
+                style: AgroText.question,
+              ),
+            ),
             const SizedBox(width: 8),
             Text(quantity, style: AgroText.amount),
           ],
         ),
         const SizedBox(height: 2),
-        Text(
-          [
-            'Comprado el $purchaseDay',
-            if (fromTransfer) 'recibido por pase',
-            ?reference,
-          ].join(' · '),
-          style: const TextStyle(
-            fontSize: 14,
-            height: 20 / 14,
-            color: AgroColors.ink,
+        if (person != null || fromTransfer || reference != null)
+          Text(
+            [
+              if (person != null) 'Comprado el $purchaseDay',
+              if (fromTransfer) 'recibido por pase',
+              ?reference,
+            ].join(' · '),
+            style: const TextStyle(
+              fontSize: 14,
+              height: 20 / 14,
+              color: AgroColors.ink,
+            ),
           ),
-        ),
         const SizedBox(height: 4),
         ExpiryLine(status: expiryStatus, text: expiryText),
         if (details.isNotEmpty || manufacturerLot != null)

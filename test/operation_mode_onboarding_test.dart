@@ -79,7 +79,7 @@ void main() {
           c.read(installationAccessProvider) ==
               InstallationAccessState.activated &&
           c.read(operationModeProvider) == OperationMode.personal &&
-          find.textContaining('Usa inventario propio').evaluate().isNotEmpty,
+          find.textContaining('Usa el modo individual').evaluate().isNotEmpty,
       state: () => _state(c),
     );
 
@@ -88,14 +88,15 @@ void main() {
       OperationMode.personal,
     );
     expect(c.read(operationModeProvider), OperationMode.personal);
-    expect(find.textContaining('Usa inventario propio'), findsOneWidget);
+    expect(find.textContaining('Usa el modo individual'), findsOneWidget);
     c.read(routerProvider).go('/operaciones');
     await settle(tester);
     expect(find.text('Transferencias'), findsNothing);
     // La modalidad vigente se consulta en Más (piloto X01).
     c.read(routerProvider).go('/mas');
     await settle(tester);
-    expect(find.text('Ahora: inventario propio'), findsOneWidget);
+    // Ajustes del modo individual (I-50): el modo en la tarjeta de arriba.
+    expect(find.text('Modo individual'), findsOneWidget);
     expect(offline.requests, 0);
   });
 
@@ -117,30 +118,41 @@ void main() {
     await settle(tester);
     await tester.tap(find.text('Modo de uso'));
     await settle(tester);
+    expect(find.text('Modo con varias personas'), findsOneWidget);
+    // Lámina I-52: el bloqueo se ve al abrir, con quién y cómo resolverlo,
+    // y el botón queda inactivo.
+    final blocked = find.byKey(const Key('mode-blocked'));
     expect(
-      find.text('Modalidad actual: inventario compartido'),
+      find.descendant(
+        of: blocked,
+        matching: find.text('Hermana tiene productos'),
+      ),
       findsOneWidget,
     );
     expect(
-      find.text(operationModeExplanation(OperationMode.shared)),
+      find.descendant(
+        of: blocked,
+        matching: find.text(
+          'Regístrelos en una aplicación o transfiéralos al titular.',
+        ),
+      ),
       findsOneWidget,
     );
     expect(
-      find.text(operationModeExplanation(OperationMode.personal)),
+      find.descendant(
+        of: blocked,
+        matching: find.textContaining('No se borra ni se reasigna nada.'),
+      ),
       findsOneWidget,
     );
-
+    expect(
+      tester
+          .widget<OutlinedButton>(find.byKey(const Key('mode-change')))
+          .onPressed,
+      isNull,
+    );
     await tester.tap(find.byKey(const Key('mode-change')));
     await settle(tester);
-    final blocked = tester.widget<Text>(
-      find.descendant(
-        of: find.byKey(const Key('mode-blocked')),
-        matching: find.byType(Text),
-      ),
-    );
-    expect(blocked.data, contains('Existencias de Hermana'));
-    expect(blocked.data, contains('transfiéralas al titular'));
-    expect(blocked.data, contains('No se borra ni se reasigna nada.'));
     expect(find.byKey(const Key('mode-confirm')), findsNothing);
     expect(
       await tester.runAsync(() async => dumpTables(await s.database.database)),
@@ -173,7 +185,7 @@ void main() {
     final current = find.byKey(const Key('mode-current'));
     bool changing() =>
         changeButton.evaluate().isNotEmpty &&
-        tester.widget<FilledButton>(changeButton).onPressed == null;
+        find.byKey(const Key('mode-saving')).evaluate().isNotEmpty;
     String? currentText() =>
         current.evaluate().isEmpty ? null : tester.widget<Text>(current).data;
     String screenState() {
@@ -216,7 +228,7 @@ void main() {
 
     c.read(routerProvider).push('/modo');
     await settle(tester);
-    expect(find.text('Modalidad actual: inventario propio'), findsOneWidget);
+    expect(find.text('Modo individual'), findsOneWidget);
 
     await tester.tap(changeButton);
     await waitUntil(
@@ -238,18 +250,15 @@ void main() {
       () =>
           !changing() &&
           currentText() != null &&
-          currentText() != 'Modalidad actual: inventario propio',
+          currentText() != 'Modo individual',
       state: screenState,
     );
 
     expect(
-      find.textContaining('Ahora usa inventario compartido'),
+      find.textContaining('Ahora usa el modo con varias personas'),
       findsOneWidget,
     );
-    expect(
-      find.text('Modalidad actual: inventario compartido'),
-      findsOneWidget,
-    );
+    expect(find.text('Modo con varias personas'), findsOneWidget);
     expect(c.read(operationModeProvider), OperationMode.shared);
     expect(
       await tester.runAsync(() => dumpTables(db!, except: businessOnly)),

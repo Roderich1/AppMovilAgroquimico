@@ -139,6 +139,14 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen>
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     initVoiceEvidence();
+    // Rediseño individual (2026-11-13): si la modalidad cambia con un
+    // dictado en curso, se cancela; su resultado tardío no llega al
+    // formulario (que además queda bloqueado por `ModeChangedNotice`).
+    ref.listenManual(operationModeProvider, (_, next) {
+      if (modeChangedSince(loadedMode, next) && (voice?.busy ?? false)) {
+        voice!.cancel();
+      }
+    });
     catalogs = _load();
     if (widget.voice && widget.planId == null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -1089,6 +1097,10 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen>
       return VoiceFormPanel(
         dictation: voice!,
         docked: true,
+        // Modo individual: láminas I-13 e I-14.
+        individualHint: personalMode
+            ? 'Diga chaco, superficie, producto y cantidad'
+            : null,
         example: '«En el chaco Norte, tres hectáreas, dos litros de herbicida»',
         engineHint:
             'Hable por frases cortas y pulse «Terminar» al acabar. Lo dictado '
@@ -1183,6 +1195,8 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen>
       return [
         VoiceResultBanner(
           dictation: voice!,
+          // Modo individual: lámina I-15.
+          individual: personalMode,
           onDictateMore: saving ? null : _openVoice,
           onDismiss: () => setState(() => _voiceBanner = false),
         ),
@@ -1244,11 +1258,10 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen>
               farm?['name']?.toString() ?? '',
             ),
           ] else if (personalMode)
-            _fixedRow(
-              const Key('application-personal-owner'),
-              'Aplica el titular',
-              person?['name']?.toString() ?? '',
-            )
+            // Modo individual (lámina I-20): no se pregunta de quién son los
+            // productos ni quién aplicó; el titular se aplica por dentro y el
+            // repositorio lo vuelve a exigir al guardar.
+            ...const <Widget>[]
           else
             // En compartido se elige a la persona responsable del chaco: se
             // usan sus existencias y se le aplica su forma de cobro (no se
@@ -1330,7 +1343,9 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen>
         keyboardType: const TextInputType.numberWithOptions(decimal: true),
         style: AgroText.input,
         decoration: InputDecoration(
-          labelText: 'Área tratada',
+          // Superficie TRATADA, distinta de la del chaco (que dice la ayuda).
+          // La lámina I-20 la llama «Superficie tratada».
+          labelText: personalMode ? 'Superficie tratada' : 'Área tratada',
           floatingLabelBehavior: FloatingLabelBehavior.always,
           suffixText: 'ha',
           suffixStyle: const TextStyle(
@@ -1371,8 +1386,12 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen>
     final farm = _farm(data);
     final summary = [
       if (farm != null) farm['name'].toString(),
-      if (_areaM2 > 0) formatHectares(_areaM2),
-      if (person != null) person['name'].toString(),
+      if (_areaM2 > 0)
+        personalMode
+            ? '${formatHectares(_areaM2)} tratadas'
+            : formatHectares(_areaM2),
+      // Modo individual: todo es del titular; no se repite su nombre.
+      if (person != null && !personalMode) person['name'].toString(),
     ].join(' · ');
     return [
       Semantics(
@@ -1488,14 +1507,31 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen>
   /// Cargo que corresponde a la persona según su política de cobro
   /// (`persons.settlement_policy`, la misma que lee `confirmApplication`).
   /// Sólo se describe: cómo se calcula y se escribe el cargo no cambia aquí.
-  String _chargeText(Map<String, Object?>? person, int totalCost) {
+  String _chargeText(
+    Map<String, Object?>? person,
+    int totalCost, {
+    String? farmName,
+  }) {
     final name = person?['name']?.toString() ?? '';
     final policy = person?['settlement_policy'];
+    // Modo individual (lámina I-22): es costo propio del chaco, no una
+    // deuda. Con cobro por consumo el repositorio lo sigue anotando como
+    // registro (E-15), y se dice.
+    if (personalMode) {
+      final farm = (farmName == null || farmName.isEmpty)
+          ? 'este chaco'
+          : farmName;
+      final usage = policy == 'BY_ACTUAL_USAGE'
+          ? ' Queda anotado como consumo propio.'
+          : '';
+      return 'Se suma a los costos de $farm en esta campaña. '
+          'No es una deuda.$usage';
+    }
     // E-15 (decisión del autor del 2026-10-27, §B.2): para el titular es
     // costo propio en las dos modalidades y con cualquier política. Con
     // cobro por consumo el repositorio sigue anotando el cargo en su cuenta,
     // como registro y no como deuda.
-    if (personalMode || (person != null && person['id'] == ownerPersonId)) {
+    if (person != null && person['id'] == ownerPersonId) {
       return policy == 'BY_ACTUAL_USAGE'
           ? 'Costo propio: ${formatBob(totalCost)} (queda anotado en la '
                 'cuenta de $name)'
@@ -1510,6 +1546,15 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen>
             'asignar compras.',
       _ => 'No genera cargo automático: la cuenta de $name se ajusta a mano',
     };
+  }
+
+  /// «Hoy · superficie tratada: 1 ha de 3 ha» (lámina I-22). Sin superficie
+  /// del chaco registrada, sólo la tratada.
+  String _personalReviewSubtitle(Map<String, Object?>? farm) {
+    final total = farm?['area_m2'];
+    final of = total is int && total > 0 ? ' de ${formatHectares(total)}' : '';
+    return '${_dayLabel(effectiveDay)} · superficie tratada: '
+        '${formatHectares(_areaM2)}$of';
   }
 
   List<Widget> _reviewStep(BuildContext context, _ApplicationCatalogs data) {
@@ -1557,20 +1602,35 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen>
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              // Modo individual (lámina I-22): el chaco y, debajo, el día y
+              // la superficie tratada frente a la del chaco (no se confunden).
               Text(
-                '${farm?['name'] ?? ''} · ${formatHectares(_areaM2)} tratadas',
+                personalMode
+                    ? '${farm?['name'] ?? ''}'
+                    : '${farm?['name'] ?? ''} · '
+                          '${formatHectares(_areaM2)} tratadas',
                 key: const Key('application-review-farm'),
                 style: AgroText.value,
               ),
               Text(
-                '${personalMode ? 'Aplica el titular: ' : ''}'
-                '${person?['name'] ?? ''} · ${_dayLabel(effectiveDay)}',
+                personalMode
+                    ? _personalReviewSubtitle(farm)
+                    : '${person?['name'] ?? ''} · ${_dayLabel(effectiveDay)}',
                 key: const Key('application-review-person'),
                 style: AgroText.detail,
               ),
               const SizedBox(height: 12),
               divider,
               const SizedBox(height: 8),
+              if (personalMode)
+                const Padding(
+                  padding: EdgeInsets.only(bottom: 4),
+                  child: Text(
+                    'SALE DE SU ALMACÉN',
+                    key: Key('application-review-from-store'),
+                    style: AgroText.label,
+                  ),
+                ),
               for (final line in lines)
                 Padding(
                   padding: const EdgeInsets.symmetric(vertical: 4),
@@ -1578,15 +1638,30 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen>
                     amount: formatBob(line.cost),
                     amountKey: Key('application-review-cost-${line.keyId}'),
                     amountStyle: AgroText.amount.copyWith(fontSize: 16),
-                    child: Text(
-                      '${line.product['product_name']} · '
-                      '${formatQuantity(line.quantityBase, line.unit)}',
-                      style: const TextStyle(
-                        fontSize: 16,
-                        height: 22 / 16,
-                        fontWeight: FontWeight.w500,
-                        color: AgroColors.ink,
-                      ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          '${line.product['product_name']} · '
+                          '${formatQuantity(line.quantityBase, line.unit)}',
+                          style: const TextStyle(
+                            fontSize: 16,
+                            height: 22 / 16,
+                            fontWeight: FontWeight.w500,
+                            color: AgroColors.ink,
+                          ),
+                        ),
+                        // Lámina I-22: lo que tiene y lo que le quedará.
+                        if (personalMode && line.quantityBase <= line.available)
+                          Text(
+                            'Tiene ${formatQuantity(line.available, line.unit)}'
+                            ' · le quedarán ${formatQuantity(line.available - line.quantityBase, line.unit)}',
+                            key: Key(
+                              'application-review-remaining-${line.keyId}',
+                            ),
+                            style: AgroText.detail,
+                          ),
+                      ],
                     ),
                   ),
                 ),
@@ -1652,7 +1727,11 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen>
       const SizedBox(height: 12),
       _KeyedNotice(
         textKey: const Key('application-review-charge'),
-        text: _chargeText(person, totalCost),
+        text: _chargeText(
+          person,
+          totalCost,
+          farmName: farm?['name']?.toString(),
+        ),
       ),
       const SizedBox(height: 12),
       Card(

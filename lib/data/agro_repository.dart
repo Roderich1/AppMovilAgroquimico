@@ -318,7 +318,7 @@ class AgroRepository {
         : owner.single['person_id'] as int;
     if (mode == OperationMode.personal && ownerPersonId == null) {
       throw PersonalModeRestrictionException(
-        'El inventario propio necesita un titular vinculado.',
+        'El modo individual necesita un titular vinculado.',
       );
     }
     return (mode: mode, ownerPersonId: ownerPersonId);
@@ -341,7 +341,7 @@ class AgroRepository {
   void _rejectTransferInPersonal(WriteContext context) {
     if (context.mode == OperationMode.personal) {
       throw PersonalModeRestrictionException(
-        'En inventario propio no hay transferencias entre responsables.',
+        'En el modo individual no hay transferencias entre responsables.',
       );
     }
   }
@@ -361,7 +361,7 @@ class AgroRepository {
     if (farm.isNotEmpty &&
         farm.single['owner_person_id'] != context.ownerPersonId) {
       throw PersonalModeRestrictionException(
-        'En inventario propio sólo se usan los chacos del titular.',
+        'En el modo individual sólo se usan los chacos del titular.',
       );
     }
   }
@@ -398,7 +398,7 @@ class AgroRepository {
   }) => _write((txn, context) {
     _requireOwnerInPersonal(context, [
       ownerId,
-    ], 'En inventario propio los chacos pertenecen al titular.');
+    ], 'En el modo individual los chacos pertenecen al titular.');
     return txn.insert('farms', {
       'owner_person_id': ownerId,
       'name': name.trim(),
@@ -1070,7 +1070,7 @@ class AgroRepository {
       _requireOwnerInPersonal(context, [
         for (final item in draft.items)
           for (final allocation in item.allocations) allocation.personId,
-      ], 'En inventario propio la compra se asigna sólo al titular.');
+      ], 'En el modo individual la compra se asigna sólo al titular.');
       // El pagador se comprueba antes de escribir nada: sin titular no se
       // guarda ni la compra ni el pago.
       final payer = payment == null ? null : _requireOwnerPayer(context);
@@ -1296,7 +1296,7 @@ class AgroRepository {
     return _write((txn, context) async {
       _requireOwnerInPersonal(context, [
         payerPersonId,
-      ], 'En inventario propio el pago al proveedor lo registra el titular.');
+      ], 'En el modo individual el pago al proveedor lo registra el titular.');
       // Regla del pagador: el titular vigente, también en compartido. Los
       // pagos ya guardados no se reasignan; sólo se juzgan los nuevos.
       _requireOwnerPayer(context, payerPersonId: payerPersonId);
@@ -1377,7 +1377,7 @@ class AgroRepository {
     return _write((txn, context) async {
       _requireOwnerInPersonal(context, [
         draft.personId,
-      ], 'En inventario propio la aplicación la realiza el titular.');
+      ], 'En el modo individual la aplicación la realiza el titular.');
       await _requireOwnerFarmInPersonal(txn, context, draft.farmId);
       await _ensureCampaignActive(txn, draft.campaignId);
       await _ensureEffectiveDateInCampaign(
@@ -1690,7 +1690,7 @@ class AgroRepository {
       _requireOwnerInPersonal(context, [
         for (final item in draft.items)
           for (final allocation in item.allocations) allocation.personId,
-      ], 'En inventario propio la compra se asigna sólo al titular.');
+      ], 'En el modo individual la compra se asigna sólo al titular.');
       final campaign = await _closedCampaignFor(txn, draft.purchaseDate);
       final stored = PurchaseDraft(
         supplierId: draft.supplierId,
@@ -1745,7 +1745,7 @@ class AgroRepository {
     return _write((txn, context) async {
       _requireOwnerInPersonal(context, [
         draft.personId,
-      ], 'En inventario propio la aplicación la realiza el titular.');
+      ], 'En el modo individual la aplicación la realiza el titular.');
       await _requireOwnerFarmInPersonal(txn, context, draft.farmId);
       final campaign = await _closedCampaignFor(txn, draft.appliedAt);
       final stored = ApplicationDraft(
@@ -2136,13 +2136,13 @@ class AgroRepository {
       _requireOwnerInPersonal(context, [
         for (final item in purchase.items)
           for (final allocation in item.allocations) allocation.personId,
-      ], 'En inventario propio la compra se asigna sólo al titular.');
+      ], 'En el modo individual la compra se asigna sólo al titular.');
       operationId = await _insertPurchase(txn, purchase, total);
     } else {
       final application = decodeLateApplication(draft['payload']! as String);
       _requireOwnerInPersonal(context, [
         application.personId,
-      ], 'En inventario propio la aplicación la realiza el titular.');
+      ], 'En el modo individual la aplicación la realiza el titular.');
       await _requireOwnerFarmInPersonal(txn, context, application.farmId);
       final day = localDay(application.appliedAt);
       for (final line in application.lines) {
@@ -2392,7 +2392,7 @@ class AgroRepository {
       _requireOwnerInPersonal(
         context,
         [personId],
-        'En inventario propio no hay cuentas por cobrar: no se registran '
+        'En el modo individual no hay cuentas por cobrar: no se registran '
         'pagos de cuenta.',
       );
       final paymentId = await txn.insert('account_transactions', {
@@ -2529,8 +2529,8 @@ class AgroRepository {
       _requireOwnerInPersonal(
         context,
         [application['person_id']! as int],
-        'En inventario propio sólo se revierten aplicaciones del titular. '
-        'Para revertir la de otra persona, cambie a inventario compartido.',
+        'En el modo individual sólo se revierten aplicaciones del titular. '
+        'Para revertir la de otra persona, cambie al modo con varias personas.',
       );
       final consumptions = await txn.rawQuery(
         '''SELECT c.*, i.product_id FROM application_consumptions c
@@ -2682,9 +2682,9 @@ class AgroRepository {
             if (lot['reversed_at'] == null) lot['owner_person_id']! as int,
           for (final charge in allocationCharges) charge['person_id']! as int,
         ],
-        'En inventario propio sólo se revierten compras asignadas al titular. '
+        'En el modo individual sólo se revierten compras asignadas al titular. '
         'Para revertir una compra con asignaciones a otras personas, cambie '
-        'a inventario compartido.',
+        'al modo con varias personas.',
       );
       for (final lot in lots) {
         final available =

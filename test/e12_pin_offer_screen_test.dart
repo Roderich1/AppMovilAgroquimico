@@ -225,7 +225,7 @@ void main() {
     expect(find.byKey(const Key('pin-activation-notice')), findsOneWidget);
     expect(
       find.text(
-        'Titular vinculado. Usa inventario compartido; puede cambiarlo en '
+        'Titular vinculado. Usa el modo con varias personas; puede cambiarlo en '
         'Ajustes y datos › Modo de uso.',
       ),
       findsOneWidget,

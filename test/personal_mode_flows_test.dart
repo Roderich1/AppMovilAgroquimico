@@ -98,7 +98,7 @@ void main() {
       // La modalidad vigente se lee en Más, Modo de uso (piloto X01).
       c.read(routerProvider).go('/mas');
       await settle(tester);
-      expect(find.text('Ahora: inventario compartido'), findsOneWidget);
+      expect(find.text('Ahora: modo con varias personas'), findsOneWidget);
     });
 
     testWidgets('propio: abrir directamente una ruta de transferencias '
@@ -244,7 +244,8 @@ void main() {
       expect(find.text('¿Para quién es?'), findsNothing);
       expect(find.text('Una persona'), findsNothing);
       expect(picker('Persona'), findsNothing);
-      expect(find.text('Para el titular: Titular'), findsOneWidget);
+      // Rediseño individual (lámina I-11): la hoja no repite el titular.
+      expect(find.textContaining('Para el titular'), findsNothing);
       expect(inputCount(tester), lessThan(sharedInputs));
 
       await closePurchaseLine(tester);
@@ -306,10 +307,9 @@ void main() {
       await waitFor(tester, picker('Chaco'));
       await settle(tester);
       expect(picker('Persona'), findsNothing);
-      expect(
-        find.byKey(const Key('application-personal-owner')),
-        findsOneWidget,
-      );
+      // Rediseño individual (lámina I-20): ni selector de persona ni fila
+      // «Aplica el titular»; el repositorio aplica al titular al guardar.
+      expect(find.byKey(const Key('application-personal-owner')), findsNothing);
       final farms = tester
           .widget<AdaptiveEntityPicker<Row>>(picker('Chaco'))
           .items;
@@ -358,7 +358,9 @@ void main() {
       // Las personas ya registradas siguen a la vista.
       expect(find.text('Hermana'), findsOneWidget);
 
-      await tester.tap(find.text('Chacos'));
+      // En modo individual «Chacos» también es una pestaña de la barra
+      // (2026-11-13): se toca el chip de la sección de Datos.
+      await tester.tap(find.widgetWithText(ChoiceChip, 'Chacos'));
       await settle(tester);
       await tester.tap(find.text('Agregar chaco'));
       await settle(tester);
@@ -474,7 +476,7 @@ void main() {
             of: find.text('Hermana'),
             matching: find.byType(Card),
           ),
-          matching: find.text('Inventario propio: sin pagos de cuenta'),
+          matching: find.text('Modo individual: sin pagos de cuenta'),
         ),
         findsOneWidget,
       );
@@ -661,7 +663,7 @@ void main() {
           isA<PersonalModeRestrictionException>().having(
             (e) => e.message,
             'message',
-            contains('cambie a inventario compartido'),
+            contains('cambie al modo con varias personas'),
           ),
         ),
       );
