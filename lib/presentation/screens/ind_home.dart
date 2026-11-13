@@ -448,7 +448,6 @@ class IndHomeLinks extends StatelessWidget {
           key: const Key('home-enviar-sindicato'),
           title: 'Sindicato',
           titleStyle: _linkTitle,
-          trailing: count('Envíos y convocatorias'),
           onTap: () => context.go('/sindicato'),
         ),
       ],

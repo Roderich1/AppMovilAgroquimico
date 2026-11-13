@@ -323,8 +323,14 @@ class _OperationModeScreenState extends ConsumerState<OperationModeScreen> {
                 children: [
                   OutlinedButton(
                     key: const Key('mode-change'),
+                    // Bloqueado (I-52): gris y sin borde, como un botón
+                    // apagado; disponible (I-51): con borde.
                     style: OutlinedButton.styleFrom(
                       minimumSize: const Size.fromHeight(56),
+                      disabledBackgroundColor: blocked
+                          ? AgroColors.trackStrong
+                          : null,
+                      side: blocked ? BorderSide.none : null,
                     ),
                     onPressed: _saving || blocked
                         ? null

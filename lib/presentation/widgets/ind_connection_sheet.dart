@@ -88,10 +88,12 @@ class _IndConnectionSheetState extends ConsumerState<_IndConnectionSheet> {
                 Align(
                   alignment: Alignment.centerLeft,
                   child: StatusBadge(
-                    label: entries.any((e) => !_waiting(e.status))
+                    label: entries.isEmpty
+                        ? 'Sin pendientes'
+                        : entries.any((e) => !_waiting(e.status))
                         ? 'Envíos por revisar'
                         : 'Pendientes de envío',
-                    tone: BadgeTone.review,
+                    tone: entries.isEmpty ? BadgeTone.ok : BadgeTone.review,
                   ),
                 ),
                 const SizedBox(height: 12),

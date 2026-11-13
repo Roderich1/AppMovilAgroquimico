@@ -560,25 +560,22 @@ class _HomeHeader extends StatelessWidget {
         children: [
           Row(
             children: [
+              // Modo individual (I-01): la cabecera es la campaña y el
+              // engranaje; el título queda para el lector de pantalla, sin
+              // ocupar lugar ni correr la pastilla.
+              if (personal)
+                Semantics(
+                  header: true,
+                  label: 'Inicio',
+                  child: const SizedBox(key: Key('page-frame-title')),
+                ),
               Expanded(
                 child: Wrap(
                   spacing: 10,
                   runSpacing: 6,
                   crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
-                    // Modo individual (I-01): la cabecera es la campaña y el
-                    // engranaje; el título queda para el lector de pantalla.
-                    if (personal)
-                      Semantics(
-                        header: true,
-                        label: 'Inicio',
-                        child: const SizedBox(
-                          key: Key('page-frame-title'),
-                          width: 0,
-                          height: 0,
-                        ),
-                      )
-                    else
+                    if (!personal)
                       Semantics(
                         header: true,
                         label: 'Inicio',

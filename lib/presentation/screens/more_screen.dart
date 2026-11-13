@@ -167,7 +167,17 @@ class _IndividualSettings extends ConsumerWidget {
         RdmCRow(
           key: Key(key),
           title: title,
-          trailing: trailing,
+          // Con un valor a la derecha la fila conserva su flecha.
+          trailing: trailing == null
+              ? null
+              : Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Flexible(child: trailing),
+                    const SizedBox(width: 4),
+                    const Icon(Icons.chevron_right, color: AgroColors.muted),
+                  ],
+                ),
           // Se APILAN: Atrás vuelve aquí (UIBUG-004A).
           onTap: () => context.push(path),
         );
