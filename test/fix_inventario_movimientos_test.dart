@@ -239,20 +239,31 @@ void main() {
       expect((tiles[1].title! as Text).data, 'Compra');
       expect((tiles[1].subtitle! as Text).data, '05/01/2026 · Ana · Agro Sur');
       expect((tiles[1].trailing! as Text).data, '+10 L');
-      expect(find.byKey(const Key('inventory-movements-more')), findsNothing);
+      expect(find.byKey(const Key('inventory-movements-all')), findsNothing);
 
-      // Rediseño B (COORDINACION): no es una reserva real.
-      expect(find.text('Previsto en planes'), findsOneWidget);
-      expect(find.text('Quedarán'), findsOneWidget);
+      // Rediseño B (COORDINACION): no es una reserva real. Ronda 2 (encargo
+      // del autor del 2026-11-12): lo previsto en planes se muestra sólo
+      // cuando corresponde; aquí no hay planes (con planes, en
+      // rdm2_b_almacen_detalle_test.dart).
+      expect(find.byKey(const Key('inventory-plans')), findsNothing);
+      expect(find.text('Quedarán'), findsNothing);
       expect(find.text('Reservado por planes'), findsNothing);
       expect(find.text('Comprometido'), findsNothing);
       expect(find.text('Libre proyectado'), findsNothing);
-      // Plegado: el lote no se ve hasta desplegar.
-      expect(find.text('Lotes disponibles y valor físico'), findsOneWidget);
+      // Plegado: el lote no se ve hasta desplegar (ronda 2: panel «Lotes»).
+      expect(find.byKey(const Key('inventory-lots')), findsOneWidget);
+      expect(find.byKey(const Key('inventory-lot-0')), findsNothing);
       expect(find.textContaining('Lote #'), findsNothing);
-      await tester.tap(find.text('Lotes disponibles y valor físico'));
+      await tester.ensureVisible(find.byKey(const Key('inventory-lots')));
+      await tester.tap(find.byKey(const Key('inventory-lots')));
       await settle(tester);
-      expect(find.text('Ana · 7 L'), findsOneWidget);
+      Finder inLot(String text) => find.descendant(
+        of: find.byKey(const Key('inventory-lot-0')),
+        matching: find.text(text),
+      );
+      expect(inLot('Ana'), findsOneWidget);
+      expect(inLot('7 L'), findsOneWidget);
+      expect(find.textContaining('Lote #'), findsNothing);
     });
 
     testWidgets('todos los tipos en palabras y «Ver más» cuando hay más de '
@@ -264,21 +275,28 @@ void main() {
           await apply(100, 21 + (i % 10));
         }
       });
-      final list = find.byKey(const Key('inventory-movements'));
+      // Ronda 2: el detalle muestra los recientes; el historial completo,
+      // con «Ver más», se abre aparte.
+      await tester.ensureVisible(
+        find.byKey(const Key('inventory-movements-all')),
+      );
+      await tester.tap(find.byKey(const Key('inventory-movements-all')));
+      await waitFor(tester, find.byKey(const Key('inventory-history')));
+      final list = find.byKey(const Key('inventory-history'));
       Iterable<String> titles() => tester
           .widgetList<ListTile>(
             find.descendant(of: list, matching: find.byType(ListTile)),
           )
           .map((t) => (t.title! as Text).data!);
       expect(titles(), hasLength(20));
-      expect(find.byKey(const Key('inventory-movements-more')), findsOneWidget);
+      expect(find.byKey(const Key('inventory-history-more')), findsOneWidget);
       await tester.ensureVisible(
-        find.byKey(const Key('inventory-movements-more')),
+        find.byKey(const Key('inventory-history-more')),
       );
-      await tester.tap(find.byKey(const Key('inventory-movements-more')));
+      await tester.tap(find.byKey(const Key('inventory-history-more')));
       await settle(tester);
       expect(titles(), hasLength(24));
-      expect(find.byKey(const Key('inventory-movements-more')), findsNothing);
+      expect(find.byKey(const Key('inventory-history-more')), findsNothing);
       expect(
         titles().toSet(),
         containsAll([

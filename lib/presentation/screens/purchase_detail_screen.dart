@@ -15,6 +15,7 @@ import '../../domain/money.dart';
 import '../theme/agro_theme.dart';
 import '../widgets/agro_ui.dart';
 import '../widgets/common.dart';
+import '../widgets/rdm2_b_lotes.dart' show manufacturerLotLabel;
 import '../widgets/rdm_b_purchase_actions.dart';
 import '../widgets/rdm_b_ui.dart';
 import '../widgets/owner_reversal_flow.dart';
@@ -672,10 +673,10 @@ class _ItemsCard extends StatelessWidget {
                 ? 'sin fecha registrada'
                 : displayDay(item['expiry_date']! as String),
           ),
-          _Field(
-            'Número de lote',
-            (item['lot_number'] as String?) ?? 'sin registrar',
-          ),
+          // Ronda 2 (decisión del autor del 2026-11-12): el número del
+          // fabricante sólo si existe; sin él no se escribe «sin registrar».
+          if (item['lot_number'] case final String number)
+            _Field(manufacturerLotLabel, number),
           if (((item['lot_data_corrections'] as int?) ?? 0) > 0)
             _Field(
               'Correcciones',

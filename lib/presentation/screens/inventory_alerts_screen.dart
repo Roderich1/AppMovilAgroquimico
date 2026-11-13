@@ -9,6 +9,7 @@ import '../../domain/inventory_alerts.dart';
 import '../../domain/money.dart';
 import '../theme/agro_theme.dart';
 import '../widgets/agro_ui.dart';
+import '../widgets/rdm2_b_lotes.dart' show manufacturerLotLabel;
 import '../widgets/rdm_b_ui.dart';
 import '../widgets/common.dart';
 
@@ -186,10 +187,6 @@ String expiryPhrase(LotExpiryAlert alert) {
     _ => 'Vence el ${displayDay(day)}, en ${_daysText(days)}',
   };
 }
-
-String _lotTitle(AlertLot lot) =>
-    '${lot.productName} · '
-    '${lot.lotNumber == null ? 'sin número de lote' : 'lote ${lot.lotNumber}'}';
 
 class _AlertsBody extends StatelessWidget {
   const _AlertsBody({required this.alerts, required this.onOpenProduct});
@@ -436,14 +433,26 @@ class _LotTile extends StatelessWidget {
         background: urgent ? const Color(0xFFFFDAD6) : AgroColors.chip,
         foreground: urgent ? AgroColors.danger : AgroColors.ink,
       ),
+      // Ronda 2 (decisión del autor del 2026-11-12): sin «sin número de
+      // lote»; el número del fabricante, si existe, va aparte y en pequeño.
       title: Text(
-        _lotTitle(lot),
+        lot.productName,
         style: const TextStyle(fontWeight: FontWeight.w700),
       ),
-      subtitle: Text(
-        '${expiryPhrase(alert)} · Quedan '
-        '${formatQuantity(lot.remainingBase, lot.unit)}'
-        '${shared ? ' · ${lot.ownerName}' : ''}$lead',
+      subtitle: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            '${expiryPhrase(alert)} · Quedan '
+            '${formatQuantity(lot.remainingBase, lot.unit)}'
+            '${shared ? ' · ${lot.ownerName}' : ''}$lead',
+          ),
+          if (lot.lotNumber != null)
+            Text(
+              '$manufacturerLotLabel: ${lot.lotNumber}',
+              key: Key('alert-lot-number-${lot.lotId}'),
+            ),
+        ],
       ),
       trailing: const Icon(Icons.chevron_right),
       onTap: () => onOpen(lot.productId),
