@@ -144,12 +144,15 @@ class ReportExportService {
         );
 
       case ReportKind.productCost:
+        // Decisión C (2026-11-13): como «Costo por chaco».
+        final products = await _repository.productCostLines(
+          campaignId: request.campaignId,
+        );
         return _composer.productCost(
           generatedAt: generatedAt,
           campaignName: campaignName,
-          lines: await _repository.productCostReportTyped(
-            campaignId: request.campaignId,
-          ),
+          productScope: products.ownerOnly ? ownerProductsScope : null,
+          lines: products.lines,
         );
 
       case ReportKind.farmCost:

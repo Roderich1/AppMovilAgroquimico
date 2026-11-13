@@ -14,6 +14,11 @@
 //   Chaco Viejo (titular, 1 ha)    C1: 1 L = 100,00; archivado después
 //   Chaco hermana (familiar, 0,5 ha)  C1: 1 L = 100,00   ← historial ajeno
 //   Chaco vecino  (tercero, 1 ha)     C2: 2 L = 200,00   ← historial ajeno
+//   Productos: Herbicida (L, aplicado) y Fungicida (KG, nunca aplicado).
+//
+// Continuación (misma decisión C): «Costo por producto» sigue el mismo
+// patrón; «Resumen de campaña» no tiene pantalla individual equivalente y no
+// cambia (la prueba deja medida su diferencia con «Costos › Campañas»).
 import 'dart:io';
 
 import 'package:agroquimicos/app.dart';
@@ -49,6 +54,7 @@ typedef _World = ({
   int viejo,
   int hermana,
   int vecino,
+  int product,
 });
 
 const _header = 'Chaco;Propietario;Área (ha);Costo (Bs);Costo/ha (Bs)';
@@ -73,6 +79,8 @@ Future<_World> _world(String name) async {
     start: DateTime.utc(2026, 1, 1),
   );
   final product = await repo.addProduct(name: 'Herbicida');
+  // Producto registrado y nunca aplicado (sólo figura en el informe global).
+  await repo.addProduct(name: 'Fungicida', unit: 'KG');
   final norte = await repo.addFarm(
     ownerId: titular,
     name: 'Chaco Norte',
@@ -169,6 +177,7 @@ Future<_World> _world(String name) async {
     viejo: viejo,
     hermana: hermana,
     vecino: vecino,
+    product: product,
   );
 }
 
@@ -176,10 +185,14 @@ Future<void> _personal(AppDatabase database) =>
     OperationModeStore(database).apply(OperationMode.personal, confirmed: true);
 
 /// Registros del Excel exportado, sin la línea «Generado».
-Future<List<String>> _exported(_World w, {int? campaignId}) async {
+Future<List<String>> _exported(
+  _World w, {
+  int? campaignId,
+  ReportKind kind = ReportKind.farmCost,
+}) async {
   final stored = await w.service.export(
     ReportRequest(
-      kind: ReportKind.farmCost,
+      kind: kind,
       format: ReportFormat.xlsx,
       campaignId: campaignId,
     ),
@@ -402,5 +415,165 @@ void main() {
     expect(file, contains('Chaco Loma;Titular;0,5;0,00;'));
     expect(file, contains('Chaco Sur;Titular;2;0,00;'));
     expect(file.where((r) => r.startsWith('Chaco ')), hasLength(4));
+  });
+
+  // --- Costo por producto ---------------------------------------------------
+
+  const productHeader = 'Producto;Cantidad;Unidad;Costo (Bs)';
+
+  /// «Costos › Productos» con la lectura de la pantalla
+  /// (`indCProductCosts(campaignId:)`), en el formato de las filas del Excel.
+  Future<List<String>> productScreenRows(_World w, {int? campaignId}) async {
+    final rows = await w.repo.indCProductCosts(campaignId: campaignId);
+    String money(int minor) =>
+        (minor / 100).toStringAsFixed(2).replaceAll('.', ',');
+    String quantity(int base) => (base / 1000)
+        .toString()
+        .replaceAll(RegExp(r'\.0$'), '')
+        .replaceAll('.', ',');
+    return [
+      for (final row in rows)
+        '${row.name};${quantity(row.quantityBase)};${row.unit};'
+            '${money(row.costMinor)}',
+      '',
+      'Costo total (Bs);'
+          '${money(rows.fold(0, (sum, row) => sum + row.costMinor))}',
+    ];
+  }
+
+  group('costo por producto', () {
+    test(
+      'modo individual, todas las campañas y con campaña: mismas filas y '
+      'total que la pantalla, sin lo aplicado en chacos de terceros',
+      () async {
+        final w = await _world('cierre_c_product_personal');
+        await _personal(w.database);
+        final db = await w.database.database;
+        final before = await dumpTables(db);
+
+        final all = await _exported(w, kind: ReportKind.productCost);
+        expect(all, [
+          'Costo por producto',
+          'Campaña;Todas las campañas',
+          'Aplicaciones;$ownerProductsScope',
+          '',
+          productHeader,
+          'Herbicida;11;L;1100,00',
+          '',
+          'Costo total (Bs);1100,00',
+        ]);
+        expect(all.skip(5), await productScreenRows(w));
+
+        final c1 = await _exported(
+          w,
+          kind: ReportKind.productCost,
+          campaignId: w.c1,
+        );
+        expect(c1.skip(5), [
+          'Herbicida;9;L;900,00',
+          '',
+          'Costo total (Bs);900,00',
+        ]);
+        expect(c1.skip(5), await productScreenRows(w, campaignId: w.c1));
+        expect(await dumpTables(db), before);
+      },
+    );
+
+    test('modo con varias personas: sin cambios (todos los productos y todas '
+        'las aplicaciones)', () async {
+      final w = await _world('cierre_c_product_shared');
+      expect(await _exported(w, kind: ReportKind.productCost), [
+        'Costo por producto',
+        'Campaña;Todas las campañas',
+        '',
+        productHeader,
+        'Fungicida;0;KG;0,00',
+        'Herbicida;14;L;1400,00',
+        '',
+        'Costo total (Bs);1400,00',
+      ]);
+      expect(
+        await _exported(w, kind: ReportKind.productCost, campaignId: w.c1),
+        [
+          'Costo por producto',
+          'Campaña;Invierno 2026',
+          '',
+          productHeader,
+          'Fungicida;0;KG;0,00',
+          'Herbicida;10;L;1000,00',
+          '',
+          'Costo total (Bs);1000,00',
+        ],
+      );
+      expect((await w.repo.productCostLines()).ownerOnly, isFalse);
+    });
+  });
+
+  testWidgets('pantalla «Costos › Productos» en la app y archivo exportado: '
+      'mismas cifras (Invierno 2026)', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(393, 852));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final w = (await tester.runAsync(() async {
+      final w = await _world('cierre_c_product_ui');
+      await _personal(w.database);
+      return w;
+    }))!;
+    final c = await pumpModeApp(tester, w.database);
+    c.read(routerProvider).go('/chacos/costos?campana=${w.c1}');
+    await settle(tester);
+    await tester.tap(find.byKey(const Key('ind-costos-por-producto')));
+    await settle(tester);
+    final row = find.byKey(Key('ind-costo-producto-${w.product}'));
+    expect(row, findsOneWidget);
+    expect(
+      find.descendant(of: row, matching: find.text(formatBob(90000))),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(of: row, matching: find.text('9 L · en 3 aplicaciones')),
+      findsOneWidget,
+    );
+    expect(find.text('Fungicida'), findsNothing);
+
+    final file = (await tester.runAsync(
+      () => _exported(w, kind: ReportKind.productCost, campaignId: w.c1),
+    ))!;
+    expect(file.skip(5), [
+      'Herbicida;9;L;900,00',
+      '',
+      'Costo total (Bs);900,00',
+    ]);
+  });
+
+  // --- Resumen de campaña: sin pantalla individual equivalente -------------
+
+  test('resumen de campaña: no cambia; su fila «Aplicaciones registradas» '
+      'cuenta todas las de la campaña, a diferencia de «Costos › Campañas» '
+      '(limitación declarada)', () async {
+    final w = await _world('cierre_c_summary_personal');
+    await _personal(w.database);
+    final screen = (await w.repo.indCCampaignCosts()).firstWhere(
+      (row) => row.campaign.id == w.c1,
+    );
+    expect(screen.applicationCount, 3);
+    expect(screen.costMinor, 90000);
+    final file = await _exported(
+      w,
+      kind: ReportKind.campaignSummary,
+      campaignId: w.c1,
+    );
+    // Sin filtro de alcance: es el resumen global de siempre.
+    expect(file[1], 'Campaña;Invierno 2026');
+    expect(file, contains('Aplicaciones registradas;4;1000,00'));
+    // Igual que en el modo con varias personas.
+    final shared = await _world('cierre_c_summary_shared');
+    expect(
+      await _exported(
+        shared,
+        kind: ReportKind.campaignSummary,
+        campaignId: shared.c1,
+      ),
+      file,
+    );
   });
 }

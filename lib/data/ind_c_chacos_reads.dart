@@ -14,14 +14,15 @@
 // * Alcance de personas: en modo individual, sólo los chacos del titular
 //   vigente (`owner_bindings`), como `farmsAndContext`. En el modo con varias
 //   personas, todos.
-// * En modo individual, la exportación «Costo por chaco» sale de
-//   `farmCostLines`, que usa `indCChacos` (decisión C del autor, 2026-11-13):
-//   mismos chacos, filtros y cifras que «Costos › Por chaco». El historial de
-//   terceros sigue en la base y se exporta en el modo con varias personas.
+// * En modo individual, las exportaciones «Costo por chaco» y «Costo por
+//   producto» salen de `farmCostLines` y `productCostLines`, que usan
+//   `indCChacos` e `indCProductCosts` (decisión C del autor, 2026-11-13):
+//   mismas filas, filtros y cifras que «Costos». El historial de terceros
+//   sigue en la base y se exporta en el modo con varias personas.
 import 'package:sqflite/sqflite.dart';
 
 import '../domain/operation_mode.dart';
-import '../domain/read_models.dart' show FarmCostRead;
+import '../domain/read_models.dart' show FarmCostRead, ProductCostRead;
 import 'agro_repository.dart';
 import 'app_database.dart';
 import 'typed_reads.dart';
@@ -305,6 +306,36 @@ extension IndCChacosReads on AgroRepository {
     final chacos = await indCChacos(campaignId: campaignId);
     return (
       lines: [for (final farm in chacos.farms) farm.cost],
+      ownerOnly: true,
+    );
+  }
+
+  /// Líneas de «Costo por producto» (exportación y Personas › Costos), con
+  /// el mismo criterio que [farmCostLines]: en modo individual, las de
+  /// [indCProductCosts] (productos aplicados en chacos del titular, con el
+  /// mismo filtro de campaña; `ownerOnly`); en el modo con varias personas,
+  /// `productCostReport` sin cambios. Suman los costos guardados en
+  /// `application_items.cost_bob_minor`.
+  Future<({List<ProductCostRead> lines, bool ownerOnly})> productCostLines({
+    int? campaignId,
+  }) async {
+    if (!(await indCScope()).personal) {
+      return (
+        lines: await productCostReportTyped(campaignId: campaignId),
+        ownerOnly: false,
+      );
+    }
+    return (
+      lines: [
+        for (final row in await indCProductCosts(campaignId: campaignId))
+          ProductCostRead(
+            productId: row.productId,
+            productName: row.name,
+            unit: row.unit,
+            quantityBase: row.quantityBase,
+            totalCostBobMinor: row.costMinor,
+          ),
+      ],
       ownerOnly: true,
     );
   }

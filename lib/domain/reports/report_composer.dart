@@ -90,6 +90,10 @@ String campaignFilterValue(String? campaignName) =>
 /// chacos de terceros del historial.
 const ownerFarmsScope = 'Sólo los del titular (modo individual)';
 
+/// Filtro «Aplicaciones» del informe «Costo por producto» exportado en modo
+/// individual (decisión C del autor, 2026-11-13).
+const ownerProductsScope = 'Sólo en chacos del titular (modo individual)';
+
 class ReportComposer {
   const ReportComposer();
 
@@ -133,10 +137,14 @@ class ReportComposer {
   }
 
   /// Costo consumido por producto, opcionalmente de una campaña.
+  ///
+  /// [productScope], si se da, añade el filtro «Aplicaciones» (modo
+  /// individual).
   ReportTable productCost({
     required List<ProductCostRead> lines,
     required DateTime generatedAt,
     String? campaignName,
+    String? productScope,
   }) {
     var totalCost = 0;
     final rows = <List<ReportCell>>[];
@@ -152,7 +160,10 @@ class ReportComposer {
     return ReportTable(
       title: ReportKind.productCost.label,
       generatedAt: generatedAt,
-      filters: [ReportFilter('Campaña', campaignFilterValue(campaignName))],
+      filters: [
+        ReportFilter('Campaña', campaignFilterValue(campaignName)),
+        if (productScope != null) ReportFilter('Aplicaciones', productScope),
+      ],
       columns: const [
         ReportColumn('Producto', weight: 3),
         ReportColumn('Cantidad', numeric: true, weight: 1.6),
