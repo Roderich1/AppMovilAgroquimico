@@ -43,9 +43,10 @@ String personSearchKey(String text) {
     previous = String.fromCharCode(rune);
     buffer.write(previous);
   }
-  return normalizeForSearch(
-    buffer.toString(),
-  ).split(RegExp(r'\s+')).where((word) => word.isNotEmpty).join(' ');
+  return normalizeForSearch(buffer.toString())
+      .split(RegExp(r'\s+'))
+      .where((word) => word.isNotEmpty)
+      .join(' ');
 }
 
 /// `true` si cada palabra de [query] aparece en [name] (ver la biblioteca).

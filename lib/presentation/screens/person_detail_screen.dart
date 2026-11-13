@@ -67,7 +67,9 @@ class _PersonDetailScreenState extends ConsumerState<PersonDetailScreen> {
       context,
       ref,
       person: AccountSummary(account: s.account, campaignId: null),
-      campaign: campaigns.where((campaign) => campaign.isActive).firstOrNull,
+      campaign: rdmAPeriodOf(
+        campaigns.where((campaign) => campaign.isActive).firstOrNull,
+      ),
     );
     if (recorded && mounted) _refresh();
   }

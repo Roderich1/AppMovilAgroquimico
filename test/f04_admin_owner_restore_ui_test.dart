@@ -480,11 +480,15 @@ void main() {
       ProviderContainer c,
       String name,
     ) async {
-      c.read(routerProvider).go('/liquidacion');
+      // Ronda 2 (2026-11-12): los respaldos ya no están en la cabecera de
+      // Cuentas (`/liquidacion`); el mismo procedimiento
+      // (`restoreLocalBackup`) se abre en Ajustes › Respaldos.
+      c.read(routerProvider).go('/respaldo-remoto');
+      await waitFor(tester, find.byKey(const Key('backup-local-restore')));
       await settle(tester);
-      await tester.tap(find.byTooltip('Copias de seguridad'));
-      await settle(tester);
-      await tester.tap(find.text('Restaurar respaldo'));
+      await tester.ensureVisible(find.byKey(const Key('backup-local-restore')));
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('backup-local-restore')));
       await waitFor(tester, find.text('agroquimicos_backup_$name.db'));
       await tester.tap(find.text('agroquimicos_backup_$name.db'));
     }
@@ -550,6 +554,12 @@ void main() {
         );
         expect(names, contains('Del respaldo'));
         expect(names, isNot(contains('Actual')));
+        // Ronda 2: se restaura desde Ajustes › Respaldos, que relee sus
+        // copias previas al terminar; se sale de la pantalla antes de que la
+        // prueba borre su carpeta temporal (en Windows un archivo abierto no
+        // se puede borrar).
+        c.read(routerProvider).go('/personas');
+        await settle(tester);
       },
     );
 

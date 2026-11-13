@@ -15,7 +15,6 @@ import 'package:agroquimicos/data/app_database.dart';
 import 'package:agroquimicos/data/operation_mode_store.dart';
 import 'package:agroquimicos/domain/account_texts.dart';
 import 'package:agroquimicos/domain/models.dart';
-import 'package:agroquimicos/domain/money.dart';
 import 'package:agroquimicos/domain/operation_mode.dart';
 import 'package:agroquimicos/domain/reports/report_composer.dart';
 import 'package:agroquimicos/domain/reports/report_table.dart';
@@ -394,6 +393,7 @@ void main() {
       );
       // «Titular» sólo aparece en su tarjeta, nunca como deudor.
       expect(find.text('Titular'), findsOneWidget);
+      expect(find.byKey(Key('account-card-${e.titular}')), findsNothing);
       // Ronda 2 (2026-11-12): el autor revisó Q-2; el titular ya no tiene
       // «Registrar pago» (antes lo conservaba, #26).
       await tester.tap(
@@ -403,13 +403,19 @@ void main() {
         ),
       );
       await settle(tester);
-      expect(find.text('Ver movimientos propios'), findsOneWidget);
+      // Ronda 2: «Ver movimientos propios» está en el menú y también como
+      // botón visible de la tarjeta; se abre desde el menú.
+      final viewOwn = find.widgetWithText(
+        PopupMenuItem<String>,
+        'Ver movimientos propios',
+      );
+      expect(viewOwn, findsOneWidget);
       expect(
         find.widgetWithText(PopupMenuItem<String>, 'Registrar pago'),
         findsNothing,
       );
       expect(find.text('Registrar adelanto'), findsNothing);
-      await tester.tap(find.text('Ver movimientos propios'));
+      await tester.tap(viewOwn);
       await settle(tester);
       Finder inDialog(String text) => find.descendant(
         of: find.byType(Dialog),
@@ -443,15 +449,25 @@ void main() {
         'titular (D-04: saldo 81)', (tester) async {
       final e = await seeded(tester);
       await pump(tester, e.w.repo, const PersonsScreen());
-      final tile = find.ancestor(
-        of: find.text('Titular'),
-        matching: find.byType(ListTile),
+      // Ronda 2: Personas y Cuentas son la misma lista; la tarjeta del
+      // titular dice su consumo propio con el alcance del filtro (la campaña
+      // activa) y no es deuda. Antes: «Consumo propio 81,00 Bs» en su fila.
+      final own = find.byKey(const Key('own-consumption-card'));
+      expect(
+        find.descendant(of: own, matching: find.text('Titular')),
+        findsOneWidget,
       );
       expect(
         find.descendant(
-          of: tile,
-          matching: find.text('Consumo propio ${bs(8100)}'),
+          of: own,
+          matching: find.text(
+            'Consumo aplicado (costo FIFO) · Invierno 2026 ${bs(8100)}',
+          ),
         ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: own, matching: find.text('No es deuda')),
         findsOneWidget,
       );
     });
@@ -635,12 +651,16 @@ void main() {
       }))!;
       addTearDown(() => tester.runAsync(e.close));
       await pump(tester, e.w.repo, const PersonsScreen());
-      final tile = find.ancestor(
-        of: find.text('Titular'),
-        matching: find.byType(ListTile),
-      );
+      // Ronda 2: la tarjeta es la de Cuentas; su saldo neto de todas las
+      // campañas está en la línea D-04 (antes, la cifra de la fila).
+      final card = find.byKey(Key('account-card-${e.titular}'));
       expect(
-        find.descendant(of: tile, matching: find.text(formatBob(4500))),
+        find.descendant(
+          of: card,
+          matching: find.text(
+            'Saldo neto · todas las campañas ${bs(4500)}',
+          ),
+        ),
         findsOneWidget,
       );
     });

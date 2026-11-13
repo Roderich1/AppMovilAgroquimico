@@ -62,7 +62,9 @@ Future<int> _buy(
         quantityBase: quantity,
         currency: CurrencyCode.bob,
         originalUnitPriceMinor: priceMinor,
-        allocations: [AllocationDraft(personId: person, quantityBase: quantity)],
+        allocations: [
+          AllocationDraft(personId: person, quantityBase: quantity),
+        ],
       ),
     ],
   ),

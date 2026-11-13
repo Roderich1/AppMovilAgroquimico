@@ -16,9 +16,17 @@ const double statementWideWidth = 480;
 /// (a hoy)» y el estado cronológico con apertura. Son dos cálculos distintos y
 /// cada uno lleva su etiqueta.
 class AccountStatementView extends StatelessWidget {
-  const AccountStatementView({super.key, required this.statement});
+  const AccountStatementView({
+    super.key,
+    required this.statement,
+    this.leading = const [],
+  });
 
   final AccountStatement statement;
+
+  /// Lo que va antes del detalle (resumen y filtro, ronda 2): la misma
+  /// estructura que [OwnMovementsView].
+  final List<Widget> leading;
 
   @override
   Widget build(BuildContext context) {
@@ -36,6 +44,7 @@ class AccountStatementView extends StatelessWidget {
         return ListView(
           padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
           children: [
+            ...leading,
             _StatementGroup(
               children: [
                 Text('Deuda pendiente por origen (a hoy)', style: _heading),
@@ -70,7 +79,13 @@ class AccountStatementView extends StatelessWidget {
             const SizedBox(height: 16),
             Padding(
               padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
-              child: Text(statementHeader(statement), style: _heading),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text('Movimientos', style: _heading),
+                  Text(statementHeader(statement), style: AgroText.detail),
+                ],
+              ),
             ),
             if (noMovements)
               const EmptyState(
@@ -249,9 +264,16 @@ class MovementTile extends StatelessWidget {
 /// «Movimientos propios» del titular (E-15 §B.2): consumo aplicado con su
 /// costo FIFO y asientos de su cuenta como registro, sin saldo ni acumulado.
 class OwnMovementsView extends StatelessWidget {
-  const OwnMovementsView({super.key, required this.statement});
+  const OwnMovementsView({
+    super.key,
+    required this.statement,
+    this.leading = const [],
+  });
 
   final AccountStatement statement;
+
+  /// Resumen y filtro (ronda 2), como en [AccountStatementView].
+  final List<Widget> leading;
 
   @override
   Widget build(BuildContext context) {
@@ -266,9 +288,12 @@ class OwnMovementsView extends StatelessWidget {
         return ListView(
           padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
           children: [
+            ...leading,
             _StatementGroup(
               children: [
-                Text('Consumo aplicado (costo FIFO)', style: heading),
+                // Lenguaje sencillo arriba; el término técnico, debajo.
+                Text('Consumo propio por campaña', style: heading),
+                Text('Consumo aplicado (costo FIFO)', style: AgroText.detail),
                 for (final row in ledger.ownConsumptionByCampaign(personId))
                   if (row.consumption.activeCount > 0)
                     Text(
@@ -292,10 +317,19 @@ class OwnMovementsView extends StatelessWidget {
             const SizedBox(height: 16),
             Padding(
               padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
-              child: Text(
-                'Asientos de su cuenta (registro, no deuda) · '
-                '${ownScopeLabel(statement.period, statement.today)}',
-                style: heading,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Movimientos de su cuenta · '
+                    '${ownScopeLabel(statement.period, statement.today)}',
+                    style: heading,
+                  ),
+                  const Text(
+                    'Asientos de su cuenta (registro, no deuda)',
+                    style: AgroText.detail,
+                  ),
+                ],
               ),
             ),
             if (statement.ownLines.isEmpty)
@@ -317,6 +351,18 @@ class OwnMovementsView extends StatelessWidget {
                         );
                         return MovementTile(
                           narrow: narrow,
+                          // Los mismos iconos que el estado de cuenta.
+                          leading: entry.amountMinor > 0
+                              ? const IconCircle(
+                                  icon: Icons.spa_outlined,
+                                  background: AgroColors.ink,
+                                  foreground: AgroColors.lime,
+                                )
+                              : const IconCircle(
+                                  icon: Icons.arrow_upward,
+                                  background: Color(0xFFE3F6A8),
+                                  foreground: Color(0xFF24400A),
+                                ),
                           title: conceptLabel(entry.concept),
                           subtitle:
                               [

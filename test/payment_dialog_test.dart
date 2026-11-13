@@ -76,6 +76,9 @@ void main() {
 
   Future<void> openPaymentDialog(WidgetTester tester) async {
     await tester.ensureVisible(payButton().first);
+    // Ronda 2: el botón queda más abajo (área, campaña y búsqueda arriba):
+    // hay que pintar el desplazamiento antes de tocar.
+    await tester.pump();
     await tester.tap(payButton().first);
     await settle(tester);
   }
@@ -108,7 +111,8 @@ void main() {
       await tester.tap(find.text('Cancelar'));
       await settle(tester);
       expect(
-        find.text('Liquidación y cuentas'),
+        // Ronda 2: `/liquidacion` muestra Personas › Cuentas.
+        find.text('Personas'),
         findsOneWidget,
         reason: 'la pantalla debe seguir viva tras cerrar el diálogo',
       );

@@ -28,11 +28,15 @@ library;
 import 'dart:convert';
 import 'dart:typed_data';
 
-/// Medidas de una hoja A4 en puntos PostScript (1/72").
+/// Medidas de una hoja A4 (vertical u horizontal) en puntos PostScript
+/// (1/72").
 class PdfPageFormat {
   const PdfPageFormat(this.width, this.height);
 
   static const a4 = PdfPageFormat(595.28, 841.89);
+
+  /// A4 apaisado, para tablas anchas (ronda 2: el estado de cuenta).
+  static const a4Landscape = PdfPageFormat(841.89, 595.28);
 
   final double width;
   final double height;
@@ -90,6 +94,10 @@ class PdfGray {
   static const muted = PdfGray(0.42);
   static const rule = PdfGray(0.75);
   static const band = PdfGray(0.91);
+
+  /// Fondo de una fila sí y otra no: con filas de varias líneas ayuda a
+  /// seguir cada fila.
+  static const stripe = PdfGray(0.965);
   final double value;
 }
 

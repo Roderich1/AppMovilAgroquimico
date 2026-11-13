@@ -12,12 +12,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'support/f04_mode_ui_harness.dart';
 import 'support_rdm2/c_seed.dart';
 
-const _names = [
-  rdm2cOwnerName,
-  rdm2cLongName,
-  rdm2cThirdName,
-  rdm2cQuietName,
-];
+const _names = [rdm2cOwnerName, rdm2cLongName, rdm2cThirdName, rdm2cQuietName];
 
 void main() {
   sqfliteFfiInit();
@@ -159,10 +154,7 @@ void main() {
       await tester.tap(find.text('Todas las campañas').last);
       await settle(tester);
       expect(visible(), {rdm2cThirdName});
-      expect(
-        tester.widget<TextField>(search()).controller!.text,
-        'juan',
-      );
+      expect(tester.widget<TextField>(search()).controller!.text, 'juan');
       expect(
         find.textContaining('Deuda pendiente por origen · Invierno 2026'),
         findsNothing,
