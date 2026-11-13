@@ -76,8 +76,17 @@ Future<void> preparePurchaseKey(WidgetTester tester, String key) async {
     return;
   }
   // Lo demás (las opciones de una revisión de voz, por ejemplo) está en la
-  // hoja o en la página: si no se ve con la hoja abierta, está en la página.
-  if (find.byKey(Key(key)).evaluate().isEmpty && purchaseLineSheetOpen()) {
+  // hoja o en la página: si no está dentro de la hoja abierta, está en la
+  // página. Desde la ronda 2 la página sigue construida detrás del velo, así
+  // que se busca dentro de la hoja (`InPageSheet`), no en todo el árbol.
+  if (purchaseLineSheetOpen() &&
+      find
+          .descendant(
+            of: find.byType(InPageSheet),
+            matching: find.byKey(Key(key)),
+          )
+          .evaluate()
+          .isEmpty) {
     await closePurchaseLine(tester);
   }
 }
