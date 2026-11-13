@@ -138,13 +138,13 @@ Future<void> showRegisterSheet(
                   key: const Key('register-payment'),
                   icon: Icons.payments_outlined,
                   label: 'Pago',
-                  hint: 'En Personas › Cuentas',
+                  hint: 'En Cuentas',
                   onTap: () {
                     // Pago se elige en Cuentas (no es un formulario): se va a
                     // la pantalla, sin apilar.
                     Navigator.of(sheetContext).pop();
                     WidgetsBinding.instance.addPostFrameCallback((_) {
-                      if (context.mounted) context.go('/personas');
+                      if (context.mounted) context.go('/liquidacion');
                     });
                   },
                 ),
