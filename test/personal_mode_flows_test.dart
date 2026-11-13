@@ -366,7 +366,10 @@ void main() {
       expect(find.byKey(const Key('farm-personal-owner')), findsOneWidget);
     });
 
-    testWidgets('liquidación: pagos y adelantos sólo del titular', (
+    // Ronda 2 (2026-11-12): antes «pagos y adelantos sólo del titular»; el
+    // autor revisó Q-2 y el titular tampoco recibe pagos de cuenta, así que
+    // en inventario propio nadie los recibe.
+    testWidgets('liquidación: en propio nadie recibe pagos de cuenta', (
       tester,
     ) async {
       await tester.binding.setSurfaceSize(const Size(800, 2400));
@@ -406,7 +409,7 @@ void main() {
 
       expect(
         await menuOf('Titular'),
-        allOf(contains('pay'), isNot(contains('advance'))),
+        allOf(isNot(contains('pay')), isNot(contains('advance'))),
       );
       final relative = await menuOf('Hermana');
       expect(relative, containsAll(['detail', 'export']));
@@ -471,13 +474,14 @@ void main() {
             of: find.text('Hermana'),
             matching: find.byType(Card),
           ),
-          matching: find.text('Inventario propio: pagos sólo del titular'),
+          matching: find.text('Inventario propio: sin pagos de cuenta'),
         ),
         findsOneWidget,
       );
+      // Ronda 2 (2026-11-12): el titular tampoco (antes conservaba «pay»).
       expect(
         await menuOf('Titular'),
-        allOf(contains('pay'), isNot(contains('advance'))),
+        allOf(isNot(contains('pay')), isNot(contains('advance'))),
       );
     });
 

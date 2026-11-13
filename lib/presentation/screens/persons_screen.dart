@@ -181,12 +181,9 @@ class _PersonsScreenState extends ConsumerState<PersonsScreen> {
             row: row,
             ledger: ledger,
             isOwner: row['id'] == owner,
-            // En inventario propio sólo el titular registra pagos (#26); su
-            // pago propio (Q-2) se registra en Cuentas.
-            onPay:
-                row['id'] == owner ||
-                    row['role'] == 'ADMIN' ||
-                    (personal && row['id'] != owner)
+            // Al titular no se le registran pagos de cuenta (decisión del
+            // autor del 2026-11-12) y en inventario propio nadie los recibe.
+            onPay: row['id'] == owner || row['role'] == 'ADMIN' || personal
                 ? null
                 : () => _pay(ledger, row['id']! as int),
             onStatement: row['role'] == 'ADMIN'

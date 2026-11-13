@@ -25,14 +25,14 @@ import 'common.dart';
 /// Abre la hoja y devuelve el importe en centavos, o `null` si se cancela.
 ///
 /// [netMinor] es el saldo neto de todas las campañas (D-04 §2.4): con deuda
-/// ofrece «Pagar todo» y dice cuánto quedará. Con [ownRecord] (pago propio
-/// del titular, criterio Q-2) no hay saldo que cobrar ni imputación FIFO.
+/// ofrece «Pagar todo» y dice cuánto quedará. Ya no hay pago propio del
+/// titular (decisión del autor del 2026-11-12, que revisa el criterio Q-2):
+/// la hoja es sólo para cuentas por cobrar.
 Future<int?> showAccountPaymentSheet(
   BuildContext context, {
   required String personName,
   required String registration,
   required int netMinor,
-  bool ownRecord = false,
 }) => showModalBottomSheet<int>(
   context: context,
   // Por encima de la barra inferior y del botón flotante del shell.
@@ -44,7 +44,6 @@ Future<int?> showAccountPaymentSheet(
     personName: personName,
     registration: registration,
     netMinor: netMinor,
-    ownRecord: ownRecord,
   ),
 );
 
@@ -62,13 +61,11 @@ class _PaymentSheet extends StatefulWidget {
     required this.personName,
     required this.registration,
     required this.netMinor,
-    required this.ownRecord,
   });
 
   final String personName;
   final String registration;
   final int netMinor;
-  final bool ownRecord;
 
   @override
   State<_PaymentSheet> createState() => _PaymentSheetState();
@@ -107,7 +104,7 @@ class _PaymentSheetState extends State<_PaymentSheet> {
   /// «Quedará debiendo …» con lo escrito, sólo como guía: la imputación real
   /// la hace el repositorio (a la deuda más antigua de cualquier campaña).
   String? get _after {
-    if (widget.ownRecord || widget.netMinor <= 0) return null;
+    if (widget.netMinor <= 0) return null;
     final parsed = parseNumericInput(_amount.text);
     if (!parsed.isValid) return null;
     final rest = widget.netMinor - (parsed.value! * 100).round();
@@ -154,17 +151,9 @@ class _PaymentSheetState extends State<_PaymentSheet> {
                     ),
                     const SizedBox(height: 2),
                     Text(widget.registration, style: AgroText.detail),
-                    Text(
-                      widget.ownRecord
-                          ? ownPaymentDialogText
-                          : dialogNetText(net),
-                      style: AgroText.detail,
-                    ),
-                    // El pago propio no se aplica a ninguna deuda: sin la línea FIFO.
-                    if (!widget.ownRecord) ...[
-                      Text(dialogFifoText, style: AgroText.detail),
-                      Text(dialogCreditText, style: AgroText.detail),
-                    ],
+                    Text(dialogNetText(net), style: AgroText.detail),
+                    Text(dialogFifoText, style: AgroText.detail),
+                    Text(dialogCreditText, style: AgroText.detail),
                     const SizedBox(height: 16),
                     TextField(
                       key: const Key('payment-amount'),
@@ -193,7 +182,7 @@ class _PaymentSheetState extends State<_PaymentSheet> {
                         errorMaxLines: 4,
                       ),
                     ),
-                    if (!widget.ownRecord && net > 0) ...[
+                    if (net > 0) ...[
                       const SizedBox(height: 12),
                       Wrap(
                         spacing: 12,
@@ -281,14 +270,12 @@ Future<bool> recordAccountPayment(
   WidgetRef ref, {
   required AccountSummary person,
   required CampaignRead? campaign,
-  bool ownRecord = false,
 }) async {
   final amount = await showAccountPaymentSheet(
     context,
     personName: person.name,
     registration: registrationText(rdmAPeriodOf(campaign), DateTime.now()),
     netMinor: person.account.netMinor,
-    ownRecord: ownRecord,
   );
   if (amount == null || !context.mounted) return false;
   try {

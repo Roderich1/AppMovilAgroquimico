@@ -161,6 +161,14 @@ class PersonalModeRestrictionException extends BusinessRuleException {
   PersonalModeRestrictionException(super.message);
 }
 
+/// Rechazo de un pago de cuenta personal al titular (decisión del autor del
+/// 2026-11-12, que revisa el criterio Q-2/C-12): su consumo y sus costos son
+/// propios, no una deuda consigo mismo.
+const ownerAccountPaymentRejectedMessage =
+    'El titular no tiene cuenta por cobrar: su consumo y sus costos son '
+    'propios, no una deuda. No se registra un pago a su cuenta. Sus compras '
+    'y pagos a proveedores se registran como siempre.';
+
 /// Modalidad y titular vigentes, leídos dentro de la transacción que escribe.
 typedef WriteContext = ({OperationMode mode, int? ownerPersonId});
 
@@ -2360,9 +2368,33 @@ class AgroRepository {
     if (amountBobMinor <= 0)
       throw BusinessRuleException('El importe debe ser mayor a cero.');
     return _write((txn, context) async {
-      _requireOwnerInPersonal(context, [
-        personId,
-      ], 'En inventario propio sólo se registran pagos del titular.');
+      // E-15: la clase (propia o por cobrar) se decide con los vínculos
+      // leídos en esta misma transacción.
+      final rule = OwnershipRule([
+        for (final row in await txn.query('owner_bindings'))
+          LedgerBinding(
+            id: row['id']! as int,
+            personId: row['person_id']! as int,
+            boundAt: row['bound_at']! as String,
+            endedAt: row['ended_at'] as String?,
+          ),
+      ]);
+      final paymentOwn = rule.isOwn(personId, localDay(date ?? DateTime.now()));
+      // Decisión del autor del 2026-11-12 (revisa el criterio Q-2/C-12):
+      // el titular no se debe a sí mismo, así que no se le registra un pago
+      // de cuenta personal. Un pago que sería propio (del titular vigente,
+      // o de quien era titular el día del pago) se rechaza. No toca sus
+      // compras ni sus pagos a proveedores, y los asientos ya guardados se
+      // siguen leyendo como registro.
+      if (paymentOwn) {
+        throw BusinessRuleException(ownerAccountPaymentRejectedMessage);
+      }
+      _requireOwnerInPersonal(
+        context,
+        [personId],
+        'En inventario propio no hay cuentas por cobrar: no se registran '
+        'pagos de cuenta.',
+      );
       final paymentId = await txn.insert('account_transactions', {
         'person_id': personId,
         'campaign_id': campaignId,
@@ -2396,18 +2428,7 @@ class AgroRepository {
       });
       // E-15 (A1): un pago sólo se imputa a cargos de su misma clase. Un
       // cargo propio no es deuda, igual que un cargo revertido (Q-5); y un
-      // pago propio no es cobro. La clase se decide con los vínculos leídos
-      // en esta misma transacción.
-      final rule = OwnershipRule([
-        for (final row in await txn.query('owner_bindings'))
-          LedgerBinding(
-            id: row['id']! as int,
-            personId: row['person_id']! as int,
-            boundAt: row['bound_at']! as String,
-            endedAt: row['ended_at'] as String?,
-          ),
-      ]);
-      final paymentOwn = rule.isOwn(personId, localDay(date ?? DateTime.now()));
+      // pago propio no es cobro (ya no se registra: ver arriba).
       charges.removeWhere(
         (charge) =>
             rule.isOwn(
