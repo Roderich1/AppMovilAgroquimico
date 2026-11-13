@@ -29,7 +29,8 @@ Map<String, Object?> callJson({
   String closedAt = '2026-11-20T22:00:00.000Z',
   String cancelledAt = '2026-11-12T10:00:00.000Z',
   Map<String, Object?> extra = const {},
-  // P-A (contrato 3): versión de la responsabilidad; null = no se envía.
+  // P-A (contrato 3): versión de la responsabilidad; null = no se envía. El
+  // contrato 4 ya no la admite: sólo para probar que se rechaza.
   int? responsibleVersion,
   String responsibleName = 'Responsable sintético',
 }) => {
@@ -82,7 +83,10 @@ Map<String, Object?> participationJson({
   // anterior a §10.6 (el teléfono lo deduce del texto aceptado).
   String? consentScope,
   int consentScopeSequence = 0,
-  // P-A C1 (contrato 3): `{authorized, version}`; null = no se envía.
+  // E4: versión citada por la decisión que fijó el alcance.
+  String consentScopeVersion = jointPurchaseConsentVersion,
+  // P-A C1 (contrato 3): `{authorized, version}`; null = no se envía. El
+  // contrato 4 ya no la admite: sólo para probar que se rechaza.
   Map<String, Object?>? responsibleAuthorization,
 }) => {
   'status': withdrawn ? 'WITHDRAWN' : 'ACTIVE',
@@ -107,7 +111,7 @@ Map<String, Object?> participationJson({
   if (consentScope != null)
     'consent_scope': {
       'scope': consentScope,
-      'version': jointPurchaseConsentVersion,
+      'version': consentScopeVersion,
       'decided_at': '2026-11-12T10:00:00.000Z',
       'received_at': '2026-11-12T10:00:05.000Z',
       'sequence': consentScopeSequence,
@@ -128,6 +132,7 @@ Map<String, Object?> listJson(
   'consent': {
     'version': jointPurchaseConsentVersion,
     'text': jointPurchaseConsentText,
+    'help': jointPurchaseConsentHelp,
   },
   'history': {'older_count': olderCount},
   'calls': calls,

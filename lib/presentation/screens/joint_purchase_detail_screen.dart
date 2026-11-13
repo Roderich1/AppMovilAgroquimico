@@ -9,7 +9,7 @@ import '../../services/sync/sync_providers.dart';
 import '../theme/agro_theme.dart';
 import '../widgets/agro_ui.dart';
 import '../widgets/common.dart';
-import '../widgets/joint_purchase_responsible_review.dart';
+import '../widgets/joint_purchase_access_review.dart';
 import '../widgets/joint_purchase_texts.dart';
 import '../widgets/rdm_c_joint.dart';
 import '../widgets/rdm_c_page.dart';
@@ -78,8 +78,9 @@ class _JointPurchaseDetailScreenState
       ),
     );
     if (lines == null || !mounted) return;
-    // E2 §10.6: el consentimiento se pide sólo para participar por primera
-    // vez; modificar cantidades conserva lo aceptado.
+    // E2 §10.6 y E4 §4: el consentimiento (`CONV-4`) se pide sólo para
+    // participar por primera vez; modificar cantidades conserva lo aceptado
+    // y nunca cambia quién ve los datos.
     DateTime? acceptedAt;
     if (call.serverParticipation == null) {
       acceptedAt = await showDialog<DateTime>(
@@ -105,52 +106,6 @@ class _JointPurchaseDetailScreenState
                 'autorización no cambia.'
           : 'Guardada en el teléfono: pendiente de envío al sindicato.',
     );
-  }
-
-  /// E2 §10.6: ampliar o reducir quién ve los datos, aparte de las
-  /// cantidades.
-  Future<void> _decide(JointPurchaseCall call, String scope) async {
-    final DateTime? decidedAt;
-    if (scope == JointPurchaseConsentScope.collaborators) {
-      decidedAt = await showDialog<DateTime>(
-        context: context,
-        barrierDismissible: false,
-        builder: (_) => const JointPurchaseWidenDialog(),
-      );
-    } else {
-      final confirmed = await confirmDestructiveAction(
-        context,
-        title: jointPurchaseReduceLabel,
-        detail: jointPurchaseReduceDetail,
-        confirmLabel: 'Reducir',
-      );
-      decidedAt = confirmed ? DateTime.now() : null;
-    }
-    if (decidedAt == null || !mounted) return;
-    setState(() => busy = true);
-    try {
-      final op = await ref
-          .read(jointPurchaseStoreProvider)
-          .decideConsent(
-            callId: call.callId,
-            scope: scope,
-            decidedAt: decidedAt,
-          );
-      if (!mounted) return;
-      showSuccess(
-        context,
-        op == null
-            ? 'Eso ya rige en el sindicato: no hay nada que enviar.'
-            : 'Decisión guardada en el teléfono: pendiente de envío. Hasta '
-                  'que el sindicato la reciba, rige lo anterior.',
-      );
-      ref.read(syncControllerProvider.notifier).jointPurchaseQueued();
-    } on Object catch (error) {
-      if (mounted) showError(context, error);
-    } finally {
-      if (mounted) setState(() => busy = false);
-    }
-    if (mounted) _reload();
   }
 
   Future<void> _withdraw(JointPurchaseCall call) async {
@@ -253,16 +208,6 @@ class _JointPurchaseDetailScreenState
         call.acceptedActive != null ||
         (call.pendingOp != null && !call.pendingOp!.isWithdraw);
     final opText = jointPurchaseOpText(call.latestOp);
-    // E2 §10.6: se decide sobre una participación (la del sindicato, o la
-    // primera que todavía está pendiente de envío).
-    final canDecide =
-        call.serverParticipation != null ||
-        (call.pendingOp != null && !call.pendingOp!.isWithdraw);
-    const widen = JointPurchaseConsentScope.collaborators;
-    final effectiveScope =
-        call.pendingConsentOp?.scope ??
-        call.serverParticipation?.consentScope ??
-        JointPurchaseConsentScope.responsibleOnly;
     final accepted = acceptedText(call);
     final pending = pendingText(call);
     final consentResult = jointPurchaseConsentResultText(call);
@@ -377,8 +322,7 @@ class _JointPurchaseDetailScreenState
         const JointInfoLine(
           text:
               'Participar no es una compra ni genera una deuda: la persona '
-              'responsable y quienes ella autorice coordinan la compra y la '
-              'entrega.',
+              'responsable coordina la compra y la entrega.',
           textKey: Key('joint-not-a-debt'),
         ),
         const SizedBox(height: 16),
@@ -407,12 +351,18 @@ class _JointPurchaseDetailScreenState
             ),
           ),
         const SizedBox(height: 16),
-        // --- Quién ve sus datos (E2 §10.6: aparte de las cantidades) --------
+        // --- Quién ve sus datos (E4 §4: aparte de las cantidades) -----------
         const SectionHeader(title: 'Quién ve sus datos'),
         JointInfoLine(
           text: jointPurchaseWhoCanSeeText(call),
           textKey: const Key('joint-who-can-see'),
           icon: Icons.visibility_outlined,
+        ),
+        // Con pocas participaciones, un total sin nombres puede permitir
+        // deducir una cantidad: se dice siempre (ayuda de `CONV-4`).
+        const Padding(
+          padding: EdgeInsets.only(top: 8),
+          child: JointPurchaseConsentHelp(textKey: Key('joint-consent-help')),
         ),
         if (call.pendingConsentOp != null)
           JointInfoLine(
@@ -427,35 +377,10 @@ class _JointPurchaseDetailScreenState
             textKey: const Key('joint-consent-result'),
             icon: Icons.fact_check_outlined,
           ),
-        // P-A C1 (E2 §12): la persona responsable cambió; autorizarla es una
-        // acción propia, aparte de las cantidades (se muestra sola si aplica).
-        JointPurchaseResponsibleReview(call: call, onChanged: _reload),
-        if (canDecide) ...[
-          const SizedBox(height: 10),
-          // Sin autorizar a la responsable actual no se amplía (P-A C1).
-          if (effectiveScope != widen && !call.needsResponsibleReview)
-            OutlinedButton.icon(
-              key: const Key('joint-consent-widen'),
-              onPressed:
-                  busy || call.status == JointPurchaseCallStatus.cancelled
-                  ? null
-                  : () => _decide(call, widen),
-              icon: const Icon(Icons.group_add_outlined),
-              label: const Text(jointPurchaseWidenLabel),
-            ),
-          if (effectiveScope == widen)
-            OutlinedButton.icon(
-              key: const Key('joint-consent-reduce'),
-              onPressed: busy
-                  ? null
-                  : () => _decide(
-                      call,
-                      JointPurchaseConsentScope.responsibleOnly,
-                    ),
-              icon: const Icon(Icons.lock_person_outlined),
-              label: const Text(jointPurchaseReduceLabel),
-            ),
-        ],
+        // E4 §4.2: revisar (también en una cerrada) o retirar la
+        // autorización; acciones propias, aparte de las cantidades (se
+        // muestran solas si aplican; nunca en una cancelada).
+        JointPurchaseAccessActions(call: call, onChanged: _reload),
       ],
     );
   }
@@ -724,60 +649,11 @@ class _QuantityRow extends StatelessWidget {
   }
 }
 
-/// E2 §10.6: «Autorizar también…», con el texto vigente y una casilla sin
-/// marcar. Devuelve la fecha de la decisión (del teléfono) o null.
-class JointPurchaseWidenDialog extends StatefulWidget {
-  const JointPurchaseWidenDialog({super.key});
-
-  @override
-  State<JointPurchaseWidenDialog> createState() =>
-      _JointPurchaseWidenDialogState();
-}
-
-class _JointPurchaseWidenDialogState extends State<JointPurchaseWidenDialog> {
-  bool accepted = false;
-
-  @override
-  Widget build(BuildContext context) => AlertDialog(
-    title: const Text(jointPurchaseWidenLabel),
-    content: SingleChildScrollView(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(jointPurchaseConsentText),
-          CheckboxListTile(
-            key: const Key('joint-widen-check'),
-            contentPadding: EdgeInsets.zero,
-            controlAffinity: ListTileControlAffinity.leading,
-            value: accepted,
-            onChanged: (value) => setState(() => accepted = value ?? false),
-            title: const Text(jointPurchaseWidenCheck),
-          ),
-          const Text('Sus cantidades no cambian.'),
-        ],
-      ),
-    ),
-    actions: [
-      TextButton(
-        onPressed: () => Navigator.pop(context),
-        child: const Text('Cancelar'),
-      ),
-      FilledButton(
-        key: const Key('joint-widen-confirm'),
-        onPressed: accepted
-            ? () => Navigator.pop(context, DateTime.now())
-            : null,
-        child: const Text('Autorizar'),
-      ),
-    ],
-  );
-}
-
-/// Consentimiento vigente (`CONV-3`, E2 §10.6) con casilla obligatoria, sólo
-/// al participar por primera vez: aceptarlo autoriza a la persona
-/// responsable; ampliar es otra decisión. Devuelve la fecha de aceptación
-/// (del teléfono) o null si se cancela.
+/// Consentimiento vigente (`CONV-4`, E4 §4.1) con su ayuda y una casilla
+/// obligatoria sin marcar, sólo al participar por primera vez: aceptarlo da
+/// el alcance `ADMINISTRATION` (la Administración habilitada ve el nombre y
+/// las cantidades; la Directiva, sólo los totales). Devuelve la fecha de
+/// aceptación (del teléfono) o null si se cancela.
 class JointPurchaseConsentDialog extends StatefulWidget {
   const JointPurchaseConsentDialog({super.key});
 
@@ -799,6 +675,10 @@ class _JointPurchaseConsentDialogState
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const Text(jointPurchaseConsentText),
+          const SizedBox(height: 8),
+          const JointPurchaseConsentHelp(
+            textKey: Key('joint-consent-dialog-help'),
+          ),
           CheckboxListTile(
             key: const Key('joint-consent-check'),
             contentPadding: EdgeInsets.zero,

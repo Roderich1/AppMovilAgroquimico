@@ -430,6 +430,7 @@ void main() {
           'consent': {
             'version': jointPurchaseConsentVersion,
             'text': jointPurchaseConsentText,
+            'help': jointPurchaseConsentHelp,
           },
         });
         expect(page.calls.single.callId, callId);
@@ -442,6 +443,7 @@ void main() {
           'consent': {
             'version': jointPurchaseConsentVersion,
             'text': jointPurchaseConsentText,
+            'help': jointPurchaseConsentHelp,
             'extra': 1,
           },
         }, 'clave desconocida en el consentimiento');
@@ -458,7 +460,8 @@ void main() {
         );
         // N7: otra versión del contrato (la anterior o una futura) es una
         // incompatibilidad de versión, no un fallo temporal.
-        for (final other in [1, 2, 4]) {
+        // E4: el contrato 3 (el de la versión anterior) también.
+        for (final other in [1, 2, 3, 5]) {
           rejectsPage({
             ...historyJson([oldCallJson(callId)]),
             'contractVersion': other,

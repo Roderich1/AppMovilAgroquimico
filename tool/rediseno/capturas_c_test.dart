@@ -381,14 +381,15 @@ void main() {
     );
     await shot(tester, '6.2_convocatoria');
     await tester.scrollUntilVisible(
-      find.byKey(const Key('joint-consent-widen')),
+      find.byKey(const Key('joint-access-retract')),
       200,
       scrollable: find.byType(Scrollable).first,
     );
     await shot(tester, '6.2b_convocatoria_quien_ve');
-    await tester.tap(find.byKey(const Key('joint-consent-widen')));
+    // E4 (D-05): retirar la autorización sin retirar la participación.
+    await tester.tap(find.byKey(const Key('joint-access-retract')));
     await settle(tester);
-    await shot(tester, '6.2c_autorizar_tambien');
+    await shot(tester, '6.2c_retirar_autorizacion');
     await tester.tap(find.text('Cancelar'));
     await settle(tester);
 
@@ -409,10 +410,10 @@ void main() {
     await shot(tester, '6.3b_consentimiento');
   });
 
-  // P-A C1 (rama funcional F, integrada el 2026-11-12): la persona
-  // responsable cambió y el sindicato dice que este agricultor todavía no la
-  // autorizó. Datos sintéticos.
-  testWidgets('P-A: la persona responsable cambió', (tester) async {
+  // E4 §4.4 (sustituye a P-A C1): una participación con consentimiento
+  // anterior se revisa con CONV-4; cambiar de responsable no pide nada.
+  // Datos sintéticos.
+  testWidgets('E4: revisar una participación anterior', (tester) async {
     await setUpView(tester);
     final dir = await tester.runAsync(
       () => Directory.systemTemp.createTemp('rdm_c_pa_'),
@@ -428,13 +429,12 @@ void main() {
       () => seedCalls(store, memberA, [
         callJson(
           name: 'Herbicidas invierno 2026',
-          responsibleVersion: 2,
           responsibleName: 'Responsable nueva (sintética)',
           participation: participationJson(
             lines: {litreRef: 12000, kiloRef: 20000},
+            consentVersion: 'CONV-3',
             consentScope: JointPurchaseConsentScope.responsibleOnly,
-            consentScopeSequence: 0,
-            responsibleAuthorization: {'authorized': false, 'version': 1},
+            consentScopeVersion: 'CONV-3',
           ),
         ),
       ]),
@@ -453,14 +453,14 @@ void main() {
       overrides,
     );
     await tester.scrollUntilVisible(
-      find.byKey(const Key('joint-responsible-review')),
+      find.byKey(const Key('joint-access-review')),
       200,
       scrollable: find.byType(Scrollable).first,
     );
     await settle(tester);
-    await shot(tester, '6.2e_pa_responsable_cambio');
-    await tester.tap(find.byKey(const Key('joint-responsible-authorize')));
+    await shot(tester, '6.2e_e4_participacion_anterior');
+    await tester.tap(find.byKey(const Key('joint-access-review')));
     await settle(tester);
-    await shot(tester, '6.2f_pa_autorizar');
+    await shot(tester, '6.2f_e4_revisar_quien_ve');
   });
 }

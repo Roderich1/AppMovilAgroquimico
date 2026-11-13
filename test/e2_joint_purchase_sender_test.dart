@@ -26,6 +26,7 @@ import 'support/f04_mode_fixtures.dart';
 import 'support/f05_sync_fixtures.dart';
 
 const _base = '/api/v1/me/joint-purchase-calls';
+const thirdCallId = '9b1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d';
 
 void main() {
   sqfliteFfiInit();
@@ -106,6 +107,8 @@ void main() {
     }
     final withdraw = path.endsWith('/withdraw');
     final keptScope = accepted[id]?['consent_scope'];
+    // E4: el texto aceptado al participar tampoco se reescribe.
+    final keptConsent = accepted[id]?['consent'];
     accepted[id] = participationJson(
       lastSequence: sequence,
       withdrawn: withdraw,
@@ -121,6 +124,9 @@ void main() {
     // Las cantidades nunca cambian el alcance (E2 §10.6).
     if (keptScope != null) {
       accepted[id] = {...accepted[id]!, 'consent_scope': keptScope};
+    }
+    if (keptConsent != null) {
+      accepted[id] = {...accepted[id]!, 'consent': keptConsent};
     }
     final response = jsonResponse({
       'outcome': 'ACCEPTED',
@@ -184,16 +190,16 @@ void main() {
       expect(body, {
         'operation_id': op.operationId,
         'sequence': 1,
-        'consent': {'version': 'CONV-3', 'accepted_at': now.toIso8601String()},
+        'consent': {'version': 'CONV-4', 'accepted_at': now.toIso8601String()},
         'lines': [
           {'product_ref': litreRef, 'quantity_base': '25000'},
           {'product_ref': kiloRef, 'quantity_base': '4500'},
         ],
       });
       expect(requests.first.headers['authorization'], 'Bearer token-sintetico');
-      // N7: cada petición dice qué contrato lee el teléfono.
-      expect(requests.first.headers['x-joint-purchase-contract'], '3');
-      expect(requests.last.headers['x-joint-purchase-contract'], '3');
+      // N7 y E4 §7.1: cada petición dice qué contrato lee el teléfono.
+      expect(requests.first.headers['x-joint-purchase-contract'], '4');
+      expect(requests.last.headers['x-joint-purchase-contract'], '4');
       final stored = (await store.op(op.operationId))!;
       expect(stored.sendStatus, JointPurchaseOpStatus.received);
       final call = (await store.call(callId))!;
@@ -519,24 +525,69 @@ void main() {
     },
   );
 
-  test(
-    'respuesta ACCEPTED con forma inválida: sigue pendiente, se reintenta',
-    () async {
-      final op = await confirm({litreRef: 25000});
-      respond = (request) => request.method == 'GET'
-          ? central(request)
-          : jsonResponse({
-              'outcome': 'ACCEPTED',
-              'participation': participationJson(),
-              'total_requested': '99000',
-            }, 200);
-      final report = await sender.run(access());
-      expect(report.retried, 1);
-      final stored = (await store.op(op.operationId))!;
-      expect(stored.sendStatus, JointPurchaseOpStatus.pendingSend);
-      expect(stored.lastCode, 'INVALID_RESPONSE');
-    },
-  );
+  test('E4 §7.2: ACCEPTED con forma inválida → RECEIVED sin adoptar nada ni reintentar; un 2xx que no es del sindicato se reintenta', () async {
+    final op = await confirm({litreRef: 25000});
+    respond = (request) => request.method == 'GET'
+        ? central(request)
+        : jsonResponse({
+            'outcome': 'ACCEPTED',
+            'participation': participationJson(),
+            'total_requested': '99000',
+          }, 200);
+    final report = await sender.run(access());
+    expect(report.received, 1);
+    expect(report.retried, 0);
+    final stored = (await store.op(op.operationId))!;
+    expect(stored.sendStatus, JointPurchaseOpStatus.received);
+    expect(stored.lastCode, JointPurchaseCodes.responseUnreadable);
+    expect(stored.nextAttemptAt, isNull);
+    // Nada de esa respuesta se guardó (ni el dato ajeno).
+    expect((await store.call(callId))!.serverParticipation, isNull);
+    // Un ciclo más no lo vuelve a enviar.
+    requests.clear();
+    now = now.add(const Duration(hours: 1));
+    await sender.run(access());
+    expect(calls().where((c) => !c.startsWith('GET')), isEmpty);
+
+    // Otra versión del contrato en un 2xx: lo mismo.
+    await seedCalls(store, memberA, [callJson(id: otherCallId)]);
+    final other = await store.confirm(
+      callId: otherCallId,
+      lines: {litreRef: 1000},
+      consentVersion: jointPurchaseConsentVersion,
+      consentAcceptedAt: now,
+    );
+    respond = (request) => request.method == 'GET'
+        ? central(request)
+        : jsonResponse({
+            'contractVersion': 5,
+            'outcome': 'ACCEPTED',
+            'participation': participationJson(),
+          }, 200);
+    await sender.run(access());
+    expect(
+      (await store.op(other.operationId))!.lastCode,
+      JointPurchaseCodes.responseUnreadable,
+    );
+
+    // Un 2xx que no tiene forma de respuesta del sindicato (por ejemplo, la
+    // página de un portal de acceso) puede ser pasajero: sigue pendiente.
+    await seedCalls(store, memberA, [callJson(id: thirdCallId)]);
+    final portal = await store.confirm(
+      callId: thirdCallId,
+      lines: {litreRef: 1000},
+      consentVersion: jointPurchaseConsentVersion,
+      consentAcceptedAt: now,
+    );
+    respond = (request) => request.method == 'GET'
+        ? central(request)
+        : http.Response('<html>Inicie sesión en la red</html>', 200);
+    final retried = await sender.run(access());
+    expect(retried.retried, 1);
+    final kept = (await store.op(portal.operationId))!;
+    expect(kept.sendStatus, JointPurchaseOpStatus.pendingSend);
+    expect(kept.lastCode, 'INVALID_RESPONSE');
+  });
 
   test('las lecturas automáticas de la lista se espacian; «Actualizar» lee siempre', () async {
     await sender.run(access());
@@ -808,12 +859,50 @@ void main() {
     );
   });
 
-  // --- E2 §10.6 (P-C) y N7 ---------------------------------------------
+  // --- E4 §4.2 y §7.2 (reescritas desde P-C, E2 §10.6) y N7 ---------------
 
-  test('P-C: modificar no lleva consentimiento; la decisión va aparte, después de las cantidades', () async {
-    await confirm({litreRef: 25000});
-    await sender.run(access());
-    // Modificar con una participación ya en el sindicato: sin consentimiento.
+  Future<JointPurchaseConsentOp?> decide(String scope) =>
+      store.decideAccess(callId: callId, scope: scope, decidedAt: now);
+
+  /// Una decisión anterior a E4 guardada en la cola v18/v19 por la
+  /// aplicación anterior, todavía pendiente de envío.
+  Future<String> insertLegacyDecision({
+    required String scope,
+    required int sequence,
+    bool authorizeResponsible = false,
+    String id = '5e1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d',
+  }) async {
+    await (await fixture.database.database).insert(
+      JointPurchaseStore.consentOpsTable,
+      {
+        'operation_id': id,
+        'call_id': callId,
+        'tenant_id': memberA.tenantId,
+        'member_id': memberA.memberId,
+        'sequence': sequence,
+        'scope': scope,
+        'consent_version': 'CONV-3',
+        'decided_at': '2026-11-12T09:00:00.000Z',
+        'send_status': JointPurchaseOpStatus.pendingSend,
+        'attempts': 0,
+        'created_at': '2026-11-12T09:00:00.000Z',
+        'updated_at': '2026-11-12T09:00:00.000Z',
+        'responsible_version': authorizeResponsible ? 1 : null,
+        'authorize_responsible': authorizeResponsible ? 1 : 0,
+      },
+    );
+    return id;
+  }
+
+  test('E4: modificar no lleva consentimiento; «Revisar» va aparte, después de las cantidades, con CONV-4', () async {
+    // Una participación anterior a E4 en el sindicato.
+    accepted[callId] = participationJson(
+      consentVersion: 'CONV-3',
+      consentScope: 'RESPONSIBLE_ONLY',
+      consentScopeVersion: 'CONV-3',
+    );
+    await sender.run(access(), forceList: true);
+    expect((await store.call(callId))!.needsAccessReview, isTrue);
     final modified = await store.confirm(
       callId: callId,
       lines: {litreRef: 30000},
@@ -821,11 +910,7 @@ void main() {
       consentAcceptedAt: now,
     );
     expect(modified.consentVersion, isNull);
-    final widen = (await store.decideConsent(
-      callId: callId,
-      scope: JointPurchaseConsentScope.collaborators,
-      decidedAt: now,
-    ))!;
+    final review = (await decide(JointPurchaseConsentScope.administration))!;
     requests.clear();
     final report = await sender.run(access());
     expect(report.received, 2);
@@ -839,67 +924,58 @@ void main() {
       isFalse,
     );
     expect(jsonDecode(requests[1].body), {
-      'operation_id': widen.operationId,
+      'operation_id': review.operationId,
       'sequence': 1,
-      'scope': 'COLLABORATORS',
-      'consent': {'version': 'CONV-3', 'decided_at': now.toIso8601String()},
+      'scope': 'ADMINISTRATION',
+      'consent': {'version': 'CONV-4', 'decided_at': now.toIso8601String()},
     });
-    expect(requests[1].headers['x-joint-purchase-contract'], '3');
+    expect(requests[1].headers['x-joint-purchase-contract'], '4');
     final call = (await store.call(callId))!;
-    expect(call.serverParticipation!.consentScope, 'COLLABORATORS');
+    expect(call.serverParticipation!.consentScope, 'ADMINISTRATION');
     expect(call.serverParticipation!.lines, {litreRef: 30000});
+    // El texto aceptado al participar no se reescribe.
+    expect(call.serverParticipation!.consentVersion, 'CONV-3');
     expect(call.pendingConsentOp, isNull);
     expect(call.latestConsentOp!.sendStatus, JointPurchaseOpStatus.received);
+    expect(call.needsAccessReview, isFalse);
   });
 
-  test(
-    'P-C: sin conexión la decisión queda pendiente y no se da por aplicada',
-    () async {
-      await confirm({litreRef: 25000});
-      await sender.run(access());
-      await store.decideConsent(
-        callId: callId,
-        scope: JointPurchaseConsentScope.collaborators,
-        decidedAt: now,
-      );
-      await sender.run(access());
-      final reduce = (await store.decideConsent(
-        callId: callId,
-        scope: JointPurchaseConsentScope.responsibleOnly,
-        decidedAt: now,
-      ))!;
-      respond = (_) => throw http.ClientException('sin red');
-      final report = await sender.run(access(), forceList: true);
-      expect(report.retried, 1);
-      expect(report.listProblem, JointPurchaseListProblem.offline);
-      final call = (await store.call(callId))!;
-      // Lo vigente sigue siendo lo que el sindicato aceptó.
-      expect(call.serverParticipation!.consentScope, 'COLLABORATORS');
-      expect(call.pendingConsentOp!.operationId, reduce.operationId);
-      // Con red, el mismo operation_id y la misma sequence.
-      respond = central;
-      now = now.add(const Duration(hours: 1));
-      requests.clear();
-      await sender.run(access());
-      expect(
-        jsonDecode(requests.first.body)['operation_id'],
-        reduce.operationId,
-      );
-      expect(jsonDecode(requests.first.body)['sequence'], 2);
-      expect(
-        (await store.call(callId))!.serverParticipation!.consentScope,
-        'RESPONSIBLE_ONLY',
-      );
-    },
-  );
-
-  test('P-C: la primera participación aún sin aceptar: la decisión espera (PARTICIPATION_REQUIRED se reintenta)', () async {
+  test('E4: sin conexión la retirada queda pendiente y no se da por aplicada; con red sale igual', () async {
     await confirm({litreRef: 25000});
-    await store.decideConsent(
-      callId: callId,
-      scope: JointPurchaseConsentScope.collaborators,
-      decidedAt: now,
+    await sender.run(access());
+    expect(
+      (await store.call(callId))!.serverParticipation!.consentScope,
+      'ADMINISTRATION',
     );
+    final retract = (await decide(JointPurchaseConsentScope.totalsOnly))!;
+    respond = (_) => throw http.ClientException('sin red');
+    final report = await sender.run(access(), forceList: true);
+    expect(report.retried, 1);
+    expect(report.listProblem, JointPurchaseListProblem.offline);
+    final call = (await store.call(callId))!;
+    // Lo vigente sigue siendo lo que el sindicato aceptó.
+    expect(call.serverParticipation!.consentScope, 'ADMINISTRATION');
+    expect(call.pendingConsentOp!.operationId, retract.operationId);
+    // Con red, el mismo operation_id y la misma sequence.
+    respond = central;
+    now = now.add(const Duration(hours: 1));
+    requests.clear();
+    await sender.run(access());
+    expect(
+      jsonDecode(requests.first.body)['operation_id'],
+      retract.operationId,
+    );
+    expect(jsonDecode(requests.first.body)['sequence'], 1);
+    final after = (await store.call(callId))!;
+    expect(after.serverParticipation!.consentScope, 'TOTALS_ONLY');
+    // La participación y sus cantidades siguen.
+    expect(after.serverParticipation!.isActive, isTrue);
+    expect(after.serverParticipation!.lines, {litreRef: 25000});
+  });
+
+  test('E4: la primera participación aún sin aceptar: la decisión espera mientras la confirmación siga por enviar', () async {
+    await confirm({litreRef: 25000});
+    await decide(JointPurchaseConsentScope.totalsOnly);
     var failConfirm = true;
     respond = (request) {
       if (failConfirm && request.method == 'PUT') {
@@ -916,24 +992,179 @@ void main() {
     await sender.run(access());
     expect(
       (await store.call(callId))!.serverParticipation!.consentScope,
-      'COLLABORATORS',
+      'TOTALS_ONLY',
     );
   });
 
-  test('P-C: una decisión atrasada no revierte la posterior (STALE_SEQUENCE adopta la vigente)', () async {
+  test('E4: PARTICIPATION_REQUIRED sin confirmación por enviar → REJECTED, sin reintento infinito', () async {
+    await confirm({litreRef: 25000});
+    await decide(JointPurchaseConsentScope.totalsOnly);
+    // La confirmación termina rechazada (por ejemplo, fuera de plazo): el
+    // sindicato nunca tendrá la participación.
+    respond = (request) => switch (request.method) {
+      'PUT' => jsonResponse({
+        'errorCode': 'CALL_NOT_OPEN',
+        'reason': 'DEADLINE_PASSED',
+      }, 409),
+      'POST' => jsonResponse({'errorCode': 'PARTICIPATION_REQUIRED'}, 409),
+      _ => central(request),
+    };
+    final report = await sender.run(access());
+    expect(report.outOfTime, 1);
+    expect(report.rejected, 1);
+    final decision = (await store.consentOps(callId)).single;
+    expect(decision.sendStatus, JointPurchaseOpStatus.rejected);
+    expect(decision.lastCode, 'PARTICIPATION_REQUIRED');
+    expect(decision.nextAttemptAt, isNull);
+    requests.clear();
+    now = now.add(const Duration(days: 1));
+    await sender.run(access(), includePaused: true);
+    expect(calls().where((c) => c.startsWith('POST')), isEmpty);
+  });
+
+  test('E4 §7.2: CONSENT_VERSION_RETIRED, APP_UPDATE_REQUIRED y WIDENING_NOT_ALLOWED son definitivos y no se borran', () async {
+    // Decisiones: una ampliación anterior guardada por la versión anterior
+    // (sale tal cual) y decisiones nuevas rechazadas por el sindicato.
+    accepted[callId] = participationJson(
+      consentVersion: 'CONV-3',
+      consentScope: 'RESPONSIBLE_ONLY',
+      consentScopeVersion: 'CONV-3',
+    );
+    await sender.run(access(), forceList: true);
+    final cases = [
+      (
+        'CONSENT_VERSION_RETIRED',
+        <String, Object?>{'errorCode': 'CONSENT_VERSION_RETIRED'},
+      ),
+      (
+        'APP_UPDATE_REQUIRED',
+        <String, Object?>{'errorCode': 'APP_UPDATE_REQUIRED'},
+      ),
+      (
+        'WIDENING_NOT_ALLOWED',
+        <String, Object?>{
+          'errorCode': 'WIDENING_NOT_ALLOWED',
+          'status': 'CANCELLED',
+        },
+      ),
+    ];
+    var sequence = 1;
+    for (final (code, body) in cases) {
+      final id = await insertLegacyDecision(
+        scope: 'COLLABORATORS',
+        sequence: sequence++,
+        authorizeResponsible: true,
+        id: '5e1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4${sequence.toRadixString(16)}',
+      );
+      respond = (request) =>
+          request.method == 'POST' ? jsonResponse(body, 409) : central(request);
+      requests.clear();
+      final report = await sender.run(access());
+      expect(report.rejected, 1, reason: code);
+      // Salió tal como se guardó.
+      expect(
+        jsonDecode(requests.first.body),
+        containsPair('authorize_responsible', true),
+        reason: code,
+      );
+      final stored = (await store.consentOp(id))!;
+      expect(stored.sendStatus, JointPurchaseOpStatus.rejected, reason: code);
+      expect(stored.lastCode, code);
+      expect(stored.nextAttemptAt, isNull);
+      // Ningún ciclo posterior lo reenvía.
+      requests.clear();
+      now = now.add(const Duration(hours: 1));
+      await sender.run(access(), includePaused: true);
+      expect(calls().where((c) => c.startsWith('POST')), isEmpty, reason: code);
+    }
+    // Las tres siguen en el teléfono; lo aplicado no cambió.
+    expect((await store.consentOps(callId)).length, 3);
+    expect(
+      (await store.call(callId))!.serverParticipation!.consentScope,
+      'RESPONSIBLE_ONLY',
+    );
+
+    // Y en la cola de cantidades: APP_UPDATE_REQUIRED también es definitivo.
+    final op = await store.confirm(callId: callId, lines: {litreRef: 7000});
+    respond = (request) => request.method == 'PUT'
+        ? jsonResponse({'errorCode': 'APP_UPDATE_REQUIRED'}, 409)
+        : central(request);
+    await sender.run(access());
+    final rejected = (await store.op(op.operationId))!;
+    expect(rejected.sendStatus, JointPurchaseOpStatus.rejected);
+    expect(rejected.lastCode, 'APP_UPDATE_REQUIRED');
+    expect(rejected.nextAttemptAt, isNull);
+  });
+
+  test('E4 §7.2: una confirmación pendiente con CONV-3 se envía tal cual y el sindicato la acepta con su alcance anterior', () async {
+    final db = await fixture.database.database;
+    const legacyId = '9c1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d';
+    await db.insert(JointPurchaseStore.opsTable, {
+      'operation_id': legacyId,
+      'call_id': callId,
+      'tenant_id': memberA.tenantId,
+      'member_id': memberA.memberId,
+      'sequence': 1,
+      'kind': 'CONFIRM',
+      'lines_json': jsonEncode([
+        {'product_ref': litreRef, 'quantity_base': '10000'},
+      ]),
+      'consent_version': 'CONV-3',
+      'consent_accepted_at': '2026-11-12T00:00:00.000Z',
+      'responsible_version': 1,
+      'send_status': JointPurchaseOpStatus.pendingSend,
+      'attempts': 0,
+      'created_at': '2026-11-12T00:00:00.000Z',
+      'updated_at': '2026-11-12T00:00:00.000Z',
+    });
+    final pendingCall = (await store.call(callId))!;
+    // Mientras no llega, se sabe que regirá un alcance anterior.
+    expect(pendingCall.pendingInitialScope, 'RESPONSIBLE_ONLY');
+    expect(pendingCall.needsAccessReview, isTrue);
+    respond = (request) {
+      if (request.method == 'PUT') {
+        accepted[callId] = participationJson(
+          lines: {litreRef: 10000},
+          consentVersion: 'CONV-3',
+          consentScope: 'RESPONSIBLE_ONLY',
+          consentScopeVersion: 'CONV-3',
+        );
+        return jsonResponse({
+          'outcome': 'ACCEPTED',
+          'participation': accepted[callId],
+        }, 200);
+      }
+      return central(request);
+    };
+    final report = await sender.run(access());
+    expect(report.received, 1);
+    expect(jsonDecode(requests.first.body), {
+      'operation_id': legacyId,
+      'sequence': 1,
+      'consent': {
+        'version': 'CONV-3',
+        'accepted_at': '2026-11-12T00:00:00.000Z',
+      },
+      'responsible_version': 1,
+      'lines': [
+        {'product_ref': litreRef, 'quantity_base': '10000'},
+      ],
+    });
+    final call = (await store.call(callId))!;
+    expect(call.serverParticipation!.consentScope, 'RESPONSIBLE_ONLY');
+    expect(call.needsAccessReview, isTrue);
+  });
+
+  test('E4: una decisión atrasada no revierte la posterior (STALE_SEQUENCE adopta la vigente)', () async {
     await confirm({litreRef: 25000});
     await sender.run(access());
-    final widen = (await store.decideConsent(
-      callId: callId,
-      scope: JointPurchaseConsentScope.collaborators,
-      decidedAt: now,
-    ))!;
-    // Otro teléfono del mismo titular ya decidió reducir con orden 3.
+    final retract = (await decide(JointPurchaseConsentScope.totalsOnly))!;
+    // Otro teléfono del mismo titular ya volvió a autorizar con orden 3.
     accepted[callId] = {
       ...accepted[callId]!,
       'consent_scope': {
-        'scope': 'RESPONSIBLE_ONLY',
-        'version': 'CONV-3',
+        'scope': 'ADMINISTRATION',
+        'version': 'CONV-4',
         'decided_at': now.toIso8601String(),
         'received_at': now.toIso8601String(),
         'sequence': 3,
@@ -942,22 +1173,61 @@ void main() {
     final report = await sender.run(access());
     expect(report.superseded, 1);
     expect(
-      (await store.consentOp(widen.operationId))!.sendStatus,
+      (await store.consentOp(retract.operationId))!.sendStatus,
       JointPurchaseOpStatus.superseded,
     );
     final call = (await store.call(callId))!;
-    expect(call.serverParticipation!.consentScope, 'RESPONSIBLE_ONLY');
+    expect(call.serverParticipation!.consentScope, 'ADMINISTRATION');
     expect(call.serverParticipation!.consentScopeSequence, 3);
   });
 
-  test('P-C: una respuesta de cantidades con un alcance más viejo no pisa la decisión aplicada', () async {
+  test(
+    'E4: un envío repetido devuelve lo mismo y no duplica la decisión',
+    () async {
+      await confirm({litreRef: 25000});
+      await sender.run(access());
+      final retract = (await decide(JointPurchaseConsentScope.totalsOnly))!;
+      // La primera respuesta se pierde (plazo); el reenvío lleva el mismo
+      // operation_id y el servidor repite su respuesta.
+      var lose = true;
+      respond = (request) {
+        final response = central(request);
+        if (lose && request.method == 'POST') {
+          lose = false;
+          throw http.ClientException('respuesta perdida');
+        }
+        return response;
+      };
+      await sender.run(access());
+      expect(
+        (await store.consentOp(retract.operationId))!.sendStatus,
+        JointPurchaseOpStatus.pendingSend,
+      );
+      now = now.add(const Duration(hours: 1));
+      requests.clear();
+      await sender.run(access());
+      final posts = [
+        for (final r in requests)
+          if (r.method == 'POST') jsonDecode(r.body) as Map<String, dynamic>,
+      ];
+      expect(posts.single['operation_id'], retract.operationId);
+      expect(posts.single['sequence'], 1);
+      expect(
+        (await store.consentOp(retract.operationId))!.sendStatus,
+        JointPurchaseOpStatus.received,
+      );
+      expect(
+        (await store.call(callId))!.serverParticipation!.consentScope,
+        'TOTALS_ONLY',
+      );
+      expect((await store.consentOps(callId)).length, 1);
+    },
+  );
+
+  test('E4: una respuesta de cantidades con un alcance más viejo no pisa la decisión aplicada', () async {
     await confirm({litreRef: 25000});
     await sender.run(access());
-    await store.decideConsent(
-      callId: callId,
-      scope: JointPurchaseConsentScope.collaborators,
-      decidedAt: now,
-    );
+    await decide(JointPurchaseConsentScope.totalsOnly);
     await sender.run(access());
     final modified = await store.confirm(
       callId: callId,
@@ -969,12 +1239,13 @@ void main() {
       'participation': participationJson(
         lastSequence: modified.sequence,
         lines: {litreRef: 40000},
+        consentScope: 'ADMINISTRATION',
       ),
     }, 200);
     await sender.run(access());
     final call = (await store.call(callId))!;
     expect(call.serverParticipation!.lines, {litreRef: 40000});
-    expect(call.serverParticipation!.consentScope, 'COLLABORATORS');
+    expect(call.serverParticipation!.consentScope, 'TOTALS_ONLY');
   });
 
   test('N7: incompatibilidad de versión, sin conexión y fallo temporal se distinguen', () async {

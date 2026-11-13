@@ -18,7 +18,7 @@ class AppDatabase {
   /// Toda base, creada desde cero o migrada desde cualquier versión anterior,
   /// debe terminar con el mismo esquema. `test/schema_equivalence_test.dart`
   /// lo verifica automáticamente.
-  static const int schemaVersion = 19;
+  static const int schemaVersion = 20;
 
   /// Primera versión con `owner_bindings` e `install_origin`: una base
   /// anterior es histórica y no declara titular.
@@ -66,6 +66,50 @@ class AppDatabase {
   /// Primera versión con la autorización de la persona responsable actual
   /// de las convocatorias (E2 §12, P-A C1).
   static const int jointPurchaseResponsibleSinceVersion = 19;
+
+  /// Primera versión con el acceso por rol en las convocatorias (E4,
+  /// contrato `E4_ACCESO_POR_ROL_Y_SIN_UMBRAL_CONTRATO.md` §4 y §7): la cola
+  /// de las decisiones del alcance nuevo. Es la versión mínima compatible
+  /// con el contrato 4 del agricultor (E4 §7.1); un respaldo v20 se rechaza
+  /// en una aplicación anterior («Actualice la aplicación»).
+  static const int jointPurchaseRoleAccessSinceVersion = 20;
+
+  /// v20 — `joint_purchase_access_ops` (E4 §4.2): cola propia de las
+  /// decisiones que el teléfono prepara desde E4 sobre quién ve el nombre y
+  /// las cantidades: «Revisar quién puede ver mi participación»
+  /// (`ADMINISTRATION`, con `CONV-4`) y «Retirar la autorización»
+  /// (`TOTALS_ONLY`, D-05). Tabla nueva y vacía: la cola v18
+  /// (`joint_purchase_consent_ops`, con su `CHECK` de dos alcances) no se
+  /// toca, y sus decisiones pendientes se conservan y se envían tal como se
+  /// guardaron. El orden (`sequence`) es uno solo por convocatoria y titular
+  /// entre las dos colas: lo calcula el almacén sobre ambas, y el disparador
+  /// rechaza, como defensa, un orden que ya usa la cola v18.
+  static const List<String> jointPurchaseAccessSchema = <String>[
+    '''CREATE TABLE IF NOT EXISTS joint_purchase_access_ops (
+        operation_id TEXT PRIMARY KEY,
+        call_id TEXT NOT NULL,
+        tenant_id TEXT NOT NULL,
+        member_id TEXT NOT NULL,
+        sequence INTEGER NOT NULL CHECK (sequence >= 1),
+        scope TEXT NOT NULL CHECK (scope IN ('ADMINISTRATION','TOTALS_ONLY')),
+        consent_version TEXT NOT NULL,
+        decided_at TEXT NOT NULL,
+        send_status TEXT NOT NULL CHECK (send_status IN ('PENDING_SEND','RECEIVED','REJECTED','OUT_OF_TIME','SUPERSEDED','AUTH_PAUSED')),
+        attempts INTEGER NOT NULL DEFAULT 0,
+        next_attempt_at TEXT,
+        last_code TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE (call_id, member_id, sequence))''',
+    'CREATE INDEX IF NOT EXISTS idx_joint_purchase_access_ops_status '
+        'ON joint_purchase_access_ops(tenant_id, member_id, send_status)',
+    '''CREATE TRIGGER IF NOT EXISTS trg_joint_purchase_access_ops_sequence
+        BEFORE INSERT ON joint_purchase_access_ops
+        WHEN EXISTS (SELECT 1 FROM joint_purchase_consent_ops c
+          WHERE c.call_id = NEW.call_id AND c.member_id = NEW.member_id
+          AND c.sequence = NEW.sequence)
+        BEGIN SELECT RAISE(ABORT, 'JOINT_PURCHASE_DECISION_SEQUENCE_USED'); END''',
+  ];
 
   /// v19 — columnas opcionales (P-A C1, E2 §12), todas admiten NULL y no se
   /// rellenan: «no se sabe» no es «autorizada» ni «restringida».
@@ -941,6 +985,7 @@ class AppDatabase {
     await _applyJointPurchaseHistorySchema(db);
     await _applyJointPurchaseConsentSchema(db);
     await _applyJointPurchaseResponsibleSchema(db);
+    await _applyJointPurchaseAccessSchema(db);
     // Una base creada por esta versión nace bajo la política de activación.
     await db.insert('app_settings', {
       'key': installOriginKey,
@@ -1121,6 +1166,23 @@ class AppDatabase {
     }
     if (oldVersion < 19) {
       await _applyJointPurchaseResponsibleSchema(db);
+    }
+    if (oldVersion < 20) {
+      await _applyJointPurchaseAccessSchema(db);
+    }
+  }
+
+  /// Versión 20 — **acceso por rol en las convocatorias** (E4 §4 y §7).
+  /// Aditiva: una tabla nueva y vacía, su índice y un disparador sobre ella.
+  /// No toca ni reinterpreta nada guardado: las participaciones, sus
+  /// alcances anteriores, las operaciones de cantidades y las decisiones v18
+  /// (incluidas las pendientes) quedan como estaban. Idempotente: IF NOT
+  /// EXISTS en todo. El disparador lee la cola v18: en una base parcial sin
+  /// ella (que no existe en ninguna versión publicada) se crea antes, vacía.
+  Future<void> _applyJointPurchaseAccessSchema(DatabaseExecutor db) async {
+    await _applyJointPurchaseConsentSchema(db);
+    for (final statement in jointPurchaseAccessSchema) {
+      await db.execute(statement);
     }
   }
 

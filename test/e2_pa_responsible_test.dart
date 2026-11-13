@@ -1,15 +1,19 @@
-// P-A C1 (E2 §12): la persona responsable cambió. El teléfono lee el
-// contrato 3 (la autorización de la responsable actual), no supone que una
-// aceptación anterior la cubra, ofrece una acción propia para autorizarla
-// (casillas sin marcar, sin ampliar por sí sola), la ata a la versión de la
-// responsabilidad que mostró y distingue pendiente de aplicada. Las
-// cantidades nunca autorizan a nadie. Sin red real; datos sintéticos.
+// E4 §6.3 (sustituye a P-A C1, E2 §12): la persona responsable sólo indica
+// quién coordina. Tras una sustitución el teléfono no pide una autorización
+// nueva por responsable: lo que ve la Administración depende del
+// consentimiento CONV-4, no de quién es la responsable. El contrato 4 ya no
+// trae la versión de la responsabilidad ni la autorización de P-A; lo que el
+// teléfono guardó de ellas se conserva como historia. Las autorizaciones de
+// P-A que quedaron pendientes salen tal cual y el sindicato las rechaza de
+// forma definitiva. Lo que antes cubría «autorizar a la nueva responsable»
+// pasa a «Revisar quién puede ver mi participación» con CONV-4. Sin red real;
+// datos sintéticos.
 import 'dart:convert';
 import 'dart:math';
 
 import 'package:agroquimicos/data/sync/joint_purchase_store.dart';
 import 'package:agroquimicos/domain/sync/joint_purchase_call_view.dart';
-import 'package:agroquimicos/presentation/widgets/joint_purchase_responsible_review.dart';
+import 'package:agroquimicos/presentation/widgets/joint_purchase_access_review.dart';
 import 'package:agroquimicos/presentation/widgets/joint_purchase_texts.dart';
 import 'package:agroquimicos/services/auth/api_endpoint_config.dart';
 import 'package:agroquimicos/services/auth/auth_http_client.dart';
@@ -26,90 +30,54 @@ import 'support/e2_joint_purchase_fixtures.dart';
 import 'support/f04_mode_fixtures.dart';
 import 'support/f05_sync_fixtures.dart';
 
-
-Map<String, Object?> _restricted({int version = 1, int scopeSequence = 0}) =>
-    participationJson(
-      consentScope: JointPurchaseConsentScope.responsibleOnly,
-      consentScopeSequence: scopeSequence,
-      responsibleAuthorization: {'authorized': false, 'version': version},
-    );
-
-Map<String, Object?> _authorized(
-  int version, {
-  String scope = JointPurchaseConsentScope.responsibleOnly,
-  int scopeSequence = 1,
-}) => participationJson(
-  consentScope: scope,
-  consentScopeSequence: scopeSequence,
-  responsibleAuthorization: {'authorized': true, 'version': version},
-);
+const _products = {litreRef: 'ML', kiloRef: 'G'};
 
 void main() {
   sqfliteFfiInit();
 
-  group('contrato 3: autorización de la responsable actual', () {
-    test('se lee de la participación y del responsable, con lista cerrada', () {
+  group('contrato 4: sin versión de la responsabilidad ni autorización de P-A', () {
+    test('la lista sólo trae el nombre de quien coordina; la versión de P-A se rechaza entera', () {
       final view = JointPurchaseCallView.fromJson(
-        callJson(
-          responsibleVersion: 2,
-          responsibleName: 'Nueva responsable sintética',
-          participation: _restricted(),
-        ),
+        callJson(responsibleName: 'Nueva responsable sintética'),
       );
-      expect(view.responsibleVersion, 2);
-      expect(view.participation!.responsibleAuthorized, isFalse);
-      expect(view.participation!.responsibleAuthorizationVersion, 1);
-      expect(view.participation!.needsResponsibleAuthorization, isTrue);
-      // Sin el dato (copia o respuesta anterior) no se supone nada.
-      final unknown = JointPurchaseCallView.fromJson(
-        callJson(participation: participationJson()),
+      expect(view.responsibleName, 'Nueva responsable sintética');
+      expect(
+        () => JointPurchaseCallView.fromJson(callJson(responsibleVersion: 2)),
+        throwsA(isA<JointPurchaseFormatException>()),
       );
-      expect(unknown.participation!.responsibleAuthorized, isNull);
-      expect(unknown.participation!.needsResponsibleAuthorization, isFalse);
-      // Formas inválidas: se rechaza la respuesta entera.
-      for (final bad in [
-        {'authorized': true, 'version': null},
-        {'authorized': 'no', 'version': 1},
-        {'authorized': false, 'version': 0},
-        {'authorized': false, 'version': 1, 'extra': 1},
-      ]) {
-        expect(
-          () => JointPurchaseCallView.fromJson(
-            callJson(
-              participation: participationJson(responsibleAuthorization: bad),
-            ),
-          ),
-          throwsA(isA<JointPurchaseFormatException>()),
-          reason: '$bad',
-        );
-      }
       expect(
         () => JointPurchaseCallView.fromJson(
           callJson(
-            extra: const {
-              'responsible': {'name': 'X', 'version': 0},
-            },
+            participation: participationJson(
+              responsibleAuthorization: {'authorized': true, 'version': 1},
+            ),
           ),
         ),
         throwsA(isA<JointPurchaseFormatException>()),
       );
     });
 
-    test(
-      'el error RESPONSIBLE_CHANGED trae la versión vigente y la participación',
-      () {
-        final body = JointPurchaseErrorBody.tryParse(
-          {
-            'errorCode': 'RESPONSIBLE_CHANGED',
-            'responsible_version': 3,
-            'participation': _restricted(version: 2),
-          },
-          {litreRef: 'ML', kiloRef: 'G'},
-        );
-        expect(body!.responsibleVersion, 3);
-        expect(body.participation!.responsibleAuthorized, isFalse);
-      },
-    );
+    test('una copia guardada con la autorización de P-A se sigue leyendo (historia), sin decidir nada', () {
+      final stored = jsonEncode(
+        participationJson(
+          consentVersion: 'CONV-3',
+          consentScope: 'RESPONSIBLE_ONLY',
+          consentScopeVersion: 'CONV-3',
+          responsibleAuthorization: {'authorized': true, 'version': 1},
+        ),
+      );
+      final decoded = JointPurchaseParticipation.decode(stored)!;
+      expect(decoded.responsibleAuthorized, isTrue);
+      expect(decoded.responsibleAuthorizationVersion, 1);
+      // Autorizada por P-A, pero con un alcance anterior: nadie ve el detalle.
+      expect(decoded.coversDetail, isFalse);
+      expect(decoded.hasLegacyScope, isTrue);
+      // Al guardarla otra vez no se pierde.
+      expect(jsonDecode(decoded.encode())['responsible_authorization'], {
+        'authorized': true,
+        'version': 1,
+      });
+    });
   });
 
   group('teléfono', () {
@@ -127,7 +95,7 @@ void main() {
     );
 
     setUp(() async {
-      now = DateTime.utc(2026, 11, 12, 15);
+      now = DateTime.utc(2026, 11, 13, 15);
       fixture = await seedSyncFixture();
       store = JointPurchaseStore(
         fixture.database,
@@ -155,15 +123,14 @@ void main() {
     });
 
     Future<JointPurchaseCall> seeded({
-      required int version,
+      required String responsible,
       Map<String, Object?>? participation,
       String status = 'OPEN',
     }) async {
       await seedCalls(store, memberA, [
         callJson(
           status: status,
-          responsibleVersion: version,
-          responsibleName: 'Responsable v$version',
+          responsibleName: responsible,
           participation: participation,
           closing: status == 'CLOSED'
               ? {
@@ -184,305 +151,214 @@ void main() {
       return (await store.call(callId))!;
     }
 
-    test('restringida: no se amplía sin autorizarla; autorizar es una decisión propia atada a la versión mostrada', () async {
-      final call = await seeded(version: 2, participation: _restricted());
-      expect(call.needsResponsibleReview, isTrue);
-      expect(call.responsibleVersion, 2);
-      await expectLater(
-        store.decideConsent(
-          callId: callId,
-          scope: JointPurchaseConsentScope.collaborators,
-          decidedAt: now,
-        ),
-        throwsA(isA<JointPurchaseException>()),
+    test('tras sustituir a la responsable no se pide autorización nueva: ADMINISTRATION sigue igual', () async {
+      final before = await seeded(
+        responsible: 'Responsable anterior',
+        participation: participationJson(consentScope: 'ADMINISTRATION'),
       );
-      final op = (await store.decideConsent(
-        callId: callId,
-        scope: JointPurchaseConsentScope.responsibleOnly,
-        decidedAt: now,
-        authorizeResponsible: true,
-      ))!;
-      expect(op.authorizeResponsible, isTrue);
-      expect(op.responsibleVersion, 2);
-      expect(op.wireBody, {
-        'operation_id': op.operationId,
+      final after = await seeded(
+        responsible: 'Responsable sucesora',
+        participation: participationJson(consentScope: 'ADMINISTRATION'),
+      );
+      expect(after.responsibleName, 'Responsable sucesora');
+      expect(after.serverParticipation!.consentScope, 'ADMINISTRATION');
+      expect(after.canReviewAccess, isFalse);
+      expect(after.needsAccessReview, isFalse);
+      // Quién ve los datos no depende de quién coordina.
+      expect(
+        jointPurchaseWhoCanSeeText(after),
+        jointPurchaseWhoCanSeeText(before),
+      );
+      expect(jointPurchaseWhoCanSeeText(after), isNot(contains('responsable')));
+      expect(await store.consentOps(callId), isEmpty);
+    });
+
+    test('la versión de la responsabilidad guardada en v19 se conserva al actualizar la lista', () async {
+      await seeded(responsible: 'Responsable');
+      final db = await fixture.database.database;
+      await db.update(JointPurchaseStore.callsTable, {
+        'responsible_version': 2,
+      });
+      await seeded(responsible: 'Responsable sucesora');
+      expect(
+        (await db.query(JointPurchaseStore.callsTable))
+            .single['responsible_version'],
+        2,
+      );
+    });
+
+    test(
+      'la primera confirmación ya no lleva la versión de la responsable',
+      () async {
+        await seeded(responsible: 'Responsable');
+        final op = await store.confirm(
+          callId: callId,
+          lines: {litreRef: 1000},
+          consentVersion: jointPurchaseConsentVersion,
+          consentAcceptedAt: now,
+        );
+        expect(op.responsibleVersion, isNull);
+        respond = (_) => throw http.ClientException('sin red');
+        await sender.run(access());
+        final put = requests.firstWhere((r) => r.method == 'PUT');
+        final body = jsonDecode(put.body) as Map<String, dynamic>;
+        expect(body.containsKey('responsible_version'), isFalse);
+        expect(body['consent'], {
+          'version': 'CONV-4',
+          'accepted_at': now.toIso8601String(),
+        });
+      },
+    );
+
+    test('una autorización de P-A pendiente sale tal cual; CONSENT_VERSION_RETIRED la termina sin reintento y sin borrarla', () async {
+      await seeded(
+        responsible: 'Responsable sucesora',
+        participation: participationJson(
+          consentVersion: 'CONV-3',
+          consentScope: 'RESPONSIBLE_ONLY',
+          consentScopeVersion: 'CONV-3',
+        ),
+      );
+      const id = '5e1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d';
+      await (await fixture.database.database).insert(
+        JointPurchaseStore.consentOpsTable,
+        {
+          'operation_id': id,
+          'call_id': callId,
+          'tenant_id': memberA.tenantId,
+          'member_id': memberA.memberId,
+          'sequence': 1,
+          'scope': 'RESPONSIBLE_ONLY',
+          'consent_version': 'CONV-3',
+          'decided_at': '2026-11-12T09:00:00.000Z',
+          'send_status': 'PENDING_SEND',
+          'attempts': 0,
+          'created_at': '2026-11-12T09:00:00.000Z',
+          'updated_at': '2026-11-12T09:00:00.000Z',
+          'responsible_version': 2,
+          'authorize_responsible': 1,
+        },
+      );
+      respond = (request) => request.method == 'POST'
+          ? jsonResponse({'errorCode': 'CONSENT_VERSION_RETIRED'}, 409)
+          : jsonResponse({'errorCode': 'TEMPORARILY_UNAVAILABLE'}, 503);
+      final report = await sender.run(access());
+      expect(report.rejected, 1);
+      final post = requests.firstWhere((r) => r.method == 'POST');
+      expect(jsonDecode(post.body), {
+        'operation_id': id,
         'sequence': 1,
         'scope': 'RESPONSIBLE_ONLY',
-        'consent': {'version': 'CONV-3', 'decided_at': now.toIso8601String()},
+        'consent': {
+          'version': 'CONV-3',
+          'decided_at': '2026-11-12T09:00:00.000Z',
+        },
         'responsible_version': 2,
         'authorize_responsible': true,
       });
-      // Repetir lo mismo pendiente no crea otra decisión.
-      final again = await store.decideConsent(
-        callId: callId,
-        scope: JointPurchaseConsentScope.responsibleOnly,
-        decidedAt: now,
-        authorizeResponsible: true,
-      );
-      expect(again!.operationId, op.operationId);
-      final pending = (await store.call(callId))!;
-      expect(pending.pendingConsentOp?.authorizeResponsible, isTrue);
-      expect(
-        pending.needsResponsibleReview,
-        isTrue,
-        reason: 'pendiente no es aplicada',
-      );
-      expect(pending.authorizationOutdated, isFalse);
-      // La responsable vuelve a cambiar antes de enviarla: hay que revisar de nuevo.
-      await seeded(version: 3, participation: _restricted());
-      expect((await store.call(callId))!.authorizationOutdated, isTrue);
-      // Modificar cantidades no lleva autorización ni la cambia.
-      final quantity = await store.confirm(
-        callId: callId,
-        lines: {litreRef: 30000},
-      );
-      expect(quantity.responsibleVersion, isNull);
-      expect(quantity.consentVersion, isNull);
-    });
-
-    test('envío: aplicada sólo con la respuesta del sindicato; RESPONSIBLE_CHANGED la rechaza sin reintentar y adopta lo vigente', () async {
-      await seeded(version: 2, participation: _restricted());
-      final op = (await store.decideConsent(
-        callId: callId,
-        scope: JointPurchaseConsentScope.collaborators,
-        decidedAt: now,
-        authorizeResponsible: true,
-      ))!;
-      // Sin conexión: sigue pendiente, mismo cuerpo.
-      respond = (_) => throw http.ClientException('sin red');
-      await sender.run(access());
-      expect(
-        (await store.consentOp(op.operationId))!.sendStatus,
-        JointPurchaseOpStatus.pendingSend,
-      );
-      // La responsable cambió en el sindicato antes de que llegara.
-      respond = (request) {
-        if (request.method == 'GET') {
-          return jsonResponse(
-            listJson([
-              callJson(
-                responsibleVersion: 3,
-                responsibleName: 'Responsable v3',
-                participation: _restricted(version: 1),
-              ),
-            ]),
-            200,
-          );
-        }
-        return jsonResponse({
-          'errorCode': 'RESPONSIBLE_CHANGED',
-          'responsible_version': 3,
-          'participation': _restricted(version: 1),
-        }, 409);
-      };
-      now = now.add(const Duration(hours: 1));
-      await store.sendNow(callId);
-      final report = await sender.run(access());
-      expect(report.rejected, 1);
-      final sent = requests.where((r) => r.url.path.endsWith('/consent')).last;
-      expect(sent.headers['x-joint-purchase-contract'], '3');
-      expect(
-        jsonDecode(sent.body),
-        containsPair('authorize_responsible', true),
-      );
-      expect(jsonDecode(sent.body), containsPair('responsible_version', 2));
-      final rejected = (await store.consentOp(op.operationId))!;
-      expect(
-        [rejected.sendStatus, rejected.lastCode],
-        [JointPurchaseOpStatus.rejected, 'RESPONSIBLE_CHANGED'],
-      );
-      final call = (await store.call(callId))!;
-      expect(call.responsibleVersion, 3);
-      expect(call.needsResponsibleReview, isTrue);
-      expect(call.authorizationOutdated, isTrue);
-      expect(
-        call.serverParticipation!.consentScope,
-        JointPurchaseConsentScope.responsibleOnly,
-      );
-
-      // Revisa de nuevo para la v3 y el sindicato la aplica.
-      final again = (await store.decideConsent(
-        callId: callId,
-        scope: JointPurchaseConsentScope.responsibleOnly,
-        decidedAt: now,
-        authorizeResponsible: true,
-      ))!;
-      expect(again.responsibleVersion, 3);
-      expect(again.sequence, greaterThan(op.sequence));
-      respond = (request) => request.method == 'GET'
-          ? jsonResponse(
-              listJson([
-                callJson(
-                  responsibleVersion: 3,
-                  participation: _authorized(3, scopeSequence: again.sequence),
-                ),
-              ]),
-              200,
-            )
-          : jsonResponse({
-              'outcome': 'ACCEPTED',
-              'participation': _authorized(3, scopeSequence: again.sequence),
-            }, 200);
-      await sender.run(access());
-      final applied = (await store.call(callId))!;
-      expect(applied.needsResponsibleReview, isFalse);
-      expect(applied.authorizationOutdated, isFalse);
-      expect(
-        (await store.consentOp(again.operationId))!.sendStatus,
-        JointPurchaseOpStatus.received,
-      );
-    });
-
-    test(
-      'una respuesta atrasada no restablece una autorización anterior',
-      () async {
-        await seeded(
-          version: 2,
-          participation: _authorized(2, scopeSequence: 2),
-        );
-        // Llega tarde una respuesta de una decisión anterior (orden 1).
-        final late = JointPurchaseParticipation.fromJson(
-          _restricted(version: 1, scopeSequence: 1),
-          products: {litreRef: 'ML', kiloRef: 'G'},
-        );
-        await seedCalls(store, memberA, [
-          callJson(
-            responsibleVersion: 2,
-            participation: _authorized(2, scopeSequence: 2),
-          ),
-        ]);
-        final before = (await store.call(callId))!.serverParticipation!;
-        final op = (await store.decideConsent(
-          callId: callId,
-          scope: JointPurchaseConsentScope.collaborators,
-          decidedAt: now,
-        ))!;
-        await store.markConsentStale(op, late);
-        final after = (await store.call(callId))!.serverParticipation!;
-        expect(after.responsibleAuthorized, before.responsibleAuthorized);
-        expect(after.consentScopeSequence, 2);
-      },
-    );
-
-    test('la primera confirmación lleva la versión de la responsable que se mostró', () async {
-      await seeded(version: 4);
-      final op = await store.confirm(
-        callId: callId,
-        lines: {litreRef: 1000},
-        consentVersion: jointPurchaseConsentVersion,
-        consentAcceptedAt: now,
-      );
-      expect(op.responsibleVersion, 4);
-      respond = (_) => throw http.ClientException('sin red');
-      await sender.run(access());
-      final put = requests.firstWhere((r) => r.method == 'PUT');
-      expect(jsonDecode(put.body), containsPair('responsible_version', 4));
+      final stored = (await store.consentOp(id))!;
+      expect(stored.sendStatus, JointPurchaseOpStatus.rejected);
+      expect(stored.lastCode, 'CONSENT_VERSION_RETIRED');
+      requests.clear();
+      now = now.add(const Duration(days: 1));
+      await sender.run(access(), includePaused: true);
+      expect(requests.where((r) => r.method == 'POST'), isEmpty);
+      // Sigue ofrecida la revisión con CONV-4 (lo antiguo no habilita a nadie).
+      expect((await store.call(callId))!.needsAccessReview, isTrue);
     });
 
     testWidgets(
-      'pantalla: aviso, casillas sin marcar, autorizar sólo a ella no amplía, pendiente no es aplicada',
+      'pantalla: la revisión muestra CONV-4 y su ayuda, casilla sin marcar, «Sus cantidades no cambian»; pendiente no es aplicada',
       (tester) async {
         await tester.runAsync(
-          () => seeded(version: 2, participation: _restricted()),
-        );
-        final call = (await tester.runAsync(() => store.call(callId)))!;
-        var changed = 0;
-        Future<void> pump(JointPurchaseCall shown) => tester.pumpWidget(
-          MaterialApp(
-            home: Scaffold(
-              body: Builder(
-                builder: (context) => JointPurchaseResponsibleReview(
-                  call: shown,
-                  onChanged: () => changed++,
-                ),
-              ),
+          () => seeded(
+            responsible: 'Responsable sucesora',
+            participation: participationJson(
+              consentVersion: 'CONV-3',
+              consentScope: 'RESPONSIBLE_ONLY',
+              consentScopeVersion: 'CONV-3',
             ),
           ),
         );
-        await pump(call);
+        final call = (await tester.runAsync(() => store.call(callId)))!;
+        expect(call.needsAccessReview, isTrue);
         expect(
-          find.text(jointPurchaseResponsibleChangedText(call)),
-          findsOneWidget,
+          jointPurchaseChips(call),
+          contains(jointPurchaseAccessReviewChip),
         );
-        expect(
-          jointPurchaseWhoCanSeeText(call),
-          contains('Por ahora nadie de la Directiva'),
-        );
-        // El diálogo: dos casillas sin marcar; sólo la primera habilita autorizar.
         await tester.pumpWidget(
-          MaterialApp(
-            home: Scaffold(body: JointPurchaseResponsibleDialog(call: call)),
+          const MaterialApp(
+            home: Scaffold(body: JointPurchaseAccessReviewDialog()),
           ),
         );
-        CheckboxListTile box(String key) =>
-            tester.widget<CheckboxListTile>(find.byKey(Key(key)));
-        FilledButton confirm() => tester.widget<FilledButton>(
-          find.byKey(const Key('joint-responsible-confirm')),
+        expect(find.text(jointPurchaseConsentText), findsOneWidget);
+        expect(find.text(jointPurchaseConsentHelp), findsOneWidget);
+        expect(find.text('Sus cantidades no cambian.'), findsOneWidget);
+        // Ninguna mención a autorizar a la persona responsable.
+        expect(find.textContaining('responsable'), findsNothing);
+        CheckboxListTile box() => tester.widget<CheckboxListTile>(
+          find.byKey(const Key('joint-access-review-check')),
         );
-        expect(box('joint-responsible-check').value, isFalse);
-        expect(box('joint-responsible-collaborators').value, isFalse);
-        expect(box('joint-responsible-collaborators').onChanged, isNull);
+        FilledButton confirm() => tester.widget<FilledButton>(
+          find.byKey(const Key('joint-access-review-confirm')),
+        );
+        expect(box().value, isFalse);
         expect(confirm().onPressed, isNull);
-        await tester.tap(find.byKey(const Key('joint-responsible-check')));
+        await tester.tap(find.byKey(const Key('joint-access-review-check')));
         await tester.pump();
         expect(confirm().onPressed, isNotNull);
-        expect(box('joint-responsible-collaborators').value, isFalse);
-        expect(box('joint-responsible-collaborators').onChanged, isNotNull);
-        // Pendiente de envío: se dice y no se anuncia como aplicada.
+
         await tester.runAsync(
-          () => store.decideConsent(
+          () => store.decideAccess(
             callId: callId,
-            scope: JointPurchaseConsentScope.responsibleOnly,
+            scope: JointPurchaseConsentScope.administration,
             decidedAt: now,
-            authorizeResponsible: true,
           ),
         );
         final pending = (await tester.runAsync(() => store.call(callId)))!;
-        await pump(pending);
         expect(
-          find.byKey(const Key('joint-responsible-pending')),
-          findsOneWidget,
+          jointPurchaseConsentPendingText(pending.pendingConsentOp!),
+          contains('no está aplicada'),
         );
         expect(
-          find.byKey(const Key('joint-responsible-authorize')),
-          findsNothing,
+          jointPurchaseWhoCanSeeText(pending),
+          startsWith('Su participación se registró con un texto anterior.'),
         );
-        expect(changed, 0);
-        // En una cancelada no se ofrece nada.
-        await tester.runAsync(
-          () => seeded(
-            version: 2,
-            status: 'CANCELLED',
-            participation: _restricted(),
-          ),
-        );
-        final cancelled = (await tester.runAsync(() => store.call(callId)))!;
-        expect(cancelled.needsResponsibleReview, isFalse);
+        expect(jointPurchaseChips(pending), [
+          'Nueva',
+          'Abierta',
+          'Participación recibida',
+          'Pendiente: quién ve sus datos',
+        ]);
       },
     );
 
-    test(
-      'en una convocatoria cerrada se puede autorizar sin tocar el pedido',
-      () async {
-        await seeded(
-          version: 2,
-          status: 'CLOSED',
-          participation: _restricted(),
-        );
-        final call = (await store.call(callId))!;
-        expect(call.needsResponsibleReview, isTrue);
-        final op = await store.decideConsent(
-          callId: callId,
-          scope: JointPurchaseConsentScope.responsibleOnly,
-          decidedAt: now,
-          authorizeResponsible: true,
-        );
-        expect(op, isNotNull);
-        await expectLater(
-          store.confirm(callId: callId, lines: {litreRef: 1}),
-          throwsA(isA<JointPurchaseException>()),
-        );
-      },
-    );
+    test('en una convocatoria cerrada se revisa sin tocar el pedido', () async {
+      await seeded(
+        responsible: 'Responsable sucesora',
+        status: 'CLOSED',
+        participation: participationJson(consentScope: 'RESPONSIBLE_ONLY'),
+      );
+      final op = await store.decideAccess(
+        callId: callId,
+        scope: JointPurchaseConsentScope.administration,
+        decidedAt: now,
+      );
+      expect(op, isNotNull);
+      await expectLater(
+        store.confirm(callId: callId, lines: {litreRef: 1}),
+        throwsA(isA<JointPurchaseException>()),
+      );
+      expect(await store.ops(callId), isEmpty);
+    });
+
+    test('el error RESPONSIBLE_CHANGED de una app anterior se sigue leyendo sin datos ajenos', () {
+      final body = JointPurchaseErrorBody.tryParse({
+        'errorCode': 'RESPONSIBLE_CHANGED',
+        'responsible_version': 3,
+      }, _products);
+      expect(body!.responsibleVersion, 3);
+      expect(body.participation, isNull);
+    });
   });
 }
