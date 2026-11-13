@@ -16,6 +16,7 @@ class AppShell extends StatefulWidget {
     required this.location,
     required this.child,
     this.transfersEnabled = true,
+    this.personalMode = false,
   });
   final String location;
   final Widget child;
@@ -23,6 +24,11 @@ class AppShell extends StatefulWidget {
   /// Falso en inventario propio: no se ofrecen transferencias entre
   /// responsables (RF-06, RF-11; #26). El router además saca de sus rutas.
   final bool transfersEnabled;
+
+  /// Modo individual (`OperationMode.personal`): la barra cambia «Personas»
+  /// por «Chacos» (láminas I-01…I-53, 2026-11-13). Sólo presentación: las
+  /// reglas siguen en el repositorio y en `operationModeRedirect`.
+  final bool personalMode;
 
   /// Barra del rediseño (2026-11-12, láminas «Inicio», «Actividad»,
   /// «Almacén», «Personas» y «Sindicato»). Las rutas de siempre se conservan:
@@ -64,6 +70,51 @@ class AppShell extends StatefulWidget {
         ),
       ];
 
+  /// Barra del modo individual (lámina I-01): Inicio · Actividad · Almacén ·
+  /// Chacos · Sindicato. «Chacos» ocupa el lugar de «Personas».
+  static const personalDestinations =
+      <({String path, IconData icon, IconData selectedIcon, String label})>[
+        (
+          path: '/',
+          icon: Icons.home_outlined,
+          selectedIcon: Icons.home,
+          label: 'Inicio',
+        ),
+        (
+          path: '/operaciones',
+          icon: Icons.notes_outlined,
+          selectedIcon: Icons.notes,
+          label: 'Actividad',
+        ),
+        (
+          path: '/inventario',
+          icon: Icons.inventory_2_outlined,
+          selectedIcon: Icons.inventory_2,
+          label: 'Almacén',
+        ),
+        (
+          path: '/chacos',
+          icon: Icons.grid_on_outlined,
+          selectedIcon: Icons.grid_on,
+          label: 'Chacos',
+        ),
+        (
+          path: '/sindicato',
+          icon: Icons.hub_outlined,
+          selectedIcon: Icons.hub,
+          label: 'Sindicato',
+        ),
+      ];
+
+  static List<
+    ({String path, IconData icon, IconData selectedIcon, String label})
+  >
+  destinationsFor({required bool personal}) =>
+      personal ? personalDestinations : destinations;
+
+  List<({String path, IconData icon, IconData selectedIcon, String label})>
+  get _items => destinationsFor(personal: personalMode);
+
   /// Rutas que cuelgan de cada pestaña (además de la propia raíz y sus
   /// `raíz/…`). El orden importa: `/planificacion/necesidades` es del
   /// Sindicato aunque `/planificacion` sea de Actividad.
@@ -95,11 +146,17 @@ class AppShell extends StatefulWidget {
 
   /// Raíz de la pestaña a la que pertenece [location]. Lo que no cuelga de
   /// ninguna (Más, Catálogos, Campañas, respaldos…) es de Inicio.
-  static String sectionOf(String location) {
+  static String sectionOf(String location, {bool personal = false}) {
+    // En modo individual el detalle de un chaco y sus costos cuelgan de
+    // «Chacos», que sustituye a «Personas» en la barra.
+    // Lo que en el modo con varias personas cuelga de «Personas» (consulta
+    // histórica de una persona, Cuentas) queda bajo «Chacos»: la barra no
+    // tiene «Personas» y siempre debe quedar una pestaña resaltada.
+    if (personal && _under(location, '/chacos')) return '/chacos';
     for (final entry in sectionRoutes.entries) {
       if (_under(location, entry.key) ||
           entry.value.any((path) => _under(location, path))) {
-        return entry.key;
+        return personal && entry.key == '/personas' ? '/chacos' : entry.key;
       }
     }
     return '/';
@@ -184,8 +241,9 @@ class AppShell extends StatefulWidget {
       location == '/compras-conjuntas' ||
       location.startsWith('/compras-conjuntas/');
 
-  int get selectedIndex =>
-      destinations.indexWhere((item) => item.path == sectionOf(location));
+  int get selectedIndex => _items.indexWhere(
+    (item) => item.path == sectionOf(location, personal: personalMode),
+  );
 
   /// A dónde lleva Atrás cuando no hay nada que desapilar.
   ///
@@ -196,7 +254,7 @@ class AppShell extends StatefulWidget {
   /// alcanzados sin apilar (por ejemplo desde el FAB) vuelven a Operaciones.
   String? get backFallback {
     if (location == '/') return null;
-    final section = sectionOf(location);
+    final section = sectionOf(location, personal: personalMode);
     // Desde una raíz que no es Inicio, a Inicio; desde un subdestino, a la
     // raíz de su pestaña.
     return location == section ? '/' : section;
@@ -238,7 +296,9 @@ class AppShell extends StatefulWidget {
     // `NavigationBar` limita por sí misma la escala de sus etiquetas a 1,3.
     final scaler = MediaQuery.textScalerOf(context).clamp(maxScaleFactor: 1.3);
     final slot = width / destinations.length - 2 * _labelMargin;
-    final widest = destinations
+    // Las dos barras tienen cinco destinos; se mide la etiqueta más larga de
+    // ambas para que la letra no cambie al cambiar de modo.
+    final widest = [...destinations, ...personalDestinations]
         .map(
           (item) => measureText(context, item.label, base, textScaler: scaler),
         )
@@ -362,7 +422,7 @@ class _AppShellState extends State<AppShell> {
                             : NavigationRailLabelType.all,
                         selectedIndex: widget.selectedIndex,
                         onDestinationSelected: (index) =>
-                            context.go(AppShell.destinations[index].path),
+                            context.go(widget._items[index].path),
                         leading: const Padding(
                           padding: EdgeInsets.symmetric(vertical: 20),
                           child: CircleAvatar(
@@ -371,7 +431,7 @@ class _AppShellState extends State<AppShell> {
                           ),
                         ),
                         destinations: [
-                          for (final item in AppShell.destinations)
+                          for (final item in widget._items)
                             NavigationRailDestination(
                               icon: Icon(item.icon),
                               selectedIcon: Icon(item.selectedIcon),
@@ -414,9 +474,9 @@ class _AppShellState extends State<AppShell> {
             ),
             selectedIndex: widget.selectedIndex,
             onDestinationSelected: (index) =>
-                context.go(AppShell.destinations[index].path),
+                context.go(widget._items[index].path),
             destinations: [
-              for (final item in AppShell.destinations)
+              for (final item in widget._items)
                 NavigationDestination(
                   icon: Icon(item.icon),
                   selectedIcon: Icon(item.selectedIcon),

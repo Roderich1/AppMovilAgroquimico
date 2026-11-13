@@ -28,6 +28,7 @@ import 'presentation/screens/declared_needs_screen.dart';
 import 'presentation/screens/first_activation_screen.dart';
 import 'presentation/screens/reauthentication_screen.dart';
 import 'presentation/screens/farm_logbook_screen.dart';
+import 'presentation/screens/ind_chacos_screen.dart';
 import 'presentation/screens/inventory_alerts_screen.dart';
 import 'presentation/screens/inventory_detail_screen.dart';
 import 'presentation/screens/inventory_screen.dart';
@@ -154,6 +155,8 @@ final routerProvider = Provider<GoRouter>((ref) {
             location: state.uri.path,
             transfersEnabled:
                 ref.watch(operationModeProvider) != OperationMode.personal,
+            personalMode:
+                ref.watch(operationModeProvider) == OperationMode.personal,
             child: child,
           ),
         ),
@@ -240,6 +243,9 @@ final routerProvider = Provider<GoRouter>((ref) {
               personId: int.parse(state.pathParameters['id']!),
             ),
           ),
+          // Modo individual (lámina I-40): lista de chacos del titular. En el
+          // modo con varias personas los chacos siguen bajo Personas.
+          GoRoute(path: '/chacos', builder: (_, __) => const ChacosScreen()),
           GoRoute(
             path: '/chacos/:id',
             builder: (_, state) => FarmLogbookScreen(
