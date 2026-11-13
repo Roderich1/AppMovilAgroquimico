@@ -293,11 +293,11 @@ void main() {
     final lot = reachable(find.byKey(const Key('purchase-lot-number-0')));
     expect(
       tester.widget<TextField>(lot).decoration!.labelText,
-      'Número de lote del envase (opcional)',
+      'Lote del fabricante (opcional)',
     );
     await tester.enterText(lot, '  GL-77 ');
     await settle(tester);
-    expect(reachable(find.text('Lote del envase GL-77')), findsOneWidget);
+    expect(reachable(find.text('Lote del fabricante: GL-77')), findsOneWidget);
 
     // Segunda línea sin número: queda vacía, no se genera ninguno.
     await tapKey(tester, 'purchase-line-next');
@@ -313,7 +313,7 @@ void main() {
     await tapKey(tester, 'purchase-continue');
     expect(
       tester.widget<Text>(find.byKey(const Key('purchase-review-lot-0'))).data,
-      'Lote del envase GL-77',
+      'Lote del fabricante: GL-77',
     );
     expect(find.byKey(const Key('purchase-review-lot-1')), findsNothing);
     expect(find.textContaining('sin número'), findsNothing);

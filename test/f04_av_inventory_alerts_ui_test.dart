@@ -173,7 +173,7 @@ void main() {
     final todayDay = localDay(DateTime.now());
     // Ronda 2 (sesión A): fecha y número del envase, cada uno en su sitio.
     expect(find.text('Vence el ${displayDay(todayDay)}'), findsWidgets);
-    expect(find.text('Lote del envase GLI-77'), findsOneWidget);
+    expect(find.text('Lote del fabricante: GLI-77'), findsOneWidget);
 
     await closePurchaseLine(tester);
     await tapKey(tester, 'purchase-continue');
@@ -286,7 +286,7 @@ void main() {
     await tapKey(tester, 'lot-data-save');
     // Aprobación del titular: el cambio, el motivo y el PIN.
     expect(
-      find.textContaining('Número de lote: sin número → L-9'),
+      find.textContaining('Lote del fabricante: sin número → L-9'),
       findsOneWidget,
     );
     await tester.enterText(

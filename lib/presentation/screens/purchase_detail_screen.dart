@@ -83,7 +83,7 @@ class _PurchaseDetailScreenState extends ConsumerState<PurchaseDetailScreen> {
       title: 'Corregir vencimiento o lote',
       effects:
           'Vencimiento: ${day(item['expiry_date'] as String?)} → '
-          '${day(result.expiryDay)}. Número de lote: '
+          '${day(result.expiryDay)}. Lote del fabricante: '
           '${lot(item['lot_number'] as String?)} → ${lot(result.lotNumber)}. '
           'Cambia en los lotes de esta compra y en los entregados desde '
           'ellos cuando su procedencia está demostrada. Las cantidades y los '
@@ -798,7 +798,7 @@ class _LotDataDialogState extends State<_LotDataDialog> {
             controller: lotNumber,
             onChanged: (_) => setState(() {}),
             decoration: InputDecoration(
-              labelText: 'Número de lote (opcional)',
+              labelText: 'Lote del fabricante (opcional)',
               counterText: lotNumberCounter(lotNumber.text),
               errorText: _lengthError,
               errorMaxLines: 3,

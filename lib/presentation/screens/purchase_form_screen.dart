@@ -2349,9 +2349,9 @@ String? _lotDataSummary(_PurchaseLineEditor line) {
   return parts.isEmpty ? null : parts.join(' · ');
 }
 
-/// «Lote del envase GL-2611-07»: el número que escribió la persona, tal como
+/// «Lote del fabricante: GL-2611-07»: el número que escribió la persona, tal como
 /// figura en el envase (el del fabricante), nunca uno generado.
-String _packageLotText(String number) => 'Lote del envase $number';
+String _packageLotText(String number) => 'Lote del fabricante: $number';
 
 /// Contador del número de lote en caracteres Unicode, como los cuenta el
 /// repositorio.
@@ -2472,7 +2472,7 @@ class _PackageDataSection extends StatelessWidget {
             controller: line.lotNumber,
             onChanged: (_) => onChanged(),
             decoration: InputDecoration(
-              labelText: 'Número de lote del envase (opcional)',
+              labelText: 'Lote del fabricante (opcional)',
               helperText:
                   'Tal como figura en el envase. Si no tiene, '
                   'déjelo vacío.',
