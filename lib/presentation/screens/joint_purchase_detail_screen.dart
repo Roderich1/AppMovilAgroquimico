@@ -1,10 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
+import '../../data/app_log.dart';
 import '../../data/sync/joint_purchase_store.dart';
 import '../../domain/money.dart' show baseUnitsPerMajor, formatQuantity;
 import '../../domain/numeric_input.dart' show formatForInput, parseBaseQuantity;
 import '../../domain/sync/joint_purchase_call_view.dart';
+import '../../services/auth/remote_session_coordinator.dart';
+import '../../services/auth/remote_session_providers.dart';
 import '../../services/sync/sync_providers.dart';
 import '../theme/agro_theme.dart';
 import '../widgets/agro_ui.dart';
@@ -149,13 +153,42 @@ class _JointPurchaseDetailScreenState
       final problem = refreshProblem(report);
       if (problem != null && mounted) showError(context, problem);
     } on SyncAccessUnavailable catch (error) {
-      if (mounted) showError(context, error.message);
+      if (mounted) _showAccessProblem(error);
     } on Object catch (error) {
       if (mounted) showError(context, error);
     } finally {
       if (mounted) setState(() => busy = false);
     }
     if (mounted) _reload();
+  }
+
+  /// Decisión E del autor (2026-11-13): sin acceso en línea no se envió
+  /// nada. El aviso lo dice y, si hay que volver a autenticar, lleva a la
+  /// pantalla existente (`/reauth`); después, «Enviar ahora» lo envía.
+  void _showAccessProblem(SyncAccessUnavailable error) {
+    AppLog.error('Error mostrado al usuario', error: error);
+    final phase = ref.read(remoteSessionProvider).phase;
+    final router = GoRouter.maybeOf(context);
+    final reauth =
+        router != null &&
+        (phase == RemoteSessionPhase.requiresReauthentication ||
+            phase == RemoteSessionPhase.outcomeUnknown);
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          '${error.message} Lo pendiente no se envió y sigue guardado en el '
+          'teléfono.',
+        ),
+        backgroundColor: Theme.of(context).colorScheme.error,
+        duration: const Duration(seconds: 10),
+        action: reauth
+            ? SnackBarAction(
+                label: 'Volver a autenticar',
+                onPressed: () => router.push('/reauth'),
+              )
+            : null,
+      ),
+    );
   }
 
   @override
