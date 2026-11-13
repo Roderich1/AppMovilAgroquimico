@@ -14,12 +14,17 @@
 // * Alcance de personas: en modo individual, sólo los chacos del titular
 //   vigente (`owner_bindings`), como `farmsAndContext`. En el modo con varias
 //   personas, todos.
+// * En modo individual, la exportación «Costo por chaco» sale de
+//   `farmCostLines`, que usa `indCChacos` (decisión C del autor, 2026-11-13):
+//   mismos chacos, filtros y cifras que «Costos › Por chaco». El historial de
+//   terceros sigue en la base y se exporta en el modo con varias personas.
 import 'package:sqflite/sqflite.dart';
 
 import '../domain/operation_mode.dart';
 import '../domain/read_models.dart' show FarmCostRead;
 import 'agro_repository.dart';
 import 'app_database.dart';
+import 'typed_reads.dart';
 
 /// Campaña del alcance; `null` = todas las campañas.
 typedef IndCCampaign = ({int id, String name, String status});
@@ -71,11 +76,11 @@ class IndCFarm {
     ownerName: ownerName,
     areaM2: areaM2,
     totalCostBobMinor: appliedCostMinor,
+    applicationCount: applicationCount,
   );
 
   /// `null` = «No disponible» (sin superficie o sin aplicaciones).
-  int? get costPerHectareMinor =>
-      applicationCount == 0 ? null : cost.costPerHectareMinor;
+  int? get costPerHectareMinor => cost.costPerHectareMinor;
 
   factory IndCFarm._fromRow(Map<String, Object?> row) => IndCFarm(
     farmId: row['id']! as int,
@@ -279,6 +284,28 @@ extension IndCChacosReads on AgroRepository {
         for (final farm in farms)
           if (farm.active || farm.applicationCount > 0) farm,
       ],
+    );
+  }
+
+  /// Líneas de «Costo por chaco» (exportación y Personas › Costos). En modo
+  /// individual son los chacos de [indCChacos] con el mismo filtro de
+  /// campaña: los del titular, sin los chacos de terceros del historial
+  /// (`ownerOnly`). En el modo con varias personas, `farmCostReport` sin
+  /// cambios. Ninguna de las dos recalcula costos: suman los costos ya
+  /// guardados en `applications.total_cost_bob_minor`.
+  Future<({List<FarmCostRead> lines, bool ownerOnly})> farmCostLines({
+    int? campaignId,
+  }) async {
+    if (!(await indCScope()).personal) {
+      return (
+        lines: await farmCostReportTyped(campaignId: campaignId),
+        ownerOnly: false,
+      );
+    }
+    final chacos = await indCChacos(campaignId: campaignId);
+    return (
+      lines: [for (final farm in chacos.farms) farm.cost],
+      ownerOnly: true,
     );
   }
 

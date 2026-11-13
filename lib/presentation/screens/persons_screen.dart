@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../app.dart';
 import '../../data/agro_repository.dart';
+import '../../data/ind_c_chacos_reads.dart' show IndCChacosReads;
 import '../../data/typed_reads.dart';
 import '../../domain/account_ledger.dart';
 import '../../domain/account_texts.dart';
@@ -83,7 +84,8 @@ class _PersonsScreenState extends ConsumerState<PersonsScreen> {
   Future<_CostsData> _loadCosts() async {
     final repo = ref.read(repositoryProvider);
     return (
-      await repo.farmCostReportTyped(campaignId: campaignId),
+      // Mismo alcance que la exportación «Costo por chaco» (decisión C).
+      (await repo.farmCostLines(campaignId: campaignId)).lines,
       await repo.productCostReportTyped(campaignId: campaignId),
     );
   }

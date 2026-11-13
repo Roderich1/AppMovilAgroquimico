@@ -85,6 +85,11 @@ ReportKind? reportKindFromRoute(String? value) {
 String campaignFilterValue(String? campaignName) =>
     campaignName ?? 'Todas las campañas';
 
+/// Filtro «Chacos» del informe «Costo por chaco» exportado en modo individual
+/// (decisión C del autor, 2026-11-13): el archivo dice que no incluye los
+/// chacos de terceros del historial.
+const ownerFarmsScope = 'Sólo los del titular (modo individual)';
+
 class ReportComposer {
   const ReportComposer();
 
@@ -161,10 +166,13 @@ class ReportComposer {
   }
 
   /// Costo por chaco y por hectárea, opcionalmente de una campaña.
+  ///
+  /// [farmScope], si se da, añade el filtro «Chacos» (modo individual).
   ReportTable farmCost({
     required List<FarmCostRead> lines,
     required DateTime generatedAt,
     String? campaignName,
+    String? farmScope,
   }) {
     var totalCost = 0;
     final rows = <List<ReportCell>>[];
@@ -184,7 +192,10 @@ class ReportComposer {
     return ReportTable(
       title: ReportKind.farmCost.label,
       generatedAt: generatedAt,
-      filters: [ReportFilter('Campaña', campaignFilterValue(campaignName))],
+      filters: [
+        ReportFilter('Campaña', campaignFilterValue(campaignName)),
+        if (farmScope != null) ReportFilter('Chacos', farmScope),
+      ],
       columns: const [
         ReportColumn('Chaco', weight: 2.6),
         ReportColumn('Propietario', weight: 2.4),
