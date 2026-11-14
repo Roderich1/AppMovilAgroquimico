@@ -1,6 +1,7 @@
 import 'package:agroquimicos/app.dart';
 import 'package:agroquimicos/data/app_database.dart';
 import 'package:agroquimicos/presentation/screens/purchase_form_screen.dart';
+import 'package:agroquimicos/presentation/voice/voice_evidence_hook.dart';
 import 'package:agroquimicos/voice/voice_providers.dart';
 import 'package:agroquimicos/voice_evidence/voice_evidence_providers.dart';
 import 'package:agroquimicos/voice_evidence/voice_evidence_store.dart';
@@ -100,6 +101,17 @@ void main() {
   Future<void> dictate(WidgetTester tester) async {
     await tapKey(tester, 'voz-hablar');
     await tapKey(tester, 'voz-terminar');
+  }
+
+  /// Corrección a mano tras dictar: 55 Bs por litro en vez de los 50
+  /// dictados.
+  Future<void> correctPrice(WidgetTester tester) async {
+    await openPurchaseLine(tester);
+    final price = find.byKey(const Key('purchase-price-0'));
+    await tester.ensureVisible(price);
+    await tester.pump();
+    await tester.enterText(price, '55');
+    await settle(tester);
   }
 
   /// Registrar por el procedimiento habitual del formulario.
@@ -213,12 +225,7 @@ void main() {
     );
     await dictate(tester);
     // Se dictaron 50 Bs por litro; la persona escribe 55 en el formulario.
-    await openPurchaseLine(tester);
-    final price = find.byKey(const Key('purchase-price-0'));
-    await tester.ensureVisible(price);
-    await tester.pump();
-    await tester.enterText(price, '55');
-    await settle(tester);
+    await correctPrice(tester);
     await register(tester);
     await untilClosed(tester);
     expect(find.byType(PurchaseFormScreen), findsNothing);
@@ -226,11 +233,23 @@ void main() {
 
     final entry = (await evidence(tester, db)).single;
     expect(entry.outcome.code, 'CONFIRMED');
-    // Lo propuesto sigue siendo lo dictado.
+    // Lo propuesto sigue siendo lo dictado: la corrección no lo pisa.
     final proposed = entry.proposed.singleWhere(
       (f) => f.path.endsWith('.price'),
     );
     expect(proposed.value, containsPair('minorPerUnit', 5000));
+    expect(proposed.origin, 'voice');
+    // Y se guarda por separado: columnas distintas para lo propuesto, lo
+    // confirmado o corregido y las correcciones (que derivan de ambos).
+    final row = (await tester.runAsync(
+      () async => (await db.database).query('voice_evidence'),
+    ))!.single;
+    final proposedColumn = row['proposed_fields']! as String;
+    final confirmedColumn = row['confirmed_fields']! as String;
+    expect(proposedColumn, contains('"minorPerUnit":5000'));
+    expect(proposedColumn, isNot(contains('5500')));
+    expect(confirmedColumn, contains('"minorPerUnit":5500'));
+    expect(confirmedColumn, isNot(contains('"minorPerUnit":5000')));
     // Lo confirmado es lo que se registró: el precio corregido a mano.
     final confirmed = entry.confirmed!.singleWhere(
       (f) => f.path == proposed.path,
@@ -265,6 +284,34 @@ void main() {
         reason: path,
       );
     }
+  });
+
+  for (final (name, evaluationBuild, consent) in [
+    ('evaluación sin consentimiento', true, false),
+    ('compilación normal con consentimiento', false, true),
+  ]) {
+    testWidgets('$name: dictar, corregir a mano y registrar no guarda '
+        'evidencia', (tester) async {
+      final db = await open(
+        tester,
+        'ev-corrige-sin-${evaluationBuild ? 'permiso' : 'evaluacion'}',
+        evaluationBuild: evaluationBuild,
+        consent: consent,
+      );
+      await dictate(tester);
+      await correctPrice(tester);
+      await register(tester);
+      await untilClosed(tester);
+      expect(find.byType(PurchaseFormScreen), findsNothing);
+      expect(await purchases(tester, db), 1);
+      expect(await evidence(tester, db), isEmpty);
+    });
+  }
+
+  test('sin AGRO_VOICE_EVIDENCE=true la app no activa el almacén', () {
+    // Las pruebas se compilan sin el indicador, como la app normal.
+    expect(voiceEvidenceEnabled, isFalse);
+    expect(voiceEvidenceOverrides(), isEmpty);
   });
 
   testWidgets('evaluación con consentimiento: cancelar deja una entrada '

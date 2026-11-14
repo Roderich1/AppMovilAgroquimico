@@ -278,10 +278,29 @@ void main() {
       // 2. Sync, lo colectivo y los servicios no nombran la evidencia de
       //    ninguna forma.
       final tableName = RegExp(r'\bvoice_evidence(_consent)?\b');
+      // Revisión OE (2026-11-13): también el modelo de Sync y las pantallas
+      // que publican o muestran lo colectivo (consumo, necesidades,
+      // convocatorias, estado de la sincronización).
       final syncSide = [
         p.normalize('lib/data/sync'),
         p.normalize('lib/services'),
+        p.normalize('lib/domain/sync'),
+        p.normalize('lib/presentation/screens/consumption_publish_screen.dart'),
+        p.normalize('lib/presentation/screens/declared_needs_screen.dart'),
+        p.normalize('lib/presentation/screens/union_screen.dart'),
+        p.normalize('lib/presentation/screens/sync_status_screen.dart'),
+        p.normalize('lib/presentation/widgets/sync_status_banner.dart'),
       ];
+      // La guarda no puede quedar vacía si algo se mueve de sitio.
+      for (final target in syncSide) {
+        expect(
+          FileSystemEntity.typeSync(target),
+          isNot(FileSystemEntityType.notFound),
+          reason: target,
+        );
+      }
+      bool onSyncSide(String path) =>
+          syncSide.any((target) => target == path || p.isWithin(target, path));
       final offenders = <String>[];
       for (final file
           in Directory('lib')
@@ -297,7 +316,7 @@ void main() {
             .where((l) => !RegExp(r'^\s*(import|export) ').hasMatch(l))
             .join('\n');
         if (tableName.hasMatch(body)) offenders.add('$path (tablas)');
-        if (syncSide.any((dir) => p.isWithin(dir, path)) &&
+        if (onSyncSide(path) &&
             (code.contains('voice_evidence') ||
                 code.contains('VoiceEvidence') ||
                 code.contains('voiceEvidence'))) {
