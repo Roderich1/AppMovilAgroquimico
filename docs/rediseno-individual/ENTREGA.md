@@ -50,6 +50,14 @@ Ver `docs/evidence/rediseno-individual/2026-11-13/README.md`.
    - ¿llevar el panel de voz nuevo (Escuchando/Procesando) también al modo con varias personas?
    - ¿permitir editar la superficie de un chaco? Hoy el repositorio no lo permite.
 
+> **Resuelto en el cierre (2026-11-13, `integracion/cierre-mob`):**
+> - Integración con permisos: entrega estable `f9aac3a` fusionada con `bfe0fa2` en `f8de886`. El aviso de Inicio está en los dos modos (`64e1d7b`), junto al aviso de convocatoria nueva y no dentro de «Avisos»/«Para atender», para que se vea aunque el resumen tarde. La suite completa pasa sobre `aeeb4f0`: 3202 pasan, 3 omitidas, 0 fallan.
+> - Panel de voz en el modo con varias personas: el autor lo autorizó (decisión A); aplicado en `1310f9e`.
+> - Superficie del chaco: el autor decidió no añadir la edición en el cierre (decisión B); queda como mejora pendiente.
+> - Exportación «Costo por chaco»: corregida (decisión C), y también «Costo por producto»; «Resumen de campaña» queda como limitación aceptada.
+>
+> Detalle: `docs/cierre/RESUMEN_CIERRE_MOBILE_2026-11-13.md`.
+
 ## Guía breve de revisión
 
 En el emulador, abra «AC IND», que ya tiene datos sintéticos de Rosa Vargas:
