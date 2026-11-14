@@ -30,8 +30,7 @@
 // El físico, el valor (6 + 1 L a Bs 100,00 = Bs 700,00), FIFO y los costos no
 // cambian. Reutiliza `rec_046_inventory_detail_test.dart` para la procedencia y
 // los filtros de lotes, y `report_export_service_test.dart:328` para la
-// paridad del CSV de inventario sin reversiones.
-import 'dart:convert';
+// paridad del CSV de inventario sin reversiones (desde el 2026-11-12, Excel).
 import 'dart:io';
 
 import 'package:agroquimicos/app.dart';
@@ -42,7 +41,6 @@ import 'package:agroquimicos/domain/models.dart';
 import 'package:agroquimicos/domain/reports/report_composer.dart';
 import 'package:agroquimicos/presentation/screens/inventory_detail_screen.dart';
 import 'package:agroquimicos/presentation/screens/person_detail_screen.dart';
-import 'package:agroquimicos/services/reports/csv_report_generator.dart';
 import 'package:agroquimicos/services/reports/report_export_service.dart';
 import 'package:agroquimicos/services/reports/report_storage.dart';
 import 'package:flutter/material.dart';
@@ -53,6 +51,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'support/f04_app_access.dart';
 import 'support/f04_mode_fixtures.dart';
+import 'support/xlsx_reader.dart';
 
 void main() {
   sqfliteFfiInit();
@@ -395,7 +394,7 @@ void main() {
       },
     );
 
-    test('el CSV de inventario sigue mostrando físico, comprometido, '
+    test('el Excel de inventario sigue mostrando físico, comprometido, '
         'proyectado y valor', () async {
       final root = await Directory.systemTemp.createTemp('agro_rec_neto_');
       addTearDown(() => root.delete(recursive: true));
@@ -409,15 +408,15 @@ void main() {
       final stored = await service.export(
         const ReportRequest(
           kind: ReportKind.inventory,
-          format: ReportFormat.csv,
+          format: ReportFormat.xlsx,
         ),
       );
-      final content = utf8.decode(
-        (await File(stored.path).readAsBytes()).sublist(utf8Bom.length),
-      );
-      expect(content, contains('\r\nAtrazina;KG;0;0;0;0,00\r\n'));
-      expect(content, contains('\r\nGlifosato;L;7;0;7;700,00\r\n'));
-      expect(content, contains('Valor total (Bs);700,00'));
+      // Registros completos del libro en la forma `;` del antiguo CSV, con
+      // cada número en una celda numérica (`support/xlsx_reader.dart`).
+      final records = xlsxRecords(await File(stored.path).readAsBytes());
+      expect(records, contains('Atrazina;KG;0;0;0;0,00'));
+      expect(records, contains('Glifosato;L;7;0;7;700,00'));
+      expect(records, contains('Valor total (Bs);700,00'));
     });
   });
 
@@ -468,20 +467,26 @@ void main() {
       await mount(tester, InventoryDetailScreen(productId: glifosato));
       await waitFor(tester, find.text('Comprado neto'));
 
-      /// El valor dentro de la tarjeta de su rótulo.
+      /// El valor junto a su rótulo (rediseño B: cifra con clave
+      /// `metric-<rótulo>` en la cabecera del producto).
       Finder metric(String label, String value) => find.descendant(
-        of: find
-            .ancestor(of: find.text(label), matching: find.byType(Card))
-            .first,
+        of: find.byKey(Key('metric-$label')),
         matching: find.text(value),
       );
       expect(metric('Comprado neto', '10 L'), findsOneWidget);
       expect(metric('Consumido neto', '3 L'), findsOneWidget);
-      expect(metric('Físico', '7 L'), findsOneWidget);
+      // El físico va en grande, con el número y la unidad por separado
+      // (ronda 2: rotulado «Hay ahora»).
+      expect(metric('Hay ahora', '7'), findsOneWidget);
+      expect(metric('Hay ahora', 'L'), findsOneWidget);
+      // Las explicaciones se abren con «i» en la cabecera (sin párrafos
+      // permanentes); el texto es el mismo.
+      await tester.tap(find.byKey(const Key('inventory-info')));
+      await settle(tester);
       expect(
         find.text(
           'Neto: no cuenta lo revertido. Comprado neto menos consumido '
-          'neto es el físico.',
+          'neto es lo que hay ahora.',
         ),
         findsOneWidget,
       );
@@ -489,18 +494,17 @@ void main() {
         find.text(
           'Asignación neta: lo comprado para esta persona, más lo que '
           'recibió y menos lo que entregó por transferencias. No cuenta lo '
-          'revertido. Restando lo consumido queda su físico.',
+          'revertido. Restando lo consumido queda lo que tiene. En «Quién '
+          'lo tiene», «Usó 1 L de 3 L» es su consumido neto de su '
+          'asignación neta.',
         ),
         findsOneWidget,
       );
-      expect(
-        find.text('Asignación neta 9 L · consumido neto 3 L'),
-        findsOneWidget,
-      );
-      expect(
-        find.text('Asignación neta 1 L · consumido neto 0 L'),
-        findsOneWidget,
-      );
+      await tester.tap(find.text('Cerrar'));
+      await settle(tester);
+      // Ronda 2: «Usó <consumido neto> de <asignación neta>».
+      expect(find.text('Usó 3 L de 9 L'), findsOneWidget);
+      expect(find.text('Usó 0 L de 1 L'), findsOneWidget);
       expect(find.text('Caro'), findsNothing);
       expect(find.text('Comprado'), findsNothing);
       expect(find.text('Consumido'), findsNothing);

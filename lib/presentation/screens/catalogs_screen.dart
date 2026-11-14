@@ -2,15 +2,17 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app.dart';
-import '../../data/agro_repository.dart';
-import '../../data/typed_reads.dart';
 import '../../domain/models.dart';
-import '../../domain/campaign_calendar.dart';
 import '../../domain/money.dart';
 import '../../domain/operation_mode.dart';
-import '../../domain/person_roles.dart';
 import '../../operation_mode_controller.dart';
+import '../widgets/campaign_actions.dart';
+import '../widgets/catalog_dialogs.dart';
+import '../theme/agro_theme.dart';
+import '../widgets/agro_ui.dart';
 import '../widgets/common.dart';
+import '../widgets/rdm_c_page.dart';
+import '../widgets/label_photo_sheet.dart';
 
 class CatalogsScreen extends ConsumerStatefulWidget {
   const CatalogsScreen({super.key});
@@ -63,7 +65,7 @@ class _CatalogsScreenState extends ConsumerState<CatalogsScreen>
   Future<void> _edit(Map<String, Object?> row) async {
     final value = await showDialog<String?>(
       context: context,
-      builder: (_) => _NameDialog(
+      builder: (_) => NameDialog(
         title: 'Editar nombre',
         label: 'Nombre',
         initial: row['name']! as String,
@@ -108,133 +110,24 @@ class _CatalogsScreenState extends ConsumerState<CatalogsScreen>
     }
   }
 
+  /// «Foto de la etiqueta» (E1 §5.1). La hoja guarda por su cuenta; al
+  /// cerrarla se relee la lista.
+  Future<void> _labelPhoto(Map<String, Object?> row) async {
+    await showLabelPhotoSheet(
+      context,
+      productId: row['id']! as int,
+      productName: row['name'].toString(),
+    );
+    if (mounted) _refresh();
+  }
+
   Future<void> _campaignAction(String action, Map<String, Object?> row) async {
     final repo = ref.read(repositoryProvider);
     try {
       if (action == 'activate') {
-        try {
-          await repo.activateCampaign(row['id'] as int);
-        } on CampaignConflictException catch (conflict) {
-          if (!mounted) return;
-          final replace = await showDialog<bool>(
-            context: context,
-            builder: (dialogContext) => AlertDialog(
-              title: const Text('Cambiar campaña activa'),
-              content: Text(
-                'Está activa ${conflict.activeCampaignName}. ¿Desea cerrarla y activar ${row['name']}?',
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(dialogContext, false),
-                  child: const Text('Cancelar'),
-                ),
-                FilledButton(
-                  onPressed: () => Navigator.pop(dialogContext, true),
-                  child: const Text('Cerrar y activar'),
-                ),
-              ],
-            ),
-          );
-          if (replace == true) {
-            await repo.activateCampaign(row['id'] as int, closeCurrent: true);
-          }
-        }
+        await activateCampaignFlow(context, repo, row);
       } else if (action == 'close') {
-        final summary = await repo.campaignCloseSummaryTyped(row['id'] as int);
-        if (!mounted) return;
-        // Fin del período (RN-16; «las fechas concretas son configuración»):
-        // el fin **efectivo** se elige siempre, hoy por defecto, también si
-        // el alta de la siguiente o «Fijar fin previsto…» ya fijaron un fin
-        // (#122). Ese fin previsto se muestra aparte y no se conserva en
-        // silencio; el repositorio vuelve a validar.
-        final plannedEnd = row['end_date'] as String?;
-        // El fin más tardío admitido es hoy, o el inicio si la campaña todavía
-        // no empezó (revisión de B sobre #110); es también el que se propone.
-        final start = DateTime.parse(row['start_date']! as String).toLocal();
-        final now = DateTime.now();
-        final latestEnd = start.isAfter(now) ? start : now;
-        var end = latestEnd;
-        final confirm = await showDialog<bool>(
-          context: context,
-          builder: (dialogContext) => StatefulBuilder(
-            builder: (dialogContext, setDialogState) => AlertDialog(
-              title: Text('¿Cerrar ${row['name']}?'),
-              // Cerrar dejó de ser reversible desde la aplicación (UIBUG-059),
-              // así que la confirmación tiene que decirlo antes, no después:
-              // qué campaña, desde cuándo, qué deja de admitir y que no podrá
-              // reactivarse.
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (plannedEnd != null)
-                    ListTile(
-                      key: const Key('campaign-close-planned-end'),
-                      contentPadding: EdgeInsets.zero,
-                      leading: const Icon(Icons.event_note_outlined),
-                      title: const Text('Fin previsto'),
-                      subtitle: Text(
-                        '${formatDate(plannedEnd)}. El fin efectivo que '
-                        'confirme abajo lo sustituye.',
-                      ),
-                    ),
-                  ListTile(
-                    key: const Key('campaign-close-end'),
-                    contentPadding: EdgeInsets.zero,
-                    leading: const Icon(Icons.event_outlined),
-                    title: const Text('Termina el'),
-                    subtitle: Text(formatDate(end.toIso8601String())),
-                    trailing: const Text('Cambiar'),
-                    onTap: () async {
-                      final picked = await showDatePicker(
-                        context: dialogContext,
-                        initialDate: end,
-                        firstDate: DateTime(2000),
-                        // Un fin futuro no se admite (el repositorio lo
-                        // rechaza también).
-                        lastDate: latestEnd,
-                      );
-                      if (picked != null) setDialogState(() => end = picked);
-                    },
-                  ),
-                  Text(
-                    'Periodo: desde ${formatDate(row['start_date'])}.\n\n'
-                    'Compras: ${summary.purchasesCount} · aplicaciones: ${summary.applicationsCount}\n'
-                    'Planes pendientes: ${summary.pendingPlans}\n'
-                    'Deuda pendiente por origen: ${formatBob(summary.receivableBobMinor)}\n\n'
-                    'La campaña dejará de admitir nuevas compras, aplicaciones, '
-                    'transferencias y planes.\n\n'
-                    'Una campaña cerrada NO se puede volver a activar desde la '
-                    'aplicación. Si necesita seguir operando, cree una campaña '
-                    'nueva.\n\n'
-                    'El inventario físico no se elimina y seguirá disponible en la próxima campaña.',
-                  ),
-                ],
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(dialogContext, false),
-                  child: const Text('Cancelar'),
-                ),
-                FilledButton(
-                  // Mismo criterio visual de acción irreversible que las
-                  // reversiones (UIBUG-033).
-                  style: FilledButton.styleFrom(
-                    backgroundColor: Theme.of(dialogContext).colorScheme.error,
-                    foregroundColor: Theme.of(dialogContext)
-                        .colorScheme
-                        .onError,
-                  ),
-                  onPressed: () => Navigator.pop(dialogContext, true),
-                  child: const Text('Cerrar definitivamente'),
-                ),
-              ],
-            ),
-          ),
-        );
-        if (confirm == true) {
-          await repo.closeCampaign(row['id'] as int, end: end);
-        }
+        await closeCampaignFlow(context, repo, row);
       } else {
         await _edit(row);
         return;
@@ -255,62 +148,21 @@ class _CatalogsScreenState extends ConsumerState<CatalogsScreen>
           if (_personal) return;
           final result = await showDialog<(String, PersonRole)?>(
             context: context,
-            builder: (_) => const _PersonDialog(),
+            builder: (_) => const PersonDialog(),
           );
           if (result != null)
             await repo.addPerson(name: result.$1, role: result.$2);
+        // Chaco, producto y proveedor: las mismas altas que ofrecen los
+        // selectores de los formularios (catalog_dialogs.dart). En modo propio
+        // los chacos son del titular, que se aplica sin elegirlo (#26).
         case 1:
-          // En modo propio los chacos son del titular, que se aplica sin
-          // elegirlo (#26).
-          final people = await repo.peopleFor(PersonPurpose.farmOwner);
-          final operating = await repo.operatingContext();
-          if (!mounted) return;
-          final result = await showDialog<(int, String, int)?>(
-            context: context,
-            builder: (_) => _FarmDialog(
-              people: people,
-              fixedOwner:
-                  operating.mode == OperationMode.personal &&
-                  people.length == 1,
-            ),
-          );
-          if (result != null)
-            await repo.addFarm(
-              ownerId: result.$1,
-              name: result.$2,
-              areaM2: result.$3,
-            );
+          await createFarmFromDialog(context, repo);
         case 2:
-          final result = await showDialog<(String, String, String)?>(
-            context: context,
-            builder: (_) => const _ProductDialog(),
-          );
-          if (result != null)
-            await repo.addProduct(
-              name: result.$1,
-              activeIngredient: result.$2,
-              unit: result.$3,
-            );
+          await createProductFromDialog(context, repo);
         case 3:
-          final name = await showDialog<String?>(
-            context: context,
-            builder: (_) => const _NameDialog(
-              title: 'Nuevo proveedor',
-              label: 'Nombre del proveedor',
-            ),
-          );
-          if (name != null) await repo.addSupplier(name: name);
+          await createSupplierFromDialog(context, repo);
         case 4:
-          // RN-16: el inicio se elige (antes era siempre el día de alta) y el
-          // repositorio comprueba que no solape ni deje operaciones fuera.
-          final suggested = await repo.suggestedCampaignStart();
-          if (!mounted) return;
-          final result = await showDialog<(String, DateTime)?>(
-            context: context,
-            builder: (_) => _CampaignDialog(suggestedStart: suggested),
-          );
-          if (result != null)
-            await repo.addCampaign(name: result.$1, start: result.$2);
+          await addCampaignFlow(context, repo);
       }
       _refresh();
     } catch (error) {
@@ -339,9 +191,10 @@ class _CatalogsScreenState extends ConsumerState<CatalogsScreen>
     return _page(context, personal);
   }
 
-  Widget _page(BuildContext context, bool personal) => PageFrame(
-    title: 'Catálogos',
-    subtitle: 'Personas, chacos, insumos y campañas.',
+  Widget _page(BuildContext context, bool personal) => RdmCPage(
+    // Rediseño (lámina «Datos»), desde «Ajustes y datos».
+    title: 'Datos',
+    subtitle: 'Personas, chacos, productos, proveedores y campañas.',
     // **UIBUG-047 — jerarquía de acciones en `/catalogos`.** La pantalla
     // presentaba dos acciones visualmente primarias: este botón y el FAB
     // global "Nuevo". Se conserva el botón específico, que dice **qué** va a
@@ -361,17 +214,6 @@ class _CatalogsScreenState extends ConsumerState<CatalogsScreen>
           ),
     child: Column(
       children: [
-        TextField(
-          onChanged: (value) => setState(() {
-            query = value.trim().toLowerCase();
-          }),
-          decoration: const InputDecoration(
-            prefixIcon: Icon(Icons.search),
-            labelText: 'Buscar en esta sección',
-            isDense: true,
-          ),
-        ),
-        const SizedBox(height: 8),
         Align(
           alignment: Alignment.centerLeft,
           child: Wrap(
@@ -394,17 +236,26 @@ class _CatalogsScreenState extends ConsumerState<CatalogsScreen>
           ),
         ),
         const SizedBox(height: 12),
+        TextField(
+          onChanged: (value) => setState(() {
+            query = value.trim().toLowerCase();
+          }),
+          decoration: const InputDecoration(
+            prefixIcon: Icon(Icons.search),
+            labelText: 'Buscar en esta sección',
+            isDense: true,
+            filled: true,
+            fillColor: AgroColors.surface,
+          ),
+        ),
+        const SizedBox(height: 12),
         if (personal && tabs.index == 0) ...[
-          const Card(
+          const NoticeBox(
             key: Key('catalogs-personal-persons-notice'),
-            child: Padding(
-              padding: EdgeInsets.all(14),
-              child: Text(
-                'Inventario propio: registra sólo el titular. Para agregar '
-                'responsables, cambie a inventario compartido en Modo de uso. '
+            text:
+                'Modo individual: registra sólo el titular. Para agregar '
+                'responsables, cambie a «Modo con varias personas» en Modo de uso. '
                 'Las personas ya registradas y su historial se conservan.',
-              ),
-            ),
           ),
           const SizedBox(height: 12),
         ],
@@ -423,8 +274,12 @@ class _CatalogsScreenState extends ConsumerState<CatalogsScreen>
                 return const Center(child: CircularProgressIndicator());
               final rows = snapshot.data![tabs.index].where((row) {
                 if (query.isEmpty) return true;
-                return row.values.any(
-                  (value) => matchesSearch(value.toString(), query),
+                // La ruta y la huella de la foto de la etiqueta no son
+                // texto que el agricultor busque.
+                return row.entries.any(
+                  (entry) =>
+                      !entry.key.startsWith('photo_') &&
+                      matchesSearch(entry.value.toString(), query),
                 );
               }).toList();
               if (rows.isEmpty)
@@ -432,93 +287,116 @@ class _CatalogsScreenState extends ConsumerState<CatalogsScreen>
                   icon: Icons.add_circle_outline,
                   message: 'No hay registros. Usa Agregar para comenzar.',
                 );
-              return Card(
-                child: ListView.separated(
-                  // La lista ya no tiene altura propia: crece con su contenido
-                  // y se desplaza con la página (UIBUG-018).
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  itemCount: rows.length,
-                  separatorBuilder: (_, __) => const Divider(height: 1),
-                  itemBuilder: (_, index) {
-                    final row = rows[index];
-                    final (title, subtitle, icon) = switch (tabs.index) {
-                      0 => (
-                        row['name'].toString(),
-                        '${_roleLabel(row['role']! as String)} · ${_policyLabel(row['settlement_policy']! as String)}',
-                        Icons.person_outline,
-                      ),
-                      1 => (
-                        row['name'].toString(),
-                        '${row['owner_name']} · ${formatHectares(row['area_m2'] as int)}',
-                        Icons.landscape_outlined,
-                      ),
-                      2 => (
-                        row['name'].toString(),
-                        '${row['active_ingredient'] ?? 'Sin ingrediente'} · ${row['unit']}',
-                        Icons.science_outlined,
-                      ),
-                      3 => (
-                        row['name'].toString(),
-                        row['phone']?.toString() ?? 'Proveedor',
-                        Icons.storefront_outlined,
-                      ),
-                      _ => (
-                        row['name'].toString(),
-                        _campaignSubtitle(row, snapshot.data![tabs.index]),
-                        Icons.calendar_month_outlined,
-                      ),
-                    };
-                    return ListTile(
-                      leading: CircleAvatar(child: Icon(icon)),
-                      title: Text(title),
-                      subtitle: Text(subtitle),
-                      trailing: PopupMenuButton<String>(
-                        onSelected: (value) => tabs.index == 4
-                            ? _campaignAction(value, row)
-                            : value == 'edit'
-                            ? _edit(row)
-                            : _archive(row),
-                        itemBuilder: (_) => tabs.index == 4
-                            ? [
-                                const PopupMenuItem(
-                                  value: 'edit',
-                                  child: Text('Editar'),
-                                ),
-                                // **UIBUG-059 — una campaña cerrada es
-                                // terminal.** Antes bastaba con no estar
-                                // `ACTIVE` para ofrecer "Activar", así que una
-                                // campaña cerrada —un periodo contable ya
-                                // terminado— podía reabrirse con dos toques.
-                                // Sólo se puede activar lo que aún no ha
-                                // vivido: `PLANNED`. El repositorio rechaza
-                                // además la reactivación, por si se llega por
-                                // otro camino.
-                                if (row['status'] == 'PLANNED')
+              return AgroGroup(
+                children: [
+                  ListView.separated(
+                    // La lista ya no tiene altura propia: crece con su contenido
+                    // y se desplaza con la página (UIBUG-018).
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    itemCount: rows.length,
+                    separatorBuilder: (_, __) => const Divider(height: 1),
+                    itemBuilder: (_, index) {
+                      final row = rows[index];
+                      final (title, subtitle, icon) = switch (tabs.index) {
+                        0 => (
+                          row['name'].toString(),
+                          '${_roleLabel(row['role']! as String)} · ${_policyLabel(row['settlement_policy']! as String)}',
+                          Icons.person_outline,
+                        ),
+                        1 => (
+                          row['name'].toString(),
+                          '${row['owner_name']} · ${formatHectares(row['area_m2'] as int)}',
+                          Icons.landscape_outlined,
+                        ),
+                        2 => (
+                          row['name'].toString(),
+                          '${row['active_ingredient'] ?? 'Sin ingrediente'} · ${row['unit']}'
+                              '${row['photo_path'] == null ? '' : ' · Con foto de la etiqueta'}',
+                          Icons.science_outlined,
+                        ),
+                        3 => (
+                          row['name'].toString(),
+                          row['phone']?.toString() ?? 'Proveedor',
+                          Icons.storefront_outlined,
+                        ),
+                        _ => (
+                          row['name'].toString(),
+                          campaignSubtitle(row, snapshot.data![tabs.index]),
+                          Icons.calendar_month_outlined,
+                        ),
+                      };
+                      return ListTile(
+                        // Personas con su inicial, como en la lámina; el resto
+                        // con el icono de su sección.
+                        leading: CircleAvatar(
+                          backgroundColor: AgroColors.chip,
+                          foregroundColor: AgroColors.ink,
+                          child: tabs.index == 0 && title.isNotEmpty
+                              ? Text(
+                                  title.characters.first.toUpperCase(),
+                                  style: AgroText.value,
+                                )
+                              : Icon(icon),
+                        ),
+                        title: Text(title, style: AgroText.value),
+                        subtitle: Text(subtitle),
+                        trailing: PopupMenuButton<String>(
+                          onSelected: (value) => tabs.index == 4
+                              ? _campaignAction(value, row)
+                              : value == 'edit'
+                              ? _edit(row)
+                              : value == 'photo'
+                              ? _labelPhoto(row)
+                              : _archive(row),
+                          itemBuilder: (_) => tabs.index == 4
+                              ? [
                                   const PopupMenuItem(
-                                    value: 'activate',
-                                    child: Text('Activar'),
+                                    value: 'edit',
+                                    child: Text('Editar'),
                                   ),
-                                if (row['status'] == 'ACTIVE')
+                                  // **UIBUG-059 — una campaña cerrada es
+                                  // terminal.** Antes bastaba con no estar
+                                  // `ACTIVE` para ofrecer "Activar", así que una
+                                  // campaña cerrada —un periodo contable ya
+                                  // terminado— podía reabrirse con dos toques.
+                                  // Sólo se puede activar lo que aún no ha
+                                  // vivido: `PLANNED`. El repositorio rechaza
+                                  // además la reactivación, por si se llega por
+                                  // otro camino.
+                                  if (row['status'] == 'PLANNED')
+                                    const PopupMenuItem(
+                                      value: 'activate',
+                                      child: Text('Activar'),
+                                    ),
+                                  if (row['status'] == 'ACTIVE')
+                                    const PopupMenuItem(
+                                      value: 'close',
+                                      child: Text('Cerrar'),
+                                    ),
+                                ]
+                              : [
                                   const PopupMenuItem(
-                                    value: 'close',
-                                    child: Text('Cerrar'),
+                                    value: 'edit',
+                                    child: Text('Editar'),
                                   ),
-                              ]
-                            : const [
-                                PopupMenuItem(
-                                  value: 'edit',
-                                  child: Text('Editar'),
-                                ),
-                                PopupMenuItem(
-                                  value: 'archive',
-                                  child: Text('Archivar'),
-                                ),
-                              ],
-                      ),
-                    );
-                  },
-                ),
+                                  // E1: la foto de la etiqueta, sólo en
+                                  // Productos.
+                                  if (tabs.index == 2)
+                                    const PopupMenuItem(
+                                      value: 'photo',
+                                      child: Text('Foto de la etiqueta'),
+                                    ),
+                                  const PopupMenuItem(
+                                    value: 'archive',
+                                    child: Text('Archivar'),
+                                  ),
+                                ],
+                        ),
+                      );
+                    },
+                  ),
+                ],
               );
             },
           ),
@@ -526,27 +404,6 @@ class _CatalogsScreenState extends ConsumerState<CatalogsScreen>
       ],
     ),
   );
-
-  /// Estado y período de la campaña. Una planificada cuyo inicio aún no llegó,
-  /// mientras otra está activa, dice desde cuándo se podrá activar (#125): el
-  /// camino válido es esperar a ese día; «Cerrar y activar» no se ofrece
-  /// antes, y el repositorio lo rechaza igual si se llega por otra vía.
-  String _campaignSubtitle(
-    Map<String, Object?> row,
-    List<Map<String, Object?>> all,
-  ) {
-    final start = row['start_date']! as String;
-    final end = row['end_date'] as String?;
-    var text =
-        '${campaignStatusLabel(row['status'])} · ${formatDate(start)}'
-        '${end == null ? '' : ' – ${formatDate(end)}'}';
-    if (row['status'] == 'PLANNED' &&
-        storedLocalDay(start).compareTo(localDay(DateTime.now())) > 0 &&
-        all.any((r) => r['status'] == 'ACTIVE')) {
-      text += ' · Se podrá activar desde el ${formatDate(start)}';
-    }
-    return text;
-  }
 
   String _roleLabel(String role) => switch (role) {
     'ADMIN' => 'Administrador',
@@ -561,372 +418,4 @@ class _CatalogsScreenState extends ConsumerState<CatalogsScreen>
     'MANUAL' => 'Manual',
     _ => policy,
   };
-}
-
-class _NameDialog extends StatefulWidget {
-  const _NameDialog({required this.title, required this.label, this.initial});
-  final String title;
-  final String label;
-  final String? initial;
-  @override
-  State<_NameDialog> createState() => _NameDialogState();
-}
-
-/// Mensaje de validación común a los diálogos de catálogo (UIBUG-031).
-///
-/// Antes, "Guardar" con el campo vacío simplemente no hacía nada: ni guardaba,
-/// ni cerraba, ni explicaba por qué. El botón parecía averiado. Ahora cada
-/// diálogo es un `Form` con `validator`, así que el error aparece **en línea
-/// bajo el campo que falta** y sigue sin escribirse nada en la base.
-String? _requiredText(String? value, String what) =>
-    (value ?? '').trim().isEmpty ? 'Escriba $what.' : null;
-
-class _NameDialogState extends State<_NameDialog> {
-  late final controller = TextEditingController(text: widget.initial);
-  final formKey = GlobalKey<FormState>();
-
-  @override
-  void dispose() {
-    controller.dispose();
-    super.dispose();
-  }
-
-  void _save() {
-    if (!formKey.currentState!.validate()) return;
-    Navigator.pop(context, controller.text.trim());
-  }
-
-  @override
-  Widget build(BuildContext context) => AlertDialog(
-    title: Text(widget.title),
-    content: Form(
-      key: formKey,
-      child: TextFormField(
-        controller: controller,
-        autofocus: true,
-        decoration: InputDecoration(labelText: widget.label),
-        validator: (value) => _requiredText(value, widget.label.toLowerCase()),
-        onFieldSubmitted: (_) => _save(),
-      ),
-    ),
-    actions: [
-      TextButton(
-        onPressed: () => Navigator.pop(context),
-        child: const Text('Cancelar'),
-      ),
-      FilledButton(onPressed: _save, child: const Text('Guardar')),
-    ],
-  );
-}
-
-/// Alta de campaña: nombre y día de inicio (RN-15, RN-16).
-class _CampaignDialog extends StatefulWidget {
-  const _CampaignDialog({required this.suggestedStart});
-  final DateTime suggestedStart;
-  @override
-  State<_CampaignDialog> createState() => _CampaignDialogState();
-}
-
-class _CampaignDialogState extends State<_CampaignDialog> {
-  final name = TextEditingController();
-  final formKey = GlobalKey<FormState>();
-  late DateTime start = widget.suggestedStart;
-
-  @override
-  void dispose() {
-    name.dispose();
-    super.dispose();
-  }
-
-  Future<void> _pickStart() async {
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: start,
-      firstDate: DateTime(2000),
-      lastDate: DateTime(2100),
-    );
-    if (picked != null) setState(() => start = picked);
-  }
-
-  void _save() {
-    if (!formKey.currentState!.validate()) return;
-    Navigator.pop(context, (name.text.trim(), start));
-  }
-
-  @override
-  Widget build(BuildContext context) => AlertDialog(
-    title: const Text('Nueva campaña'),
-    content: Form(
-      key: formKey,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          TextFormField(
-            key: const Key('campaign-name'),
-            controller: name,
-            autofocus: true,
-            decoration: const InputDecoration(labelText: 'Nombre de campaña'),
-            validator: (value) => _requiredText(value, 'nombre de campaña'),
-          ),
-          const SizedBox(height: 12),
-          ListTile(
-            key: const Key('campaign-start'),
-            contentPadding: EdgeInsets.zero,
-            leading: const Icon(Icons.event_outlined),
-            title: const Text('Empieza el'),
-            subtitle: Text(formatDate(start.toIso8601String())),
-            trailing: const Text('Cambiar'),
-            onTap: _pickStart,
-          ),
-          const Text(
-            'Las compras y aplicaciones se ubican en la campaña por su fecha. '
-            'Si la campaña anterior sigue abierta, terminará el día anterior a '
-            'este inicio; las operaciones desde ese día serán de la campaña '
-            'nueva, que habrá que activar para registrarlas.',
-          ),
-        ],
-      ),
-    ),
-    actions: [
-      TextButton(
-        onPressed: () => Navigator.pop(context),
-        child: const Text('Cancelar'),
-      ),
-      FilledButton(onPressed: _save, child: const Text('Guardar')),
-    ],
-  );
-}
-
-class _PersonDialog extends StatefulWidget {
-  const _PersonDialog();
-  @override
-  State<_PersonDialog> createState() => _PersonDialogState();
-}
-
-class _PersonDialogState extends State<_PersonDialog> {
-  final name = TextEditingController();
-  final formKey = GlobalKey<FormState>();
-  PersonRole role = PersonRole.family;
-  @override
-  void dispose() {
-    name.dispose();
-    super.dispose();
-  }
-
-  void _save() {
-    if (!formKey.currentState!.validate()) return;
-    Navigator.pop(context, (name.text.trim(), role));
-  }
-
-  @override
-  Widget build(BuildContext context) => AlertDialog(
-    title: const Text('Nueva persona'),
-    content: Form(
-      key: formKey,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          TextFormField(
-            controller: name,
-            decoration: const InputDecoration(labelText: 'Nombre'),
-            validator: (value) => _requiredText(value, 'el nombre'),
-          ),
-          const SizedBox(height: 12),
-          DropdownButtonFormField(
-            initialValue: role,
-            decoration: const InputDecoration(labelText: 'Tipo'),
-            items: const [
-              DropdownMenuItem(
-                value: PersonRole.admin,
-                child: Text('Administrador'),
-              ),
-              DropdownMenuItem(
-                value: PersonRole.family,
-                child: Text('Familiar · cobro por uso'),
-              ),
-              DropdownMenuItem(
-                value: PersonRole.thirdParty,
-                child: Text('Tercero · cobro por asignación'),
-              ),
-            ],
-            onChanged: (value) => setState(() => role = value!),
-          ),
-        ],
-      ),
-    ),
-    actions: [
-      TextButton(
-        onPressed: () => Navigator.pop(context),
-        child: const Text('Cancelar'),
-      ),
-      FilledButton(onPressed: _save, child: const Text('Guardar')),
-    ],
-  );
-}
-
-class _FarmDialog extends StatefulWidget {
-  const _FarmDialog({required this.people, this.fixedOwner = false});
-  final List<Map<String, Object?>> people;
-
-  /// En inventario propio el chaco es del titular: no se elige (#26).
-  final bool fixedOwner;
-  @override
-  State<_FarmDialog> createState() => _FarmDialogState();
-}
-
-class _FarmDialogState extends State<_FarmDialog> {
-  final name = TextEditingController();
-  final area = TextEditingController();
-  final formKey = GlobalKey<FormState>();
-  late int? owner = widget.fixedOwner
-      ? widget.people.single['id']! as int
-      : null;
-  @override
-  void dispose() {
-    name.dispose();
-    area.dispose();
-    super.dispose();
-  }
-
-  void _save() {
-    if (!formKey.currentState!.validate()) return;
-    Navigator.pop(context, (
-      owner!,
-      name.text.trim(),
-      ((tryParseDecimal(area.text) ?? 0) * 10000).round(),
-    ));
-  }
-
-  @override
-  Widget build(BuildContext context) => AlertDialog(
-    title: const Text('Nuevo chaco'),
-    content: Form(
-      key: formKey,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (widget.fixedOwner)
-            Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                'Propietario: ${widget.people.single['name']} (titular)',
-                key: const Key('farm-personal-owner'),
-              ),
-            )
-          else
-            DropdownButtonFormField<int>(
-              initialValue: owner,
-              decoration: const InputDecoration(labelText: 'Propietario'),
-              items: [
-                for (final row in widget.people)
-                  DropdownMenuItem(
-                    value: row['id']! as int,
-                    child: Text(row['name']! as String),
-                  ),
-              ],
-              onChanged: (value) => setState(() => owner = value),
-              validator: (value) =>
-                  value == null ? 'Elija un propietario.' : null,
-            ),
-          const SizedBox(height: 12),
-          TextFormField(
-            controller: name,
-            decoration: const InputDecoration(labelText: 'Nombre'),
-            validator: (value) => _requiredText(value, 'el nombre del chaco'),
-          ),
-          const SizedBox(height: 12),
-          TextFormField(
-            controller: area,
-            keyboardType: TextInputType.number,
-            decoration: const InputDecoration(labelText: 'Superficie (ha)'),
-            // La superficie no sólo debe estar: debe ser un número mayor a
-            // cero, porque `farms.area_m2` lo exige con un CHECK y el fallo
-            // llegaba como excepción de SQLite en vez de como aviso del
-            // formulario (UIBUG-031).
-            validator: (value) {
-              if ((value ?? '').trim().isEmpty) return 'Escriba la superficie.';
-              final parsed = tryParseDecimal(value!);
-              if (parsed == null) return 'Escriba la superficie en números.';
-              if (parsed <= 0) return 'La superficie debe ser mayor a cero.';
-              return null;
-            },
-          ),
-        ],
-      ),
-    ),
-    actions: [
-      TextButton(
-        onPressed: () => Navigator.pop(context),
-        child: const Text('Cancelar'),
-      ),
-      FilledButton(onPressed: _save, child: const Text('Guardar')),
-    ],
-  );
-}
-
-class _ProductDialog extends StatefulWidget {
-  const _ProductDialog();
-  @override
-  State<_ProductDialog> createState() => _ProductDialogState();
-}
-
-class _ProductDialogState extends State<_ProductDialog> {
-  final name = TextEditingController();
-  final ingredient = TextEditingController();
-  final formKey = GlobalKey<FormState>();
-  String unit = 'L';
-  @override
-  void dispose() {
-    name.dispose();
-    ingredient.dispose();
-    super.dispose();
-  }
-
-  void _save() {
-    if (!formKey.currentState!.validate()) return;
-    Navigator.pop(context, (name.text.trim(), ingredient.text.trim(), unit));
-  }
-
-  @override
-  Widget build(BuildContext context) => AlertDialog(
-    title: const Text('Nuevo producto'),
-    content: Form(
-      key: formKey,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          TextFormField(
-            controller: name,
-            decoration: const InputDecoration(labelText: 'Producto'),
-            validator: (value) =>
-                _requiredText(value, 'el nombre del producto'),
-          ),
-          const SizedBox(height: 12),
-          // El ingrediente activo es opcional en el esquema, así que no se
-          // valida: exigirlo inventaría una regla que la base no tiene.
-          TextFormField(
-            controller: ingredient,
-            decoration: const InputDecoration(labelText: 'Ingrediente activo'),
-          ),
-          const SizedBox(height: 12),
-          SegmentedButton<String>(
-            segments: const [
-              ButtonSegment(value: 'L', label: Text('Litros')),
-              ButtonSegment(value: 'KG', label: Text('Kilogramos')),
-            ],
-            selected: {unit},
-            onSelectionChanged: (value) => setState(() => unit = value.first),
-          ),
-        ],
-      ),
-    ),
-    actions: [
-      TextButton(
-        onPressed: () => Navigator.pop(context),
-        child: const Text('Cancelar'),
-      ),
-      FilledButton(onPressed: _save, child: const Text('Guardar')),
-    ],
-  );
 }

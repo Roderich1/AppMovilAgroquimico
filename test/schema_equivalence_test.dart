@@ -264,6 +264,128 @@ void main() {
     },
   );
 
+  test('una base migrada desde V14 (sin foto ni solicitudes, E1) queda con el mismo esquema que una nueva', () async {
+    final directory = await Directory.systemTemp.createTemp('agro_schema_v14_');
+    addTearDown(() => directory.delete(recursive: true));
+    final path = p.join(directory.path, 'v14.db');
+    final created = AppDatabase(factory: databaseFactoryFfi, path: path);
+    await created.database;
+    await created.close();
+    final raw = await databaseFactoryFfi.openDatabase(path);
+    await raw.execute('DROP TABLE product_identification_requests');
+    for (final column in AppDatabase.productPhotoColumns.keys) {
+      await raw.execute('ALTER TABLE products DROP COLUMN $column');
+    }
+    await raw.execute('PRAGMA user_version = 14');
+    await raw.close();
+
+    final upgraded = AppDatabase(factory: databaseFactoryFfi, path: path);
+    addTearDown(upgraded.close);
+    final migrated = await SchemaSignature.read(await upgraded.database);
+    final problems = (await freshSchema()).diff(migrated);
+    expect(
+      problems,
+      isEmpty,
+      reason:
+          'El esquema migrado desde V14 difiere del creado desde cero:\n'
+          '${problems.join('\n')}',
+    );
+    expect(migrated.tables['product_identification_requests'], isNotNull);
+  });
+
+  test('una base migrada desde V15 (sin compras conjuntas, E2) queda con el mismo esquema que una nueva', () async {
+    final directory = await Directory.systemTemp.createTemp('agro_schema_v15_');
+    addTearDown(() => directory.delete(recursive: true));
+    final path = p.join(directory.path, 'v15.db');
+    final created = AppDatabase(factory: databaseFactoryFfi, path: path);
+    await created.database;
+    await created.close();
+    final raw = await databaseFactoryFfi.openDatabase(path);
+    await raw.execute('DROP TABLE joint_purchase_history_state');
+    await raw.execute('DROP TABLE joint_purchase_calls');
+    await raw.execute('DROP TABLE joint_purchase_participation_ops');
+    await raw.execute('PRAGMA user_version = 15');
+    await raw.close();
+
+    final upgraded = AppDatabase(factory: databaseFactoryFfi, path: path);
+    addTearDown(upgraded.close);
+    final migrated = await SchemaSignature.read(await upgraded.database);
+    final problems = (await freshSchema()).diff(migrated);
+    expect(
+      problems,
+      isEmpty,
+      reason:
+          'El esquema migrado desde V15 difiere del creado desde cero:\n'
+          '${problems.join('\n')}',
+    );
+    expect(migrated.tables['joint_purchase_calls'], isNotNull);
+    expect(migrated.tables['joint_purchase_participation_ops'], isNotNull);
+  });
+
+  test('una base migrada desde V16 (sin historial de convocatorias, E2 §10.1) queda con el mismo esquema que una nueva', () async {
+    final directory = await Directory.systemTemp.createTemp('agro_schema_v16_');
+    addTearDown(() => directory.delete(recursive: true));
+    final path = p.join(directory.path, 'v16.db');
+    final created = AppDatabase(factory: databaseFactoryFfi, path: path);
+    await created.database;
+    await created.close();
+    final raw = await databaseFactoryFfi.openDatabase(path);
+    await raw.execute('DROP TABLE joint_purchase_history_state');
+    for (final column in AppDatabase.jointPurchaseHistoryColumns.keys) {
+      await raw.execute('ALTER TABLE joint_purchase_calls DROP COLUMN $column');
+    }
+    await raw.execute('PRAGMA user_version = 16');
+    await raw.close();
+
+    final upgraded = AppDatabase(factory: databaseFactoryFfi, path: path);
+    addTearDown(upgraded.close);
+    final migrated = await SchemaSignature.read(await upgraded.database);
+    final problems = (await freshSchema()).diff(migrated);
+    expect(
+      problems,
+      isEmpty,
+      reason:
+          'El esquema migrado desde V16 difiere del creado desde cero:\n'
+          '${problems.join('\n')}',
+    );
+    expect(migrated.tables['joint_purchase_history_state'], isNotNull);
+  });
+
+  test('una base migrada desde V19 (sin la cola de decisiones de E4) queda con el mismo esquema que una nueva', () async {
+    final directory = await Directory.systemTemp.createTemp('agro_schema_v19_');
+    addTearDown(() => directory.delete(recursive: true));
+    final path = p.join(directory.path, 'v19.db');
+    final created = AppDatabase(factory: databaseFactoryFfi, path: path);
+    await created.database;
+    await created.close();
+    final raw = await databaseFactoryFfi.openDatabase(path);
+    await raw.execute('DROP TABLE joint_purchase_access_ops');
+    await raw.execute('PRAGMA user_version = 19');
+    await raw.close();
+
+    final upgraded = AppDatabase(factory: databaseFactoryFfi, path: path);
+    addTearDown(upgraded.close);
+    final db = await upgraded.database;
+    final migrated = await SchemaSignature.read(db);
+    final problems = (await freshSchema()).diff(migrated);
+    expect(
+      problems,
+      isEmpty,
+      reason:
+          'El esquema migrado desde V19 difiere del creado desde cero:\n'
+          '${problems.join('\n')}',
+    );
+    expect(migrated.tables['joint_purchase_access_ops'], isNotNull);
+    // La firma no incluye disparadores: se comprueba aparte.
+    expect(
+      (await db.rawQuery(
+        "SELECT name FROM sqlite_master WHERE type='trigger' "
+        "AND name='trg_joint_purchase_access_ops_sequence'",
+      )).length,
+      1,
+    );
+  });
+
   test(
     'los índices de unicidad existen realmente como UNIQUE en base nueva',
     () async {

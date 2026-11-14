@@ -19,6 +19,7 @@ import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'support/f04_app_access.dart';
+import 'support/xlsx_reader.dart';
 
 /// Pantalla de reportes (Lote H): selección, filtros, vacío, progreso, éxito,
 /// error y navegación atrás.
@@ -157,8 +158,11 @@ void main() {
       for (final kind in ReportKind.values) {
         expect(find.text(kind.label), findsOneWidget);
       }
-      expect(find.text('CSV'), findsOneWidget);
+      // 2026-11-12: Excel sustituye a CSV, que ya no se ofrece.
+      expect(find.text('Excel'), findsOneWidget);
       expect(find.text('PDF'), findsOneWidget);
+      expect(find.text('CSV'), findsNothing);
+      expect(find.textContaining('CSV'), findsNothing);
     });
 
     testWidgets('el inventario no ofrece filtro de campaña', (tester) async {
@@ -249,17 +253,23 @@ void main() {
       expect(find.text('Reporte guardado'), findsNothing);
     });
 
-    testWidgets('elegir CSV cambia el botón y la extensión', (tester) async {
+    testWidgets('elegir Excel cambia el botón y la extensión', (tester) async {
       await pump(tester);
-      await tapOnPage(tester, 'CSV');
-      expect(find.text('Exportar CSV'), findsOneWidget);
+      await tapOnPage(tester, 'Excel');
+      expect(find.text('Exportar Excel'), findsOneWidget);
 
-      await tapOnPage(tester, 'Exportar CSV');
+      await tapOnPage(tester, 'Exportar Excel');
+      await waitFor(tester, find.text('El archivo no va cifrado'));
+      expect(find.textContaining('El Excel de "Inventario"'), findsOneWidget);
       await confirmExport(tester, find.text('Reporte guardado'));
 
       final files = Directory(p.join(root.path, 'reportes')).listSync();
-      expect(p.basename(files.single.path), endsWith('.csv'));
-      // REC-017 (#53), criterio 7: también con CSV el diálogo dice el nombre
+      expect(p.basename(files.single.path), endsWith('.xlsx'));
+      // El archivo es un libro de Excel de verdad, con el inventario dentro.
+      final book = readXlsx(File(files.single.path).readAsBytesSync());
+      expect(book.sheetName, 'Inventario');
+      expect(book.records.first, 'Inventario');
+      // REC-017 (#53), criterio 7: también con Excel el diálogo dice el nombre
       // exacto del archivo guardado y su carpeta.
       expect(find.text('Reporte guardado'), findsOneWidget);
       expect(find.text(p.basename(files.single.path)), findsOneWidget);
@@ -346,8 +356,8 @@ void main() {
 
         final service = _GatedExportService(repo, storage);
         await pump(tester, service: service);
-        await tapOnPage(tester, 'CSV');
-        await tapOnPage(tester, 'Exportar CSV');
+        await tapOnPage(tester, 'Excel');
+        await tapOnPage(tester, 'Exportar Excel');
         await waitFor(tester, find.text('El archivo no va cifrado'));
         await tester.tap(find.text('Exportar igualmente'));
         await waitFor(tester, find.byType(LinearProgressIndicator));
@@ -361,7 +371,7 @@ void main() {
         expect(find.text(message), findsOneWidget);
         expect(find.text('Reporte guardado'), findsNothing);
         expect(find.byType(LinearProgressIndicator), findsNothing);
-        expect(find.text('Exportar CSV'), findsOneWidget);
+        expect(find.text('Exportar Excel'), findsOneWidget);
 
         // Ni el archivo final ni el temporal (`.parcial`, en la misma carpeta).
         final written = root
@@ -370,6 +380,7 @@ void main() {
             .map((file) => p.basename(file.path))
             .where(
               (name) =>
+                  name.endsWith('.xlsx') ||
                   name.endsWith('.csv') ||
                   name.endsWith('.pdf') ||
                   name.endsWith(LocalReportStorage.temporarySuffix),
@@ -429,32 +440,33 @@ void main() {
           child: const AgroApp(),
         ),
       );
-      await waitFor(tester, find.text('Operaciones').first);
+      // Rediseño (2026-11-12): la pestaña «Operaciones» se llama «Actividad».
+      await waitFor(tester, find.text('Actividad').first);
 
-      await tester.tap(find.text('Operaciones').first);
-      await waitFor(tester, find.text('Lo del trabajo diario.'));
-      // Reportes vive en «Más» (piloto X01).
-      await tester.tap(find.text('Más'));
-      await waitFor(tester, find.text('Lo que se usa de vez en cuando.'));
-      expect(find.text('Reportes'), findsOneWidget);
+      await tester.tap(find.text('Actividad').first);
+      // Reportes tiene acceso propio en Actividad: el botón de su cabecera
+      // (rediseño, 2026-11-12; antes una tarjeta de Operaciones).
+      await waitFor(tester, find.byTooltip('Reportes'));
+      expect(find.byTooltip('Reportes'), findsOneWidget);
 
-      await tester.tap(find.text('Reportes'));
+      await tester.tap(find.byTooltip('Reportes'));
       // Se espera a "Formato", que sólo existe cuando la pantalla TERMINÓ de
       // cargar: el subtítulo aparece antes, y volver atrás con la lectura a
       // medias dejaría viva la consulta a SQLite.
       await waitFor(tester, find.text('Formato'));
       expect(
-        find.text('Exporta inventario, costos y cuentas a CSV o PDF.'),
+        find.text('Exporta inventario, costos y cuentas a Excel o PDF.'),
         findsOneWidget,
       );
 
       await tester.tap(find.byTooltip('Volver'));
-      await waitFor(tester, find.text('Lo que se usa de vez en cuando.'));
-      expect(find.text('Lo que se usa de vez en cuando.'), findsOneWidget);
+      await waitFor(tester, find.byTooltip('Reportes'));
+      expect(find.byTooltip('Reportes'), findsOneWidget);
       expect(tester.takeException(), isNull);
       // Deja terminar la animación de transición: `waitFor` para en cuanto
       // aparece el texto, y una ruta a medio animar deja un temporizador vivo.
       await tester.pumpAndSettle();
+      expect(find.text('Formato'), findsNothing);
     });
 
     testWidgets('la ruta nombra el reporte y la persona', (tester) async {

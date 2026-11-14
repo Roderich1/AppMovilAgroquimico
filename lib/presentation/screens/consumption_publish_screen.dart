@@ -7,13 +7,27 @@ import 'package:go_router/go_router.dart';
 import '../../data/sync/consumption_publisher.dart';
 import '../../domain/money.dart';
 import '../../domain/sync/consumption_projection.dart';
-import '../../domain/sync/sync_types.dart' show OutboxStatus;
+import '../../domain/sync/sync_types.dart'
+    show
+        OutboxStatus,
+        SyncAction,
+        SyncCodeFamily,
+        syncCodeExplanation,
+        syncCodeFamily;
 import '../../services/sync/sync_providers.dart';
+import '../theme/agro_theme.dart';
+import '../widgets/agro_ui.dart';
 import '../widgets/common.dart';
+import '../widgets/rdm_c_page.dart';
 import '../widgets/sync_status_banner.dart';
 
 /// Publicación explícita del consumo al sindicato (MOB #33): la vista previa
 /// no escribe nada; sólo «Publicar» encola, y sólo los totales que cambiaron.
+///
+/// Cada fila dice su estado en tres palabras («Pendiente», «Enviado»,
+/// «Requiere atención»), derivado de la outbox. No hay envío automático: la
+/// publicación sigue siendo una acción expresa del agricultor (F04 §2.4; la
+/// propuesta de envío automático está en `docs/adr/F06-ADR-006-*`, Proposed).
 class ConsumptionPublishScreen extends ConsumerStatefulWidget {
   const ConsumptionPublishScreen({super.key});
 
@@ -159,7 +173,7 @@ class _ConsumptionPublishScreenState
       }
     });
     final sync = ref.watch(syncControllerProvider);
-    return PageFrame(
+    return RdmCPage(
       title: 'Consumo para el sindicato',
       subtitle:
           'Totales de sus aplicaciones confirmadas y no revertidas, por campaña '
@@ -168,8 +182,9 @@ class _ConsumptionPublishScreenState
         future: preview,
         builder: (context, snapshot) {
           if (snapshot.hasError) {
-            return Text(
-              snapshot.error is ConsumptionPublishException
+            return NoticeBox(
+              tone: NoticeTone.warning,
+              text: snapshot.error is ConsumptionPublishException
                   ? (snapshot.error! as ConsumptionPublishException).message
                   : 'No se pudo preparar la vista previa.',
             );
@@ -179,7 +194,7 @@ class _ConsumptionPublishScreenState
           }
           final data = snapshot.data!;
           return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               // C-02: por qué el worker no envía, con la acción pertinente.
               if (sync.message != null) ...[
@@ -188,48 +203,59 @@ class _ConsumptionPublishScreenState
                   busy: sync.busy,
                   onSyncNow: _syncNow,
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 12),
               ],
-              FilledButton.icon(
+              if (data.rows.isEmpty)
+                const RdmCEmpty(
+                  icon: Icons.water_drop_outlined,
+                  message:
+                      'No hay consumo propio en campañas y productos '
+                      'vinculados.',
+                ),
+              for (final row in data.rows) ...[
+                _ConsumptionCard(
+                  key: Key(
+                    'consumption-${row.target.campaignRef}-${row.target.productRef}',
+                  ),
+                  title: row.productName,
+                  campaign: row.campaignName,
+                  amount: _total(row),
+                  state: _stateWord(row.sendState),
+                  tone: _stateTone(row.sendState),
+                  detail:
+                      '${_changeLabel(row)}'
+                      '${row.blockedDetail == null ? '' : '\n${row.blockedDetail}'}',
+                  action: row.change == ConsumptionChange.conflict
+                      ? TextButton(
+                          onPressed: () => _resolve(row),
+                          child: const Text('Enviar mi total actual'),
+                        )
+                      : row.canWithdraw
+                      ? TextButton(
+                          key: Key('withdraw-${row.target.productRef}'),
+                          onPressed: () => _withdraw(row),
+                          child: const Text('Retirar del sindicato'),
+                        )
+                      : null,
+                ),
+                const SizedBox(height: 10),
+              ],
+              ..._exclusions(data),
+              const SizedBox(height: 12),
+              // Publicar es siempre una acción expresa (F04 §2.4); sólo se
+              // habilita si algún total cambió.
+              PrimaryActionButton(
                 key: const Key('publish-consumption'),
+                label: 'Publicar consumo al sindicato',
+                icon: Icons.arrow_upward,
+                iconFirst: true,
                 onPressed: data.hasChanges ? () => _publish(data) : null,
-                icon: const Icon(Icons.cloud_upload_outlined),
-                label: const Text('Publicar consumo al sindicato'),
               ),
               const SizedBox(height: 12),
-              if (data.rows.isEmpty)
-                const Text(
-                  'No hay consumo propio en campañas y productos vinculados.',
-                ),
-              for (final row in data.rows)
-                Card(
-                  child: ListTile(
-                    title: Text('${row.productName} · ${row.campaignName}'),
-                    subtitle: Text(
-                      '${_total(row)} · ${_changeLabel(row)}'
-                      '${row.blockedDetail == null ? '' : '\n${row.blockedDetail}'}',
-                    ),
-                    isThreeLine: row.blockedDetail != null,
-                    trailing: row.change == ConsumptionChange.conflict
-                        ? TextButton(
-                            onPressed: () => _resolve(row),
-                            child: const Text('Enviar mi total actual'),
-                          )
-                        : row.canWithdraw
-                        ? TextButton(
-                            key: Key('withdraw-${row.target.productRef}'),
-                            onPressed: () => _withdraw(row),
-                            child: const Text('Retirar del sindicato'),
-                          )
-                        : null,
-                  ),
-                ),
-              ..._exclusions(data),
-              const SizedBox(height: 8),
-              TextButton.icon(
-                onPressed: () => context.push('/sindicato/vinculos'),
-                icon: const Icon(Icons.link),
-                label: const Text('Vincular con el sindicato'),
+              RdmCLinkRow(
+                text: 'Vincular con el sindicato',
+                semanticsHint: 'Abre Productos y campañas',
+                onTap: () => context.push('/sindicato/vinculos'),
               ),
             ],
           );
@@ -238,24 +264,78 @@ class _ConsumptionPublishScreenState
     );
   }
 
+  static BadgeTone _stateTone(ConsumptionSendState state) => switch (state) {
+    ConsumptionSendState.pending => BadgeTone.review,
+    ConsumptionSendState.sent => BadgeTone.ok,
+    ConsumptionSendState.attention => BadgeTone.missing,
+  };
+
+  /// Las tres palabras de estado (pedido del autor del 2026-11-05). La
+  /// publicación sigue siendo expresa: «Pendiente» incluye lo que espera a
+  /// que usted pulse «Publicar».
+  static String _stateWord(ConsumptionSendState state) => switch (state) {
+    ConsumptionSendState.pending => 'Pendiente',
+    ConsumptionSendState.sent => 'Enviado',
+    ConsumptionSendState.attention => 'Requiere atención',
+  };
+
+  /// Frase con punto final (las explicaciones por familia no lo llevan).
+  static String _sentence(String text) => text.endsWith('.') ? text : '$text.';
+
   String _changeLabel(ConsumptionPreviewRow row) {
-    final before = row.prior?.quantityBase;
+    final prior = row.prior;
+    final before = prior?.quantityBase;
     final previous = before == null
         ? ''
         : ' (antes ${formatQuantity(int.parse(before), row.baseUnit.majorUnit)})';
-    return switch (row.change) {
-      ConsumptionChange.publish => 'Nuevo: se publicará',
-      ConsumptionChange.supersede => 'Cambió: se sustituirá$previous',
+    // Estado de la última intención vigente, si dice algo más que «aceptado»
+    // (pausas, acceso sin verificar, en camino).
+    final priorPhrase = prior == null || prior.action == SyncAction.cancel
+        ? null
+        : outboxStatusPhrase(
+            prior.status,
+            attempts: prior.attempts,
+            conflictResolved: prior.resolvedAt != null,
+          );
+    final access =
+        prior != null &&
+            prior.status.isSendable &&
+            syncCodeFamily(prior.lastCode) == SyncCodeFamily.authorization
+        ? ' ${_sentence(syncCodeExplanation(prior.lastCode)!)}'
+        : '';
+    final rejection = row.lastRejection;
+    final rejected = rejection == null
+        ? ''
+        : ' El sindicato rechazó el último envío: '
+              '${_sentence(rejection.interventionMessage ?? syncCodeExplanation(rejection.lastCode) ?? 'sin motivo informado')}';
+    final label = switch (row.change) {
+      ConsumptionChange.publish =>
+        prior != null && prior.action == SyncAction.cancel
+            ? 'Retirado del sindicato: se publicará otra vez si pulsa '
+                  '«Publicar».'
+            : 'Nuevo: se publicará si pulsa «Publicar».',
+      ConsumptionChange.supersede =>
+        'Cambió$previous: sustituirá al anterior si pulsa «Publicar».'
+            '${priorPhrase == null || prior!.status == OutboxStatus.acked ? '' : ' Último envío: ${_sentence(priorPhrase)}'}',
       // C-12: el estado en palabras, sin dos puntos dobles.
-      ConsumptionChange.unchanged =>
-        'Sin cambios · ${outboxStatusPhrase(row.prior!.status, attempts: row.prior!.attempts, conflictResolved: row.prior!.resolvedAt != null)}',
-      ConsumptionChange.conflict => 'Conflicto con el sindicato: decida usted',
+      ConsumptionChange.unchanged => 'Sin cambios · ${priorPhrase!}.',
+      ConsumptionChange.conflict =>
+        'En conflicto con el sindicato: decida usted.',
       ConsumptionChange.blocked =>
-        row.prior != null && row.prior!.status == OutboxStatus.acked
+        prior != null && prior.status == OutboxStatus.acked
             ? 'Vínculo no vigente: el total aceptado requiere revisión; no se '
-                  'publica otro'
-            : 'Vínculo no vigente: no se publica',
+                  'publica otro.'
+            : 'Vínculo no vigente: no se publica.',
+      // F04 §2.4: terminal; el mensaje vigente, sin reintento ni otra campaña.
+      ConsumptionChange.rejected => _sentence(
+        rejection?.interventionMessage ??
+            syncCodeExplanation(rejection?.lastCode) ??
+            'El sindicato rechazó el último envío.',
+      ),
     };
+    return row.change == ConsumptionChange.rejected
+        ? label
+        : '$label$rejected$access';
   }
 
   List<Widget> _exclusions(ConsumptionPreview data) {
@@ -275,9 +355,31 @@ class _ConsumptionPublishScreenState
     ];
     if (notes.isEmpty) return const [];
     return [
-      const SizedBox(height: 8),
-      Text('No se publica', style: Theme.of(context).textTheme.titleSmall),
-      for (final note in notes) Text('• $note'),
+      Container(
+        key: const Key('consumption-exclusions'),
+        padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+        decoration: BoxDecoration(
+          color: AgroColors.track,
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Semantics(
+              header: true,
+              child: const Text('No se publica', style: AgroText.question),
+            ),
+            for (final note in notes)
+              Padding(
+                padding: const EdgeInsets.only(top: 4),
+                child: Text(
+                  '• $note',
+                  style: AgroText.detail.copyWith(color: AgroColors.ink),
+                ),
+              ),
+          ],
+        ),
+      ),
     ];
   }
 
@@ -291,4 +393,58 @@ class _ConsumptionPublishScreenState
     ConsumptionExclusion.overflow => 'el total supera el máximo admitido',
     ConsumptionExclusion.notOwner || ConsumptionExclusion.reversed => '',
   };
+}
+
+/// Un total por campaña y producto: nombre, campaña, cantidad grande, la
+/// palabra del estado y, debajo, qué pasaría al publicar.
+class _ConsumptionCard extends StatelessWidget {
+  const _ConsumptionCard({
+    super.key,
+    required this.title,
+    required this.campaign,
+    required this.amount,
+    required this.state,
+    required this.tone,
+    required this.detail,
+    required this.action,
+  });
+
+  final String title;
+  final String campaign;
+  final String amount;
+  final String state;
+  final BadgeTone tone;
+  final String detail;
+  final Widget? action;
+
+  @override
+  Widget build(BuildContext context) => Material(
+    color: AgroColors.surface,
+    borderRadius: BorderRadius.circular(20),
+    child: Padding(
+      padding: EdgeInsets.fromLTRB(16, 14, 16, action == null ? 14 : 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          AmountAside(
+            amount: amount,
+            amountStyle: AgroText.total,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: AgroText.value),
+                Text(campaign, style: AgroText.detail),
+                const SizedBox(height: 8),
+                StatusBadge(label: state, tone: tone),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(detail, style: AgroText.detail.copyWith(color: AgroColors.ink)),
+          if (action != null)
+            Align(alignment: Alignment.centerLeft, child: action),
+        ],
+      ),
+    ),
+  );
 }

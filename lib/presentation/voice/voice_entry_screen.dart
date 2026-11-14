@@ -8,6 +8,8 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
 import '../widgets/common.dart';
+import 'voice_evidence_consent_screen.dart' show voiceEvidenceConsentPath;
+import 'voice_evidence_hook.dart' show voiceEvidenceEnabled;
 
 /// Ruta de la entrada y de cada borrador. Viven dentro del shell, como el
 /// resto de subdestinos de Operaciones: se llega apilando y Atrás vuelve.
@@ -66,6 +68,16 @@ class VoiceEntryScreen extends StatelessWidget {
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () => context.push(option.path),
               ),
+            ),
+          // Sólo en una compilación de evaluación (#167).
+          if (voiceEvidenceEnabled)
+            ListTile(
+              key: const Key('voz-entrada-evidencia'),
+              leading: const Icon(Icons.fact_check_outlined),
+              title: const Text('Evaluación de la voz'),
+              subtitle: const Text('Permiso para guardar lo dictado'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => context.push(voiceEvidenceConsentPath),
             ),
         ],
       ),

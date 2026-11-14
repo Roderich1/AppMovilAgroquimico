@@ -91,7 +91,7 @@ void main() {
     await addProduct(tester, 'Glifosato', '0,2');
     await addProduct(tester, 'Bellator', '0,1');
     await tapKey(tester, 'application-continue');
-    expect(find.text('Paso 3 de 3 · Resumen y confirmación'), findsOneWidget);
+    expect(find.text('Revise y confirme'), findsOneWidget);
   }
 
   void expectCosts(WidgetTester tester, int glifosato, int bellator) {
@@ -112,8 +112,10 @@ void main() {
       formatBob(2000),
     );
     expect(
-      find.text('Costo total estimado: ${formatBob(4000)}'),
-      findsOneWidget,
+      tester
+          .widget<Text>(find.byKey(const Key('application-review-cost')))
+          .data,
+      formatBob(4000),
     );
   }
 
@@ -161,7 +163,7 @@ void main() {
         () => seed('consumo', (h) => h.titular),
       ))!;
       await openForm(tester, s.repo);
-      await choose(tester, 'Persona', 'Titular');
+      await choose(tester, applicationPersonLabel, 'Titular');
       await choose(tester, 'Chaco', 'Chaco titular');
       await tapKey(tester, 'application-continue');
       await mixAndReview(tester);
@@ -189,7 +191,7 @@ void main() {
         return s;
       }))!;
       await openForm(tester, s.repo);
-      await choose(tester, 'Persona', 'Titular');
+      await choose(tester, applicationPersonLabel, 'Titular');
       await choose(tester, 'Chaco', 'Chaco titular');
       await tapKey(tester, 'application-continue');
       await mixAndReview(tester);
@@ -212,7 +214,7 @@ void main() {
         () => seed('compra', (h) => h.thirdParty),
       ))!;
       await openForm(tester, s.repo);
-      await choose(tester, 'Persona', 'Vecino');
+      await choose(tester, applicationPersonLabel, 'Vecino');
       await choose(tester, 'Chaco', 'Chaco vecino');
       await tapKey(tester, 'application-continue');
       await mixAndReview(tester);
@@ -233,8 +235,8 @@ void main() {
   });
 
   testWidgets(
-    'propia con cobro por consumo: «Costo propio», y se dice que queda '
-    'anotado en su cuenta',
+    'modo individual con cobro por consumo: costo del chaco que no es deuda, '
+    'y se dice que queda anotado como consumo propio',
     (tester) async {
       await tester.binding.setSurfaceSize(const Size(800, 2400));
       addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -254,10 +256,11 @@ void main() {
       await mixAndReview(tester);
 
       expectCosts(tester, s.household.product, bellator);
+      // Rediseño individual (lámina I-22).
       expect(
         find.text(
-          'Costo propio: ${formatBob(4000)} (queda anotado en la cuenta de '
-          'Titular)',
+          'Se suma a los costos de Chaco titular en esta campaña. No es una '
+          'deuda. Queda anotado como consumo propio.',
         ),
         findsOneWidget,
       );

@@ -40,6 +40,8 @@ void main() {
     'trg_lot_data_corrections_no_delete',
     'trg_lot_data_correction_lots_no_update',
     'trg_lot_data_correction_lots_no_delete',
+    // v20 (E4, 2026-11-13): orden único entre las colas de convocatorias.
+    'trg_joint_purchase_access_ops_sequence',
   };
 
   test('una base nueva nace en la versión vigente marcada NEW_UNDER_POLICY y sin titular', () async {

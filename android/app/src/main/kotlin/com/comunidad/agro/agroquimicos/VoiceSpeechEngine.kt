@@ -24,7 +24,15 @@ import java.util.concurrent.Executors
  * - el texto **nunca** se escribe en el log: los diagnósticos llevan códigos;
  * - `SpeechRecognizer` sólo se toca desde el hilo principal, que es lo que exige
  *   la API — llamarla desde otro hilo lanza excepción;
- * - todo turno acaba soltando el micrófono, gane o falle.
+ * - todo turno acaba soltando el micrófono, gane o falle;
+ * - todo evento lleva el número de turno que pidió Dart (#119): lo que llegue
+ *   de un reconocedor ya sustituido no se reenvía.
+ *
+ * El motor vive lo que vive la Activity. Que Dart libere **su** puerto al salir
+ * de una pantalla ([cancel] con su número) no lo apaga: antes `release()` le
+ * quitaba el listener y apagaba el hilo de consultas, y la siguiente pantalla
+ * de voz se quedaba en «Abriendo el micrófono» sin recibir nada (#119). Sólo
+ * [shutdown], al desmontar la Activity, lo apaga.
  */
 class VoiceSpeechEngine(private val context: Context) {
 
@@ -33,26 +41,26 @@ class VoiceSpeechEngine(private val context: Context) {
 
     /** Eventos del motor. Nunca transportan audio. */
     interface Listener {
-        fun onStage(stage: String)
+        fun onStage(gen: Int, stage: String)
 
         /**
          * Por cuál de los dos reconocedores está escuchando **de verdad**.
          *
          * @param route `onDevice` o `systemDefault`.
          */
-        fun onRoute(route: String)
+        fun onRoute(gen: Int, route: String)
 
-        fun onLocale(locale: String)
-        fun onPartial(text: String)
-        fun onFinal(text: String)
-        fun onNoMatch()
-        fun onTimeout()
+        fun onLocale(gen: Int, locale: String)
+        fun onPartial(gen: Int, text: String)
+        fun onFinal(gen: Int, text: String)
+        fun onNoMatch(gen: Int)
+        fun onTimeout(gen: Int)
 
         /**
          * @param code nombre del `TranscriptionErrorCode` de Dart.
          * @param detail diagnóstico técnico. **Nunca** la frase dictada.
          */
-        fun onError(code: String, detail: String?)
+        fun onError(gen: Int, code: String, detail: String?)
     }
 
     private val executor = Executors.newSingleThreadExecutor()
@@ -60,6 +68,9 @@ class VoiceSpeechEngine(private val context: Context) {
 
     /** Un turno cerrado no puede volver a emitir: Android sigue mandando. */
     private var turnClosed = true
+
+    /** Número del turno en curso, el que pidió Dart. */
+    private var currentGen = 0
 
     // ------------------------------------------------------------ disponibilidad
 
@@ -208,6 +219,7 @@ class VoiceSpeechEngine(private val context: Context) {
      * otra cosa escondería por dónde pasa el audio.
      */
     fun start(
+        gen: Int,
         locale: String,
         preferOffline: Boolean,
         partialResults: Boolean,
@@ -215,6 +227,7 @@ class VoiceSpeechEngine(private val context: Context) {
     ) {
         releaseRecognizer()
         turnClosed = false
+        currentGen = gen
 
         val useOnDevice = route == ROUTE_ON_DEVICE &&
             preferOffline &&
@@ -227,18 +240,25 @@ class VoiceSpeechEngine(private val context: Context) {
                 SpeechRecognizer.createSpeechRecognizer(context)
             }
         } catch (t: Throwable) {
-            fail("recognizerUnavailable", t.javaClass.simpleName)
+            fail(gen, "recognizerUnavailable", t.javaClass.simpleName)
             return
         }
         recognizer = rec
-        listener?.onRoute(if (useOnDevice) ROUTE_ON_DEVICE else ROUTE_SYSTEM)
+        listener?.onRoute(gen, if (useOnDevice) ROUTE_ON_DEVICE else ROUTE_SYSTEM)
         rec.setRecognitionListener(object : RecognitionListener {
+            /**
+             * Sólo el reconocedor vigente de este turno habla. Uno ya
+             * sustituido puede seguir llamando (Android lo hace) y su resultado
+             * caería en el turno nuevo (#119).
+             */
+            private fun stale(): Boolean = turnClosed || recognizer !== rec || currentGen != gen
+
             override fun onReadyForSpeech(params: Bundle?) {
-                if (turnClosed) return
-                listener?.onStage("listening")
+                if (stale()) return
+                listener?.onStage(gen, "listening")
                 // El motor aceptó este idioma. Antes de esto la interfaz no
                 // puede afirmar en cuál escucha (`EVO-009-REQ-015`).
-                listener?.onLocale(locale)
+                listener?.onLocale(gen, locale)
             }
 
             override fun onBeginningOfSpeech() = Unit
@@ -247,20 +267,20 @@ class VoiceSpeechEngine(private val context: Context) {
             override fun onEvent(eventType: Int, params: Bundle?) = Unit
 
             override fun onEndOfSpeech() {
-                if (turnClosed) return
-                listener?.onStage("processing")
+                if (stale()) return
+                listener?.onStage(gen, "processing")
             }
 
             override fun onPartialResults(partialResults: Bundle?) {
-                if (turnClosed) return
+                if (stale()) return
                 val text = firstResult(partialResults) ?: return
-                if (text.isNotEmpty()) listener?.onPartial(text)
+                if (text.isNotEmpty()) listener?.onPartial(gen, text)
             }
 
             override fun onResults(results: Bundle?) {
-                if (turnClosed) return
+                if (stale()) return
                 turnClosed = true
-                listener?.onFinal(firstResult(results).orEmpty())
+                listener?.onFinal(gen, firstResult(results).orEmpty())
                 releaseRecognizer()
             }
 
@@ -268,12 +288,12 @@ class VoiceSpeechEngine(private val context: Context) {
                 // Tras cerrar el turno, Android puede seguir emitiendo errores
                 // de la sesion ya terminada; reportarlos borraria un resultado
                 // valido y provocaria un reinicio en falso.
-                if (turnClosed) return
+                if (stale()) return
                 turnClosed = true
                 when (error) {
-                    ERROR_NO_MATCH -> listener?.onNoMatch()
-                    ERROR_SPEECH_TIMEOUT -> listener?.onTimeout()
-                    else -> listener?.onError(mapError(error), "android-error-$error")
+                    ERROR_NO_MATCH -> listener?.onNoMatch(gen)
+                    ERROR_SPEECH_TIMEOUT -> listener?.onTimeout(gen)
+                    else -> listener?.onError(gen, mapError(error), "android-error-$error")
                 }
                 releaseRecognizer()
             }
@@ -281,11 +301,13 @@ class VoiceSpeechEngine(private val context: Context) {
         try {
             rec.startListening(buildIntent(locale, preferOffline, partialResults))
         } catch (t: Throwable) {
-            fail("engineFailure", t.javaClass.simpleName)
+            fail(gen, "engineFailure", t.javaClass.simpleName)
         }
     }
 
-    fun stop() {
+    /** Pide el resultado final del turno [gen]; otro número no hace nada. */
+    fun stop(gen: Int) {
+        if (gen != currentGen) return
         try {
             recognizer?.stopListening()
         } catch (_: Throwable) {
@@ -294,8 +316,15 @@ class VoiceSpeechEngine(private val context: Context) {
         }
     }
 
-    /** Descarta el turno y suelta el micrófono. No emite resultado. */
-    fun cancel() {
+    /**
+     * Descarta el turno y suelta el micrófono. No emite resultado.
+     *
+     * Con [gen], sólo si ese es el turno en curso: la pantalla que se va no
+     * puede cortar el turno que ya abrió la siguiente (#119). Sin número (la
+     * Activity perdió el foco) se descarta lo que haya.
+     */
+    fun cancel(gen: Int? = null) {
+        if (gen != null && gen != currentGen) return
         turnClosed = true
         try {
             recognizer?.cancel()
@@ -305,7 +334,8 @@ class VoiceSpeechEngine(private val context: Context) {
         releaseRecognizer()
     }
 
-    fun release() {
+    /** Apaga el motor para siempre. Sólo al desmontar la Activity. */
+    fun shutdown() {
         cancel()
         listener = null
         executor.shutdownNow()
@@ -313,9 +343,9 @@ class VoiceSpeechEngine(private val context: Context) {
 
     // ----------------------------------------------------------------- privado
 
-    private fun fail(code: String, detail: String?) {
+    private fun fail(gen: Int, code: String, detail: String?) {
         turnClosed = true
-        listener?.onError(code, detail)
+        listener?.onError(gen, code, detail)
         releaseRecognizer()
     }
 

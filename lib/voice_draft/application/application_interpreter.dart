@@ -66,6 +66,21 @@ ApplicationInterpretation interpretApplication(
   var draft = current;
   var outcome = const VoicePatchOutcome();
 
+  // POCO §2.2: «apliqué doscientos cincuenta mililitros» [pausa] «de
+  // Mancozeb»: el nombre completa la línea que lo espera.
+  final waiting = draft.lines.lastOrNull;
+  final name = intent == VoiceIntent.none ? bareName(words) : null;
+  if (name != null && waiting != null && isAwaitingProduct(waiting.product)) {
+    final (field, o) = mergeField(
+      waiting.product,
+      entryField(resolveName(name, catalog.products), 'producto'),
+    );
+    return ApplicationInterpretation(
+      draft: draft.updateLine(waiting.key, (l) => l.copyWith(product: field)),
+      outcome: o,
+    );
+  }
+
   final area = findArea(words);
   if (area != null) {
     final (field, o) = mergeField(draft.area, area);
@@ -86,20 +101,30 @@ ApplicationInterpretation interpretApplication(
     }
   }
 
+  final added = <int>{};
   for (final line in _lines(words)) {
-    final product = entryField(
-      resolveName(line.productHeard, catalog.products),
-      'producto',
+    // Una cantidad que cerró el tramo espera su producto en el siguiente.
+    final product = line.productHeard.isEmpty
+        ? awaitingProduct
+        : entryField(
+            resolveName(line.productHeard, catalog.products),
+            'producto',
+          );
+    final targetKey = sameLineKey(
+      draft.lines,
+      added: added,
+      keyOf: (l) => l.key,
+      productOf: (l) => l.product,
+      productHeard: line.productHeard,
+      product: product,
     );
-    final existing = product.isResolved
-        ? draft.lines.where((l) => l.product.value?.id == product.value!.id)
-        : const <VoiceApplicationLine>[];
-    if (existing.isNotEmpty) {
-      final target = existing.first;
+    if (targetKey != null) {
+      final target = draft.lines.firstWhere((l) => l.key == targetKey);
       final (q, o) = mergeField(target.quantity, line.quantity);
       draft = draft.updateLine(target.key, (l) => l.copyWith(quantity: q));
       outcome += o;
     } else {
+      added.add(draft.nextLineKey);
       draft = draft.copyWith(
         lines: [
           ...draft.lines,
@@ -187,7 +212,9 @@ VoiceApplicationDraft selectPlan(
       VoiceApplicationLine(
         key: said?.key ?? key++,
         product: DraftField.resolved(item.product, origin: FieldOrigin.preset),
-        quantity: said != null && said.quantity.isResolved
+        // Lo dicho o escrito se conserva, también si está por revisar.
+        quantity:
+            said != null && (said.quantity.isResolved || said.quantity.review)
             ? said.quantity
             : DraftField.resolved(
                 SpokenAmount(item.requiredBase, unit),
@@ -249,7 +276,8 @@ VoiceApplicationDraft selectFarm(
   if (farmArea != null &&
       farmArea > 0 &&
       !area.isManual &&
-      !(area.isResolved && area.origin == FieldOrigin.voice)) {
+      // Un área dictada, resuelta o por revisar, no se pisa con la del chaco.
+      !((area.isResolved || area.review) && area.origin == FieldOrigin.voice)) {
     next = next.copyWith(
       area: DraftField.resolved(farmArea, origin: FieldOrigin.preset),
     );
@@ -321,24 +349,22 @@ List<_HeardLine> _lines(List<String> words) {
   var consumed = 0;
   var i = 0;
   while (i < words.length) {
-    final n = readNumberAt(words, i);
-    if (n == null) {
-      i++;
+    // «dos litros», «un litro y medio», «litro y medio» (POCO §2.1).
+    final m = readMeasureAt(words, i);
+    if (m == null) {
+      final n = readNumberAt(words, i);
+      i = n != null && n.end > i ? n.end : i + 1;
       continue;
     }
-    final unit = n.end < words.length ? unitWord(words[n.end]) : null;
-    if (unit == null) {
-      i = n.end > i ? n.end : i + 1;
-      continue;
-    }
+    final unit = unitWord(m.unitWord)!;
     // «dos litros por hectárea» es una dosis, no una cantidad aplicada.
-    if (n.end + 2 < words.length &&
-        words[n.end + 1] == 'por' &&
-        hectareWords.contains(words[n.end + 2])) {
-      i = n.end + 3;
+    if (m.end + 1 < words.length &&
+        words[m.end] == 'por' &&
+        hectareWords.contains(words[m.end + 1])) {
+      i = m.end + 2;
       continue;
     }
-    var j = n.end + 1;
+    var j = m.end;
     if (j < words.length && (words[j] == 'de' || words[j] == 'del')) j++;
     final product = <String>[];
     while (j < words.length &&
@@ -358,28 +384,21 @@ List<_HeardLine> _lines(List<String> words) {
       j++;
     }
     if (product.isEmpty) {
-      final before = _productBefore(words, i, consumed);
+      final before = _productBefore(words, m.start, consumed);
       if (before != null) product.add(before);
     }
-    if (product.isNotEmpty) {
+    // Sin producto y al final del tramo: puede llegar tras una pausa.
+    if (product.isNotEmpty || endsSegment(words, j)) {
       consumed = j;
-      final heard = '${n.heard} ${words[n.end]}';
       out.add(
         _HeardLine(
           product.join(' '),
-          consecutiveNumbers<SpokenAmount>(words, n, words[n.end]) ??
-              (!n.isValid
-                  ? DraftField.invalid(message: n.invalidMessage!, heard: heard)
-                  : n.thousandths <= 0
-                  ? DraftField.invalid(
-                      message: 'La cantidad debe ser mayor a cero.',
-                      heard: heard,
-                    )
-                  : DraftField.resolved(
-                      SpokenAmount(n.thousandths, unit),
-                      origin: FieldOrigin.voice,
-                      heard: heard,
-                    )),
+          measureField<SpokenAmount>(
+            words,
+            m,
+            (thousandths) => SpokenAmount(thousandths, unit),
+            zeroMessage: 'La cantidad debe ser mayor a cero.',
+          ),
         ),
       );
     }

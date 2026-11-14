@@ -213,6 +213,13 @@ final class VoiceSessionSnapshot {
     this.canUndoAutoAppend = false,
     this.delivered,
     this.availability,
+    this.reviewing = 0,
+    this.reviewEnabled = true,
+    this.numericDisagreements = 0,
+    this.reviewConflictFields = const {},
+    this.reviewSingleFields = const {},
+    this.lastSegmentTurn,
+    this.lastSegmentSeq,
   });
 
   final VoiceSessionStatus status;
@@ -310,9 +317,50 @@ final class VoiceSessionSnapshot {
   /// Última disponibilidad observada. `null` si aún no se consultó.
   final TranscriptionAvailability? availability;
 
+  /// Frases cerradas que esperan la segunda pasada local. Siguen en el texto
+  /// provisional hasta que se entregan.
+  final int reviewing;
+
+  /// El usuario quiere la segunda pasada, si el motor la tiene.
+  final bool reviewEnabled;
+
+  /// Cuántos segmentos con desacuerdo numérico entre los dos reconocedores
+  /// ([TranscriptionSegment.numericDisagreement]) se han sumado a
+  /// [committedText] en esta sesión. Es un dato aparte del texto, que sigue
+  /// siendo una sola transcripción por frase.
+  ///
+  /// Sólo crece, y crece **en la misma actualización** que añade el texto de
+  /// ese segmento: quien toma el texto nuevo compara con el último valor que
+  /// vio y, si subió, sabe que ese texto trae cifras por revisar. Deshacer o
+  /// editar el texto no lo baja (lo ya interpretado no se desinterpreta), y
+  /// un segmento repetido, vacío o tardío no lo sube. Descartar empieza una
+  /// sesión nueva y lo devuelve a cero: no pasa a otra sesión de captura.
+  final int numericDisagreements;
+
+  /// Campos por revisar del **último** segmento con desacuerdo, sólo con la
+  /// política experimental B ([TranscriptionSegment.reviewConflictFields]).
+  /// Vacíos: se revisan todas las cifras de ese dictado (regla A). Cambian
+  /// en la misma actualización que sube [numericDisagreements].
+  final Set<String> reviewConflictFields;
+
+  /// Ídem, campos que trajo un solo reconocedor
+  /// ([TranscriptionSegment.reviewSingleFields]).
+  final Set<String> reviewSingleFields;
+
+  /// Turno y número de frase del último segmento sumado a [committedText]
+  /// (en la misma actualización). Con [segmentCount] quien consume el texto
+  /// sabe si lo nuevo es exactamente una frase y cuál.
+  final int? lastSegmentTurn;
+  final int? lastSegmentSeq;
+
   /// El locale mostrado difiere del pedido.
+  ///
+  /// El modelo local de la app no tiene «idioma pedido» que pueda faltar: es
+  /// español por construcción, y comparar con `es-US` sólo confundiría.
   bool get localeIsFallback =>
-      localeInUse != null && localeInUse != requestedLocale;
+      observedRoute != TranscriptionEngineRoute.embedded &&
+      localeInUse != null &&
+      localeInUse != requestedLocale;
 
   /// Hay algo que entregar o editar.
   bool get hasText => committedText.trim().isNotEmpty;
@@ -353,6 +401,13 @@ final class VoiceSessionSnapshot {
     VoiceSessionText? delivered,
     bool clearDelivered = false,
     TranscriptionAvailability? availability,
+    int? reviewing,
+    bool? reviewEnabled,
+    int? numericDisagreements,
+    Set<String>? reviewConflictFields,
+    Set<String>? reviewSingleFields,
+    int? lastSegmentTurn,
+    int? lastSegmentSeq,
   }) => VoiceSessionSnapshot(
     status: status ?? this.status,
     committedText: committedText ?? this.committedText,
@@ -376,6 +431,13 @@ final class VoiceSessionSnapshot {
     canUndoAutoAppend: canUndoAutoAppend ?? this.canUndoAutoAppend,
     delivered: clearDelivered ? null : (delivered ?? this.delivered),
     availability: availability ?? this.availability,
+    reviewing: reviewing ?? this.reviewing,
+    reviewEnabled: reviewEnabled ?? this.reviewEnabled,
+    numericDisagreements: numericDisagreements ?? this.numericDisagreements,
+    reviewConflictFields: reviewConflictFields ?? this.reviewConflictFields,
+    reviewSingleFields: reviewSingleFields ?? this.reviewSingleFields,
+    lastSegmentTurn: lastSegmentTurn ?? this.lastSegmentTurn,
+    lastSegmentSeq: lastSegmentSeq ?? this.lastSegmentSeq,
   );
 
   /// Representación para diagnóstico. **Sin una sola palabra de lo dictado.**
@@ -383,7 +445,8 @@ final class VoiceSessionSnapshot {
   String toString() =>
       'VoiceSessionSnapshot(${status.name}, chars=${committedText.length}, '
       'partialChars=${partialText.length}, segments=$segmentCount, '
-      'edited=$manuallyEdited, locale=$localeInUse, '
+      'edited=$manuallyEdited, disagreements=$numericDisagreements, '
+      'locale=$localeInUse, '
       'route=${observedRoute?.name ?? route.name}, '
       'error=${errorCode?.name})';
 }

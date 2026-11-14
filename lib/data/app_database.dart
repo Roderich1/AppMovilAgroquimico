@@ -18,7 +18,7 @@ class AppDatabase {
   /// Toda base, creada desde cero o migrada desde cualquier versión anterior,
   /// debe terminar con el mismo esquema. `test/schema_equivalence_test.dart`
   /// lo verifica automáticamente.
-  static const int schemaVersion = 13;
+  static const int schemaVersion = 20;
 
   /// Primera versión con `owner_bindings` e `install_origin`: una base
   /// anterior es histórica y no declara titular.
@@ -40,6 +40,318 @@ class AppDatabase {
   /// Primera versión con la copia descargada de la estimación del consumo
   /// (F12-EST-07-MOB, MOB #164).
   static const int estimationCopiesSinceVersion = 13;
+
+  /// Primera versión con la evidencia de dictado con consentimiento
+  /// (F09-VOZ-13, MOB #167).
+  static const int voiceEvidenceSinceVersion = 14;
+
+  /// Primera versión con la foto de la etiqueta de los productos y las
+  /// solicitudes de identificación al sindicato (E1, contrato
+  /// `E1_IDENTIFICACION_PRODUCTOS_CONTRATO.md` §5).
+  static const int productIdentificationSinceVersion = 15;
+
+  /// Primera versión con las convocatorias de compra conjunta y la cola
+  /// propia de participación (E2, contrato
+  /// `E2_CONVOCATORIAS_COMPRA_CONJUNTA_CONTRATO.md` §5).
+  static const int jointPurchaseSinceVersion = 16;
+
+  /// Primera versión con la fecha de término de las convocatorias y el
+  /// recuento de anteriores del sindicato por titular (E2 §10.1, historial).
+  static const int jointPurchaseHistorySinceVersion = 17;
+
+  /// Primera versión con la cola propia de decisiones sobre el
+  /// consentimiento de las convocatorias (E2 §10.6, P-C).
+  static const int jointPurchaseConsentSinceVersion = 18;
+
+  /// Primera versión con la autorización de la persona responsable actual
+  /// de las convocatorias (E2 §12, P-A C1).
+  static const int jointPurchaseResponsibleSinceVersion = 19;
+
+  /// Primera versión con el acceso por rol en las convocatorias (E4,
+  /// contrato `E4_ACCESO_POR_ROL_Y_SIN_UMBRAL_CONTRATO.md` §4 y §7): la cola
+  /// de las decisiones del alcance nuevo. Es la versión mínima compatible
+  /// con el contrato 4 del agricultor (E4 §7.1); un respaldo v20 se rechaza
+  /// en una aplicación anterior («Actualice la aplicación»).
+  static const int jointPurchaseRoleAccessSinceVersion = 20;
+
+  /// v20 — `joint_purchase_access_ops` (E4 §4.2): cola propia de las
+  /// decisiones que el teléfono prepara desde E4 sobre quién ve el nombre y
+  /// las cantidades: «Revisar quién puede ver mi participación»
+  /// (`ADMINISTRATION`, con `CONV-4`) y «Retirar la autorización»
+  /// (`TOTALS_ONLY`, D-05). Tabla nueva y vacía: la cola v18
+  /// (`joint_purchase_consent_ops`, con su `CHECK` de dos alcances) no se
+  /// toca, y sus decisiones pendientes se conservan y se envían tal como se
+  /// guardaron. El orden (`sequence`) es uno solo por convocatoria y titular
+  /// entre las dos colas: lo calcula el almacén sobre ambas, y el disparador
+  /// rechaza, como defensa, un orden que ya usa la cola v18.
+  static const List<String> jointPurchaseAccessSchema = <String>[
+    '''CREATE TABLE IF NOT EXISTS joint_purchase_access_ops (
+        operation_id TEXT PRIMARY KEY,
+        call_id TEXT NOT NULL,
+        tenant_id TEXT NOT NULL,
+        member_id TEXT NOT NULL,
+        sequence INTEGER NOT NULL CHECK (sequence >= 1),
+        scope TEXT NOT NULL CHECK (scope IN ('ADMINISTRATION','TOTALS_ONLY')),
+        consent_version TEXT NOT NULL,
+        decided_at TEXT NOT NULL,
+        send_status TEXT NOT NULL CHECK (send_status IN ('PENDING_SEND','RECEIVED','REJECTED','OUT_OF_TIME','SUPERSEDED','AUTH_PAUSED')),
+        attempts INTEGER NOT NULL DEFAULT 0,
+        next_attempt_at TEXT,
+        last_code TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE (call_id, member_id, sequence))''',
+    'CREATE INDEX IF NOT EXISTS idx_joint_purchase_access_ops_status '
+        'ON joint_purchase_access_ops(tenant_id, member_id, send_status)',
+    '''CREATE TRIGGER IF NOT EXISTS trg_joint_purchase_access_ops_sequence
+        BEFORE INSERT ON joint_purchase_access_ops
+        WHEN EXISTS (SELECT 1 FROM joint_purchase_consent_ops c
+          WHERE c.call_id = NEW.call_id AND c.member_id = NEW.member_id
+          AND c.sequence = NEW.sequence)
+        BEGIN SELECT RAISE(ABORT, 'JOINT_PURCHASE_DECISION_SEQUENCE_USED'); END''',
+  ];
+
+  /// v19 — columnas opcionales (P-A C1, E2 §12), todas admiten NULL y no se
+  /// rellenan: «no se sabe» no es «autorizada» ni «restringida».
+  ///
+  /// - `joint_purchase_calls.responsible_version`: versión de la
+  ///   responsabilidad que sirvió el sindicato (la sube cada sustitución).
+  /// - `joint_purchase_participation_ops.responsible_version`: la versión que
+  ///   mostraba el teléfono al aceptar el consentimiento (primera
+  ///   confirmación); las cantidades nunca autorizan a nadie.
+  /// - `joint_purchase_consent_ops.responsible_version` y
+  ///   `authorize_responsible`: una decisión atada a la responsable concreta
+  ///   que se mostró; una autorización para otra versión nunca vale para la
+  ///   vigente.
+  static const Map<String, Map<String, String>>
+  jointPurchaseResponsibleColumns = {
+    'joint_purchase_calls': {'responsible_version': 'INTEGER'},
+    'joint_purchase_participation_ops': {'responsible_version': 'INTEGER'},
+    'joint_purchase_consent_ops': {
+      'responsible_version': 'INTEGER',
+      'authorize_responsible':
+          'INTEGER NOT NULL DEFAULT 0 CHECK (authorize_responsible IN (0,1))',
+    },
+  };
+
+  /// v17 — columna opcional de `joint_purchase_calls` (E2 §10.1 a): la
+  /// fecha de término según el sindicato (`closed_at` o `cancelled_at`), en
+  /// UTC. Sólo decide el filtro de presentación (recientes / «Historial»);
+  /// NULL en una abierta o en una copia guardada por v16, que se muestra
+  /// como reciente hasta la próxima actualización.
+  static const Map<String, String> jointPurchaseHistoryColumns = {
+    'finished_at': 'TEXT',
+  };
+
+  /// v17 — `joint_purchase_history_state`: el `history.older_count` de la
+  /// última actualización de la vista por defecto, por titular, con la hora
+  /// del servidor de esa respuesta (para comparar con las anteriores
+  /// guardadas con el mismo corte). Un recuento de datos propios; nunca
+  /// borra ni oculta nada.
+  static const List<String> jointPurchaseHistorySchema = <String>[
+    '''CREATE TABLE IF NOT EXISTS joint_purchase_history_state (
+        tenant_id TEXT NOT NULL,
+        member_id TEXT NOT NULL,
+        older_count INTEGER NOT NULL CHECK (older_count >= 0),
+        server_time TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (tenant_id, member_id))''',
+  ];
+
+  /// v18 — `joint_purchase_consent_ops` (E2 §10.6, P-C): cola propia de las
+  /// decisiones sobre quién ve el nombre y las cantidades del agricultor
+  /// («ampliar» = `COLLABORATORS`, «reducir» = `RESPONSIBLE_ONLY`). Separada
+  /// de la de cantidades: una cantidad nunca cambia el consentimiento, y cada
+  /// decisión lleva su `operation_id`, su versión del texto y su `sequence`
+  /// propia por convocatoria y titular. Tabla nueva y vacía; no toca nada
+  /// existente.
+  static const List<String> jointPurchaseConsentSchema = <String>[
+    '''CREATE TABLE IF NOT EXISTS joint_purchase_consent_ops (
+        operation_id TEXT PRIMARY KEY,
+        call_id TEXT NOT NULL,
+        tenant_id TEXT NOT NULL,
+        member_id TEXT NOT NULL,
+        sequence INTEGER NOT NULL CHECK (sequence >= 1),
+        scope TEXT NOT NULL CHECK (scope IN ('RESPONSIBLE_ONLY','COLLABORATORS')),
+        consent_version TEXT NOT NULL,
+        decided_at TEXT NOT NULL,
+        send_status TEXT NOT NULL CHECK (send_status IN ('PENDING_SEND','RECEIVED','REJECTED','OUT_OF_TIME','SUPERSEDED','AUTH_PAUSED')),
+        attempts INTEGER NOT NULL DEFAULT 0,
+        next_attempt_at TEXT,
+        last_code TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE (call_id, member_id, sequence))''',
+    'CREATE INDEX IF NOT EXISTS idx_joint_purchase_consent_ops_status '
+        'ON joint_purchase_consent_ops(tenant_id, member_id, send_status)',
+  ];
+
+  /// v16 — convocatorias de compra conjunta (E2 §5). Dos tablas nuevas:
+  ///
+  /// - `joint_purchase_calls`: copia local de lo que el sindicato sirvió en
+  ///   `GET /me/joint-purchase-calls`, por titular (`tenant_id`,
+  ///   `member_id`). `server_participation_json` es la última participación
+  ///   **aceptada** por el servidor; `seen_at` sostiene el aviso «Nueva
+  ///   convocatoria» hasta abrirla (E2-D15).
+  /// - `joint_purchase_participation_ops`: cola propia de confirmaciones y
+  ///   retiros, **no** `sync_outbox` (E2 §1). Cada operación lleva su
+  ///   `operation_id` (UUID v4) y su `sequence` creciente por convocatoria y
+  ///   titular (E2-D10). Lo terminal y lo reintentable se distinguen por
+  ///   `send_status`, nunca por una fecha nula.
+  ///
+  /// Índices aditivos (no cambian el contrato de datos): el aviso de Inicio
+  /// lee una sola consulta indexada y el emisor busca lo pendiente por
+  /// estado.
+  static const List<String> jointPurchaseSchema = <String>[
+    '''CREATE TABLE IF NOT EXISTS joint_purchase_calls (
+        call_id TEXT PRIMARY KEY,
+        tenant_id TEXT NOT NULL,
+        member_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        campaign_ref TEXT,
+        campaign_name TEXT,
+        status TEXT NOT NULL CHECK (status IN ('OPEN','CLOSED','CANCELLED')),
+        opened_at TEXT,
+        deadline_at TEXT NOT NULL,
+        responsible_name TEXT,
+        products_json TEXT NOT NULL,
+        server_participation_json TEXT,
+        fetched_at TEXT NOT NULL,
+        server_time_at_fetch TEXT NOT NULL,
+        seen_at TEXT)''',
+    '''CREATE TABLE IF NOT EXISTS joint_purchase_participation_ops (
+        operation_id TEXT PRIMARY KEY,
+        call_id TEXT NOT NULL,
+        tenant_id TEXT NOT NULL,
+        member_id TEXT NOT NULL,
+        sequence INTEGER NOT NULL,
+        kind TEXT NOT NULL CHECK (kind IN ('CONFIRM','WITHDRAW')),
+        lines_json TEXT,
+        consent_version TEXT,
+        consent_accepted_at TEXT,
+        send_status TEXT NOT NULL CHECK (send_status IN ('PENDING_SEND','RECEIVED','REJECTED','OUT_OF_TIME','SUPERSEDED','AUTH_PAUSED')),
+        attempts INTEGER NOT NULL DEFAULT 0,
+        next_attempt_at TEXT,
+        last_code TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        UNIQUE (call_id, member_id, sequence))''',
+    'CREATE INDEX IF NOT EXISTS idx_joint_purchase_calls_unseen '
+        'ON joint_purchase_calls(tenant_id, member_id, status, seen_at, deadline_at)',
+    'CREATE INDEX IF NOT EXISTS idx_joint_purchase_ops_status '
+        'ON joint_purchase_participation_ops(tenant_id, member_id, send_status)',
+  ];
+
+  /// v15 — columnas opcionales de la foto de la etiqueta (E1-D10). Todas
+  /// admiten NULL: un producto sin foto no tiene ninguna. `photo_path` es
+  /// **relativa** a la carpeta de documentos de la app
+  /// (`product_photos/<archivo>.jpg`).
+  static const Map<String, String> productPhotoColumns = {
+    'photo_path': 'TEXT',
+    'photo_sha256': 'TEXT',
+    'photo_updated_at': 'TEXT',
+  };
+
+  /// v15 — solicitudes de identificación de productos locales al sindicato
+  /// (E1-D3, E1-D11, E1-D12). Una por producto local, con su propio estado
+  /// de envío: **no** pasa por `sync_outbox` ni por Sync v1. Los `server_*`
+  /// son la última vista que devolvió el sindicato; nunca se vincula nada
+  /// automáticamente a partir de ellos (E1-D4).
+  static const List<String> productIdentificationSchema = <String>[
+    '''CREATE TABLE IF NOT EXISTS product_identification_requests (
+        request_id TEXT PRIMARY KEY,
+        product_id INTEGER NOT NULL UNIQUE REFERENCES products(id),
+        tenant_id TEXT NOT NULL,
+        sent_name TEXT NOT NULL,
+        sent_active_ingredient TEXT,
+        sent_unit TEXT NOT NULL CHECK (sent_unit IN ('L','KG')),
+        photo_consent_version TEXT,
+        photo_consent_at TEXT,
+        photo_sha256_consented TEXT,
+        send_status TEXT NOT NULL CHECK (send_status IN ('PENDING_SEND','RECEIVED','REJECTED','AUTH_PAUSED')),
+        send_attempts INTEGER NOT NULL DEFAULT 0,
+        next_attempt_at TEXT,
+        last_code TEXT,
+        photo_send_status TEXT NOT NULL CHECK (photo_send_status IN ('NONE','PENDING_SEND','SENT','FAILED','REMOVE_PENDING','REMOVED')),
+        photo_attempts INTEGER NOT NULL DEFAULT 0,
+        photo_next_attempt_at TEXT,
+        photo_last_code TEXT,
+        server_status TEXT CHECK (server_status IN ('PENDING','LINKED')),
+        server_product_ref TEXT,
+        server_product_name TEXT,
+        server_product_unit TEXT,
+        server_resolution TEXT,
+        server_note TEXT,
+        server_checked_at TEXT,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL)''',
+  ];
+
+  /// v14 — evidencia de dictado para la evaluación de la voz (F09-VOZ-13,
+  /// MOB #167; RU-12, CU-16, RNF-14; RF-41 y DAT-21 según #167, pendientes de
+  /// confirmar en el Cap. III).
+  ///
+  /// - `voice_evidence_consent`: una sola fila mientras la persona haya dado
+  ///   su consentimiento **explícito y sólo para la evaluación**, con la
+  ///   versión del texto que aceptó y la fecha. Es independiente de cualquier
+  ///   otro consentimiento o permiso (micrófono, reconocedor del sistema).
+  ///   Retirarlo borra la fila y toda la evidencia.
+  /// - `voice_evidence`: una fila por borrador de voz confirmado, descartado
+  ///   o fallido, con la referencia de la ficha, la transcripción y, en
+  ///   columnas separadas, los campos propuestos por la voz antes de
+  ///   corregir, las correcciones y los campos confirmados. **Sin audio**: no
+  ///   hay ninguna columna binaria.
+  ///
+  /// Las dos son datos locales del teléfono: quedan **fuera del respaldo
+  /// privado** ([discardVoiceEvidence] en la copia que se empaqueta y en la
+  /// base restaurada) y fuera de Sync v1 y de lo colectivo, que sólo envían
+  /// las proyecciones de su lista cerrada.
+  static const List<String> voiceEvidenceSchema = <String>[
+    '''CREATE TABLE IF NOT EXISTS voice_evidence_consent (
+        id INTEGER PRIMARY KEY CHECK(id = 1),
+        purpose TEXT NOT NULL CHECK(purpose = 'F09_VOICE_EVALUATION'),
+        consent_text_version TEXT NOT NULL CHECK(length(consent_text_version) BETWEEN 1 AND 100),
+        granted_at TEXT NOT NULL CHECK(length(granted_at) > 0))''',
+    '''CREATE TABLE IF NOT EXISTS voice_evidence (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        format_version INTEGER NOT NULL CHECK(format_version = 1),
+        consent_granted_at TEXT NOT NULL CHECK(length(consent_granted_at) > 0),
+        recorded_at TEXT NOT NULL CHECK(length(recorded_at) > 0),
+        kind TEXT NOT NULL CHECK(kind IN ('PURCHASE','APPLICATION','PLAN')),
+        outcome TEXT NOT NULL CHECK(outcome IN ('CONFIRMED','DISCARDED','FAILED')),
+        sheet_ref TEXT CHECK(sheet_ref IS NULL OR length(sheet_ref) BETWEEN 1 AND 100),
+        transcripts TEXT NOT NULL,
+        proposed_fields TEXT NOT NULL,
+        corrections TEXT NOT NULL,
+        confirmed_fields TEXT,
+        engine TEXT,
+        model TEXT,
+        app_commit TEXT,
+        first_partial_ms INTEGER CHECK(first_partial_ms IS NULL OR first_partial_ms >= 0),
+        final_ms INTEGER CHECK(final_ms IS NULL OR final_ms >= 0),
+        CHECK((outcome = 'CONFIRMED') = (confirmed_fields IS NOT NULL)))''',
+  ];
+
+  /// Tablas de la evidencia de dictado (v14).
+  static const Set<String> voiceEvidenceTables = {
+    'voice_evidence',
+    'voice_evidence_consent',
+  };
+
+  /// Borra la evidencia de dictado y su consentimiento. Se usa en la base que
+  /// se empaqueta en un respaldo y en la base restaurada: la evidencia nunca
+  /// viaja ni vuelve con un respaldo, y un consentimiento dado en otro
+  /// teléfono o en otro momento no se hereda. Una base anterior a v14 no
+  /// tiene las tablas y no se toca.
+  static Future<void> discardVoiceEvidence(DatabaseExecutor db) async {
+    final tables = (await db.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type='table' "
+      "AND name IN ('voice_evidence','voice_evidence_consent')",
+    )).map((row) => row['name'] as String).toSet();
+    for (final table in tables) {
+      await db.delete(table);
+    }
+  }
 
   /// v13 — copia descargada de la estimación del consumo (F12-EST-07-MOB,
   /// MOB #164; RF-40, RN-30, DAT-20, INT-09).
@@ -667,6 +979,13 @@ class AppDatabase {
     }
     await _applyInventoryAlertsSchema(db);
     await _applyEstimationCopiesSchema(db);
+    await _applyVoiceEvidenceSchema(db);
+    await _applyProductIdentificationSchema(db);
+    await _applyJointPurchaseSchema(db);
+    await _applyJointPurchaseHistorySchema(db);
+    await _applyJointPurchaseConsentSchema(db);
+    await _applyJointPurchaseResponsibleSchema(db);
+    await _applyJointPurchaseAccessSchema(db);
     // Una base creada por esta versión nace bajo la política de activación.
     await db.insert('app_settings', {
       'key': installOriginKey,
@@ -829,6 +1148,137 @@ class AppDatabase {
     }
     if (oldVersion < 13) {
       await _applyEstimationCopiesSchema(db);
+    }
+    if (oldVersion < 14) {
+      await _applyVoiceEvidenceSchema(db);
+    }
+    if (oldVersion < 15) {
+      await _applyProductIdentificationSchema(db);
+    }
+    if (oldVersion < 16) {
+      await _applyJointPurchaseSchema(db);
+    }
+    if (oldVersion < 17) {
+      await _applyJointPurchaseHistorySchema(db);
+    }
+    if (oldVersion < 18) {
+      await _applyJointPurchaseConsentSchema(db);
+    }
+    if (oldVersion < 19) {
+      await _applyJointPurchaseResponsibleSchema(db);
+    }
+    if (oldVersion < 20) {
+      await _applyJointPurchaseAccessSchema(db);
+    }
+  }
+
+  /// Versión 20 — **acceso por rol en las convocatorias** (E4 §4 y §7).
+  /// Aditiva: una tabla nueva y vacía, su índice y un disparador sobre ella.
+  /// No toca ni reinterpreta nada guardado: las participaciones, sus
+  /// alcances anteriores, las operaciones de cantidades y las decisiones v18
+  /// (incluidas las pendientes) quedan como estaban. Idempotente: IF NOT
+  /// EXISTS en todo. El disparador lee la cola v18: en una base parcial sin
+  /// ella (que no existe en ninguna versión publicada) se crea antes, vacía.
+  Future<void> _applyJointPurchaseAccessSchema(DatabaseExecutor db) async {
+    await _applyJointPurchaseConsentSchema(db);
+    for (final statement in jointPurchaseAccessSchema) {
+      await db.execute(statement);
+    }
+  }
+
+  /// Versión 19 — **autorización de la persona responsable** (E2 §12, P-A
+  /// C1). Aditiva: columnas que admiten NULL (o con valor por defecto) en
+  /// tres tablas de E2. No hace backfill ni toca filas existentes: una
+  /// copia o una operación guardada antes no dice a qué responsable se
+  /// refería, y eso no se inventa. Idempotente: una columna que ya existe no
+  /// se vuelve a añadir; una tabla que no existe no se amplía.
+  Future<void> _applyJointPurchaseResponsibleSchema(DatabaseExecutor db) async {
+    for (final table in jointPurchaseResponsibleColumns.entries) {
+      final existing = (await db.rawQuery('PRAGMA table_info(${table.key})'))
+          .map((row) => row['name'] as String)
+          .toSet();
+      if (existing.isEmpty) continue;
+      for (final column in table.value.entries) {
+        if (existing.contains(column.key)) continue;
+        await db.execute(
+          'ALTER TABLE ${table.key} ADD COLUMN ${column.key} ${column.value}',
+        );
+      }
+    }
+  }
+
+  /// Versión 18 — **decisiones sobre el consentimiento** de las
+  /// convocatorias (E2 §10.6). Aditiva: una tabla nueva y vacía con su
+  /// índice. No hace backfill ni toca las operaciones de cantidades ni la
+  /// copia local de las convocatorias. Idempotente: IF NOT EXISTS en todo.
+  Future<void> _applyJointPurchaseConsentSchema(DatabaseExecutor db) async {
+    for (final statement in jointPurchaseConsentSchema) {
+      await db.execute(statement);
+    }
+  }
+
+  /// Versión 17 — **historial de convocatorias** (E2 §10.1). Aditiva: una
+  /// columna que admite NULL en `joint_purchase_calls` y una tabla nueva y
+  /// vacía. No hace backfill ni borra nada. Idempotente: una columna que ya
+  /// existe no se vuelve a añadir y la tabla lleva IF NOT EXISTS.
+  Future<void> _applyJointPurchaseHistorySchema(DatabaseExecutor db) async {
+    final existing = (await db.rawQuery(
+      'PRAGMA table_info(joint_purchase_calls)',
+    )).map((row) => row['name'] as String).toSet();
+    // Como v15: una base parcial sin la tabla no se amplía.
+    if (existing.isNotEmpty) {
+      for (final column in jointPurchaseHistoryColumns.entries) {
+        if (existing.contains(column.key)) continue;
+        await db.execute(
+          'ALTER TABLE joint_purchase_calls ADD COLUMN '
+          '${column.key} ${column.value}',
+        );
+      }
+    }
+    for (final statement in jointPurchaseHistorySchema) {
+      await db.execute(statement);
+    }
+  }
+
+  /// Versión 16 — **convocatorias de compra conjunta** (E2). Aditiva: dos
+  /// tablas nuevas y vacías con sus índices. No hace backfill ni toca
+  /// compras, aplicaciones, inventario, cuentas, necesidad declarada ni
+  /// `sync_outbox` (E2-D14). Idempotente: IF NOT EXISTS en todo.
+  Future<void> _applyJointPurchaseSchema(DatabaseExecutor db) async {
+    for (final statement in jointPurchaseSchema) {
+      await db.execute(statement);
+    }
+  }
+
+  /// Versión 15 — **foto de la etiqueta y solicitudes de identificación**
+  /// (E1). Aditiva: tres columnas que admiten NULL en `products` y una tabla
+  /// nueva y vacía. No hace backfill ni toca compras, aplicaciones ni
+  /// inventario. Idempotente: una columna que ya existe no se vuelve a
+  /// añadir y la tabla lleva IF NOT EXISTS.
+  Future<void> _applyProductIdentificationSchema(DatabaseExecutor db) async {
+    final existing = (await db.rawQuery('PRAGMA table_info(products)'))
+        .map((row) => row['name'] as String)
+        .toSet();
+    // Como v12: una base parcial sin `products` no se amplía.
+    if (existing.isNotEmpty) {
+      for (final column in productPhotoColumns.entries) {
+        if (existing.contains(column.key)) continue;
+        await db.execute(
+          'ALTER TABLE products ADD COLUMN ${column.key} ${column.value}',
+        );
+      }
+    }
+    for (final statement in productIdentificationSchema) {
+      await db.execute(statement);
+    }
+  }
+
+  /// Versión 14 — **evidencia de dictado con consentimiento** (F09-VOZ-13,
+  /// MOB #167). Aditiva: dos tablas nuevas y vacías, sin tocar ninguna otra
+  /// ni dar consentimiento por nadie. Idempotente: IF NOT EXISTS.
+  Future<void> _applyVoiceEvidenceSchema(DatabaseExecutor db) async {
+    for (final statement in voiceEvidenceSchema) {
+      await db.execute(statement);
     }
   }
 

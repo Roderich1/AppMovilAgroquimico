@@ -464,7 +464,7 @@ void main() {
         await waitFor(tester, find.byKey(const Key('mode-confirm')));
         expect(find.byKey(const Key('mode-consequence')), findsOneWidget);
         await tester.tap(find.byKey(const Key('mode-confirm')));
-        await waitFor(tester, find.text('Modalidad actual: inventario propio'));
+        await waitFor(tester, find.text('Modo individual'));
         expect(
           await tester.runAsync(() => OperationModeStore(database).current()),
           OperationMode.personal,

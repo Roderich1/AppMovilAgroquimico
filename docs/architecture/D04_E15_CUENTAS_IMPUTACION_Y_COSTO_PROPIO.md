@@ -164,7 +164,9 @@ Título «Estado de cuenta · {persona}».
   - «Deuda pendiente total (Bs)»;
   - «A favor (no aplicado a deuda) (Bs)»;
   - «Saldo neto · todas las campañas (Bs)».
-- CSV y PDF salen del mismo `ReportTable`.
+- CSV y PDF salen del mismo `ReportTable`. (Desde el 2026-11-12 la salida tabular es Excel
+  `.xlsx` en lugar de CSV, con las mismas columnas y totales; ver la nota en
+  `docs/evolution/features/EVOLUTION-2_TYPED_READS_AND_REPORT_EXPORT_SPEC.md`, EVO-005.)
 
 ### 2.7 Inicio, Personas y resumen de campaña
 

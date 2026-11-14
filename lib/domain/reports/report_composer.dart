@@ -4,8 +4,8 @@
 /// [ReportTable]. No sabe de SQLite, de Riverpod, de widgets ni de archivos:
 /// eso lo hace el servicio de exportación, que es quien lee y quien escribe.
 ///
-/// Los totales se suman aquí, una sola vez y con enteros, para que CSV y PDF no
-/// puedan discrepar.
+/// Los totales se suman aquí, una sola vez y con enteros, para que Excel y PDF
+/// no puedan discrepar.
 library;
 
 import '../account_ledger.dart';
@@ -85,6 +85,15 @@ ReportKind? reportKindFromRoute(String? value) {
 String campaignFilterValue(String? campaignName) =>
     campaignName ?? 'Todas las campañas';
 
+/// Filtro «Chacos» del informe «Costo por chaco» exportado en modo individual
+/// (decisión C del autor, 2026-11-13): el archivo dice que no incluye los
+/// chacos de terceros del historial.
+const ownerFarmsScope = 'Sólo los del titular (modo individual)';
+
+/// Filtro «Aplicaciones» del informe «Costo por producto» exportado en modo
+/// individual (decisión C del autor, 2026-11-13).
+const ownerProductsScope = 'Sólo en chacos del titular (modo individual)';
+
 class ReportComposer {
   const ReportComposer();
 
@@ -128,10 +137,14 @@ class ReportComposer {
   }
 
   /// Costo consumido por producto, opcionalmente de una campaña.
+  ///
+  /// [productScope], si se da, añade el filtro «Aplicaciones» (modo
+  /// individual).
   ReportTable productCost({
     required List<ProductCostRead> lines,
     required DateTime generatedAt,
     String? campaignName,
+    String? productScope,
   }) {
     var totalCost = 0;
     final rows = <List<ReportCell>>[];
@@ -147,7 +160,10 @@ class ReportComposer {
     return ReportTable(
       title: ReportKind.productCost.label,
       generatedAt: generatedAt,
-      filters: [ReportFilter('Campaña', campaignFilterValue(campaignName))],
+      filters: [
+        ReportFilter('Campaña', campaignFilterValue(campaignName)),
+        if (productScope != null) ReportFilter('Aplicaciones', productScope),
+      ],
       columns: const [
         ReportColumn('Producto', weight: 3),
         ReportColumn('Cantidad', numeric: true, weight: 1.6),
@@ -161,10 +177,13 @@ class ReportComposer {
   }
 
   /// Costo por chaco y por hectárea, opcionalmente de una campaña.
+  ///
+  /// [farmScope], si se da, añade el filtro «Chacos» (modo individual).
   ReportTable farmCost({
     required List<FarmCostRead> lines,
     required DateTime generatedAt,
     String? campaignName,
+    String? farmScope,
   }) {
     var totalCost = 0;
     final rows = <List<ReportCell>>[];
@@ -184,7 +203,10 @@ class ReportComposer {
     return ReportTable(
       title: ReportKind.farmCost.label,
       generatedAt: generatedAt,
-      filters: [ReportFilter('Campaña', campaignFilterValue(campaignName))],
+      filters: [
+        ReportFilter('Campaña', campaignFilterValue(campaignName)),
+        if (farmScope != null) ReportFilter('Chacos', farmScope),
+      ],
       columns: const [
         ReportColumn('Chaco', weight: 2.6),
         ReportColumn('Propietario', weight: 2.4),
@@ -201,8 +223,8 @@ class ReportComposer {
   /// Resumen de una campaña. La campaña es obligatoria.
   ///
   /// Cantidad e importe van en columnas distintas en vez de compartir una
-  /// columna "valor": mezclar conteos e importes en la misma columna deja un
-  /// CSV que ninguna hoja de cálculo puede tipar.
+  /// columna "valor": mezclar conteos e importes en la misma columna deja una
+  /// columna que ninguna hoja de cálculo puede tipar.
   ReportTable campaignSummary({
     required CampaignSummaryRead summary,
     required String campaignName,

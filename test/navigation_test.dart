@@ -85,7 +85,7 @@ void main() {
     // 'Nueva compra' es ambiguo: es a la vez el título del formulario y la
     // etiqueta del botón de la lista. La cabecera del paso 1 sólo existe en el
     // formulario (piloto X01), así que identifica la pantalla sin ambigüedad.
-    const formMarker = 'Paso 1 de 2 · Proveedor y productos';
+    const formMarker = '¿Qué compró?';
     expect(
       find.text(formMarker),
       findsOneWidget,
@@ -153,14 +153,18 @@ void main() {
       final repo = (await tester.runAsync(fixture))!;
       await pumpApp(tester, repo);
 
-      await tester.tap(find.text('Operaciones').first);
+      await tester.tap(find.text('Actividad').first);
       await settle(tester);
-      await tester.tap(find.text('Compras'));
+      // Rediseño B: el filtro «Compras» de Actividad ofrece la lista
+      // completa, que conserva sus acciones.
+      await tester.tap(find.byKey(const Key('activity-filter-purchases')));
+      await settle(tester);
+      await tester.tap(find.byKey(const Key('activity-open-purchases')));
       await settle(tester, frames: 30);
       expect(
         find.text('Nueva compra'),
         findsOneWidget,
-        reason: 'La tarjeta de Operaciones debe abrir el historial de compras.',
+        reason: 'Actividad debe abrir el historial de compras.',
       );
 
       await expectPurchaseFormReturnsCleanly(
@@ -177,11 +181,10 @@ void main() {
     final repo = (await tester.runAsync(fixture))!;
     await pumpApp(tester, repo);
 
-    await tester.tap(find.text('Operaciones').first);
+    // B1: Más cuelga de Inicio (engranaje de la cabecera).
+    await tester.tap(find.byKey(const Key('home-settings')));
     await settle(tester);
-    await tester.tap(find.text('Más'));
-    await settle(tester);
-    await tester.tap(find.text('Administrar datos'));
+    await tester.tap(find.text('Personas, chacos, productos y proveedores'));
     await settle(tester);
     // Se navega a /compras mediante el router, sin depender de la UI de
     // catálogos, para aislar la ruta bajo prueba.
@@ -204,10 +207,10 @@ void main() {
     await pumpApp(tester, repo);
 
     for (final label in const [
-      'Operaciones',
-      'Inventario',
+      'Actividad',
+      'Almacén',
       'Personas',
-      'Cuentas',
+      'Sindicato',
       'Inicio',
     ]) {
       await tester.tap(find.text(label).first);

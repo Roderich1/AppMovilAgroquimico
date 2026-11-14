@@ -16,12 +16,13 @@ import 'package:agroquimicos/domain/account_texts.dart';
 import 'package:agroquimicos/domain/models.dart';
 import 'package:agroquimicos/domain/reports/report_composer.dart';
 import 'package:agroquimicos/domain/reports/report_table.dart';
-import 'package:agroquimicos/services/reports/csv_report_generator.dart';
 import 'package:agroquimicos/services/reports/pdf_report_generator.dart';
+import 'package:agroquimicos/services/reports/xlsx_report_generator.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'support/d04_world.dart';
+import 'support/xlsx_reader.dart';
 
 void main() {
   sqfliteFfiInit();
@@ -962,7 +963,7 @@ void main() {
     );
 
     test(
-      'M-8 · exportación: cronológico y desglose con sus etiquetas, CSV',
+      'M-8 · exportación: cronológico y desglose con sus etiquetas, Excel',
       () async {
         await w.charge(w.familiar, w.verano, at(3, 15), 8100);
         await w.charge(w.familiar, w.invierno, at(8, 10), 4000);
@@ -1037,13 +1038,15 @@ void main() {
             'Saldo neto · todas las campañas (Bs)',
           ],
         );
-        final csv = utf8.decode(const CsvReportGenerator().generate(table));
-        expect(csv, contains('Saldo a hoy (Bs)'));
+        // Desde el 2026-11-12 la salida tabular es Excel (antes CSV).
+        final xlsx = xlsxRecords(const XlsxReportGenerator().generate(table))
+            .join('\n');
+        expect(xlsx, contains('Saldo a hoy (Bs)'));
         expect(
-          csv,
+          xlsx,
           contains('Deuda pendiente por origen · Invierno 2026 (Bs)'),
         );
-        expect(csv, isNot(contains('Saldo final')));
+        expect(xlsx, isNot(contains('Saldo final')));
       },
     );
   });

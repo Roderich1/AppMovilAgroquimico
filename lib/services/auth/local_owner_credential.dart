@@ -427,7 +427,7 @@ const int onlineResetAfterFailures = 10;
 /// F03 §4 bis.2: ya había un PIN del titular y la activación no lo cambia.
 const activationExistingPinMessage =
     'Ya hay un PIN del titular en este teléfono. Para cambiarlo, confirme su '
-    'cuenta en línea en Operaciones › Más › PIN del titular.';
+    'cuenta en línea en Ajustes y datos › PIN del titular.';
 
 /// 6 dígitos, sin todos iguales ni secuencias ascendentes o descendentes.
 String? pinProblem(String pin) {

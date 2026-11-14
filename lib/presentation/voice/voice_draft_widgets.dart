@@ -1,18 +1,100 @@
-/// Piezas comunes de las pantallas de borrador por voz (#16): el mismo
-/// aviso, el mismo estado por campo, la misma elección contra el catálogo, los
-/// mismos bloqueos y el mismo tratamiento de lo dictado en compra,
-/// planificación y aplicación.
+/// Piezas comunes del dictado de compra, planificación y aplicación (#16):
+/// las pistas de vocabulario de cada motor, el texto cerrado nuevo de una
+/// sesión y los auxiliares de valores dichos. (Las pantallas de borrador por
+/// voz se retiraron en el formulario único, F09: la voz completa los
+/// formularios normales.)
 library;
 
-import 'package:flutter/material.dart';
-
+import '../../domain/money.dart' show baseUnitsPerMajor;
+import '../../domain/numeric_input.dart' show formatForInput;
 import '../../voice_draft/catalog/voice_catalog.dart';
+import '../../voice_draft/text/units.dart';
 import '../../voice_draft/core/draft_field.dart';
-import '../../voice_draft/interpretation/voice_intent.dart';
 
 /// Lleva la cuenta del texto cerrado ya interpretado de una sesión de voz y
 /// entrega **sólo lo nuevo**. Lo provisional nunca pasa por aquí: sólo el
 /// texto que la sesión ya cerró (`committedText`).
+/// Nombres que pueden dictarse en este borrador, como pista de vocabulario
+/// para el reconocimiento local: productos, personas, proveedores, chacos y
+/// la campaña activa. Sólo nombres; sin cantidades ni importes.
+List<String> voiceVocabularyHints(VoiceCatalog catalog) {
+  final seen = <String>{};
+  return [
+    for (final entry in [
+      ...catalog.products,
+      ...catalog.people,
+      ...catalog.suppliers,
+      ...catalog.farms,
+      if (catalog.activeCampaign != null) catalog.activeCampaign!,
+    ])
+      if (seen.add(entry.name.trim().toLowerCase())) entry.name.trim(),
+  ];
+}
+
+/// Términos del dominio para el experimento de contexto de Whisper (F09,
+/// 2026-11-09): monedas, unidades y vocabulario agrícola. Son los mismos para
+/// todos, no llevan cantidades, precios ni frases, y no son instrucciones.
+const voiceDomainTerms = <String>[
+  'bolivianos',
+  'dólares',
+  'litro',
+  'litros',
+  'kilo',
+  'kilos',
+  'hectárea',
+  'hectáreas',
+  'herbicida',
+  'fungicida',
+  'insecticida',
+  'proveedor',
+];
+
+/// Pista de dominio y catálogo: primero los términos del dominio (así no los
+/// corta el tope de longitud) y después los nombres del catálogo de **esta**
+/// cuenta, sin repetir. Se construye siempre igual a partir del catálogo.
+List<String> voiceDomainContextHints(VoiceCatalog catalog) {
+  final seen = <String>{};
+  return [
+    for (final term in [...voiceDomainTerms, ...voiceVocabularyHints(catalog)])
+      if (seen.add(term.trim().toLowerCase())) term.trim(),
+  ];
+}
+
+/// Pista del **turno entero** de la compra (F09, 2026-11-10): vocabulario
+/// breve y pertinente, en este orden:
+///
+/// 1. los productos del catálogo de **esta** cuenta (sólo nombres);
+/// 2. las unidades de esos productos (litro / kilo);
+/// 3. las monedas que la app admite (bolivianos, dólares);
+/// 4. expresiones de precio unitario y total («por litro», «el litro», «en
+///    total», «por un total de»).
+///
+/// Sin cantidades, precios, frases de casos, proveedores, personas, chacos
+/// ni nada de un dictado anterior. Cada producto aparece una vez: la pista
+/// orienta, no elige; el intérprete sigue sin aproximar nombres.
+List<String> voicePurchaseTurnHints(VoiceCatalog catalog) {
+  final units = {for (final p in catalog.products) p.unit}
+      .whereType<CatalogUnit>();
+  final hasLiter = units.contains(CatalogUnit.liter);
+  final hasKilo = units.contains(CatalogUnit.kilogram);
+  final seen = <String>{};
+  return [
+    for (final term in [
+      for (final p in catalog.products) p.name,
+      if (hasLiter) ...['litro', 'litros'],
+      if (hasKilo) ...['kilo', 'kilos'],
+      'bolivianos',
+      'dólares',
+      if (hasLiter) ...['por litro', 'el litro'],
+      if (hasKilo) ...['por kilo', 'el kilo'],
+      'en total',
+      'por un total de',
+    ])
+      if (term.trim().isNotEmpty && seen.add(term.trim().toLowerCase()))
+        term.trim(),
+  ];
+}
+
 class VoiceSegmentFeed {
   String _consumed = '';
 
@@ -31,209 +113,59 @@ class VoiceSegmentFeed {
   }
 }
 
-/// Aviso común: la voz sólo prepara un borrador.
-class VoiceDraftNotice extends StatelessWidget {
-  const VoiceDraftNotice({
-    super.key,
-    required this.confirmLabel,
-    required this.catalogs,
-  });
-
-  /// Texto del botón que registra («Registrar compra»).
-  final String confirmLabel;
-
-  /// Qué se busca en los catálogos («Los productos, proveedores y personas»).
-  final String catalogs;
-
-  @override
-  Widget build(BuildContext context) => Card(
-    child: Padding(
-      padding: const EdgeInsets.all(12),
-      child: Text(
-        'La voz sólo prepara un borrador. Nada se registra hasta que usted '
-        'revise y pulse «$confirmLabel». Lo que corrija a mano no lo cambia '
-        'la voz. $catalogs se buscan en sus catálogos; si falta uno, créelo '
-        'antes en Catálogos.',
-        style: Theme.of(context).textTheme.bodyMedium,
-      ),
-    ),
-  );
+/// Lo que deja un toque en el selector sobre [current]: elegir **otra**
+/// opción es una corrección a mano; tocar la que ya estaba elegida sólo la
+/// confirma (POCO 2026-11-08: «Corregido a mano» sin haber cambiado nada). Lo
+/// que ya puso o confirmó la persona queda como estaba.
+DraftField<T> pickEntry<T extends Object>(DraftField<T> current, T entry) {
+  final same = current.value == entry && (current.isResolved || current.review);
+  if (!same) return DraftField.resolved(entry, origin: FieldOrigin.manual);
+  return current.isManual ? current : current.confirmedByUser();
 }
 
-/// Lo dictado que ya se aplicó al borrador (lo «refinado»).
-class VoiceAppliedPanel extends StatelessWidget {
-  const VoiceAppliedPanel({super.key, required this.applied});
-  final List<String> applied;
-
-  @override
-  Widget build(BuildContext context) => Container(
-    key: const Key('voz-aplicado'),
-    padding: const EdgeInsets.all(12),
-    decoration: BoxDecoration(
-      border: Border.all(color: Theme.of(context).colorScheme.outlineVariant),
-      borderRadius: BorderRadius.circular(8),
-    ),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Ya aplicado al borrador',
-          style: Theme.of(context).textTheme.labelMedium,
-        ),
-        for (final text in applied.reversed.take(3)) Text('«$text»'),
-      ],
-    ),
-  );
+/// Cantidad dicha en unidad base (ML o G) de su propia familia, sin depender
+/// del producto: «un litro» → 1000, «500 ml» → 500. `null` si no es un entero
+/// de ML o G mayor que cero.
+int? spokenBase(int thousandths, SpokenUnit unit) {
+  final base = unit.toBase(thousandths);
+  return base == null || base <= 0 ? null : base;
 }
 
-/// El dictado parece otra operación: no se aplicó nada.
-class VoiceOtherIntentBanner extends StatelessWidget {
-  const VoiceOtherIntentBanner({
-    super.key,
-    required this.intent,
-    required this.current,
-  });
-  final VoiceIntent intent;
+/// Texto de un campo de cantidad: el valor leído, normalizado a L o KG
+/// («1», «0,5»), aunque el producto aún no esté elegido; si no hay valor
+/// utilizable, lo oído tal cual.
+String spokenAmountText(int? base, String? heard) =>
+    base == null ? (heard ?? '') : formatForInput(base / baseUnitsPerMajor);
 
-  /// La operación de esta pantalla, en palabras («compra»).
-  final String current;
+/// Unidad en que se escribe una cantidad de la línea: la del producto si se
+/// conoce; si no, la de lo dicho; si nada, litros.
+CatalogUnit lineUnit(DraftField<CatalogEntry> product, SpokenUnit? spoken) =>
+    product.value?.unit ?? spoken?.family ?? CatalogUnit.liter;
 
-  @override
-  Widget build(BuildContext context) => Card(
-    key: const Key('voz-otra-intencion'),
-    color: Theme.of(context).colorScheme.tertiaryContainer,
-    child: Padding(
-      padding: const EdgeInsets.all(12),
-      child: Text(switch (intent) {
-        VoiceIntent.purchase || VoiceIntent.application || VoiceIntent.plan =>
-          'Eso parece otra operación. No se cambió este borrador de $current: '
-              'regístrela desde su propia pantalla.',
-        VoiceIntent.unsupported =>
-          'Los pagos y las consultas por voz no están disponibles. No se cambió '
-              'el borrador.',
-        _ =>
-          'La frase mezcla varias operaciones. No se cambió el borrador: dicte '
-              'sólo la $current.',
-      }),
-    ),
-  );
-}
-
-/// Lo que impide confirmar.
-class VoiceBlockersPanel extends StatelessWidget {
-  const VoiceBlockersPanel({super.key, required this.blockers});
-  final List<String> blockers;
-
-  @override
-  Widget build(BuildContext context) => Container(
-    key: const Key('voz-bloqueos'),
-    padding: const EdgeInsets.all(12),
-    decoration: BoxDecoration(
-      color: Theme.of(context).colorScheme.errorContainer,
-      borderRadius: BorderRadius.circular(8),
-    ),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text('Para registrar falta:'),
-        for (final b in blockers) Text('• $b'),
-      ],
-    ),
-  );
-}
-
-/// Etiqueta, estado del campo y el control para corregirlo.
-class DraftFieldRow extends StatelessWidget {
-  const DraftFieldRow({
-    super.key,
-    required this.label,
-    required this.field,
-    required this.child,
-  });
-
-  final String label;
-  final DraftField<Object?> field;
-  final Widget child;
-
-  @override
-  Widget build(BuildContext context) {
-    final scheme = Theme.of(context).colorScheme;
-    final (text, color) = switch (field.status) {
-      FieldStatus.resolved => (
-        switch (field.origin) {
-          FieldOrigin.manual => 'Corregido a mano',
-          FieldOrigin.preset => 'Propuesto',
-          _ => 'Dictado',
-        },
-        scheme.primary,
-      ),
-      FieldStatus.ambiguous => ('Ambiguo: elija', scheme.tertiary),
-      FieldStatus.missing => ('Falta', scheme.error),
-      FieldStatus.invalid => ('No válido', scheme.error),
-    };
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Row(
-            children: [
-              Expanded(child: Text(label)),
-              Text(text, style: TextStyle(color: color)),
-            ],
-          ),
-          if (field.heard != null && !field.isResolved)
-            Text(
-              'Oído: «${field.heard}»',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          if (field.message != null && !field.isResolved)
-            Text(field.message!, style: Theme.of(context).textTheme.bodySmall),
-          const SizedBox(height: 4),
-          child,
-        ],
-      ),
+/// Aclaración o problema de unidad para una cantidad con valor (POCO
+/// 2026-11-08, dosis con el producto pendiente): sin producto, la unidad aún
+/// no se comprobó; con un producto de otra unidad, no se puede registrar.
+({String? note, String? problem}) unitCheck({
+  required DraftField<CatalogEntry> product,
+  required SpokenUnit? spoken,
+  String suffix = '',
+}) {
+  if (spoken == null) return (note: null, problem: null);
+  final said = '${spoken.family.code}$suffix';
+  final unit = product.isResolved ? product.value?.unit : null;
+  if (unit == null) {
+    return (
+      note: 'En $said; falta elegir el producto para comprobar su unidad.',
+      problem: null,
     );
   }
-}
-
-/// Elegir una entrada **existente** del catálogo. Las opciones del campo
-/// ambiguo van primero.
-class CatalogEntryPicker extends StatelessWidget {
-  const CatalogEntryPicker({
-    super.key,
-    required this.entries,
-    required this.field,
-    required this.enabled,
-    required this.onPick,
-  });
-
-  final List<CatalogEntry> entries;
-  final DraftField<CatalogEntry> field;
-  final bool enabled;
-  final ValueChanged<CatalogEntry> onPick;
-
-  @override
-  Widget build(BuildContext context) {
-    final ordered = [
-      ...field.candidates,
-      for (final e in entries)
-        if (!field.candidates.contains(e)) e,
-    ];
-    final selected = field.isResolved ? field.value : null;
-    return DropdownButton<CatalogEntry>(
-      isExpanded: true,
-      value: ordered.contains(selected) ? selected : null,
-      hint: const Text('Elegir'),
-      items: [
-        for (final e in ordered)
-          DropdownMenuItem(value: e, child: Text(e.name)),
-      ],
-      onChanged: enabled
-          ? (value) {
-              if (value != null) onPick(value);
-            }
-          : null,
+  if (unit != spoken.family) {
+    return (
+      note: null,
+      problem:
+          'La cifra está en $said, pero el producto se mide en '
+          '${unit.code}$suffix: corrija la cifra o el producto.',
     );
   }
+  return (note: null, problem: null);
 }

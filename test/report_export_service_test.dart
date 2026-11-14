@@ -6,12 +6,14 @@ import 'package:agroquimicos/data/agro_repository.dart';
 import 'package:agroquimicos/data/app_database.dart';
 import 'package:agroquimicos/domain/models.dart';
 import 'package:agroquimicos/domain/reports/report_composer.dart';
-import 'package:agroquimicos/services/reports/csv_report_generator.dart';
 import 'package:agroquimicos/services/reports/report_export_service.dart';
 import 'package:agroquimicos/services/reports/report_storage.dart';
+import 'package:agroquimicos/services/reports/xlsx_report_generator.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+
+import 'support/xlsx_reader.dart';
 
 /// Orquestación completa: leer -> componer -> generar -> guardar.
 ///
@@ -112,6 +114,18 @@ void main() {
     _ => request(kind, format),
   };
 
+  test('estado de cuenta de una persona con nombre largo: el archivo conserva la fecha', () async {
+    final long = await repo.addPerson(
+      name: 'Ana María Quispe Mamani de la Comunidad San Isidro (sintética)',
+      role: PersonRole.family,
+    );
+    final stored = await service.export(
+      request(ReportKind.accountStatement, ReportFormat.xlsx, personId: long),
+    );
+    expect(stored.fileName, endsWith('-2026-09-06.xlsx'));
+    expect(stored.fileName, contains('Ana Maria Quispe'));
+  });
+
   group('exportación de los cinco reportes', () {
     for (final kind in ReportKind.values) {
       for (final format in ReportFormat.values) {
@@ -126,7 +140,9 @@ void main() {
           if (format == ReportFormat.pdf) {
             expect(latin1.decode(bytes.sublist(0, 5)), '%PDF-');
           } else {
-            expect(bytes.sublist(0, 3), utf8Bom);
+            // Firma ZIP y un libro que se descomprime y se lee entero.
+            expect(bytes.sublist(0, 4), [0x50, 0x4B, 0x03, 0x04]);
+            expect(readXlsx(bytes).records.first, isNotEmpty);
           }
         });
       }
@@ -134,17 +150,17 @@ void main() {
 
     test('el estado de cuenta lleva el nombre de la persona', () async {
       final stored = await service.export(
-        valid(ReportKind.accountStatement, ReportFormat.csv),
+        valid(ReportKind.accountStatement, ReportFormat.xlsx),
       );
       expect(stored.fileName, contains('Ana Familiar'));
     });
 
     test('dos exportaciones seguidas no se pisan', () async {
       final first = await service.export(
-        valid(ReportKind.inventory, ReportFormat.csv),
+        valid(ReportKind.inventory, ReportFormat.xlsx),
       );
       final second = await service.export(
-        valid(ReportKind.inventory, ReportFormat.csv),
+        valid(ReportKind.inventory, ReportFormat.xlsx),
       );
       expect(second.fileName, isNot(first.fileName));
       expect(await File(first.path).exists(), isTrue);
@@ -155,7 +171,7 @@ void main() {
     test('una campaña inexistente falla ANTES de generar nada', () async {
       await expectLater(
         service.export(
-          request(ReportKind.productCost, ReportFormat.csv, campaignId: 9999),
+          request(ReportKind.productCost, ReportFormat.xlsx, campaignId: 9999),
         ),
         throwsA(isA<ReportFilterException>()),
       );
@@ -182,14 +198,14 @@ void main() {
 
     test('el resumen de campaña sin campaña da un error tipado', () async {
       await expectLater(
-        service.export(request(ReportKind.campaignSummary, ReportFormat.csv)),
+        service.export(request(ReportKind.campaignSummary, ReportFormat.xlsx)),
         throwsA(isA<ReportFilterException>()),
       );
     });
 
     test('el estado de cuenta sin persona da un error tipado', () async {
       await expectLater(
-        service.export(request(ReportKind.accountStatement, ReportFormat.csv)),
+        service.export(request(ReportKind.accountStatement, ReportFormat.xlsx)),
         throwsA(isA<ReportFilterException>()),
       );
     });
@@ -199,7 +215,7 @@ void main() {
         service.export(
           request(
             ReportKind.inventory,
-            ReportFormat.csv,
+            ReportFormat.xlsx,
             campaignId: campaign1,
           ),
         ),
@@ -209,14 +225,14 @@ void main() {
 
     test('sin campaña, el reporte declara "Todas las campañas"', () async {
       final table = await service.compose(
-        request(ReportKind.farmCost, ReportFormat.csv),
+        request(ReportKind.farmCost, ReportFormat.xlsx),
       );
       expect(table.filters.single.value, 'Todas las campañas');
     });
 
     test('con campaña, el reporte declara su nombre', () async {
       final table = await service.compose(
-        request(ReportKind.farmCost, ReportFormat.csv, campaignId: campaign1),
+        request(ReportKind.farmCost, ReportFormat.xlsx, campaignId: campaign1),
       );
       expect(table.filters.single.value, 'Campaña 1');
     });
@@ -242,12 +258,12 @@ void main() {
       final slow = ReportExportService(
         repo,
         storage,
-        csv: _CancellingCsvGenerator(cancellation),
+        xlsx: _CancellingXlsxGenerator(cancellation),
         clock: () => DateTime.utc(2026, 9, 6),
       );
       await expectLater(
         slow.export(
-          valid(ReportKind.inventory, ReportFormat.csv),
+          valid(ReportKind.inventory, ReportFormat.xlsx),
           cancellation: cancellation,
         ),
         throwsA(isA<ReportCancelledException>()),
@@ -260,7 +276,7 @@ void main() {
       final cancellation = ReportCancellation();
       expect(cancellation.isCancelled, isFalse);
       final stored = await service.export(
-        valid(ReportKind.inventory, ReportFormat.csv),
+        valid(ReportKind.inventory, ReportFormat.xlsx),
         cancellation: cancellation,
       );
       expect(await File(stored.path).exists(), isTrue);
@@ -309,7 +325,7 @@ void main() {
       final before = await dump();
       await expectLater(
         service.export(
-          request(ReportKind.productCost, ReportFormat.csv, campaignId: 9999),
+          request(ReportKind.productCost, ReportFormat.xlsx, campaignId: 9999),
         ),
         throwsA(isA<ReportFilterException>()),
       );
@@ -325,46 +341,42 @@ void main() {
   });
 
   group('coherencia con la aplicación', () {
-    test('el CSV de inventario dice lo mismo que la consulta', () async {
+    test('el Excel de inventario dice lo mismo que la consulta', () async {
       final stored = await service.export(
-        valid(ReportKind.inventory, ReportFormat.csv),
+        valid(ReportKind.inventory, ReportFormat.xlsx),
       );
-      final content = utf8.decode(
-        (await File(stored.path).readAsBytes()).sublist(utf8Bom.length),
-      );
+      final records = xlsxRecords(await File(stored.path).readAsBytes());
       // 15 L de Glifosato tras aplicar 5 de los 20 comprados, valorados en
       // Bs 1.500,00.
-      expect(content, contains('Glifosato;L;15;0;15;1500,00'));
-      expect(content, contains('Valor total (Bs);1500,00'));
+      expect(records, contains('Glifosato;L;15;0;15;1500,00'));
+      expect(records, contains('Valor total (Bs);1500,00'));
     });
 
     test('el estado de cuenta cuadra con el saldo de la persona', () async {
       final stored = await service.export(
-        valid(ReportKind.accountStatement, ReportFormat.csv),
+        valid(ReportKind.accountStatement, ReportFormat.xlsx),
       );
-      final content = utf8.decode(
-        (await File(stored.path).readAsBytes()).sublist(utf8Bom.length),
-      );
+      final records = xlsxRecords(await File(stored.path).readAsBytes());
       // Un solo cargo por consumo: 5 L × Bs 100,00 = Bs 500,00.
-      expect(content, contains('Total de cargos (Bs);500,00'));
+      expect(records, contains('Total de cargos (Bs);500,00'));
       // D-04 (decisión del autor del 2026-10-27, §2.6 y ejemplo M-8): el
       // cierre del cronológico se rotula «Saldo a hoy» y ya no «Saldo final».
       // La cifra es la misma.
-      expect(content, contains('Saldo a hoy (Bs);500,00'));
+      expect(records, contains('Saldo a hoy (Bs);500,00'));
     });
   });
 }
 
 /// Generador que cancela mientras produce los bytes: reproduce que el usuario
 /// pulse "Cancelar" cuando la lectura ya terminó pero nada se ha guardado.
-class _CancellingCsvGenerator implements CsvReportGenerator {
-  const _CancellingCsvGenerator(this._cancellation);
+class _CancellingXlsxGenerator implements XlsxReportGenerator {
+  const _CancellingXlsxGenerator(this._cancellation);
 
   final ReportCancellation _cancellation;
 
   @override
   Uint8List generate(table) {
     _cancellation.cancel();
-    return const CsvReportGenerator().generate(table);
+    return const XlsxReportGenerator().generate(table);
   }
 }

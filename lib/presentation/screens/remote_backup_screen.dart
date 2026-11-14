@@ -13,7 +13,12 @@ import '../../services/backup/remote_backup_api.dart';
 import '../../services/backup/remote_backup_providers.dart';
 import '../../services/backup/remote_backup_service.dart';
 import '../../services/sync/sync_providers.dart';
+import '../theme/agro_theme.dart';
+import '../widgets/agro_ui.dart';
 import '../widgets/common.dart';
+import '../widgets/identification_texts.dart' show labelPhotosNotInBackups;
+import '../widgets/local_backup_actions.dart';
+import '../widgets/rdm_c_page.dart';
 import 'backup_recovery_key_screen.dart';
 
 /// «Respaldo en la nube» (F08, MOB #35/#36): copia privada del agricultor en
@@ -161,11 +166,12 @@ class _RemoteBackupScreenState extends ConsumerState<RemoteBackupScreen> {
       context,
       title: 'Subir un respaldo nuevo',
       detail:
-          'Se genera un respaldo de todos los datos y fotografías de este '
-          'teléfono, se cifra aquí con su clave de recuperación y se guarda '
-          'como copia privada de su cuenta en el servidor del sindicato. El '
-          'servidor sólo recibe la copia cifrada: nadie más puede leerla, '
-          'tampoco la Directiva. No se publica ningún dato al sindicato.',
+          'Se genera un respaldo de todos los datos y de las fotografías de '
+          'factura de este teléfono, se cifra aquí con su clave de '
+          'recuperación y se guarda como copia privada de su cuenta en el '
+          'servidor del sindicato. El servidor sólo recibe la copia cifrada: '
+          'nadie más puede leerla, tampoco la Directiva. No se publica ningún '
+          'dato al sindicato.\n\n$labelPhotosNotInBackups',
       confirmLabel: 'Subir',
     );
     if (!confirmed || !mounted) return;
@@ -237,7 +243,8 @@ class _RemoteBackupScreenState extends ConsumerState<RemoteBackupScreen> {
           'Copia del ${_date(entry.createdAt)} (${_size(entry.sizeBytes)}), '
           '${prepared.unencrypted ? 'guardada SIN CIFRAR (formato anterior)' : 'descifrada y verificada'}.\n'
           'Contiene la base de datos y '
-          '${prepared.validation.attachmentCount} fotografía(s).\n'
+          '${prepared.validation.attachmentCount} fotografía(s) de factura. '
+          '$labelPhotosNotInBackups\n'
           '${prepared.ownership.message}\n\n'
           'TODOS los datos actuales se reemplazarán. Se guarda una copia de '
           'los datos actuales en este teléfono. Los envíos al sindicato que '
@@ -473,62 +480,95 @@ class _RemoteBackupScreenState extends ConsumerState<RemoteBackupScreen> {
       ? '${(bytes / 1024).ceil()} KB'
       : '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
 
+  /// Tarjeta oscura de la clave de recuperación (lámina «Respaldos»): el
+  /// estado, qué significa y la acción que corresponde. Mismos textos y
+  /// acciones que antes.
   Widget _keyCard() {
     final readiness = _readiness;
-    final (icon, text) = switch (readiness) {
+    final (badge, text) = switch (readiness) {
       _ when _keyringProblem != null => (
-        Icons.key_off_outlined,
+        'Clave con problemas',
         _keyringProblem!,
       ),
       KeyringReadiness.ready => (
-        Icons.key_outlined,
+        'Clave creada',
         'Sus respaldos se cifran en este teléfono con su clave de '
             'recuperación. Guárdela fuera del teléfono.',
       ),
       KeyringReadiness.pendingConfirmation => (
-        Icons.key_outlined,
+        'Falta confirmar la clave',
         'Falta confirmar la clave de recuperación que se le mostró. Hasta '
             'entonces no se sube nada.',
       ),
       KeyringReadiness.noKey || null => (
-        Icons.key_off_outlined,
+        'Falta la clave de recuperación',
         'Antes de subir un respaldo hay que crear su clave de recuperación '
             'y anotarla fuera del teléfono.',
       ),
     };
-    return Card(
+    final ok = readiness == KeyringReadiness.ready && _keyringProblem == null;
+    final onInk = OutlinedButton.styleFrom(
+      foregroundColor: Colors.white,
+      side: const BorderSide(color: AgroColors.onInkMuted),
+      minimumSize: const Size(0, 48),
+    );
+    return Material(
+      key: const Key('backup-key-card'),
+      color: AgroColors.ink,
+      borderRadius: BorderRadius.circular(28),
       child: Padding(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.fromLTRB(20, 18, 20, 20),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            ListTile(
-              contentPadding: EdgeInsets.zero,
-              leading: Icon(icon),
-              title: const Text('Clave de recuperación'),
-              subtitle: Text(text),
+            StatusBadge(
+              label: badge,
+              tone: ok ? BadgeTone.ok : BadgeTone.review,
             ),
+            const SizedBox(height: 10),
+            Semantics(
+              header: true,
+              child: Text(
+                'Clave de recuperación',
+                style: AgroText.h2.copyWith(color: Colors.white),
+              ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              text,
+              style: AgroText.detail.copyWith(color: AgroColors.onInkMuted),
+            ),
+            const SizedBox(height: 16),
             Wrap(
               spacing: 8,
+              runSpacing: 8,
               children: [
                 if (readiness == KeyringReadiness.ready) ...[
                   OutlinedButton(
+                    style: onInk,
                     onPressed: _busy
                         ? null
                         : () => revealActiveRecoveryKey(context, ref),
                     child: const Text('Ver la clave'),
                   ),
                   OutlinedButton(
+                    style: onInk,
                     onPressed: _busy ? null : _rotate,
                     child: const Text('Cambiar la clave'),
                   ),
                 ] else if (_keyringProblem != null)
                   OutlinedButton(
+                    style: onInk,
                     onPressed: _busy ? null : _replaceKeyring,
                     child: const Text('Empezar un llavero nuevo'),
                   )
                 else
                   FilledButton(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: AgroColors.lime,
+                      foregroundColor: AgroColors.ink,
+                      minimumSize: const Size(0, 52),
+                    ),
                     onPressed: _busy ? null : _openKeyScreen,
                     child: Text(
                       readiness == KeyringReadiness.pendingConfirmation
@@ -572,19 +612,19 @@ class _RemoteBackupScreenState extends ConsumerState<RemoteBackupScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const SizedBox(height: 16),
-        Text(
-          'Copias previas a restauraciones',
-          style: Theme.of(context).textTheme.titleMedium,
-        ),
+        const SizedBox(height: 8),
+        const SectionHeader(title: 'Copias previas a restauraciones'),
+        const SizedBox(height: 4),
         const Text(
           'Se guardan en este teléfono. Se conservan hasta dos, siete días, '
           'cuando se abre esta sección o se restaura otra copia; no hay '
           'limpieza con la aplicación cerrada. La de una restauración sin '
           'resolver, o cuya recuperación no se confirmó, no se borra.',
+          style: AgroText.detail,
         ),
+        const SizedBox(height: 8),
         if (!_previoReadable)
-          Card(
+          _Tile(
             child: ListTile(
               leading: const Icon(Icons.error_outline),
               title: const Text('El registro de copias no se puede leer'),
@@ -600,7 +640,7 @@ class _RemoteBackupScreenState extends ConsumerState<RemoteBackupScreen> {
             ),
           ),
         for (final entry in _previo)
-          Card(
+          _Tile(
             child: ListTile(
               leading: Icon(
                 entry.isProtected
@@ -623,7 +663,7 @@ class _RemoteBackupScreenState extends ConsumerState<RemoteBackupScreen> {
             ),
           ),
         for (final entity in _unregistered)
-          Card(
+          _Tile(
             child: ListTile(
               leading: const Icon(Icons.inventory_outlined),
               title: Text(p.basename(entity.path)),
@@ -642,85 +682,131 @@ class _RemoteBackupScreenState extends ConsumerState<RemoteBackupScreen> {
   @override
   Widget build(BuildContext context) {
     final entries = _entries;
-    return PageFrame(
-      title: 'Respaldo en la nube',
+    return RdmCPage(
+      title: 'Respaldos',
       subtitle:
-          'Copia privada y cifrada de sus datos. No se comparte con el '
-          'sindicato.',
-      action: FilledButton.icon(
-        onPressed: _busy ? null : _upload,
-        icon: const Icon(Icons.cloud_upload_outlined),
-        label: const Text('Subir respaldo'),
-      ),
+          'Copias privadas de sus datos. No se comparten con el sindicato.',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          const RdmCOverline('En la nube'),
           _keyCard(),
           const SizedBox(height: 12),
-          Row(
+          AgroGroup(
             children: [
-              OutlinedButton.icon(
-                onPressed: _busy ? null : _refresh,
-                icon: const Icon(Icons.refresh),
-                label: const Text('Ver copias en el servidor'),
+              RdmCRow(
+                key: const Key('backup-upload'),
+                title: 'Subir respaldo',
+                detail: 'Copia cifrada en el servidor',
+                onTap: _busy ? null : _upload,
               ),
-              const SizedBox(width: 12),
-              if (_busy)
-                const SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                ),
+              RdmCRow(
+                key: const Key('backup-list-remote'),
+                title: 'Ver copias en el servidor',
+                detail: 'Necesita conexión',
+                trailing: _busy
+                    ? const Padding(
+                        padding: EdgeInsets.all(12),
+                        child: SizedBox(
+                          width: 20,
+                          height: 20,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      )
+                    : null,
+                onTap: _busy ? null : _refresh,
+              ),
             ],
           ),
           const SizedBox(height: 12),
           if (_problem != null)
             EmptyState(icon: Icons.cloud_off_outlined, message: _problem!)
           else if (entries == null)
-            const EmptyState(
-              icon: Icons.cloud_outlined,
-              message:
-                  'Pulse «Ver copias en el servidor» para consultar sus '
-                  'copias. La consulta requiere conexión.',
-            )
+            const SizedBox.shrink()
           else if (entries.isEmpty)
             const EmptyState(
               icon: Icons.cloud_queue_outlined,
               message: 'Todavía no tiene copias en el servidor.',
             )
           else
-            for (final entry in entries)
-              Card(
-                child: ListTile(
-                  leading: Icon(
-                    entry.formatVersion == 1
-                        ? Icons.lock_open_outlined
-                        : Icons.lock_outline,
+            AgroGroup(
+              children: [
+                for (final entry in entries)
+                  ListTile(
+                    leading: Icon(
+                      entry.formatVersion == 1
+                          ? Icons.lock_open_outlined
+                          : Icons.lock_outline,
+                    ),
+                    title: Text(
+                      'Copia del ${_date(entry.createdAt)}',
+                      style: AgroText.value,
+                    ),
+                    subtitle: Text(_entryDetail(entry)),
+                    trailing: Wrap(
+                      spacing: 4,
+                      children: [
+                        IconButton(
+                          tooltip: 'Restaurar',
+                          onPressed: _busy ? null : () => _restore(entry),
+                          icon: const Icon(Icons.restore_outlined),
+                        ),
+                        IconButton(
+                          tooltip: 'Eliminar del servidor',
+                          onPressed: _busy ? null : () => _delete(entry),
+                          icon: const Icon(Icons.delete_outline),
+                        ),
+                      ],
+                    ),
                   ),
-                  title: Text('Copia del ${_date(entry.createdAt)}'),
-                  subtitle: Text(_entryDetail(entry)),
-                  trailing: Wrap(
-                    spacing: 4,
-                    children: [
-                      IconButton(
-                        tooltip: 'Restaurar',
-                        onPressed: _busy ? null : () => _restore(entry),
-                        icon: const Icon(Icons.restore_outlined),
-                      ),
-                      IconButton(
-                        tooltip: 'Eliminar del servidor',
-                        onPressed: _busy ? null : () => _delete(entry),
-                        icon: const Icon(Icons.delete_outline),
-                      ),
-                    ],
-                  ),
-                ),
+              ],
+            ),
+          const SizedBox(height: 8),
+          // Rediseño (lámina «Respaldos»): el respaldo en un archivo de este
+          // teléfono, el mismo que el menú de la carpeta de Cuentas.
+          const RdmCOverline('En este teléfono'),
+          AgroGroup(
+            children: [
+              RdmCRow(
+                key: const Key('backup-local-export'),
+                title: 'Exportar respaldo',
+                detail: 'Archivo con sus datos y las fotos de factura',
+                onTap: _busy ? null : () => exportLocalBackup(context, ref),
               ),
+              RdmCRow(
+                key: const Key('backup-local-restore'),
+                title: 'Restaurar respaldo',
+                detail: 'Reemplaza los datos actuales; antes guarda una copia',
+                onTap: _busy
+                    ? null
+                    : () => restoreLocalBackup(
+                        context,
+                        ref,
+                        onRestored: () {
+                          if (mounted) _loadPrevio();
+                        },
+                      ),
+              ),
+            ],
+          ),
           _previoSection(),
         ],
       ),
     );
   }
+}
+
+/// Una fila sobre fondo blanco (las copias previas), con la respuesta al
+/// toque visible.
+class _Tile extends StatelessWidget {
+  const _Tile({required this.child});
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.only(bottom: 8),
+    child: AgroGroup(children: [child]),
+  );
 }
 
 enum _UnresolvedChoice { continueAsIs, confirm }

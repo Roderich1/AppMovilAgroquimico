@@ -199,9 +199,11 @@ void main() {
       }
     });
 
-    test('sólo el adaptador de Android conoce los canales de plataforma', () {
+    test('sólo los adaptadores conocen los canales de plataforma', () {
       for (final file in voiceFiles()) {
-        if (file.path.endsWith('android_speech_transcription_adapter.dart')) {
+        if (file.path.endsWith('android_speech_transcription_adapter.dart') ||
+            file.path.endsWith('local_speech_transcription_adapter.dart') ||
+            file.path.endsWith('whole_turn_transcription_adapter.dart')) {
           continue;
         }
         expect(
@@ -303,10 +305,16 @@ void main() {
     test('el puente nativo de voz no usa la red', () {
       const dir = 'android/app/src/main/kotlin/com/comunidad/agro/agroquimicos';
       for (final name in const [
-        'VoiceSpeechBridge.kt',
-        'VoiceSpeechEngine.kt',
+        '$dir/VoiceSpeechBridge.kt',
+        '$dir/VoiceSpeechEngine.kt',
+        // Reconocimiento local (#165, #166): el audio no sale del proceso.
+        '$dir/LocalVoiceBridge.kt',
+        '$dir/LocalVoiceEngine.kt',
+        '$dir/LocalVoiceModels.kt',
+        '$dir/WhisperNative.kt',
+        'android/app/src/main/cpp/whisper_jni.c',
       ]) {
-        final source = File('$dir/$name').readAsStringSync();
+        final source = File(name).readAsStringSync();
         for (final forbidden in const [
           'java.net',
           'HttpURLConnection',
@@ -343,8 +351,59 @@ void main() {
     });
   });
 
-  group('el motor productivo es el que decidió ADR-002', () {
-    test('no se empaqueta Whisper ni ningún modelo', () {
+  group('motores y modelos de voz', () {
+    test('el motor local no escribe audio ni transcripciones en disco', () {
+      const dir = 'android/app/src/main/kotlin/com/comunidad/agro/agroquimicos';
+      // Sólo `LocalVoiceModels` escribe archivos, y son copias verificadas de
+      // los modelos del APK, no audio.
+      for (final name in const [
+        'LocalVoiceBridge.kt',
+        'LocalVoiceEngine.kt',
+        'WhisperNative.kt',
+      ]) {
+        final source = File('$dir/$name').readAsStringSync();
+        for (final forbidden in const [
+          'FileOutputStream',
+          'writeBytes',
+          'writeText',
+          'outputStream()',
+          'MediaRecorder(',
+          'SharedPreferences',
+        ]) {
+          expect(
+            source.contains(forbidden),
+            isFalse,
+            reason: '$name podría escribir en disco: $forbidden',
+          );
+        }
+      }
+      expect(
+        File('android/app/src/main/cpp/whisper_jni.c')
+            .readAsStringSync()
+            .contains('fopen'),
+        isFalse,
+      );
+    });
+
+    test('los modelos y las librerías nativas no se versionan', () {
+      final ignore = File('.gitignore').readAsStringSync();
+      expect(ignore.contains('/android/app/voice-models/'), isTrue);
+      expect(ignore.contains('/android/app/src/main/jniLibs/'), isTrue);
+    });
+
+    test('la dependencia de Vosk está fijada por versión y por SHA-256', () {
+      final gradle = File('android/app/build.gradle.kts').readAsStringSync();
+      expect(gradle.contains('com.alphacephei:vosk-android:0.3.75"'), isTrue);
+      expect(
+        gradle.contains(
+          'ab2f8b91ac8051561aa325546b35fed9a68b36b8121bac5c6fb927525c4adfad',
+        ),
+        isTrue,
+      );
+      expect(gradle.contains('dependsOn(verifyPinnedVoiceArtifacts)'), isTrue);
+    });
+
+    test('ningún modelo ni binario se referencia desde Dart', () {
       for (final file in voiceFiles()) {
         final source = read(file).toLowerCase();
         expect(source.contains('whisper'), isFalse, reason: file.path);
@@ -363,7 +422,25 @@ void main() {
     });
 
     test('no se añadió ninguna dependencia para la voz', () {
-      final pubspec = File('pubspec.yaml').readAsStringSync();
+      // Sólo las secciones de dependencias: desde F09 (2026-11-08) la
+      // sección `flutter: assets:` declara los avisos de licencias
+      // (`assets/licenses/whisper.cpp/…`), que no son dependencias.
+      final lines = File('pubspec.yaml').readAsLinesSync();
+      final buffer = StringBuffer();
+      var inDependencies = false;
+      for (final line in lines) {
+        final topLevel = RegExp(r'^([A-Za-z_]+):').firstMatch(line);
+        if (topLevel != null) {
+          inDependencies = const {
+            'dependencies',
+            'dev_dependencies',
+            'dependency_overrides',
+          }.contains(topLevel.group(1));
+        }
+        if (inDependencies) buffer.writeln(line);
+      }
+      final pubspec = buffer.toString();
+      expect(pubspec, contains('flutter_riverpod'), reason: 'sección leída');
       for (final forbidden in const [
         'speech_to_text',
         'permission_handler',

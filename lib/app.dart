@@ -14,9 +14,11 @@ import 'operation_mode_controller.dart';
 import 'services/auth/local_owner_credential_providers.dart';
 import 'domain/reports/report_composer.dart';
 import 'presentation/app_shell.dart';
+import 'presentation/theme/agro_theme.dart';
 import 'presentation/screens/access_status_screen.dart';
 import 'presentation/screens/applications_screen.dart';
 import 'presentation/screens/application_form_screen.dart';
+import 'presentation/screens/campaigns_screen.dart';
 import 'presentation/screens/catalogs_screen.dart';
 import 'presentation/screens/central_binding_screen.dart';
 import 'presentation/screens/remote_backup_screen.dart';
@@ -26,9 +28,14 @@ import 'presentation/screens/declared_needs_screen.dart';
 import 'presentation/screens/first_activation_screen.dart';
 import 'presentation/screens/reauthentication_screen.dart';
 import 'presentation/screens/farm_logbook_screen.dart';
+import 'presentation/screens/ind_b_suppliers_screen.dart';
+import 'presentation/screens/ind_c_chaco_costs_screen.dart';
+import 'presentation/screens/ind_chacos_screen.dart';
 import 'presentation/screens/inventory_alerts_screen.dart';
 import 'presentation/screens/inventory_detail_screen.dart';
 import 'presentation/screens/inventory_screen.dart';
+import 'presentation/screens/joint_purchase_detail_screen.dart';
+import 'presentation/screens/joint_purchases_screen.dart';
 import 'presentation/screens/more_screen.dart';
 import 'presentation/screens/operation_mode_screen.dart';
 import 'presentation/screens/operations_screen.dart';
@@ -44,6 +51,7 @@ import 'presentation/screens/reports_screen.dart';
 import 'presentation/screens/settlements_screen.dart';
 import 'presentation/screens/sync_status_screen.dart';
 import 'presentation/screens/transfers_screen.dart';
+import 'presentation/screens/union_screen.dart';
 import 'presentation/screens/transfer_form_screen.dart';
 import 'presentation/screens/access_recovery_screen.dart';
 import 'presentation/screens/owner_credential_screen.dart';
@@ -52,10 +60,9 @@ import 'presentation/screens/estimation_screen.dart';
 import 'services/estimation/estimation_providers.dart';
 import 'services/reports/report_export_service.dart';
 import 'services/reports/report_storage.dart';
-import 'presentation/voice/voice_application_draft_screen.dart';
 import 'presentation/voice/voice_entry_screen.dart';
-import 'presentation/voice/voice_plan_draft_screen.dart';
-import 'presentation/voice/voice_purchase_draft_screen.dart';
+import 'presentation/voice/voice_evidence_consent_screen.dart';
+import 'presentation/voice/voice_evidence_hook.dart';
 
 final databaseProvider = Provider<AppDatabase>((ref) {
   final database = AppDatabase();
@@ -150,6 +157,8 @@ final routerProvider = Provider<GoRouter>((ref) {
             location: state.uri.path,
             transfersEnabled:
                 ref.watch(operationModeProvider) != OperationMode.personal,
+            personalMode:
+                ref.watch(operationModeProvider) == OperationMode.personal,
             child: child,
           ),
         ),
@@ -164,6 +173,12 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: '/catalogos',
             builder: (_, __) => const CatalogsScreen(),
+          ),
+          // Campañas con pantalla propia, accesible desde Operaciones; las
+          // reglas son las mismas que en Catálogos (campaign_actions.dart).
+          GoRoute(
+            path: '/campanas',
+            builder: (_, __) => const CampaignsScreen(),
           ),
           GoRoute(
             path: '/planificacion',
@@ -184,6 +199,11 @@ final routerProvider = Provider<GoRouter>((ref) {
           GoRoute(
             path: '/aplicaciones',
             builder: (_, __) => const ApplicationsScreen(),
+          ),
+          // Modo individual (I-05): compras, pagos y saldo por proveedor.
+          GoRoute(
+            path: indProvidersPath,
+            builder: (_, __) => const SuppliersBalanceScreen(),
           ),
           GoRoute(
             path: '/liquidacion',
@@ -230,6 +250,19 @@ final routerProvider = Provider<GoRouter>((ref) {
               personId: int.parse(state.pathParameters['id']!),
             ),
           ),
+          // Modo individual (lámina I-40): lista de chacos del titular. En el
+          // modo con varias personas los chacos siguen bajo Personas.
+          GoRoute(path: '/chacos', builder: (_, __) => const ChacosScreen()),
+          // Costos por chaco, producto y campaña (I-42). Antes de
+          // '/chacos/:id', que tomaría «costos» como un id.
+          GoRoute(
+            path: '/chacos/costos',
+            builder: (_, state) => IndCChacoCostsScreen(
+              initialCampaignId: int.tryParse(
+                state.uri.queryParameters['campana'] ?? '',
+              ),
+            ),
+          ),
           GoRoute(
             path: '/chacos/:id',
             builder: (_, state) => FarmLogbookScreen(
@@ -248,6 +281,9 @@ final routerProvider = Provider<GoRouter>((ref) {
             path: '/sincronizacion',
             builder: (_, __) => const SyncStatusScreen(),
           ),
+          // Rediseño: pestaña «Sindicato» (envíos, convocatorias, lo que se
+          // comparte). Sólo navega a las pantallas de siempre.
+          GoRoute(path: '/sindicato', builder: (_, __) => const UnionScreen()),
           GoRoute(
             path: '/sindicato/vinculos',
             builder: (_, __) => const CentralBindingScreen(),
@@ -256,39 +292,51 @@ final routerProvider = Provider<GoRouter>((ref) {
             path: '/sincronizacion/consumo',
             builder: (_, __) => const ConsumptionPublishScreen(),
           ),
+          // E2: compras conjuntas, desde Operaciones › Más y el aviso de
+          // Inicio.
+          GoRoute(
+            path: '/compras-conjuntas',
+            builder: (_, __) => const JointPurchasesScreen(),
+          ),
+          GoRoute(
+            path: '/compras-conjuntas/:id',
+            builder: (_, state) =>
+                JointPurchaseDetailScreen(callId: state.pathParameters['id']!),
+          ),
           GoRoute(
             path: '/respaldo-remoto',
             builder: (_, __) => const RemoteBackupScreen(),
           ),
-          // F09. La voz vive DENTRO del shell, como los subdestinos de
-          // Operaciones: se llega apilando y Atrás vuelve. Cada borrador
-          // ofrece su formulario manual, que lo sustituye (el borrador se
-          // descarta sin escribir).
+          // F09. «Registrar por voz» vive DENTRO del shell, como los
+          // subdestinos de Operaciones. Sus opciones abren el formulario
+          // normal con el panel de voz visible (formulario único).
           GoRoute(
             path: voiceEntryPath,
             builder: (_, __) => const VoiceEntryScreen(),
           ),
-          GoRoute(
-            path: voicePurchasePath,
-            builder: (context, __) => VoicePurchaseDraftScreen(
-              onOpenManualForm: () => context.pushReplacement('/compras/nueva'),
+          // Evidencia de dictado (#167): sólo en una compilación de
+          // evaluación; en las demás la ruta no existe.
+          if (voiceEvidenceEnabled)
+            GoRoute(
+              path: voiceEvidenceConsentPath,
+              builder: (_, __) => const VoiceEvidenceConsentScreen(),
             ),
-          ),
-          GoRoute(
-            path: voicePlanPath,
-            builder: (context, __) => VoicePlanDraftScreen(
-              onOpenManualForm: () =>
-                  context.pushReplacement('/planificacion/nueva'),
-            ),
-          ),
-          GoRoute(
-            path: voiceApplicationPath,
-            builder: (context, __) => VoiceApplicationDraftScreen(
-              onOpenManualForm: () =>
-                  context.pushReplacement('/aplicaciones/nueva'),
-            ),
-          ),
         ],
+      ),
+      // F09 (formulario único): los atajos de voz abren el MISMO formulario
+      // con el panel «Completar por voz» visible; el micrófono no se abre
+      // hasta pulsar «Hablar».
+      GoRoute(
+        path: voicePurchasePath,
+        builder: (_, __) => const PurchaseFormScreen(voice: true),
+      ),
+      GoRoute(
+        path: voicePlanPath,
+        builder: (_, __) => const PlanFormScreen(voice: true),
+      ),
+      GoRoute(
+        path: voiceApplicationPath,
+        builder: (_, __) => const ApplicationFormScreen(voice: true),
       ),
       GoRoute(path: '/acceso', builder: (_, __) => const AccessStatusScreen()),
       GoRoute(path: '/titular', builder: (_, __) => const OwnerSetupScreen()),
@@ -329,17 +377,20 @@ final routerProvider = Provider<GoRouter>((ref) {
       ),
       GoRoute(
         path: '/compras/nueva',
-        builder: (_, __) => const PurchaseFormScreen(),
+        builder: (_, state) =>
+            PurchaseFormScreen(voice: state.uri.queryParameters['voz'] == '1'),
       ),
       GoRoute(
         path: '/aplicaciones/nueva',
         builder: (_, state) => ApplicationFormScreen(
           planId: int.tryParse(state.uri.queryParameters['planId'] ?? ''),
+          voice: state.uri.queryParameters['voz'] == '1',
         ),
       ),
       GoRoute(
         path: '/planificacion/nueva',
-        builder: (_, __) => const PlanFormScreen(),
+        builder: (_, state) =>
+            PlanFormScreen(voice: state.uri.queryParameters['voz'] == '1'),
       ),
     ],
   );
@@ -363,28 +414,9 @@ class AgroApp extends ConsumerWidget {
       GlobalWidgetsLocalizations.delegate,
       GlobalCupertinoLocalizations.delegate,
     ],
-    theme: ThemeData(
-      colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF35693E)),
-      scaffoldBackgroundColor: const Color(0xFFF7F7F1),
-      useMaterial3: true,
-      visualDensity: VisualDensity.compact,
-      cardTheme: const CardThemeData(elevation: 0, margin: EdgeInsets.zero),
-      listTileTheme: const ListTileThemeData(dense: true),
-      inputDecorationTheme: const InputDecorationTheme(
-        border: OutlineInputBorder(),
-        filled: true,
-        fillColor: Colors.white,
-      ),
-      snackBarTheme: const SnackBarThemeData(
-        behavior: SnackBarBehavior.floating,
-      ),
-      pageTransitionsTheme: const PageTransitionsTheme(
-        builders: {
-          TargetPlatform.android: FadeForwardsPageTransitionsBuilder(),
-          TargetPlatform.iOS: FadeForwardsPageTransitionsBuilder(),
-        },
-      ),
-    ),
+    // Rediseño móvil (2026-11-12): paleta, tipografías y componentes del
+    // prototipo. Sólo presentación.
+    theme: buildAgroTheme(),
     routerConfig: ref.watch(routerProvider),
   );
 }

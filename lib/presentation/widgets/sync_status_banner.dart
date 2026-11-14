@@ -5,6 +5,8 @@ import 'package:go_router/go_router.dart';
 import '../../data/sync/sync_outbox_store.dart';
 import '../../domain/sync/sync_types.dart';
 import '../../services/sync/sync_providers.dart';
+import '../../operation_mode_controller.dart' show personalModeProvider;
+import 'ind_connection_sheet.dart';
 
 /// Resumen de la outbox para el indicador. Nunca falla: sin base legible
 /// devuelve null y el indicador no se muestra (Riverpod reintentaría un
@@ -72,7 +74,7 @@ String outboxStatusPhrase(
 }
 
 /// Aviso del worker (`SyncState.message`): por qué no pudo enviar y, si se
-/// le pasa [onSyncNow], la acción pertinente («Sincronizar ahora», que
+/// le pasa [onSyncNow], la acción pertinente («Enviar pendientes», que
 /// verifica el acceso de forma explícita). La misma tarjeta en
 /// Sincronización, Necesidad declarada y Consumo.
 class SyncNoticeCard extends StatelessWidget {
@@ -103,7 +105,7 @@ class SyncNoticeCard extends StatelessWidget {
                 key: const Key('sync-now-notice'),
                 onPressed: busy ? null : onSyncNow,
                 icon: const Icon(Icons.sync),
-                label: const Text('Sincronizar ahora'),
+                label: const Text('Enviar pendientes'),
               ),
             ),
           ),
@@ -148,7 +150,11 @@ class SyncAwareBody extends ConsumerWidget {
         Material(
           color: Theme.of(context).colorScheme.secondaryContainer,
           child: InkWell(
-            onTap: () => context.push('/sincronizacion'),
+            // Modo individual (I-53): una hoja con los envíos pendientes y
+            // «Enviar ahora»; las decisiones siguen en Sincronización.
+            onTap: ref.read(personalModeProvider)
+                ? () => showIndConnectionSheet(context)
+                : () => context.push('/sincronizacion'),
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               child: Row(

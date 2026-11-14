@@ -13,6 +13,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+import 'support/purchase_form_driver.dart';
+
 void main() {
   sqfliteFfiInit();
 
@@ -66,7 +68,7 @@ void main() {
     final areaField = find.byWidgetPredicate(
       (widget) =>
           widget is TextField &&
-          widget.decoration?.labelText == 'Área planificada (ha)',
+          widget.decoration?.labelText == 'Área planificada',
     );
     expect(areaField, findsOneWidget);
     final field = tester.widget<TextField>(areaField);
@@ -87,6 +89,7 @@ void main() {
       ),
     );
     await settle(tester);
+    await openPurchaseLine(tester);
     // La cantidad de la línea es "Cantidad comprada"; las de las asignaciones
     // son "Cantidad" (UIBUG-038). Se apunta a la de la línea.
     final quantity = find.byWidgetPredicate(
@@ -153,7 +156,11 @@ void main() {
         expect(find.textContaining('Estado de cuenta · '), findsOneWidget);
         await tester.tap(find.text('Cerrar'));
         await settle(tester);
-        expect(find.text('Liquidación y cuentas'), findsOneWidget);
+        expect(
+          // Ronda 2: `/liquidacion` muestra Personas › Cuentas.
+          find.text('Personas'),
+          findsOneWidget,
+        );
       }
       expect(tester.takeException(), isNull);
     },

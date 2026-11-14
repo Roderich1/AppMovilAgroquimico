@@ -8,6 +8,7 @@ import '../../installation_access.dart';
 import '../../services/auth/first_activation_providers.dart';
 import '../../services/auth/local_owner_credential.dart';
 import '../../services/auth/local_owner_credential_providers.dart';
+import '../widgets/agro_ui.dart';
 import '../widgets/common.dart';
 
 /// Textos del enrolamiento dentro de la activación (F03 §4 bis.2).
@@ -15,8 +16,8 @@ abstract final class ActivationPinTexts {
   static const offer =
       'Le recomendamos crear ahora el PIN del titular. Con él, el titular '
       'autoriza en este teléfono, incluso sin conexión, las acciones que sólo '
-      'él puede aprobar: revertir una operación o revisar una operación '
-      'tardía.';
+      'la persona titular puede aprobar: revertir una operación o revisar una '
+      'operación tardía.';
   static const whyNow =
       'Acaba de confirmar su cuenta en línea, así que ahora no hace falta '
       'volver a escribir la contraseña. Si lo deja para después, tendrá que '
@@ -28,15 +29,15 @@ abstract final class ActivationPinTexts {
   static const form = 'Elija un PIN de 6 dígitos que no sea una secuencia.';
   static const done = 'PIN del titular creado. Funciona sin conexión.';
   static const skipped =
-      'Puede crear el PIN más tarde en Operaciones › Más › PIN del titular. '
+      'Puede crear el PIN más tarde en Ajustes y datos › PIN del titular. '
       'Entonces se le pedirá confirmar su cuenta en línea.';
   static const expired =
       'Ya no se puede crear el PIN con la confirmación de la activación: pasó '
       'el tiempo, salió de la aplicación o cambió la cuenta, la instalación o '
-      'el titular. Puede crearlo más tarde en Operaciones › Más › PIN del '
+      'el titular. Puede crearlo más tarde en Ajustes y datos › PIN del '
       'titular, confirmando su cuenta en línea.';
   static const saveFailed =
-      'No se pudo guardar el PIN. Puede crearlo más tarde en Operaciones › Más '
+      'No se pudo guardar el PIN. Puede crearlo más tarde en Ajustes y datos '
       '› PIN del titular, confirmando su cuenta en línea.';
 }
 
@@ -303,7 +304,7 @@ class _OwnerCredentialScreenState extends ConsumerState<OwnerCredentialScreen> {
         if (!didPop) _leave();
       },
       child: Scaffold(
-        appBar: AppBar(title: const Text('PIN del titular')),
+        appBar: const AgroAppBar(title: 'PIN del titular'),
         body: SafeArea(
           child: ListView(
             padding: const EdgeInsets.all(24),
@@ -396,7 +397,7 @@ class _OwnerCredentialScreenState extends ConsumerState<OwnerCredentialScreen> {
         if (!didPop) _leaveActivation();
       },
       child: Scaffold(
-        appBar: AppBar(title: const Text('PIN del titular')),
+        appBar: const AgroAppBar(title: 'PIN del titular'),
         body: SafeArea(
           child: ListView(
             padding: const EdgeInsets.all(24),

@@ -5,8 +5,15 @@ import 'package:go_router/go_router.dart';
 import '../../app.dart';
 import '../../domain/account_ledger.dart';
 import '../../domain/account_texts.dart';
+import '../../data/typed_reads.dart';
 import '../../domain/money.dart';
+import '../../domain/operation_mode.dart';
+import '../../operation_mode_controller.dart';
+import '../theme/agro_theme.dart';
 import '../widgets/common.dart';
+import '../widgets/rdm_a_payment.dart';
+import '../widgets/rdm_a_people.dart';
+import '../widgets/rdm_b_ui.dart' show BigFigure, RdmScrollPage, splitBob;
 
 typedef _PersonData = ({
   // Perfil, chacos, aplicaciones y stock por persona no alimentan ninguno de
@@ -20,10 +27,20 @@ typedef _PersonData = ({
   AccountStatement statement,
 });
 
-class PersonDetailScreen extends ConsumerWidget {
+class PersonDetailScreen extends ConsumerStatefulWidget {
   const PersonDetailScreen({super.key, required this.personId});
   final int personId;
-  Future<_PersonData> _load(WidgetRef ref) async {
+
+  @override
+  ConsumerState<PersonDetailScreen> createState() => _PersonDetailScreenState();
+}
+
+class _PersonDetailScreenState extends ConsumerState<PersonDetailScreen> {
+  late Future<_PersonData> future = _load();
+
+  int get personId => widget.personId;
+
+  Future<_PersonData> _load() async {
     final repo = ref.read(repositoryProvider);
     return (
       profile: await repo.personProfile(personId),
@@ -34,170 +51,261 @@ class PersonDetailScreen extends ConsumerWidget {
     );
   }
 
+  void _refresh() {
+    final next = _load();
+    setState(() {
+      future = next;
+    });
+  }
+
+  /// «Registrar pago» de la cabecera (lámina Persona): la misma hoja y el
+  /// mismo registro que Cuentas, en la campaña activa (sólo de registro).
+  Future<void> _pay(AccountStatement s) async {
+    final campaigns = await ref.read(repositoryProvider).campaignsTyped();
+    if (!mounted) return;
+    final recorded = await recordAccountPayment(
+      context,
+      ref,
+      person: AccountSummary(account: s.account, campaignId: null),
+      campaign: rdmAPeriodOf(
+        campaigns.where((campaign) => campaign.isActive).firstOrNull,
+      ),
+    );
+    if (recorded && mounted) _refresh();
+  }
+
   @override
-  Widget build(
-    BuildContext context,
-    WidgetRef ref,
-  ) => FutureBuilder<_PersonData>(
-    future: _load(ref),
+  Widget build(BuildContext context) => FutureBuilder<_PersonData>(
+    future: future,
     builder: (context, snapshot) {
-      if (snapshot.hasError)
-        return PageFrame(
-          title: 'Persona',
-          child: EmptyState(
-            icon: Icons.error_outline,
-            message: friendlyError(snapshot.error!),
-          ),
+      if (snapshot.hasError) {
+        return RdmScrollPage(
+          header: const RdmAHero(title: 'Persona'),
+          children: [
+            EmptyState(
+              icon: Icons.error_outline,
+              message: friendlyError(snapshot.error!),
+            ),
+          ],
         );
-      if (!snapshot.hasData)
+      }
+      if (!snapshot.hasData) {
         return const Center(child: CircularProgressIndicator());
+      }
       final d = snapshot.data!;
       final s = d.statement;
       final ownCost = s.ledger.ownConsumption(personId).activeCostMinor;
+      final net = s.account.netMinor;
+      // Al titular no se le registran pagos de cuenta (decisión del autor del
+      // 2026-11-12, que revisa Q-2); en inventario propio nadie los recibe y
+      // ADMIN no participa en la liquidación.
+      final canPay =
+          !s.isCurrentOwner &&
+          d.profile['role'] != 'ADMIN' &&
+          ref.watch(operationModeProvider) != OperationMode.personal;
       return _PersonTabs(
         data: d,
-        builder: (context, tabs, body) => PageFrame(
-          title: d.profile['name'] as String,
-          subtitle: s.isCurrentOwner
-              ? '${personRoleLabel(d.profile['role'])} · titular · consumo '
-                    'propio ${bob(ownCost)}'
-              // E-15 (A2): el neto por cobrar del libro, sin lo propio.
-              : '${personRoleLabel(d.profile['role'])} · saldo total '
-                    '${formatBob(s.account.netMinor)}',
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
+        builder: (context, tabs, body) => RdmScrollPage(
+          header: RdmAHero(
+            title: d.profile['name'] as String,
+            subtitle: s.isCurrentOwner
+                ? '${personRoleLabel(d.profile['role'])} · titular · consumo '
+                      'propio ${bob(ownCost)}'
+                // E-15 (A2): el neto por cobrar del libro, sin lo propio.
+                : '${personRoleLabel(d.profile['role'])} · saldo total '
+                      '${formatBob(net)}',
             children: [
-              tabs,
-              body([
-                _Section(
-                  children: [
-                    ListTile(
-                      leading: const Icon(Icons.landscape_outlined),
-                      title: const Text('Superficie'),
-                      trailing: Text(
-                        formatHectares(d.profile['area_m2'] as int),
+              const Divider(height: 1, color: AgroColors.inkSoft),
+              const SizedBox(height: 14),
+              // E-15: el titular no se debe a sí mismo; se muestra su
+              // consumo propio, que no es deuda.
+              Text(
+                s.isCurrentOwner
+                    ? 'Consumo propio · no es deuda'
+                    : net > 0
+                    ? 'Debe · todas las campañas'
+                    : net < 0
+                    ? 'A favor · todas las campañas'
+                    : 'Sin saldo · todas las campañas',
+                style: RdmAHero.subtitleStyle,
+              ),
+              Wrap(
+                alignment: WrapAlignment.spaceBetween,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: 12,
+                runSpacing: 8,
+                children: [
+                  BigFigure(
+                    number: splitBob(s.isCurrentOwner ? ownCost : net.abs())
+                        .number,
+                    unit: 'Bs',
+                    size: 40,
+                    color: AgroColors.lime,
+                    numberKey: const Key('person-headline-amount'),
+                  ),
+                  if (canPay)
+                    FilledButton(
+                      key: const Key('person-detail-pay'),
+                      style: FilledButton.styleFrom(
+                        backgroundColor: AgroColors.lime,
+                        foregroundColor: AgroColors.ink,
+                        minimumSize: const Size(0, 48),
+                        padding: const EdgeInsets.symmetric(horizontal: 18),
+                        textStyle: const TextStyle(
+                          fontFamily: AgroFonts.body,
+                          fontSize: 15,
+                          fontWeight: FontWeight.w700,
+                        ),
                       ),
+                      onPressed: () => _pay(s),
+                      child: const Text('Registrar pago'),
                     ),
-                    ListTile(
-                      leading: const Icon(
-                        Icons.account_balance_wallet_outlined,
-                      ),
-                      // Esta cifra suma TODO el histórico, mientras la
-                      // de Liquidación puede estar filtrada por campaña:
-                      // son conceptos distintos y ahora cada uno lo dice
-                      // (UIBUG-013).
-                      title: Text(
-                        s.isCurrentOwner
-                            ? 'Consumo aplicado (costo FIFO) · todas las '
-                                  'campañas'
-                            : 'Saldo total · todas las campañas',
-                      ),
-                      trailing: Text(
-                        s.isCurrentOwner
-                            ? formatBob(ownCost)
-                            : formatBob(s.account.netMinor),
-                      ),
-                    ),
-                    if (!s.isCurrentOwner && s.hasOwnRecords)
-                      ListTile(
-                        leading: const Icon(Icons.agriculture_outlined),
-                        title: const Text(
-                          'Consumo propio mientras fue titular',
-                        ),
-                        trailing: Text(formatBob(ownCost)),
-                      ),
-                  ],
-                ),
-                _Section(
-                  children: [
-                    for (final farm in d.farms)
-                      ListTile(
-                        title: Text(farm['name'] as String),
-                        subtitle: Text(formatHectares(farm['area_m2'] as int)),
-                        trailing: const Icon(Icons.chevron_right),
-                        onTap: () => context.push('/chacos/${farm['id']}'),
-                      ),
-                  ],
-                ),
-                _Section(
-                  children: [
-                    for (final app in d.applications)
-                      ListTile(
-                        title: Text(app['farm_name'] as String),
-                        subtitle: Text(
-                          '${app['campaign_name']} · ${formatDate(app['applied_at'])}',
-                        ),
-                        trailing: Text(
-                          formatBob(app['total_cost_bob_minor'] as int),
-                        ),
-                      ),
-                  ],
-                ),
-                _Section(
-                  children: [
-                    for (final row in d.stock)
-                      ListTile(
-                        title: Text(row['product_name'] as String),
-                        subtitle: Text(
-                          'Consumido neto ${formatQuantity(row['consumed_base'] as int, row['unit'] as String)}',
-                        ),
-                        trailing: Text(
-                          formatQuantity(
-                            row['available_base'] as int,
-                            row['unit'] as String,
-                          ),
-                        ),
-                      ),
-                  ],
-                ),
-                // La pestaña listaba los movimientos sin saldo corrido ni
-                // total, mientras el estado de cuenta de Liquidación sí lo
-                // calculaba: dos vistas del mismo dato con distinto nivel
-                // de información (UIBUG-028).
-                _Section(
-                  children: [
-                    for (final line in s.lines)
-                      ListTile(
-                        title: Text(conceptLabel(line.entry.concept)),
-                        subtitle: Text(formatDate(line.entry.transactionDate)),
-                        trailing: Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          crossAxisAlignment: CrossAxisAlignment.end,
-                          children: [
-                            Text(
-                              formatBob(line.entry.amountMinor),
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-                            Text(
-                              'Acumulado ${formatBob(line.balanceMinor)}',
-                              style: Theme.of(context).textTheme.bodySmall,
-                            ),
-                          ],
-                        ),
-                      ),
-                    for (final entry in s.ownLines)
-                      ListTile(
-                        title: Text(conceptLabel(entry.concept)),
-                        subtitle: Text(
-                          '${formatDate(entry.transactionDate)} · propio, '
-                          'no es deuda',
-                        ),
-                        trailing: Text(
-                          formatBob(entry.amountMinor),
-                          style: const TextStyle(fontWeight: FontWeight.w700),
-                        ),
-                      ),
-                  ],
-                ),
-              ]),
+                ],
+              ),
             ],
           ),
+          children: [tabs, body(_sections(context, d, s, ownCost))],
         ),
       );
     },
   );
+
+  List<Widget> _sections(
+    BuildContext context,
+    _PersonData d,
+    AccountStatement s,
+    int ownCost,
+  ) => [
+    _Section(
+      children: [
+        _row(
+          title: 'Superficie',
+          trailing: formatHectares(d.profile['area_m2'] as int),
+        ),
+        // Esta cifra suma TODO el histórico, mientras la de Liquidación puede
+        // estar filtrada por campaña: son conceptos distintos y cada uno lo
+        // dice (UIBUG-013).
+        _row(
+          title: s.isCurrentOwner
+              ? 'Consumo aplicado (costo FIFO) · todas las campañas'
+              : 'Saldo total · todas las campañas',
+          trailing: s.isCurrentOwner
+              ? formatBob(ownCost)
+              : formatBob(s.account.netMinor),
+        ),
+        if (!s.isCurrentOwner && s.hasOwnRecords)
+          _row(
+            title: 'Consumo propio mientras fue titular',
+            trailing: formatBob(ownCost),
+          ),
+      ],
+    ),
+    _Section(
+      children: [
+        for (final farm in d.farms)
+          ListTile(
+            title: Text(farm['name'] as String, style: _title),
+            subtitle: Text(
+              formatHectares(farm['area_m2'] as int),
+              style: _detail,
+            ),
+            trailing: const Icon(Icons.chevron_right, color: AgroColors.muted),
+            onTap: () => context.push('/chacos/${farm['id']}'),
+          ),
+      ],
+    ),
+    _Section(
+      children: [
+        for (final app in d.applications)
+          ListTile(
+            title: Text(app['farm_name'] as String, style: _title),
+            subtitle: Text(
+              '${app['campaign_name']} · ${formatDate(app['applied_at'])}',
+              style: _detail,
+            ),
+            trailing: Text(
+              formatBob(app['total_cost_bob_minor'] as int),
+              style: _amount,
+            ),
+          ),
+      ],
+    ),
+    _Section(
+      children: [
+        for (final row in d.stock)
+          ListTile(
+            title: Text(row['product_name'] as String, style: _title),
+            subtitle: Text(
+              'Consumido neto ${formatQuantity(row['consumed_base'] as int, row['unit'] as String)}',
+              style: _detail,
+            ),
+            trailing: Text(
+              formatQuantity(
+                row['available_base'] as int,
+                row['unit'] as String,
+              ),
+              style: _amount,
+            ),
+          ),
+      ],
+    ),
+    // La pestaña listaba los movimientos sin saldo corrido ni total, mientras
+    // el estado de cuenta de Liquidación sí lo calculaba: dos vistas del mismo
+    // dato con distinto nivel de información (UIBUG-028).
+    _Section(
+      children: [
+        for (final line in s.lines)
+          ListTile(
+            title: Text(conceptLabel(line.entry.concept), style: _title),
+            subtitle: Text(
+              formatDate(line.entry.transactionDate),
+              style: _detail,
+            ),
+            trailing: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                Text(formatBob(line.entry.amountMinor), style: _amount),
+                Text(
+                  'Acumulado ${formatBob(line.balanceMinor)}',
+                  style: _detail,
+                ),
+              ],
+            ),
+          ),
+        for (final entry in s.ownLines)
+          ListTile(
+            title: Text(conceptLabel(entry.concept), style: _title),
+            subtitle: Text(
+              '${formatDate(entry.transactionDate)} · propio, no es deuda',
+              style: _detail,
+            ),
+            trailing: Text(formatBob(entry.amountMinor), style: _amount),
+          ),
+      ],
+    ),
+  ];
+
+  static const _title = TextStyle(
+    fontSize: 16,
+    height: 22 / 16,
+    fontWeight: FontWeight.w600,
+    color: AgroColors.ink,
+  );
+  static const _detail = AgroText.detail;
+  static const _amount = TextStyle(
+    fontSize: 16,
+    height: 22 / 16,
+    fontWeight: FontWeight.w700,
+    color: AgroColors.ink,
+    fontFeatures: [FontFeature.tabularFigures()],
+  );
+
+  static Widget _row({required String title, required String trailing}) =>
+      ListTile(
+        title: Text(title, style: _title),
+        trailing: Text(trailing, style: _amount),
+      );
 }
 
 class _Section extends StatelessWidget {
@@ -210,12 +318,26 @@ class _Section extends StatelessWidget {
   Widget build(BuildContext context) => Padding(
     padding: const EdgeInsets.only(top: 12),
     child: Card(
+      clipBehavior: Clip.antiAlias,
       child: children.isEmpty
           ? const EmptyState(
               icon: Icons.inbox_outlined,
               message: 'Sin registros.',
             )
-          : Column(children: children),
+          : Column(
+              children: [
+                for (final (i, child) in children.indexed) ...[
+                  if (i > 0)
+                    const Divider(
+                      height: 1,
+                      indent: 16,
+                      endIndent: 16,
+                      color: AgroColors.line,
+                    ),
+                  child,
+                ],
+              ],
+            ),
     ),
   );
 }
@@ -229,7 +351,8 @@ class _Section extends StatelessWidget {
 ///
 /// Se pierde el gesto de deslizar entre pestañas, que además era la única forma
 /// de alcanzar las últimas y no se anunciaba en ninguna parte (UIBUG-029): la
-/// barra es desplazable y todas se alcanzan tocándolas.
+/// barra es desplazable y todas se alcanzan tocándolas. La elegida va en verde
+/// oscuro con su marca: no se distingue sólo por color.
 class _PersonTabs extends StatefulWidget {
   const _PersonTabs({required this.data, required this.builder});
 
@@ -269,14 +392,24 @@ class _PersonTabsState extends State<_PersonTabs> {
                 label: Text(_labels[i]),
                 selected: index == i,
                 onSelected: (_) => setState(() => index = i),
+                showCheckmark: true,
+                checkmarkColor: AgroColors.lime,
+                selectedColor: AgroColors.ink,
+                backgroundColor: AgroColors.surface,
+                side: BorderSide.none,
+                shape: const StadiumBorder(),
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                labelStyle: TextStyle(
+                  fontFamily: AgroFonts.body,
+                  fontSize: 14,
+                  fontWeight: index == i ? FontWeight.w700 : FontWeight.w500,
+                  color: index == i ? Colors.white : AgroColors.ink,
+                ),
               ),
             ),
         ],
       ),
     ),
-    (sections) => Padding(
-      padding: const EdgeInsets.only(top: 12),
-      child: sections[index],
-    ),
+    (sections) => sections[index],
   );
 }

@@ -1,3 +1,4 @@
+import java.security.MessageDigest
 import java.util.Properties
 
 plugins {
@@ -58,6 +59,9 @@ android {
         // flag during build.
         versionCode = flutter.versionCode
         versionName = flutter.versionName
+        // Sólo para `src/androidTest`: inferencia real del motor de voz local
+        // con audio de referencia (tool/voice_local/run_reference_check.sh).
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
     signingConfigs {
@@ -68,6 +72,16 @@ android {
                 keyAlias = keystoreProperties.getProperty("keyAlias")
                 keyPassword = keystoreProperties.getProperty("keyPassword")
             }
+        }
+    }
+
+    // Voz local (F09, #165/#166): los modelos viajan como assets, pero NO se
+    // versionan. Los deja aquí `tool/voice_local/fetch_voice_models.sh` tras
+    // verificar su SHA-256. Sin esa carpeta la app compila igual y la pantalla
+    // de voz dice que el modelo no está instalado.
+    sourceSets {
+        getByName("main") {
+            assets.srcDir("voice-models")
         }
     }
 
@@ -95,3 +109,64 @@ kotlin {
 flutter {
     source = "../.."
 }
+
+dependencies {
+    // Reconocimiento local de voz. Versión exacta y contenido fijado abajo; sin
+    // rangos ni `+`. Trae JNA 5.18.1 como única transitiva.
+    implementation("com.alphacephei:vosk-android:0.3.75")
+
+    androidTestImplementation("androidx.test:runner:1.3.0")
+    androidTestImplementation("androidx.test.ext:junit:1.1.2")
+}
+
+// --------------------------------------------------------- cadena de suministro
+
+/**
+ * Binarios de voz cuyo contenido exacto está fijado, los mismos que midió el
+ * banco híbrido el 2026-09-07 (`benchmark/voice_benchmark/THIRD_PARTY.md` de la
+ * rama `evolution/evolution-3-hybrid-voice-benchmark`). La firma PGP de Vosk no
+ * se pudo verificar entonces (`RISK-033`); el hash fija los bytes aceptados.
+ */
+val pinnedVoiceArtifacts: Map<String, Pair<String, Long>> = mapOf(
+    "vosk-android-0.3.75.aar" to
+        ("ab2f8b91ac8051561aa325546b35fed9a68b36b8121bac5c6fb927525c4adfad" to 13_472_638L),
+    // Dual LGPL-2.1-or-later / Apache-2.0: se usa bajo Apache-2.0.
+    "jna-5.18.1.aar" to
+        ("7f053e3ec99e14dd71259c82c1c8a02738d64a13c31226b2acc170f3060951e0" to 522_677L),
+)
+
+val verifyPinnedVoiceArtifacts by tasks.registering {
+    group = "verification"
+    description = "Comprueba el SHA-256 de los binarios de voz fijados."
+    doLast {
+        val found = mutableSetOf<String>()
+        configurations.filter { it.isCanBeResolved && it.name.endsWith("RuntimeClasspath") }
+            .flatMap { it.incoming.artifactView { lenient(true) }.artifacts.artifacts }
+            .forEach { artifact ->
+                val file = artifact.file
+                val (sha, size) = pinnedVoiceArtifacts[file.name] ?: return@forEach
+                val digest = MessageDigest.getInstance("SHA-256")
+                file.inputStream().use { input ->
+                    val buffer = ByteArray(1 shl 16)
+                    while (true) {
+                        val read = input.read(buffer)
+                        if (read <= 0) break
+                        digest.update(buffer, 0, read)
+                    }
+                }
+                val actual = digest.digest().joinToString("") { "%02x".format(it) }
+                if (actual != sha || file.length() != size) {
+                    throw GradleException(
+                        "CADENA DE SUMINISTRO: ${file.name} no coincide " +
+                            "(esperado $size B sha256=$sha; obtenido ${file.length()} B sha256=$actual).",
+                    )
+                }
+                found += file.name
+            }
+        val missing = pinnedVoiceArtifacts.keys - found
+        if (missing.isNotEmpty()) throw GradleException("No se resolvieron: $missing")
+        logger.lifecycle("cadena de suministro de voz OK: ${found.sorted()}")
+    }
+}
+
+tasks.named("preBuild") { dependsOn(verifyPinnedVoiceArtifacts) }

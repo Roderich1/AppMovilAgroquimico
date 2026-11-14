@@ -24,7 +24,23 @@ class VoiceContinuityPolicy {
     this.maxBackoff = const Duration(milliseconds: 1600),
     this.maxSessionDuration = const Duration(minutes: 5),
     this.turnDuration = const Duration(seconds: 60),
+    this.openTimeout = const Duration(seconds: 20),
   });
+
+  /// Cuánto puede tardar el motor en confirmar la apertura —que escucha, o que
+  /// el sistema está preguntando por el permiso— desde que se toca el
+  /// micrófono o se abre un turno.
+  ///
+  /// `#119`: un motor que no contestaba dejaba la pantalla en «Abriendo el
+  /// micrófono» indefinidamente, con el indicador de escucha encendido y sin
+  /// haber escuchado nada. Vencido este plazo la sesión suelta el motor y
+  /// termina en un error explicado, con reintento y escritura a mano.
+  ///
+  /// Mientras el diálogo de permiso está a la vista no corre: el usuario puede
+  /// tardar lo que quiera (`DEFECTO-005`). Es generoso porque la primera
+  /// apertura del motor local copia y verifica el modelo; ese tiempo no está
+  /// medido en un teléfono.
+  final Duration openTimeout;
 
   /// Turnos improductivos seguidos antes de dejar de reabrir.
   ///

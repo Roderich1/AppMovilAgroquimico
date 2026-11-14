@@ -5,6 +5,8 @@
 /// monetarias del dominio; nunca se toma del dictado.
 library;
 
+import '../../domain/campaign_calendar.dart'
+    show effectiveInstantForDay, localDay;
 import '../../domain/models.dart';
 import '../../domain/money.dart';
 import '../catalog/voice_catalog.dart';
@@ -30,20 +32,87 @@ final class SpokenQuantity {
 
 /// Un precio dicho: centavos por litro o kilo, y la unidad a la que se dijo
 /// que corresponde («el litro»), si se dijo.
+///
+/// Con [total] la cifra es un **importe total** dicho («seiscientos
+/// bolivianos en total»), no un precio por unidad: nunca se registra así; la
+/// persona elige «Total de la línea» ([VoicePurchaseLine.priceFromLineTotal])
+/// y se reparte entre la cantidad.
 final class SpokenPrice {
-  const SpokenPrice(this.minorPerUnit, {this.perUnit});
+  const SpokenPrice(this.minorPerUnit, {this.perUnit, this.total = false});
   final int minorPerUnit;
   final CatalogUnit? perUnit;
+  final bool total;
 
   @override
   bool operator ==(Object other) =>
       other is SpokenPrice &&
       other.minorPerUnit == minorPerUnit &&
-      other.perUnit == perUnit;
+      other.perUnit == perUnit &&
+      other.total == total;
 
   @override
-  int get hashCode => Object.hash(minorPerUnit, perUnit);
+  int get hashCode => Object.hash(minorPerUnit, perUnit, total);
 }
+
+/// Precio dicho sin decir a qué corresponde («a ciento veinte bolivianos»).
+/// No se supone por unidad aunque el producto se mida en litros: la persona
+/// elige «Por litro» o «Total de la línea».
+const unitNotSaidMessage =
+    'No se dijo si es el precio por unidad o el total de la línea: elija una '
+    'opción o escriba el precio por unidad.';
+
+/// Entre el importe y «el litro» se oyó una palabra de más («a 120 volviendo
+/// el litro», «120 bolivianos en el litro», POCO 2026-11-09). Se pregunta por
+/// el precio por unidad; la palabra no se sustituye por ninguna moneda. Si la
+/// moneda se dijo, se conserva y aparece en la pregunta; si no, sigue
+/// pendiente.
+String perUnitQuestionMessage({
+  required String word,
+  required int minor,
+  required String unit,
+  CurrencyCode? currency,
+}) {
+  final amountSymbol = amountText(minor, currency);
+  final what = const {'en', 'de', 'del'}.contains(word)
+      ? '«$word»'
+      : '«$word», que no es una moneda';
+  return 'Entre el importe y la unidad se oyó $what. ¿$amountSymbol por '
+      '$unit? Elija «Por $unit» o «Total de la línea», o escriba el precio.'
+      '${currency == null ? ' La moneda sigue pendiente.' : ''}';
+}
+
+/// Un importe en centavos como se muestra en los avisos: «120», «1,50»,
+/// con « Bs» o « $us» si se conoce la moneda.
+String amountText(int minor, CurrencyCode? currency) {
+  final whole = minor ~/ 100;
+  final cents = minor % 100;
+  final amount = cents == 0
+      ? '$whole'
+      : '$whole,${cents.toString().padLeft(2, '0')}';
+  final symbol = switch (currency) {
+    CurrencyCode.bob => ' Bs',
+    CurrencyCode.usd => ' \$us',
+    null => '',
+  };
+  return '$amount$symbol';
+}
+
+/// Se dijo un importe total.
+const totalSaidMessage =
+    'Se dijo un importe total: toque «Total de la línea» para calcular el '
+    'precio por unidad, o escriba el precio por unidad.';
+
+/// Se dijo un importe total, con la cifra oída a la vista **como candidata**:
+/// el campo «Precio por L» no la muestra (no es un precio por unidad), y sin
+/// la cifra la persona no podía comprobarla (POCO 2026-11-10, R3).
+String totalSaidMessageFor(int minor, CurrencyCode? currency) =>
+    'Importe total oído: ${amountText(minor, currency)} (sin confirmar). '
+    '$totalSaidMessage';
+
+/// Para repartir un total hace falta la cantidad (y el producto).
+const totalNeedsQuantityMessage =
+    'Para repartir el total, complete antes el producto y la cantidad; o '
+    'escriba el precio por unidad.';
 
 final class VoicePurchaseLine {
   const VoicePurchaseLine({
@@ -94,6 +163,65 @@ final class VoicePurchaseLine {
     return p.minorPerUnit;
   }
 
+  /// El precio oído, sin unidad clara, se toma **por unidad** del producto:
+  /// queda confirmado por la persona. `this` si no hay un precio así.
+  VoicePurchaseLine pricePerUnitConfirmed() {
+    final p = price.value;
+    if (p == null || p.total || price.isResolved) return this;
+    return copyWith(
+      price: DraftField.resolved(
+        SpokenPrice(p.minorPerUnit, perUnit: _unit),
+        origin: FieldOrigin.confirmed,
+        heard: price.heard,
+      ),
+    );
+  }
+
+  /// El precio oído es el **total de la línea**: se reparte entre la
+  /// cantidad. Sólo si la cantidad está completa y la división da centavos
+  /// exactos; si la división no es exacta, el precio queda no válido con el
+  /// motivo y sin valor (no se redondea). `this` si no hay un precio que
+  /// repartir.
+  ///
+  /// Sin cantidad (o sin producto) no se reparte, pero **la cifra oída se
+  /// conserva** como candidata, sin confirmar, para repartirla cuando la
+  /// cantidad esté (POCO 2026-11-10, R3 con small: la cantidad faltaba y
+  /// tocar «Total de la línea» borraba el importe).
+  VoicePurchaseLine priceFromLineTotal() {
+    final p = price.value;
+    if (p == null || price.isResolved) return this;
+    final base = quantityBase;
+    if (base == null) {
+      return copyWith(
+        price: DraftField.ambiguous(
+          candidates: const [],
+          heard: price.heard ?? '',
+          value: p,
+          message: totalNeedsQuantityMessage,
+        ),
+      );
+    }
+    final scaled = p.minorPerUnit * baseUnitsPerMajor;
+    if (scaled % base != 0) {
+      return copyWith(
+        price: DraftField.invalid(
+          message:
+              'El total no se reparte en centavos exactos entre la cantidad: '
+              'escriba el precio por unidad.',
+          heard: price.heard,
+          origin: FieldOrigin.manual,
+        ),
+      );
+    }
+    return copyWith(
+      price: DraftField.resolved(
+        SpokenPrice(scaled ~/ base, perUnit: _unit),
+        origin: FieldOrigin.confirmed,
+        heard: price.heard,
+      ),
+    );
+  }
+
   List<String> blockers(int index, int? exchangeRateScaled) {
     final n = 'Línea ${index + 1}';
     final out = <String>[];
@@ -141,7 +269,19 @@ final class VoicePurchaseLine {
 List<String> _fieldBlocker(String line, String name, DraftField<Object?> f) =>
     switch (f.status) {
       FieldStatus.resolved => const [],
-      FieldStatus.missing => ['$line: falta $name.'],
+      // Lo oído que no está en el catálogo se nombra: «falta producto» a
+      // secas no decía qué se oyó.
+      FieldStatus.missing => [
+        f.heard == null
+            ? '$line: falta $name.'
+            : '$line: $name «${f.heard}» no está en el catálogo.',
+      ],
+      // Un valor por revisar no tiene opciones que elegir: se confirma o se
+      // corrige (POCO 2026-11-08).
+      FieldStatus.ambiguous when f.review => [
+        '$line: $name por revisar${_heardSuffix(f)}. '
+            '${f.message ?? 'Confírmelo o corríjalo.'}',
+      ],
       FieldStatus.ambiguous => [
         '$line: $name ambiguo («${f.heard ?? ''}»), elija una opción.',
       ],
@@ -158,11 +298,16 @@ final class VoicePurchaseDraft implements VoiceDraft<VoicePurchaseDraft> {
     this.exchangeRate = const DraftField.missing(),
     this.lines = const [],
     this.nextLineKey = 1,
+    this.paidInFull,
+    this.paymentMethod = PaymentMethod.unspecified,
+    this.paymentDay,
+    this.holderId,
   });
 
   /// Borrador inicial: campaña activa y, si sólo hay una persona elegible
   /// (titular en PERSONAL), esa persona como destinataria. Los dos quedan
-  /// visibles como propuestos.
+  /// visibles como propuestos. «¿Ya pagaste al proveedor?» empieza sin
+  /// respuesta, como en el formulario.
   factory VoicePurchaseDraft.start(VoiceCatalog catalog) => VoicePurchaseDraft(
     campaign: catalog.activeCampaign == null
         ? const DraftField.missing(message: 'No hay una campaña activa.')
@@ -173,7 +318,26 @@ final class VoicePurchaseDraft implements VoiceDraft<VoicePurchaseDraft> {
     recipient: catalog.people.length == 1
         ? DraftField.resolved(catalog.people.single, origin: FieldOrigin.preset)
         : const DraftField.missing(message: 'Indique para quién es la compra.'),
+    holderId: catalog.holderId,
   );
+
+  /// Respuesta a «¿Ya pagaste al proveedor?» (X01, como el formulario). Nula
+  /// hasta que la persona elige y entonces bloquea: no se registra ningún
+  /// pago ni ninguna deuda por defecto. **Sólo se responde a mano**; la voz
+  /// no la cambia (los pagos por voz no se atienden).
+  final bool? paidInFull;
+
+  /// Medio del pago con «Sí, pagué todo». Empieza en «Sin indicar», que se
+  /// guarda tal cual; no se supone efectivo ni transferencia.
+  final PaymentMethod paymentMethod;
+
+  /// Día del pago (`aaaa-mm-dd`) elegido a mano; nulo = el día de la compra,
+  /// que en la voz es hoy.
+  final String? paymentDay;
+
+  /// Titular vigente: paga al proveedor en las dos modalidades. Sin titular
+  /// la compra no puede quedar pagada.
+  final int? holderId;
 
   final DraftField<CatalogEntry> supplier;
   final DraftField<CatalogEntry> campaign;
@@ -208,7 +372,52 @@ final class VoicePurchaseDraft implements VoiceDraft<VoicePurchaseDraft> {
     exchangeRate: exchangeRate ?? this.exchangeRate,
     lines: lines ?? this.lines,
     nextLineKey: nextLineKey ?? this.nextLineKey,
+    paidInFull: paidInFull,
+    paymentMethod: paymentMethod,
+    paymentDay: paymentDay,
+    holderId: holderId,
   );
+
+  /// Respuesta a «¿Ya pagaste al proveedor?»; `null` la deja sin responder.
+  VoicePurchaseDraft withPaidInFull(bool? paid) => _withPayment(paid: paid);
+
+  VoicePurchaseDraft withPaymentMethod(PaymentMethod method) =>
+      _withPayment(method: method);
+
+  /// Día del pago, `aaaa-mm-dd`.
+  VoicePurchaseDraft withPaymentDay(String day) => _withPayment(day: day);
+
+  VoicePurchaseDraft _withPayment({
+    Object? paid = _keep,
+    PaymentMethod? method,
+    String? day,
+  }) => VoicePurchaseDraft(
+    supplier: supplier,
+    campaign: campaign,
+    recipient: recipient,
+    exchangeRate: exchangeRate,
+    lines: lines,
+    nextLineKey: nextLineKey,
+    paidInFull: identical(paid, _keep) ? paidInFull : paid as bool?,
+    paymentMethod: method ?? paymentMethod,
+    paymentDay: day ?? paymentDay,
+    holderId: holderId,
+  );
+
+  /// El pago que acompaña a la compra, como lo arma el formulario
+  /// (`confirmPurchase(paidInFull:)`): con «Sí, pagué todo», el medio
+  /// mostrado y el día mostrado (hoy: el instante real [at]); con «No,
+  /// todavía no», ninguno. Sólo con un borrador sin bloqueos.
+  ProviderPaymentDetails? providerPayment({required DateTime at}) {
+    if (blockers.isNotEmpty) {
+      throw StateError('El borrador tiene bloqueos y no se puede convertir.');
+    }
+    if (paidInFull != true) return null;
+    return ProviderPaymentDetails(
+      method: paymentMethod,
+      date: effectiveInstantForDay(paymentDay ?? localDay(at), at),
+    );
+  }
 
   /// Añade una línea vacía para completarla a mano.
   VoicePurchaseDraft addEmptyLine() => copyWith(
@@ -248,8 +457,19 @@ final class VoicePurchaseDraft implements VoiceDraft<VoicePurchaseDraft> {
         );
       }
     }
-    if (_usesUsd && !exchangeRate.isResolved) {
+    if (_usesUsd && exchangeRate.review) {
+      out.add(
+        'Tipo de cambio por revisar${_heardSuffix(exchangeRate)}. '
+        '${exchangeRate.message ?? 'Confírmelo o corríjalo.'}',
+      );
+    } else if (_usesUsd && !exchangeRate.isResolved) {
       out.add('Falta el tipo de cambio para las líneas en dólares.');
+    }
+    // Mismos mensajes que el formulario al confirmar.
+    if (paidInFull == null) {
+      out.add('Indica si ya pagaste al proveedor.');
+    } else if (paidInFull! && holderId == null) {
+      out.add('No hay un titular vinculado: la compra no puede quedar pagada.');
     }
     return out;
   }
@@ -316,8 +536,20 @@ List<String> _headBlocker(String name, DraftField<Object?> f) =>
     switch (f.status) {
       FieldStatus.resolved => const [],
       FieldStatus.missing => [f.message ?? 'Falta $name.'],
+      FieldStatus.ambiguous when f.review => [
+        'Revise $name${_heardSuffix(f)}. '
+            '${f.message ?? 'Confírmelo o corríjalo.'}',
+      ],
       FieldStatus.ambiguous => [
         'Elija $name: «${f.heard ?? ''}» tiene varias opciones o no es exacto.',
       ],
       FieldStatus.invalid => ['Revise $name. ${f.message ?? ''}'.trim()],
     };
+
+/// Marca de «no cambiar» para un campo que admite nulo.
+const Object _keep = Object();
+
+/// « («lo oído»)» si se oyó algo; nada si el campo viene sin texto (por
+/// ejemplo, marcado por el desacuerdo entre reconocedores).
+String _heardSuffix(DraftField<Object?> f) =>
+    (f.heard ?? '').trim().isEmpty ? '' : ' («${f.heard!.trim()}»)';

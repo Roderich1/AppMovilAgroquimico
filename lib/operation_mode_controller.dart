@@ -44,6 +44,13 @@ final operationModeProvider =
       OperationModeController.new,
     );
 
+/// Verdadero en modo individual (`OperationMode.personal`). Sólo para la
+/// presentación (rediseño individual, 2026-11-13); mientras la modalidad no se
+/// conoce (`null`) se presenta la compartida, que es la de por defecto.
+final personalModeProvider = Provider<bool>(
+  (ref) => ref.watch(operationModeProvider) == OperationMode.personal,
+);
+
 /// Rutas que sólo existen en el inventario compartido (RF-11, CU-08).
 const sharedOnlyRoutes = {'/transferencias', '/transferencias/nueva'};
 

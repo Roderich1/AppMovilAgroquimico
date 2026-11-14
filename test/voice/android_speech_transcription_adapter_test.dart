@@ -1,4 +1,5 @@
 import 'package:agroquimicos/voice/port/android_speech_transcription_adapter.dart';
+import 'package:agroquimicos/voice/port/native_event_hub.dart';
 import 'package:agroquimicos/voice/port/speech_transcription_port.dart';
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter/services.dart';
@@ -22,16 +23,34 @@ void main() {
       TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
 
   late List<String> calls;
+  late List<MethodCall> sentCalls;
+
+  /// Lo que el lado nativo contesta a `start`: `null` con el permiso ya
+  /// concedido, `'awaitingPermission'` si va a mostrar el diálogo.
+  Object? startReply;
+  setUp(() => startReply = null);
 
   /// Monta el adaptador con el lado nativo simulado.
   AndroidSpeechTranscriptionAdapter build() {
     calls = <String>[];
+    sentCalls = <MethodCall>[];
     messenger.setMockMethodCallHandler(method, (call) async {
       calls.add(call.method);
-      return null;
+      sentCalls.add(call);
+      return call.method == 'start' ? startReply : null;
     });
     addTearDown(() => messenger.setMockMethodCallHandler(method, null));
-    return AndroidSpeechTranscriptionAdapter();
+    final adapter = AndroidSpeechTranscriptionAdapter();
+    // Sin liberar, el adaptador seguiría enganchado al canal compartido y
+    // recibiría los eventos de la prueba siguiente.
+    addTearDown(adapter.dispose);
+    return adapter;
+  }
+
+  /// Número de turno que se pidió en el `start` número [n] (desde 0).
+  int gen([int n = 0]) {
+    final starts = sentCalls.where((c) => c.method == 'start').toList();
+    return (starts[n].arguments as Map)['gen'] as int;
   }
 
   /// Empuja un evento del lado nativo por el `EventChannel`.
@@ -170,8 +189,11 @@ void main() {
       final adapter = build();
       final events = <TranscriptionEvent>[];
       adapter.events.listen(events.add);
+      // El motor anuncia el camino de un turno abierto (#119: fuera de un
+      // turno no hay a quién atribuirlo).
+      await adapter.start(const TranscriptionRequest(locale: 'es-US'));
 
-      native({'type': 'route', 'route': 'systemDefault'});
+      native({'type': 'route', 'gen': gen(), 'route': 'systemDefault'});
       await Future<void>.delayed(Duration.zero);
 
       expect(
@@ -184,11 +206,187 @@ void main() {
       final adapter = build();
       final events = <TranscriptionEvent>[];
       adapter.events.listen(events.add);
+      await adapter.start(const TranscriptionRequest(locale: 'es-US'));
 
-      native({'type': 'route', 'route': 'cuántico'});
+      native({'type': 'route', 'gen': gen(), 'route': 'cuántico'});
       await Future<void>.delayed(Duration.zero);
 
+      expect(events.whereType<TranscriptionRouteInUse>(), isEmpty);
+      expect(adapter.isTurnOpen, isTrue);
+    });
+  });
+
+  // #119 (F09-D1): reintento tras denegar el micrófono que se quedaba en
+  // «Abriendo el micrófono». Lo que aquí se comprueba es la parte de Dart;
+  // el lado nativo lleva el número de turno de vuelta en cada evento.
+  group('#119: número de turno y aperturas sin respuesta', () {
+    const request = TranscriptionRequest(
+      locale: 'es-US',
+      maxTurnDuration: Duration(seconds: 60),
+    );
+
+    test('cada turno lleva un número único en el proceso', () async {
+      final a = build();
+      await a.start(request);
+      await a.cancel();
+      await a.start(request);
+      expect(gen(1), greaterThan(gen()));
+
+      // Otra pantalla, otro adaptador: tampoco repite número.
+      final firstOfB = sentCalls.length;
+      final b = AndroidSpeechTranscriptionAdapter();
+      addTearDown(b.dispose);
+      await b.start(request);
+      final bGen =
+          (sentCalls
+                      .skip(firstOfB)
+                      .firstWhere((c) => c.method == 'start')
+                      .arguments
+                  as Map)['gen']
+              as int;
+      expect(bGen, greaterThan(gen(1)));
+    });
+
+    test('detener, cancelar y liberar dicen qué turno', () async {
+      final adapter = build();
+      await adapter.start(request);
+      final g = gen();
+      await adapter.stop();
+      await adapter.cancel();
+      await adapter.dispose();
+      for (final name in ['stop', 'cancel', 'dispose']) {
+        final call = sentCalls.lastWhere((c) => c.method == name);
+        expect((call.arguments as Map)['gen'], g, reason: name);
+      }
+    });
+
+    test(
+      'un resultado tardío del turno cancelado no entra en el reintento',
+      () async {
+        final adapter = build();
+        final events = <TranscriptionEvent>[];
+        adapter.events.listen(events.add);
+
+        await adapter.start(request);
+        final old = gen();
+        native({'type': 'stage', 'gen': old, 'stage': 'listening'});
+        await adapter.cancel();
+        await adapter.start(request);
+        final current = gen(1);
+
+        // El sistema entrega tarde lo del turno cancelado.
+        native({'type': 'final', 'gen': old, 'text': 'texto viejo'});
+        native({'type': 'error', 'gen': old, 'code': 'clientError'});
+        await Future<void>.delayed(Duration.zero);
+        expect(events.whereType<TranscriptionSegment>(), isEmpty);
+        expect(events.whereType<TranscriptionFailed>(), isEmpty);
+        expect(adapter.isTurnOpen, isTrue);
+
+        native({'type': 'stage', 'gen': current, 'stage': 'listening'});
+        native({'type': 'final', 'gen': current, 'text': 'texto nuevo'});
+        await Future<void>.delayed(Duration.zero);
+        expect(events.whereType<TranscriptionSegment>().map((e) => e.text), [
+          'texto nuevo',
+        ]);
+      },
+    );
+
+    test('un evento sin turno abierto no se emite', () async {
+      final adapter = build();
+      final events = <TranscriptionEvent>[];
+      adapter.events.listen(events.add);
+      await adapter.start(request);
+      final g = gen();
+      await adapter.cancel();
+      await Future<void>.delayed(Duration.zero);
+      events.clear();
+
+      // Una denegación que llega después de cancelar: sin turno, quedaría
+      // pendiente en la sesión y haría fallar el turno siguiente.
+      native({'type': 'error', 'gen': g, 'code': 'permissionDenied'});
+      native({'type': 'stage', 'gen': g, 'stage': 'listening'});
+      await Future<void>.delayed(Duration.zero);
       expect(events, isEmpty);
     });
+
+    test('con diálogo de permiso se sabe por la respuesta de start', () {
+      fakeAsync((async) {
+        startReply = 'awaitingPermission';
+        final adapter = build();
+        final events = <TranscriptionEvent>[];
+        adapter.events.listen(events.add);
+        adapter.start(request);
+        async.flushMicrotasks();
+
+        // Sin ningún evento nativo: la respuesta basta, y llega antes que la
+        // pausa que provoca el diálogo.
+        expect(
+          events.whereType<TranscriptionStageChanged>().single.stage,
+          TranscriptionStage.awaitingPermission,
+        );
+        async.elapse(const Duration(minutes: 3));
+        expect(events.whereType<TranscriptionTimeout>(), isEmpty);
+        expect(adapter.isTurnOpen, isTrue);
+      });
+    });
+
+    test('denegar, reintentar y conceder abre el micrófono', () async {
+      startReply = 'awaitingPermission';
+      final adapter = build();
+      final events = <TranscriptionEvent>[];
+      adapter.events.listen(events.add);
+
+      await adapter.start(request);
+      native({'type': 'error', 'gen': gen(), 'code': 'permissionDenied'});
+      await Future<void>.delayed(Duration.zero);
+      expect(
+        events.whereType<TranscriptionFailed>().single.code,
+        TranscriptionErrorCode.permissionDenied,
+      );
+      expect(adapter.isTurnOpen, isFalse);
+
+      await adapter.start(request);
+      native({'type': 'stage', 'gen': gen(1), 'stage': 'listening'});
+      await Future<void>.delayed(Duration.zero);
+      expect(
+        events.whereType<TranscriptionStageChanged>().last.stage,
+        TranscriptionStage.listening,
+      );
+      expect(adapter.isTurnOpen, isTrue);
+    });
+
+    test(
+      'la baja de una pantalla no deja sorda a la siguiente (canal compartido)',
+      () async {
+        // Flutter libera la ruta anterior al terminar su animación, cuando la
+        // nueva ya puede estar suscrita. Con una suscripción por adaptador, la
+        // baja de la vieja quitaba el manejador del canal a la nueva: ningún
+        // evento llegaba y la sesión se quedaba «Abriendo el micrófono».
+        final old = build();
+        final fresh = AndroidSpeechTranscriptionAdapter();
+        addTearDown(fresh.dispose);
+        final events = <TranscriptionEvent>[];
+        fresh.events.listen(events.add);
+
+        await old.dispose();
+        expect(
+          NativeEventHub.listenersOf(
+            AndroidSpeechTranscriptionAdapter.eventChannelName,
+          ),
+          1,
+        );
+
+        await fresh.start(request);
+        final g =
+            (sentCalls.lastWhere((c) => c.method == 'start').arguments
+                as Map)['gen'];
+        native({'type': 'stage', 'gen': g, 'stage': 'listening'});
+        await Future<void>.delayed(Duration.zero);
+        expect(
+          events.whereType<TranscriptionStageChanged>().single.stage,
+          TranscriptionStage.listening,
+        );
+      },
+    );
   });
 }

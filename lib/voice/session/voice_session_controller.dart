@@ -42,6 +42,13 @@ import 'voice_session_state.dart';
 /// [undoLastAutoAppend] deshace el último añadido automático, y deja de estar
 /// disponible en cuanto el usuario edita: deshacer entonces borraría su propia
 /// corrección.
+///
+/// ## Desacuerdo numérico entre motores
+///
+/// Un segmento con [TranscriptionSegment.numericDisagreement] se suma al texto
+/// como cualquier otro —es una sola transcripción— y, en la misma
+/// actualización, sube [VoiceSessionSnapshot.numericDisagreements]. La sesión
+/// no sabe qué cifras eran ni a qué campo van: eso lo decide quien interpreta.
 class VoiceSessionController extends ChangeNotifier {
   VoiceSessionController({
     required SpeechTranscriptionPort port,
@@ -49,9 +56,23 @@ class VoiceSessionController extends ChangeNotifier {
     VoiceContinuityPolicy continuity = const VoiceContinuityPolicy(),
   }) : _port = port,
        _locales = localePolicy,
-       _continuity = continuity {
+       _continuity = continuity,
+       _initialRoute = port.listensAcrossPauses
+           ? TranscriptionEngineRoute.embedded
+           : TranscriptionEngineRoute.onDevice {
+    _snapshot = VoiceSessionSnapshot(
+      requestedLocale: VoiceLocalePolicy.requested,
+      route: _initialRoute,
+    );
     _subscription = _port.events.listen(_onEvent);
+    // El motor local sabe al instante qué trae el APK: se muestra desde que se
+    // abre la pantalla (modelo, revisión, modo avión), sin abrir el micrófono.
+    if (_port.listensAcrossPauses) unawaited(_readAvailability());
   }
+
+  /// El motor local de la app no tiene «reconocedor del sistema» al que
+  /// cambiar: su ruta es la suya desde el principio.
+  final TranscriptionEngineRoute _initialRoute;
 
   final SpeechTranscriptionPort _port;
   final VoiceLocalePolicy _locales;
@@ -59,9 +80,7 @@ class VoiceSessionController extends ChangeNotifier {
 
   late final StreamSubscription<TranscriptionEvent> _subscription;
 
-  VoiceSessionSnapshot _snapshot = const VoiceSessionSnapshot(
-    requestedLocale: VoiceLocalePolicy.requested,
-  );
+  late VoiceSessionSnapshot _snapshot;
 
   /// Fotografía actual. La pantalla no lee ningún otro estado.
   VoiceSessionSnapshot get snapshot => _snapshot;
@@ -73,6 +92,9 @@ class VoiceSessionController extends ChangeNotifier {
 
   bool _disposed = false;
   bool _stopRequested = false;
+
+  /// Hay un turno abierto cuyo [TranscriptionTurnEnded] todavía no llegó.
+  bool _turnActive = false;
   bool _turnSegmentConsumed = false;
 
   int _turnCount = 0;
@@ -95,11 +117,42 @@ class VoiceSessionController extends ChangeNotifier {
   Timer? _restartTimer;
   Timer? _sessionTimer;
 
+  /// Plazo para que el motor confirme la apertura (#119). Ver
+  /// [VoiceContinuityPolicy.openTimeout].
+  Timer? _openTimer;
+
   TranscriptionErrorCode? _pendingErrorCode;
   String? _pendingErrorDetail;
 
   /// Texto anterior al último añadido automático, para [undoLastAutoAppend].
   String? _undoText;
+
+  /// Frases ya recibidas en este turno, para motores que entregan varias
+  /// numeradas ([SpeechTranscriptionPort.listensAcrossPauses]).
+  final Set<int> _turnSequences = <int>{};
+
+  /// Pista de vocabulario para el motor que la admite. Sólo nombres: la sesión
+  /// no sabe de qué son ni los interpreta.
+  List<String> _hints = const [];
+
+  /// Pista de vocabulario: nombres que pueden dictarse (catálogo, personas).
+  ///
+  /// La da quien abre la pantalla. Vale desde el siguiente turno; no cambia lo
+  /// ya transcrito ni restringe lo que se puede dictar.
+  void setVocabularyHints(List<String> hints) {
+    if (_disposed) return;
+    _hints = List.unmodifiable(hints);
+  }
+
+  /// Activa o desactiva la segunda pasada local para los siguientes turnos.
+  /// Identificador del motor del puerto, para que la interfaz nombre el botón
+  /// y los estados (por frases o turno entero). Nada más depende de él.
+  String get engineId => _port.engineId;
+
+  void setReviewEnabled(bool enabled) {
+    if (_disposed || enabled == _snapshot.reviewEnabled) return;
+    _update(_snapshot.copyWith(reviewEnabled: enabled));
+  }
 
   // ------------------------------------------------------------------ acciones
 
@@ -125,6 +178,9 @@ class VoiceSessionController extends ChangeNotifier {
         clearDelivered: true,
       ),
     );
+    // Desde el toque: una consulta de disponibilidad que no vuelve también es
+    // una apertura sin respuesta.
+    _armOpenWatch();
 
     final availability = await _readAvailability();
     if (_disposed || !_userListening) return;
@@ -157,6 +213,11 @@ class VoiceSessionController extends ChangeNotifier {
       // Última red: ni siquiera una sesión productiva puede quedarse escuchando
       // indefinidamente.
       AppLog.info('voz: sesión cerrada por duración máxima');
+      if (_port.listensAcrossPauses) {
+        // El motor local guarda la frase en curso: se detiene, no se descarta.
+        unawaited(stopListening());
+        return;
+      }
       _stopContinuity();
       unawaited(_releaseMicrophone());
       _settleToPreview();
@@ -166,9 +227,22 @@ class VoiceSessionController extends ChangeNotifier {
   }
 
   /// Pulsa `Detener`. El texto se conserva y el micrófono se libera.
+  ///
+  /// Antes de que el motor confirme que escucha —abriendo el micrófono o
+  /// esperando el permiso— detener es **cancelar la apertura** (#119): no hay
+  /// nada oído que esperar, y pedir al motor un resultado final dejaba el turno
+  /// vivo hasta que el diálogo de permiso se contestara, que podía abrir el
+  /// micrófono después de que el usuario dijera que parase.
   Future<void> stopListening() async {
     if (_disposed) return;
     _stopContinuity();
+    if (_snapshot.status == VoiceSessionStatus.starting ||
+        _snapshot.status == VoiceSessionStatus.requestingPermission) {
+      AppLog.info('voz: apertura cancelada por el usuario');
+      await _releaseMicrophone();
+      _settleToPreview();
+      return;
+    }
     if (!_port.isTurnOpen) {
       _settleToPreview();
       return;
@@ -213,6 +287,7 @@ class VoiceSessionController extends ChangeNotifier {
       VoiceSessionSnapshot(
         status: VoiceSessionStatus.cancelled,
         requestedLocale: VoiceLocalePolicy.requested,
+        route: _initialRoute,
         // El idioma y la disponibilidad son hechos del aparato, no contenido de
         // la sesión: conservarlos evita volver a recorrer la lista de idiomas.
         // Salvo que se hubiera cambiado de reconocedor: un idioma confirmado
@@ -221,6 +296,9 @@ class VoiceSessionController extends ChangeNotifier {
         localeInUse: _snapshot.routeFallbackUsed ? null : _snapshot.localeInUse,
         offline: _snapshot.offline,
         availability: _snapshot.availability,
+        reviewEnabled: _snapshot.reviewEnabled,
+        // `numericDisagreements` vuelve a cero: es contenido de la sesión
+        // descartada, como su texto, y no pasa a la siguiente.
       ),
     );
   }
@@ -375,6 +453,7 @@ class VoiceSessionController extends ChangeNotifier {
     _disposed = true;
     _restartTimer?.cancel();
     _sessionTimer?.cancel();
+    _openTimer?.cancel();
     _userListening = false;
     unawaited(_subscription.cancel());
     // Salir de la pantalla no puede dejar un reconocedor vivo.
@@ -431,7 +510,14 @@ class VoiceSessionController extends ChangeNotifier {
     }
     _turnCount++;
     _turnSegmentConsumed = false;
+    _turnSequences.clear();
+    // Un fallo que llegó suelto, sin turno —un error tardío de un turno ya
+    // cerrado—, no puede decidir cómo termina éste (#119).
+    _pendingErrorCode = null;
+    _pendingErrorDetail = null;
     _update(_snapshot.copyWith(status: VoiceSessionStatus.starting));
+    _armOpenWatch();
+    _turnActive = true;
     await _port.start(
       TranscriptionRequest(
         locale: _localeOrder[_localeIndex],
@@ -439,8 +525,14 @@ class VoiceSessionController extends ChangeNotifier {
         // sistema. Es una preferencia, no una garantía, y la pantalla lo dice.
         preferOffline: true,
         partialResults: true,
-        maxTurnDuration: _continuity.turnDuration,
+        // Un motor que escucha a través de las pausas tiene un solo turno por
+        // sesión: su plazo es el de la sesión.
+        maxTurnDuration: _port.listensAcrossPauses
+            ? _continuity.maxSessionDuration
+            : _continuity.turnDuration,
         route: _snapshot.route,
+        hints: _hints,
+        review: _snapshot.reviewEnabled,
       ),
     );
   }
@@ -472,13 +564,33 @@ class VoiceSessionController extends ChangeNotifier {
         // Lo que el motor está usando de verdad, que puede no ser lo pedido.
         _update(_snapshot.copyWith(observedRoute: route));
 
-      case TranscriptionPartial(:final text):
+      case TranscriptionPartial(:final text, :final reviewing):
         if (!_snapshot.status.microphoneMayBeOpen) return;
         _noteOfflineEvidence(text);
-        _update(_snapshot.copyWith(partialText: text));
+        _update(_snapshot.copyWith(partialText: text, reviewing: reviewing));
 
-      case TranscriptionSegment(:final text):
-        _appendSegment(text);
+      case TranscriptionSegment(
+        :final text,
+        :final sequence,
+        :final numericDisagreement,
+        :final reviewConflictFields,
+        :final reviewSingleFields,
+        :final turn,
+      ):
+        // Después del cierre del turno, un resultado es tardío y no entra
+        // (#119). Los adaptadores ya los descartan por número de turno; esto
+        // cubre a cualquier motor. Se decide por el cierre ya procesado, no
+        // por el estado visible: los eventos llegan en orden pero después de
+        // que la sesión cambie de estado.
+        if (!_turnActive) return;
+        _appendSegment(
+          text,
+          sequence,
+          numericDisagreement,
+          conflict: reviewConflictFields,
+          single: reviewSingleFields,
+          turn: turn,
+        );
 
       case TranscriptionFailed(:final code, :final detail):
         _pendingErrorCode = code;
@@ -503,6 +615,9 @@ class VoiceSessionController extends ChangeNotifier {
     if (!_userListening && !_snapshot.status.microphoneMayBeOpen) return;
     if (_stopRequested && stage != TranscriptionStage.awaitingPermission)
       return;
+    // El motor contestó: escucha, o el sistema está preguntando y el usuario
+    // decide sin plazo (`DEFECTO-005`).
+    _cancelOpenWatch();
     _update(
       _snapshot.copyWith(
         status: switch (stage) {
@@ -515,11 +630,23 @@ class VoiceSessionController extends ChangeNotifier {
     );
   }
 
-  void _appendSegment(String text) {
-    // Android puede repetir el resultado de un turno ya cerrado. Un segundo
-    // segmento del mismo turno duplicaría la frase en el texto de sesión.
-    if (_turnSegmentConsumed) return;
-    _turnSegmentConsumed = true;
+  void _appendSegment(
+    String text,
+    int? sequence,
+    bool numericDisagreement, {
+    Set<String> conflict = const {},
+    Set<String> single = const {},
+    int? turn,
+  }) {
+    if (sequence != null) {
+      // Motor con varias frases por turno: cada número entra una sola vez.
+      if (!_turnSequences.add(sequence)) return;
+    } else {
+      // Android puede repetir el resultado de un turno ya cerrado. Un segundo
+      // segmento del mismo turno duplicaría la frase en el texto de sesión.
+      if (_turnSegmentConsumed) return;
+      _turnSegmentConsumed = true;
+    }
 
     final trimmed = text.trim();
     if (trimmed.isEmpty) {
@@ -530,6 +657,12 @@ class VoiceSessionController extends ChangeNotifier {
 
     final base = _snapshot.committedText.trimRight();
     _undoText = _snapshot.committedText;
+    if (numericDisagreement) {
+      // Sólo el código: ni el texto ni qué cifras discreparon.
+      AppLog.info('voz: segmento con desacuerdo numérico entre motores');
+    }
+    // Texto y contador en la MISMA actualización: quien toma el texto nuevo
+    // ve a la vez si trae cifras por revisar.
     _update(
       _snapshot.copyWith(
         committedText: base.isEmpty ? trimmed : '$base $trimmed',
@@ -537,6 +670,13 @@ class VoiceSessionController extends ChangeNotifier {
         segmentCount: _snapshot.segmentCount + 1,
         canUndoAutoAppend: true,
         clearDelivered: true,
+        numericDisagreements: numericDisagreement
+            ? _snapshot.numericDisagreements + 1
+            : null,
+        reviewConflictFields: numericDisagreement ? conflict : null,
+        reviewSingleFields: numericDisagreement ? single : null,
+        lastSegmentTurn: turn,
+        lastSegmentSeq: sequence,
       ),
     );
   }
@@ -559,12 +699,16 @@ class VoiceSessionController extends ChangeNotifier {
   }
 
   void _onTurnEnded(TranscriptionEndReason reason) {
+    _turnActive = false;
+    _cancelOpenWatch();
     final code = _pendingErrorCode;
     final detail = _pendingErrorDetail;
     _pendingErrorCode = null;
     _pendingErrorDetail = null;
 
-    _update(_snapshot.copyWith(partialText: '', lastEndReason: reason));
+    _update(
+      _snapshot.copyWith(partialText: '', reviewing: 0, lastEndReason: reason),
+    );
 
     // Descartar y segundo plano fijan su propio estado; el cierre que provocan
     // no debe reabrir nada ni pisarlo.
@@ -579,6 +723,14 @@ class VoiceSessionController extends ChangeNotifier {
 
     if (code != null) {
       _onTurnFailed(code, detail);
+      return;
+    }
+
+    // El motor local no cierra el turno en las pausas: si lo cerró, fue por el
+    // plazo o por un silencio largo. No se reabre por su cuenta.
+    if (_port.listensAcrossPauses) {
+      _stopContinuity();
+      _settleToPreview();
       return;
     }
 
@@ -748,7 +900,43 @@ class VoiceSessionController extends ChangeNotifier {
     _restartTimer = null;
     _sessionTimer?.cancel();
     _sessionTimer = null;
+    _cancelOpenWatch();
   }
+
+  void _armOpenWatch() {
+    _openTimer?.cancel();
+    _openTimer = Timer(_continuity.openTimeout, _onOpenTimeout);
+  }
+
+  void _cancelOpenWatch() {
+    _openTimer?.cancel();
+    _openTimer = null;
+  }
+
+  /// El motor no confirmó la apertura a tiempo (#119).
+  ///
+  /// Antes, la pantalla se quedaba en «Abriendo el micrófono» con el indicador
+  /// de escucha encendido y nada escuchando. Ahora se suelta el motor y la
+  /// sesión termina en un error explicado: se puede reintentar o escribir a
+  /// mano, y el texto ya dictado se conserva.
+  void _onOpenTimeout() {
+    _openTimer = null;
+    if (_disposed || _snapshot.status != VoiceSessionStatus.starting) return;
+    AppLog.warning(
+      'voz: el motor no confirmó la apertura en '
+      '${_continuity.openTimeout.inSeconds} s',
+    );
+    _stopContinuity();
+    _fail(
+      VoiceSessionStatus.recoverableError,
+      TranscriptionErrorCode.engineFailure,
+      openTimeoutDetail,
+    );
+    unawaited(_releaseMicrophone());
+  }
+
+  /// Detalle del fallo cuando el motor no confirmó la apertura a tiempo.
+  static const openTimeoutDetail = 'open-timeout';
 
   Future<void> _releaseMicrophone() async {
     _stopRequested = false;

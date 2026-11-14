@@ -292,3 +292,82 @@ Future<void> downgradeToV7(String path) async {
   await db.execute('PRAGMA user_version = 7');
   await db.close();
 }
+
+/// Columnas que añadió v15 (E1) a `products`.
+final productPhotoColumnsV15 = AppDatabase.productPhotoColumns.keys.toSet();
+
+/// Quita todo lo que añadió v15 (E1): la tabla de solicitudes de
+/// identificación y las columnas de la foto de la etiqueta.
+Future<void> dropProductIdentificationSchemaV15(DatabaseExecutor db) async {
+  await db.execute('DROP TABLE IF EXISTS product_identification_requests');
+  final existing = (await db.rawQuery('PRAGMA table_info(products)'))
+      .map((row) => row['name'])
+      .toSet();
+  for (final column in productPhotoColumnsV15) {
+    if (existing.contains(column)) {
+      await db.execute('ALTER TABLE products DROP COLUMN $column');
+    }
+  }
+}
+
+/// Deja una base creada con la versión actual exactamente como una v14.
+Future<void> downgradeToV14(String path) async {
+  final db = await databaseFactoryFfi.openDatabase(path);
+  await dropProductIdentificationSchemaV15(db);
+  await db.execute('PRAGMA user_version = 14');
+  await db.close();
+}
+
+/// Tablas que añadió v16 (E2).
+const jointPurchaseTablesV16 = {
+  'joint_purchase_calls',
+  'joint_purchase_participation_ops',
+};
+
+/// Quita todo lo que añadió v16 (E2): las dos tablas de compras conjuntas
+/// (sus índices caen con ellas).
+Future<void> dropJointPurchaseSchemaV16(DatabaseExecutor db) async {
+  for (final table in jointPurchaseTablesV16) {
+    await db.execute('DROP TABLE IF EXISTS $table');
+  }
+}
+
+/// Tablas que añadió v17 (E2 §10.1, historial).
+const jointPurchaseTablesV17 = {'joint_purchase_history_state'};
+
+/// Columnas que añadió v17 a `joint_purchase_calls`.
+final jointPurchaseCallColumnsV17 = AppDatabase.jointPurchaseHistoryColumns.keys
+    .toSet();
+
+/// Quita todo lo que añadió v17: la tabla del recuento del historial y la
+/// fecha de término de las convocatorias (si la tabla existe).
+Future<void> dropJointPurchaseHistorySchemaV17(DatabaseExecutor db) async {
+  for (final table in jointPurchaseTablesV17) {
+    await db.execute('DROP TABLE IF EXISTS $table');
+  }
+  final existing = (await db.rawQuery(
+    'PRAGMA table_info(joint_purchase_calls)',
+  )).map((row) => row['name']).toSet();
+  for (final column in jointPurchaseCallColumnsV17) {
+    if (existing.contains(column)) {
+      await db.execute('ALTER TABLE joint_purchase_calls DROP COLUMN $column');
+    }
+  }
+}
+
+/// Deja una base creada con la versión actual exactamente como una v16.
+Future<void> downgradeToV16(String path) async {
+  final db = await databaseFactoryFfi.openDatabase(path);
+  await dropJointPurchaseHistorySchemaV17(db);
+  await db.execute('PRAGMA user_version = 16');
+  await db.close();
+}
+
+/// Deja una base creada con la versión actual exactamente como una v15.
+Future<void> downgradeToV15(String path) async {
+  final db = await databaseFactoryFfi.openDatabase(path);
+  await dropJointPurchaseHistorySchemaV17(db);
+  await dropJointPurchaseSchemaV16(db);
+  await db.execute('PRAGMA user_version = 15');
+  await db.close();
+}

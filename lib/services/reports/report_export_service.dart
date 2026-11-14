@@ -15,29 +15,38 @@ library;
 import 'dart:typed_data';
 
 import '../../data/agro_repository.dart';
+import '../../data/ind_c_chacos_reads.dart';
 import '../../data/typed_reads.dart';
 import '../../domain/reports/report_composer.dart';
 import '../../domain/reports/report_table.dart';
-import 'csv_report_generator.dart';
 import 'pdf_report_generator.dart';
 import 'report_storage.dart';
+import 'xlsx_report_generator.dart';
 
 /// Formatos de salida disponibles.
-enum ReportFormat { csv, pdf }
+///
+/// Excel es la única salida tabular (decisión del autor del 2026-11-12): el CSV
+/// dejó de ofrecerse. Los `.csv` ya guardados en el teléfono no se tocan.
+enum ReportFormat { xlsx, pdf }
 
 extension ReportFormatInfo on ReportFormat {
   String get label => switch (this) {
-    ReportFormat.csv => 'CSV',
+    ReportFormat.xlsx => 'Excel',
     ReportFormat.pdf => 'PDF',
   };
 
   String get extension => switch (this) {
-    ReportFormat.csv => 'csv',
+    ReportFormat.xlsx => 'xlsx',
     ReportFormat.pdf => 'pdf',
   };
 
+  String get mimeType => switch (this) {
+    ReportFormat.xlsx => xlsxMimeType,
+    ReportFormat.pdf => 'application/pdf',
+  };
+
   String get description => switch (this) {
-    ReportFormat.csv => 'Para abrir en una hoja de cálculo.',
+    ReportFormat.xlsx => 'Para abrir en Excel u otra hoja de cálculo.',
     ReportFormat.pdf => 'Para imprimir o archivar.',
   };
 }
@@ -99,18 +108,18 @@ class ReportExportService {
     this._repository,
     this._storage, {
     ReportComposer composer = const ReportComposer(),
-    CsvReportGenerator csv = const CsvReportGenerator(),
+    XlsxReportGenerator xlsx = const XlsxReportGenerator(),
     PdfReportGenerator pdf = const PdfReportGenerator(),
     DateTime Function() clock = DateTime.now,
   }) : _composer = composer,
-       _csv = csv,
+       _xlsx = xlsx,
        _pdf = pdf,
        _clock = clock;
 
   final AgroRepository _repository;
   final ReportStorage _storage;
   final ReportComposer _composer;
-  final CsvReportGenerator _csv;
+  final XlsxReportGenerator _xlsx;
   final PdfReportGenerator _pdf;
   final DateTime Function() _clock;
 
@@ -135,21 +144,29 @@ class ReportExportService {
         );
 
       case ReportKind.productCost:
+        // Decisión C (2026-11-13): como «Costo por chaco».
+        final products = await _repository.productCostLines(
+          campaignId: request.campaignId,
+        );
         return _composer.productCost(
           generatedAt: generatedAt,
           campaignName: campaignName,
-          lines: await _repository.productCostReportTyped(
-            campaignId: request.campaignId,
-          ),
+          productScope: products.ownerOnly ? ownerProductsScope : null,
+          lines: products.lines,
         );
 
       case ReportKind.farmCost:
+        // Decisión C (2026-11-13): en modo individual, el mismo alcance que
+        // «Costos › Por chaco» (sólo los chacos del titular); en el modo con
+        // varias personas, lo de siempre.
+        final farms = await _repository.farmCostLines(
+          campaignId: request.campaignId,
+        );
         return _composer.farmCost(
           generatedAt: generatedAt,
           campaignName: campaignName,
-          lines: await _repository.farmCostReportTyped(
-            campaignId: request.campaignId,
-          ),
+          farmScope: farms.ownerOnly ? ownerFarmsScope : null,
+          lines: farms.lines,
         );
 
       case ReportKind.campaignSummary:
@@ -207,7 +224,7 @@ class ReportExportService {
     cancellation?.throwIfCancelled();
 
     final Uint8List bytes = switch (request.format) {
-      ReportFormat.csv => _csv.generate(table),
+      ReportFormat.xlsx => _xlsx.generate(table),
       ReportFormat.pdf => _pdf.generate(table),
     };
     // Última comprobación antes de tocar el disco: cancelar aquí no deja nada
@@ -226,9 +243,14 @@ class ReportExportService {
     final at = table.generatedAt.toLocal();
     String two(int value) => value.toString().padLeft(2, '0');
     final stamp = '${at.year}-${two(at.month)}-${two(at.day)}';
-    final person = request.kind == ReportKind.accountStatement
-        ? table.filters.first.value
+    // La persona se acorta antes de añadir la fecha: un nombre largo no puede
+    // dejar el archivo sin fecha (revisión en Excel del 2026-11-12).
+    final rawPerson = request.kind == ReportKind.accountStatement
+        ? sanitizeFileName(table.filters.first.value)
         : null;
+    final person = rawPerson == null || rawPerson.length <= 40
+        ? rawPerson
+        : rawPerson.substring(0, 40).trim();
     return sanitizeFileName(
       person == null
           ? '${request.kind.fileBaseName}-$stamp'

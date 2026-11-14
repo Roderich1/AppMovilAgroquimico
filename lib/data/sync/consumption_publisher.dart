@@ -33,6 +33,27 @@ enum ConsumptionChange {
 
   /// El vínculo dejó de ser válido: no se publica hasta corregirlo.
   blocked,
+
+  /// Central rechazó el último envío de este total por el estado de la
+  /// campaña (`CAMPAIGN_NOT_OPEN` o `CAMPAIGN_SEALED`). Es un fallo terminal
+  /// que requiere intervención (F04 §2.4): «Publicar» no lo vuelve a enviar
+  /// ni lo reasigna a otra campaña. Sólo deja de estarlo si, después del
+  /// rechazo, las referencias actualizadas muestran que la campaña vuelve a
+  /// admitir aportes (vínculo vigente comprobado más tarde).
+  rejected,
+}
+
+/// Estado de envío de un total, en las tres palabras de la pantalla.
+enum ConsumptionSendState {
+  /// Sin publicar todavía, en la cola o enviado sin confirmación.
+  pending,
+
+  /// Aceptado por el sindicato y sin cambios locales.
+  sent,
+
+  /// Conflicto, vínculo no vigente, rechazo del sindicato, cola pausada o
+  /// acceso sin verificar: hace falta una decisión o una acción del titular.
+  attention,
 }
 
 class ConsumptionPreviewRow {
@@ -45,6 +66,7 @@ class ConsumptionPreviewRow {
     required this.target,
     required this.prior,
     this.blockedDetail,
+    this.lastRejection,
   });
 
   final String campaignName;
@@ -63,9 +85,45 @@ class ConsumptionPreviewRow {
   /// (D-F04-C2); null si no está bloqueado o el motivo no es de período.
   final String? blockedDetail;
 
+  /// El último envío de este total (el más reciente no descartado) si Central
+  /// lo rechazó (REJECTED o FAILED); null si no. No cuenta como antecesor.
+  final OutboxEntry? lastRejection;
+
   bool get sends =>
       change == ConsumptionChange.publish ||
       change == ConsumptionChange.supersede;
+
+  /// Estado de envío derivado de la outbox. Sólo presenta: no decide qué se
+  /// envía ([sends] y [change] lo deciden).
+  ConsumptionSendState get sendState {
+    if (change == ConsumptionChange.conflict ||
+        change == ConsumptionChange.blocked ||
+        change == ConsumptionChange.rejected ||
+        lastRejection != null) {
+      return ConsumptionSendState.attention;
+    }
+    final last = prior;
+    if (last != null && last.action != SyncAction.cancel) {
+      if (_pausedStatuses.contains(last.status)) {
+        return ConsumptionSendState.attention;
+      }
+      if (last.status.isSendable &&
+          syncCodeFamily(last.lastCode) == SyncCodeFamily.authorization) {
+        return ConsumptionSendState.attention;
+      }
+    }
+    if (sends) return ConsumptionSendState.pending;
+    return last?.status == OutboxStatus.acked
+        ? ConsumptionSendState.sent
+        : ConsumptionSendState.pending;
+  }
+
+  static const _pausedStatuses = {
+    OutboxStatus.authPaused,
+    OutboxStatus.ownerPaused,
+    OutboxStatus.restorePaused,
+    OutboxStatus.versionMismatch,
+  };
 
   /// Un total aceptado por Central (o en camino) bajo un vínculo bloqueado:
   /// el titular puede retirarlo (CANCEL, F06 §6) con su confirmación. No se
@@ -264,11 +322,13 @@ class ConsumptionPublisher {
       '${target.ownerBindingId}|${target.projectionType.code}|'
       '${target.campaignRef}|${target.productRef}|${target.baseUnit.code}';
 
-  /// Lo que una fila propone: destino, cantidad en su unidad base, cambio e
-  /// intención previa sobre la que se planifica.
+  /// Lo que una fila propone: destino, cantidad en su unidad base, cambio,
+  /// intención previa sobre la que se planifica y el último rechazo que se
+  /// mostró (un rechazo nuevo cambia lo que el titular confirmó).
   static String _rowKey(ConsumptionPreviewRow row) =>
       '${_targetKey(row.target)}|${row.quantityBase}|${row.baseUnit.code}|'
-      '${row.change.name}|${row.prior?.operationId ?? '-'}';
+      '${row.change.name}|${row.prior?.operationId ?? '-'}|'
+      '${row.lastRejection?.operationId ?? '-'}';
 
   /// Misma propuesta: mismo titular y las mismas filas, todas, no sólo las
   /// que se envían (una fila que cambia de estado cambia lo que se confirmó).
@@ -325,7 +385,14 @@ class ConsumptionPublisher {
     };
     final campaigns = <int, BoundRef>{};
     final periodDetails = <int, String>{};
+    // Cuándo se comprobó por última vez cada vínculo vigente: un rechazo por
+    // el estado de la campaña sólo deja de retener el total si las
+    // referencias se actualizaron después y el vínculo sigue vigente.
+    final validCheckedAt = <String, String>{};
     for (final binding in await CentralBindingStore.liveCampaignBindings(db)) {
+      if (binding.isValid) {
+        validCheckedAt[binding.campaignRef] = binding.checkedAt;
+      }
       final local = localPeriods[binding.campaignId];
       if (local == null) continue;
       campaigns[binding.campaignId] = BoundRef(
@@ -360,6 +427,38 @@ class ConsumptionPublisher {
       products: products,
     );
 
+    // El último envío de cada total, si Central lo rechazó: una sola consulta
+    // para todos (las pantallas de sincronización son sensibles a consultas
+    // añadidas). latestEffective lo ignora a propósito; aquí sólo informa.
+    final rejections = <String, (OutboxEntry, String)>{
+      for (final row in await db.rawQuery(
+        'SELECT o.* FROM sync_outbox o WHERE o.id IN ('
+        'SELECT MAX(id) FROM sync_outbox WHERE owner_binding_id=? '
+        "AND projection_type='CONSUMPTION_TOTAL' AND status<>'DISCARDED' "
+        'GROUP BY campaign_ref, product_ref, base_unit) '
+        "AND o.status IN ('REJECTED','FAILED')",
+        [ownerBindingId],
+      ))
+        '${row['campaign_ref']}|${row['product_ref']}|${row['base_unit']}': (
+          OutboxEntry.fromRow(row),
+          row['updated_at']! as String,
+        ),
+    };
+    OutboxEntry? rejectionOf(String key) => rejections[key]?.$1;
+
+    /// F04 §2.4: rechazo terminal por el estado de la campaña, todavía no
+    /// superado por una comprobación posterior del vínculo vigente.
+    bool campaignHold(String key, String campaignRef) {
+      final rejection = rejections[key];
+      if (rejection == null) return false;
+      if (syncCodeFamily(rejection.$1.lastCode) !=
+          SyncCodeFamily.campaignState) {
+        return false;
+      }
+      final checkedAt = validCheckedAt[campaignRef];
+      return checkedAt == null || checkedAt.compareTo(rejection.$2) <= 0;
+    }
+
     final rows = <ConsumptionPreviewRow>[];
     final seen = <String>{};
     for (final cell in projection.cells) {
@@ -370,9 +469,9 @@ class ConsumptionPublisher {
         productRef: cell.product.ref,
         baseUnit: cell.baseUnit,
       );
-      seen.add(
-        '${target.campaignRef}|${target.productRef}|${target.baseUnit.code}',
-      );
+      final key =
+          '${target.campaignRef}|${target.productRef}|${target.baseUnit.code}';
+      seen.add(key);
       final prior = await SyncOutboxStore.latestEffective(db, target);
       rows.add(
         ConsumptionPreviewRow(
@@ -380,9 +479,12 @@ class ConsumptionPublisher {
           productName: cell.product.localName,
           baseUnit: cell.baseUnit,
           quantityBase: cell.quantityBase,
-          change: _changeFor(prior, cell.quantityBase),
+          change: campaignHold(key, target.campaignRef)
+              ? ConsumptionChange.rejected
+              : _changeFor(prior, cell.quantityBase),
           target: target,
           prior: prior,
+          lastRejection: rejectionOf(key),
         ),
       );
     }
@@ -410,11 +512,9 @@ class ConsumptionPublisher {
         productRef: product.ref,
         baseUnit: product.baseUnit!,
       );
-      if (!seen.add(
-        '${target.campaignRef}|${target.productRef}|${target.baseUnit.code}',
-      )) {
-        continue;
-      }
+      final key =
+          '${target.campaignRef}|${target.productRef}|${target.baseUnit.code}';
+      if (!seen.add(key)) continue;
       rows.add(
         ConsumptionPreviewRow(
           campaignName: campaign.localName,
@@ -425,6 +525,7 @@ class ConsumptionPublisher {
           target: target,
           prior: await SyncOutboxStore.latestEffective(db, target),
           blockedDetail: periodDetails[pair.campaignId],
+          lastRejection: rejectionOf(key),
         ),
       );
     }
@@ -476,10 +577,15 @@ class ConsumptionPublisher {
               product?.value.localName ?? product?.value.centralName ?? '—',
           baseUnit: target.baseUnit,
           quantityBase: 0,
-          change: usable ? _changeFor(prior, 0) : ConsumptionChange.blocked,
+          change: !usable
+              ? ConsumptionChange.blocked
+              : campaignHold(key, target.campaignRef)
+              ? ConsumptionChange.rejected
+              : _changeFor(prior, 0),
           target: target,
           prior: prior,
           blockedDetail: usable ? null : periodDetails[campaign?.key],
+          lastRejection: rejectionOf(key),
         ),
       );
     }

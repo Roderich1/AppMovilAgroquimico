@@ -142,6 +142,11 @@ enum TranscriptionEngineRoute {
 
   /// Servicio de reconocimiento del teléfono. Puede usar red.
   systemDefault,
+
+  /// Modelo de voz incluido en la propia aplicación (Vosk y, si está, una
+  /// segunda pasada local). No depende de ningún servicio del sistema ni usa
+  /// red: el audio se procesa dentro del proceso de la app (#165, #166).
+  embedded,
 }
 
 /// Qué se sabe del modo avión del dispositivo.
@@ -150,6 +155,12 @@ enum TranscriptionEngineRoute {
 /// contrastando `Settings.Global.AIRPLANE_MODE_ON`, no lo que dijera quien
 /// probaba. Se lee sin permisos y no implica acceso a red.
 enum AirplaneMode { on, off, unknown }
+
+/// `engineId` del puerto experimental «un solo transcriptor por turno» (F09,
+/// 2026-11-09): el audio de todo el turno se transcribe de una vez al
+/// terminar, sin segmentación previa. La interfaz lo usa para nombrar el botón
+/// («Terminar») y los estados; nada más depende de él.
+const singleTranscriberTurnEngineId = 'single-transcriber-turn';
 
 /// Un evento emitido por el adaptador durante un turno de escucha.
 sealed class TranscriptionEvent {
@@ -161,10 +172,18 @@ sealed class TranscriptionEvent {
 /// `EVO-009-REQ-019`: es sólo texto, no alimenta ninguna decisión. Nunca se
 /// acumula por su cuenta en el texto de sesión.
 final class TranscriptionPartial extends TranscriptionEvent {
-  const TranscriptionPartial(this.text, {required this.elapsed});
+  const TranscriptionPartial(
+    this.text, {
+    required this.elapsed,
+    this.reviewing = 0,
+  });
 
   final String text;
   final Duration elapsed;
+
+  /// Frases ya cerradas que esperan la segunda pasada. Siguen siendo
+  /// provisionales: forman parte de [text] y todavía no son segmento.
+  final int reviewing;
 
   /// Nunca incluye el texto: los registros no deben contener lo dictado.
   @override
@@ -178,15 +197,57 @@ final class TranscriptionPartial extends TranscriptionEvent {
 /// Varios segmentos componen la sesión. El puerto no los acumula: eso es
 /// política de sesión y vive en `VoiceSessionController`.
 final class TranscriptionSegment extends TranscriptionEvent {
-  const TranscriptionSegment(this.text, {required this.elapsed});
+  const TranscriptionSegment(
+    this.text, {
+    required this.elapsed,
+    this.sequence,
+    this.revised = false,
+    this.numericDisagreement = false,
+    this.reviewConflictFields = const {},
+    this.reviewSingleFields = const {},
+    this.turn,
+  });
+
+  /// Número de turno del motor que la entregó (efímero, del proceso). Con
+  /// [sequence] identifica la frase de forma estable dentro de la sesión.
+  final int? turn;
 
   final String text;
   final Duration elapsed;
 
+  /// Número de frase dentro del turno, para motores que entregan varias
+  /// ([SpeechTranscriptionPort.listensAcrossPauses]). Con número, un repetido
+  /// se reconoce por él; sin número, vale la regla de un segmento por turno.
+  final int? sequence;
+
+  /// El texto es el de la segunda pasada, elegido frente al de la primera.
+  final bool revised;
+
+  /// Una segunda lectura válida de esta misma frase leyó **otros valores** de
+  /// cantidad, unidad o moneda (no sólo otra forma de escribirlos). [text]
+  /// sigue siendo una sola transcripción —la de la primera pasada—; esto es
+  /// una marca aparte, sin texto, para que lo que interprete [text] deje sus
+  /// cifras por revisar en lugar de darlas por buenas (POCO 2026-11-08).
+  ///
+  /// Nunca es `true` si no hubo segunda lectura válida: no llegó a tiempo,
+  /// vino vacía, era no-habla o degenerada.
+  final bool numericDisagreement;
+
+  /// Sólo con la política experimental B (diagnóstico, 2026-11-09): campos
+  /// por revisar porque los dos reconocedores leen valores distintos
+  /// (`quantity`, `price`, `currency`, `unit`, `number`, `area`). Vacíos con
+  /// [numericDisagreement]: se revisan todas las cifras (regla A).
+  final Set<String> reviewConflictFields;
+
+  /// Sólo con la política B: campos que trajo un solo reconocedor o cuya
+  /// cifra uno de los dos no pudo leer. Se proponen, pero por revisar.
+  final Set<String> reviewSingleFields;
+
   @override
   String toString() =>
       'TranscriptionSegment(chars=${text.length}, '
-      'elapsed=${elapsed.inMilliseconds}ms)';
+      'elapsed=${elapsed.inMilliseconds}ms'
+      '${numericDisagreement ? ', numericDisagreement' : ''})';
 }
 
 /// El motor dejó de escuchar. Siempre llega, gane o falle el turno.
@@ -309,6 +370,8 @@ final class TranscriptionAvailability {
     this.airplaneMode = AirplaneMode.unknown,
     this.engineName = '',
     this.engineVersion = '',
+    this.reviewModel,
+    this.reviewDetail,
     this.detail,
   });
 
@@ -321,7 +384,9 @@ final class TranscriptionAvailability {
       supportedLocales = const [],
       airplaneMode = AirplaneMode.unknown,
       engineName = '',
-      engineVersion = '';
+      engineVersion = '',
+      reviewModel = null,
+      reviewDetail = null;
 
   /// `isRecognitionAvailable()`: hay algún reconocedor instalado.
   final bool recognizerAvailable;
@@ -353,6 +418,17 @@ final class TranscriptionAvailability {
   final String engineName;
   final String engineVersion;
 
+  /// Modelo de la segunda pasada local, si este motor la tiene y puede
+  /// ejecutarla aquí; `null` si no.
+  final String? reviewModel;
+
+  /// Por qué la segunda pasada se usa o no en este aparato (#166): un código
+  /// como `review-ok`, `review-not-built`, `review-low-ram-device`,
+  /// `review-ram-below:<MiB>` o `review-load-failed:<código>`. `null` si el
+  /// motor no tiene segunda pasada. Sin [reviewModel], el recorrido es sólo el
+  /// de la primera pasada. Nunca contenido dictado.
+  final String? reviewDetail;
+
   /// Diagnóstico técnico. Nunca contenido dictado.
   final String? detail;
 
@@ -373,6 +449,8 @@ final class TranscriptionRequest {
     this.partialResults = true,
     this.maxTurnDuration = const Duration(seconds: 60),
     this.route = TranscriptionEngineRoute.onDevice,
+    this.hints = const [],
+    this.review = true,
   });
 
   /// Locale concreto que se intentará. Lo elige `VoiceLocalePolicy`, nunca el
@@ -394,12 +472,22 @@ final class TranscriptionRequest {
   /// [TranscriptionEngineRoute.systemDefault] requiere su autorización.
   final TranscriptionEngineRoute route;
 
+  /// Pista de vocabulario: nombres del catálogo y de personas que pueden
+  /// dictarse. Sólo la usa un motor que la admite (la segunda pasada local);
+  /// no restringe lo que se puede dictar ni convierte nada en esos nombres.
+  final List<String> hints;
+
+  /// Pide la segunda pasada local si el motor la tiene.
+  final bool review;
+
   TranscriptionRequest withLocale(String value) => TranscriptionRequest(
     locale: value,
     preferOffline: preferOffline,
     partialResults: partialResults,
     maxTurnDuration: maxTurnDuration,
     route: route,
+    hints: hints,
+    review: review,
   );
 }
 
@@ -417,6 +505,14 @@ final class TranscriptionRequest {
 abstract interface class SpeechTranscriptionPort {
   /// Identificador estable del motor, para diagnóstico.
   String get engineId;
+
+  /// `true` si un turno sigue escuchando a través de las pausas y entrega
+  /// varios [TranscriptionSegment] numerados hasta que se detiene.
+  ///
+  /// El reconocedor de Android cierra el turno en cada pausa y la sesión abre
+  /// otro; el motor local no, y reabrir el micrófono en cada pausa perdería
+  /// audio entre turnos.
+  bool get listensAcrossPauses;
 
   /// `true` mientras el micrófono puede estar tomado.
   bool get isTurnOpen;

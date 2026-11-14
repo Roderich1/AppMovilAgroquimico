@@ -15,7 +15,6 @@ import 'package:agroquimicos/data/app_database.dart';
 import 'package:agroquimicos/data/operation_mode_store.dart';
 import 'package:agroquimicos/domain/account_texts.dart';
 import 'package:agroquimicos/domain/models.dart';
-import 'package:agroquimicos/domain/money.dart';
 import 'package:agroquimicos/domain/operation_mode.dart';
 import 'package:agroquimicos/domain/reports/report_composer.dart';
 import 'package:agroquimicos/domain/reports/report_table.dart';
@@ -63,7 +62,15 @@ void main() {
       await e.apply(e.titular, e.chacoNorte, DateTime(2026, 10, 20), {
         'Glifosato': 1000,
       });
-      await e.w.pay(e.titular, 4500, campaign: e.w.invierno, date: at(10, 21));
+      // Ronda 2 (2026-11-12): ya no se registra un pago al titular (revisión
+      // de Q-2 del autor); se siembra el asiento como lo dejaba el menú Q-2
+      // para comprobar cómo se lee.
+      await e.w.rawPayment(
+        e.titular,
+        4500,
+        campaign: e.w.invierno,
+        date: at(10, 21),
+      );
       expect((await e.w.repo.dashboard()).receivedMinor, 0);
     });
 
@@ -129,7 +136,7 @@ void main() {
           ).compose(
             ReportRequest(
               kind: ReportKind.accountStatement,
-              format: ReportFormat.csv,
+              format: ReportFormat.xlsx,
               personId: e.titular,
             ),
           );
@@ -253,12 +260,24 @@ void main() {
       await e.apply(e.titular, e.chacoNorte, DateTime.now(), {
         'Glifosato': 1000,
       });
-      final payment = await e.w.pay(
-        e.titular,
-        4500,
-        date: DateTime(2026, 9, 1).toUtc().toIso8601String(),
+      // Ronda 2 (2026-11-12): el pago propio ya no se registra (antes se
+      // imputaba a su cargo propio, {own: 4500}); el cargo por cobrar sigue.
+      await expectLater(
+        e.w.pay(
+          e.titular,
+          4500,
+          date: DateTime(2026, 9, 1).toUtc().toIso8601String(),
+        ),
+        throwsA(isA<BusinessRuleException>()),
       );
-      expect(await e.w.allocationsOf(payment), {own: 4500});
+      expect(
+        await (await e.w.db).query(
+          'payment_allocations',
+          where: 'charge_transaction_id=?',
+          whereArgs: [own],
+        ),
+        isEmpty,
+      );
       expect((await e.w.repo.dashboard()).familyReceivableMinor, 4500);
     });
 
@@ -374,8 +393,9 @@ void main() {
       );
       // «Titular» sólo aparece en su tarjeta, nunca como deudor.
       expect(find.text('Titular'), findsOneWidget);
-      // Criterio Q-2: conserva su pago (#26). Desde el bloque de experiencia
-      // del 2026-10-30 hay un único «Registrar pago» (RN-39).
+      expect(find.byKey(Key('account-card-${e.titular}')), findsNothing);
+      // Ronda 2 (2026-11-12): el autor revisó Q-2; el titular ya no tiene
+      // «Registrar pago» (antes lo conservaba, #26).
       await tester.tap(
         find.descendant(
           of: own,
@@ -383,13 +403,22 @@ void main() {
         ),
       );
       await settle(tester);
-      expect(find.text('Ver movimientos propios'), findsOneWidget);
-      expect(find.text('Registrar pago'), findsOneWidget);
+      // Ronda 2: «Ver movimientos propios» está en el menú y también como
+      // botón visible de la tarjeta; se abre desde el menú.
+      final viewOwn = find.widgetWithText(
+        PopupMenuItem<String>,
+        'Ver movimientos propios',
+      );
+      expect(viewOwn, findsOneWidget);
+      expect(
+        find.widgetWithText(PopupMenuItem<String>, 'Registrar pago'),
+        findsNothing,
+      );
       expect(find.text('Registrar adelanto'), findsNothing);
-      await tester.tap(find.text('Ver movimientos propios'));
+      await tester.tap(viewOwn);
       await settle(tester);
       Finder inDialog(String text) => find.descendant(
-        of: find.byType(AlertDialog),
+        of: find.byType(Dialog),
         matching: find.textContaining(text),
       );
       expect(inDialog('Movimientos propios · Titular'), findsOneWidget);
@@ -405,15 +434,12 @@ void main() {
         'de «Principales saldos» (D-04: 101 y Titular 81)', (tester) async {
       final e = await seeded(tester);
       await pump(tester, e.w.repo, const DashboardScreen());
-      final familias = find
-          .ancestor(
-            of: find.text('Familias por cobrar'),
-            matching: find.byType(Card),
-          )
-          .first;
+      // Rediseño B: el importe de las familias va en la cabecera de Inicio.
       expect(
-        find.descendant(of: familias, matching: find.textContaining(bs(2000))),
-        findsOneWidget,
+        tester
+            .widget<Text>(find.byKey(const Key('home-receivable-family')))
+            .data,
+        contains(bs(2000)),
       );
       expect(find.text('Titular'), findsNothing);
       expect(find.text('Familiar Demo'), findsOneWidget);
@@ -423,15 +449,25 @@ void main() {
         'titular (D-04: saldo 81)', (tester) async {
       final e = await seeded(tester);
       await pump(tester, e.w.repo, const PersonsScreen());
-      final tile = find.ancestor(
-        of: find.text('Titular'),
-        matching: find.byType(ListTile),
+      // Ronda 2: Personas y Cuentas son la misma lista; la tarjeta del
+      // titular dice su consumo propio con el alcance del filtro (la campaña
+      // activa) y no es deuda. Antes: «Consumo propio 81,00 Bs» en su fila.
+      final own = find.byKey(const Key('own-consumption-card'));
+      expect(
+        find.descendant(of: own, matching: find.text('Titular')),
+        findsOneWidget,
       );
       expect(
         find.descendant(
-          of: tile,
-          matching: find.text('Consumo propio ${bs(8100)}'),
+          of: own,
+          matching: find.text(
+            'Consumo aplicado (costo FIFO) · Invierno 2026 ${bs(8100)}',
+          ),
         ),
+        findsOneWidget,
+      );
+      expect(
+        find.descendant(of: own, matching: find.text('No es deuda')),
         findsOneWidget,
       );
     });
@@ -476,7 +512,7 @@ void main() {
       await settle(tester);
       expect(find.byKey(const Key('own-consumption-card')), findsOneWidget);
       expect(
-        find.text('En inventario propio no hay cuentas por cobrar.'),
+        find.text('En modo individual no hay cuentas por cobrar.'),
         findsOneWidget,
       );
     });
@@ -518,10 +554,10 @@ void main() {
       );
     });
 
-    testWidgets('E15-05 · modo propio con familiar: el titular conserva pago y '
-        'el familiar tiene el menú deshabilitado (D-04: sin tarjeta)', (
-      tester,
-    ) async {
+    // Ronda 2 (2026-11-12): antes «el titular conserva pago»; con la revisión
+    // de Q-2 del autor nadie recibe pagos de cuenta en inventario propio.
+    testWidgets('E15-05 · modo propio con familiar: el titular no tiene pago '
+        'y el familiar tampoco (D-04: sin tarjeta)', (tester) async {
       final e = (await tester.runAsync(() async {
         final e = await E15World.create();
         await OperationModeStore(e.w.database)
@@ -562,22 +598,40 @@ void main() {
       final ownItems = await menuOf(
         find.byKey(const Key('own-consumption-card')),
       );
-      expect([
-        for (final i in ownItems)
-          if (i.enabled) i.value,
-      ], allOf(contains('pay'), isNot(contains('advance'))));
+      expect(
+        [
+          for (final i in ownItems)
+            if (i.enabled) i.value,
+        ],
+        allOf(
+          contains('detail'),
+          isNot(contains('pay')),
+          isNot(contains('advance')),
+        ),
+      );
       final familiar = find
           .ancestor(of: find.text('Familiar Demo'), matching: find.byType(Card))
           .first;
+      // Rediseño: el pago es un botón de la tarjeta; en inventario propio el
+      // familiar no lo tiene y la tarjeta lo dice.
       final items = await menuOf(familiar);
       expect([
         for (final i in items)
           if (i.enabled) i.value,
       ], isNot(contains('pay')));
       expect(
-        items.where((i) => !i.enabled).length,
-        1,
-        reason: '«Inventario propio: pagos sólo del titular»',
+        find.descendant(
+          of: familiar,
+          matching: find.widgetWithText(FilledButton, 'Registrar pago'),
+        ),
+        findsNothing,
+      );
+      expect(
+        find.descendant(
+          of: familiar,
+          matching: find.text('Modo individual: sin pagos de cuenta'),
+        ),
+        findsOneWidget,
       );
     });
 
@@ -602,12 +656,14 @@ void main() {
       }))!;
       addTearDown(() => tester.runAsync(e.close));
       await pump(tester, e.w.repo, const PersonsScreen());
-      final tile = find.ancestor(
-        of: find.text('Titular'),
-        matching: find.byType(ListTile),
-      );
+      // Ronda 2: la tarjeta es la de Cuentas; su saldo neto de todas las
+      // campañas está en la línea D-04 (antes, la cifra de la fila).
+      final card = find.byKey(Key('account-card-${e.titular}'));
       expect(
-        find.descendant(of: tile, matching: find.text(formatBob(4500))),
+        find.descendant(
+          of: card,
+          matching: find.text('Saldo neto · todas las campañas ${bs(4500)}'),
+        ),
         findsOneWidget,
       );
     });

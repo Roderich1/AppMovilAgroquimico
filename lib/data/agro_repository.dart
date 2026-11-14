@@ -4,7 +4,7 @@ import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart'
     show Database, DatabaseException, DatabaseExecutor, Sqflite, Transaction;
 
-import 'package:flutter/foundation.dart' show visibleForTesting;
+import 'package:flutter/foundation.dart' show compute, visibleForTesting;
 
 import '../domain/account_ledger.dart';
 import '../domain/account_texts.dart' show AccountPaymentResult;
@@ -24,7 +24,9 @@ import 'app_log.dart';
 import 'farmer_operation_gate.dart';
 import 'invoice_storage.dart';
 import 'operation_mode_store.dart';
+import 'product_photo_storage.dart';
 import 'sync/central_binding_store.dart' show CentralBindingStore;
+import 'sync/identification_request_store.dart' show IdentificationRequestStore;
 
 /// Resultado de corregir vencimiento o número de lote (F04-AV): cuántos
 /// lotes cambiaron y cuántos de la línea quedaron sin tocar por no tener la
@@ -159,6 +161,14 @@ class PersonalModeRestrictionException extends BusinessRuleException {
   PersonalModeRestrictionException(super.message);
 }
 
+/// Rechazo de un pago de cuenta personal al titular (decisión del autor del
+/// 2026-11-12, que revisa el criterio Q-2/C-12): su consumo y sus costos son
+/// propios, no una deuda consigo mismo.
+const ownerAccountPaymentRejectedMessage =
+    'El titular no tiene cuenta por cobrar: su consumo y sus costos son '
+    'propios, no una deuda. No se registra un pago a su cuenta. Sus compras '
+    'y pagos a proveedores se registran como siempre.';
+
 /// Modalidad y titular vigentes, leídos dentro de la transacción que escribe.
 typedef WriteContext = ({OperationMode mode, int? ownerPersonId});
 
@@ -173,6 +183,38 @@ typedef PurchaseDetailRead = ({
   List<Map<String, Object?>> allocations,
   List<Map<String, Object?>> payments,
 });
+
+/// Una porción de la asignación FIFO de una aplicación: de qué lote y cuánto.
+typedef FifoTake = ({Map<String, Object?> lot, int take});
+
+/// Lote que una aplicación consumiría, según la previsión de sólo lectura
+/// [AgroRepository.previewApplicationLots]. [expiryDay] es el día civil
+/// `aaaa-mm-dd` registrado en la compra, o nulo si no se registró.
+typedef ApplicationLotPreview = ({
+  int lotId,
+  int quantityBase,
+  String? expiryDay,
+  String? lotNumber,
+});
+
+/// Reparto FIFO de [quantityBase] sobre [lots], ya ordenados del más antiguo
+/// al más nuevo y con su cupo en `available`. Es **la** regla de asignación
+/// de una aplicación: la usan la escritura (`confirmApplication`) y la
+/// previsión que muestra el formulario, para que lo previsto y lo consumido
+/// no puedan divergir. Si el cupo no alcanza, reparte lo que hay; quien
+/// escribe ya lo rechazó antes.
+List<FifoTake> fifoTakes(List<Map<String, Object?>> lots, int quantityBase) {
+  final takes = <FifoTake>[];
+  var remaining = quantityBase;
+  for (final lot in lots) {
+    if (remaining <= 0) break;
+    final lotAvailable = lot['available']! as int;
+    final take = remaining < lotAvailable ? remaining : lotAvailable;
+    takes.add((lot: lot, take: take));
+    remaining -= take;
+  }
+  return takes;
+}
 
 /// RF-03: resultado de confirmar o rechazar un borrador tardío.
 enum LateResolutionOutcome { confirmed, rejected, conflict }
@@ -229,9 +271,14 @@ class AgroRepository {
     this.appDatabase, {
     FarmerOperationGate gate = const FarmerOperationGate.unrestricted(),
     LocalOwnerCredential? Function()? ownerCredential,
+    @visibleForTesting Future<Directory> Function()? productPhotoDocuments,
   }) : _gate = gate,
-       _ownerCredential = ownerCredential ?? _noCredential;
+       _ownerCredential = ownerCredential ?? _noCredential,
+       _productPhotoDocuments = productPhotoDocuments;
   final AppDatabase appDatabase;
+
+  /// Carpeta de documentos para las fotos de producto; sólo pruebas.
+  final Future<Directory> Function()? _productPhotoDocuments;
   final FarmerOperationGate _gate;
   final LocalOwnerCredential? Function() _ownerCredential;
 
@@ -271,7 +318,7 @@ class AgroRepository {
         : owner.single['person_id'] as int;
     if (mode == OperationMode.personal && ownerPersonId == null) {
       throw PersonalModeRestrictionException(
-        'El inventario propio necesita un titular vinculado.',
+        'El modo individual necesita un titular vinculado.',
       );
     }
     return (mode: mode, ownerPersonId: ownerPersonId);
@@ -294,7 +341,7 @@ class AgroRepository {
   void _rejectTransferInPersonal(WriteContext context) {
     if (context.mode == OperationMode.personal) {
       throw PersonalModeRestrictionException(
-        'En inventario propio no hay transferencias entre responsables.',
+        'En el modo individual no hay transferencias entre responsables.',
       );
     }
   }
@@ -314,7 +361,7 @@ class AgroRepository {
     if (farm.isNotEmpty &&
         farm.single['owner_person_id'] != context.ownerPersonId) {
       throw PersonalModeRestrictionException(
-        'En inventario propio sólo se usan los chacos del titular.',
+        'En el modo individual sólo se usan los chacos del titular.',
       );
     }
   }
@@ -351,7 +398,7 @@ class AgroRepository {
   }) => _write((txn, context) {
     _requireOwnerInPersonal(context, [
       ownerId,
-    ], 'En inventario propio los chacos pertenecen al titular.');
+    ], 'En el modo individual los chacos pertenecen al titular.');
     return txn.insert('farms', {
       'owner_person_id': ownerId,
       'name': name.trim(),
@@ -1023,7 +1070,7 @@ class AgroRepository {
       _requireOwnerInPersonal(context, [
         for (final item in draft.items)
           for (final allocation in item.allocations) allocation.personId,
-      ], 'En inventario propio la compra se asigna sólo al titular.');
+      ], 'En el modo individual la compra se asigna sólo al titular.');
       // El pagador se comprueba antes de escribir nada: sin titular no se
       // guarda ni la compra ni el pago.
       final payer = payment == null ? null : _requireOwnerPayer(context);
@@ -1249,7 +1296,7 @@ class AgroRepository {
     return _write((txn, context) async {
       _requireOwnerInPersonal(context, [
         payerPersonId,
-      ], 'En inventario propio el pago al proveedor lo registra el titular.');
+      ], 'En el modo individual el pago al proveedor lo registra el titular.');
       // Regla del pagador: el titular vigente, también en compartido. Los
       // pagos ya guardados no se reasignan; sólo se juzgan los nuevos.
       _requireOwnerPayer(context, payerPersonId: payerPersonId);
@@ -1330,7 +1377,7 @@ class AgroRepository {
     return _write((txn, context) async {
       _requireOwnerInPersonal(context, [
         draft.personId,
-      ], 'En inventario propio la aplicación la realiza el titular.');
+      ], 'En el modo individual la aplicación la realiza el titular.');
       await _requireOwnerFarmInPersonal(txn, context, draft.farmId);
       await _ensureCampaignActive(txn, draft.campaignId);
       await _ensureEffectiveDateInCampaign(
@@ -1515,12 +1562,9 @@ class AgroRepository {
             ? null
             : line.quantityBase - line.theoreticalQuantityBase!,
       });
-      var remaining = line.quantityBase;
       var lineCost = 0;
-      for (final lot in lots) {
-        if (remaining == 0) break;
-        final lotAvailable = lot['available']! as int;
-        final take = remaining < lotAvailable ? remaining : lotAvailable;
+      // La misma regla que la previsión del formulario (`fifoTakes`).
+      for (final (:lot, :take) in fifoTakes(lots, line.quantityBase)) {
         final cost = costForBaseQuantity(
           take,
           lot['unit_cost_bob_minor_per_major_unit']! as int,
@@ -1542,7 +1586,6 @@ class AgroRepository {
           'reference_id': applicationId,
         });
         lineCost += cost;
-        remaining -= take;
       }
       await txn.update(
         'application_items',
@@ -1647,7 +1690,7 @@ class AgroRepository {
       _requireOwnerInPersonal(context, [
         for (final item in draft.items)
           for (final allocation in item.allocations) allocation.personId,
-      ], 'En inventario propio la compra se asigna sólo al titular.');
+      ], 'En el modo individual la compra se asigna sólo al titular.');
       final campaign = await _closedCampaignFor(txn, draft.purchaseDate);
       final stored = PurchaseDraft(
         supplierId: draft.supplierId,
@@ -1702,7 +1745,7 @@ class AgroRepository {
     return _write((txn, context) async {
       _requireOwnerInPersonal(context, [
         draft.personId,
-      ], 'En inventario propio la aplicación la realiza el titular.');
+      ], 'En el modo individual la aplicación la realiza el titular.');
       await _requireOwnerFarmInPersonal(txn, context, draft.farmId);
       final campaign = await _closedCampaignFor(txn, draft.appliedAt);
       final stored = ApplicationDraft(
@@ -2093,13 +2136,13 @@ class AgroRepository {
       _requireOwnerInPersonal(context, [
         for (final item in purchase.items)
           for (final allocation in item.allocations) allocation.personId,
-      ], 'En inventario propio la compra se asigna sólo al titular.');
+      ], 'En el modo individual la compra se asigna sólo al titular.');
       operationId = await _insertPurchase(txn, purchase, total);
     } else {
       final application = decodeLateApplication(draft['payload']! as String);
       _requireOwnerInPersonal(context, [
         application.personId,
-      ], 'En inventario propio la aplicación la realiza el titular.');
+      ], 'En el modo individual la aplicación la realiza el titular.');
       await _requireOwnerFarmInPersonal(txn, context, application.farmId);
       final day = localDay(application.appliedAt);
       for (final line in application.lines) {
@@ -2325,9 +2368,33 @@ class AgroRepository {
     if (amountBobMinor <= 0)
       throw BusinessRuleException('El importe debe ser mayor a cero.');
     return _write((txn, context) async {
-      _requireOwnerInPersonal(context, [
-        personId,
-      ], 'En inventario propio sólo se registran pagos del titular.');
+      // E-15: la clase (propia o por cobrar) se decide con los vínculos
+      // leídos en esta misma transacción.
+      final rule = OwnershipRule([
+        for (final row in await txn.query('owner_bindings'))
+          LedgerBinding(
+            id: row['id']! as int,
+            personId: row['person_id']! as int,
+            boundAt: row['bound_at']! as String,
+            endedAt: row['ended_at'] as String?,
+          ),
+      ]);
+      final paymentOwn = rule.isOwn(personId, localDay(date ?? DateTime.now()));
+      // Decisión del autor del 2026-11-12 (revisa el criterio Q-2/C-12):
+      // el titular no se debe a sí mismo, así que no se le registra un pago
+      // de cuenta personal. Un pago que sería propio (del titular vigente,
+      // o de quien era titular el día del pago) se rechaza. No toca sus
+      // compras ni sus pagos a proveedores, y los asientos ya guardados se
+      // siguen leyendo como registro.
+      if (paymentOwn) {
+        throw BusinessRuleException(ownerAccountPaymentRejectedMessage);
+      }
+      _requireOwnerInPersonal(
+        context,
+        [personId],
+        'En el modo individual no hay cuentas por cobrar: no se registran '
+        'pagos de cuenta.',
+      );
       final paymentId = await txn.insert('account_transactions', {
         'person_id': personId,
         'campaign_id': campaignId,
@@ -2361,18 +2428,7 @@ class AgroRepository {
       });
       // E-15 (A1): un pago sólo se imputa a cargos de su misma clase. Un
       // cargo propio no es deuda, igual que un cargo revertido (Q-5); y un
-      // pago propio no es cobro. La clase se decide con los vínculos leídos
-      // en esta misma transacción.
-      final rule = OwnershipRule([
-        for (final row in await txn.query('owner_bindings'))
-          LedgerBinding(
-            id: row['id']! as int,
-            personId: row['person_id']! as int,
-            boundAt: row['bound_at']! as String,
-            endedAt: row['ended_at'] as String?,
-          ),
-      ]);
-      final paymentOwn = rule.isOwn(personId, localDay(date ?? DateTime.now()));
+      // pago propio no es cobro (ya no se registra: ver arriba).
       charges.removeWhere(
         (charge) =>
             rule.isOwn(
@@ -2473,8 +2529,8 @@ class AgroRepository {
       _requireOwnerInPersonal(
         context,
         [application['person_id']! as int],
-        'En inventario propio sólo se revierten aplicaciones del titular. '
-        'Para revertir la de otra persona, cambie a inventario compartido.',
+        'En el modo individual sólo se revierten aplicaciones del titular. '
+        'Para revertir la de otra persona, cambie al modo con varias personas.',
       );
       final consumptions = await txn.rawQuery(
         '''SELECT c.*, i.product_id FROM application_consumptions c
@@ -2626,9 +2682,9 @@ class AgroRepository {
             if (lot['reversed_at'] == null) lot['owner_person_id']! as int,
           for (final charge in allocationCharges) charge['person_id']! as int,
         ],
-        'En inventario propio sólo se revierten compras asignadas al titular. '
+        'En el modo individual sólo se revierten compras asignadas al titular. '
         'Para revertir una compra con asignaciones a otras personas, cambie '
-        'a inventario compartido.',
+        'al modo con varias personas.',
       );
       for (final lot in lots) {
         final available =
@@ -4266,6 +4322,35 @@ class AgroRepository {
     };
   }
 
+  /// Previsión de **sólo lectura** de los lotes que consumiría una aplicación
+  /// de [quantityBase] de [productId] por [personId] en la fecha
+  /// [appliedAt]: los mismos lotes elegibles que leería `confirmApplication`
+  /// (hoy, el saldo actual; un día pasado, el cupo histórico de D-03) y el
+  /// mismo reparto ([fifoTakes]). No escribe nada ni cambia el orden de
+  /// consumo; el formulario la usa para avisar de un lote vencido antes de
+  /// confirmar (RN-31 de la tesis: el aviso no bloquea).
+  Future<List<ApplicationLotPreview>> previewApplicationLots({
+    required int personId,
+    required int productId,
+    required int quantityBase,
+    required DateTime appliedAt,
+  }) async {
+    final db = await _db;
+    final day = localDay(appliedAt);
+    final lots = day == localDay(DateTime.now())
+        ? await _lotsAvailableNow(db, productId, personId)
+        : await _lotsAvailableAt(db, productId, personId, day);
+    return [
+      for (final (:lot, :take) in fifoTakes(lots, quantityBase))
+        (
+          lotId: lot['id']! as int,
+          quantityBase: take,
+          expiryDay: lot['expiry_date'] as String?,
+          lotNumber: lot['lot_number'] as String?,
+        ),
+    ];
+  }
+
   Future<int> estimateFifoCost({
     required int personId,
     required int productId,
@@ -4410,6 +4495,148 @@ class AgroRepository {
       receivedMinor: received,
       stockBase: stock,
     );
+  }
+
+  /// Foto de la etiqueta de [productId] (E1-D10), o null si no tiene.
+  /// [ProductPhoto.exists] es falso si la base la registra pero el archivo
+  /// ya no está en el teléfono.
+  Future<ProductPhoto?> productPhoto(int productId) async {
+    final rows = await (await _db).query(
+      'products',
+      columns: ['photo_path', 'photo_sha256', 'photo_updated_at'],
+      where: 'id=?',
+      whereArgs: [productId],
+    );
+    if (rows.isEmpty) return null;
+    final relative = rows.single['photo_path'] as String?;
+    final sha = rows.single['photo_sha256'] as String?;
+    if (relative == null || sha == null) return null;
+    final file = productPhotoFile(await _photoDocuments(), relative);
+    if (file == null) return null;
+    return ProductPhoto(
+      productId: productId,
+      relativePath: relative,
+      file: file,
+      sha256: sha,
+      updatedAt: rows.single['photo_updated_at'] as String?,
+      exists: await file.exists(),
+    );
+  }
+
+  /// Guarda como foto de la etiqueta de [productId] la imagen de
+  /// [sourcePath], ya procesada: orientación aplicada, lado mayor ≤ 1600 px y
+  /// JPEG sin metadatos. Reemplazar borra el archivo anterior.
+  ///
+  /// Si el producto tiene una solicitud de identificación con la foto
+  /// compartida, [shareWithUnion] decide en la misma transacción si la nueva
+  /// también se envía (consentimiento `FOTO-1` nuevo) o se queda sólo en el
+  /// teléfono; null equivale a no enviarla: un consentimiento nunca se
+  /// amplía en silencio (E1-D11).
+  Future<ProductPhoto> setProductPhoto(
+    int productId,
+    String sourcePath, {
+    bool? shareWithUnion,
+  }) async {
+    final ProcessedLabelPhoto processed;
+    try {
+      processed = await compute(
+        processLabelPhoto,
+        await File(sourcePath).readAsBytes(),
+      );
+    } on LabelPhotoFormatException catch (error) {
+      throw BusinessRuleException(error.toString());
+    } on FileSystemException {
+      throw BusinessRuleException(
+        'No se pudo leer la foto elegida. Inténtelo otra vez.',
+      );
+    }
+    final documents = await _photoDocuments();
+    final relative = productPhotoRelativePath(productId, processed.sha256);
+    final target = productPhotoFile(documents, relative)!;
+    String? previous;
+    var wroteFile = false;
+    try {
+      await _write((txn, _) async {
+        final rows = await txn.query(
+          'products',
+          columns: ['photo_path'],
+          where: 'id=?',
+          whereArgs: [productId],
+        );
+        if (rows.isEmpty) throw BusinessRuleException('El producto no existe.');
+        previous = rows.single['photo_path'] as String?;
+        await target.parent.create(recursive: true);
+        await target.writeAsBytes(processed.bytes, flush: true);
+        wroteFile = true;
+        final now = _date(DateTime.now());
+        await txn.update(
+          'products',
+          {
+            'photo_path': relative,
+            'photo_sha256': processed.sha256,
+            'photo_updated_at': now,
+          },
+          where: 'id=?',
+          whereArgs: [productId],
+        );
+        await IdentificationRequestStore.onPhotoReplaced(
+          txn,
+          productId,
+          newSha: processed.sha256,
+          share: shareWithUnion,
+          now: now,
+        );
+      });
+    } on Object {
+      // Nada quedó registrado: el archivo nuevo sobra, salvo que sea el
+      // mismo que ya estaba guardado.
+      if (wroteFile && previous != relative) await _deleteQuietly(target);
+      rethrow;
+    }
+    if (previous != null && previous != relative) {
+      final old = productPhotoFile(documents, previous);
+      if (old != null) await _deleteQuietly(old);
+    }
+    return (await productPhoto(productId))!;
+  }
+
+  /// Quita la foto de la etiqueta de [productId]: borra el archivo y deja
+  /// las columnas en NULL. Si la foto se había compartido con el sindicato,
+  /// su retiro queda pendiente de envío (`REMOVE_PENDING`), en la misma
+  /// transacción.
+  Future<void> removeProductPhoto(int productId) async {
+    String? previous;
+    await _write((txn, _) async {
+      final rows = await txn.query(
+        'products',
+        columns: ['photo_path'],
+        where: 'id=?',
+        whereArgs: [productId],
+      );
+      if (rows.isEmpty) throw BusinessRuleException('El producto no existe.');
+      previous = rows.single['photo_path'] as String?;
+      final now = _date(DateTime.now());
+      await txn.update(
+        'products',
+        {'photo_path': null, 'photo_sha256': null, 'photo_updated_at': null},
+        where: 'id=?',
+        whereArgs: [productId],
+      );
+      await IdentificationRequestStore.onPhotoRemoved(txn, productId, now: now);
+    });
+    final file = productPhotoFile(await _photoDocuments(), previous);
+    if (file != null) await _deleteQuietly(file);
+  }
+
+  Future<Directory> _photoDocuments() =>
+      _productPhotoDocuments?.call() ?? resolveDocumentsDirectory();
+
+  static Future<void> _deleteQuietly(File file) async {
+    try {
+      if (await file.exists()) await file.delete();
+    } on FileSystemException {
+      // Limpieza: no cambia el resultado.
+    }
   }
 
   /// Sólo copia un archivo: basta la compuerta, no hay contexto de modalidad.

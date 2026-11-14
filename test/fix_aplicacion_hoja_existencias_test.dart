@@ -87,7 +87,7 @@ void main() {
     );
     await waitFor(tester, picker('Chaco'));
     await settle(tester);
-    await choose(tester, 'Persona', person);
+    await choose(tester, applicationPersonLabel, person);
     await choose(tester, 'Chaco', farm);
     await tapKey(tester, 'application-continue');
   }
@@ -109,7 +109,7 @@ void main() {
       await type(tester, '200');
       expect(
         find.text(
-          'Pediste 200 L y hay 1,5 L. Baja la cantidad o registra primero la '
+          'Pidió 200 L y hay 1,5 L. Baje la cantidad o registre primero la '
           'compra.',
         ),
         findsOneWidget,
@@ -120,7 +120,7 @@ void main() {
       expect(find.text('Guardar cambios'), findsOneWidget);
 
       await type(tester, '1,5');
-      expect(find.textContaining('Pediste'), findsNothing);
+      expect(find.textContaining('Pidió'), findsNothing);
       expect(addEnabled(tester), isTrue);
       await tapKey(tester, 'application-line-add');
       expect(find.text('Guardar cambios'), findsNothing);
@@ -137,10 +137,7 @@ void main() {
       await openForm(tester, s.repo, 'Hermana', 'Chaco hermana');
       await tapKey(tester, 'application-add-product');
       expect(
-        find.descendant(
-          of: picker('Producto'),
-          matching: find.text('Seleccionar'),
-        ),
+        find.descendant(of: picker('Producto'), matching: find.text('Elegir')),
         findsOneWidget,
       );
       await choose(tester, 'Producto', 'Glifosato');
@@ -149,7 +146,7 @@ void main() {
       await type(tester, '1');
       expect(
         find.text(
-          'Pediste 1 L y hay 0,5 L. Baja la cantidad o registra primero la '
+          'Pidió 1 L y hay 0,5 L. Baje la cantidad o registre primero la '
           'compra.',
         ),
         findsOneWidget,

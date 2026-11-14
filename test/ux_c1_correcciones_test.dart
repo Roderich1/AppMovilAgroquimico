@@ -150,8 +150,16 @@ Future<void> _pumpHome(
   await _settle(tester);
 }
 
-Finder _inDialog(Finder matching) =>
-    find.descendant(of: find.byType(AlertDialog), matching: matching);
+Finder _inDialog(Finder matching) => find.descendant(
+  of: find.byKey(const Key('payment-sheet')),
+  matching: matching,
+);
+
+/// «Registrar pago» es un botón visible de la tarjeta (rediseño).
+Finder _payIn(Finder card) => find.descendant(
+  of: card,
+  matching: find.widgetWithText(FilledButton, 'Registrar pago'),
+);
 
 void main() {
   sqfliteFfiInit();
@@ -189,11 +197,17 @@ void main() {
         matching: find.byType(Card),
       );
       final own = find.byKey(const Key('own-consumption-card'));
-      for (final card in [person, own]) {
-        final labels = await menuOf(tester, card);
-        expect(labels, contains('Registrar pago'));
-        expect(labels, isNot(contains('Registrar adelanto')));
-      }
+      // Rediseño: en la tarjeta de una persona «Registrar pago» es un botón
+      // visible. Ronda 2 (2026-11-12): el autor revisó Q-2 y el titular ya
+      // no tiene «Registrar pago» en su menú (antes: lo conservaba).
+      expect(_payIn(person), findsOneWidget);
+      expect(
+        await menuOf(tester, person),
+        isNot(contains('Registrar adelanto')),
+      );
+      final labels = await menuOf(tester, own);
+      expect(labels, isNot(contains('Registrar pago')));
+      expect(labels, isNot(contains('Registrar adelanto')));
     });
 
     testWidgets('registrar desde Cuentas escribe un PAYMENT, y un adelanto '
@@ -222,9 +236,9 @@ void main() {
         matching: find.byType(PopupMenuButton<String>),
       );
       await tester.ensureVisible(menu);
-      await tester.tap(menu);
-      await _settle(tester, rounds: 2);
-      await tester.tap(find.text('Registrar pago'));
+      await tester.ensureVisible(_payIn(card));
+      await tester.pump();
+      await tester.tap(_payIn(card));
       await _settle(tester, rounds: 2);
       await tester.enterText(_inDialog(find.byType(TextField)), '20');
       await tester.tap(_inDialog(find.text('Registrar')));
@@ -330,9 +344,9 @@ void main() {
         matching: find.byType(PopupMenuButton<String>),
       );
       await tester.ensureVisible(menu);
-      await tester.tap(menu);
-      await _settle(tester, rounds: 2);
-      await tester.tap(find.text('Registrar pago'));
+      await tester.ensureVisible(_payIn(card));
+      await tester.pump();
+      await tester.tap(_payIn(card));
       await _settle(tester, rounds: 2);
 
       final field = tester.widget<TextField>(_inDialog(find.byType(TextField)));
@@ -346,7 +360,7 @@ void main() {
       await tester.enterText(_inDialog(find.byType(TextField)), '1,500');
       await tester.tap(_inDialog(find.text('Registrar')));
       await _settle(tester, rounds: 2);
-      expect(find.byType(AlertDialog), findsOneWidget);
+      expect(find.byKey(const Key('payment-sheet')), findsOneWidget);
       final rows = (await tester.runAsync(
         () => world.db.query('account_transactions'),
       ))!;
@@ -383,9 +397,9 @@ void main() {
           scrollable: find.byType(Scrollable).first,
         );
         await _settle(tester, rounds: 1);
-        await tester.tap(menu);
-        await _settle(tester, rounds: 2);
-        await tester.tap(find.text('Registrar pago'));
+        await tester.ensureVisible(_payIn(card));
+        await tester.pump();
+        await tester.tap(_payIn(card));
         await _settle(tester, rounds: 2);
 
         // Teclado numérico abierto: 300 dp de la parte inferior.
@@ -453,13 +467,18 @@ void main() {
       );
       await _settle(tester);
 
+      // Rediseño B: cada compra es una fila con clave `purchase-card-<id>`.
       final cards = find.ancestor(
         of: find.textContaining('Agroquímicos del Valle'),
-        matching: find.byType(Card),
+        matching: find.byWidgetPredicate(
+          (w) =>
+              w.key is ValueKey<String> &&
+              (w.key! as ValueKey<String>).value.startsWith('purchase-card-'),
+        ),
       );
       expect(cards, findsNWidgets(2));
-      for (final card in tester.widgetList<Card>(cards).toList()) {
-        await tester.tap(find.byWidget(card));
+      for (final card in tester.widgetList(cards).toList()) {
+        await tester.tap(find.byKey(card.key!));
         await _settle(tester, rounds: 3);
         router.pop();
         await _settle(tester, rounds: 3);
@@ -517,7 +536,8 @@ void main() {
 
         // El texto del actor no va en el lateral: usa el ancho de la fila
         // salvo el icono inicial y la flecha de desplegar (≈ 128 dp de 328).
-        final card = tester.getRect(find.byType(Card));
+        // Rediseño B: las transferencias van en un grupo blanco.
+        final card = tester.getRect(find.byKey(const Key('transfers-group')));
         final actorRect = tester.getRect(actor);
         expect(actorRect.width, greaterThan(card.width * 0.55));
         // El título conserva el ancho de la fila (no se parte en columnas

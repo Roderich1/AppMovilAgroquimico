@@ -42,16 +42,16 @@ class SharedOnlyNotice extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           const Text(
-            'En inventario propio no hay transferencias entre responsables. '
+            'En el modo individual no hay transferencias entre responsables. '
             'Las transferencias anteriores se conservan y vuelven a verse al '
-            'pasar a inventario compartido en Modo de uso.',
+            'pasar al modo con varias personas en Modo de uso.',
             key: Key('shared-only-notice'),
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 16),
           FilledButton(
             onPressed: onBack,
-            child: const Text('Volver a Operaciones'),
+            child: const Text('Volver a Actividad'),
           ),
         ],
       ),

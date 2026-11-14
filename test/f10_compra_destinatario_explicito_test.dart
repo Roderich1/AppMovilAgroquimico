@@ -24,12 +24,14 @@ import 'package:agroquimicos/domain/money.dart';
 import 'package:agroquimicos/domain/operation_mode.dart';
 import 'package:agroquimicos/presentation/screens/purchase_form_screen.dart';
 import 'package:agroquimicos/presentation/widgets/adaptive_entity_picker.dart';
+import 'package:agroquimicos/presentation/widgets/agro_ui.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'support/f04_mode_ui_harness.dart';
+import 'support/purchase_form_driver.dart';
 
 typedef Row = Map<String, Object?>;
 
@@ -62,6 +64,7 @@ void main() {
   );
 
   Future<void> tapKey(WidgetTester tester, String key) async {
+    await preparePurchaseKey(tester, key);
     await tester.ensureVisible(find.byKey(Key(key)));
     await tester.pump();
     await tester.tap(find.byKey(Key(key)));
@@ -75,21 +78,41 @@ void main() {
 
   Future<void> openForm(WidgetTester tester, ProviderContainer c) async {
     c.read(routerProvider).push('/compras/nueva');
-    await waitFor(tester, field('Cantidad comprada'));
+    await waitFor(tester, find.byKey(const Key('purchase-add-line')));
     await settle(tester);
+  }
+
+  /// Lo que dice la tarjeta del producto [index] en el paso 1 (también con
+  /// su hoja abierta encima).
+  String lineStatus(WidgetTester tester, [int index = 0]) =>
+      tester
+          .widget<ItemCard>(
+            find.byKey(Key('purchase-line-$index'), skipOffstage: false),
+          )
+          .subtitle ??
+      '';
+
+  /// Una línea de la revisión como antes: «producto · cantidad · subtotal ·
+  /// destinatario».
+  String reviewLine(WidgetTester tester, [int index = 0]) {
+    String t(String key) => tester.widget<Text>(find.byKey(Key(key))).data!;
+    return '${t('purchase-review-line-$index')} · '
+        '${t('purchase-review-subtotal-$index')} · '
+        '${t('purchase-review-recipient-$index')}';
   }
 
   /// Proveedor, Glifosato, 2 L a 45 Bs/L; el destinatario queda por decidir.
   Future<void> fillLine(WidgetTester tester) async {
     await choose(tester, 'Proveedor', 'Proveedor');
+    await openPurchaseLine(tester);
     await choose(tester, 'Producto', 'Glifosato');
     await tester.enterText(field('Cantidad comprada'), '2');
-    await tester.enterText(field('Precio BOB/L'), '45');
+    await tester.enterText(field('Precio por L'), '45');
     await settle(tester);
   }
 
   bool inStep1() =>
-      find.text('Paso 1 de 2 · Proveedor y productos').evaluate().isNotEmpty;
+      find.text('¿Qué compró?', skipOffstage: false).evaluate().isNotEmpty;
 
   /// Deja que el aviso en pantalla expire y desaparezca: los `SnackBar` se
   /// encolan, y el siguiente mensaje no se vería mientras dure el anterior.
@@ -108,13 +131,13 @@ void main() {
     final c = await pumpModeApp(tester, s.database);
     await openForm(tester, c);
 
+    await openPurchaseLine(tester);
     await choose(tester, 'Producto', 'Glifosato');
-    await tester.tap(find.text('Agregar producto'));
-    await settle(tester);
+    // «Añadir otro» crea la línea 2 y abre su hoja.
+    await tapKey(tester, 'purchase-line-next');
 
-    expect(find.text('Productos (2)'), findsOneWidget);
+    expect(find.byKey(const Key('purchase-line-sheet-1')), findsOneWidget);
     // La línea 2 sigue sin producto aunque Bellator sea la única opción.
-    expect(find.text('Seleccione producto'), findsOneWidget);
     final second = tester
         .widgetList<AdaptiveEntityPicker<Row>>(picker('Producto'))
         .last;
@@ -130,7 +153,7 @@ void main() {
     final s = await activatedHousehold(tester, 'dest-a2');
     final c = await pumpModeApp(tester, s.database);
     await openForm(tester, c);
-    expect(find.text('Seleccione producto'), findsOneWidget);
+    await openPurchaseLine(tester);
     expect(
       tester.widget<AdaptiveEntityPicker<Row>>(picker('Producto')).value,
       isNull,
@@ -148,20 +171,10 @@ void main() {
     await fillLine(tester);
 
     // Ninguna opción marcada; sin selector de persona todavía.
-    expect(find.textContaining('Pendiente de destinatario'), findsOneWidget);
+    expect(lineStatus(tester), contains('Pendiente de destinatario'));
     expect(picker('Persona'), findsNothing);
-    expect(
-      tester
-          .widget<ChoiceChip>(find.byKey(const Key('purchase-alloc-single-0')))
-          .selected,
-      isFalse,
-    );
-    expect(
-      tester
-          .widget<ChoiceChip>(find.byKey(const Key('purchase-alloc-split-0')))
-          .selected,
-      isFalse,
-    );
+    expect(segmentSelected(tester, 'purchase-alloc-single-0'), isFalse);
+    expect(segmentSelected(tester, 'purchase-alloc-split-0'), isFalse);
 
     await tapKey(tester, 'purchase-alloc-single-0');
     // El selector no se rellena solo y el titular se rotula «Titular».
@@ -174,24 +187,24 @@ void main() {
     expect(person.secondaryOf!(titular), 'Titular');
     expect(person.secondaryOf!(hermana), 'Familiar');
     expect(person.secondaryOf!(vecino), 'Tercero');
-    expect(find.textContaining('Pendiente de destinatario'), findsOneWidget);
+    expect(lineStatus(tester), contains('Pendiente de destinatario'));
 
     await choose(tester, 'Persona', 'Titular');
-    expect(find.textContaining('Para: Titular'), findsOneWidget);
-    expect(find.text('Recibe toda la cantidad comprada: 2 L.'), findsOneWidget);
+    expect(lineStatus(tester), contains('Para: Titular'));
+    expect(find.text('Recibe toda la cantidad: 2 L'), findsOneWidget);
     // No hay cantidad que reteclear.
     expect(field('Cantidad'), findsNothing);
 
     // Si cambia la cantidad comprada, la asignación la sigue.
     await tester.enterText(field('Cantidad comprada'), '3');
     await settle(tester);
-    expect(find.text('Recibe toda la cantidad comprada: 3 L.'), findsOneWidget);
+    expect(find.text('Recibe toda la cantidad: 3 L'), findsOneWidget);
 
     await tapKey(tester, 'purchase-continue');
     expect(inStep1(), isFalse);
     expect(
-      find.text('Glifosato · 3 L · ${formatBob(13500)} · Para: Titular'),
-      findsOneWidget,
+      reviewLine(tester),
+      'Glifosato · 3 L · ${formatBob(13500)} · Para: Titular',
     );
     await tester.tap(find.byKey(const Key('purchase-paid-yes')));
     await settle(tester);
@@ -229,15 +242,15 @@ void main() {
       expect(p.value, isNull);
       expect(p.autoSelectSingle, isFalse);
     }
-    expect(find.textContaining('Pendiente de cantidad'), findsNothing);
-    expect(find.textContaining('Pendiente de persona'), findsOneWidget);
+    expect(lineStatus(tester), isNot(contains('Pendiente de cantidad')));
+    expect(lineStatus(tester), contains('Pendiente de persona'));
 
     await choose(tester, 'Persona', 'Titular');
     await choose(tester, 'Persona', 'Hermana', position: 1);
     await tester.enterText(field('Cantidad').at(0), '1');
     await tester.enterText(field('Cantidad').at(1), '0,5');
     await settle(tester);
-    expect(find.textContaining('Pendiente 0,5 L'), findsOneWidget);
+    expect(lineStatus(tester), contains('Pendiente 0,5 L'));
     await tapKey(tester, 'purchase-continue');
     expect(
       find.text('Falta repartir parte de la cantidad de Glifosato.'),
@@ -248,7 +261,7 @@ void main() {
 
     await tester.enterText(field('Cantidad').at(1), '1,5');
     await settle(tester);
-    expect(find.textContaining('Excede en 0,5 L'), findsOneWidget);
+    expect(lineStatus(tester), contains('Excede en 0,5 L'));
     await tapKey(tester, 'purchase-continue');
     expect(
       find.text('Lo repartido supera la cantidad comprada de Glifosato.'),
@@ -272,17 +285,15 @@ void main() {
 
     await choose(tester, 'Persona', 'Hermana', position: 1);
     expect(
-      find.textContaining('Repartida: Titular 1 L · Hermana 1 L'),
-      findsOneWidget,
+      lineStatus(tester),
+      contains('Repartida: Titular 1 L · Hermana 1 L'),
     );
     await tapKey(tester, 'purchase-continue');
     expect(inStep1(), isFalse);
     expect(
-      find.text(
-        'Glifosato · 2 L · ${formatBob(9000)} · '
-        'Repartida: Titular 1 L · Hermana 1 L',
-      ),
-      findsOneWidget,
+      reviewLine(tester),
+      'Glifosato · 2 L · ${formatBob(9000)} · '
+      'Repartida: Titular 1 L · Hermana 1 L',
     );
     await tester.tap(find.byKey(const Key('purchase-paid-no')));
     await settle(tester);
@@ -337,9 +348,9 @@ void main() {
     // Una persona → Titular; re-tocar la opción activa conserva la elección.
     await tapKey(tester, 'purchase-alloc-single-0');
     await choose(tester, 'Persona', 'Titular');
-    expect(find.textContaining('Para: Titular'), findsOneWidget);
+    expect(lineStatus(tester), contains('Para: Titular'));
     await tapKey(tester, 'purchase-alloc-single-0');
-    expect(find.textContaining('Para: Titular'), findsOneWidget);
+    expect(lineStatus(tester), contains('Para: Titular'));
     expect(
       tester.widget<AdaptiveEntityPicker<Row>>(picker('Persona')).value,
       isNotNull,
@@ -353,8 +364,8 @@ void main() {
     )) {
       expect(p.value, isNull);
     }
-    expect(find.textContaining('Para: Titular'), findsNothing);
-    expect(find.textContaining('Pendiente de persona'), findsOneWidget);
+    expect(lineStatus(tester), isNot(contains('Para: Titular')));
+    expect(lineStatus(tester), contains('Pendiente de persona'));
     expect(tester.takeException(), isNull);
 
     // Rellenar el reparto; re-tocar «Repartir» conserva las filas.
@@ -363,15 +374,9 @@ void main() {
     await tester.enterText(field('Cantidad').at(0), '1');
     await tester.enterText(field('Cantidad').at(1), '1');
     await settle(tester);
-    expect(
-      find.textContaining('Repartida: Hermana 1 L · Vecino 1 L'),
-      findsOneWidget,
-    );
+    expect(lineStatus(tester), contains('Repartida: Hermana 1 L · Vecino 1 L'));
     await tapKey(tester, 'purchase-alloc-split-0');
-    expect(
-      find.textContaining('Repartida: Hermana 1 L · Vecino 1 L'),
-      findsOneWidget,
-    );
+    expect(lineStatus(tester), contains('Repartida: Hermana 1 L · Vecino 1 L'));
     expect(picker('Persona'), findsNWidgets(2));
 
     // Volver a «Toda para una persona»: sin persona ni filas heredadas.
@@ -382,8 +387,8 @@ void main() {
       isNull,
     );
     expect(field('Cantidad'), findsNothing);
-    expect(find.textContaining('Pendiente de destinatario'), findsOneWidget);
-    expect(find.textContaining('Repartida:'), findsNothing);
+    expect(lineStatus(tester), contains('Pendiente de destinatario'));
+    expect(lineStatus(tester), isNot(contains('Repartida:')));
     expect(tester.takeException(), isNull);
 
     // Y al volver a «Repartir», dos filas nuevas vacías (no las anteriores).
@@ -411,13 +416,18 @@ void main() {
     );
     final c = await pumpModeApp(tester, s.database);
     await openForm(tester, c);
+    await openPurchaseLine(tester);
     expect(find.text('¿Para quién es?'), findsNothing);
-    expect(find.text('Toda para una persona'), findsNothing);
+    expect(find.text('Una persona'), findsNothing);
     expect(find.text('Repartir entre varias'), findsNothing);
     expect(picker('Persona'), findsNothing);
-    expect(find.text('Para el titular: Titular'), findsOneWidget);
-    expect(find.textContaining('Pendiente de destinatario'), findsNothing);
-    expect(find.textContaining('Pendiente de cantidad'), findsOneWidget);
+    // Rediseño individual (lámina I-11): la hoja no repite el titular.
+    expect(find.textContaining('Para el titular'), findsNothing);
+    // Con el producto elegido, la tarjeta dice lo que falta: la cantidad,
+    // nunca el destinatario.
+    await choose(tester, 'Producto', 'Glifosato');
+    expect(lineStatus(tester), isNot(contains('Pendiente de destinatario')));
+    expect(lineStatus(tester), contains('Pendiente de cantidad'));
   });
 
   testWidgets('(f) Atrás con sólo el proveedor autoseleccionado cierra sin '
@@ -448,8 +458,9 @@ void main() {
     final s = await activatedHousehold(tester, 'dest-g');
     final c = await pumpModeApp(tester, s.database);
     await openForm(tester, c);
+    await openPurchaseLine(tester);
     await choose(tester, 'Producto', 'Glifosato');
-    await tester.enterText(field('Precio BOB/L'), '45');
+    await tester.enterText(field('Precio por L'), '45');
     await tapKey(tester, 'purchase-alloc-single-0');
     await choose(tester, 'Persona', 'Titular');
 
@@ -494,8 +505,8 @@ void main() {
     await tapKey(tester, 'purchase-continue');
     expect(inStep1(), isFalse);
     expect(
-      find.text('Glifosato · 1,5 L · ${formatBob(6750)} · Para: Titular'),
-      findsOneWidget,
+      reviewLine(tester),
+      'Glifosato · 1,5 L · ${formatBob(6750)} · Para: Titular',
     );
   });
 }

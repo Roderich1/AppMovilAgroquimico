@@ -68,24 +68,28 @@ void main() {
     await settle(tester);
   }
 
-  Finder personMenu() => find.descendant(
+  /// «Registrar pago» es un botón visible de la tarjeta (rediseño).
+  Finder payButton() => find.descendant(
     of: find.byType(Card),
-    matching: find.byType(PopupMenuButton<String>),
+    matching: find.widgetWithText(FilledButton, 'Registrar pago'),
   );
 
   Future<void> openPaymentDialog(WidgetTester tester) async {
-    await tester.ensureVisible(personMenu().first);
-    await tester.tap(personMenu().first);
-    await settle(tester);
-    await tester.tap(find.text('Registrar pago'));
+    await tester.ensureVisible(payButton().first);
+    // Ronda 2: el botón queda más abajo (área, campaña y búsqueda arriba):
+    // hay que pintar el desplazamiento antes de tocar.
+    await tester.pump();
+    await tester.tap(payButton().first);
     await settle(tester);
   }
 
   /// Busca dentro del diálogo: la pantalla de fondo también contiene el nombre
   /// de la persona y la palabra "Saldo", así que buscar en toda la pantalla
   /// daría un falso positivo.
-  Finder inDialog(Finder matching) =>
-      find.descendant(of: find.byType(AlertDialog), matching: matching);
+  Finder inDialog(Finder matching) => find.descendant(
+    of: find.byKey(const Key('payment-sheet')),
+    matching: matching,
+  );
 
   Finder amountField() => inDialog(find.byType(TextField));
 
@@ -103,11 +107,12 @@ void main() {
 
     for (var iteration = 0; iteration < 20; iteration++) {
       await openPaymentDialog(tester);
-      expect(find.byType(AlertDialog), findsOneWidget);
+      expect(find.byKey(const Key('payment-sheet')), findsOneWidget);
       await tester.tap(find.text('Cancelar'));
       await settle(tester);
       expect(
-        find.text('Liquidación y cuentas'),
+        // Ronda 2: `/liquidacion` muestra Personas › Cuentas.
+        find.text('Personas'),
         findsOneWidget,
         reason: 'la pantalla debe seguir viva tras cerrar el diálogo',
       );
@@ -228,7 +233,7 @@ void main() {
       reason: 'debe explicarse el formato esperado',
     );
     expect(
-      find.byType(AlertDialog),
+      find.byKey(const Key('payment-sheet')),
       findsOneWidget,
       reason: 'no debe cerrarse',
     );
@@ -252,7 +257,7 @@ void main() {
     await tester.tap(find.text('Registrar'));
     await settle(tester);
 
-    expect(find.byType(AlertDialog), findsOneWidget);
+    expect(find.byKey(const Key('payment-sheet')), findsOneWidget);
     expect(inDialog(find.textContaining('ambiguo')), findsWidgets);
     final amounts = (await tester.runAsync(
       () => recordedAmounts(repo, person),
@@ -278,13 +283,9 @@ void main() {
     );
     await pumpScreen(tester, repo);
 
-    await tester.ensureVisible(personMenu().first);
-    await tester.tap(personMenu().first);
-    await settle(tester);
-    expect(find.text('Registrar pago'), findsOneWidget);
+    expect(payButton(), findsOneWidget);
     expect(find.text('Registrar adelanto'), findsNothing);
-    await tester.tap(find.text('Registrar pago'));
-    await settle(tester);
+    await openPaymentDialog(tester);
     expect(
       inDialog(find.textContaining('queda a favor (como un adelanto)')),
       findsOneWidget,

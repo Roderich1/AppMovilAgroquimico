@@ -29,10 +29,18 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'support/f04_mode_fixtures.dart';
 import 'support/f04_mode_ui_harness.dart';
 import 'support/f04_owner_pin.dart';
+import 'support/purchase_form_driver.dart';
 
 typedef Row = Map<String, Object?>;
 
 void main() {
+  /// Cifra de una de las fichas de avisos del Almacén.
+  void expectTile(String key, String count) => expect(
+    find.descendant(of: find.byKey(Key(key)), matching: find.text(count)),
+    findsOneWidget,
+    reason: key,
+  );
+
   sqfliteFfiInit();
 
   Finder field(String label) => find.byWidgetPredicate(
@@ -94,12 +102,14 @@ void main() {
     );
     final c = await pumpModeApp(tester, s.database);
     c.read(routerProvider).push('/compras/nueva');
-    await waitFor(tester, field('Cantidad comprada'));
+    await waitFor(tester, find.byKey(const Key('purchase-add-line')));
     await settle(tester);
     for (final (label, name) in [
       ('Proveedor', 'Proveedor'),
       ('Producto', 'Glifosato'),
     ]) {
+      // Rediseño: el producto se elige en la hoja «Producto 1».
+      if (label == 'Producto') await openPurchaseLine(tester);
       final picker = tester.widget<AdaptiveEntityPicker<Row>>(
         find.byWidgetPredicate(
           (w) => w is AdaptiveEntityPicker<Row> && w.label == label,
@@ -110,15 +120,18 @@ void main() {
       );
       await settle(tester);
     }
+    await openPurchaseLine(tester);
     await tester.enterText(field('Cantidad comprada'), '2');
-    await tester.enterText(field('Precio BOB/L'), '45');
+    await openPurchaseLine(tester);
+    await tester.enterText(field('Precio por L'), '45');
     await settle(tester);
 
-    // Plegado y opcional: sin abrirlo, la compra sería «sin fecha».
-    expect(
-      find.text('Sin datos: el lote quedará «sin fecha registrada».'),
-      findsOneWidget,
-    );
+    // Opcional: sin tocarlo, la compra sería «sin fecha» (sin resumen).
+    // Ronda 2 del rediseño (sesión A): el vencimiento está a la vista y el
+    // número del envase, plegado en «Más datos del envase».
+    expect(find.text('Vencimiento (opcional)'), findsOneWidget);
+    expect(find.text('Más datos del envase'), findsOneWidget);
+    expect(find.textContaining('Vence el'), findsNothing);
     await tapKey(tester, 'purchase-lot-data-0');
     // Más de 100 caracteres: se conserva lo escrito, se señala y no se
     // puede seguir a la revisión.
@@ -128,6 +141,7 @@ void main() {
     );
     await settle(tester);
     expect(find.text('101/100'), findsOneWidget);
+    await closePurchaseLine(tester);
     await tapKey(tester, 'purchase-continue');
     expect(find.byKey(const Key('purchase-review-lot-0')), findsNothing);
     expect(
@@ -157,11 +171,11 @@ void main() {
     );
     await settle(tester);
     final todayDay = localDay(DateTime.now());
-    expect(
-      find.text('Vence el ${displayDay(todayDay)} · lote GLI-77'),
-      findsWidgets,
-    );
+    // Ronda 2 (sesión A): fecha y número del envase, cada uno en su sitio.
+    expect(find.text('Vence el ${displayDay(todayDay)}'), findsWidgets);
+    expect(find.text('Lote del fabricante: GLI-77'), findsOneWidget);
 
+    await closePurchaseLine(tester);
     await tapKey(tester, 'purchase-continue');
     expect(find.byKey(const Key('purchase-review-lot-0')), findsOneWidget);
     await tester.tap(find.byKey(const Key('purchase-paid-no')));
@@ -224,7 +238,11 @@ void main() {
     Finder rich(String text) => find.textContaining(text, findRichText: true);
     await waitFor(tester, rich('Vencimiento: sin fecha registrada'));
     expect(rich('Vencimiento: sin fecha registrada'), findsOneWidget);
-    expect(rich('Número de lote: sin registrar'), findsOneWidget);
+    // Ronda 2 del rediseño (decisión del autor del 2026-11-12): sin número
+    // del fabricante no se escribe «sin registrar»; el rótulo sólo aparece
+    // si hay número.
+    expect(rich('Lote del fabricante'), findsNothing);
+    expect(rich('Número de lote'), findsNothing);
 
     final itemId = (await rows(
       tester,
@@ -268,7 +286,7 @@ void main() {
     await tapKey(tester, 'lot-data-save');
     // Aprobación del titular: el cambio, el motivo y el PIN.
     expect(
-      find.textContaining('Número de lote: sin número → L-9'),
+      find.textContaining('Lote del fabricante: sin número → L-9'),
       findsOneWidget,
     );
     await tester.enterText(
@@ -279,8 +297,8 @@ void main() {
     await waitFor(tester, find.byKey(const Key('owner-pin-input')));
     await tester.enterText(find.byKey(const Key('owner-pin-input')), '284917');
     await tapKey(tester, 'owner-pin-submit');
-    await waitFor(tester, rich('Número de lote: L-9'));
-    expect(rich('Número de lote: L-9'), findsOneWidget);
+    await waitFor(tester, rich('Lote del fabricante: L-9'));
+    expect(rich('Lote del fabricante: L-9'), findsOneWidget);
     expect(
       rich('Correcciones: 1 (las cantidades no cambiaron)'),
       findsOneWidget,
@@ -325,7 +343,7 @@ void main() {
     c.read(routerProvider).pop();
     await settle(tester);
     c.read(routerProvider).push('/compras/detalle/$purchaseId');
-    await waitFor(tester, rich('Número de lote: L-9'));
+    await waitFor(tester, rich('Lote del fabricante: L-9'));
     expect(find.byKey(Key('purchase-lot-data-correct-$itemId')), findsNothing);
     expect(
       find.byKey(Key('purchase-lot-data-history-$itemId')),
@@ -364,8 +382,9 @@ void main() {
     await tester.ensureVisible(lotsTile);
     await tester.tap(lotsTile);
     await settle(tester);
+    // Ronda 2: cada lote es una tarjeta; el texto empieza con mayúscula.
     expect(
-      find.textContaining('sin fecha de vencimiento registrada'),
+      find.textContaining('Sin fecha de vencimiento registrada'),
       findsOneWidget,
     );
 
@@ -542,11 +561,14 @@ void main() {
     });
     final c = await pumpModeApp(tester, s.database);
     c.read(routerProvider).go('/inventario');
-    await waitFor(tester, find.textContaining('bajo en el total'));
+    // Rediseño B: los productos bajos en el total van en su ficha; el resto,
+    // en el resumen de «Todos los avisos», con lo que cuenta cada cifra.
+    await waitFor(tester, find.byKey(const Key('inventory-tile-low')));
+    expectTile('inventory-tile-low', '1');
     expect(
       find.text(
-        '1 bajo en el total · 2 bajos por responsable · '
-        '2 sin fecha registrada',
+        '2 existencias bajas por responsable · '
+        '2 lotes sin fecha registrada',
       ),
       findsOneWidget,
     );
@@ -606,19 +628,32 @@ void main() {
     final c = await pumpModeApp(tester, s.database);
     c.read(routerProvider).go('/inventario');
     await waitFor(tester, find.byKey(const Key('inventory-alerts-entry')));
-    await waitFor(tester, find.textContaining('1 vencido'));
+    // Rediseño B: vencidos, de hoy y bajos en el total en sus fichas; el
+    // resto en el resumen de «Todos los avisos».
+    await waitFor(tester, find.byKey(const Key('inventory-tile-expired')));
+    expectTile('inventory-tile-expired', '1');
+    expectTile('inventory-tile-today', '1');
+    expectTile('inventory-tile-low', '0');
     expect(
       find.text(
-        '1 vencido · 1 vence hoy · 1 por vencer · 1 bajo por responsable · '
-        '1 sin fecha registrada',
+        '1 lote por vencer · 1 existencia baja por responsable · '
+        '1 lote sin fecha registrada',
       ),
       findsOneWidget,
     );
 
     await tapKey(tester, 'inventory-alerts-entry');
     await waitFor(tester, find.byKey(const Key('alerts-expired')));
-    expect(find.text('Vencidos (1)'), findsOneWidget);
-    expect(find.text('Glifosato · lote VIEJO'), findsOneWidget);
+    expect(find.text('Lotes vencidos (1)'), findsOneWidget);
+    // Ronda 2: el título es el producto; el número del fabricante, aparte.
+    expect(
+      find.descendant(
+        of: find.byKey(const Key('alerts-expired')),
+        matching: find.text('Glifosato'),
+      ),
+      findsOneWidget,
+    );
+    expect(find.text('Lote del fabricante: VIEJO'), findsOneWidget);
     expect(
       find.text(
         'Venció el ${displayDay(yesterday)}, hace 1 día · Quedan 3 L · Titular',
@@ -626,7 +661,7 @@ void main() {
       findsOneWidget,
     );
     // Vence hoy: sección propia, destacada, entre vencidos y próximos.
-    expect(find.text('Vence hoy (1)'), findsOneWidget);
+    expect(find.text('Lotes que vencen hoy (1)'), findsOneWidget);
     expect(
       find.text('Vence hoy, ${displayDay(today)} · Quedan 1 L · Titular'),
       findsOneWidget,
@@ -646,7 +681,7 @@ void main() {
       tester.getTopLeft(find.byKey(const Key('alerts-today'))).dy,
       lessThan(tester.getTopLeft(find.byKey(const Key('alerts-near'))).dy),
     );
-    expect(find.text('Próximos a vencer (1)'), findsOneWidget);
+    expect(find.text('Lotes próximos a vencer (1)'), findsOneWidget);
     expect(
       find.text(
         'Vence el ${displayDay(in10)}, en 10 días · Quedan 2 L · Titular · '
@@ -665,20 +700,26 @@ void main() {
       ),
       findsOneWidget,
     );
+    expect(find.text('Lotes sin fecha de vencimiento (1)'), findsOneWidget);
+    // Ronda 2: sin «sin número de lote»; el lote sin fecha sigue listado.
     expect(
-      find.text('Sin fecha de vencimiento registrada (1)'),
+      find.descendant(
+        of: find.byKey(const Key('alerts-unknown')),
+        matching: find.text('Glifosato'),
+      ),
       findsOneWidget,
     );
-    expect(
-      find.textContaining('Glifosato · sin número de lote'),
-      findsOneWidget,
-    );
+    expect(find.textContaining('sin número de lote'), findsNothing);
     expect(find.byKey(const Key('alerts-clock-warning')), findsNothing);
-    // El plazo inicial se explica y se dice dónde cambiarlo.
+    // El plazo inicial se explica y se dice dónde cambiarlo (rediseño B: en
+    // el diálogo «i» de la cabecera, no como párrafo permanente).
+    await tapKey(tester, 'alerts-info');
     expect(
       find.textContaining('El plazo inicial es de 30 días; puede cambiarlo'),
       findsOneWidget,
     );
+    await tester.tap(find.text('Cerrar'));
+    await settle(tester);
 
     await tester.tap(find.text('Glifosato · Hermana (responsable)'));
     await waitFor(tester, find.byKey(const Key('inventory-alert-settings')));

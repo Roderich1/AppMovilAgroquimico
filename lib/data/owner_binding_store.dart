@@ -319,7 +319,7 @@ class OwnerBindingStore {
       );
       if (mode == OperationMode.personal) {
         throw OwnerBindingException(
-          'Cambie primero a inventario compartido para cambiar de titular.',
+          'Cambie primero al modo con varias personas para cambiar de titular.',
         );
       }
       if (await queue.operationsBoundTo(txn, current.id) > 0) {

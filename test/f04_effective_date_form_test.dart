@@ -19,6 +19,8 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'support/f04_mode_fixtures.dart';
 import 'support/es_material_labels.dart';
 import 'support/f04_mode_ui_harness.dart';
+import 'support/purchase_form_driver.dart';
+import 'support/shell_finders.dart';
 
 typedef Row = Map<String, Object?>;
 
@@ -147,10 +149,14 @@ void main() {
 
   Future<void> fillPurchase(WidgetTester tester) async {
     await choose(tester, 'Proveedor', 'Proveedor');
+    await openPurchaseLine(tester);
     await choose(tester, 'Producto', 'Glifosato');
+    await openPurchaseLine(tester);
     await tester.enterText(field('Cantidad comprada'), '4');
-    await tester.enterText(field('Precio BOB/L'), '50');
+    await openPurchaseLine(tester);
+    await tester.enterText(field('Precio por L'), '50');
     await settle(tester);
+    await closePurchaseLine(tester);
   }
 
   Future<void> confirm(WidgetTester tester, Key button, {int taps = 1}) async {
@@ -165,6 +171,7 @@ void main() {
   /// Compra (piloto X01): del paso 1 a la revisión, respondiendo «No» a
   /// «¿Pagaste toda esta compra?».
   Future<void> toReview(WidgetTester tester) async {
+    await closePurchaseLine(tester);
     await confirm(tester, const Key('purchase-continue'));
     await tester.tap(find.byKey(const Key('purchase-paid-no')));
     await settle(tester);
@@ -179,13 +186,13 @@ void main() {
       final h = await home(tester, 'compra-pasada');
       final c = await pumpModeApp(tester, h.database);
       c.read(routerProvider).push('/compras/nueva');
-      await waitFor(tester, field('Cantidad comprada'));
+      await waitFor(tester, find.byKey(const Key('purchase-add-line')));
       await settle(tester);
       final today = DateTime.now();
       expect(
         find.descendant(
           of: dateTile(tile),
-          matching: find.textContaining('(hoy)'),
+          matching: find.textContaining('Hoy, '),
         ),
         findsOneWidget,
       );
@@ -200,6 +207,7 @@ void main() {
         findsOneWidget,
       );
       // Elegir la fecha no toca el resto del borrador.
+      await openPurchaseLine(tester);
       expect(fieldText(tester, 'Cantidad comprada'), '4');
       await toReview(tester);
       await confirm(tester, button);
@@ -223,7 +231,7 @@ void main() {
       final h = await home(tester, 'compra-cancelar');
       final c = await pumpModeApp(tester, h.database);
       c.read(routerProvider).push('/compras/nueva');
-      await waitFor(tester, field('Cantidad comprada'));
+      await waitFor(tester, find.byKey(const Key('purchase-add-line')));
       await settle(tester);
       await fillPurchase(tester);
       final before = await dump(tester, h.database);
@@ -231,12 +239,13 @@ void main() {
       expect(
         find.descendant(
           of: dateTile(tile),
-          matching: find.textContaining('(hoy)'),
+          matching: find.textContaining('Hoy, '),
         ),
         findsOneWidget,
       );
+      await openPurchaseLine(tester);
       expect(fieldText(tester, 'Cantidad comprada'), '4');
-      expect(fieldText(tester, 'Precio BOB/L'), '50');
+      expect(fieldText(tester, 'Precio por L'), '50');
       expect(await dump(tester, h.database), before);
     });
 
@@ -245,7 +254,7 @@ void main() {
       final h = await home(tester, 'compra-cerrada', closedBeforeToday: true);
       final c = await pumpModeApp(tester, h.database);
       c.read(routerProvider).push('/compras/nueva');
-      await waitFor(tester, field('Cantidad comprada'));
+      await waitFor(tester, find.byKey(const Key('purchase-add-line')));
       await settle(tester);
       await fillPurchase(tester);
       final choice = pastDayChoice(DateTime.now());
@@ -287,7 +296,7 @@ void main() {
       c.read(routerProvider).go('/compras');
       await settle(tester);
       await tester.tap(find.text('Nueva compra'));
-      await waitFor(tester, field('Cantidad comprada'));
+      await waitFor(tester, find.byKey(const Key('purchase-add-line')));
       await settle(tester);
       await fillPurchase(tester);
       final choice = pastDayChoice(DateTime.now());
@@ -336,6 +345,7 @@ void main() {
       await chooseIfOffered('Chaco', 'Chaco titular');
       await confirm(tester, const Key('application-continue'));
       await confirm(tester, const Key('application-add-product'));
+      await openPurchaseLine(tester);
       await choose(tester, 'Producto', 'Glifosato');
       await tester.enterText(
         find.byKey(const Key('application-line-quantity')),
@@ -363,7 +373,7 @@ void main() {
       expect(
         find.descendant(
           of: dateTile(tile),
-          matching: find.textContaining('(hoy)'),
+          matching: find.textContaining('Hoy, '),
         ),
         findsOneWidget,
       );
@@ -407,7 +417,7 @@ void main() {
       expect(
         find.descendant(
           of: dateTile(tile),
-          matching: find.textContaining('(hoy)'),
+          matching: find.textContaining('Hoy, '),
         ),
         findsOneWidget,
       );
@@ -447,7 +457,7 @@ void main() {
       final c = await pumpModeApp(tester, h.database);
       c.read(routerProvider).go('/aplicaciones');
       await settle(tester);
-      await tester.tap(find.text('Registrar'));
+      await tester.tap(textOutsideShellFab('Registrar aplicación'));
       await waitFor(tester, picker('Chaco'));
       await settle(tester);
       final choice = pastDayChoice(DateTime.now());
@@ -467,10 +477,7 @@ void main() {
       for (var i = 0; i < 3; i++) {
         await tester.pump(const Duration(seconds: 5));
         await settle(tester);
-        expect(
-          find.textContaining('Aplicación multiproducto confirmada'),
-          findsNothing,
-        );
+        expect(find.textContaining('Aplicación registrada'), findsNothing);
       }
       expect(await rows(tester, h.database, 'applications'), before);
       expect(

@@ -79,18 +79,20 @@ void main() {
     final repo = await tester.runAsync(fixture);
     await pumpApp(tester, repo!);
 
-    await tester.tap(find.text('Operaciones').last);
+    await tester.tap(find.text('Actividad').last);
     await settle(tester, frames: 25);
 
-    // La tarjeta de compras debe existir y llevar al LISTADO, igual que las de
-    // aplicaciones y transferencias.
-    final card = find.textContaining('Compras');
+    // Rediseño B: el filtro «Compras» de Actividad ofrece la lista completa,
+    // igual que los de aplicaciones, planes y transferencias.
+    await tester.tap(find.byKey(const Key('activity-filter-purchases')));
+    await settle(tester);
+    final card = find.byKey(const Key('activity-open-purchases'));
     expect(
       card,
-      findsWidgets,
-      reason: 'Operaciones debe ofrecer una entrada a Compras',
+      findsOneWidget,
+      reason: 'Actividad debe ofrecer una entrada a Compras',
     );
-    await tester.tap(card.first);
+    await tester.tap(card);
     await settle(tester, frames: 30);
 
     // `PurchasesScreen` se identifica por su boton, que no existe en ninguna
@@ -115,9 +117,11 @@ void main() {
     final repo = await tester.runAsync(fixture);
     await pumpApp(tester, repo!);
 
-    await tester.tap(find.text('Operaciones').last);
+    await tester.tap(find.text('Actividad').last);
     await settle(tester, frames: 25);
-    await tester.tap(find.textContaining('Compras').first);
+    await tester.tap(find.byKey(const Key('activity-filter-purchases')));
+    await settle(tester);
+    await tester.tap(find.byKey(const Key('activity-open-purchases')));
     await settle(tester, frames: 30);
 
     await tester.tap(find.text('Nueva compra'));
@@ -125,7 +129,7 @@ void main() {
     await settle(tester, frames: 30);
 
     expect(
-      find.text('Paso 1 de 2 · Proveedor y productos'),
+      find.text('¿Qué compró?'),
       findsOneWidget,
       reason: 'Operaciones -> Compras -> Nueva compra debe abrir el formulario',
     );

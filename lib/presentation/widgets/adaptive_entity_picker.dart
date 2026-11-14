@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../domain/text_search.dart';
+import 'agro_ui.dart';
 
 class AdaptiveEntityPicker<T> extends StatefulWidget {
   const AdaptiveEntityPicker({
@@ -17,7 +18,37 @@ class AdaptiveEntityPicker<T> extends StatefulWidget {
     this.emptyMessage = 'No hay opciones disponibles.',
     this.allowClear = true,
     this.autoSelectSingle = true,
+    this.createLabel,
+    this.onCreate,
+    this.rowStyle = false,
+    this.displayLabel,
+    this.displayLabelKey,
+    this.placeholder = 'Elegir',
+    this.badge,
+    this.hint,
+    this.hintKey,
   });
+
+  /// Rediseño (2026-11-12): se dibuja como una fila «rótulo pequeño + valor
+  /// grande + flecha» ([ValueRow]) en vez de un campo con borde. El selector
+  /// que abre y lo que devuelve no cambian. «Limpiar» pasa a la hoja como
+  /// «Quitar selección».
+  final bool rowStyle;
+
+  /// Rótulo visible en [rowStyle] si difiere de [label] («Recibe 4 L» para
+  /// el selector «Persona»). La hoja y la semántica siguen usando [label].
+  final String? displayLabel;
+  final Key? displayLabelKey;
+
+  /// Texto de la fila sin valor elegido, en [rowStyle].
+  final String placeholder;
+
+  /// Etiqueta junto a la flecha en [rowStyle] (por ejemplo «Por voz»).
+  final Widget? badge;
+
+  /// Línea secundaria bajo el valor en [rowStyle] ([ValueRow.hint]).
+  final String? hint;
+  final Key? hintKey;
 
   final String label;
   final List<T> items;
@@ -41,6 +72,16 @@ class AdaptiveEntityPicker<T> extends StatefulWidget {
   /// recorrido pasa ahora por una confirmación explícita y abre su selector
   /// con `autoSelectSingle: false`.
   final bool autoSelectSingle;
+
+  /// Alta en el mismo selector («Crear producto»): la primera fila de la
+  /// hoja, también cuando la lista está vacía. [onCreate] abre el alta encima
+  /// del formulario y devuelve lo creado, que queda elegido; nulo si se
+  /// canceló o falló, y entonces nada del formulario cambia. Sólo se ofrece
+  /// en formularios que usan ese dato.
+  final String? createLabel;
+  final Future<T?> Function()? onCreate;
+
+  bool get _canCreate => createLabel != null && onCreate != null;
 
   @override
   State<AdaptiveEntityPicker<T>> createState() =>
@@ -79,6 +120,26 @@ class _AdaptiveEntityPickerState<T> extends State<AdaptiveEntityPicker<T>> {
   Widget build(BuildContext context) {
     _autoSelectSingle();
     final selected = widget.value;
+    if (widget.rowStyle) {
+      return Semantics(
+        button: true,
+        enabled: widget.enabled,
+        label: widget.displayLabel ?? widget.label,
+        value: selected == null ? 'Sin seleccionar' : widget.labelOf(selected),
+        excludeSemantics: true,
+        child: ValueRow(
+          label: widget.displayLabel ?? widget.label,
+          labelKey: widget.displayLabelKey,
+          value: selected == null ? null : widget.labelOf(selected),
+          placeholder: widget.loading ? 'Cargando…' : widget.placeholder,
+          badge: widget.badge,
+          hint: widget.hint,
+          hintKey: widget.hintKey,
+          errorText: widget.error?.toString(),
+          onTap: widget.enabled && !widget.loading ? _open : null,
+        ),
+      );
+    }
     return Semantics(
       button: true,
       enabled: widget.enabled,
@@ -133,12 +194,16 @@ class _AdaptiveEntityPickerState<T> extends State<AdaptiveEntityPicker<T>> {
   }
 
   Future<void> _open() async {
-    if (widget.items.isEmpty) {
+    if (widget.items.isEmpty && !widget._canCreate) {
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(widget.emptyMessage)));
       return;
     }
-    final result = await showModalBottomSheet<T>(
+    // Sin esto, al cerrar la hoja (o el diálogo de alta) el foco vuelve al
+    // último campo de texto, el teclado se reabre y tapa «Continuar»
+    // (emulador, 2026-11-05).
+    FocusManager.instance.primaryFocus?.unfocus();
+    final result = await showModalBottomSheet<_PickerResult<T>>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
@@ -148,10 +213,36 @@ class _AdaptiveEntityPickerState<T> extends State<AdaptiveEntityPicker<T>> {
         selected: widget.value,
         labelOf: widget.labelOf,
         secondaryOf: widget.secondaryOf,
+        emptyMessage: widget.emptyMessage,
+        createLabel: widget._canCreate ? widget.createLabel : null,
+        clearLabel: widget.rowStyle && widget.allowClear && widget.value != null
+            ? 'Quitar selección'
+            : null,
       ),
     );
-    if (result != null && mounted) widget.onChanged(result);
+    if (result == null || !mounted) return;
+    if (result.clear) {
+      widget.onChanged(null);
+      return;
+    }
+    if (result.create) {
+      // La hoja ya se cerró: el alta se abre sobre el formulario.
+      final created = await widget.onCreate!();
+      if (created != null && mounted) widget.onChanged(created);
+      return;
+    }
+    widget.onChanged(result.item as T);
   }
+}
+
+/// Lo que devuelve la hoja: un elemento elegido o la petición de crear uno.
+class _PickerResult<T> {
+  const _PickerResult.item(this.item) : create = false, clear = false;
+  const _PickerResult.create() : item = null, create = true, clear = false;
+  const _PickerResult.clear() : item = null, create = false, clear = true;
+  final T? item;
+  final bool create;
+  final bool clear;
 }
 
 class _EntityPickerSheet<T> extends StatefulWidget {
@@ -161,12 +252,18 @@ class _EntityPickerSheet<T> extends StatefulWidget {
     required this.selected,
     required this.labelOf,
     required this.secondaryOf,
+    required this.emptyMessage,
+    this.createLabel,
+    this.clearLabel,
   });
+  final String? clearLabel;
   final String label;
   final List<T> items;
   final T? selected;
   final String Function(T) labelOf;
   final String Function(T)? secondaryOf;
+  final String emptyMessage;
+  final String? createLabel;
   @override
   State<_EntityPickerSheet<T>> createState() => _EntityPickerSheetState<T>();
 }
@@ -192,7 +289,10 @@ class _EntityPickerSheetState<T> extends State<_EntityPickerSheet<T>> {
     // Altura proporcional al contenido, con tope: con 4 elementos la hoja
     // ocupaba el 65 % de la pantalla igual que con 22 (UIBUG-061).
     final maxHeight = MediaQuery.sizeOf(context).height * 0.65;
-    final rowsHeight = filtered.length * 64.0 + 132;
+    final createRow =
+        (widget.createLabel == null ? 0.0 : 56.0) +
+        (widget.clearLabel == null ? 0.0 : 56.0);
+    final rowsHeight = filtered.length * 64.0 + 132 + createRow;
     final height = rowsHeight.clamp(220.0, maxHeight);
     return SafeArea(
       child: Padding(
@@ -219,6 +319,24 @@ class _EntityPickerSheetState<T> extends State<_EntityPickerSheet<T>> {
                   ],
                 ),
               ),
+              if (widget.createLabel != null)
+                ListTile(
+                  key: const Key('picker-create'),
+                  leading: const Icon(Icons.add),
+                  title: Text(
+                    widget.createLabel!,
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  onTap: () =>
+                      Navigator.pop(context, _PickerResult<T>.create()),
+                ),
+              if (widget.clearLabel != null)
+                ListTile(
+                  key: const Key('picker-clear'),
+                  leading: const Icon(Icons.close),
+                  title: Text(widget.clearLabel!),
+                  onTap: () => Navigator.pop(context, _PickerResult<T>.clear()),
+                ),
               if (widget.items.length >= 8)
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
@@ -239,11 +357,15 @@ class _EntityPickerSheetState<T> extends State<_EntityPickerSheet<T>> {
                 child: filtered.isEmpty
                     // Alineado arriba: centrado verticalmente quedaba tapado por
                     // el teclado y el usuario solo veia un hueco (UIBUG-036).
-                    ? const Align(
+                    ? Align(
                         alignment: Alignment.topCenter,
                         child: Padding(
-                          padding: EdgeInsets.only(top: 24),
-                          child: Text('Sin resultados.'),
+                          padding: const EdgeInsets.only(top: 24),
+                          child: Text(
+                            widget.items.isEmpty
+                                ? widget.emptyMessage
+                                : 'Sin resultados.',
+                          ),
                         ),
                       )
                     : ListView.builder(
@@ -266,7 +388,10 @@ class _EntityPickerSheetState<T> extends State<_EntityPickerSheet<T>> {
                                     maxLines: 2,
                                     overflow: TextOverflow.ellipsis,
                                   ),
-                            onTap: () => Navigator.pop(context, item),
+                            onTap: () => Navigator.pop(
+                              context,
+                              _PickerResult<T>.item(item),
+                            ),
                           );
                         },
                       ),

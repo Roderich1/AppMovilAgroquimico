@@ -4,14 +4,18 @@ import 'package:agroquimicos/data/app_database.dart';
 import 'package:agroquimicos/domain/models.dart';
 import 'package:agroquimicos/presentation/app_shell.dart';
 import 'package:agroquimicos/presentation/screens/catalogs_screen.dart';
-import 'package:agroquimicos/presentation/screens/dashboard_screen.dart';
+import 'package:agroquimicos/presentation/screens/inventory_screen.dart';
 import 'package:agroquimicos/presentation/screens/purchase_form_screen.dart';
 import 'package:agroquimicos/presentation/screens/transfer_form_screen.dart';
 import 'package:agroquimicos/presentation/widgets/adaptive_entity_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
+
+import 'support/purchase_form_driver.dart';
+import 'support_rdm2/a_purchase_sheet.dart';
 
 /// Cierre del lote de defectos de interfaz que quedaban abiertos tras la
 /// auditoría del Pixel 8: 023, 031, 037, 038, 039, 040, 041, 047 y 060.
@@ -116,48 +120,59 @@ void main() {
     return repo;
   }
 
+  // Rediseño B (2026-11-12): Inicio ya no lista el inventario; la lista con
+  // sus cifras está en Almacén. Se comprueba allí lo mismo: ninguna tabla que
+  // obligue a desplazarse en horizontal y cada producto con su nombre junto a
+  // sus cifras rotuladas. En pantalla ancha Almacén usa las mismas filas (no
+  // hay tabla ancha que conservar).
   group('UIBUG-023 · identidad del producto sin scroll horizontal', () {
+    Finder horizontal() => find.byWidgetPredicate(
+      (widget) =>
+          widget is SingleChildScrollView &&
+          widget.scrollDirection == Axis.horizontal,
+    );
+
     testWidgets('en ancho de móvil no hay tabla desplazable en horizontal', (
       tester,
     ) async {
       await resize(tester, pixel8Portrait);
-      await pump(tester, const DashboardScreen(), withStock: true);
+      await pump(tester, const InventoryScreen(), withStock: true);
 
       // La tabla obligaba a arrastrar en horizontal, y al hacerlo la columna
       // "Producto" abandonaba la pantalla.
       expect(find.byType(DataTable), findsNothing);
-
-      final horizontal = find.byWidgetPredicate(
-        (widget) =>
-            widget is SingleChildScrollView &&
-            widget.scrollDirection == Axis.horizontal,
-      );
-      expect(horizontal, findsNothing);
+      expect(horizontal(), findsNothing);
     });
 
     testWidgets('cada fila muestra el nombre junto a sus cifras etiquetadas', (
       tester,
     ) async {
       await resize(tester, pixel8Portrait);
-      await pump(tester, const DashboardScreen(), withStock: true);
+      await pump(tester, const InventoryScreen(), withStock: true);
 
-      expect(find.text('Glifosato 48 SL'), findsWidgets);
-      // Las cifras dejan de ser columnas anónimas: cada una lleva su rótulo
-      // en la propia fila.
-      for (final label in const [
-        'Físico',
-        'Comprometido',
-        'Proyección',
-        'Valor',
-      ]) {
-        expect(find.text(label), findsWidgets, reason: label);
+      final row = find.ancestor(
+        of: find.text('Glifosato 48 SL'),
+        matching: find.byType(InkWell),
+      );
+      expect(row, findsWidgets);
+      // Las cifras no son columnas anónimas: cada una lleva su rótulo en la
+      // propia fila.
+      for (final label in const ['Existencia', 'Valor']) {
+        expect(
+          find.descendant(of: row.first, matching: find.textContaining(label)),
+          findsWidgets,
+          reason: label,
+        );
       }
     });
 
-    testWidgets('en pantalla ancha se conserva la tabla', (tester) async {
+    testWidgets('en pantalla ancha tampoco hay desplazamiento horizontal', (
+      tester,
+    ) async {
       await resize(tester, const Size(1200, 2400));
-      await pump(tester, const DashboardScreen(), withStock: true);
-      expect(find.byType(DataTable), findsOneWidget);
+      await pump(tester, const InventoryScreen(), withStock: true);
+      expect(find.text('Glifosato 48 SL'), findsOneWidget);
+      expect(horizontal(), findsNothing);
     });
   });
 
@@ -217,6 +232,7 @@ void main() {
     ) async {
       await resize(tester, pixel8Portrait);
       await pump(tester, const PurchaseFormScreen(), inScaffold: false);
+      await openPurchaseLine(tester);
 
       // Ninguna etiqueta termina en la barra huérfana.
       final orphan = find.byWidgetPredicate(
@@ -244,6 +260,12 @@ void main() {
 
       // Las filas de reparto existen sólo al elegir «Repartir entre varias»
       // (pilotos X01/X02): dos filas vacías.
+      await openPurchaseLine(tester);
+      // En la hoja, la opción puede quedar debajo: se desplaza hasta ella.
+      await tester.ensureVisible(
+        find.byKey(const Key('purchase-alloc-split-0')),
+      );
+      await tester.pump();
       await tester.tap(find.byKey(const Key('purchase-alloc-split-0')));
       await tester.pump();
 
@@ -277,9 +299,18 @@ void main() {
       await resize(tester, pixel8Portrait);
       await pump(tester, const PurchaseFormScreen(), inScaffold: false);
 
-      // Recién abierta: en compartido lo primero que falta es decidir para
-      // quién es (pilotos X01/X02); nada se declara terminado.
-      expect(find.textContaining('Pendiente de destinatario'), findsOneWidget);
+      // Recién abierta: una línea vacía no tiene tarjeta, sólo «Añadir
+      // producto»; nada se declara terminado. En su hoja, lo primero que
+      // falta en compartido es decidir para quién es (pilotos X01/X02).
+      expect(find.text('Añadir producto'), findsOneWidget);
+      expect(find.textContaining('· asignado'), findsNothing);
+      expect(find.textContaining('· Asignado'), findsNothing);
+      expect(find.textContaining('Repartida:'), findsNothing);
+      await openPurchaseLine(tester);
+      expect(
+        find.text('Elija una opción para indicar a quién va este producto.'),
+        findsOneWidget,
+      );
       expect(find.textContaining('· asignado'), findsNothing);
       expect(find.textContaining('· Asignado'), findsNothing);
       expect(find.textContaining('Repartida:'), findsNothing);
@@ -290,6 +321,7 @@ void main() {
     ) async {
       await resize(tester, pixel8Portrait);
       await pump(tester, const PurchaseFormScreen(), inScaffold: false);
+      await openPurchaseLine(tester);
 
       await tester.enterText(
         find.byWidgetPredicate(
@@ -300,13 +332,26 @@ void main() {
         '20',
       );
       await tester.pump();
-      // Con cantidad y sin decidir el destinatario, sigue faltando éste.
+      // Con cantidad y sin decidir el destinatario, la tarjeta dice que
+      // falta éste.
+      await closePurchaseLine(tester);
       expect(find.textContaining('Pendiente de destinatario'), findsOneWidget);
 
       // «Repartir entre varias» con filas sin persona: falta la persona.
+      await openPurchaseLine(tester);
+      // En la hoja, la opción puede quedar debajo: se desplaza hasta ella.
+      await tester.ensureVisible(
+        find.byKey(const Key('purchase-alloc-split-0')),
+      );
+      await tester.pump();
       await tester.tap(find.byKey(const Key('purchase-alloc-split-0')));
       await tester.pump();
-      expect(find.textContaining('Pendiente de persona'), findsOneWidget);
+      // Ronda 2 (sesión A): la tarjeta de la línea sigue a la vista detrás
+      // de la hoja; se mira lo alcanzable, como antes (la hoja).
+      expect(
+        reachable(find.textContaining('Pendiente de persona')),
+        findsOneWidget,
+      );
       expect(find.textContaining('· Asignado'), findsNothing);
       expect(find.textContaining('Repartida:'), findsNothing);
     });
@@ -317,14 +362,22 @@ void main() {
       await resize(tester, pixel8Portrait);
       await pump(tester, const PurchaseFormScreen(), inScaffold: false);
 
-      // UIBUG-041: con relleno superior 0 la etiqueta flotante "Producto" se
-      // dibujaba sobre la cabecera de la tarjeta. Se comprueba la causa —el
-      // contenedor— y no la posición de ese texto concreto.
-      final tile = tester.widget<ExpansionTile>(
-        find.byType(ExpansionTile).first,
+      // UIBUG-041: con relleno superior 0 la etiqueta flotante del primer
+      // campo se dibujaba sobre la cabecera de la tarjeta. En la hoja
+      // «Producto n» el producto es una fila sin etiqueta flotante y la
+      // etiqueta del primer campo de texto queda entera debajo de ella.
+      await openPurchaseLine(tester);
+      final producto = tester.getRect(
+        find.byWidgetPredicate(
+          (w) =>
+              w is AdaptiveEntityPicker<Map<String, Object?>> &&
+              w.label == 'Producto',
+        ),
       );
-      final padding = tile.childrenPadding! as EdgeInsets;
-      expect(padding.top, greaterThan(0));
+      expect(
+        tester.getRect(find.text('Cantidad comprada')).top,
+        greaterThanOrEqualTo(producto.bottom),
+      );
     });
   });
 
@@ -355,10 +408,19 @@ void main() {
       // exactamente la compresión artificial que este defecto prohíbe.
       await resize(tester, pixel8Portrait);
       await pump(tester, const PurchaseFormScreen(), inScaffold: false);
+      await openPurchaseLine(tester);
 
+      // Cantidad y precio van lado a lado sólo si caben enteros; la moneda,
+      // debajo, a su propio ancho.
       final cantidad = tester.getRect(find.text('Cantidad comprada'));
-      final moneda = tester.getRect(find.text('Moneda'));
+      final moneda = tester.getRect(
+        find.byKey(const Key('purchase-currency-0')),
+      );
       expect(moneda.top, greaterThan(cantidad.bottom));
+      final label = tester.renderObject<RenderParagraph>(
+        find.text('Cantidad comprada'),
+      );
+      expect(label.didExceedMaxLines, isFalse);
     });
   });
 
@@ -376,17 +438,25 @@ void main() {
         isTrue,
       );
 
-      // El resto de destinos conserva su FAB.
+      // Aplicaciones y Planificación tienen su propio botón de registro
+      // (rediseño, 2026-11-12): tampoco hay FAB.
       for (final path in const [
-        '/operaciones',
+        '/aplicaciones',
         '/planificacion',
         '/compras',
-        '/aplicaciones',
-        '/inventario',
-        '/personas',
-        '/liquidacion',
-        '/transferencias',
       ]) {
+        expect(
+          AppShell(
+            location: path,
+            child: const SizedBox.shrink(),
+          ).hidesGlobalFab,
+          isTrue,
+          reason: path,
+        );
+      }
+
+      // El resto de destinos conserva su FAB.
+      for (final path in const ['/operaciones', '/inventario']) {
         expect(
           AppShell(
             location: path,

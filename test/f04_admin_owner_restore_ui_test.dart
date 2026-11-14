@@ -30,6 +30,8 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'support/f04_app_access.dart';
 import 'support/f04_mode_fixtures.dart';
+import 'support/purchase_form_driver.dart';
+import 'support/shell_finders.dart';
 
 class _WorkspacePaths extends PathProviderPlatform {
   _WorkspacePaths(this.directory);
@@ -262,8 +264,9 @@ void main() {
       await settle(tester);
 
       expect(tester.takeException(), isNull);
-      // Sólo el titular y su chaco, seleccionados solos por ser únicos.
-      expect(find.text('Agricultor'), findsWidgets);
+      // Sólo el chaco del titular, seleccionado solo por ser único. Desde el
+      // rediseño individual (lámina I-20) el formulario no muestra al
+      // titular: la aplicación es suya sin nombrarlo.
       expect(find.text('Chaco agricultor'), findsOneWidget);
       expect(find.text('Esposa'), findsNothing);
     },
@@ -370,7 +373,7 @@ void main() {
       expect(find.byType(DropdownButton<int>), findsNothing);
       expect(find.text('Paga el titular: Titular'), findsOneWidget);
       expect(find.textContaining('Paga '), findsOneWidget);
-      await tester.tap(find.text('Registrar'));
+      await tester.tap(textOutsideShellFab('Registrar'));
       await settle(tester);
       expect(
         await tester.runAsync(
@@ -385,10 +388,12 @@ void main() {
       );
 
       c.read(routerProvider).push('/compras/nueva');
-      await waitFor(tester, find.text('Agregar producto'));
+      await waitFor(tester, find.byKey(const Key('purchase-add-line')));
       await settle(tester);
       // Paso 1: proveedor y una línea; en propio no hay reparto que elegir.
       for (final label in ['Proveedor', 'Producto']) {
+        // Rediseño: el producto se elige en la hoja «Producto 1».
+        if (label == 'Producto') await openPurchaseLine(tester);
         final w = tester.widget<AdaptiveEntityPicker<Map<String, Object?>>>(
           find.byWidgetPredicate(
             (w) =>
@@ -404,11 +409,13 @@ void main() {
         '1',
       );
       await tester.enterText(
-        find.widgetWithText(TextField, 'Precio BOB/L'),
+        find.widgetWithText(TextField, 'Precio por L'),
         '10',
       );
       await settle(tester);
+      await closePurchaseLine(tester);
       await tester.ensureVisible(find.byKey(const Key('purchase-continue')));
+      await closePurchaseLine(tester);
       await tester.tap(find.byKey(const Key('purchase-continue')));
       await settle(tester);
       // Paso 2 (piloto X01): ningún selector de pagador; con «Sí» paga el
@@ -474,11 +481,15 @@ void main() {
       ProviderContainer c,
       String name,
     ) async {
-      c.read(routerProvider).go('/liquidacion');
+      // Ronda 2 (2026-11-12): los respaldos ya no están en la cabecera de
+      // Cuentas (`/liquidacion`); el mismo procedimiento
+      // (`restoreLocalBackup`) se abre en Ajustes › Respaldos.
+      c.read(routerProvider).go('/respaldo-remoto');
+      await waitFor(tester, find.byKey(const Key('backup-local-restore')));
       await settle(tester);
-      await tester.tap(find.byTooltip('Copias de seguridad'));
-      await settle(tester);
-      await tester.tap(find.text('Restaurar respaldo'));
+      await tester.ensureVisible(find.byKey(const Key('backup-local-restore')));
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('backup-local-restore')));
       await waitFor(tester, find.text('agroquimicos_backup_$name.db'));
       await tester.tap(find.text('agroquimicos_backup_$name.db'));
     }
@@ -544,6 +555,12 @@ void main() {
         );
         expect(names, contains('Del respaldo'));
         expect(names, isNot(contains('Actual')));
+        // Ronda 2: se restaura desde Ajustes › Respaldos, que relee sus
+        // copias previas al terminar; se sale de la pantalla antes de que la
+        // prueba borre su carpeta temporal (en Windows un archivo abierto no
+        // se puede borrar).
+        c.read(routerProvider).go('/personas');
+        await settle(tester);
       },
     );
 
@@ -579,7 +596,7 @@ void main() {
         expect(find.text('Transferencias'), findsNothing);
         c.read(routerProvider).go('/mas');
         await settle(tester);
-        expect(find.text('Ahora: inventario propio'), findsOneWidget);
+        expect(find.text('Modo individual'), findsOneWidget);
       },
     );
   });

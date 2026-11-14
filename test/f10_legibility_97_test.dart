@@ -27,6 +27,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'support/f05_sync_fixtures.dart';
+import 'support/purchase_form_driver.dart';
 
 void main() {
   sqfliteFfiInit();
@@ -79,6 +80,27 @@ void main() {
     expect(lines, hasLength(1), reason: '$reason: partido en varias líneas');
   }
 
+  /// Sin puntos suspensivos y sin partir ninguna palabra: un título grande o
+  /// un nombre largo pueden ocupar dos líneas con la letra ampliada.
+  void expectWordsWhole(WidgetTester tester, Finder text, String reason) {
+    final paragraph = tester.renderObject<RenderParagraph>(text);
+    final plain = paragraph.text.toPlainText();
+    expect(paragraph.didExceedMaxLines, isFalse, reason: '$reason: truncado');
+    for (final word in RegExp(r'\S+').allMatches(plain)) {
+      final tops = {
+        for (final box in paragraph.getBoxesForSelection(
+          TextSelection(baseOffset: word.start, extentOffset: word.end),
+        ))
+          box.top.round(),
+      };
+      expect(
+        tops,
+        hasLength(1),
+        reason: '$reason: «${word.group(0)}» partida en dos líneas',
+      );
+    }
+  }
+
   void expectOnScreen(WidgetTester tester, Finder finder, double width) {
     final rect = tester.getRect(finder);
     expect(rect.left, greaterThanOrEqualTo(0));
@@ -116,7 +138,7 @@ void main() {
     for (final scale in scales) {
       final label = '${width.toInt()} dp, fuente ${(scale * 100).round()} %';
 
-      testWidgets('Sincronización: título entero y «Sincronizar ahora» '
+      testWidgets('Envíos: título entero y «Enviar pendientes» '
           'visible ($label)', (tester) async {
         await tester.binding.setSurfaceSize(Size(width, 1400));
         addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -135,9 +157,9 @@ void main() {
           ),
         );
         await settle(tester);
-        expectWhole(tester, find.text('Sincronización'), 'título');
-        expectWhole(tester, find.text('Sincronizar ahora'), 'acción');
-        expectOnScreen(tester, find.text('Sincronizar ahora'), width);
+        expectWhole(tester, find.text('Envíos'), 'título');
+        expectWhole(tester, find.text('Enviar pendientes'), 'acción');
+        expectOnScreen(tester, find.text('Enviar pendientes'), width);
         await tester.runAsync(seeded.database.close);
       });
 
@@ -171,13 +193,15 @@ void main() {
           ),
         );
         await settle(tester);
-        expectWhole(tester, find.text('Nueva compra'), 'título');
+        // Rediseño: el título es la pregunta grande «¿Qué compró?».
+        expectWordsWhole(tester, find.text('¿Qué compró?'), 'título');
         // Paso 1 de 2 (piloto X01): la acción fija es «Continuar».
         expectWhole(tester, find.text('Continuar'), 'acción');
         expectOnScreen(tester, find.text('Continuar'), width);
 
-        // El selector de persona aparece al elegir «Toda para una persona»
-        // (pilotos X01/X02).
+        // El selector de persona aparece al elegir «Una persona» (pilotos
+        // X01/X02), en la hoja del producto.
+        await openPurchaseLine(tester);
         await tester.ensureVisible(
           find.byKey(const Key('purchase-alloc-single-0')),
         );
@@ -196,7 +220,7 @@ void main() {
           picker.items.firstWhere((p) => p['name'] == 'Titular F1 Mamani'),
         );
         await settle(tester);
-        expectWhole(
+        expectWordsWhole(
           tester,
           find.descendant(of: person, matching: find.text('Titular F1 Mamani')),
           'persona',

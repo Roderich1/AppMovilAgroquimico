@@ -2,12 +2,14 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../app.dart' show databaseProvider;
+import '../../app.dart' show databaseProvider, repositoryProvider;
 import '../../data/farmer_operation_gate.dart';
 import '../../data/owner_binding_store.dart';
 import '../../data/sync/central_binding_store.dart';
 import '../../data/sync/consumption_publisher.dart';
 import '../../data/sync/declared_need_store.dart';
+import '../../data/sync/identification_request_store.dart';
+import '../../data/sync/joint_purchase_store.dart';
 import '../../data/sync/sync_outbox_store.dart';
 import '../../domain/sync/central_references.dart';
 import '../../domain/sync/sync_wire.dart' show OperationView;
@@ -16,6 +18,10 @@ import '../auth/auth_api_exception.dart';
 import '../auth/first_activation_providers.dart';
 import '../auth/remote_session_coordinator.dart' show RemoteSessionPhase;
 import '../auth/remote_session_providers.dart';
+import 'identification_api.dart';
+import 'identification_request_sender.dart';
+import 'joint_purchase_api.dart';
+import 'joint_purchase_sender.dart';
 import 'sync_access.dart';
 import 'sync_api.dart';
 import 'sync_worker.dart';
@@ -46,6 +52,102 @@ final syncApiProvider = Provider<SyncApi>((ref) {
   }
   return SyncApi(ref.watch(authHttpClientProvider));
 });
+
+/// Solicitudes de identificación de productos (E1). Canal propio, aparte
+/// de la outbox.
+final identificationRequestStoreProvider = Provider<IdentificationRequestStore>(
+  (ref) =>
+      IdentificationRequestStore(ref.watch(databaseProvider), gate: _gate(ref)),
+);
+
+/// Se construye sólo al enviar: sin URL configurada, falla cerrado.
+final identificationApiProvider = Provider<IdentificationApi>((ref) {
+  final config = ref.watch(apiEndpointConfigProvider);
+  if (config == null) {
+    throw const AuthApiException(AuthApiErrorKind.configuration);
+  }
+  return IdentificationApi(
+    json: ref.watch(authHttpClientProvider),
+    config: config,
+    client: ref.watch(authHttpTransportProvider),
+  );
+});
+
+final identificationRequestSenderProvider =
+    Provider<IdentificationRequestSender>(
+      (ref) => IdentificationRequestSender(
+        store: ref.watch(identificationRequestStoreProvider),
+        owners: OwnerBindingStore(ref.watch(databaseProvider)),
+        api: () => ref.read(identificationApiProvider),
+        photoOf: ref.watch(repositoryProvider).productPhoto,
+      ),
+    );
+
+/// Convocatorias de compra conjunta (E2). Canal propio, aparte de la
+/// outbox.
+final jointPurchaseStoreProvider = Provider<JointPurchaseStore>(
+  (ref) => JointPurchaseStore(ref.watch(databaseProvider), gate: _gate(ref)),
+);
+
+/// Se construye sólo al enviar: sin URL configurada, falla cerrado.
+final jointPurchaseApiProvider = Provider<JointPurchaseApi>((ref) {
+  if (ref.watch(apiEndpointConfigProvider) == null) {
+    throw const AuthApiException(AuthApiErrorKind.configuration);
+  }
+  return JointPurchaseApi(json: ref.watch(authHttpClientProvider));
+});
+
+final jointPurchaseSenderProvider = Provider<JointPurchaseSender>(
+  (ref) => JointPurchaseSender(
+    store: ref.watch(jointPurchaseStoreProvider),
+    owners: OwnerBindingStore(ref.watch(databaseProvider)),
+    api: () => ref.read(jointPurchaseApiProvider),
+  ),
+);
+
+/// Cambia cada vez que la copia local de las convocatorias o su cola cambia
+/// (lista leída, envío, «visto»): Inicio y las pantallas de compras
+/// conjuntas releen al cambiar.
+final jointPurchaseRevisionProvider =
+    NotifierProvider<JointPurchaseRevision, int>(JointPurchaseRevision.new);
+
+class JointPurchaseRevision extends Notifier<int> {
+  @override
+  int build() => 0;
+
+  void bump() => state++;
+}
+
+/// Aviso «Nueva convocatoria» de Inicio: una sola consulta indexada.
+final jointPurchaseNoticeProvider =
+    FutureProvider.autoDispose<JointPurchaseNotice?>((ref) async {
+      ref.watch(jointPurchaseRevisionProvider);
+      try {
+        return await ref.watch(jointPurchaseStoreProvider).unseenNotice();
+      } on Object {
+        // Un aviso nunca impide mostrar Inicio.
+        return null;
+      }
+    });
+
+/// E4 (2026-11-13): cuántas convocatorias del titular piden «Revisar quién
+/// puede ver mi participación» (participación con un alcance anterior a
+/// CONV-4 o una decisión pendiente con texto anterior). Sólo lectura local;
+/// null si no se puede leer (un aviso nunca impide mostrar Inicio). Lo usa el
+/// aviso de Inicio; el destino es `/compras-conjuntas`.
+final jointPurchaseAccessReviewCountProvider = FutureProvider.autoDispose<int?>(
+  (ref) async {
+    ref.watch(jointPurchaseRevisionProvider);
+    try {
+      final calls = await ref
+          .watch(jointPurchaseStoreProvider)
+          .callsForActiveOwner();
+      return calls.where((call) => call.needsAccessReview).length;
+    } on Object {
+      return null;
+    }
+  },
+);
 
 final syncWorkerProvider = Provider<SyncWorker>(
   (ref) => SyncWorker(
@@ -96,11 +198,12 @@ String blockerMessage(SyncBlocker blocker) => switch (blocker) {
     'El sindicato no autorizó esta cuenta o este dispositivo. Los envíos '
         'quedan pausados; nada se borró. No se reanudan solos: cuando el '
         'sindicato lo autorice, verifique el acceso con la cuenta del titular '
-        'y pulse «Sincronizar ahora».',
+        'y pulse «Enviar pendientes».',
   SyncBlocker.versionMismatch =>
     'Esta versión de la aplicación no es compatible con el sindicato. '
         'Actualice la aplicación; los envíos quedan guardados. Después de '
-        'actualizar, en Sincronización pulse «Reintentar con esta versión».',
+        'actualizar, en Sindicato › Envíos pulse «Reintentar con esta '
+        'versión».',
   SyncBlocker.unreachable =>
     'No se pudo confirmar el envío. Se reintentará con el mismo contenido.',
   SyncBlocker.throttled => 'El sindicato pidió esperar. Se reintentará.',
@@ -112,7 +215,7 @@ final syncControllerProvider = NotifierProvider<SyncController, SyncState>(
   SyncController.new,
 );
 
-/// Disparadores del worker: al iniciar, tras encolar, «Sincronizar ahora» y
+/// Disparadores del worker: al iniciar, tras encolar, «Enviar pendientes» y
 /// un temporizador mientras la app está abierta. Sin acceso verificado no
 /// envía nada ni hace llamadas de red: la verificación (refresh) es siempre
 /// una acción explícita del agricultor.
@@ -162,6 +265,16 @@ class SyncController extends Notifier<SyncState> {
             ? null
             : blockerMessage(report.blocker!),
       );
+      // E1: junto con el ciclo del worker, las solicitudes de
+      // identificación, con su propio estado y sin tocar la outbox. Sólo con
+      // acceso vigente y sin reanudar lo pausado por autorización. No se
+      // espera: el resultado del worker y su estado no dependen de él.
+      if (ref.read(syncAccessHolderProvider).current != null) {
+        unawaited(_identificationCycle());
+        // E2: igual para las convocatorias de compra conjunta (envío de lo
+        // pendiente y, cada tanto, la lista). Tampoco se espera.
+        unawaited(_jointPurchaseCycle());
+      }
       return report;
     } on Object {
       state = state.copyWith(busy: false, message: null);
@@ -171,7 +284,7 @@ class SyncController extends Notifier<SyncState> {
     }
   }
 
-  /// «Sincronizar ahora»: si no hay acceso vigente, lo verifica primero (el
+  /// «Enviar pendientes»: si no hay acceso vigente, lo verifica primero (el
   /// agricultor lo pidió) y reanuda lo pausado por autorización del mismo
   /// titular.
   Future<SyncRunReport?> syncNow() async {
@@ -281,6 +394,128 @@ class SyncController extends Notifier<SyncState> {
     return access;
   }
 
+  /// «Enviar ahora» de una solicitud de identificación: verifica el acceso
+  /// si hace falta (lo pidió el agricultor), deja la solicitud lista para
+  /// enviarse ya y ejecuta un ciclo del emisor, que reanuda lo pausado por
+  /// autorización.
+  Future<IdentificationRunReport> sendIdentificationNow(
+    String requestId,
+  ) async {
+    await ref.read(identificationRequestStoreProvider).sendNow(requestId);
+    final access = await ensureAccess();
+    final report = await ref
+        .read(identificationRequestSenderProvider)
+        .run(access, includePaused: true);
+    if (report.authFailed) ref.read(syncAccessHolderProvider).clear();
+    return report;
+  }
+
+  /// Un ciclo del emisor de solicitudes de identificación (E1). Sin
+  /// [access], usa el vigente y, si no hay, no hace nada (ni red ni base).
+  /// Nunca lanza: lo pendiente queda para el próximo ciclo.
+  Future<IdentificationRunReport?> _identificationCycle({
+    VerifiedAccess? access,
+    bool includePaused = false,
+  }) async {
+    final current = access ?? ref.read(syncAccessHolderProvider).current;
+    if (current == null) return null;
+    try {
+      final report = await ref
+          .read(identificationRequestSenderProvider)
+          .run(current, includePaused: includePaused);
+      if (report.authFailed) ref.read(syncAccessHolderProvider).clear();
+      return report;
+    } on Object {
+      return null;
+    }
+  }
+
+  /// «Actualizar» de Compras conjuntas: verifica el acceso si hace falta (lo
+  /// pidió el agricultor), envía lo pendiente —también lo pausado por
+  /// autorización— y lee la lista del sindicato.
+  Future<JointPurchaseRunReport> refreshJointPurchases() async {
+    final access = await ensureAccess();
+    return _jointPurchaseRun(access, includePaused: true, forceList: true);
+  }
+
+  /// «Enviar ahora» de una convocatoria: lo pendiente vence ya (sin volverse
+  /// terminal), se verifica el acceso si hace falta y se ejecuta un ciclo.
+  Future<JointPurchaseRunReport> sendJointPurchaseNow(String callId) async {
+    await ref.read(jointPurchaseStoreProvider).sendNow(callId);
+    ref.read(jointPurchaseRevisionProvider.notifier).bump();
+    final access = await ensureAccess();
+    return _jointPurchaseRun(access, includePaused: true, forceList: true);
+  }
+
+  /// «Consultar historial» o «Ver más» de Compras conjuntas (E2 §10.1):
+  /// verifica el acceso si hace falta (lo pidió el agricultor) y guarda una
+  /// página de convocatorias anteriores. Sin conexión lanza
+  /// [SyncAccessUnavailable] o devuelve `offline`; nada se borra.
+  Future<JointPurchaseHistoryResult> jointPurchaseHistory({
+    String? before,
+  }) async {
+    final access = await ensureAccess();
+    try {
+      final result = await ref
+          .read(jointPurchaseSenderProvider)
+          .fetchHistory(access, before: before);
+      if (result.outcome == JointPurchaseHistoryOutcome.authFailed) {
+        ref.read(syncAccessHolderProvider).clear();
+      }
+      return result;
+    } finally {
+      if (ref.mounted) ref.read(jointPurchaseRevisionProvider.notifier).bump();
+    }
+  }
+
+  /// Tras guardar una participación o un retiro en el teléfono: si hay
+  /// acceso vigente, se intenta enviar ya; si no, queda pendiente. No
+  /// verifica el acceso ni se espera.
+  void jointPurchaseQueued() {
+    ref.read(jointPurchaseRevisionProvider.notifier).bump();
+    if (ref.read(syncAccessHolderProvider).current != null) {
+      unawaited(_jointPurchaseCycle());
+    }
+  }
+
+  Future<JointPurchaseRunReport> _jointPurchaseRun(
+    VerifiedAccess access, {
+    required bool includePaused,
+    required bool forceList,
+  }) async {
+    try {
+      final report = await ref
+          .read(jointPurchaseSenderProvider)
+          .run(access, includePaused: includePaused, forceList: forceList);
+      if (report.authFailed) ref.read(syncAccessHolderProvider).clear();
+      return report;
+    } finally {
+      if (ref.mounted) ref.read(jointPurchaseRevisionProvider.notifier).bump();
+    }
+  }
+
+  /// Un ciclo del emisor de convocatorias (E2). Sin [access], usa el
+  /// vigente y, si no hay, no hace nada (ni red ni base). Nunca lanza.
+  Future<JointPurchaseRunReport?> _jointPurchaseCycle({
+    VerifiedAccess? access,
+    bool includePaused = false,
+  }) async {
+    final current = access ?? ref.read(syncAccessHolderProvider).current;
+    if (current == null) return null;
+    try {
+      final report = await ref
+          .read(jointPurchaseSenderProvider)
+          .run(current, includePaused: includePaused);
+      if (report.authFailed) ref.read(syncAccessHolderProvider).clear();
+      if (report.changed && ref.mounted) {
+        ref.read(jointPurchaseRevisionProvider.notifier).bump();
+      }
+      return report;
+    } on Object {
+      return null;
+    }
+  }
+
   /// Resultado y estado causal de una intención propia, para resolver un
   /// conflicto.
   Future<OperationView> operationView(String operationId) async {
@@ -308,6 +543,13 @@ class SyncController extends Notifier<SyncState> {
       await ref
           .read(centralBindingStoreProvider)
           .refreshFrom(references, access.scope.tenantId);
+      // E1: al actualizar las referencias se envían las solicitudes de
+      // identificación pendientes y se lee su estado. Un fallo aquí nunca
+      // impide usar las referencias.
+      await _identificationCycle(access: access, includePaused: true);
+      // E2: también las convocatorias de compra conjunta. No se espera: las
+      // referencias no dependen de ellas y nunca fallan por ellas.
+      unawaited(_jointPurchaseCycle(access: access, includePaused: true));
       return references;
     } on SyncQueryException catch (error) {
       if (error.authRequired || error.forbidden) {

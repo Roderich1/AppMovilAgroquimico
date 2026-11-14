@@ -703,4 +703,57 @@ void main() {
       expect(find.byKey(const Key('voz-fallback-motor')), findsNothing);
     });
   });
+
+  // #119 (F09-D1): en el HONOR la pantalla se quedó más de 60 s en «Abriendo
+  // el micrófono», con el botón diciendo que escuchaba y sin ninguna acción
+  // posible salvo salir del borrador.
+  group('#119: apertura sin respuesta', () {
+    testWidgets(
+      'mientras se abre hay una salida, y cancelar conserva el texto',
+      (tester) async {
+        await pumpScreen(tester, script: const [FakeTurn(unresponsive: true)]);
+        await tester.enterText(
+          find.byKey(const Key('voz-campo-editable')),
+          'escrito antes',
+        );
+        await settle(tester);
+        expect(find.byKey(const Key('voz-cancelar-apertura')), findsNothing);
+
+        await tap(tester, const Key('voz-boton-microfono'));
+        expect(find.textContaining('Abriendo el micrófono'), findsOneWidget);
+        expect(find.byKey(const Key('voz-cancelar-apertura')), findsOneWidget);
+
+        await tap(tester, const Key('voz-cancelar-apertura'));
+
+        expect(find.textContaining('Abriendo el micrófono'), findsNothing);
+        expect(find.byKey(const Key('voz-cancelar-apertura')), findsNothing);
+        expect(port.isTurnOpen, isFalse);
+        expect(port.microphoneReleased, isTrue);
+        expect(find.text('escrito antes'), findsOneWidget);
+      },
+    );
+
+    testWidgets('si el motor no contesta, termina en un error explicado', (
+      tester,
+    ) async {
+      await pumpScreen(tester, script: const [FakeTurn(unresponsive: true)]);
+      await tap(tester, const Key('voz-boton-microfono'));
+      expect(find.textContaining('Abriendo el micrófono'), findsOneWidget);
+
+      await tester.pump(const Duration(seconds: 21));
+      await settle(tester);
+
+      expect(find.textContaining('Abriendo el micrófono'), findsNothing);
+      expect(find.byKey(const Key('voz-error')), findsOneWidget);
+      expect(
+        find.textContaining('no respondió al abrir el micrófono'),
+        findsOneWidget,
+      );
+      expect(port.microphoneReleased, isTrue);
+      final retry = tester.widget<OutlinedButton>(
+        find.byKey(const Key('voz-reintentar')),
+      );
+      expect(retry.onPressed, isNotNull);
+    });
+  });
 }

@@ -77,7 +77,18 @@ class PageFrame extends StatelessWidget {
     // `maybeOf` y no `of`: varias suites montan una pantalla suelta sin router,
     // y una cabecera no debe hacer estallar la pantalla por eso.
     final router = GoRouter.maybeOf(context);
-    final canPop = router?.canPop() ?? false;
+    if (router == null) return _frame(context, null, false);
+    // Se recalcula con cada cambio de la pila. Sin esto, si la pantalla se
+    // reconstruía con un formulario encima (p. ej. al abrirse el teclado en
+    // él), guardaba `canPop` verdadero y, al volver, quedaba una flecha
+    // «Volver» que no hacía nada (emulador, 2026-11-05).
+    return ListenableBuilder(
+      listenable: router.routerDelegate,
+      builder: (context, _) => _frame(context, router, router.canPop()),
+    );
+  }
+
+  Widget _frame(BuildContext context, GoRouter? router, bool canPop) {
     // El contenido termina por encima del FAB y del teclado, en vez de quedar
     // tapado justo al agotarse el scroll (UIBUG-008, UIBUG-009).
     final bottom =
@@ -96,7 +107,21 @@ class PageFrame extends StatelessWidget {
                   IconButton(
                     tooltip: 'Volver',
                     icon: const Icon(Icons.arrow_back),
-                    onPressed: () => router!.pop(),
+                    // `maybePop` del Navigator de la página respeta su
+                    // `PopScope`, como el Atrás del sistema: un borrador de
+                    // voz empezado pregunta antes de perderse (D1, emulador,
+                    // 2026-11-08). `router.pop()` lo saltaba. Si ese
+                    // Navigator no puede retroceder (la pila que importa es
+                    // la del router), se mantiene `router.pop()` para no
+                    // volver a la flecha muerta del 2026-11-05.
+                    onPressed: () {
+                      final navigator = Navigator.of(context);
+                      if (navigator.canPop()) {
+                        navigator.maybePop();
+                      } else {
+                        router!.pop();
+                      }
+                    },
                   ),
                 Expanded(
                   child: Column(
@@ -271,19 +296,32 @@ Future<bool> confirmDestructiveAction(
       builder: (dialogContext) => AlertDialog(
         icon: const Icon(Icons.warning_amber_outlined),
         title: Text(title),
-        content: Text(detail),
+        // Rediseño (lámina «Revertir»): las dos salidas a lo ancho, la
+        // destructiva en rojo arriba y «Cancelar» debajo.
+        content: SingleChildScrollView(child: Text(detail)),
+        actionsOverflowDirection: VerticalDirection.down,
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Cancelar'),
-          ),
-          FilledButton(
-            style: FilledButton.styleFrom(
-              backgroundColor: Theme.of(context).colorScheme.error,
-              foregroundColor: Theme.of(context).colorScheme.onError,
+          SizedBox(
+            width: double.infinity,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                FilledButton(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: Theme.of(context).colorScheme.error,
+                    foregroundColor: Theme.of(context).colorScheme.onError,
+                    minimumSize: const Size.fromHeight(52),
+                  ),
+                  onPressed: () => Navigator.pop(dialogContext, true),
+                  child: Text(confirmLabel),
+                ),
+                const SizedBox(height: 4),
+                TextButton(
+                  onPressed: () => Navigator.pop(dialogContext, false),
+                  child: const Text('Cancelar'),
+                ),
+              ],
             ),
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: Text(confirmLabel),
           ),
         ],
       ),

@@ -37,6 +37,7 @@ import 'package:path_provider_platform_interface/path_provider_platform_interfac
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'support/f04_mode_ui_harness.dart';
+import 'support/purchase_form_driver.dart';
 
 typedef Row = Map<String, Object?>;
 
@@ -160,14 +161,18 @@ void main() {
     final s = await activatedHousehold(tester, name);
     final c = await pumpModeApp(tester, s.database);
     c.read(routerProvider).push('/compras/nueva');
-    await waitFor(tester, field('Cantidad comprada'));
+    await waitFor(tester, find.byKey(const Key('purchase-add-line')));
     await settle(tester);
     await choose(tester, 'Proveedor', 'Proveedor');
+    await openPurchaseLine(tester);
     await choose(tester, 'Producto', 'Glifosato');
+    await openPurchaseLine(tester);
     await tester.enterText(field('Cantidad comprada'), '2');
-    await tester.enterText(field('Precio BOB/L'), '45');
+    await openPurchaseLine(tester);
+    await tester.enterText(field('Precio por L'), '45');
     await tapKey(tester, 'purchase-alloc-single-0');
     await choose(tester, 'Persona', 'Titular');
+    await closePurchaseLine(tester);
     await tapKey(tester, 'purchase-continue');
     await tester.tap(find.byKey(const Key('purchase-paid-no')));
     await settle(tester);

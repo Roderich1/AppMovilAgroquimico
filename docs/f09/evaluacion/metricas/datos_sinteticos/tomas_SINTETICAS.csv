@@ -1,0 +1,12 @@
+# DATOS SINTÉTICOS, inventados para probar f09_metricas.py. NO son mediciones,
+# no proceden de ningún teléfono ni dictado y no deben citarse como resultados.
+toma_id,sesion_id,fecha_hora_local,participante,telefono,modelo_dispositivo,android_version,apk_sha256,commit,motor,modelo_motor,segunda_pasada,modelo_segunda_pasada,condicion,escenario,fuente_ruido,nivel_ruido,modo_avion,ficha_id,operacion,audio_id,duracion_audio_ms,primer_parcial_ms,final_ms,segunda_pasada_ms,estado_motor,texto_aceptado,campo_producto,campo_cantidad,campo_unidad,campo_parcela_o_persona,campos_indebidos,causa_errores,campos_corregidos,resultado,escrituras_sin_confirmacion,sobrescrituras,evidencia_app_id,observaciones
+S1,SES-SINT,2026-11-08 10:00,P-SINT,TEL-SINTETICO-A,MODELO-SINT,0,SINTETICO,0000000,local,MOTOR-SINT,si,SEG-SINT,tranquilo,,,,si,FICHA-S1,compra,,4000,600,2900,2000,ok,,correcto,correcto,correcto,no_esperado,0,,,confirmado,,,,
+S2,SES-SINT,2026-11-08 10:01,P-SINT,TEL-SINTETICO-A,MODELO-SINT,0,SINTETICO,0000000,local,MOTOR-SINT,si,SEG-SINT,tranquilo,,,,si,FICHA-S2,compra,,5000,700,3100,2600,ok,,correcto,incorrecto,correcto,no_esperado,0,cantidad:interpretacion,cantidad,confirmado,,,,
+S3,SES-SINT,2026-11-08 10:02,P-SINT,TEL-SINTETICO-A,MODELO-SINT,0,SINTETICO,0000000,local,MOTOR-SINT,si,SEG-SINT,tranquilo,,,,si,FICHA-S3,aplicacion,,,NOT_MEASURED,,,error,,falta,falta,falta,no_esperado,0,producto:transcripcion;cantidad:transcripcion;unidad:transcripcion,,descartado,,,,
+S4,SES-SINT,2026-11-08 10:03,P-SINT,TEL-SINTETICO-A,MODELO-SINT,0,SINTETICO,0000000,local,MOTOR-SINT,si,SEG-SINT,tranquilo,,,,si,FICHA-S4,aplicacion,,25000,900,7000,6000,ok,,correcto,correcto,correcto,correcto,1,,,confirmado,,,,
+R1,SES-SINT,2026-11-08 10:10,P-SINT,TEL-SINTETICO-A,MODELO-SINT,0,SINTETICO,0000000,local,MOTOR-SINT,si,SEG-SINT,silencio_sin_voz,,,,si,RECHAZO-1,,,,,,,ok,no,,,,,,,,,,,,
+R2,SES-SINT,2026-11-08 10:11,P-SINT,TEL-SINTETICO-A,MODELO-SINT,0,SINTETICO,0000000,local,MOTOR-SINT,si,SEG-SINT,silencio_sin_voz,,,,si,RECHAZO-2,,,,,,,ok,no,,,,,,,,,,,,
+R3,SES-SINT,2026-11-08 10:12,P-SINT,TEL-SINTETICO-A,MODELO-SINT,0,SINTETICO,0000000,local,MOTOR-SINT,si,SEG-SINT,ruido_sin_voz,,ruido sintético,NOT_MEASURED,si,RECHAZO-3,,,,,,,ok,si,,,,,,,,,,,,
+E1,SES-SINT,2026-11-08 10:20,,HOST,,,,0000000,local,MOTOR-SINT,,,sin_confirmacion,cancelar,,,,ESC-1,,,,,,,ok,,,,,,,,,,0,0,,
+E2,SES-SINT,2026-11-08 10:21,P-SINT,TEL-SINTETICO-A,MODELO-SINT,0,SINTETICO,0000000,local,MOTOR-SINT,si,SEG-SINT,sin_confirmacion,microfono_denegado,,,si,ESC-2,,,,,,,ok,,,,,,,,,,0,,,

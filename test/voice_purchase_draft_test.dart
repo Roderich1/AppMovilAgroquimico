@@ -105,10 +105,13 @@ void main() {
     test('dictado en varias partes y total calculado, no dictado', () {
       var d = interpret('compra de cincuenta litros de Bellator');
       d = interpret('a ciento ochenta y seis bolivianos el litro', current: d);
-      // Sin producto en el segundo dictado no hay línea que completar: la
-      // frase suelta no inventa nada.
+      // POCO 2026-11-08: un precio dicho aparte va a la única línea que
+      // puede recibirlo (sin precio, producto en litros, «el litro» dicho).
+      // Con varias líneas posibles no se pone en ninguna
+      // (test/voice_draft/compra_interpretacion_test.dart).
       expect(d.lines, hasLength(1));
-      expect(d.lines.single.price.status, FieldStatus.missing);
+      expect(d.lines.single.price.isResolved, isTrue);
+      expect(d.lines.single.unitPriceMinor, 18600);
 
       d = interpret(
         'cincuenta litros de Bellator a ciento ochenta y seis bolivianos el '
@@ -116,7 +119,9 @@ void main() {
         current: d,
       );
       expect(d.lines, hasLength(1));
-      expect(d.blockers, isEmpty);
+      // Sólo falta la respuesta al pago, que nunca viene por defecto.
+      expect(d.blockers, ['Indica si ya pagaste al proveedor.']);
+      expect(d.withPaidInFull(false).blockers, isEmpty);
       expect(d.totalBobMinor, 50 * 18600);
     });
 
@@ -160,7 +165,7 @@ void main() {
       final line = d.lines.single;
       expect(line.product.status, FieldStatus.missing);
       expect(line.product.heard, 'paraquat');
-      expect(line.product.message, contains('Catálogos'));
+      expect(line.product.message, contains('no está en el catálogo'));
       expect(d.blockers.join(' '), contains('producto'));
     });
 
@@ -186,7 +191,7 @@ void main() {
         'Agro Norte, todo para Ana',
       );
       expect(d.blockers.join(' '), contains('tipo de cambio'));
-      d = interpret('tipo de cambio 6,96', current: d);
+      d = interpret('tipo de cambio 6,96', current: d).withPaidInFull(false);
       expect(d.exchangeRate.value, 6960000);
       expect(d.blockers, isEmpty);
       final domain = d.toDomain(at: confirmedAt);
@@ -198,7 +203,10 @@ void main() {
       final d = interpret(
         'compra de diez litros de Bellator a 1860 bolivianos en total',
       );
-      expect(d.lines.single.price.status, FieldStatus.invalid);
+      final price = d.lines.single.price;
+      expect(price.isResolved, isFalse);
+      expect(price.value?.total, isTrue);
+      expect(d.lines.single.unitPriceMinor, isNull);
     });
 
     test('otra operación no toca el borrador', () {
@@ -247,6 +255,75 @@ void main() {
     });
   });
 
+  group('«¿Ya pagaste al proveedor?» (reglas del formulario, X01)', () {
+    const holderCatalog = VoiceCatalog(
+      products: [bellator],
+      suppliers: [agroNorte],
+      people: [jose, ana],
+      activeCampaign: campaign,
+      holderId: 20,
+      holderName: 'José',
+    );
+    VoicePurchaseDraft complete(VoiceCatalog catalog) => interpret(
+      'compra de diez litros de Bellator a 25 bolivianos el litro, '
+      'proveedor Agro Norte, todo para Ana',
+      catalog: catalog,
+    );
+
+    test('sin respuesta por defecto: bloquea y no arma ningún pago', () {
+      final d = complete(holderCatalog);
+      expect(d.paidInFull, isNull);
+      expect(d.blockers, ['Indica si ya pagaste al proveedor.']);
+      expect(() => d.providerPayment(at: confirmedAt), throwsStateError);
+    });
+
+    test('la voz no responde la pregunta, ni siquiera con «ya pagué»', () {
+      final d = interpret(
+        'ya pagué todo al proveedor',
+        current: complete(holderCatalog),
+        catalog: holderCatalog,
+      );
+      expect(d.paidInFull, isNull);
+    });
+
+    test('«No, todavía no»: sin pago', () {
+      final d = complete(holderCatalog).withPaidInFull(false);
+      expect(d.blockers, isEmpty);
+      expect(d.providerPayment(at: confirmedAt), isNull);
+    });
+
+    test('«Sí, pagué todo»: medio «Sin indicar» y hoy, como el formulario', () {
+      final d = complete(holderCatalog).withPaidInFull(true);
+      expect(d.blockers, isEmpty);
+      final payment = d.providerPayment(at: confirmedAt)!;
+      expect(payment.method, PaymentMethod.unspecified);
+      // Hoy: el instante real de la confirmación.
+      expect(payment.date, confirmedAt);
+    });
+
+    test('medio y día corregidos a mano se respetan', () {
+      final d = complete(holderCatalog)
+          .withPaidInFull(true)
+          .withPaymentMethod(PaymentMethod.transfer)
+          .withPaymentDay('2026-10-15');
+      final payment = d.providerPayment(at: confirmedAt)!;
+      expect(payment.method, PaymentMethod.transfer);
+      // Otro día: su medianoche local, como `effectiveInstantForDay`.
+      expect(payment.date, DateTime(2026, 10, 15));
+      // Volver a «No» quita el pago sin perder lo demás.
+      expect(d.withPaidInFull(false).providerPayment(at: confirmedAt), isNull);
+      expect(d.withPaidInFull(false).lines, d.lines);
+    });
+
+    test('sin titular vinculado la compra no puede quedar pagada', () {
+      final d = complete(sharedCatalog).withPaidInFull(true);
+      expect(d.blockers, [
+        'No hay un titular vinculado: la compra no puede quedar pagada.',
+      ]);
+      expect(complete(sharedCatalog).withPaidInFull(false).blockers, isEmpty);
+    });
+  });
+
   group('contra la base real: sin efectos, escritura única y equivalencia', () {
     late AppDatabase database;
     late Household household;
@@ -279,6 +356,8 @@ void main() {
         final r = interpretPurchase(dictation, current, catalog);
         return (r.draft, r.outcome);
       });
+      // «No, todavía no», como el formulario manual sin pago.
+      controller.editManually((d) => d.withPaidInFull(false));
       return controller;
     }
 
@@ -374,6 +453,89 @@ void main() {
       );
     });
 
+    test('«Sí, pagué todo»: compra y pago juntos, igual que el formulario '
+        'con `confirmPurchase(paidInFull:)`', () async {
+      await OwnerBindingStore(database).bindExistingPerson(
+        personId: household.titular,
+        scope: memberA,
+        installationRef: installationHere,
+      );
+      final controller = await openDraft();
+      expect(controller.draft.holderId, household.titular);
+      controller.editManually(
+        (d) => d.withPaidInFull(true).withPaymentMethod(PaymentMethod.transfer),
+      );
+      expect(controller.canConfirm, isTrue);
+      final purchaseId = (await controller.confirm())!;
+      final db = await database.database;
+      final payments = await db.query('provider_payments');
+      expect(payments, hasLength(1));
+      expect(payments.single['purchase_id'], purchaseId);
+      expect(payments.single['payer_person_id'], household.titular);
+      expect(payments.single['method'], 'TRANSFER');
+      expect(payments.single['amount_bob_minor'], 50 * 18600 + 12 * 18000);
+
+      // El formulario con los mismos datos, en otra base.
+      final manualDb = openDb(await tempDbPath('manual-pagada'));
+      final manualRepo = AgroRepository(manualDb);
+      final manual = await seedHousehold(manualRepo);
+      await OwnerBindingStore(manualDb).bindExistingPerson(
+        personId: manual.titular,
+        scope: memberA,
+        installationRef: installationHere,
+      );
+      final manualAgro = await manualRepo.addSupplier(name: 'Agro Norte');
+      final manualBellator = await manualRepo.addProduct(name: 'Bellator');
+      final manualExpansive = await manualRepo.addProduct(
+        name: 'Expansive',
+        unit: 'KG',
+      );
+      await manualRepo.confirmPurchase(
+        PurchaseDraft(
+          supplierId: manualAgro,
+          campaignId: manual.campaign,
+          purchaseDate: confirmedAt,
+          invoiceNumber: '',
+          items: [
+            PurchaseItemDraft(
+              productId: manualBellator,
+              quantityBase: 50000,
+              currency: CurrencyCode.bob,
+              originalUnitPriceMinor: 18600,
+              allocations: [
+                AllocationDraft(personId: manual.relative, quantityBase: 50000),
+              ],
+            ),
+            PurchaseItemDraft(
+              productId: manualExpansive,
+              quantityBase: 12000,
+              currency: CurrencyCode.bob,
+              originalUnitPriceMinor: 18000,
+              allocations: [
+                AllocationDraft(personId: manual.relative, quantityBase: 12000),
+              ],
+            ),
+          ],
+        ),
+        paidInFull: ProviderPaymentDetails(
+          method: PaymentMethod.transfer,
+          date: confirmedAt,
+        ),
+      );
+      expect(
+        await _business(db, withPayments: true),
+        await _business(await manualDb.database, withPayments: true),
+      );
+    });
+
+    test('«No, todavía no»: la compra queda sin pago', () async {
+      final controller = await openDraft();
+      expect(await controller.confirm(), isNotNull);
+      final db = await database.database;
+      expect(await db.query('purchases'), hasLength(1));
+      expect(await db.query('provider_payments'), isEmpty);
+    });
+
     test(
       'la fecha es la de la confirmación: el FIFO respeta el orden real',
       () async {
@@ -402,6 +564,7 @@ void main() {
           );
           return (r.draft, r.outcome);
         });
+        controller.editManually((d) => d.withPaidInFull(false));
         await controller.confirm();
 
         final lots = await db.query('inventory_lots', orderBy: 'id');
@@ -482,6 +645,7 @@ void main() {
           return (r.draft, r.outcome);
         });
         expect(controller.draft.recipient.origin, FieldOrigin.preset);
+        controller.editManually((d) => d.withPaidInFull(false));
         expect(await controller.confirm(), isNotNull);
         final lots = await db.query('inventory_lots');
         expect(lots.map((l) => l['owner_person_id']).toSet(), {
@@ -494,9 +658,10 @@ void main() {
 
 /// Filas de negocio sin identificadores aleatorios ni marcas de tiempo.
 Future<Map<String, List<Map<String, Object?>>>> _business(
-  DatabaseExecutor db,
-) async {
-  const tables = [
+  DatabaseExecutor db, {
+  bool withPayments = false,
+}) async {
+  final tables = [
     'purchases',
     'purchase_items',
     'purchase_allocations',
@@ -505,6 +670,7 @@ Future<Map<String, List<Map<String, Object?>>>> _business(
     'account_transactions',
     'products',
     'suppliers',
+    if (withPayments) ...['provider_payments', 'payment_allocations'],
   ];
   return {
     for (final table in tables)

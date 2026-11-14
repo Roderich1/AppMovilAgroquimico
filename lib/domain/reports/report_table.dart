@@ -1,9 +1,10 @@
 /// Modelo tabular neutral de un reporte (EVO-005-REQ-001).
 ///
-/// Es el único punto por el que pasan CSV y PDF. Ninguno de los dos vuelve a
-/// consultar SQLite ni recibe modelos de lectura: reciben esta tabla, con los
-/// **mismos enteros**, y sólo deciden cómo pintarla. Así no puede ocurrir que
-/// el PDF diga una cifra y el CSV otra.
+/// Es el único punto por el que pasan Excel (XLSX) y PDF. Ninguno de los dos
+/// vuelve a consultar SQLite ni recibe modelos de lectura: reciben esta tabla,
+/// con los **mismos enteros**, y sólo deciden cómo pintarla. Así no puede
+/// ocurrir que el PDF diga una cifra y el Excel otra. (Hasta el 2026-11-12 la
+/// salida tabular era CSV; los nombres `csvText` se conservan.)
 ///
 /// No conoce widgets, SQLite ni filesystem.
 ///
@@ -21,8 +22,9 @@ import '../money.dart';
 /// Separador decimal es-BO.
 const String decimalSeparator = ',';
 
-/// Separador de miles es-BO. Sólo se usa al PRESENTAR, nunca en el CSV: una
-/// hoja de cálculo interpreta "1.234,56" según su locale y puede leer 1,23456.
+/// Separador de miles es-BO. Sólo se usa al PRESENTAR, nunca en el texto plano
+/// ([ReportCell.csvText]) ni en el Excel: una hoja de cálculo interpreta
+/// "1.234,56" según su locale y puede leer 1,23456.
 const String groupSeparator = '.';
 
 /// Convierte un entero escalado a su decimal exacto.
@@ -79,19 +81,20 @@ String _group(String digits) {
 /// Una celda del reporte.
 ///
 /// Guarda el valor **entero** y su significado, no una cadena ya formateada:
-/// así CSV y PDF derivan su texto del mismo número y la equivalencia entre
+/// así Excel y PDF derivan su valor del mismo número y la equivalencia entre
 /// ambos es demostrable.
 sealed class ReportCell {
   const ReportCell();
 
   /// `true` si el contenido es un número generado por la aplicación.
   ///
-  /// Lo usa el CSV para decidir la neutralización de fórmulas: un importe
-  /// negativo empieza por `-`, pero es un número, no una fórmula.
+  /// Un importe negativo empieza por `-`, pero es un número, no una fórmula:
+  /// el Excel lo escribe como celda numérica.
   bool get isNumeric;
 
-  /// Texto para el CSV: sin separador de miles, sin símbolo y sin unidad, para
-  /// que una hoja de cálculo lo lea como número.
+  /// Texto plano: sin separador de miles, sin símbolo y sin unidad. Nació para
+  /// el CSV (retirado el 2026-11-12); hoy da el texto de fechas y textos del
+  /// Excel y la referencia de las pruebas de equivalencia con el PDF.
   String get csvText;
 
   /// Texto para el PDF: el mismo número con separador de miles.

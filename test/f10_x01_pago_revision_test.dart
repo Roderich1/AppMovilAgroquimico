@@ -13,6 +13,8 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'support/es_material_labels.dart';
 import 'support/f04_mode_ui_harness.dart';
+import 'support/purchase_form_driver.dart';
+import 'support/shell_finders.dart';
 
 typedef Row = Map<String, Object?>;
 
@@ -50,12 +52,16 @@ void main() {
   /// Paso 1 completo en compartida: Glifosato 2 L a 45, todo al titular.
   Future<void> fillStep1(WidgetTester tester) async {
     await choose(tester, 'Proveedor', 'Proveedor');
+    await openPurchaseLine(tester);
     await choose(tester, 'Producto', 'Glifosato');
+    await openPurchaseLine(tester);
     await tester.enterText(field('Cantidad comprada'), '2');
-    await tester.enterText(field('Precio BOB/L'), '45');
+    await openPurchaseLine(tester);
+    await tester.enterText(field('Precio por L'), '45');
     await tapKey(tester, 'purchase-alloc-single-0');
     await choose(tester, 'Persona', 'Titular');
     await settle(tester);
+    await closePurchaseLine(tester);
     await tapKey(tester, 'purchase-continue');
   }
 
@@ -66,12 +72,12 @@ void main() {
     final s = await activatedHousehold(tester, 'sin-respuesta');
     final c = await pumpModeApp(tester, s.database);
     c.read(routerProvider).push('/compras/nueva');
-    await waitFor(tester, field('Cantidad comprada'));
+    await waitFor(tester, find.byKey(const Key('purchase-add-line')));
     await settle(tester);
     await fillStep1(tester);
     expect(find.byKey(const Key('purchase-paid-pending')), findsOneWidget);
     await tapKey(tester, 'purchase-confirm');
-    expect(find.text('Indica si pagaste toda esta compra.'), findsOneWidget);
+    expect(find.text('Indique si ya pagó al proveedor.'), findsOneWidget);
     expect(await rows(tester, s.database, 'purchases'), isEmpty);
     expect(await rows(tester, s.database, 'provider_payments'), isEmpty);
     // El borrador sigue en la revisión.
@@ -94,11 +100,13 @@ void main() {
     });
     final c = await pumpModeApp(tester, s.database);
     c.read(routerProvider).push('/compras/nueva');
-    await waitFor(tester, field('Cantidad comprada'));
+    await waitFor(tester, find.byKey(const Key('purchase-add-line')));
     await settle(tester);
     // Un día de la campaña cerrada: el 1 del mes en curso o del anterior.
+    await closePurchaseLine(tester);
     await tester.ensureVisible(find.byKey(const Key('purchase-date')));
     await tester.pump();
+    await closePurchaseLine(tester);
     await tester.tap(find.byKey(const Key('purchase-date')));
     await settle(tester);
     final today = DateTime.now();
@@ -168,7 +176,7 @@ void main() {
     await waitFor(tester, find.byKey(const Key('payment-personal-payer')));
     expect(find.text('Pagador'), findsNothing);
     expect(find.text('Paga el titular: Titular'), findsOneWidget);
-    await tester.tap(find.text('Registrar'));
+    await tester.tap(textOutsideShellFab('Registrar'));
     await settle(tester);
     final payments = await rows(tester, s.database, 'provider_payments');
     expect(payments, hasLength(1));

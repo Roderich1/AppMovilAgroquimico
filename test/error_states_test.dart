@@ -23,6 +23,12 @@ class _FailingRepository extends AgroRepository {
   Future<List<Map<String, Object?>>> campaigns() async =>
       throw BusinessRuleException(message);
 
+  // Ronda 2: Cuentas es Personas › Cuentas, que lee perfiles y el libro (no
+  // las campañas): el fallo se simula en la primera lectura que hace.
+  @override
+  Future<List<Map<String, Object?>>> personProfiles() async =>
+      throw BusinessRuleException(message);
+
   @override
   Future<List<Map<String, Object?>>> purchases({int limit = 200}) async =>
       throw BusinessRuleException(message);

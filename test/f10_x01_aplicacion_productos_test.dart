@@ -8,6 +8,10 @@ import 'package:agroquimicos/data/operation_mode_store.dart';
 import 'package:agroquimicos/domain/models.dart';
 import 'package:agroquimicos/domain/operation_mode.dart';
 import 'package:agroquimicos/presentation/widgets/adaptive_entity_picker.dart';
+import 'package:agroquimicos/presentation/screens/application_form_screen.dart'
+    show applicationPersonLabel;
+import 'package:agroquimicos/presentation/widgets/agro_ui.dart'
+    show DashedAddButton;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -114,7 +118,7 @@ void main() {
     c.read(routerProvider).push('/aplicaciones/nueva');
     await waitFor(tester, picker('Chaco'));
     await settle(tester);
-    if (!personal) await choose(tester, 'Persona', 'Titular');
+    if (!personal) await choose(tester, applicationPersonLabel, 'Titular');
     await choose(tester, 'Chaco', 'Chaco titular');
     await tapKey(tester, 'application-continue');
     expect(find.text('Productos (0)'), findsOneWidget);
@@ -146,10 +150,7 @@ void main() {
     await tapKey(tester, 'application-add-product');
     expect(find.byKey(const Key('application-line-add')), findsOneWidget);
     expect(
-      find.descendant(
-        of: picker('Producto'),
-        matching: find.text('Seleccionar'),
-      ),
+      find.descendant(of: picker('Producto'), matching: find.text('Elegir')),
       findsOneWidget,
       reason: 'sin autoselección: la persona elige',
     );
@@ -168,11 +169,11 @@ void main() {
     expect(cards(), findsOneWidget);
     expect(find.text('0,5 L'), findsOneWidget);
     expect(find.text('Editar'), findsOneWidget);
-    expect(find.text('Quitar'), findsOneWidget);
+    expect(find.byTooltip('Quitar Glifosato'), findsOneWidget);
     // No queda nada que agregar: el botón se desactiva, no agrega solo.
     expect(
       tester
-          .widget<FilledButton>(
+          .widget<DashedAddButton>(
             find.byKey(const Key('application-add-product')),
           )
           .onPressed,
@@ -265,13 +266,13 @@ void main() {
 
     await tapKey(tester, 'application-back');
     expect(find.byKey(const Key('application-continue')), findsOneWidget);
-    expect(find.text('Paso 1 de 3 · Persona y chaco'), findsOneWidget);
+    expect(find.text('¿Dónde aplicó?'), findsOneWidget);
     await tapKey(tester, 'application-continue');
     expect(find.text('Productos (1)'), findsOneWidget);
     expect(find.text('0,2 L'), findsOneWidget);
 
     await tapKey(tester, 'application-continue');
-    expect(find.text('Paso 3 de 3 · Resumen y confirmación'), findsOneWidget);
+    expect(find.text('Revise y confirme'), findsOneWidget);
     expect(find.text('Bellator · 0,2 L'), findsOneWidget);
     await tapKey(tester, 'application-confirm');
     await tester.pump(const Duration(milliseconds: 500));
@@ -310,7 +311,7 @@ void main() {
     await tester.pump();
     expect(
       find.text(
-        'Pediste 200 L y hay 1,5 L. Baja la cantidad o registra primero la '
+        'Pidió 200 L y hay 1,5 L. Baje la cantidad o registre primero la '
         'compra.',
       ),
       findsOneWidget,
@@ -332,7 +333,7 @@ void main() {
     );
     // El error del campo se desvanece con una animación corta.
     await settle(tester);
-    expect(find.textContaining('Pediste'), findsNothing);
+    expect(find.textContaining('Pidió'), findsNothing);
     await tapKey(tester, 'application-line-add');
     expect(find.text('Productos (1)'), findsOneWidget);
     expect(find.text('0,2 L'), findsOneWidget);
@@ -379,9 +380,11 @@ void main() {
     c.read(routerProvider).push('/aplicaciones/nueva');
     await waitFor(tester, picker('Chaco'));
     await settle(tester);
-    expect(picker('Persona'), findsNothing);
-    expect(find.byKey(const Key('application-personal-owner')), findsOneWidget);
-    expect(find.text('Titular'), findsWidgets);
+    expect(picker(applicationPersonLabel), findsNothing);
+    // Rediseño individual (lámina I-20): sin fila «Aplica el titular» ni
+    // «Quién aplicó»; la persona sigue siendo el titular (se comprueba abajo
+    // en la fila guardada).
+    expect(find.byKey(const Key('application-personal-owner')), findsNothing);
     await choose(tester, 'Chaco', 'Chaco titular');
     await tapKey(tester, 'application-continue');
     await addProduct(tester, 'Glifosato', '1');

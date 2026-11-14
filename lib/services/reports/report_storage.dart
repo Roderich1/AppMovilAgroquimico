@@ -11,7 +11,7 @@
 ///    temporal en la misma carpeta y sólo se publica el nombre definitivo
 ///    cuando la escritura terminó bien. Si algo falla, el temporal se borra.
 /// 2. **Nunca se sobrescribe en silencio.** Si el nombre ya existe se añade un
-///    sufijo determinista: `informe (2).csv`, `informe (3).csv`.
+///    sufijo determinista: `informe (2).xlsx`, `informe (3).xlsx`.
 library;
 
 import 'dart:io';
@@ -60,7 +60,7 @@ abstract class ReportStorage {
 ///
 /// Usa la misma resolución de carpeta que el respaldo —`getDownloadsDirectory`
 /// y, si no existe, la de documentos— dentro de una subcarpeta `reportes`, para
-/// no mezclar los `.csv`/`.pdf` con los `.agrobackup`.
+/// no mezclar los `.xlsx`/`.pdf` con los `.agrobackup`.
 ///
 /// No hay transporte de archivos: ni compartir, ni selector del sistema, ni
 /// red. El archivo se queda en el teléfono.
@@ -72,7 +72,13 @@ class LocalReportStorage implements ReportStorage {
 
   /// Extensiones admitidas. Una extensión libre permitiría escribir un `.db`
   /// o un `.apk` desde aquí.
-  static const Set<String> allowedExtensions = {'csv', 'pdf'};
+  ///
+  /// `csv` ya no está (2026-11-12): la aplicación no genera CSV nuevos. Los
+  /// `.csv` que versiones anteriores dejaron en la carpeta siguen ahí: este
+  /// almacenamiento sólo escribe archivos nuevos, nunca lista, borra ni
+  /// sobrescribe los existentes, y el usuario los abre o comparte desde el
+  /// gestor de archivos del teléfono como antes.
+  static const Set<String> allowedExtensions = {'xlsx', 'pdf'};
 
   static const String temporarySuffix = '.parcial';
 
@@ -168,6 +174,23 @@ class LocalReportStorage implements ReportStorage {
   }
 }
 
+const _plainLetter = {
+  'á': 'a',
+  'é': 'e',
+  'í': 'i',
+  'ó': 'o',
+  'ú': 'u',
+  'ü': 'u',
+  'ñ': 'n',
+  'Á': 'A',
+  'É': 'E',
+  'Í': 'I',
+  'Ó': 'O',
+  'Ú': 'U',
+  'Ü': 'U',
+  'Ñ': 'N',
+};
+
 /// Nombre de archivo seguro a partir de un texto cualquiera.
 ///
 /// Un nombre de campaña o de persona puede traer barras, dos puntos o
@@ -177,7 +200,10 @@ class LocalReportStorage implements ReportStorage {
 String sanitizeFileName(String value) {
   final buffer = StringBuffer();
   for (final rune in value.runes) {
-    final char = String.fromCharCode(rune);
+    // Las vocales con tilde y la eñe se escriben con su letra base (revisión
+    // en Excel del 2026-11-12: «María» salía como «Mar-a»).
+    final raw = String.fromCharCode(rune);
+    final char = _plainLetter[raw] ?? raw;
     if (RegExp(r'[A-Za-z0-9 _-]').hasMatch(char)) {
       buffer.write(char);
     } else {

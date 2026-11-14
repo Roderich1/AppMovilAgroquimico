@@ -6,25 +6,42 @@ import 'package:go_router/go_router.dart';
 
 import '../../app.dart';
 import '../../data/typed_reads.dart';
+import '../../domain/inventory_alerts.dart';
 import '../../domain/models.dart';
 import '../../domain/money.dart';
 import '../../domain/installation_access.dart';
+import '../../domain/operation_mode.dart';
 import '../../domain/read_models.dart';
 import '../../installation_access.dart';
+import '../../operation_mode_controller.dart';
 import '../../services/auth/access_recovery.dart';
 import '../../services/auth/existing_session_providers.dart';
 import '../../services/auth/existing_session_startup.dart';
 import '../../services/auth/remote_session_coordinator.dart';
 import '../../services/auth/remote_session_providers.dart';
+import '../../services/sync/sync_providers.dart'
+    show jointPurchaseAccessReviewCountProvider, jointPurchaseNoticeProvider;
+import '../theme/agro_theme.dart';
+import '../widgets/agro_ui.dart';
 import '../widgets/common.dart';
+import '../widgets/joint_purchase_texts.dart' show jointPurchaseNoticeText;
+import '../widgets/rdm_b_ui.dart';
+import 'ind_home.dart';
 
+/// Lo que Inicio lee. Los avisos de inventario y las compras se leen aparte
+/// del resumen: si fallan, Inicio sigue mostrando las cifras y dice qué no
+/// pudo calcular (rediseño B, 2026-11-12).
 typedef _DashboardData = ({
   DashboardSummary summary,
-  List<InventoryLineRead> inventory,
-  // `applications` no es fuente de ningun reporte de EVOLUTION-2: sigue en el
-  // camino legacy, como el resto de consumidores no migrados.
-  List<Map<String, Object?>> applications,
   List<CampaignRead> campaigns,
+  InventoryAlerts? alerts,
+  Object? alertsError,
+  int? purchasesWithBalance,
+  // Modo individual (I-01/I-02): cifras de la campaña activa y saldo con
+  // proveedores. `null` en el modo con varias personas o si no se pudieron
+  // calcular.
+  IndHomeFigures? individual,
+  Object? individualError,
 });
 
 class DashboardScreen extends ConsumerStatefulWidget {
@@ -35,7 +52,6 @@ class DashboardScreen extends ConsumerStatefulWidget {
 
 class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   late Future<_DashboardData> future;
-  String inventoryQuery = '';
 
   @override
   void initState() {
@@ -45,14 +61,55 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
   Future<_DashboardData> _load() async {
     final repo = ref.read(repositoryProvider);
+    final personal = ref.read(operationModeProvider) == OperationMode.personal;
+    final summary = await repo.dashboard();
+    final campaigns = await repo.campaignsTyped();
+    InventoryAlerts? alerts;
+    Object? alertsError;
+    try {
+      alerts = await repo.inventoryAlerts();
+    } catch (error) {
+      alertsError = error;
+    }
+    int? withBalance;
+    List<Map<String, Object?>>? purchaseRows;
+    try {
+      // Compras confirmadas cuyo total supera lo pagado al proveedor: el
+      // mismo saldo que «Registrar pago al proveedor» propone en Compras.
+      // Sin límite de filas: con el de 200 se contarían de menos.
+      final purchases = purchaseRows = await repo.purchases(limit: 1 << 30);
+      withBalance = purchases
+          .where(
+            (row) =>
+                row['status'] == 'CONFIRMED' &&
+                (row['total_bob_minor']! as int) >
+                    (row['paid_bob_minor']! as int),
+          )
+          .length;
+    } catch (_) {
+      withBalance = null;
+    }
+    IndHomeFigures? individual;
+    Object? individualError;
+    if (personal && purchaseRows != null) {
+      try {
+        individual = await loadIndHomeFigures(
+          repo,
+          campaigns: campaigns,
+          purchases: purchaseRows,
+        );
+      } catch (error) {
+        individualError = error;
+      }
+    }
     return (
-      summary: await repo.dashboard(),
-      // Sin `limit`: el buscador filtra en cliente y con solo 5 filas
-      // precargadas afirmaba que no habia inventario aunque el producto
-      // existiera (UIBUG-007). La tabla sigue mostrando 5 cuando no se busca.
-      inventory: await repo.inventorySummaryTyped(),
-      applications: await repo.applications(limit: 5),
-      campaigns: await repo.campaignsTyped(),
+      summary: summary,
+      campaigns: campaigns,
+      alerts: alerts,
+      alertsError: alertsError,
+      purchasesWithBalance: withBalance,
+      individual: individual,
+      individualError: individualError,
     );
   }
 
@@ -81,8 +138,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     if (active == null) {
       showError(
         context,
-        'Activa una campaña antes de registrar aplicaciones: Operaciones, '
-        'Más, Administrar datos.',
+        // B1: Campañas se abre desde la campaña de la cabecera de Inicio.
+        'Active una campaña antes de registrar aplicaciones: toque la '
+        'campaña arriba en Inicio.',
       );
       return;
     }
@@ -94,6 +152,16 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     }
   }
 
+  /// Abre una pantalla de Inicio y, al volver, recarga las cifras: lo que se
+  /// haya registrado allí cambia los avisos y los saldos.
+  ///
+  /// Recibe la navegación ya iniciada (`context.push` con la ruta escrita,
+  /// para que la guarda de rutas sin origen la encuentre).
+  Future<void> _openAndRefresh(Future<Object?> navigation) async {
+    await navigation;
+    if (mounted) _refresh();
+  }
+
   @override
   Widget build(BuildContext context) =>
       _build(context, ref.watch(effectiveLocalSessionProvider));
@@ -101,449 +169,177 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   Widget _build(
     BuildContext context,
     ExistingSessionStartupState existingSession,
-  ) => PageFrame(
-    title: 'Inicio',
-    subtitle: 'Almacén y cuentas de un vistazo.',
-    action: IconButton.filledTonal(
-      onPressed: _refresh,
-      icon: const Icon(Icons.refresh),
-    ),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        // Los avisos de sesión y de acceso, y los cuatro accesos principales
-        // (piloto X01), no dependen del resumen: se muestran aunque los datos
-        // tarden o fallen. Los dos primeros accesos abren el formulario
-        // directamente; «Enviar al sindicato» abre la pantalla de
-        // sincronización y no publica nada por sí solo: conserva su
-        // autorización y su confirmación.
-        ..._sessionBlock(context, existingSession),
-        const _InstallationAccessNotice(),
-        const SizedBox(height: 10),
-        _PrimaryActions(
-          onPurchase: _newPurchase,
-          onApplication: _newApplication,
-          onInventory: () => context.go('/inventario'),
-          onSync: () => context.push('/sincronizacion'),
-        ),
-        const SizedBox(height: 10),
-        FutureBuilder<_DashboardData>(
-          future: future,
-          builder: (context, snapshot) {
-            if (snapshot.hasError)
-              return EmptyState(
-                icon: Icons.error_outline,
-                message: friendlyError(snapshot.error!),
-              );
-            if (!snapshot.hasData)
-              return const Center(child: CircularProgressIndicator());
-            final data = snapshot.data!;
-            final searching = inventoryQuery.isNotEmpty;
-            final matchingInventory = data.inventory
-                .where(
-                  (row) =>
-                      !searching ||
-                      matchesSearch(row.productName, inventoryQuery),
+  ) {
+    final personal = ref.watch(operationModeProvider) == OperationMode.personal;
+    // Las cifras del modo individual dependen del modo: se vuelven a leer
+    // sólo si entra o sale el modo individual (también la primera lectura,
+    // de `null` a individual). De `null` a compartido no cambia nada que
+    // mostrar y una segunda lectura sería trabajo de más.
+    ref.listen(operationModeProvider, (previous, next) {
+      if ((previous == OperationMode.personal) !=
+          (next == OperationMode.personal)) {
+        _refresh();
+      }
+    });
+    return FutureBuilder<_DashboardData>(
+      future: future,
+      builder: (context, snapshot) {
+        final data = snapshot.data;
+        // Tirar hacia abajo actualiza las cifras (el botón «Actualizar» dejó
+        // su lugar al engranaje de Ajustes, B1). Al volver de cualquier
+        // pantalla abierta desde Inicio también se actualizan.
+        return RefreshIndicator(
+          onRefresh: () async {
+            _refresh();
+            await future.then((_) {}, onError: (_) {});
+          },
+          child: RdmScrollPage(
+            header: _HomeHeader(
+              data: data,
+              personal: personal,
+              loading: data == null && !snapshot.hasError,
+              onSettings: () => _openAndRefresh(context.push('/mas')),
+              onCampaigns: () => _openAndRefresh(context.push('/campanas')),
+            ),
+            children: [
+              // Los avisos de sesión y de acceso, y los accesos principales
+              // (piloto X01), no dependen del resumen: se muestran aunque los
+              // datos tarden o fallen. «Sindicato» abre la misma pantalla que
+              // la pestaña (revisión del autor del 2026-11-12) y no envía
+              // nada por sí solo.
+              _SessionArea(existingSession, top: true),
+              const _InstallationAccessNotice(),
+              const _JointPurchaseNotice(),
+              const _JointPurchaseAccessReviewNotice(),
+              const SizedBox(height: 4),
+              if (personal && data?.individual?.campaignEmpty == true)
+                IndHomeFirstSteps(
+                  figures: data!.individual!,
+                  onFarms: () => context.go('/chacos'),
+                  onPurchase: _newPurchase,
+                  onApplication: _newApplication,
                 )
-                .toList();
-            // Sin busqueda se mantiene el resumen corto de siempre; al buscar se
-            // recorre todo el inventario.
-            final visibleInventory = searching
-                ? matchingInventory
-                : matchingInventory.take(5).toList();
-            final activeCampaign = data.campaigns
-                .where((campaign) => campaign.isActive)
-                .firstOrNull;
-            // D-04 (§2.7): «por cobrar» = Σ max(0, saldo neto) por persona; lo
-            // que queda a favor se dice aparte, sin restarlo de otra persona.
-            final summary = data.summary;
-            final cards = <(String, String, IconData, String?)>[
-              (
-                'Compras',
-                formatBob(summary.purchasesBobMinor),
-                Icons.shopping_bag_outlined,
-                null,
-              ),
-              (
-                'Pagado proveedores',
-                formatBob(summary.providerPaidMinor),
-                Icons.storefront_outlined,
-                null,
-              ),
-              (
-                'Familias por cobrar',
-                formatBob(summary.familyReceivableMinor),
-                Icons.family_restroom_outlined,
-                summary.familyCreditMinor > 0
-                    ? 'A favor de familias: '
-                          '${formatBob(summary.familyCreditMinor).trim()}'
-                    : null,
-              ),
-              (
-                'Terceros por cobrar',
-                formatBob(summary.thirdPartyReceivableMinor),
-                Icons.person_outline,
-                summary.thirdPartyCreditMinor > 0
-                    ? 'A favor de terceros: '
-                          '${formatBob(summary.thirdPartyCreditMinor).trim()}'
-                    : null,
-              ),
-              (
-                'Pagos recibidos',
-                formatBob(summary.receivedMinor),
-                Icons.payments_outlined,
-                null,
-              ),
-            ];
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 14,
-                    vertical: 10,
-                  ),
-                  decoration: BoxDecoration(
-                    color: Theme.of(context).colorScheme.primaryContainer,
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Row(
+              else ...[
+                ActionTileRow(
+                  tiles: [
+                    ActionTile(
+                      key: const Key('home-registrar-compra'),
+                      icon: Icons.shopping_bag_outlined,
+                      label: 'Registrar compra',
+                      onTap: _newPurchase,
+                      minHeight: 108,
+                    ),
+                    ActionTile(
+                      key: const Key('home-registrar-aplicacion'),
+                      icon: Icons.spa_outlined,
+                      label: 'Registrar aplicación',
+                      onTap: _newApplication,
+                      tone: ActionTileTone.surface,
+                      minHeight: 108,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 10),
+                if (personal)
+                  IndHomeLinks(
+                    figures: data?.individual,
+                    onOpen: _openAndRefresh,
+                  )
+                else
+                  AgroGroup(
                     children: [
-                      const Icon(Icons.calendar_month_outlined),
-                      const SizedBox(width: 8),
-                      // Sin `Expanded` el texto reclamaba su ancho natural y la
-                      // fila desbordaba con un nombre de campaña largo o con la
-                      // fuente ampliada: `RenderFlex overflowed` y la cinta
-                      // recortada en la primera pantalla de la aplicación
-                      // (UIBUG-067). Ahora se reparte en varias líneas.
-                      Expanded(
-                        child: Text(
-                          'Campaña activa: ${activeCampaign?.name ?? 'Sin campaña activa'}',
-                          style: const TextStyle(fontWeight: FontWeight.w700),
-                        ),
+                      LinkRow(
+                        key: const Key('home-ver-cuanto-queda'),
+                        icon: Icons.inventory_2_outlined,
+                        title: 'Ver cuánto queda',
+                        onTap: () => context.go('/inventario'),
+                      ),
+                      LinkRow(
+                        key: const Key('home-enviar-sindicato'),
+                        icon: Icons.hub_outlined,
+                        title: 'Sindicato',
+                        subtitle: 'Envíos, convocatorias y lo que comparte',
+                        onTap: () => context.go('/sindicato'),
                       ),
                     ],
                   ),
-                ),
-                const SizedBox(height: 10),
-                LayoutBuilder(
-                  builder: (context, constraints) {
-                    // **#129 — ninguna etiqueta se parte dentro de una palabra.**
-                    // Con dos columnas fijas en 360 dp y la fuente al 130 %,
-                    // «Pagado proveedores» salía «Pagado pr / oveedores». El número
-                    // de columnas se decide midiendo la palabra más larga de las
-                    // etiquetas con la fuente y la escala reales del dispositivo:
-                    // si a una tarjeta no le cabe, se quitan columnas (hasta una).
-                    // Al 100 % en 360 dp siguen siendo dos; al 130 % pasa a una,
-                    // con la etiqueta y el importe enteros y a la izquierda, fuera
-                    // del botón «Nuevo».
-                    final labelStyle = Theme.of(context).textTheme.bodyMedium;
-                    final widestWord = cards
-                        .expand((card) => card.$1.split(' '))
-                        .map((word) => measureText(context, word, labelStyle))
-                        .fold(0.0, math.max);
-                    // Lo que la tarjeta ocupa además de la etiqueta: su margen
-                    // (el del tema), relleno 12+12, icono 24, separación 10 y
-                    // 4 dp de holgura.
-                    final cardMargin =
-                        (Theme.of(context).cardTheme.margin ??
-                                const EdgeInsets.all(4))
-                            .horizontal;
-                    final minCardWidth = widestWord + cardMargin + _cardChrome;
-                    var columns = constraints.maxWidth > 1000
-                        ? 5
-                        : constraints.maxWidth > 600
-                        ? 3
-                        : 2;
-                    double widthFor(int columns) =>
-                        (constraints.maxWidth - (columns - 1) * 8) / columns;
-                    while (columns > 1 && widthFor(columns) < minCardWidth) {
-                      columns--;
-                    }
-                    final width = widthFor(columns);
-                    return Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: [
-                        for (final card in cards)
-                          SizedBox(
-                            width: width,
-                            child: Card(
-                              child: Padding(
-                                padding: const EdgeInsets.all(12),
-                                child: Row(
-                                  children: [
-                                    Icon(
-                                      card.$3,
-                                      color: Theme.of(context)
-                                          .colorScheme
-                                          .primary,
-                                    ),
-                                    const SizedBox(width: 10),
-                                    Expanded(
-                                      child: Column(
-                                        mainAxisSize: MainAxisSize.min,
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Text(card.$1, style: labelStyle),
-                                          const SizedBox(height: 3),
-                                          FittedBox(
-                                            fit: BoxFit.scaleDown,
-                                            alignment: Alignment.centerLeft,
-                                            child: Text(
-                                              card.$2,
-                                              style: Theme.of(context)
-                                                  .textTheme
-                                                  .titleMedium
-                                                  ?.copyWith(
-                                                    fontWeight: FontWeight.w800,
-                                                  ),
-                                            ),
-                                          ),
-                                          if (card.$4 != null)
-                                            Text(
-                                              card.$4!,
-                                              style: Theme.of(context)
-                                                  .textTheme
-                                                  .bodySmall,
-                                            ),
-                                        ],
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ),
-                      ],
-                    );
-                  },
-                ),
-                const SizedBox(height: 20),
-                // Encabezados en `SectionHeading` (#129): el título conserva su
-                // ancho y la acción baja de línea si no caben los dos.
-                SectionHeading(
-                  title: 'Inventario proyectado',
-                  action: TextButton(
-                    onPressed: () => context.go('/inventario'),
-                    child: const Text('Ver todos'),
+              ],
+              if (snapshot.hasError)
+                Padding(
+                  padding: const EdgeInsets.only(top: 16),
+                  child: NoticeBox(
+                    key: const Key('home-load-error'),
+                    tone: NoticeTone.danger,
+                    icon: Icons.error_outline,
+                    text: friendlyError(snapshot.error!),
                   ),
-                ),
-                const SizedBox(height: 8),
-                TextField(
-                  onChanged: (value) => setState(() {
-                    inventoryQuery = value.trim();
-                  }),
-                  decoration: const InputDecoration(
-                    prefixIcon: Icon(Icons.search),
-                    labelText: 'Buscar producto',
-                    isDense: true,
+                )
+              else if (data != null && personal) ...[
+                if (data.individualError != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 16),
+                    child: NoticeBox(
+                      key: const Key('ind-home-figures-error'),
+                      tone: NoticeTone.danger,
+                      icon: Icons.error_outline,
+                      text: friendlyError(data.individualError!),
+                    ),
                   ),
+                IndHomeAlerts(
+                  alerts: data.alerts,
+                  alertsError: data.alertsError,
+                  figures: data.individual,
+                  purchasesError: data.purchasesWithBalance == null,
+                  onOpen: _openAndRefresh,
                 ),
-                const SizedBox(height: 8),
-                Card(
-                  child: visibleInventory.isEmpty
-                      // No es lo mismo no tener inventario que no encontrar nada:
-                      // el mensaje unico hacia creer que el almacen estaba vacio
-                      // (UIBUG-007).
-                      ? EmptyState(
-                          icon: searching
-                              ? Icons.search_off_outlined
-                              : Icons.inventory_2_outlined,
-                          message: searching
-                              ? 'Ningún producto coincide con "$inventoryQuery".'
-                              : 'Aún no hay inventario.',
-                        )
-                      // En ancho de móvil la tabla no cabía y había que
-                      // desplazarla en horizontal: al hacerlo la columna
-                      // "Producto" salía de la pantalla y quedaban cifras sin
-                      // dueño visible (UIBUG-023). En vez de fijar la primera
-                      // columna, el ancho estrecho usa una lista donde el nombre
-                      // encabeza cada fila y las cifras van etiquetadas: no hay
-                      // desplazamiento horizontal que perder.
-                      : LayoutBuilder(
-                          builder: (context, constraints) =>
-                              constraints.maxWidth < _tableMinWidth
-                              ? _InventoryCards(rows: visibleInventory)
-                              : SingleChildScrollView(
-                                  scrollDirection: Axis.horizontal,
-                                  child: _inventoryTable(
-                                    context,
-                                    visibleInventory,
-                                  ),
-                                ),
-                        ),
+              ] else if (data != null) ...[
+                const SizedBox(height: 18),
+                const Padding(
+                  padding: EdgeInsets.only(left: 4, bottom: 8),
+                  child: Text('Para atender', style: AgroText.h2),
                 ),
-                const SizedBox(height: 20),
-                SectionHeading(
-                  title: 'Aplicaciones recientes',
-                  action: TextButton(
-                    onPressed: () => context.go('/aplicaciones'),
-                    child: const Text('Ver todas'),
+                _AttentionList(data: data, onOpen: _openAndRefresh),
+                // E-15: del libro de cuentas, sin el titular (no es deudor de
+                // sí mismo) ni el ADMIN. En propio no hay cuentas por cobrar.
+                if (!personal && data.summary.topBalances.isNotEmpty) ...[
+                  const Padding(
+                    padding: EdgeInsets.fromLTRB(4, 18, 4, 8),
+                    child: Text('Principales saldos', style: AgroText.h2),
                   ),
-                ),
-                Card(
-                  child: Column(
+                  AgroGroup(
+                    key: const Key('home-top-balances'),
                     children: [
-                      for (final row in data.applications.take(5))
-                        ListTile(
-                          dense: true,
-                          leading: const Icon(Icons.agriculture_outlined),
-                          title: Text(
-                            '${row['person_name']} · ${row['farm_name']}',
+                      for (final row in data.summary.topBalances.take(5))
+                        LinkRow(
+                          title: row.name,
+                          titleStyle: const TextStyle(
+                            fontSize: 15,
+                            height: 20 / 15,
+                            fontWeight: FontWeight.w700,
+                            color: AgroColors.ink,
                           ),
-                          subtitle: Text(
-                            '${row['campaign_name']}'
-                            '${row['status'] == 'REVERSED' ? ' · ${operationStatusLabel(row['status'])}' : ''}',
-                          ),
-                          // El inicio mostraba el importe de una aplicación anulada
-                          // como si siguiera vigente, mientras el reporte de costos
-                          // sí la excluía: dos cifras para el mismo hecho
-                          // (UIBUG-010).
-                          trailing: Text(
-                            formatBob(row['total_cost_bob_minor']! as int),
-                            style: TextStyle(
-                              decoration: row['status'] == 'REVERSED'
-                                  ? TextDecoration.lineThrough
-                                  : null,
-                              color: row['status'] == 'REVERSED'
-                                  ? Theme.of(context).colorScheme.outline
-                                  : null,
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 20),
-                SectionHeading(
-                  title: 'Principales saldos',
-                  action: TextButton(
-                    onPressed: () => context.go('/liquidacion'),
-                    child: const Text('Ver todos'),
-                  ),
-                ),
-                Card(
-                  child: Column(
-                    children: [
-                      for (final row
-                          // E-15: del libro de cuentas, sin el titular
-                          // (no es deudor de sí mismo) ni el ADMIN.
-                          in data.summary.topBalances.take(5))
-                        ListTile(
-                          dense: true,
-                          title: Text(row.name),
-                          subtitle: Text(
-                            row.role == 'FAMILY' ? 'Familiar' : 'Tercero',
-                          ),
+                          subtitle: row.role == 'FAMILY'
+                              ? 'Familiar'
+                              : 'Tercero',
                           trailing: Text(
                             formatBob(row.balanceMinor),
-                            style: const TextStyle(fontWeight: FontWeight.w700),
+                            style: AgroText.amount,
+                          ),
+                          onTap: () => _openAndRefresh(
+                            context.push('/personas/${row.personId}'),
                           ),
                         ),
                     ],
                   ),
-                ),
+                ],
               ],
-            );
-          },
-        ),
-      ],
-    ),
-  );
-
-  /// Estado y acciones de la sesión (F03): no dependen del resumen.
-  List<Widget> _sessionBlock(
-    BuildContext context,
-    ExistingSessionStartupState existingSession,
-  ) {
-    final recoverAsOwner =
-        accessRecoveryModeFor(
-          ref.watch(installationAccessProvider),
-          existingSession,
-        ) ==
-        AccessRecoveryMode.signInAsOwner;
-    return [
-      // F03: con titular vinculado y sesión ausente o ilegible, la entrada
-      // es «Recuperar acceso» (mismo Member y tenant), nunca una activación
-      // libre que pudiera guardar la sesión de otra cuenta.
-      if (existingSession == ExistingSessionStartupState.noLocalSession &&
-          !recoverAsOwner)
-        OutlinedButton.icon(
-          key: const Key('open-first-activation'),
-          onPressed: () => context.push('/activar'),
-          icon: const Icon(Icons.verified_user_outlined),
-          label: const Text('Activar cuenta en línea'),
-        )
-      else if (_allowsRemote(existingSession))
-        _SessionStatus(existingSession)
-      else if (existingSession.safeMessage != null)
-        Text(
-          existingSession.safeMessage!,
-          key: const Key('local-session-status'),
-        ),
-      if (recoverAsOwner)
-        OutlinedButton.icon(
-          key: const Key('open-access-recovery'),
-          onPressed: () => context.push('/recuperar'),
-          icon: const Icon(Icons.key_outlined),
-          label: const Text('Recuperar acceso'),
-        ),
-      if (existingSession ==
-              ExistingSessionStartupState.localSessionAvailable ||
-          existingSession == ExistingSessionStartupState.localSessionExpired)
-        const _RemoteSessionControls(),
-    ];
+              _SessionArea(existingSession, top: false),
+            ],
+          ),
+        );
+      },
+    );
   }
-
-  /// Ancho por debajo del cual la tabla de inventario obligaría a desplazarse
-  /// en horizontal. Las seis columnas no caben en el ancho útil de un móvil
-  /// (UIBUG-023).
-  static const double _tableMinWidth = 560;
-
-  /// Lo que una tarjeta de importe ocupa además de su etiqueta y de su margen:
-  /// relleno (12 + 12), icono (24), separación (10) y 4 dp de holgura (#129).
-  static const double _cardChrome = 12 + 12 + 24 + 10 + 4;
-
-  Widget _inventoryTable(BuildContext context, List<InventoryLineRead> rows) =>
-      DataTable(
-        headingRowHeight: 40,
-        dataRowMinHeight: 40,
-        dataRowMaxHeight: 48,
-        columns: const [
-          DataColumn(label: Text('Producto')),
-          DataColumn(label: Text('Unidad')),
-          DataColumn(label: Text('Físico'), numeric: true),
-          DataColumn(label: Text('Comprometido'), numeric: true),
-          DataColumn(label: Text('Proyección'), numeric: true),
-          DataColumn(label: Text('Valor'), numeric: true),
-        ],
-        // Sin `onSelectChanged` no aparece la columna de
-        // casillas, que no tenia ninguna accion masiva detras y
-        // robaba ancho a una tabla que ya no cabia (UIBUG-022).
-        showCheckboxColumn: false,
-        rows: [
-          for (final row in rows)
-            DataRow(
-              onSelectChanged: (_) =>
-                  context.push('/inventario/${row.productId}'),
-              cells: [
-                DataCell(Text(row.productName)),
-                DataCell(Text(row.unit)),
-                DataCell(Text(formatQuantity(row.availableBase, row.unit))),
-                DataCell(Text(formatQuantity(row.committedBase, row.unit))),
-                DataCell(
-                  Text(
-                    formatQuantity(row.projectedBase, row.unit),
-                    style: const TextStyle(fontWeight: FontWeight.w700),
-                  ),
-                ),
-                DataCell(Text(formatBob(row.availableValueBobMinor))),
-              ],
-            ),
-        ],
-      );
 }
 
 bool _allowsRemote(ExistingSessionStartupState startup) =>
@@ -573,262 +369,759 @@ String sessionStatusMessage(
   return startup.safeMessage!;
 }
 
-class _SessionStatus extends ConsumerWidget {
-  const _SessionStatus(this.startup);
+/// Bloqueos de la sesión: con ellos no se puede trabajar en línea y la
+/// salida (volver a autenticar) va primero.
+bool _remoteBlocked(AsyncValue<bool> guard, RemoteSessionState remote) =>
+    guard.asData?.value != false ||
+    remote.phase == RemoteSessionPhase.requiresReauthentication ||
+    remote.phase == RemoteSessionPhase.outcomeUnknown ||
+    remote.phase == RemoteSessionPhase.registrationRejected ||
+    remote.phase == RemoteSessionPhase.guardUnavailable;
+
+/// Estado y acciones de la sesión (F03, #83): no dependen del resumen.
+///
+/// Rediseño B: lo que impide trabajar en línea (activar, recuperar acceso,
+/// volver a autenticar, un estado ilegible) va arriba de Inicio, con borde
+/// de atención; el estado de rutina («aún no fue verificado» y «Verificar
+/// acceso en línea») va al final, en «Cuenta en línea». Son los mismos
+/// textos, claves y acciones; sólo cambia el lugar. Se monta dos veces
+/// ([top] verdadero y falso) y cada una se dibuja sólo en su lugar.
+class _SessionArea extends ConsumerWidget {
+  const _SessionArea(this.startup, {required this.top});
 
   final ExistingSessionStartupState startup;
+  final bool top;
 
-  @override
-  Widget build(BuildContext context, WidgetRef ref) => Text(
-    sessionStatusMessage(
-      startup,
-      ref.watch(remoteSessionProvider),
-      guard: ref.watch(refreshGuardStateProvider),
-    ),
-    key: const Key('local-session-status'),
+  static const _status = TextStyle(
+    fontSize: 15,
+    height: 21 / 15,
+    color: AgroColors.ink,
   );
-}
-
-class _RemoteSessionControls extends ConsumerWidget {
-  const _RemoteSessionControls();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final guard = ref.watch(refreshGuardStateProvider);
-    final remote = ref.watch(remoteSessionProvider);
-    final blocked =
-        guard.asData?.value != false ||
-        remote.phase == RemoteSessionPhase.requiresReauthentication ||
-        remote.phase == RemoteSessionPhase.outcomeUnknown ||
-        remote.phase == RemoteSessionPhase.registrationRejected ||
-        remote.phase == RemoteSessionPhase.guardUnavailable;
-    return Padding(
-      padding: const EdgeInsets.only(top: 8),
+    final recoverAsOwner =
+        accessRecoveryModeFor(ref.watch(installationAccessProvider), startup) ==
+        AccessRecoveryMode.signInAsOwner;
+    final allowsRemote = _allowsRemote(startup);
+    // Como antes del rediseño, el guard y el estado remoto sólo se leen
+    // con una sesión local que permite trabajar en línea.
+    final guard = allowsRemote
+        ? ref.watch(refreshGuardStateProvider)
+        : const AsyncValue<bool>.data(false);
+    final remote = allowsRemote
+        ? ref.watch(remoteSessionProvider)
+        : const RemoteSessionState(RemoteSessionPhase.idle);
+    final blocked = allowsRemote && _remoteBlocked(guard, remote);
+    final urgent =
+        recoverAsOwner ||
+        startup == ExistingSessionStartupState.noLocalSession ||
+        (!allowsRemote && startup.safeMessage != null) ||
+        (allowsRemote && !guard.isLoading && blocked);
+    if (urgent != top) return const SizedBox.shrink();
+    final children = <Widget>[
+      // F03: con titular vinculado y sesión ausente o ilegible, la entrada
+      // es «Recuperar acceso» (mismo Member y tenant), nunca una activación
+      // libre que pudiera guardar la sesión de otra cuenta.
+      if (startup == ExistingSessionStartupState.noLocalSession &&
+          !recoverAsOwner)
+        OutlinedButton.icon(
+          key: const Key('open-first-activation'),
+          onPressed: () => context.push('/activar'),
+          icon: const Icon(Icons.verified_user_outlined),
+          label: const Text('Activar cuenta en línea'),
+        )
+      else if (allowsRemote)
+        Text(
+          sessionStatusMessage(startup, remote, guard: guard),
+          key: const Key('local-session-status'),
+          style: _status,
+        )
+      else if (startup.safeMessage != null)
+        Text(
+          startup.safeMessage!,
+          key: const Key('local-session-status'),
+          style: _status,
+        ),
+      if (recoverAsOwner)
+        OutlinedButton.icon(
+          key: const Key('open-access-recovery'),
+          onPressed: () => context.push('/recuperar'),
+          icon: const Icon(Icons.key_outlined),
+          label: const Text('Recuperar acceso'),
+        ),
+      if (allowsRemote)
+        if (guard.isLoading)
+          const Text(
+            'Comprobando protección local de la sesión…',
+            style: AgroText.detail,
+          )
+        else if (blocked)
+          OutlinedButton.icon(
+            key: const Key('open-reauthentication'),
+            onPressed: remote.isBusy ? null : () => context.push('/reauth'),
+            icon: const Icon(Icons.lock_reset_outlined),
+            label: const Text('Volver a autenticar'),
+          )
+        else
+          OutlinedButton.icon(
+            key: const Key('verify-online-access'),
+            onPressed: remote.isBusy
+                ? null
+                : () => ref.read(remoteSessionProvider.notifier).verifyOnline(),
+            icon: const Icon(Icons.cloud_done_outlined),
+            label: const Text('Verificar acceso en línea'),
+          ),
+      // «PIN del titular» pasó a Más y «Sincronización con el sindicato»
+      // es el acceso «Sindicato» (piloto X01): aquí quedan sólo
+      // los avisos y acciones de la sesión.
+    ];
+    final box = Container(
+      key: Key(top ? 'home-session-urgent' : 'home-session-routine'),
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: AgroColors.surface,
+        borderRadius: BorderRadius.circular(20),
+        border: urgent ? Border.all(color: AgroColors.caution, width: 2) : null,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (guard.isLoading)
-            const Text('Comprobando protección local de la sesión…')
-          else if (blocked)
-            OutlinedButton.icon(
-              key: const Key('open-reauthentication'),
-              onPressed: remote.isBusy ? null : () => context.push('/reauth'),
-              icon: const Icon(Icons.lock_reset_outlined),
-              label: const Text('Volver a autenticar'),
+          for (var i = 0; i < children.length; i++) ...[
+            if (i > 0) const SizedBox(height: 10),
+            children[i],
+          ],
+        ],
+      ),
+    );
+    if (top) {
+      return Padding(padding: const EdgeInsets.only(bottom: 10), child: box);
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Padding(
+          padding: EdgeInsets.fromLTRB(4, 18, 4, 8),
+          child: Text('Cuenta en línea', style: AgroText.h2),
+        ),
+        box,
+      ],
+    );
+  }
+}
+
+/// «1 lote vencido», «2 lotes vencidos».
+String _count(int n, String one, String many) => '$n ${n == 1 ? one : many}';
+
+/// Cabecera oscura de Inicio: campaña activa, la cifra principal según el
+/// modo de uso y las cifras de compras y pagos.
+///
+/// Compartido: «Por cobrar» es la suma de lo que deben familias y terceros
+/// (D-04: Σ max(0, saldo neto)); cada grupo y lo que queda a su favor se
+/// nombran sólo si tienen importe, para no mostrar deudas de terceros como
+/// si siempre existieran. Propio: no hay cuentas por cobrar (E-15), así que
+/// la cifra principal son las compras; «Por cobrar» sólo aparece si quedara
+/// algún saldo. Las cifras son de todas las campañas (`dashboard()` no
+/// filtra por campaña) y así se dice.
+class _HomeHeader extends StatelessWidget {
+  const _HomeHeader({
+    required this.data,
+    required this.personal,
+    required this.loading,
+    required this.onSettings,
+    required this.onCampaigns,
+  });
+
+  final _DashboardData? data;
+  final bool personal;
+  final bool loading;
+  final VoidCallback onSettings;
+  final VoidCallback onCampaigns;
+
+  static const _muted = TextStyle(
+    fontSize: 14,
+    height: 20 / 14,
+    color: AgroColors.onInkMuted,
+  );
+  static const _onInk = TextStyle(
+    fontSize: 14,
+    height: 20 / 14,
+    color: AgroColors.onInk,
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    final data = this.data;
+    final active = data?.campaigns
+        .where((campaign) => campaign.isActive)
+        .firstOrNull;
+    return Container(
+      decoration: const BoxDecoration(
+        color: AgroColors.ink,
+        borderRadius: BorderRadius.vertical(bottom: Radius.circular(28)),
+      ),
+      padding: const EdgeInsets.fromLTRB(20, 12, 12, 20),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              // Modo individual (I-01): la cabecera es la campaña y el
+              // engranaje; el título queda para el lector de pantalla, sin
+              // ocupar lugar ni correr la pastilla.
+              if (personal)
+                Semantics(
+                  header: true,
+                  label: 'Inicio',
+                  child: const SizedBox(key: Key('page-frame-title')),
+                ),
+              Expanded(
+                child: Wrap(
+                  spacing: 10,
+                  runSpacing: 6,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    if (!personal)
+                      Semantics(
+                        header: true,
+                        label: 'Inicio',
+                        child: const Text(
+                          'Agrocuentas',
+                          key: Key('page-frame-title'),
+                          style: TextStyle(
+                            fontFamily: AgroFonts.display,
+                            fontSize: 20,
+                            fontWeight: FontWeight.w700,
+                            color: Colors.white,
+                          ),
+                        ),
+                      ),
+                    if (data != null)
+                      Semantics(
+                        label: active == null
+                            ? 'Sin campaña activa'
+                            : 'Campaña activa: ${active.name}',
+                        excludeSemantics: true,
+                        button: true,
+                        hint: 'Abre Campañas',
+                        child: Material(
+                          color: AgroColors.inkSoft,
+                          shape: const StadiumBorder(),
+                          child: InkWell(
+                            key: const Key('home-active-campaign'),
+                            customBorder: const StadiumBorder(),
+                            onTap: onCampaigns,
+                            child: ConstrainedBox(
+                              constraints: const BoxConstraints(minHeight: 40),
+                              child: Padding(
+                                padding: const EdgeInsets.fromLTRB(12, 8, 6, 8),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Flexible(
+                                      child: Text(
+                                        active == null
+                                            ? 'Sin campaña activa'
+                                            : personal
+                                            ? active.name
+                                            : 'Campaña activa: ${active.name}',
+                                        style: const TextStyle(
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w700,
+                                          color: AgroColors.onInk,
+                                        ),
+                                      ),
+                                    ),
+                                    const Icon(
+                                      Icons.expand_more,
+                                      size: 18,
+                                      color: AgroColors.onInk,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              CircleIconButton(
+                key: const Key('home-settings'),
+                icon: Icons.settings_outlined,
+                tooltip: 'Ajustes y datos',
+                onPressed: onSettings,
+                background: AgroColors.inkSoft,
+                foreground: AgroColors.onInk,
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+          if (loading)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 24),
+              child: SizedBox.square(
+                dimension: 28,
+                child: CircularProgressIndicator(color: AgroColors.lime),
+              ),
             )
-          else
-            OutlinedButton.icon(
-              key: const Key('verify-online-access'),
-              onPressed: remote.isBusy
-                  ? null
-                  : () =>
-                        ref.read(remoteSessionProvider.notifier).verifyOnline(),
-              icon: const Icon(Icons.cloud_done_outlined),
-              label: const Text('Verificar acceso en línea'),
+          else if (data != null && personal) ...[
+            if (data.individual != null)
+              Padding(
+                padding: const EdgeInsets.only(right: 8, top: 4),
+                child: IndHomeHero(figures: data.individual!),
+              ),
+          ] else if (data != null) ...[
+            const _ScopePill(),
+            const SizedBox(height: 10),
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: personal ? _personalHero(data) : _sharedHero(data),
             ),
-          // «PIN del titular» pasó a Más y «Sincronización con el sindicato»
-          // es ahora el acceso principal «Enviar al sindicato» (piloto X01):
-          // aquí quedan sólo los avisos y acciones de la sesión.
+            const SizedBox(height: 14),
+            const Divider(height: 1, thickness: 1, color: AgroColors.inkSoft),
+            const SizedBox(height: 14),
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: _Figures(items: _figures(data.summary)),
+            ),
+          ],
         ],
       ),
     );
   }
-}
 
-/// Los cuatro accesos principales de Inicio, con icono y texto, en dos
-/// columnas (una si la etiqueta más larga no cabe con la fuente del
-/// dispositivo, como las tarjetas de importes de #129).
-class _PrimaryActions extends StatelessWidget {
-  const _PrimaryActions({
-    required this.onPurchase,
-    required this.onApplication,
-    required this.onInventory,
-    required this.onSync,
-  });
-
-  final VoidCallback onPurchase;
-  final VoidCallback onApplication;
-  final VoidCallback onInventory;
-  final VoidCallback onSync;
-
-  static const actions = <({String key, String label, IconData icon})>[
-    (
-      key: 'home-registrar-compra',
-      label: 'Registrar compra',
-      icon: Icons.shopping_bag_outlined,
-    ),
-    (
-      key: 'home-registrar-aplicacion',
-      label: 'Registrar aplicación',
-      icon: Icons.agriculture_outlined,
-    ),
-    (
-      key: 'home-ver-cuanto-queda',
-      label: 'Ver cuánto queda',
-      icon: Icons.inventory_2_outlined,
-    ),
-    (
-      key: 'home-enviar-sindicato',
-      label: 'Enviar al sindicato',
-      icon: Icons.cloud_upload_outlined,
-    ),
-  ];
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final handlers = [onPurchase, onApplication, onInventory, onSync];
-    final labelStyle = theme.textTheme.titleMedium?.copyWith(
-      fontWeight: FontWeight.w700,
-    );
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        // Dos columnas si la palabra más larga cabe en media fila con la
-        // fuente real; si no, una columna. Nada se abrevia ni se trunca.
-        final widestWord = actions
-            .expand((action) => action.label.split(' '))
-            .map((word) => measureText(context, word, labelStyle))
-            .fold(0.0, math.max);
-        // Lo que la tarjeta ocupa además de la palabra: relleno 14 + 14,
-        // icono 32, separación 12 y 16 dp de holgura (#129): la medida del
-        // texto y su pintado difieren en unos píxeles con la fuente ampliada.
-        const chrome = 14 + 14 + 32 + 12 + 16;
-        final columns = (constraints.maxWidth - 8) / 2 >= widestWord + chrome
-            ? 2
-            : 1;
-        final width = (constraints.maxWidth - (columns - 1) * 8) / columns;
-        return Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            for (final (index, action) in actions.indexed)
-              SizedBox(
-                width: width,
-                child: Card(
-                  color: theme.colorScheme.secondaryContainer,
-                  child: InkWell(
-                    key: Key(action.key),
-                    borderRadius: BorderRadius.circular(12),
-                    onTap: handlers[index],
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 14,
-                        vertical: 16,
-                      ),
-                      child: Row(
-                        children: [
-                          Icon(
-                            action.icon,
-                            size: 32,
-                            color: theme.colorScheme.onSecondaryContainer,
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Text(action.label, style: labelStyle),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-          ],
-        );
-      },
-    );
-  }
-}
-
-/// Inventario en ancho de móvil: una fila por producto, con el **nombre como
-/// encabezado** y cada cifra junto a su etiqueta (UIBUG-023).
-///
-/// Sustituye a la tabla desplazable en horizontal, donde al arrastrar hacia la
-/// derecha el nombre del producto salía de la pantalla y las cantidades
-/// quedaban sin dueño visible. Aquí no hay desplazamiento horizontal que
-/// perder: cada fila se lee entera.
-class _InventoryCards extends StatelessWidget {
-  const _InventoryCards({required this.rows});
-
-  final List<InventoryLineRead> rows;
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+  Widget _sharedHero(_DashboardData data) {
+    final s = data.summary;
+    final total = s.familyReceivableMinor + s.thirdPartyReceivableMinor;
+    final split = splitBob(total);
+    final family = s.familyReceivableMinor > 0 || s.familyCreditMinor > 0;
+    final third =
+        s.thirdPartyReceivableMinor > 0 || s.thirdPartyCreditMinor > 0;
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        for (final (index, row) in rows.indexed) ...[
-          if (index > 0) const Divider(height: 1),
-          InkWell(
-            onTap: () => context.push('/inventario/${row.productId}'),
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    row.productName,
-                    style: const TextStyle(fontWeight: FontWeight.w700),
-                  ),
-                  const SizedBox(height: 6),
-                  Wrap(
-                    spacing: 16,
-                    runSpacing: 4,
-                    children: [
-                      _figure(
-                        theme,
-                        'Físico',
-                        formatQuantity(row.availableBase, row.unit),
-                      ),
-                      _figure(
-                        theme,
-                        'Comprometido',
-                        formatQuantity(row.committedBase, row.unit),
-                      ),
-                      _figure(
-                        theme,
-                        'Proyección',
-                        formatQuantity(row.projectedBase, row.unit),
-                        strong: true,
-                      ),
-                      _figure(
-                        theme,
-                        'Valor',
-                        formatBob(row.availableValueBobMinor),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
-            ),
+        const Text('Por cobrar', style: _muted),
+        BigFigure(
+          numberKey: const Key('home-receivable-total'),
+          number: split.number,
+          unit: split.unit,
+          size: 56,
+          color: AgroColors.lime,
+        ),
+        const SizedBox(height: 4),
+        if (!family && !third)
+          const Text(
+            'Sin saldos por cobrar',
+            key: Key('home-receivable-none'),
+            style: _onInk,
+          )
+        else
+          Wrap(
+            spacing: 14,
+            runSpacing: 2,
+            children: [
+              if (family)
+                Text(
+                  'Familias ${formatBob(s.familyReceivableMinor)}',
+                  key: const Key('home-receivable-family'),
+                  style: _onInk,
+                ),
+              if (third)
+                Text(
+                  'Terceros ${formatBob(s.thirdPartyReceivableMinor)}',
+                  key: const Key('home-receivable-third'),
+                  style: _onInk,
+                ),
+            ],
           ),
-        ],
+        // D-04: lo que queda a favor se dice aparte, sin restarlo.
+        if (s.familyCreditMinor > 0)
+          Text(
+            'A favor de familias: ${formatBob(s.familyCreditMinor).trim()}',
+            key: const Key('home-credit-family'),
+            style: _muted,
+          ),
+        if (s.thirdPartyCreditMinor > 0)
+          Text(
+            'A favor de terceros: '
+            '${formatBob(s.thirdPartyCreditMinor).trim()}',
+            key: const Key('home-credit-third'),
+            style: _muted,
+          ),
       ],
     );
   }
 
-  Widget _figure(
-    ThemeData theme,
-    String label,
-    String value, {
-    bool strong = false,
-  }) => Column(
-    mainAxisSize: MainAxisSize.min,
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      Text(
-        label,
-        style: theme.textTheme.labelSmall?.copyWith(
-          color: theme.colorScheme.outline,
+  Widget _personalHero(_DashboardData data) {
+    final split = splitBob(data.summary.purchasesBobMinor);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('Compras', style: _muted),
+        BigFigure(
+          numberKey: const Key('home-purchases-total'),
+          number: split.number,
+          unit: split.unit,
+          size: 56,
+          color: AgroColors.lime,
         ),
-      ),
-      Text(
-        value,
-        style: TextStyle(
-          fontWeight: strong ? FontWeight.w800 : FontWeight.w500,
+      ],
+    );
+  }
+
+  List<({String label, String value, Key key})> _figures(DashboardSummary s) {
+    final receivable = s.familyReceivableMinor + s.thirdPartyReceivableMinor;
+    return [
+      if (!personal)
+        (
+          label: 'Compras',
+          value: splitBob(s.purchasesBobMinor).number,
+          key: const Key('home-figure-purchases'),
         ),
+      (
+        label: 'Pagado a proveedores',
+        value: splitBob(s.providerPaidMinor).number,
+        key: const Key('home-figure-provider-paid'),
       ),
-    ],
+      // En propio, los pagos recibidos y lo por cobrar sólo si hay importe
+      // (datos de antes del cambio de modo); en compartido, siempre.
+      if (!personal || s.receivedMinor != 0)
+        (
+          label: 'Pagos recibidos',
+          value: splitBob(s.receivedMinor).number,
+          key: const Key('home-figure-received'),
+        ),
+      if (personal && receivable > 0)
+        (
+          label: 'Por cobrar',
+          value: splitBob(receivable).number,
+          key: const Key('home-figure-receivable'),
+        ),
+    ];
+  }
+}
+
+/// Alcance de las cifras de la cabecera, visible antes de la cifra
+/// principal (revisión del autor del 2026-11-12): `dashboard()` suma todas
+/// las campañas, y la pastilla de arriba es la campaña activa, no un filtro.
+/// No cambia ningún cálculo: sólo dice el alcance real.
+class _ScopePill extends StatelessWidget {
+  const _ScopePill();
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+    decoration: const ShapeDecoration(
+      color: AgroColors.inkSoft,
+      shape: StadiumBorder(),
+    ),
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Icon(Icons.layers_outlined, size: 16, color: AgroColors.onInk),
+        const SizedBox(width: 6),
+        Flexible(
+          child: Text(
+            'Cifras de todas las campañas',
+            key: const Key('home-figures-scope'),
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: AgroColors.onInk,
+            ),
+          ),
+        ),
+      ],
+    ),
   );
+}
+
+/// Cifras pequeñas de la cabecera, en columnas. Si con la letra del teléfono
+/// una etiqueta no cabe sin partir una palabra, se quitan columnas.
+class _Figures extends StatelessWidget {
+  const _Figures({required this.items});
+  final List<({String label, String value, Key key})> items;
+
+  static const _label = TextStyle(
+    fontFamily: AgroFonts.body,
+    fontSize: 12,
+    height: 16 / 12,
+    color: AgroColors.onInkMuted,
+  );
+  static const _value = TextStyle(
+    fontFamily: AgroFonts.body,
+    fontSize: 15,
+    height: 22 / 15,
+    fontWeight: FontWeight.w700,
+    color: Colors.white,
+    fontFeatures: [FontFeature.tabularFigures()],
+  );
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      final widest = [
+        for (final item in items) ...[
+          ...item.label.split(' ').map((w) => measureText(context, w, _label)),
+          measureText(context, '${item.value} Bs', _value),
+        ],
+      ].fold(0.0, math.max);
+      var columns = math.max(1, items.length);
+      double widthFor(int n) => (constraints.maxWidth - (n - 1) * 10) / n;
+      while (columns > 1 && widthFor(columns) < widest + 4) {
+        columns--;
+      }
+      final width = widthFor(columns);
+      return Wrap(
+        spacing: 10,
+        runSpacing: 10,
+        children: [
+          for (final item in items)
+            SizedBox(
+              width: width,
+              child: Semantics(
+                label: '${item.label}: ${item.value} Bs',
+                excludeSemantics: true,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(item.label, style: _label),
+                    Text('${item.value} Bs', key: item.key, style: _value),
+                  ],
+                ),
+              ),
+            ),
+        ],
+      );
+    },
+  );
+}
+
+/// «Para atender»: sólo lo que hoy pide una acción y que el teléfono ya
+/// calcula. Los avisos de vencimiento cuentan **lotes**; los de existencia
+/// baja, **productos** (en el total o por responsable, como en Avisos).
+class _AttentionList extends StatelessWidget {
+  const _AttentionList({required this.data, required this.onOpen});
+
+  final _DashboardData data;
+  final void Function(Future<Object?> navigation) onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final rows = <Widget>[];
+    void avisos() => onOpen(context.push('/inventario/avisos'));
+    final alerts = data.alerts;
+    if (data.alertsError != null) {
+      rows.add(
+        LinkRow(
+          key: const Key('home-attention-alerts-error'),
+          dot: DotTone.danger,
+          title: 'No se pudieron calcular los avisos de inventario',
+          onTap: avisos,
+        ),
+      );
+    } else if (alerts != null) {
+      if (alerts.clockLooksBehind) {
+        rows.add(
+          LinkRow(
+            key: const Key('home-attention-clock'),
+            dot: DotTone.danger,
+            title: 'Revise la fecha del teléfono: los avisos dependen de ella',
+            onTap: avisos,
+          ),
+        );
+      }
+      final expiry = [
+        if (alerts.expired.isNotEmpty)
+          _count(alerts.expired.length, 'lote vencido', 'lotes vencidos'),
+        if (alerts.dueToday.isNotEmpty)
+          _count(alerts.dueToday.length, 'lote vence hoy', 'lotes vencen hoy'),
+      ];
+      if (expiry.isNotEmpty) {
+        rows.add(
+          LinkRow(
+            key: const Key('home-attention-expiry'),
+            dot: DotTone.danger,
+            title: expiry.join(' · '),
+            onTap: avisos,
+          ),
+        );
+      }
+      if (alerts.near.isNotEmpty) {
+        rows.add(
+          LinkRow(
+            key: const Key('home-attention-near'),
+            dot: DotTone.caution,
+            title: _count(
+              alerts.near.length,
+              'lote por vencer',
+              'lotes por vencer',
+            ),
+            onTap: avisos,
+          ),
+        );
+      }
+      final lowTotal = alerts.lowStock.where((a) => a.line.isTotal).length;
+      final lowPerson = alerts.lowStock.length - lowTotal;
+      final low = [
+        if (lowTotal > 0)
+          '${_count(lowTotal, 'producto', 'productos')} en el total',
+        if (lowPerson > 0)
+          '${_count(lowPerson, 'existencia', 'existencias')} por responsable',
+      ];
+      if (low.isNotEmpty) {
+        rows.add(
+          LinkRow(
+            key: const Key('home-attention-low'),
+            dot: DotTone.caution,
+            title: 'Queda poco: ${low.join(' · ')}',
+            onTap: avisos,
+          ),
+        );
+      }
+    }
+    final withBalance = data.purchasesWithBalance;
+    if (withBalance == null) {
+      rows.add(
+        LinkRow(
+          key: const Key('home-attention-purchases-error'),
+          dot: DotTone.danger,
+          title: 'No se pudo revisar el saldo de las compras',
+          onTap: () => onOpen(context.push('/compras')),
+        ),
+      );
+    } else if (withBalance > 0) {
+      rows.add(
+        LinkRow(
+          key: const Key('home-attention-provider-balance'),
+          dot: DotTone.caution,
+          title:
+              '${_count(withBalance, 'compra', 'compras')} con saldo por '
+              'pagar al proveedor',
+          onTap: () => onOpen(context.push('/compras')),
+        ),
+      );
+    }
+    if (rows.isEmpty) {
+      rows.add(
+        const LinkRow(
+          key: Key('home-attention-none'),
+          dot: DotTone.ok,
+          title: 'Nada pendiente por ahora',
+        ),
+      );
+    }
+    return AgroGroup(children: rows);
+  }
+}
+
+/// E2-D15: «Nueva convocatoria: {nombre} · cierra el {fecha}» mientras haya
+/// una convocatoria abierta que no se abrió en este teléfono. Una sola
+/// consulta indexada; sin push y sin red. Tocarlo abre la convocatoria, que
+/// queda vista y el aviso desaparece.
+class _JointPurchaseNotice extends ConsumerWidget {
+  const _JointPurchaseNotice();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final notice = ref.watch(jointPurchaseNoticeProvider).value;
+    if (notice == null) return const SizedBox.shrink();
+    return _JointPurchaseNoticeCard(
+      cardKey: const Key('joint-purchase-notice'),
+      icon: Icons.campaign_outlined,
+      text: jointPurchaseNoticeText(notice),
+      onTap: () => context.push(
+        notice.total > 1
+            ? '/compras-conjuntas'
+            : '/compras-conjuntas/${notice.callId}',
+      ),
+    );
+  }
+}
+
+/// E4 (2026-11-13): «Revise quién puede ver su participación…» mientras
+/// alguna convocatoria del titular tenga un alcance anterior a CONV-4 o una
+/// decisión pendiente con texto anterior. En los dos modos, con el mismo
+/// aspecto que el aviso de convocatoria nueva. Sólo lectura local; abre la
+/// lista de compras conjuntas, donde cada convocatoria ofrece la revisión.
+class _JointPurchaseAccessReviewNotice extends ConsumerWidget {
+  const _JointPurchaseAccessReviewNotice();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final count = ref.watch(jointPurchaseAccessReviewCountProvider).value ?? 0;
+    if (count <= 0) return const SizedBox.shrink();
+    return _JointPurchaseNoticeCard(
+      cardKey: const Key('joint-purchase-access-review-notice'),
+      icon: Icons.visibility_outlined,
+      text: jointPurchaseAccessReviewNoticeText(count),
+      onTap: () => context.push('/compras-conjuntas'),
+    );
+  }
+}
+
+/// Texto del aviso de revisión de acceso (E4).
+String jointPurchaseAccessReviewNoticeText(int count) => count == 1
+    ? 'Revise quién puede ver su participación en una compra conjunta'
+    : 'Revise quién puede ver su participación en $count compras conjuntas';
+
+class _JointPurchaseNoticeCard extends StatelessWidget {
+  const _JointPurchaseNoticeCard({
+    required this.cardKey,
+    required this.icon,
+    required this.text,
+    required this.onTap,
+  });
+
+  final Key cardKey;
+  final IconData icon;
+  final String text;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Material(
+        color: AgroColors.warnBg,
+        borderRadius: BorderRadius.circular(20),
+        child: InkWell(
+          key: cardKey,
+          borderRadius: BorderRadius.circular(20),
+          onTap: onTap,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(14, 12, 10, 12),
+            child: Row(
+              children: [
+                IconCircle(
+                  icon: icon,
+                  background: AgroColors.warnInk,
+                  foreground: AgroColors.warnBg,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    text,
+                    style: const TextStyle(
+                      fontSize: 15,
+                      height: 20 / 15,
+                      fontWeight: FontWeight.w700,
+                      color: AgroColors.warnInk,
+                    ),
+                  ),
+                ),
+                const Icon(Icons.chevron_right, color: AgroColors.warnInk),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 }
 
 /// Aviso de la política de activación (#76) cuando la instalación opera en

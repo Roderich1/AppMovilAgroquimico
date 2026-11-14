@@ -9,6 +9,7 @@ import 'package:agroquimicos/domain/sync/sync_types.dart';
 import 'package:agroquimicos/presentation/screens/central_binding_screen.dart';
 import 'package:agroquimicos/presentation/screens/declared_needs_screen.dart';
 import 'package:agroquimicos/presentation/screens/sync_status_screen.dart';
+import 'package:agroquimicos/presentation/widgets/rdm_c_page.dart' show RdmCRow;
 import 'package:agroquimicos/services/auth/api_endpoint_config.dart';
 import 'package:agroquimicos/services/auth/auth_http_client.dart';
 import 'package:agroquimicos/services/sync/sync_access.dart';
@@ -100,7 +101,9 @@ void main() {
       await tester.tap(find.widgetWithText(FilledButton, 'Declarar').last);
       await settle(tester);
 
-      expect(find.text('Herbicida local · Campaña local 2026'), findsOneWidget);
+      // Rediseño (sesión C): producto y campaña en líneas separadas.
+      expect(find.text('Herbicida local'), findsOneWidget);
+      expect(find.text('Campaña local 2026'), findsOneWidget);
       // C-01: el aviso distingue «guardada en el teléfono» de «aceptada».
       expect(
         find.text(
@@ -109,10 +112,9 @@ void main() {
         ),
         findsOneWidget,
       );
-      expect(
-        find.textContaining('25 L · Guardada, pendiente de envío'),
-        findsOneWidget,
-      );
+      // Rediseño (sesión C): la cantidad grande y el estado en su etiqueta.
+      expect(find.text('25 L'), findsOneWidget);
+      expect(find.text('Guardada, pendiente de envío'), findsOneWidget);
       final rows = (await tester.runAsync(fixture.outboxEntries))!;
       expect(rows.single.quantityBase, '25000');
       expect(rows.single.status, OutboxStatus.pending);
@@ -171,10 +173,9 @@ void main() {
         }
       });
       await settle(tester);
-      expect(
-        find.textContaining('25 L · Guardada, pendiente de envío'),
-        findsOneWidget,
-      );
+      // Rediseño (sesión C): la cantidad grande y el estado en su etiqueta.
+      expect(find.text('25 L'), findsOneWidget);
+      expect(find.text('Guardada, pendiente de envío'), findsOneWidget);
       // C-02: la pantalla donde se declaró dice por qué no salió y ofrece
       // la acción (la verificación sigue siendo explícita).
       expect(
@@ -196,9 +197,10 @@ void main() {
 
       final rows = (await tester.runAsync(fixture.outboxEntries))!;
       expect(rows.single.status, OutboxStatus.acked);
+      expect(find.text('25 L'), findsOneWidget);
       expect(
-        find.textContaining(
-          '25 L · Aceptada por el sindicato: ${formatDate(rows.single.ackedAt)}',
+        find.text(
+          'Aceptada por el sindicato: ${formatDate(rows.single.ackedAt)}',
         ),
         findsOneWidget,
       );
@@ -271,7 +273,21 @@ void main() {
           ),
         ],
       );
-      expect(find.text('Requiere vinculación'), findsNWidgets(4));
+      // Rediseño (sesión C): productos y campañas en pestañas; entre las
+      // dos siguen siendo cuatro filas sin vincular.
+      final unboundProducts = find
+          .text('Requiere vinculación')
+          .evaluate()
+          .length;
+      await tester.tap(find.byKey(const Key('binding-tab-campaigns')));
+      await settle(tester);
+      final unboundCampaigns = find
+          .text('Requiere vinculación')
+          .evaluate()
+          .length;
+      expect(unboundProducts + unboundCampaigns, 4);
+      await tester.tap(find.byKey(const Key('binding-tab-products')));
+      await settle(tester);
       await tester.tap(find.text('Actualizar'));
       await settle(tester);
       // Nada se vinculó por leer las referencias.
@@ -282,7 +298,7 @@ void main() {
 
       final row = find.ancestor(
         of: find.text('Herbicida local (L)'),
-        matching: find.byType(ListTile),
+        matching: find.byType(RdmCRow),
       );
       await tester.tap(
         find.descendant(

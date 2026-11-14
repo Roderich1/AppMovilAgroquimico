@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/services.dart';
 
+import 'native_event_hub.dart';
 import 'speech_transcription_port.dart';
 
 /// Adaptador de [SpeechTranscriptionPort] sobre `android.speech.SpeechRecognizer`.
@@ -19,6 +20,11 @@ import 'speech_transcription_port.dart';
 /// **siempre** en exactamente un [TranscriptionTurnEnded], incluso si el servicio
 /// del sistema se queda mudo. Sin ese cierre garantizado la sesión no sabría
 /// cuándo el micrófono quedó libre.
+///
+/// Cada turno lleva un **número de turno** único en el proceso (#119). El lado
+/// nativo lo devuelve en cada evento, y lo que llegue con otro número —un
+/// resultado tardío de un turno cancelado, o de la pantalla anterior— se
+/// descarta aquí, sin llegar a la sesión.
 final class AndroidSpeechTranscriptionAdapter
     implements SpeechTranscriptionPort {
   AndroidSpeechTranscriptionAdapter({
@@ -26,8 +32,9 @@ final class AndroidSpeechTranscriptionAdapter
     EventChannel? event,
   }) : _method = method ?? const MethodChannel(methodChannelName),
        _event = event ?? const EventChannel(eventChannelName) {
-    _subscription = _event.receiveBroadcastStream().listen(
-      _onNativeEvent,
+    _lease = NativeEventHub.attach(
+      _event,
+      onEvent: _onNativeEvent,
       onError: (Object error) => _failTurn(
         TranscriptionErrorCode.engineFailure,
         error.runtimeType.toString(),
@@ -40,13 +47,18 @@ final class AndroidSpeechTranscriptionAdapter
 
   final MethodChannel _method;
   final EventChannel _event;
-  late final StreamSubscription<dynamic> _subscription;
+  late final NativeEventLease _lease;
+
+  /// Último número de turno entregado en este proceso. Compartido entre
+  /// instancias: dos pantallas vivas a la vez no pueden repetir número.
+  static int _lastGeneration = 0;
 
   final StreamController<TranscriptionEvent> _events =
       StreamController<TranscriptionEvent>.broadcast();
 
   bool _turnOpen = false;
   bool _disposed = false;
+  int _generation = 0;
   Stopwatch? _clock;
   Timer? _deadline;
 
@@ -55,6 +67,9 @@ final class AndroidSpeechTranscriptionAdapter
 
   @override
   String get engineId => 'android-speech';
+
+  @override
+  bool get listensAcrossPauses => false;
 
   @override
   bool get isTurnOpen => _turnOpen;
@@ -107,16 +122,27 @@ final class AndroidSpeechTranscriptionAdapter
       return;
     }
     _turnOpen = true;
+    final generation = _generation = ++_lastGeneration;
     _clock = Stopwatch()..start();
     _turnBudget = request.maxTurnDuration;
     _armDeadline();
     try {
-      await _method.invokeMethod<void>('start', {
+      final reply = await _method.invokeMethod<Object?>('start', {
+        'gen': generation,
         'locale': request.locale,
         'preferOffline': request.preferOffline,
         'partialResults': request.partialResults,
         'route': request.route.name,
       });
+      // #119: habrá diálogo de permiso. Se sabe por la respuesta, que llega
+      // antes que la pausa que provoca el propio diálogo; el evento podía
+      // llegar después, y entonces la sesión tomaba la pausa por «el usuario
+      // se fue» y cancelaba justo antes de que concediera.
+      if (reply == 'awaitingPermission' &&
+          _turnOpen &&
+          _generation == generation) {
+        _onStage(TranscriptionStage.awaitingPermission);
+      }
     } on PlatformException catch (error) {
       _failTurn(TranscriptionErrorCode.engineFailure, 'platform:${error.code}');
     } on MissingPluginException {
@@ -128,7 +154,7 @@ final class AndroidSpeechTranscriptionAdapter
   Future<void> stop() async {
     if (_disposed || !_turnOpen) return;
     try {
-      await _method.invokeMethod<void>('stop');
+      await _method.invokeMethod<void>('stop', {'gen': _generation});
     } on PlatformException catch (error) {
       _failTurn(TranscriptionErrorCode.engineFailure, 'platform:${error.code}');
     } on MissingPluginException {
@@ -140,15 +166,17 @@ final class AndroidSpeechTranscriptionAdapter
   Future<void> cancel() async {
     if (_disposed) return;
     final wasOpen = _turnOpen;
-    try {
-      await _method.invokeMethod<void>('cancel');
-    } on Object {
-      // Cancelar nunca puede fallar hacia afuera: el objetivo es soltar el
-      // micrófono y el turno ya se da por cerrado aquí.
-    }
+    // Se cierra ANTES de hablar con el motor: mientras se espera la respuesta,
+    // un resultado de este turno ya no puede entrar en la sesión.
     if (wasOpen) {
       _emit(const TranscriptionCancelled());
       _closeTurn(TranscriptionEndReason.cancelled);
+    }
+    try {
+      await _method.invokeMethod<void>('cancel', {'gen': _generation});
+    } on Object {
+      // Cancelar nunca puede fallar hacia afuera: el objetivo es soltar el
+      // micrófono y el turno ya se da por cerrado aquí.
     }
   }
 
@@ -168,9 +196,11 @@ final class AndroidSpeechTranscriptionAdapter
     _deadline?.cancel();
     _deadline = null;
     _turnOpen = false;
-    await _subscription.cancel();
+    await _lease.cancel();
     try {
-      await _method.invokeMethod<void>('dispose');
+      // Con el número: liberar esta pantalla no puede cortar el turno de otra
+      // que ya se abrió (#119).
+      await _method.invokeMethod<void>('dispose', {'gen': _generation});
     } on Object {
       // Liberar recursos es best-effort: propagar aquí dejaría al llamador sin
       // forma de terminar de cerrar la pantalla.
@@ -185,32 +215,20 @@ final class AndroidSpeechTranscriptionAdapter
   void _onNativeEvent(dynamic raw) {
     if (raw is! Map) return;
     final map = raw.cast<Object?, Object?>();
+    // Un evento con número de turno sólo vale para ese turno. Sin número sólo
+    // llega la cancelación por pérdida de foco, que vale para el que esté
+    // abierto.
+    final gen = map['gen'];
+    if (gen != null && gen != _generation) return;
+    // Todo evento es de un turno: con el turno cerrado no queda a quién
+    // atribuirlo. Un error suelto, además, quedaría pendiente en la sesión y
+    // haría fallar el turno siguiente.
+    if (!_turnOpen) return;
     switch (map['type'] as String?) {
       case 'stage':
         final name = map['stage'] as String?;
         for (final stage in TranscriptionStage.values) {
-          if (stage.name != name) continue;
-          switch (stage) {
-            // `DEFECTO-005`: el plazo protege contra un motor colgado que se
-            // quede con el micrófono. Mientras el sistema pregunta por el
-            // permiso no hay micrófono tomado, así que no tiene nada que
-            // proteger. Dejarlo correr vencía el turno mientras el diálogo
-            // seguía abierto, la sesión reabría otro turno y pedía el permiso
-            // por segunda vez; Android respondía «Can request only one set of
-            // permissions at a time» y entregaba una denegación inmediata. En
-            // el HONOR JDY-LX3P eso convirtió un permiso **concedido** en
-            // «Permiso de micrófono denegado».
-            case TranscriptionStage.awaitingPermission:
-              _deadline?.cancel();
-              _deadline = null;
-            // El micrófono se acaba de abrir: el plazo cuenta desde aquí, no
-            // desde antes de saber si habría permiso.
-            case TranscriptionStage.listening:
-              _armDeadline();
-            case TranscriptionStage.processing:
-              break;
-          }
-          _emit(TranscriptionStageChanged(stage));
+          if (stage.name == name) _onStage(stage);
         }
 
       // El reconocedor que el motor creó de verdad, que puede no ser el pedido:
@@ -226,20 +244,17 @@ final class AndroidSpeechTranscriptionAdapter
         if (locale != null) _emit(TranscriptionLocaleInUse(locale));
 
       case 'partial':
-        if (!_turnOpen) return;
         _emit(
           TranscriptionPartial(map['text'] as String? ?? '', elapsed: _elapsed),
         );
 
       case 'final':
-        if (!_turnOpen) return;
         _emit(
           TranscriptionSegment(map['text'] as String? ?? '', elapsed: _elapsed),
         );
         _closeTurn(TranscriptionEndReason.segment);
 
       case 'noMatch':
-        if (!_turnOpen) return;
         _emit(const TranscriptionNoMatch());
         _closeTurn(TranscriptionEndReason.noMatch);
 
@@ -247,7 +262,6 @@ final class AndroidSpeechTranscriptionAdapter
       // —que sí oyó algo y no lo reconoció— porque la sesión los cuenta igual
       // pero el diagnóstico debe poder separarlos.
       case 'timeout':
-        if (!_turnOpen) return;
         _emit(const TranscriptionTimeout());
         _closeTurn(TranscriptionEndReason.timeout);
 
@@ -255,18 +269,42 @@ final class AndroidSpeechTranscriptionAdapter
         _failTurn(_codeFrom(map['code'] as String?), map['detail'] as String?);
 
       case 'cancelled':
-        if (!_turnOpen) return;
         _emit(const TranscriptionCancelled());
         _closeTurn(TranscriptionEndReason.cancelled);
     }
   }
 
+  void _onStage(TranscriptionStage stage) {
+    switch (stage) {
+      // `DEFECTO-005`: el plazo protege contra un motor colgado que se quede
+      // con el micrófono. Mientras el sistema pregunta por el permiso no hay
+      // micrófono tomado, así que no tiene nada que proteger. Dejarlo correr
+      // vencía el turno mientras el diálogo seguía abierto, la sesión reabría
+      // otro turno y pedía el permiso por segunda vez; Android respondía «Can
+      // request only one set of permissions at a time» y entregaba una
+      // denegación inmediata. En el HONOR JDY-LX3P eso convirtió un permiso
+      // **concedido** en «Permiso de micrófono denegado».
+      case TranscriptionStage.awaitingPermission:
+        _deadline?.cancel();
+        _deadline = null;
+      // El micrófono se acaba de abrir: el plazo cuenta desde aquí, no desde
+      // antes de saber si habría permiso.
+      case TranscriptionStage.listening:
+        _armDeadline();
+      case TranscriptionStage.processing:
+        break;
+    }
+    _emit(TranscriptionStageChanged(stage));
+  }
+
   void _failTurn(TranscriptionErrorCode code, String? detail) {
-    if (_disposed) return;
+    // Sin turno abierto no hay a quién atribuir el fallo: un error suelto
+    // quedaría pendiente en la sesión y haría fallar el turno siguiente
+    // (#119). `start` abre el turno antes de hablar con el motor, así que una
+    // denegación del permiso siempre encuentra su turno.
+    if (_disposed || !_turnOpen) return;
     _emit(TranscriptionFailed(code, detail: detail));
-    // Un fallo antes de abrir turno —permiso denegado al tocar, por ejemplo— no
-    // debe inventar un cierre de algo que nunca se abrió.
-    if (_turnOpen) _closeTurn(TranscriptionEndReason.error);
+    _closeTurn(TranscriptionEndReason.error);
   }
 
   /// Arma el plazo del turno desde ahora.
@@ -277,7 +315,11 @@ final class AndroidSpeechTranscriptionAdapter
     _deadline?.cancel();
     _deadline = Timer(_turnBudget, () {
       if (!_turnOpen) return;
-      unawaited(_method.invokeMethod<void>('cancel').catchError((_) {}));
+      unawaited(
+        _method
+            .invokeMethod<void>('cancel', {'gen': _generation})
+            .catchError((_) {}),
+      );
       _emit(const TranscriptionTimeout());
       _closeTurn(TranscriptionEndReason.timeout);
     });

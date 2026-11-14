@@ -5,9 +5,10 @@
 // Este archivo sólo usa API que ya existía en `ed9c55c`: imputaciones
 // guardadas, `dashboard()`, `campaignCloseSummary()`, la exportación por el
 // servicio y los textos de Cuentas e Inicio. Así compila sobre la base y falla
-// allí por aserción, con las cifras «hoy» del documento.
+// allí por aserción, con las cifras «hoy» del documento. (2026-11-12: la
+// exportación tabular pasó de CSV a Excel; esa prueba ya no compila sobre
+// `ed9c55c`.)
 
-import 'dart:convert';
 import 'dart:io';
 
 import 'package:agroquimicos/app.dart';
@@ -15,9 +16,9 @@ import 'package:agroquimicos/domain/money.dart';
 import 'package:agroquimicos/domain/reports/report_composer.dart';
 import 'package:agroquimicos/presentation/screens/dashboard_screen.dart';
 import 'package:agroquimicos/presentation/screens/settlements_screen.dart';
-import 'package:agroquimicos/services/reports/csv_report_generator.dart';
 import 'package:agroquimicos/services/reports/report_export_service.dart';
 import 'package:agroquimicos/services/reports/report_storage.dart';
+import 'package:agroquimicos/services/reports/xlsx_report_generator.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -25,6 +26,7 @@ import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'support/d04_world.dart';
+import 'support/xlsx_reader.dart';
 
 void main() {
   sqfliteFfiInit();
@@ -229,21 +231,24 @@ void main() {
       final table = await service.compose(
         ReportRequest(
           kind: ReportKind.accountStatement,
-          format: ReportFormat.csv,
+          format: ReportFormat.xlsx,
           campaignId: w.invierno,
           personId: w.familiar,
         ),
       );
-      final csv = utf8.decode(const CsvReportGenerator().generate(table));
-      expect(csv, contains('Saldo al inicio del período (Bs);81,00'));
-      expect(csv, contains('Saldo a hoy (Bs);71,00'));
+      // Desde el 2026-11-12 la salida tabular es Excel: registros del libro en
+      // la forma `;` del antiguo CSV, con los números en celdas numéricas.
+      final records = xlsxRecords(const XlsxReportGenerator().generate(table));
+      final text = records.join('\n');
+      expect(records, contains('Saldo al inicio del período (Bs);81,00'));
+      expect(records, contains('Saldo a hoy (Bs);71,00'));
       expect(
-        csv,
+        records,
         contains('Deuda pendiente por origen · Invierno 2026 (Bs);40,00'),
       );
-      expect(csv, contains('Saldo neto · todas las campañas (Bs);71,00'));
-      expect(csv, contains('Imputado: Verano 2026 ${bs(5000)}'));
-      expect(csv, isNot(contains('Saldo final')));
+      expect(records, contains('Saldo neto · todas las campañas (Bs);71,00'));
+      expect(text, contains('Imputado: Verano 2026 ${bs(5000)}'));
+      expect(text, isNot(contains('Saldo final')));
     });
   });
 
@@ -328,7 +333,7 @@ void main() {
       await tester.tap(find.text('Ver detalle cronológico'));
       await settle(tester);
       Finder inDialog(String text) => find.descendant(
-        of: find.byType(AlertDialog),
+        of: find.byType(Dialog),
         matching: find.textContaining(text),
       );
       expect(inDialog('Deuda pendiente por origen (a hoy)'), findsOneWidget);
@@ -348,7 +353,7 @@ void main() {
       await tester.drag(
         find
             .descendant(
-              of: find.byType(AlertDialog),
+              of: find.byType(Dialog),
               matching: find.byType(ListView),
             )
             .first,
@@ -373,14 +378,12 @@ void main() {
       await tester.tap(
         find.descendant(
           of: card('Familiar Demo'),
-          matching: find.byType(PopupMenuButton<String>),
+          matching: find.widgetWithText(FilledButton, 'Registrar pago'),
         ),
       );
       await settle(tester);
-      await tester.tap(find.text('Registrar pago'));
-      await settle(tester);
       Finder inDialog(String text) => find.descendant(
-        of: find.byType(AlertDialog),
+        of: find.byKey(const Key('payment-sheet')),
         matching: find.text(text),
       );
       expect(inDialog('Se registra en: Invierno 2026'), findsOneWidget);
@@ -396,7 +399,7 @@ void main() {
       );
       await tester.enterText(
         find.descendant(
-          of: find.byType(AlertDialog),
+          of: find.byKey(const Key('payment-sheet')),
           matching: find.byType(TextField),
         ),
         '50',
@@ -419,23 +422,18 @@ void main() {
         await w.pay(w.familiar, 10000, date: at(10, 20));
       });
       await pump(tester, w, const DashboardScreen());
-      final familias = find
-          .ancestor(
-            of: find.text('Familias por cobrar'),
-            matching: find.byType(Card),
-          )
-          .first;
+      // Rediseño B: «Por cobrar» va en la cabecera de Inicio; el grupo de
+      // las familias se nombra con su importe y lo que queda a su favor va
+      // aparte, sin restarlo.
+      final familias = find.byKey(const Key('home-receivable-family'));
       expect(
-        find.descendant(of: familias, matching: find.text(formatBob(0))),
-        findsWidgets,
+        tester.widget<Text>(familias).data,
+        'Familias ${formatBob(0)}',
         reason: 'por cobrar = max(0, saldo neto)',
       );
       expect(
-        find.descendant(
-          of: familias,
-          matching: find.text('A favor de familias: ${bs(1900)}'),
-        ),
-        findsOneWidget,
+        tester.widget<Text>(find.byKey(const Key('home-credit-family'))).data,
+        'A favor de familias: ${bs(1900)}',
       );
     });
   });

@@ -20,6 +20,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'support/f04_mode_fixtures.dart';
 import 'support/f04_mode_ui_harness.dart';
+import 'support/purchase_form_driver.dart';
 
 typedef Row = Map<String, Object?>;
 
@@ -56,13 +57,14 @@ void main() {
           .where((w) => w.enabled ?? true)
           .length;
 
+  /// Abre la hoja del botón flotante «+ Registrar» (rediseño, 2026-11-12).
   Future<void> openNewSheet(WidgetTester tester) async {
-    await tester.tap(find.text('Nuevo'));
+    await tester.tap(find.byKey(const Key('shell-registrar')));
     await settle(tester);
   }
 
   group('navegación', () {
-    testWidgets('propio: Operaciones y «Nuevo» no ofrecen transferencias; '
+    testWidgets('propio: Operaciones y el «+» no ofrecen transferencias; '
         'compartido sí', (tester) async {
       final s = await activatedHousehold(tester, 'nav');
       await tester.runAsync(
@@ -77,7 +79,8 @@ void main() {
       await settle(tester);
       expect(find.text('Transferencias'), findsNothing);
       expect(find.text('Compras'), findsOneWidget);
-      expect(find.text('Más'), findsOneWidget);
+      // Rediseño B: Más cuelga de Inicio (B1); Actividad conserva Reportes.
+      expect(find.byKey(const Key('activity-reports')), findsOneWidget);
       await openNewSheet(tester);
       expect(find.text('Transferencia'), findsNothing);
       expect(find.text('Compra'), findsOneWidget);
@@ -95,7 +98,7 @@ void main() {
       // La modalidad vigente se lee en Más, Modo de uso (piloto X01).
       c.read(routerProvider).go('/mas');
       await settle(tester);
-      expect(find.text('Ahora: inventario compartido'), findsOneWidget);
+      expect(find.text('Ahora: modo con varias personas'), findsOneWidget);
     });
 
     testWidgets('propio: abrir directamente una ruta de transferencias '
@@ -161,7 +164,10 @@ void main() {
       final c = await pumpModeApp(tester, s.database);
       c.read(routerProvider).go('/operaciones');
       await settle(tester);
+      // Rediseño B: filtro «Transferencias» › «Lista de transferencias».
       await tester.tap(find.text('Transferencias'));
+      await settle(tester);
+      await tester.tap(find.byKey(const Key('activity-open-transfers')));
       await settle(tester);
       expect(find.byType(TransfersScreen), findsOneWidget);
       expect(find.text('Nueva'), findsOneWidget);
@@ -174,11 +180,11 @@ void main() {
       );
       expect(find.byKey(const Key('shared-only-notice')), findsOneWidget);
       expect(find.text('Nueva'), findsNothing);
-      await tester.tap(find.text('Volver a Operaciones'));
+      await tester.tap(find.text('Volver a Actividad'));
       await settle(tester);
       expect(currentPath(c), '/operaciones');
       expect(find.byType(TransfersScreen), findsNothing);
-      expect(find.text('Más'), findsOneWidget);
+      expect(find.byKey(const Key('activity-reports')), findsOneWidget);
     });
 
     testWidgets('si la pantalla de transferencias llegara a mostrarse en '
@@ -211,8 +217,9 @@ void main() {
       final c = await pumpModeApp(tester, s.database);
 
       c.read(routerProvider).push('/compras/nueva');
-      await waitFor(tester, field('Cantidad comprada'));
+      await waitFor(tester, find.byKey(const Key('purchase-add-line')));
       await settle(tester);
+      await openPurchaseLine(tester);
       expect(find.text('¿Para quién es?'), findsOneWidget);
       // El selector de persona aparece sólo tras elegir «Toda para una
       // persona» (pilotos X01/X02): se elige para contar sus campos.
@@ -231,21 +238,29 @@ void main() {
         OperationMode.personal,
       );
       c.read(routerProvider).push('/compras/nueva');
-      await waitFor(tester, field('Cantidad comprada'));
+      await waitFor(tester, find.byKey(const Key('purchase-add-line')));
       await settle(tester);
+      await openPurchaseLine(tester);
       expect(find.text('¿Para quién es?'), findsNothing);
-      expect(find.text('Toda para una persona'), findsNothing);
+      expect(find.text('Una persona'), findsNothing);
       expect(picker('Persona'), findsNothing);
-      expect(find.text('Para el titular: Titular'), findsOneWidget);
+      // Rediseño individual (lámina I-11): la hoja no repite el titular.
+      expect(find.textContaining('Para el titular'), findsNothing);
       expect(inputCount(tester), lessThan(sharedInputs));
 
+      await closePurchaseLine(tester);
       await choose(tester, 'Proveedor', 'Proveedor');
+      await openPurchaseLine(tester);
       await choose(tester, 'Producto', 'Glifosato');
+      await openPurchaseLine(tester);
       await tester.enterText(field('Cantidad comprada'), '4');
-      await tester.enterText(field('Precio BOB/L'), '50');
+      await openPurchaseLine(tester);
+      await tester.enterText(field('Precio por L'), '50');
       await settle(tester);
       // Paso 2: la pregunta explícita; paga el titular, sin elegir pagador.
+      await closePurchaseLine(tester);
       await tester.ensureVisible(find.byKey(const Key('purchase-continue')));
+      await closePurchaseLine(tester);
       await tester.tap(find.byKey(const Key('purchase-continue')));
       await settle(tester);
       expect(find.text('Pagador'), findsNothing);
@@ -292,10 +307,9 @@ void main() {
       await waitFor(tester, picker('Chaco'));
       await settle(tester);
       expect(picker('Persona'), findsNothing);
-      expect(
-        find.byKey(const Key('application-personal-owner')),
-        findsOneWidget,
-      );
+      // Rediseño individual (lámina I-20): ni selector de persona ni fila
+      // «Aplica el titular»; el repositorio aplica al titular al guardar.
+      expect(find.byKey(const Key('application-personal-owner')), findsNothing);
       final farms = tester
           .widget<AdaptiveEntityPicker<Row>>(picker('Chaco'))
           .items;
@@ -344,7 +358,9 @@ void main() {
       // Las personas ya registradas siguen a la vista.
       expect(find.text('Hermana'), findsOneWidget);
 
-      await tester.tap(find.text('Chacos'));
+      // En modo individual «Chacos» también es una pestaña de la barra
+      // (2026-11-13): se toca el chip de la sección de Datos.
+      await tester.tap(find.widgetWithText(ChoiceChip, 'Chacos'));
       await settle(tester);
       await tester.tap(find.text('Agregar chaco'));
       await settle(tester);
@@ -352,7 +368,10 @@ void main() {
       expect(find.byKey(const Key('farm-personal-owner')), findsOneWidget);
     });
 
-    testWidgets('liquidación: pagos y adelantos sólo del titular', (
+    // Ronda 2 (2026-11-12): antes «pagos y adelantos sólo del titular»; el
+    // autor revisó Q-2 y el titular tampoco recibe pagos de cuenta, así que
+    // en inventario propio nadie los recibe.
+    testWidgets('liquidación: en propio nadie recibe pagos de cuenta', (
       tester,
     ) async {
       await tester.binding.setSurfaceSize(const Size(800, 2400));
@@ -392,7 +411,7 @@ void main() {
 
       expect(
         await menuOf('Titular'),
-        allOf(contains('pay'), isNot(contains('advance'))),
+        allOf(isNot(contains('pay')), isNot(contains('advance'))),
       );
       final relative = await menuOf('Hermana');
       expect(relative, containsAll(['detail', 'export']));
@@ -434,10 +453,13 @@ void main() {
         return items;
       }
 
-      expect(
-        await menuOf('Hermana'),
-        allOf(contains('pay'), isNot(contains('advance'))),
+      // Rediseño: el pago de una persona es un botón de su tarjeta.
+      Finder payButton(String name) => find.descendant(
+        of: find.ancestor(of: find.text(name), matching: find.byType(Card)),
+        matching: find.widgetWithText(FilledButton, 'Registrar pago'),
       );
+      expect(payButton('Hermana'), findsOneWidget);
+      expect(await menuOf('Hermana'), isNot(contains('advance')));
       await switchModeBehindScreen(
         tester,
         c,
@@ -447,9 +469,21 @@ void main() {
       final relative = await menuOf('Hermana');
       expect(relative, isNot(contains('pay')));
       expect(relative, isNot(contains('advance')));
+      expect(payButton('Hermana'), findsNothing);
+      expect(
+        find.descendant(
+          of: find.ancestor(
+            of: find.text('Hermana'),
+            matching: find.byType(Card),
+          ),
+          matching: find.text('Modo individual: sin pagos de cuenta'),
+        ),
+        findsOneWidget,
+      );
+      // Ronda 2 (2026-11-12): el titular tampoco (antes conservaba «pay»).
       expect(
         await menuOf('Titular'),
-        allOf(contains('pay'), isNot(contains('advance'))),
+        allOf(isNot(contains('pay')), isNot(contains('advance'))),
       );
     });
 
@@ -460,7 +494,7 @@ void main() {
       final s = await activatedHousehold(tester, 'cambio');
       final c = await pumpModeApp(tester, s.database);
       c.read(routerProvider).push('/compras/nueva');
-      await waitFor(tester, field('Cantidad comprada'));
+      await waitFor(tester, find.byKey(const Key('purchase-add-line')));
       await settle(tester);
       expect(find.byKey(const Key('mode-changed-notice')), findsNothing);
 
@@ -629,7 +663,7 @@ void main() {
           isA<PersonalModeRestrictionException>().having(
             (e) => e.message,
             'message',
-            contains('cambie a inventario compartido'),
+            contains('cambie al modo con varias personas'),
           ),
         ),
       );

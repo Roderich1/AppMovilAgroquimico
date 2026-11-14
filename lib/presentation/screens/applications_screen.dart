@@ -8,7 +8,10 @@ import '../widgets/owner_reversal_flow.dart';
 
 import '../../app.dart';
 import '../../domain/money.dart';
+import '../theme/agro_theme.dart';
+import '../widgets/agro_ui.dart';
 import '../widgets/common.dart';
+import '../widgets/rdm_a_list.dart';
 
 class ApplicationsScreen extends ConsumerStatefulWidget {
   const ApplicationsScreen({super.key});
@@ -56,13 +59,13 @@ class _ApplicationsScreenState extends ConsumerState<ApplicationsScreen> {
           ],
         ),
       );
-      if (go == true && mounted) context.go('/catalogos');
+      if (go == true && mounted) context.push('/campanas');
       return;
     }
     final saved = await context.push<bool>('/aplicaciones/nueva');
     if (saved == true && mounted) {
       refresh();
-      showSuccess(context, 'Aplicación multiproducto confirmada.');
+      showSuccess(context, 'Aplicación registrada.');
     }
   }
 
@@ -101,24 +104,26 @@ class _ApplicationsScreenState extends ConsumerState<ApplicationsScreen> {
   }
 
   @override
-  Widget build(BuildContext context) => PageFrame(
+  Widget build(BuildContext context) => RdmAListPage(
     title: 'Aplicaciones',
-    subtitle: 'Eventos de fumigación con uno o varios productos.',
-    action: FilledButton.icon(
+    // Desde B1 no hay «+ Registrar» flotante aquí: el botón dice qué registra.
+    action: RdmARegisterButton(
+      key: const Key('applications-register'),
+      label: 'Registrar aplicación',
       onPressed: add,
-      icon: const Icon(Icons.add),
-      label: const Text('Registrar'),
     ),
     child: FutureBuilder<List<Map<String, Object?>>>(
       future: future,
       builder: (context, snapshot) {
-        if (snapshot.hasError)
+        if (snapshot.hasError) {
           return EmptyState(
             icon: Icons.error_outline,
             message: friendlyError(snapshot.error!),
           );
-        if (!snapshot.hasData)
+        }
+        if (!snapshot.hasData) {
           return const Center(child: CircularProgressIndicator());
+        }
         final campaigns = {
           for (final row in snapshot.data!) row['campaign_id'] as int: row,
         };
@@ -131,6 +136,7 @@ class _ApplicationsScreenState extends ConsumerState<ApplicationsScreen> {
             )
             .toList();
         return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
             LayoutBuilder(
               builder: (context, c) {
@@ -174,89 +180,120 @@ class _ApplicationsScreenState extends ConsumerState<ApplicationsScreen> {
                       );
               },
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 16),
             if (rows.isEmpty)
-              const EmptyState(
-                icon: Icons.agriculture_outlined,
+              const RdmAEmpty(
+                icon: Icons.spa_outlined,
                 message: 'No hay aplicaciones para mostrar.',
               )
             else
-              Card(
-                child: ListView.separated(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  itemCount: rows.length,
-                  separatorBuilder: (_, _) => const Divider(height: 1),
-                  itemBuilder: (context, index) {
-                    final row = rows[index];
-                    return ListTile(
-                      leading: const Icon(Icons.agriculture_outlined),
-                      title: Text(
-                        '${row['person_name']} · ${row['farm_name']}',
-                        style: const TextStyle(fontWeight: FontWeight.w700),
-                      ),
-                      subtitle: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            '${row['campaign_name']} · ${row['item_count']} producto(s)'
-                            '${row['status'] == 'REVERSED' ? ' · ${operationStatusLabel(row['status'])}' : ''}'
-                            '\n${formatItemsSummary(row['items_summary'])}',
-                          ),
-                          // RF-13 §1.3: quién autorizó la reversión, o «Actor
-                          // no registrado» si es anterior a la auditoría.
-                          if (row['status'] == 'REVERSED')
-                            ReversalActorText(
-                              operationType: 'APPLICATION',
-                              operationId: row['id']! as int,
-                            ),
-                        ],
-                      ),
-                      trailing: Wrap(
-                        crossAxisAlignment: WrapCrossAlignment.center,
-                        children: [
-                          // La ausencia del botón ↩ era la ÚNICA señal de que
-                          // una aplicación estaba revertida, y se confundía con
-                          // "no se puede revertir" (UIBUG-010).
-                          if (row['status'] == 'REVERSED')
-                            Padding(
-                              padding: const EdgeInsets.only(right: 8),
-                              child: Chip(
-                                label: Text(
-                                  operationStatusLabel(row['status']),
-                                  style: const TextStyle(fontSize: 11),
-                                ),
-                                visualDensity: VisualDensity.compact,
-                                materialTapTargetSize:
-                                    MaterialTapTargetSize.shrinkWrap,
-                              ),
-                            ),
-                          Text(
-                            formatBob(row['total_cost_bob_minor'] as int),
-                            style: TextStyle(
-                              decoration: row['status'] == 'REVERSED'
-                                  ? TextDecoration.lineThrough
-                                  : null,
-                              color: row['status'] == 'REVERSED'
-                                  ? Theme.of(context).colorScheme.outline
-                                  : null,
-                            ),
-                          ),
-                          if (row['status'] != 'REVERSED')
-                            IconButton(
-                              tooltip: 'Revertir',
-                              onPressed: () => reverse(row),
-                              icon: const Icon(Icons.undo),
-                            ),
-                        ],
-                      ),
-                    );
-                  },
-                ),
+              AgroGroup(
+                children: [
+                  for (final row in rows)
+                    _ApplicationRow(
+                      key: Key('application-row-${row['id']}'),
+                      row: row,
+                      onReverse: () => reverse(row),
+                    ),
+                ],
               ),
           ],
         );
       },
     ),
   );
+}
+
+/// Una aplicación de la lista: persona y chaco, campaña y productos, costo
+/// y, si sigue vigente, «Revertir». Una revertida lo dice con su etiqueta y
+/// quién la autorizó; su costo queda tachado (UIBUG-010: la falta del botón
+/// no basta para saber que está revertida).
+class _ApplicationRow extends StatelessWidget {
+  const _ApplicationRow({
+    super.key,
+    required this.row,
+    required this.onReverse,
+  });
+
+  final Map<String, Object?> row;
+  final VoidCallback onReverse;
+
+  @override
+  Widget build(BuildContext context) {
+    final reversed = row['status'] == 'REVERSED';
+    final cost = formatBob(row['total_cost_bob_minor']! as int);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 14, 12, 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          AmountAside(
+            amount: cost,
+            amountStyle: reversed
+                ? AgroText.amount.copyWith(
+                    color: AgroColors.muted,
+                    decoration: TextDecoration.lineThrough,
+                  )
+                : AgroText.amount,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  '${row['person_name']} · ${row['farm_name']}',
+                  style: AgroText.value,
+                ),
+                Text(
+                  '${row['campaign_name']} · '
+                  '${rdmAProducts(row['item_count']! as int)}',
+                  style: AgroText.detail,
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            formatItemsSummary(row['items_summary']),
+            style: AgroText.detail.copyWith(color: AgroColors.ink),
+          ),
+          if (reversed) ...[
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: StatusBadge(
+                label: operationStatusLabel(row['status']),
+                tone: BadgeTone.neutral,
+              ),
+            ),
+            // RF-13 §1.3: quién autorizó la reversión, o «Actor no
+            // registrado» si es anterior a la auditoría.
+            ReversalActorText(
+              operationType: 'APPLICATION',
+              operationId: row['id']! as int,
+            ),
+          ] else
+            Align(
+              alignment: Alignment.centerLeft,
+              child: Tooltip(
+                message: 'Revertir',
+                child: TextButton.icon(
+                  style: TextButton.styleFrom(
+                    foregroundColor: AgroColors.link,
+                    minimumSize: const Size(0, 44),
+                    padding: const EdgeInsets.only(right: 8),
+                    textStyle: const TextStyle(
+                      fontFamily: AgroFonts.body,
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  onPressed: onReverse,
+                  icon: const Icon(Icons.undo, size: 18),
+                  label: const Text('Revertir'),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
 }

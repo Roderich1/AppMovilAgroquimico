@@ -6,10 +6,13 @@ import 'data/app_log.dart';
 import 'data/installation_client_id_store.dart';
 import 'domain/installation_access.dart';
 import 'installation_access.dart';
+import 'presentation/voice/voice_evidence_hook.dart';
+import 'presentation/voice/voice_quantity_facts.dart';
 import 'presentation/widgets/sync_lifecycle.dart';
 import 'services/auth/existing_session_providers.dart';
 import 'services/auth/existing_session_startup.dart';
 import 'services/auth/first_activation_providers.dart';
+import 'voice/voice_providers.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -41,6 +44,13 @@ Future<void> main() async {
         existingSessionStartupProvider.overrideWithValue(bootstrap.session),
         startupSessionScopeProvider.overrideWithValue(bootstrap.scope),
         installationRefProvider.overrideWithValue(installationRef),
+        // La revisión de voz local compara cantidades con el lector de la app.
+        reviewFactsProvider.overrideWithValue(voiceQuantityFacts),
+        reviewFieldFactsProvider.overrideWithValue(voiceFieldFacts),
+        // Evidencia de dictado (#167): sólo en una compilación de
+        // evaluación (AGRO_VOICE_EVIDENCE=true), y aun así sólo con
+        // consentimiento vigente.
+        ...voiceEvidenceOverrides(),
       ],
       child: const SyncLifecycle(child: AgroApp()),
     ),

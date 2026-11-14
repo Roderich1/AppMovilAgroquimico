@@ -77,8 +77,7 @@ void main() {
   }
 
   bool changing(WidgetTester tester) =>
-      modeChange.evaluate().isNotEmpty &&
-      tester.widget<FilledButton>(modeChange).onPressed == null;
+      find.byKey(const Key('mode-saving')).evaluate().isNotEmpty;
 
   String? shownMode(WidgetTester tester) => modeCurrent.evaluate().isEmpty
       ? null
@@ -203,7 +202,7 @@ void main() {
       await settle(tester);
       expect(await stored(tester, s.database), OperationMode.shared);
       expect(c.read(operationModeProvider), OperationMode.shared);
-      expect(find.textContaining('Ahora usa inventario'), findsNothing);
+      expect(find.textContaining('Ahora usa el modo'), findsNothing);
       await expectNavigationFor(tester, c, OperationMode.shared);
       expect(offline.requests, 0);
     });
@@ -241,7 +240,7 @@ void main() {
       });
       expect(await stored(tester, s.database), OperationMode.shared);
       expect(c.read(operationModeProvider), OperationMode.shared);
-      expect(find.textContaining('Ahora usa inventario'), findsNothing);
+      expect(find.textContaining('Ahora usa el modo'), findsNothing);
       await expectNavigationFor(tester, c, OperationMode.shared);
       expect(offline.requests, 0);
     });
@@ -261,15 +260,13 @@ void main() {
       await waitUntil(
         tester,
         'el cambio de modalidad en pantalla',
-        () =>
-            !changing(tester) &&
-            shownMode(tester) == 'Modalidad actual: inventario propio',
+        () => !changing(tester) && shownMode(tester) == 'Modo individual',
         state: () =>
             'cambio en curso: ${changing(tester)}; '
             'modalidad mostrada: ${shownMode(tester)}',
       );
       expect(
-        find.textContaining('Ahora usa inventario propio'),
+        find.textContaining('Ahora usa el modo individual'),
         findsOneWidget,
       );
       expect(await stored(tester, s.database), OperationMode.personal);
@@ -297,12 +294,16 @@ void main() {
             'cambio en curso: ${changing(tester)}; '
             'modalidad mostrada: ${shownMode(tester)}',
       );
-      final blocked = tester.widget<Text>(
-        find.descendant(of: modeBlocked, matching: find.byType(Text)),
+      // Modo individual (I-52): los pendientes reales, en una lista.
+      expect(
+        find.descendant(
+          of: modeBlocked,
+          matching: find.text('Hermana tiene productos'),
+        ),
+        findsOneWidget,
       );
-      expect(blocked.data, contains('Existencias de Hermana'));
-      expect(find.textContaining('Ahora usa inventario'), findsNothing);
-      expect(shownMode(tester), 'Modalidad actual: inventario compartido');
+      expect(find.textContaining('Ahora usa el modo'), findsNothing);
+      expect(shownMode(tester), 'Modo con varias personas');
       expect(await stored(tester, s.database), OperationMode.shared);
       expect(c.read(operationModeProvider), OperationMode.shared);
       expect(offline.requests, 0);
@@ -334,8 +335,8 @@ void main() {
             'cambio en curso: ${changing(tester)}; '
             'modalidad mostrada: ${shownMode(tester)}',
       );
-      expect(find.textContaining('Ahora usa inventario'), findsNothing);
-      expect(shownMode(tester), 'Modalidad actual: inventario compartido');
+      expect(find.textContaining('Ahora usa el modo'), findsNothing);
+      expect(shownMode(tester), 'Modo con varias personas');
       expect(c.read(operationModeProvider), OperationMode.shared);
       replacing.complete();
       await settle(tester);

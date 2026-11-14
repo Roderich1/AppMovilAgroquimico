@@ -9,6 +9,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+import 'support/f05_sync_fixtures.dart' show campaignRef, kiloRef, litreRef;
 import 'support/f06_consumption_fixtures.dart';
 
 void main() {
@@ -72,9 +73,20 @@ void main() {
       });
       await f.apply(f.familyPersonId, {f.sync.litreProductId: 9000});
     });
-    expect(find.text('Herbicida local · Campaña local 2026'), findsOneWidget);
-    expect(find.textContaining('2,5 L · Nuevo'), findsOneWidget);
-    expect(find.textContaining('1,5 KG · Nuevo'), findsOneWidget);
+    // Rediseño (sesión C): producto y campaña en líneas separadas; la
+    // cantidad grande y el estado en su etiqueta.
+    Finder inRow(String productRef, String text) => find.descendant(
+      of: find.byKey(Key('consumption-$campaignRef-$productRef')),
+      matching: find.textContaining(text),
+    );
+    expect(inRow(litreRef, 'Herbicida local'), findsOneWidget);
+    expect(inRow(litreRef, 'Campaña local 2026'), findsOneWidget);
+    // UXJ-C: estado en una palabra y, debajo, qué pasaría al publicar.
+    for (final (ref, amount) in [(litreRef, '2,5 L'), (kiloRef, '1,5 KG')]) {
+      expect(inRow(ref, amount), findsOneWidget);
+      expect(inRow(ref, 'Pendiente'), findsOneWidget);
+      expect(inRow(ref, 'Nuevo'), findsOneWidget);
+    }
     expect(find.textContaining('familiares o terceros'), findsOneWidget);
     expect(
       find.textContaining(

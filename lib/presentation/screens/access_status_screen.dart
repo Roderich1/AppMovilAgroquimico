@@ -6,6 +6,7 @@ import '../../domain/installation_access.dart';
 import '../../installation_access.dart';
 import '../../services/auth/access_recovery.dart';
 import '../../services/auth/existing_session_providers.dart';
+import '../widgets/agro_ui.dart';
 
 /// Pantalla de la política de activación cuando la instalación no puede
 /// operar todavía (#76). Muestra la condición y la acción permitida. No ofrece
@@ -20,7 +21,7 @@ class AccessStatusScreen extends ConsumerWidget {
     final scope = ref.read(installationAccessProvider.notifier).sessionScope;
     final recovery = accessRecoveryModeFor(access, session);
     return Scaffold(
-      appBar: AppBar(title: const Text('Agrocuentas')),
+      appBar: const AgroAppBar(title: 'Agrocuentas'),
       body: SafeArea(
         child: Center(
           child: ConstrainedBox(

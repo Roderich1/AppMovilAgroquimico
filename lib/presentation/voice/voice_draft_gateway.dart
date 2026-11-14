@@ -11,6 +11,7 @@
 /// `lib/voice_draft/` no importa este archivo ni la base de datos.
 library;
 
+import 'package:flutter/widgets.dart' show BuildContext;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app.dart';
@@ -22,6 +23,21 @@ import '../../voice_draft/catalog/voice_catalog.dart';
 import '../../voice_draft/plan/voice_plan_draft.dart';
 import '../../voice_draft/purchase/voice_purchase_draft.dart';
 import '../../voice_draft/text/units.dart';
+import '../widgets/catalog_dialogs.dart';
+
+/// Chacos releídos tras «Crear chaco» en una aplicación.
+final class ApplicationFarmCreated {
+  const ApplicationFarmCreated({
+    required this.farms,
+    required this.farmOwners,
+    required this.entry,
+  });
+  final List<CatalogEntry> farms;
+  final Map<int, CatalogEntry> farmOwners;
+
+  /// El chaco creado, o nulo si su dueño no puede aplicar.
+  final CatalogEntry? entry;
+}
 
 final voiceDraftGatewayProvider = Provider<VoiceDraftGateway>(
   (ref) => VoiceDraftGateway(ref.watch(repositoryProvider)),
@@ -48,8 +64,9 @@ class VoiceDraftGateway {
     );
     final campaign = await _repo.activeCampaign();
     final people = [for (final row in read.people) _entry(row)];
+    final holderId = read.context.ownerPersonId;
     final owner = read.context.mode == OperationMode.personal
-        ? people.where((p) => p.id == read.context.ownerPersonId).firstOrNull
+        ? people.where((p) => p.id == holderId).firstOrNull
         : null;
     return VoiceCatalog(
       products: await _products(),
@@ -58,12 +75,141 @@ class VoiceDraftGateway {
       activeCampaign: campaign == null ? null : _entry(campaign),
       loadedMode: read.context.mode,
       personalOwner: owner,
+      // Paga el titular, en las dos modalidades (como el formulario). Su
+      // nombre sale de las personas leídas; si no está entre ellas, se le
+      // llama «Titular», como hace el formulario.
+      holderId: holderId,
+      holderName: holderId == null
+          ? null
+          : people.where((p) => p.id == holderId).firstOrNull?.name ??
+                'Titular',
     );
   }
 
-  /// Registra la compra con el caso de uso del formulario manual.
-  Future<int> confirmPurchase(VoicePurchaseDraft draft) =>
-      _repo.confirmPurchase(draft.toDomain(at: _clock()));
+  /// Registra la compra con el caso de uso del formulario manual, y con ella,
+  /// en la misma transacción, el pago al proveedor si se respondió «Sí, pagué
+  /// todo» (`confirmPurchase(paidInFull:)`, como el formulario). El
+  /// repositorio vuelve a comprobar el titular que paga.
+  Future<int> confirmPurchase(VoicePurchaseDraft draft) {
+    final at = _clock();
+    return _repo.confirmPurchase(
+      draft.toDomain(at: at),
+      paidInFull: draft.providerPayment(at: at),
+    );
+  }
+
+  // ------------------------------------------------ altas desde el selector
+
+  /// «Crear proveedor» en el selector del borrador: el mismo diálogo y la
+  /// misma escritura que el formulario (`createSupplierFromDialog`). Lo pide
+  /// la persona, nunca la voz. Devuelve la lista releída y lo creado, o nulo
+  /// si se canceló o falló (el error ya se mostró).
+  Future<(List<CatalogEntry>, CatalogEntry)?> createSupplier(
+    BuildContext context,
+  ) async {
+    final id = await createSupplierFromDialog(context, _repo);
+    if (id == null) return null;
+    final suppliers = [for (final row in await _repo.suppliers()) _entry(row)];
+    return _created(suppliers, id);
+  }
+
+  /// «Crear producto», igual que [createSupplier].
+  Future<(List<CatalogEntry>, CatalogEntry)?> createProduct(
+    BuildContext context,
+  ) async {
+    final id = await createProductFromDialog(context, _repo);
+    if (id == null) return null;
+    return _created(await _products(), id);
+  }
+
+  /// «Agregar persona» en «Recibe la compra», sólo en compartido; la regla la
+  /// vuelve a comprobar `createPersonFromDialog`. Relee las personas con el
+  /// mismo filtro que el catálogo de compra.
+  Future<(List<CatalogEntry>, CatalogEntry)?> createPurchasePerson(
+    BuildContext context,
+  ) async {
+    final id = await createPersonFromDialog(
+      context,
+      _repo,
+      purpose: PersonPurpose.purchaseAllocation,
+    );
+    if (id == null) return null;
+    final people = [
+      for (final row in await _repo.peopleFor(PersonPurpose.purchaseAllocation))
+        _entry(row),
+    ];
+    return _created(people, id);
+  }
+
+  /// «Crear chaco» en una planificación: el diálogo del formulario de
+  /// planificación (`createFarmFromDialog`, que en propio fija al titular).
+  /// Relee los chacos con el mismo filtro que [planCatalog].
+  Future<(List<CatalogEntry>, CatalogEntry)?> createPlanFarm(
+    BuildContext context,
+  ) async {
+    final id = await createFarmFromDialog(context, _repo);
+    if (id == null) return null;
+    final read = await _repo.farmsAndContext();
+    return _created([for (final row in read.farms) _farm(row)], id);
+  }
+
+  /// «Crear chaco» en una aplicación: el mismo diálogo. Como en
+  /// [applicationCatalog], sólo se ofrecen chacos cuyo dueño puede aplicar;
+  /// si el dueño elegido no puede, el chaco se crea igual (lo pidió la
+  /// persona) pero no queda elegido y [ApplicationFarmCreated.entry] es nulo.
+  Future<ApplicationFarmCreated?> createApplicationFarm(
+    BuildContext context,
+  ) async {
+    final id = await createFarmFromDialog(context, _repo);
+    if (id == null) return null;
+    final read = await _repo.peopleAndContextFor(PersonPurpose.applicator);
+    final applicators = {for (final p in read.people) p['id']! as int: p};
+    final farms = [
+      for (final farm in await _repo.farms())
+        if (applicators.containsKey(farm['owner_person_id'])) farm,
+    ];
+    final entries = [for (final row in farms) _farm(row)];
+    return ApplicationFarmCreated(
+      farms: entries,
+      farmOwners: {
+        for (final row in farms)
+          row['id']! as int: _entry(applicators[row['owner_person_id']]!),
+      },
+      entry: entries.where((e) => e.id == id).firstOrNull,
+    );
+  }
+
+  /// Lotes que usaría cada producto si se aplicara ahora: la misma previsión
+  /// FIFO del formulario (`previewApplicationLots`), sólo para el aviso de
+  /// vencimiento. Sólo lectura.
+  Future<List<ApplicationLotPreview>> previewLots({
+    required int personId,
+    required int productId,
+    required int quantityBase,
+    required DateTime at,
+  }) => _repo.previewApplicationLots(
+    personId: personId,
+    productId: productId,
+    quantityBase: quantityBase,
+    appliedAt: at,
+  );
+
+  /// Instante con que se registraría ahora: el reloj de la confirmación.
+  DateTime now() => _clock();
+
+  static CatalogEntry _farm(Map<String, Object?> row) => CatalogEntry(
+    id: row['id']! as int,
+    name: row['name']! as String,
+    areaM2: row['area_m2'] as int?,
+  );
+
+  static (List<CatalogEntry>, CatalogEntry)? _created(
+    List<CatalogEntry> entries,
+    int id,
+  ) {
+    final entry = entries.where((e) => e.id == id).firstOrNull;
+    return entry == null ? null : (entries, entry);
+  }
 
   /// Catálogos para un borrador de planificación, con la misma lectura que
   /// el formulario (`farmsAndContext`): en propio sólo los chacos del

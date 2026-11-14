@@ -142,7 +142,7 @@ Finder _card() =>
     find.ancestor(of: find.text(_longName), matching: find.byType(Card)).first;
 
 Finder _inDialog(Finder matching) =>
-    find.descendant(of: find.byType(AlertDialog), matching: matching);
+    find.descendant(of: find.byType(Dialog), matching: matching);
 
 Future<void> _openStatement(WidgetTester tester) async {
   final menu = find.descendant(

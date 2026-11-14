@@ -333,6 +333,10 @@ void main() {
       for (final name in names) {
         await quantity(tester, name, '1');
       }
+      // Rediseño B: el destino va arriba, junto al origen; tras teclear la
+      // última línea se vuelve a él.
+      await tester.ensureVisible(find.text('Persona destino'));
+      await tester.pump();
       await choose(tester, 'Persona destino', 'Don Carlos');
 
       // Teléfono pequeño para la confirmación.
@@ -479,7 +483,14 @@ void main() {
         Scaffold(body: InventoryDetailScreen(productId: glifosato)),
       );
 
-      final list = find.byKey(const Key('inventory-movements'));
+      // Ronda 2: el detalle muestra los recientes; se abre el historial
+      // completo para ver todas las filas.
+      await tester.ensureVisible(
+        find.byKey(const Key('inventory-movements-all')),
+      );
+      await tester.tap(find.byKey(const Key('inventory-movements-all')));
+      await settle(tester);
+      final list = find.byKey(const Key('inventory-history'));
       expect(list, findsOneWidget);
       final subtitles = {
         for (final tile in tester.widgetList<ListTile>(
@@ -505,6 +516,11 @@ void main() {
       }
       // Las compras y su proveedor siguen igual.
       expect(subtitles, contains('Compra | 05/01/2026 · Ana · Agro Sur'));
+      Navigator.of(tester.element(list)).pop();
+      await settle(tester);
+      // Rediseño B: la explicación se abre con «i» en la cabecera.
+      await tester.tap(find.byKey(const Key('inventory-info')));
+      await settle(tester);
       expect(
         find.text(
           'Lo que explica el saldo: compras, aplicaciones, pases (entregas '

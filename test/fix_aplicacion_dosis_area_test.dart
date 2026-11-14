@@ -70,7 +70,7 @@ void main() {
     );
     await waitFor(tester, picker('Chaco'));
     await settle(tester);
-    await choose(tester, 'Persona', 'Titular');
+    await choose(tester, applicationPersonLabel, 'Titular');
     await choose(tester, 'Chaco', 'Chaco titular');
   }
 
@@ -189,12 +189,12 @@ void main() {
 
     await tester.enterText(area, '');
     await tapKey(tester, 'application-continue');
-    expect(find.text('Paso 1 de 3 · Persona y chaco'), findsOneWidget);
-    expect(find.text('Escribe el área tratada en hectáreas.'), findsOneWidget);
+    expect(find.text('¿Dónde aplicó?'), findsOneWidget);
+    expect(find.text('Escriba el área tratada en hectáreas.'), findsOneWidget);
 
     await tester.enterText(area, '1.5');
     await tapKey(tester, 'application-continue');
-    expect(find.text('Paso 1 de 3 · Persona y chaco'), findsOneWidget);
+    expect(find.text('¿Dónde aplicó?'), findsOneWidget);
     expect(
       find.text(
         'Escriba el número como 1.500,25: use la coma para los decimales y '
@@ -205,12 +205,12 @@ void main() {
 
     await tester.enterText(area, '1,500');
     await tapKey(tester, 'application-continue');
-    expect(find.text('Paso 1 de 3 · Persona y chaco'), findsOneWidget);
+    expect(find.text('¿Dónde aplicó?'), findsOneWidget);
     expect(find.textContaining('"1,500" es ambiguo'), findsOneWidget);
 
     await tester.enterText(area, '0');
     await tapKey(tester, 'application-continue');
-    expect(find.text('Paso 1 de 3 · Persona y chaco'), findsOneWidget);
+    expect(find.text('¿Dónde aplicó?'), findsOneWidget);
     expect(
       find.text('El área tratada debe ser mayor que cero.'),
       findsOneWidget,
@@ -218,7 +218,7 @@ void main() {
 
     await tester.enterText(area, '1,5');
     await tapKey(tester, 'application-continue');
-    expect(find.text('Paso 2 de 3 · Productos y cantidades'), findsOneWidget);
+    expect(find.text('¿Qué aplicó?'), findsOneWidget);
     await addGlifosato(tester, '2');
     await confirm(tester);
     expect((await items(tester, s.db)).single['treated_area_m2'], 15000);

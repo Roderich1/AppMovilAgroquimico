@@ -31,6 +31,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'support/f04_app_access.dart';
 import 'support/f04_mode_fixtures.dart';
+import 'support/f04_mode_ui_harness.dart' show waitUntil;
 
 const _clientId = '11111111-1111-4111-8111-111111111111';
 const _registrationId = '550e8400-e29b-41d4-a716-446655440001';
@@ -261,6 +262,29 @@ void main() {
     return container;
   }
 
+  /// La recuperación o la salida cambian la sesión y la app recalcula el
+  /// acceso en segundo plano (listener de `installationAccessProvider`, con
+  /// relectura de la sesión y lectura de SQLite). [settle] da un número fijo de
+  /// vueltas y, con la suite completa cargada, la prueba podía mirar el estado
+  /// antes de que terminara ese recálculo. Se espera a que el estado deje de
+  /// ser [previous] (si no cambia, falla con el motivo) y la prueba comprueba
+  /// después el valor exacto. Luego se deja terminar lo que provoca el
+  /// cambio (navegación y carga de la pantalla de destino), como tras
+  /// cualquier otra acción.
+  Future<void> accessRecomputed(
+    WidgetTester tester,
+    ProviderContainer c,
+    InstallationAccessState previous,
+  ) async {
+    await waitUntil(
+      tester,
+      'el recálculo del acceso',
+      () => c.read(installationAccessProvider) != previous,
+      state: () => '${c.read(installationAccessProvider)}',
+    );
+    await settle(tester);
+  }
+
   Future<void> submitRecovery(WidgetTester tester, ProviderContainer c) async {
     c.read(routerProvider).go('/recuperar');
     await settle(tester);
@@ -299,6 +323,11 @@ void main() {
       expect(find.byKey(const Key('open-access-recovery')), findsOneWidget);
 
       await submitRecovery(tester, c);
+      await accessRecomputed(
+        tester,
+        c,
+        InstallationAccessState.activatedSessionUnavailable,
+      );
 
       expect(replace.calls, 1);
       expect(commit.calls, 0);
@@ -364,6 +393,11 @@ void main() {
       await tester.enterText(find.byKey(const Key('recovery-password')), 'pw');
       await tester.tap(find.byKey(const Key('recovery-submit')));
       await settle(tester);
+      await accessRecomputed(
+        tester,
+        c,
+        InstallationAccessState.restoredRequiresActivation,
+      );
       expect(commit.calls, 1);
       expect(
         c.read(installationAccessProvider),
@@ -429,6 +463,11 @@ void main() {
       await settle(tester);
       await tester.tap(find.byKey(const Key('recovery-signout-confirm')));
       await settle(tester);
+      await accessRecomputed(
+        tester,
+        c,
+        InstallationAccessState.identityMismatch,
+      );
 
       expect(stored.deletes, 1);
       expect(server.paths, ['/api/v1/auth/v2/logout']);

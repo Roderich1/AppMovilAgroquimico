@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 
 import '../../domain/campaign_calendar.dart';
 import '../../domain/models.dart';
+import '../theme/agro_theme.dart';
+import 'agro_ui.dart';
 
 /// Medio y fecha de un pago al proveedor, **visibles y corregibles**.
 ///
@@ -46,47 +48,42 @@ class ProviderPaymentFields extends StatelessWidget {
   }
 
   @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text('¿Cómo pagaste?'),
-        const SizedBox(height: 6),
-        // Chips en `Wrap`: con fuente ampliada pasan a otra línea en vez de
-        // recortarse. Siempre hay una elegida: «Sin indicar» por defecto.
-        Wrap(
-          key: const Key('payment-method'),
-          spacing: 8,
-          runSpacing: 4,
-          children: [
-            for (final option in PaymentMethod.values)
-              ChoiceChip(
-                key: Key('payment-method-${option.name}'),
-                label: Text(option.label),
-                selected: option == method,
-                onSelected: enabled
-                    ? (selected) {
-                        if (selected) onMethodChanged(option);
-                      }
-                    : null,
-              ),
-          ],
-        ),
-        const SizedBox(height: 4),
-        ListTile(
-          key: const Key('payment-date'),
-          contentPadding: EdgeInsets.zero,
-          leading: const Icon(Icons.event_outlined),
-          title: const Text('Fecha del pago'),
-          subtitle: Text(
-            '${displayDay(day)}$dayHint',
-            style: theme.textTheme.bodyMedium,
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      const Text('¿Cómo pagó?', style: AgroText.question),
+      const SizedBox(height: 8),
+      // Chips en `Wrap`: con fuente ampliada pasan a otra línea en vez de
+      // recortarse. Siempre hay una elegida: «Sin indicar» por defecto.
+      Wrap(
+        key: const Key('payment-method'),
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          for (final option in PaymentMethod.values)
+            ChoiceChip(
+              key: Key('payment-method-${option.name}'),
+              label: Text(option.label),
+              selected: option == method,
+              onSelected: enabled
+                  ? (selected) {
+                      if (selected) onMethodChanged(option);
+                    }
+                  : null,
+            ),
+        ],
+      ),
+      const SizedBox(height: 12),
+      AgroGroup(
+        children: [
+          ValueRow(
+            key: const Key('payment-date'),
+            label: 'Fecha del pago',
+            value: '${displayDay(day)}$dayHint',
+            onTap: enabled ? () => _pickDay(context) : null,
           ),
-          trailing: enabled ? const Text('Cambiar') : null,
-          onTap: enabled ? () => _pickDay(context) : null,
-        ),
-      ],
-    );
-  }
+        ],
+      ),
+    ],
+  );
 }
