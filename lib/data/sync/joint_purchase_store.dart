@@ -795,6 +795,27 @@ class JointPurchaseStore {
     return rows.isEmpty ? null : JointPurchaseOp.fromRow(rows.single);
   }
 
+  /// Cuántas operaciones de convocatoria del titular vigente siguen por
+  /// enviar (`PENDING_SEND` o `AUTH_PAUSED`): participación y cantidades,
+  /// y las decisiones de quién ve los datos de las dos colas (v18 y E4).
+  /// **Una sola consulta** y sólo lectura: el aviso informativo del cambio
+  /// de modo (H1) la hace al confirmar, no al pintar. Sin titular, 0.
+  Future<int> awaitingSendForActiveOwner() async {
+    final rows = await (await _database.database).rawQuery(
+      'SELECT COUNT(*) AS n FROM ('
+      'SELECT tenant_id, member_id, send_status FROM $opsTable '
+      'UNION ALL SELECT tenant_id, member_id, send_status '
+      'FROM $consentOpsTable '
+      'UNION ALL SELECT tenant_id, member_id, send_status '
+      'FROM $accessOpsTable) o '
+      'JOIN owner_bindings b ON b.ended_at IS NULL '
+      'AND b.tenant_id = o.tenant_id AND b.member_id = o.member_id '
+      'WHERE o.send_status IN (?,?)',
+      [JointPurchaseOpStatus.pendingSend, JointPurchaseOpStatus.authPaused],
+    );
+    return rows.single['n']! as int;
+  }
+
   /// Aviso «Nueva convocatoria» de Inicio en **una sola consulta** indexada:
   /// la abierta, no vista y con plazo por delante (según este teléfono) que
   /// cierra antes, y cuántas hay. Null si no hay ninguna.

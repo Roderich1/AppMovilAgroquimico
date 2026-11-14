@@ -503,8 +503,9 @@ void main() {
       await tapKey(tester, 'purchase-paid-no');
       expect(
         find.text(
-          'La compra queda sin pago. Puede anotarlo después en '
-          'Operaciones, Compras.',
+          'La compra queda sin pago. Puede anotarlo después en Actividad › '
+          'Compras › Lista de compras, con «Registrar pago al proveedor» '
+          'en la compra.',
         ),
         findsOneWidget,
       );

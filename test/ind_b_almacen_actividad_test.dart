@@ -217,12 +217,20 @@ void main() {
   });
 
   group('Actividad (I-04)', () {
-    testWidgets('individual: «Proveedores y saldos» con la deuda de todas las '
+    testWidgets('individual: franja «Proveedores» con la deuda de todas las '
         'campañas y filas sin el nombre del titular', (tester) async {
       final w = await individual(tester, 'indb-actividad');
       w.c.read(routerProvider).go('/operaciones');
       await waitFor(tester, find.byKey(const Key('activity-suppliers')));
       await settle(tester);
+      // HD-3: con el título de la pantalla que abre.
+      expect(
+        find.descendant(
+          of: find.byKey(const Key('activity-suppliers')),
+          matching: find.text('Proveedores'),
+        ),
+        findsOneWidget,
+      );
       // 1.260,00 + 625,00 + 300,00.
       expect(
         keyText(
@@ -237,7 +245,7 @@ void main() {
       expect(find.byKey(const Key('activity-filter-transfers')), findsNothing);
     });
 
-    testWidgets('varias personas: sin «Proveedores y saldos» y con la persona '
+    testWidgets('varias personas: sin la franja «Proveedores» y con la persona '
         'en cada aplicación, como antes', (tester) async {
       tallView(tester);
       final s = await activatedHousehold(tester, 'indb-actividad-shared');
@@ -254,7 +262,7 @@ void main() {
       expect(find.text('Chaco titular · Titular'), findsOneWidget);
     });
 
-    testWidgets('«Proveedores y saldos» abre la pantalla de proveedores en '
+    testWidgets('la franja «Proveedores» abre la pantalla «Proveedores» en '
         '$indProvidersPath', (tester) async {
       tallView(tester);
       final s = await activatedHousehold(tester, 'indb-actividad-nav');
@@ -286,7 +294,19 @@ void main() {
       await waitFor(tester, find.byKey(const Key('activity-suppliers')));
       await tester.tap(find.byKey(const Key('activity-suppliers')));
       await waitFor(tester, find.byKey(const Key('suppliers-debt')));
-      expect(find.text('Proveedores'), findsOneWidget);
+      await settle(tester);
+      // HD-3: la franja se titula como la pantalla que abre.
+      expect(
+        find.descendant(
+          of: find.byType(SuppliersBalanceScreen),
+          matching: find.text('Proveedores'),
+        ),
+        findsOneWidget,
+      );
+      expect(
+        find.text('Proveedores y saldos', skipOffstage: false),
+        findsNothing,
+      );
     });
   });
 

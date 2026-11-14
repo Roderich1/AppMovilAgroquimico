@@ -30,7 +30,7 @@ import 'ind_b_suppliers_screen.dart';
 /// **Modo individual** (lámina I-04, 2026-11-13): las mismas operaciones,
 /// sin repetir el nombre del titular en cada fila (una aplicación o un plan
 /// de otra persona, de la historia anterior al cambio de modo, conserva su
-/// nombre), y arriba «Proveedores y saldos» con lo que se debe a
+/// nombre), y arriba la franja «Proveedores» con lo que se debe a
 /// proveedores de todas las campañas (el mismo saldo que Inicio). Sin
 /// transferencias (ya antes). El modo con varias personas no cambia.
 class OperationsScreen extends ConsumerStatefulWidget {
@@ -830,7 +830,8 @@ class _EntryRow extends StatelessWidget {
   }
 }
 
-/// «Proveedores y saldos» (lámina I-04): lo que se debe a proveedores, de
+/// Franja «Proveedores» (lámina I-04, «Proveedores y saldos» hasta el
+/// 2026-11-14; ahora con el título de la pantalla que abre): lo que se debe a proveedores, de
 /// todas las campañas, y el acceso a pagarlo. La misma cifra que Inicio.
 class _SuppliersBanner extends StatelessWidget {
   const _SuppliersBanner({required this.debt, required this.onTap});
@@ -853,8 +854,9 @@ class _SuppliersBanner extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // El mismo título que la pantalla que abre (HD-3).
                   const Text(
-                    'Proveedores y saldos',
+                    'Proveedores',
                     style: TextStyle(
                       fontSize: 18,
                       height: 24 / 18,
