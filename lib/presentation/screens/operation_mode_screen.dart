@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../app.dart';
 import '../../data/operation_mode_store.dart';
+import '../../data/sync/joint_purchase_store.dart';
 import '../../domain/operation_mode.dart';
 import '../../operation_mode_controller.dart';
 import '../theme/agro_theme.dart';
@@ -39,6 +40,18 @@ String operationModeConsequence(OperationMode target) => switch (target) {
         'las transferencias y la elección de persona en los formularios. Los '
         'registros de otras personas se conservan.',
 };
+
+/// Aviso informativo del cambio de modo (H1, aprobado por el autor el
+/// 2026-11-14) cuando hay [count] operaciones de compras conjuntas por
+/// enviar. No bloquea: el cambio de modo no toca la cola, ni las cantidades
+/// ni los consentimientos.
+String jointPurchasePendingModeNotice(int count) => count == 1
+    ? 'Tiene 1 decisión de compras conjuntas pendiente de envío. Cambiar de '
+          'modo no la envía ni la cancela: seguirá pendiente hasta que el '
+          'sindicato confirme que la recibió.'
+    : 'Tiene $count decisiones de compras conjuntas pendientes de envío. '
+          'Cambiar de modo no las envía ni las cancela: seguirán pendientes '
+          'hasta que el sindicato confirme que las recibió.';
 
 /// Un pendiente que impide pasar a modo individual (lámina I-52), con el
 /// lugar donde se resuelve.
@@ -150,18 +163,39 @@ class _OperationModeScreenState extends ConsumerState<OperationModeScreen> {
       _reload();
       return;
     }
+    // H1: una sola consulta, sólo al confirmar (no en cada pintado). Sólo
+    // informa: no bloquea ni toca la cola.
+    final jointPending = await JointPurchaseStore(
+      ref.read(repositoryProvider).appDatabase,
+    ).awaitingSendForActiveOwner();
+    if (!mounted) return;
     final confirmed =
         await showDialog<bool>(
           context: context,
           builder: (dialogContext) => AlertDialog(
+            scrollable: true,
             title: Text(
               target == OperationMode.personal
                   ? 'Pasar a modo individual'
                   : 'Pasar a varias personas',
             ),
-            content: Text(
-              operationModeConsequence(target),
-              key: const Key('mode-consequence'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  operationModeConsequence(target),
+                  key: const Key('mode-consequence'),
+                ),
+                if (jointPending > 0) ...[
+                  const SizedBox(height: 12),
+                  NoticeBox(
+                    key: const Key('mode-joint-pending'),
+                    icon: Icons.schedule_send_outlined,
+                    text: jointPurchasePendingModeNotice(jointPending),
+                  ),
+                ],
+              ],
             ),
             actions: [
               TextButton(
