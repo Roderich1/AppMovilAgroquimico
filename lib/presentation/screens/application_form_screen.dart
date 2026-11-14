@@ -38,6 +38,8 @@ import '../../voice_draft/core/draft_field.dart';
 import '../../voice_draft/core/numeric_review.dart';
 import '../../voice_draft/interpretation/voice_intent.dart';
 import '../../voice_draft/text/units.dart';
+import '../../voice_evidence/draft_snapshot.dart'
+    show formCatalogEntry, formDraftField;
 import '../../voice_evidence/voice_evidence.dart' show VoiceEvidenceOutcome;
 
 part 'application_form_voice.dart';
@@ -100,7 +102,6 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen>
   /// terminar un dictado; lo dictado ya está en el formulario).
   bool _voiceBanner = false;
   int _seenCompletions = 0;
-  VoiceApplicationDraft? _lastVoiceDraft;
   bool _voiceSaved = false;
   bool _voiceFailed = false;
   bool _observingSession = false;
@@ -197,9 +198,12 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen>
     });
   }
 
-  void _voiceApplied(VoiceApplicationDraft shadow, String text) {
-    _lastVoiceDraft = shadow;
-    noteVoiceApplied(shadow, text);
+  void _voiceApplied(
+    VoiceApplicationDraft shadow,
+    String text,
+    Map<int, int> lineIds,
+  ) {
+    noteVoiceApplied(shadow, text, lineIds: lineIds);
   }
 
   void _voiceSetState(VoidCallback fn) => setState(fn);
@@ -387,8 +391,8 @@ class _ApplicationFormScreenState extends ConsumerState<ApplicationFormScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    finishVoiceEvidenceWith(
-      finalDraft: _lastVoiceDraft,
+    finishFormVoiceEvidence(
+      formDraft: _voiceTarget.evidenceDraft,
       outcome: _voiceSaved
           ? VoiceEvidenceOutcome.confirmed
           : _voiceFailed

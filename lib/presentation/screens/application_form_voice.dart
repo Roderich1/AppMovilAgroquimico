@@ -57,6 +57,48 @@ class _ApplicationVoice implements VoiceFormTarget<VoiceApplicationDraft> {
   @override
   int nextLineId() => s._nextLineId;
 
+  /// Lo que tiene el formulario, como borrador de aplicación, para la
+  /// evidencia con consentimiento (RF-41, DAT-21): los mismos campos que la
+  /// sombra, con las líneas por su id en el formulario. La persona es la
+  /// responsable elegida (o el titular en propio).
+  VoiceApplicationDraft evidenceDraft() {
+    final c = catalog!;
+    final area = _areaCanon(s.area.text);
+    return VoiceApplicationDraft(
+      campaign: formDraftField(c.activeCampaign),
+      farm: formDraftField(formCatalogEntry(c.farms, s.farmId)),
+      person: formCatalogEntry([
+        ...c.people,
+        ...c.farmOwners.values,
+      ], s.personId),
+      area: formDraftField(area is int ? area : null),
+      lines: [for (final l in s.lines) _evidenceLine(l, c)],
+      nextLineKey: s._nextLineId,
+    );
+  }
+
+  static VoiceApplicationLine _evidenceLine(
+    _ApplicationLineEditor l,
+    VoiceCatalog c,
+  ) {
+    final product = formCatalogEntry(c.products, l.product['product_id']);
+    return VoiceApplicationLine(
+      key: l.id,
+      product: formDraftField(product),
+      // Milésimas de litro o de kilo = unidad base (mL o g).
+      quantity: formDraftField(
+        l.quantityBase > 0
+            ? SpokenAmount(
+                l.quantityBase,
+                product?.unit == CatalogUnit.kilogram
+                    ? SpokenUnit.kilogram
+                    : SpokenUnit.liter,
+              )
+            : null,
+      ),
+    );
+  }
+
   @override
   VoiceApplicationDraft? startShadow() {
     final c = catalog;
@@ -174,7 +216,7 @@ class _ApplicationVoice implements VoiceFormTarget<VoiceApplicationDraft> {
       if (product != null) fields['product'] = product;
       final quantity = _quantity(line);
       if (quantity != null) fields['quantity'] = quantity;
-      if (fields.isNotEmpty) lines.add(ProposedLine(fields));
+      if (fields.isNotEmpty) lines.add(ProposedLine(fields, source: line.key));
     }
     return VoiceProposal(header: header, lines: lines, notices: [..._notices]);
   }
@@ -354,6 +396,9 @@ class _ApplicationVoice implements VoiceFormTarget<VoiceApplicationDraft> {
   }
 
   @override
-  void onDictationApplied(VoiceApplicationDraft shadow, String text) =>
-      s._voiceApplied(shadow, text);
+  void onDictationApplied(
+    VoiceApplicationDraft shadow,
+    String text,
+    Map<int, int> lineIds,
+  ) => s._voiceApplied(shadow, text, lineIds);
 }

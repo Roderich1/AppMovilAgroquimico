@@ -119,4 +119,156 @@ void main() {
       expect(proposedDose.origin, FieldOrigin.voice.name);
     });
   });
+
+  // Formulario único (2026-11-13, RF-41 y DAT-21): el borrador final se arma
+  // con lo que tiene el formulario, con todo «a mano», y las líneas de cada
+  // sombra se anotan con el id de la línea del formulario a la que fueron.
+  group('evidencia desde el formulario', () {
+    const campaign = CatalogEntry(id: 3, name: 'Campaña 1');
+    const dictated = DraftField<SpokenDose>.resolved(
+      SpokenDose(2000, SpokenUnit.liter),
+      origin: FieldOrigin.voice,
+    );
+
+    VoicePlanDraft shadow(int key, DraftField<SpokenDose> dose) =>
+        VoicePlanDraft(
+          campaign: const DraftField.resolved(
+            campaign,
+            origin: FieldOrigin.preset,
+          ),
+          farm: const DraftField.resolved(farm, origin: FieldOrigin.voice),
+          lines: [
+            VoicePlanLine(
+              key: key,
+              product: const DraftField.resolved(
+                product,
+                origin: FieldOrigin.voice,
+              ),
+              dose: dose,
+            ),
+          ],
+          nextLineKey: key + 1,
+        );
+
+    VoicePlanDraft form({required CatalogEntry farm, SpokenDose? dose}) =>
+        VoicePlanDraft(
+          campaign: formDraftField(campaign),
+          farm: formDraftField(farm),
+          area: formDraftField(10000),
+          lines: [
+            VoicePlanLine(
+              key: 5,
+              product: formDraftField(product),
+              dose: formDraftField(dose),
+            ),
+          ],
+          nextLineKey: 6,
+        );
+
+    test('lo que quedó como se dictó no es corrección, aunque se dijera en '
+        'otra unidad; lo cambiado sí, con el valor del formulario', () {
+      final trace = VoiceEvidenceTrace()
+        ..voiceApplied(
+          shadow(
+            1,
+            const DraftField.resolved(
+              SpokenDose(500000, SpokenUnit.milliliter),
+              origin: FieldOrigin.voice,
+            ),
+          ),
+          lineKeys: {1: 5},
+        );
+      final entry = trace.finish(
+        // 500 mL/ha escritos como 0,5 L/ha; el chaco, cambiado a mano.
+        finalDraft: form(
+          farm: other,
+          dose: const SpokenDose(500, SpokenUnit.liter),
+        ),
+        outcome: VoiceEvidenceOutcome.confirmed,
+        fromForm: true,
+      );
+      expect(
+        entry.proposed.map((f) => f.path),
+        containsAll(['line[5].product', 'line[5].dose']),
+      );
+      final kinds = {for (final c in entry.corrections) c.path: c.kind};
+      // El área faltaba en la sombra (propuesta como faltante): escribirla
+      // es un cambio, como en el borrador de voz.
+      expect(kinds, {
+        'farm': CorrectionKind.changed,
+        'area': CorrectionKind.changed,
+      });
+      final confirmed = {for (final f in entry.confirmed!) f.path: f};
+      expect(confirmed['farm']!.value, containsPair('id', other.id));
+      expect(confirmed['farm']!.origin, FieldOrigin.manual.name);
+      expect(confirmed['line[5].dose']!.value, {
+        'thousandthsPerHa': 500000,
+        'unit': 'milliliter',
+      });
+      expect(confirmed['line[5].dose']!.origin, FieldOrigin.voice.name);
+      expect(confirmed['campaign']!.origin, FieldOrigin.preset.name);
+    });
+
+    test('un valor por revisar que se dejó igual queda reafirmado', () {
+      final trace = VoiceEvidenceTrace()
+        ..voiceApplied(
+          shadow(1, dictated.markForReview('Se oyeron dos dosis distintas.')),
+          lineKeys: {1: 5},
+        );
+      final entry = trace.finish(
+        finalDraft: form(
+          farm: farm,
+          dose: const SpokenDose(2000, SpokenUnit.liter),
+        ),
+        outcome: VoiceEvidenceOutcome.confirmed,
+        fromForm: true,
+      );
+      final kinds = {for (final c in entry.corrections) c.path: c.kind};
+      expect(kinds['line[5].dose'], CorrectionKind.reaffirmed);
+    });
+
+    test('una línea de la sombra que no llegó al formulario no se anota, y '
+        'un dictado que no oyó un campo no borra lo propuesto antes', () {
+      final trace = VoiceEvidenceTrace()
+        ..voiceApplied(shadow(1, dictated), lineKeys: {1: 5})
+        ..voiceApplied(
+          const VoicePlanDraft(
+            campaign: DraftField.resolved(campaign, origin: FieldOrigin.preset),
+            lines: [VoicePlanLine(key: 1)],
+            nextLineKey: 2,
+          ),
+          lineKeys: const {},
+        );
+      final proposed = {
+        for (final f
+            in trace
+                .finish(
+                  finalDraft: form(
+                    farm: farm,
+                    dose: const SpokenDose(2000, SpokenUnit.liter),
+                  ),
+                  outcome: VoiceEvidenceOutcome.confirmed,
+                  fromForm: true,
+                )
+                .proposed)
+          f.path: f,
+      };
+      expect(proposed.keys, isNot(contains('line[1].product')));
+      expect(proposed['farm']!.value, containsPair('id', farm.id));
+      expect(proposed['line[5].dose']!.status, FieldStatus.resolved.name);
+    });
+
+    test('borrar la dosis en el formulario es un cambio a faltante', () {
+      final trace = VoiceEvidenceTrace()
+        ..voiceApplied(shadow(1, dictated), lineKeys: {1: 5});
+      final entry = trace.finish(
+        finalDraft: form(farm: farm),
+        outcome: VoiceEvidenceOutcome.discarded,
+        fromForm: true,
+      );
+      final kinds = {for (final c in entry.corrections) c.path: c.kind};
+      expect(kinds['line[5].dose'], CorrectionKind.changed);
+      expect(entry.confirmed, isNull);
+    });
+  });
 }

@@ -95,7 +95,9 @@ abstract interface class VoiceFormTarget<S> {
   String describeSlot(SlotRef slot);
 
   /// Un dictado se incorporó (para la evidencia con consentimiento).
-  void onDictationApplied(S shadow, String text);
+  /// [lineIds] dice a qué línea del formulario fue cada línea de la sombra
+  /// (clave de la sombra → id de la línea del formulario).
+  void onDictationApplied(S shadow, String text, Map<int, int> lineIds);
 }
 
 class VoiceFormDictation<S> extends ChangeNotifier {
@@ -352,10 +354,11 @@ class VoiceFormDictation<S> extends ChangeNotifier {
       return;
     }
     final now = target.snapshot();
+    final proposal = target.propose(shadow, now);
     final plan = planVoiceMerge(
       before: before,
       now: now,
-      proposal: target.propose(shadow, now),
+      proposal: proposal,
       nextLineId: target.nextLineId(),
     );
     target.applyPlan(plan);
@@ -390,7 +393,11 @@ class VoiceFormDictation<S> extends ChangeNotifier {
         for (final c in plan.choices) c.slot,
       };
     }
-    target.onDictationApplied(shadow, text);
+    final lineIds = <int, int>{
+      for (var i = 0; i < proposal.lines.length; i++)
+        if (proposal.lines[i].source case final key?) key: plan.lineTargets[i],
+    };
+    target.onDictationApplied(shadow, text, lineIds);
     _setPhase(
       VoiceFormPhase.ready,
       message: _summary(plan),

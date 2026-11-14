@@ -38,7 +38,9 @@ import '../../voice_draft/core/numeric_review.dart';
 import '../../voice_draft/interpretation/voice_intent.dart';
 import '../../voice_draft/purchase/purchase_interpreter.dart';
 import '../../voice_draft/purchase/voice_purchase_draft.dart';
-import '../../voice_draft/text/units.dart' show CatalogUnit;
+import '../../voice_draft/text/units.dart' show CatalogUnit, SpokenUnit;
+import '../../voice_evidence/draft_snapshot.dart'
+    show formCatalogEntry, formDraftField;
 import '../../voice_evidence/voice_evidence.dart' show VoiceEvidenceOutcome;
 
 part 'purchase_form_voice.dart';
@@ -223,9 +225,7 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen>
   int? _problemLineId;
   String? _lineProblem;
 
-  /// Lo que propuso el último dictado y si la compra se guardó (evidencia,
-  /// sólo con consentimiento).
-  VoicePurchaseDraft? _lastVoiceDraft;
+  /// Si la compra se guardó (evidencia, sólo con consentimiento).
   bool _voiceSaved = false;
   bool _voiceFailed = false;
   bool _observingSession = false;
@@ -318,9 +318,12 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen>
     });
   }
 
-  void _voiceApplied(VoicePurchaseDraft shadow, String text) {
-    _lastVoiceDraft = shadow;
-    noteVoiceApplied(shadow, text);
+  void _voiceApplied(
+    VoicePurchaseDraft shadow,
+    String text,
+    Map<int, int> lineIds,
+  ) {
+    noteVoiceApplied(shadow, text, lineIds: lineIds);
   }
 
   /// `setState` para el puente de voz (`purchase_form_voice.dart`).
@@ -518,8 +521,8 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    finishVoiceEvidenceWith(
-      finalDraft: _lastVoiceDraft,
+    finishFormVoiceEvidence(
+      formDraft: _voiceTarget.evidenceDraft,
       outcome: _voiceSaved
           ? VoiceEvidenceOutcome.confirmed
           : _voiceFailed

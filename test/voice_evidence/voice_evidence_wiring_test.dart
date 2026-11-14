@@ -202,6 +202,71 @@ void main() {
     expect(entry.appCommit, isNull, reason: 'sin AGRO_APP_COMMIT en pruebas');
   });
 
+  testWidgets('evaluación con consentimiento: lo corregido a mano en el '
+      'formulario antes de registrar queda en «confirmed» y en «corrections» '
+      '(RF-41, DAT-21)', (tester) async {
+    final db = await open(
+      tester,
+      'ev-corrige',
+      evaluationBuild: true,
+      consent: true,
+    );
+    await dictate(tester);
+    // Se dictaron 50 Bs por litro; la persona escribe 55 en el formulario.
+    await openPurchaseLine(tester);
+    final price = find.byKey(const Key('purchase-price-0'));
+    await tester.ensureVisible(price);
+    await tester.pump();
+    await tester.enterText(price, '55');
+    await settle(tester);
+    await register(tester);
+    await untilClosed(tester);
+    expect(find.byType(PurchaseFormScreen), findsNothing);
+    expect(await purchases(tester, db), 1);
+
+    final entry = (await evidence(tester, db)).single;
+    expect(entry.outcome.code, 'CONFIRMED');
+    // Lo propuesto sigue siendo lo dictado.
+    final proposed = entry.proposed.singleWhere(
+      (f) => f.path.endsWith('.price'),
+    );
+    expect(proposed.value, containsPair('minorPerUnit', 5000));
+    // Lo confirmado es lo que se registró: el precio corregido a mano.
+    final confirmed = entry.confirmed!.singleWhere(
+      (f) => f.path == proposed.path,
+    );
+    expect(confirmed.value, containsPair('minorPerUnit', 5500));
+    expect(confirmed.origin, 'manual');
+    // Y la corrección queda anotada, de 50 a 55.
+    final correction = entry.corrections.singleWhere(
+      (c) => c['path'] == proposed.path,
+    );
+    expect(correction['kind'], 'CHANGED');
+    expect(
+      (correction['proposed']! as Map)['value'],
+      containsPair('minorPerUnit', 5000),
+    );
+    expect(
+      (correction['final']! as Map)['value'],
+      containsPair('minorPerUnit', 5500),
+    );
+    // Lo que no se tocó no es una corrección: el precio es la única.
+    expect(entry.corrections, hasLength(1));
+    final corrected = {for (final c in entry.corrections) c['path']};
+    for (final path in [
+      'supplier',
+      proposed.path.replaceFirst('.price', '.product'),
+      proposed.path.replaceFirst('.price', '.quantity'),
+    ]) {
+      expect(corrected, isNot(contains(path)), reason: path);
+      expect(
+        entry.confirmed!.singleWhere((f) => f.path == path).status,
+        'resolved',
+        reason: path,
+      );
+    }
+  });
+
   testWidgets('evaluación con consentimiento: cancelar deja una entrada '
       'DISCARDED y ninguna compra', (tester) async {
     final db = await open(
