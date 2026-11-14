@@ -63,6 +63,42 @@ class _PlanVoice implements VoiceFormTarget<VoicePlanDraft> {
   @override
   int nextLineId() => s._nextLineId;
 
+  /// Lo que tiene el formulario, como borrador de plan, para la evidencia
+  /// con consentimiento (RF-41, DAT-21): los mismos campos que la sombra,
+  /// con las líneas por su id en el formulario.
+  VoicePlanDraft evidenceDraft() {
+    final c = catalog!;
+    final area = _areaCanon(s.area.text);
+    return VoicePlanDraft(
+      campaign: formDraftField(c.activeCampaign),
+      farm: formDraftField(formCatalogEntry(c.farms, s.farmId)),
+      area: formDraftField(area is int ? area : null),
+      lines: [
+        for (final l in s.lines)
+          VoicePlanLine(
+            key: l.id,
+            product: formDraftField(
+              formCatalogEntry(c.products, l.product?['id']),
+            ),
+            dose: formDraftField(_evidenceDose(l, c)),
+          ),
+      ],
+      nextLineKey: s._nextLineId,
+    );
+  }
+
+  /// Dosis escrita, en milésimas de litro o de kilo por hectárea (= unidad
+  /// base por hectárea).
+  static SpokenDose? _evidenceDose(_PlanLine l, VoiceCatalog c) {
+    final dose = l.voiceFields()['dose'];
+    if (dose is! int || dose <= 0) return null;
+    final unit = formCatalogEntry(c.products, l.product?['id'])?.unit;
+    return SpokenDose(
+      dose,
+      unit == CatalogUnit.kilogram ? SpokenUnit.kilogram : SpokenUnit.liter,
+    );
+  }
+
   @override
   VoicePlanDraft startShadow() {
     _notices.clear();
@@ -162,7 +198,7 @@ class _PlanVoice implements VoiceFormTarget<VoicePlanDraft> {
       }
       final dose = _dose(line);
       if (dose != null) fields['dose'] = dose;
-      if (fields.isNotEmpty) lines.add(ProposedLine(fields));
+      if (fields.isNotEmpty) lines.add(ProposedLine(fields, source: line.key));
     }
     return VoiceProposal(header: header, lines: lines, notices: [..._notices]);
   }
@@ -332,6 +368,9 @@ class _PlanVoice implements VoiceFormTarget<VoicePlanDraft> {
   }
 
   @override
-  void onDictationApplied(VoicePlanDraft shadow, String text) =>
-      s._voiceApplied(shadow, text);
+  void onDictationApplied(
+    VoicePlanDraft shadow,
+    String text,
+    Map<int, int> lineIds,
+  ) => s._voiceApplied(shadow, text, lineIds);
 }

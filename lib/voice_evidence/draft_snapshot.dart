@@ -12,6 +12,7 @@ import '../voice_draft/catalog/voice_catalog.dart';
 import '../voice_draft/core/draft_field.dart';
 import '../voice_draft/plan/voice_plan_draft.dart';
 import '../voice_draft/purchase/voice_purchase_draft.dart';
+import '../voice_draft/text/units.dart';
 import 'voice_evidence.dart';
 
 /// Operación de un borrador, o error si el tipo no es uno de los tres.
@@ -219,6 +220,93 @@ bool _sameValue(EvidenceField before, EvidenceField after) => EvidenceField(
   value: after.value,
 ).sameContentAs(before);
 
+/// Campo de un borrador armado con lo que tiene el formulario (formulario
+/// único, F09): resuelto «a mano» si hay valor; faltante si no.
+DraftField<T> formDraftField<T>(T? value) => value == null
+    ? const DraftField.missing()
+    : DraftField.resolved(value, origin: FieldOrigin.manual);
+
+/// La entrada del catálogo con [id], para armar ese borrador; sin nombre si
+/// ya no está en el catálogo cargado (la comparación es por id).
+CatalogEntry? formCatalogEntry(Iterable<CatalogEntry> entries, Object? id) {
+  if (id is! int) return null;
+  return entries.where((e) => e.id == id).firstOrNull ??
+      CatalogEntry(id: id, name: '');
+}
+
+/// Campos finales tomados del formulario (formulario único, F09), alineados
+/// con lo propuesto por la voz para que [diffEvidenceFields] sólo anote lo
+/// que de verdad cambió.
+///
+/// El formulario no sabe quién puso cada valor: el borrador final se arma
+/// con todos sus valores como «manual» ([formDraftField]). Aquí, un campo
+/// final con **el mismo valor** que el propuesto en esa ruta (mismo
+/// producto, proveedor o chaco; misma cantidad en unidad base, aunque se
+/// dijera en mL o g; mismo precio por unidad) se anota con el valor tal
+/// como se dijo y con el origen de la propuesta; si la propuesta estaba por
+/// revisar o era ambigua, como «confirmado» (reafirmado en las
+/// correcciones). Un valor distinto queda como lo dejó la persona.
+List<EvidenceField> alignFormFields(
+  List<EvidenceField> proposed,
+  List<EvidenceField> formFields,
+) {
+  final byPath = {for (final f in proposed) f.path: f};
+  return [
+    for (final after in formFields)
+      switch (byPath[after.path]) {
+        final before?
+            when before.value != null &&
+                after.value != null &&
+                after.status == FieldStatus.resolved.name &&
+                _sameCanonical(before.value, after.value) =>
+          EvidenceField(
+            path: after.path,
+            status: FieldStatus.resolved.name,
+            origin: before.status == FieldStatus.resolved.name
+                ? before.origin
+                : FieldOrigin.confirmed.name,
+            value: before.value,
+            heard: before.heard,
+          ),
+        _ => after,
+      },
+  ];
+}
+
+/// Igualdad de dos valores ya codificados ([encodeEvidenceValue]) en su
+/// forma canónica: entradas del catálogo por id, cantidades y dosis en
+/// unidad base, precios por centavos por unidad.
+bool _sameCanonical(Object? a, Object? b) {
+  final ca = _canonical(a);
+  final cb = _canonical(b);
+  if (ca is Map || cb is Map) {
+    return EvidenceField(
+      path: '',
+      status: '',
+      value: ca,
+    ).sameContentAs(EvidenceField(path: '', status: '', value: cb));
+  }
+  return ca == cb;
+}
+
+Object? _canonical(Object? value) {
+  if (value is! Map) return value;
+  if (value['id'] case final int id) return ('entry', id);
+  final unit = SpokenUnit.values
+      .where((u) => u.name == value['unit'])
+      .firstOrNull;
+  if (unit != null) {
+    if (value['thousandths'] case final int t) {
+      return ('quantity', unit.family, unit.toBase(t) ?? '$t ${unit.name}');
+    }
+    if (value['thousandthsPerHa'] case final int t) {
+      return ('dose', unit.family, unit.toBase(t) ?? '$t ${unit.name}');
+    }
+  }
+  if (value['minorPerUnit'] case final int minor) return ('price', minor);
+  return value;
+}
+
 /// Lo que la pantalla anota durante un borrador de voz para entregar la
 /// evidencia al terminar. No guarda nada por sí misma ni toca el borrador.
 ///
@@ -245,14 +333,35 @@ final class VoiceEvidenceTrace {
   /// Anota lo que propuso la voz: para cada campo del borrador que no puso
   /// la persona a mano, su valor tras este dictado. Un campo manual no es una
   /// propuesta de la voz y no se anota.
-  void voiceApplied(Object draftAfterVoice, {String? transcript}) {
+  ///
+  /// Formulario único (F09): cada dictado tiene su propia sombra, con sus
+  /// propias claves de línea. Con [lineKeys] (clave de la sombra → id de la
+  /// línea del formulario a la que fue) las rutas de línea se anotan con el
+  /// id del formulario, el mismo con que se arma el borrador final; una línea
+  /// de la sombra que no llegó al formulario no se anota, y un campo que este
+  /// dictado no oyó (faltante, sin nada oído) no borra lo que propuso un
+  /// dictado anterior.
+  void voiceApplied(
+    Object draftAfterVoice, {
+    String? transcript,
+    Map<int, int>? lineKeys,
+  }) {
     _startedAt ??= _clock();
     _kind ??= evidenceKindOf(draftAfterVoice);
     if (transcript != null) _transcripts.add(transcript);
-    for (final field in snapshotDraft(draftAfterVoice)) {
+    for (final raw in snapshotDraft(draftAfterVoice)) {
       // Lo puesto o confirmado por la persona no es propuesta de la voz.
-      if (field.origin == FieldOrigin.manual.name ||
-          field.origin == FieldOrigin.confirmed.name) {
+      if (raw.origin == FieldOrigin.manual.name ||
+          raw.origin == FieldOrigin.confirmed.name) {
+        continue;
+      }
+      final field = lineKeys == null ? raw : _rekey(raw, lineKeys);
+      if (field == null) continue;
+      if (lineKeys != null &&
+          field.status == FieldStatus.missing.name &&
+          field.value == null &&
+          field.heard == null &&
+          _proposed.containsKey(field.path)) {
         continue;
       }
       if (!_proposed.containsKey(field.path)) _order.add(field.path);
@@ -260,14 +369,38 @@ final class VoiceEvidenceTrace {
     }
   }
 
+  static final _linePath = RegExp(r'^line\[(\d+)\]\.(.+)$');
+
+  /// [field] con la clave de línea del formulario, o `null` si su línea no
+  /// llegó al formulario. Los campos de cabecera no cambian.
+  static EvidenceField? _rekey(EvidenceField field, Map<int, int> lineKeys) {
+    final m = _linePath.firstMatch(field.path);
+    if (m == null) return field;
+    final id = lineKeys[int.parse(m.group(1)!)];
+    if (id == null) return null;
+    return EvidenceField(
+      path: 'line[$id].${m.group(2)}',
+      status: field.status,
+      origin: field.origin,
+      value: field.value,
+      heard: field.heard,
+      candidates: field.candidates,
+    );
+  }
+
   /// `true` si hubo al menos un dictado aplicado.
   bool get hasVoice => _kind != null;
 
   /// Construye la entrada. [finalDraft] es el borrador al terminar: el que
   /// se confirmó, el que había al descartar o el que falló al escribir.
+  ///
+  /// Con [fromForm], [finalDraft] se armó con los valores del formulario
+  /// único ([formDraftField]) y se alinea con lo propuesto
+  /// ([alignFormFields]) antes de comparar.
   VoiceEvidenceEntry finish({
     required Object finalDraft,
     required VoiceEvidenceOutcome outcome,
+    bool fromForm = false,
     String? sheetRef,
     String? engine,
     String? model,
@@ -275,8 +408,10 @@ final class VoiceEvidenceTrace {
     int? firstPartialMs,
     int? finalMs,
   }) {
-    final finalFields = snapshotDraft(finalDraft);
     final proposed = [for (final path in _order) _proposed[path]!];
+    final finalFields = fromForm
+        ? alignFormFields(proposed, snapshotDraft(finalDraft))
+        : snapshotDraft(finalDraft);
     return VoiceEvidenceEntry(
       kind: _kind ?? evidenceKindOf(finalDraft),
       outcome: outcome,

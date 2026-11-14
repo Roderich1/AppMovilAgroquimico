@@ -76,10 +76,19 @@ mixin VoiceEvidenceRecording<W extends ConsumerStatefulWidget>
   }
 
   /// Tras cada `applyVoice` aceptado: el borrador resultante y el texto
-  /// cerrado que lo produjo.
-  void noteVoiceApplied(Object draftAfterVoice, String transcript) {
+  /// cerrado que lo produjo. En el formulario único, [lineIds] lleva cada
+  /// línea de la sombra a la línea del formulario a la que fue.
+  void noteVoiceApplied(
+    Object draftAfterVoice,
+    String transcript, {
+    Map<int, int>? lineIds,
+  }) {
     if (_evidenceDone) return;
-    _evidence.voiceApplied(draftAfterVoice, transcript: transcript);
+    _evidence.voiceApplied(
+      draftAfterVoice,
+      transcript: transcript,
+      lineKeys: lineIds,
+    );
     final stoppedAt = _stoppingAt;
     if (stoppedAt != null) {
       _finalMs = (_clock.elapsed - stoppedAt).inMilliseconds;
@@ -90,28 +99,35 @@ mixin VoiceEvidenceRecording<W extends ConsumerStatefulWidget>
   /// Sin ningún dictado aplicado no hay evidencia que entregar.
   void finishVoiceEvidence(VoiceDraftController<dynamic, dynamic>? draft) {
     if (draft == null) return;
-    finishVoiceEvidenceWith(
-      finalDraft: draft.draft as Object,
-      outcome: switch (draft.phase) {
-        DraftPhase.confirmed => VoiceEvidenceOutcome.confirmed,
-        _ when draft.error != null => VoiceEvidenceOutcome.failed,
-        _ => VoiceEvidenceOutcome.discarded,
-      },
-    );
+    _finishEvidence(() => draft.draft as Object, switch (draft.phase) {
+      DraftPhase.confirmed => VoiceEvidenceOutcome.confirmed,
+      _ when draft.error != null => VoiceEvidenceOutcome.failed,
+      _ => VoiceEvidenceOutcome.discarded,
+    }, fromForm: false);
   }
 
-  /// Formulario único (F09): el borrador final es lo que propuso el último
-  /// dictado y el resultado, el del guardado del formulario. Lo que la
-  /// persona corrigió en el formulario no se compara aquí (límite declarado).
-  void finishVoiceEvidenceWith({
-    required Object? finalDraft,
+  /// Formulario único (F09), en `dispose` y antes de liberar los campos: el
+  /// borrador final es el que arma [formDraft] con **lo que tiene el
+  /// formulario** (lo registrado, si se registró, con las correcciones hechas
+  /// a mano), no la sombra del último dictado (RF-41, DAT-21; 2026-11-13).
+  /// Sólo se arma si hubo algún dictado aplicado. El resultado es el del
+  /// guardado del formulario.
+  void finishFormVoiceEvidence({
+    required Object Function() formDraft,
     required VoiceEvidenceOutcome outcome,
+  }) => _finishEvidence(formDraft, outcome, fromForm: true);
+
+  void _finishEvidence(
+    Object Function() finalDraft,
+    VoiceEvidenceOutcome outcome, {
+    required bool fromForm,
   }) {
-    if (_evidenceDone || finalDraft == null || !_evidence.hasVoice) return;
+    if (_evidenceDone || !_evidence.hasVoice) return;
     _evidenceDone = true;
     final entry = _evidence.finish(
-      finalDraft: finalDraft,
+      finalDraft: finalDraft(),
       outcome: outcome,
+      fromForm: fromForm,
       engine: voiceEngine,
       model: _model,
       appCommit: voiceAppCommit.isEmpty ? null : voiceAppCommit,

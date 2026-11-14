@@ -121,9 +121,13 @@ final class ProposedValue {
 /// Una línea dictada. [anchor] es el campo que identifica la línea (el
 /// producto); puede venir por revisar.
 final class ProposedLine {
-  const ProposedLine(this.fields, {this.anchor = 'product'});
+  const ProposedLine(this.fields, {this.anchor = 'product', this.source});
   final Map<String, ProposedValue> fields;
   final String anchor;
+
+  /// Clave de la línea de la sombra de la que sale, si la hay (sólo para la
+  /// evidencia de dictado: no cambia cómo se incorpora).
+  final int? source;
 
   bool get hasAnchor => fields[anchor] != null;
 }
@@ -201,6 +205,7 @@ final class MergePlan {
     this.keptEdited = const [],
     this.unchanged = 0,
     this.notices = const [],
+    this.lineTargets = const [],
   });
   final List<FieldChange> changes;
   final List<NewLine> newLines;
@@ -213,6 +218,11 @@ final class MergePlan {
   /// Campos dictados que ya tenían ese mismo valor.
   final int unchanged;
   final List<String> notices;
+
+  /// Línea del formulario a la que fue cada línea propuesta, en el orden de
+  /// `VoiceProposal.lines` (la vacía que se usó, la última que se completó o
+  /// la nueva). Sólo informa: no se aplica nada con ella.
+  final List<int> lineTargets;
 
   bool get changesNothing =>
       changes.isEmpty && newLines.isEmpty && choices.isEmpty && reviews.isEmpty;
@@ -235,6 +245,7 @@ MergePlan planVoiceMerge({
   final choices = <PendingChoice>[];
   final reviews = <PendingReview>[];
   final kept = <SlotRef>[];
+  final targets = <int>[];
   var unchanged = 0;
   var nextId = nextLineId;
 
@@ -296,6 +307,7 @@ MergePlan planVoiceMerge({
 
   void newLine(ProposedLine pl) {
     final id = nextId++;
+    targets.add(id);
     final values = <String, Object?>{};
     int? repeatOf;
     for (final entry in pl.fields.entries) {
@@ -351,6 +363,7 @@ MergePlan planVoiceMerge({
           productLine.containsKey(anchor.value!);
       if (blank != null && !repeated) {
         usedBlank.add(blank.id);
+        targets.add(blank.id);
         if (!anchor.needsReview && anchor.value != null) {
           productLine[anchor.value!] = now.lines.indexOf(blank) + 1;
         }
@@ -369,6 +382,7 @@ MergePlan planVoiceMerge({
         last.fields[pl.anchor] != null &&
         pl.fields.keys.any((k) => last.fields[k] == null);
     if (fits) {
+      targets.add(last.id);
       pl.fields.forEach((name, p) => field(SlotRef.line(last.id, name), p));
     } else {
       newLine(pl);
@@ -383,6 +397,7 @@ MergePlan planVoiceMerge({
     keptEdited: kept,
     unchanged: unchanged,
     notices: proposal.notices,
+    lineTargets: targets,
   );
 }
 

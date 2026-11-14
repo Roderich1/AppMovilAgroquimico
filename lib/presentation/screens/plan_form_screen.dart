@@ -33,6 +33,8 @@ import '../../voice_draft/interpretation/voice_intent.dart';
 import '../../voice_draft/plan/plan_interpreter.dart';
 import '../../voice_draft/plan/voice_plan_draft.dart';
 import '../../voice_draft/text/units.dart';
+import '../../voice_evidence/draft_snapshot.dart'
+    show formCatalogEntry, formDraftField;
 import '../../voice_evidence/voice_evidence.dart' show VoiceEvidenceOutcome;
 
 part 'plan_form_voice.dart';
@@ -71,7 +73,6 @@ class _PlanFormScreenState extends ConsumerState<PlanFormScreen>
   /// al terminar un dictado; lo dictado ya está en el formulario).
   bool _voiceBanner = false;
   int _seenCompletions = 0;
-  VoicePlanDraft? _lastVoiceDraft;
   bool _voiceSaved = false;
   bool _voiceFailed = false;
   bool _observingSession = false;
@@ -160,9 +161,12 @@ class _PlanFormScreenState extends ConsumerState<PlanFormScreen>
     });
   }
 
-  void _voiceApplied(VoicePlanDraft shadow, String text) {
-    _lastVoiceDraft = shadow;
-    noteVoiceApplied(shadow, text);
+  void _voiceApplied(
+    VoicePlanDraft shadow,
+    String text,
+    Map<int, int> lineIds,
+  ) {
+    noteVoiceApplied(shadow, text, lineIds: lineIds);
   }
 
   void _voiceSetState(VoidCallback fn) => setState(fn);
@@ -200,8 +204,8 @@ class _PlanFormScreenState extends ConsumerState<PlanFormScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
-    finishVoiceEvidenceWith(
-      finalDraft: _lastVoiceDraft,
+    finishFormVoiceEvidence(
+      formDraft: _voiceTarget.evidenceDraft,
       outcome: _voiceSaved
           ? VoiceEvidenceOutcome.confirmed
           : _voiceFailed

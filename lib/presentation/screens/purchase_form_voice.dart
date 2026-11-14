@@ -17,6 +17,10 @@ class _PurchaseVoice implements VoiceFormTarget<VoicePurchaseDraft> {
 
   final _PurchaseFormScreenState s;
   VoiceCatalog? catalog;
+
+  /// Campañas cargadas (la del formulario puede no ser la activa), para la
+  /// evidencia de dictado.
+  List<CatalogEntry> _campaigns = const [];
   final List<String> _notices = [];
   int _seenDisagreements = 0;
 
@@ -39,6 +43,10 @@ class _PurchaseVoice implements VoiceFormTarget<VoicePurchaseDraft> {
     final active = data.campaigns
         .where((row) => row['status'] == 'ACTIVE')
         .firstOrNull;
+    _campaigns = [
+      for (final row in data.campaigns)
+        CatalogEntry(id: row['id']! as int, name: row['name']! as String),
+    ];
     catalog = VoiceCatalog(
       products: [
         for (final row in data.products)
@@ -71,6 +79,69 @@ class _PurchaseVoice implements VoiceFormTarget<VoicePurchaseDraft> {
   }
 
   bool get _shared => s.personalOwnerId == null;
+
+  // --- Evidencia de dictado ------------------------------------------------
+
+  /// Lo que tiene el formulario, como borrador de compra, para la evidencia
+  /// con consentimiento (RF-41, DAT-21): los mismos campos que la sombra,
+  /// con las líneas por su id en el formulario. Al registrar es lo que se
+  /// registró, con lo corregido a mano. El destinatario es el de la compra
+  /// sólo si todas las líneas van a la misma persona; el tipo de cambio, el
+  /// de la primera línea en USD.
+  VoicePurchaseDraft evidenceDraft() {
+    final c = catalog!;
+    final people = {
+      for (final l in s.lines)
+        if (l.productId != null)
+          _shared
+              ? (l.allocationMode == _AllocationMode.single
+                    ? l.singlePersonId
+                    : null)
+              : s.personalOwnerId,
+    };
+    final fx = s.lines
+        .where((l) => l.currency == CurrencyCode.usd)
+        .map((l) => l.exchangeRateScaled)
+        .where((v) => v != null && v > 0)
+        .firstOrNull;
+    return VoicePurchaseDraft(
+      supplier: formDraftField(formCatalogEntry(c.suppliers, s.supplierId)),
+      campaign: formDraftField(formCatalogEntry(_campaigns, s.campaignId)),
+      recipient: formDraftField(
+        people.length == 1 ? formCatalogEntry(c.people, people.single) : null,
+      ),
+      exchangeRate: formDraftField(fx),
+      lines: [for (final l in s.lines) _evidenceLine(l, c)],
+      nextLineKey: s._nextLineId,
+    );
+  }
+
+  static VoicePurchaseLine _evidenceLine(
+    _PurchaseLineEditor l,
+    VoiceCatalog c,
+  ) {
+    final product = formCatalogEntry(c.products, l.productId);
+    final unit = product?.unit;
+    return VoicePurchaseLine(
+      key: l.id,
+      product: formDraftField(product),
+      // Milésimas de litro o de kilo = unidad base (mL o g).
+      quantity: formDraftField(
+        l.quantityBase > 0
+            ? SpokenQuantity(
+                l.quantityBase,
+                unit == CatalogUnit.kilogram
+                    ? SpokenUnit.kilogram
+                    : SpokenUnit.liter,
+              )
+            : null,
+      ),
+      price: formDraftField(
+        l.priceMinor > 0 ? SpokenPrice(l.priceMinor, perUnit: unit) : null,
+      ),
+      currency: formDraftField(l.currency),
+    );
+  }
 
   // --- Foto del formulario -------------------------------------------------
 
@@ -260,7 +331,7 @@ class _PurchaseVoice implements VoiceFormTarget<VoicePurchaseDraft> {
         );
       }
       if (recipient != null) fields['recipient'] = recipient;
-      if (fields.isNotEmpty) lines.add(ProposedLine(fields));
+      if (fields.isNotEmpty) lines.add(ProposedLine(fields, source: line.key));
     }
     if (lines.isEmpty && recipient != null) {
       _notices.add(
@@ -536,8 +607,11 @@ class _PurchaseVoice implements VoiceFormTarget<VoicePurchaseDraft> {
   }
 
   @override
-  void onDictationApplied(VoicePurchaseDraft shadow, String text) =>
-      s._voiceApplied(shadow, text);
+  void onDictationApplied(
+    VoicePurchaseDraft shadow,
+    String text,
+    Map<int, int> lineIds,
+  ) => s._voiceApplied(shadow, text, lineIds);
 }
 
 extension on _PurchaseLineEditor {
