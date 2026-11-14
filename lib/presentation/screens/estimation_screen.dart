@@ -82,9 +82,13 @@ class _EstimationScreenState extends ConsumerState<EstimationScreen> {
             campaigns = null;
             results = null;
           case EstimationUnavailable.sessionRejected:
+            // Mismo recorrido en los dos modos: el bloque «Cuenta en línea»
+            // de Inicio; si la sesión exige reautenticar, Inicio muestra
+            // arriba «Volver a autenticar» en su lugar.
             blocked =
-                'Hace falta verificar su acceso en línea (Sincronización) antes '
-                'de consultar la estimación.';
+                'Hace falta verificar su acceso en línea antes de consultar la '
+                'estimación: en Inicio › Cuenta en línea, «Verificar acceso en '
+                'línea» (si Inicio pide «Volver a autenticar», use ese botón).';
           case EstimationUnavailable.noIdentity:
             blocked =
                 'La estimación sólo se consulta con la instalación activada y la '

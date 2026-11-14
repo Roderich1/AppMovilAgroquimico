@@ -747,7 +747,10 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen>
     if (campaignId == null) {
       showError(
         context,
-        'No hay una campaña activa. Actívala en Más, Administrar datos.',
+        // Mismo recorrido en los dos modos: el engranaje de Inicio abre
+        // «Ajustes y datos» (la campaña de la cabecera abre Campañas igual).
+        'No hay una campaña activa. Actívela en Inicio › Ajustes y datos › '
+        'Campañas.',
       );
       return;
     }
@@ -2245,9 +2248,12 @@ class _PurchaseFormScreenState extends ConsumerState<PurchaseFormScreen>
         false => const NoticeBox(
           key: Key('purchase-no-payment'),
           icon: Icons.schedule_outlined,
+          // Modo con varias personas (el individual tiene su texto arriba):
+          // Actividad › filtro «Compras» › «Lista de compras» › la compra.
           text:
-              'La compra queda sin pago. Puede anotarlo después en '
-              'Operaciones, Compras.',
+              'La compra queda sin pago. Puede anotarlo después en Actividad › '
+              'Compras › Lista de compras, con «Registrar pago al proveedor» '
+              'en la compra.',
         ),
         null => const Text(
           'Elija una opción para poder confirmar.',

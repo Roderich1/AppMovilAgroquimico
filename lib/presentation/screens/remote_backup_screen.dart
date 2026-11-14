@@ -249,7 +249,7 @@ class _RemoteBackupScreenState extends ConsumerState<RemoteBackupScreen> {
           'TODOS los datos actuales se reemplazarán. Se guarda una copia de '
           'los datos actuales en este teléfono. Los envíos al sindicato que '
           'traiga la copia quedarán pausados hasta que usted los libere en '
-          'Sincronización.',
+          'Sindicato › Ver estado de los envíos, con «Liberar».',
       confirmLabel: 'Restaurar',
     );
     if (!confirmed || !mounted) {

@@ -286,4 +286,39 @@ void main() {
       expect(await _rows(tester, seeded.database), 0);
     },
   );
+  testWidgets(
+    'acceso en línea de otro titular: el bloqueo remite a Inicio › Cuenta en '
+    'línea (HD-3), no a una pantalla «Sincronización»',
+    (tester) async {
+      final seeded = await activatedHousehold(tester, 'est_ui_sesion');
+      final c = await pumpModeApp(
+        tester,
+        seeded.database,
+        extraOverrides: [
+          apiEndpointConfigProvider.overrideWithValue(
+            ApiEndpointConfig(Uri.parse('https://sindicato.example')),
+          ),
+          authHttpTransportProvider.overrideWithValue(_central()),
+          // Acceso de otro miembro: la estimación lo rechaza (sesión).
+          syncAccessHolderProvider.overrideWithValue(
+            SyncAccessHolder()
+              ..accept('token-sintetico', memberB.memberId, memberB.tenantId),
+          ),
+        ],
+      );
+      await _openEstimation(tester, c);
+      await tester.tap(find.byKey(const Key('estimation-online')));
+      await _settleOperation(tester);
+      expect(find.byKey(const Key('estimation-blocked')), findsOneWidget);
+      expect(
+        find.text(
+          'Hace falta verificar su acceso en línea antes de consultar la '
+          'estimación: en Inicio › Cuenta en línea, «Verificar acceso en '
+          'línea» (si Inicio pide «Volver a autenticar», use ese botón).',
+        ),
+        findsOneWidget,
+      );
+      expect(find.textContaining('Sincronización'), findsNothing);
+    },
+  );
 }
