@@ -58,3 +58,13 @@ Roderich Rendón acepta **provisionalmente** Vosk + whisper.cpp `ggml-base-q5_1`
 - la evaluación de #12.
 
 **Lo que esta aceptación no cambia:** GATE-F09 (#17) sigue igual, RNF-14 no se declara cumplido y el PR Mobile #190 sigue en borrador, sin fusionar a `main`.
+
+## Nota de actualización (2026-11-13)
+
+Configuración vigente, comprobada en el código de `main` (`34e9926`) el 2026-11-13. El estado de este ADR no cambia.
+
+- **Compra:** turno entero con un solo transcriptor, **Whisper small** q5_1 con **haz de 5** (`purchaseVoiceWholeTurn = true` y `purchaseSpeechPortFactoryProvider` en `lib/presentation/voice/voice_purchase_port.dart`; `defaultTurnVariant = 'small'` y `defaultTurnDecoding = WholeTurnDecoding.beam5` en `lib/voice/port/voice_engine_diagnostics.dart`). Es la decisión del autor del 2026-11-10, por precisión y no por una superioridad demostrada (`docs/f09/INTEGRACION_COMPRA_VOZ_SMALL_2026-11-10.md`; diagnóstico de motores en `docs/f09/poco/DIAGNOSTICO_MOTORES_2026-11-09.md` y `docs/f09/poco/EXPERIMENTO_TURNO_ENTERO_2026-11-09.md`). En la compra, por tanto, ya no rige la elección de base de la «Decisión del autor (2026-11-05)».
+- **Aplicación y planificación:** sin cambios respecto de este ADR: **Vosk** small-es 0.42 por frases con **Whisper base** q5_1 como segunda pasada (`speechPortFactoryProvider` en `lib/voice/voice_providers.dart`, `LocalSpeechTranscriptionAdapter`, tope de revisión de 5 s por frase con `AGRO_VOICE_REVIEW_TIMEOUT_MS`; regla de aceptación de `lib/voice/port/review_selection.dart`).
+- **Modelos y bibliotecas fuera de Git:** `android/app/voice-models/` y `android/app/src/main/jniLibs/` están en `.gitignore`. Se obtienen con `tool/voice_local/fetch_voice_models.sh` (por defecto `both`: Vosk + base + small, verificados por SHA-256) y `tool/voice_local/build_whisper_libs.sh` (whisper.cpp `52a939a`). La frase «Los modelos viajan en el APK» del diseño se refiere a las APK de prueba compiladas tras esos dos pasos (`tool/voice_local/build_voice_apk.sh`, perfil *profile*).
+- **APK de release:** la compilación de release del repositorio (`flutter build apk --release` en `.github/workflows/flutter-ci.yml`) no ejecuta esos pasos y sale **sin modelos**; sin ellos la app compila y la voz se declara no disponible, con la entrada manual intacta. Esto lo asegura el procedimiento, no la configuración: `android/app/build.gradle.kts` añade `voice-models` a los *assets* de `main` para todos los tipos de compilación, de modo que una release compilada en una máquina con esa carpeta preparada los incluiría.
+- **Sin cambios** en lo que este ADR no afirma: ninguna precisión con voces reales ni rendimiento en teléfono medidos aquí (`NOT_MEASURED`), RNF-14 no declarado cumplido y GATE-F09 (#17) igual.
