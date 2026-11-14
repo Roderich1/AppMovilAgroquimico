@@ -112,10 +112,21 @@ void main() {
     final rows = await payments(tester, s.database, s.relative);
     expect(rows, hasLength(1));
     expect(rows.single['amount_bob_minor_signed'], -4000);
-    // La cabecera se recarga con el saldo nuevo: 200,00 − 40,00.
-    expect(
-      tester.widget<Text>(find.byKey(const Key('person-headline-amount'))).data,
-      '160,00',
+    // La cabecera se recarga con el saldo nuevo: 200,00 − 40,00. La recarga
+    // es asíncrona y no muestra indicador: se espera a que llegue (falla con
+    // el valor visto si no llega) en vez de mirar antes de tiempo, que en la
+    // CI leía todavía 200,00 (intermitencia del 2026-11-13).
+    String headline() =>
+        tester
+            .widget<Text>(find.byKey(const Key('person-headline-amount')))
+            .data ??
+        '';
+    await waitUntil(
+      tester,
+      'la cabecera con el saldo nuevo',
+      () => headline() == '160,00',
+      state: headline,
     );
+    expect(headline(), '160,00');
   });
 }
