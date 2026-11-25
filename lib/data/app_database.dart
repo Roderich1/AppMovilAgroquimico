@@ -6,6 +6,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart' as mobile;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+import 'database/create_schema_v20.dart';
 import 'database/database_constants.dart';
 import 'database/migrations_v12_to_v20.dart';
 import 'database/migrations_v2_to_v11.dart';
