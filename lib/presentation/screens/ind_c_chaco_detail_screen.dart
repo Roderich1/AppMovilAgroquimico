@@ -13,9 +13,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../app.dart';
-import '../../data/ind_c_chacos_reads.dart';
+import '../../domain/ind_c_chacos_models.dart';
 import '../../domain/money.dart';
 import '../../operation_mode_controller.dart';
+import '../providers/agro_providers.dart';
 import '../theme/agro_theme.dart';
 import '../widgets/agro_ui.dart';
 import '../widgets/catalog_dialogs.dart' show NameDialog;
@@ -39,7 +40,7 @@ class _IndCChacoDetailScreenState extends ConsumerState<IndCChacoDetailScreen> {
   late Future<IndCChacoDetail?> data = _load();
 
   Future<IndCChacoDetail?> _load() =>
-      ref.read(repositoryProvider).indCChacoDetail(widget.farmId);
+      ref.read(indChacosGatewayProvider).indCChacoDetail(widget.farmId);
 
   void _refresh() {
     if (!mounted) return;

@@ -144,7 +144,7 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen> {
                   prefixIcon: Icon(Icons.calendar_month_outlined),
                 ),
                 items: [
-                  const DropdownMenuItem(value: null, child: Text('Todas')),
+                  const DropdownMenuItem(child: Text('Todas')),
                   for (final row in {
                     for (final row in snapshot.data!)
                       row['campaign_id'] as int: row,

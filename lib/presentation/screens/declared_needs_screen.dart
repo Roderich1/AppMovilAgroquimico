@@ -4,9 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../data/sync/declared_need_store.dart';
 import '../../domain/money.dart';
 import '../../domain/numeric_input.dart';
+import '../../domain/sync/declared_need_models.dart';
 import '../../domain/sync/sync_types.dart';
 import '../../services/sync/sync_providers.dart';
 import '../theme/agro_theme.dart';
@@ -28,7 +28,7 @@ class DeclaredNeedsScreen extends ConsumerStatefulWidget {
 class _DeclaredNeedsScreenState extends ConsumerState<DeclaredNeedsScreen> {
   late Future<List<DeclaredNeed>> needs;
 
-  DeclaredNeedStore get _store => ref.read(declaredNeedStoreProvider);
+  DeclaredNeedGateway get _store => ref.read(declaredNeedGatewayProvider);
 
   @override
   void initState() {
@@ -504,7 +504,7 @@ class _DeclarationDraft {
 /// vinculado; cantidad total en L o KG.
 class _DeclarationDialog extends StatefulWidget {
   const _DeclarationDialog({required this.store, required this.products});
-  final DeclaredNeedStore store;
+  final DeclaredNeedGateway store;
   final List<DeclarableProduct> products;
 
   @override

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../data/installation_identity_initializer.dart';
+import '../../domain/installation_identity.dart';
 import '../../installation_access.dart';
 import '../../services/auth/existing_session_providers.dart';
 import '../../services/auth/first_activation_coordinator.dart';
@@ -190,9 +190,6 @@ class _FirstActivationScreenState extends ConsumerState<FirstActivationScreen> {
                               !blockedByIdentity &&
                               !needsReconciliation,
                           keyboardType: TextInputType.emailAddress,
-                          // #87: un correo no se capitaliza ni se autocorrige; el
-                          // teclado del POCO cambiaba «juan» por «Juan» y el login daba 401.
-                          textCapitalization: TextCapitalization.none,
                           autocorrect: false,
                           enableSuggestions: false,
                           autofillHints: const [AutofillHints.email],

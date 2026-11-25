@@ -5,13 +5,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
 import '../../app.dart';
-import '../../data/agro_repository.dart'
-    show AgroRepository, PurchaseDetailRead;
 import '../../domain/campaign_calendar.dart';
 import '../../domain/inventory_alerts.dart' show expiryPickerRange;
 import '../../domain/labels.dart';
 import '../../domain/models.dart';
 import '../../domain/money.dart';
+import '../../domain/repository_types.dart'
+    show PurchaseDetailRead, lotDataSubjectRef, repositoryLotNumberLengthError;
 import '../theme/agro_theme.dart';
 import '../widgets/agro_ui.dart';
 import '../widgets/common.dart';
@@ -79,7 +79,7 @@ class _PurchaseDetailScreenState extends ConsumerState<PurchaseDetailScreen> {
       context,
       ref,
       purpose: AuthorizationPurpose.correctLotData,
-      subjectRef: AgroRepository.lotDataSubjectRef(itemId),
+      subjectRef: lotDataSubjectRef(itemId),
       title: 'Corregir vencimiento o lote',
       effects:
           'Vencimiento: ${day(item['expiry_date'] as String?)} → '
@@ -727,8 +727,7 @@ class _LotDataDialogState extends State<_LotDataDialog> {
     text: (widget.item['lot_number'] as String?) ?? '',
   );
 
-  String? get _lengthError =>
-      AgroRepository.lotNumberLengthError(lotNumber.text);
+  String? get _lengthError => repositoryLotNumberLengthError(lotNumber.text);
 
   bool get _changed {
     final number = lotNumber.text.trim();

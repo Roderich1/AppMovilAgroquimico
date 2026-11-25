@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../data/sync/joint_purchase_store.dart';
 import '../../domain/sync/joint_purchase_call_view.dart';
+import '../../domain/sync/joint_purchase_models.dart';
 import '../../services/sync/sync_providers.dart';
 import '../theme/agro_theme.dart';
 import 'common.dart';
@@ -57,7 +57,7 @@ class _JointPurchaseAccessActionsState
     setState(() => busy = true);
     try {
       final op = await ref
-          .read(jointPurchaseStoreProvider)
+          .read(jointPurchaseGatewayProvider)
           .decideAccess(
             callId: widget.call.callId,
             scope: scope,

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../data/estimation_copy_store.dart';
+import '../../domain/estimation/estimation_copy_models.dart';
 import '../../domain/estimation/farmer_estimation.dart';
 import '../../domain/sync/central_references.dart';
 import '../../services/estimation/estimation_api.dart';

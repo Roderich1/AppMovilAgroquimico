@@ -15,9 +15,10 @@ import 'package:flutter/widgets.dart' show BuildContext;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app.dart';
-import '../../data/agro_repository.dart';
+import '../../domain/agro_gateway.dart';
 import '../../domain/operation_mode.dart';
 import '../../domain/person_roles.dart';
+import '../../domain/repository_types.dart' show ApplicationLotPreview;
 import '../../voice_draft/application/voice_application_draft.dart';
 import '../../voice_draft/catalog/voice_catalog.dart';
 import '../../voice_draft/plan/voice_plan_draft.dart';
@@ -47,7 +48,7 @@ class VoiceDraftGateway {
   VoiceDraftGateway(this._repo, {DateTime Function()? clock})
     : _clock = clock ?? DateTime.now;
 
-  final AgroRepository _repo;
+  final AgroGateway _repo;
 
   /// Reloj de la confirmación: el mismo `DateTime.now()` que usan los
   /// formularios al enviar. Las pruebas lo fijan.

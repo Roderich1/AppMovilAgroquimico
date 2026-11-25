@@ -10,7 +10,16 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'app.dart';
 import 'data/operation_mode_store.dart';
+import 'data/owner_binding_store.dart';
 import 'domain/operation_mode.dart';
+
+final operationModeGatewayProvider = Provider<OperationModeGateway>(
+  (ref) => OperationModeStore(ref.watch(databaseProvider)),
+);
+
+final ownerBindingGatewayProvider = Provider<OwnerBindingGateway>(
+  (ref) => OwnerBindingStore(ref.watch(databaseProvider)),
+);
 
 class OperationModeController extends Notifier<OperationMode?> {
   int _generation = 0;

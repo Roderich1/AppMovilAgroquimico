@@ -99,9 +99,7 @@ class _OperationsScreenState extends ConsumerState<OperationsScreen> {
       purchases: shared ? purchases : purchases.take(_purchaseLimit).toList(),
       applications: await repo.applications(limit: _applicationLimit),
       plans: await repo.plans(),
-      transfers: shared
-          ? await repo.transfers(limit: _transferLimit)
-          : const <_Row>[],
+      transfers: shared ? await repo.transfers() : const <_Row>[],
       transfersShown: shared,
       supplierDebt: shared ? null : supplierDebt(purchases),
       titularName: titularName,

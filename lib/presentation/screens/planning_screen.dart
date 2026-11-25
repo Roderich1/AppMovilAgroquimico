@@ -119,7 +119,7 @@ class _PlanningScreenState extends ConsumerState<PlanningScreen> {
               initialValue: campaignFilter,
               decoration: const InputDecoration(labelText: 'Campaña'),
               items: [
-                const DropdownMenuItem(value: null, child: Text('Todas')),
+                const DropdownMenuItem(child: Text('Todas')),
                 for (final e in campaigns.entries)
                   DropdownMenuItem(value: e.key, child: Text(e.value)),
               ],

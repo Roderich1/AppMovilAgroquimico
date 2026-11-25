@@ -12,8 +12,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../app.dart';
-import '../../data/ind_c_chacos_reads.dart';
+import '../../domain/ind_c_chacos_models.dart';
 import '../../operation_mode_controller.dart';
+import '../providers/agro_providers.dart';
 import '../theme/agro_theme.dart';
 import '../widgets/agro_ui.dart';
 import '../widgets/catalog_dialogs.dart';
@@ -33,7 +34,7 @@ class _ChacosScreenState extends ConsumerState<ChacosScreen> {
   late Future<IndCChacos> data = _load();
 
   Future<IndCChacos> _load() =>
-      ref.read(repositoryProvider).indCChacos(useActiveCampaign: true);
+      ref.read(indChacosGatewayProvider).indCChacos(useActiveCampaign: true);
 
   void _refresh() {
     if (!mounted) return;

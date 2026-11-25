@@ -4,14 +4,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../app.dart';
-import '../../data/typed_reads.dart';
 import '../../domain/inventory_alerts.dart';
 import '../../domain/models.dart';
 import '../../domain/money.dart';
 import '../../domain/installation_access.dart';
 import '../../domain/operation_mode.dart';
 import '../../domain/read_models.dart';
+import '../providers/agro_providers.dart';
 import '../../installation_access.dart';
 import '../../operation_mode_controller.dart';
 import '../../services/auth/access_recovery.dart';
@@ -61,9 +60,10 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
   Future<_DashboardData> _load() async {
     final repo = ref.read(repositoryProvider);
+    final gateway = ref.read(agroGatewayProvider);
     final personal = ref.read(operationModeProvider) == OperationMode.personal;
     final summary = await repo.dashboard();
-    final campaigns = await repo.campaignsTyped();
+    final campaigns = await gateway.campaignsTyped();
     InventoryAlerts? alerts;
     Object? alertsError;
     try {

@@ -172,7 +172,6 @@ class _AccessRecoveryScreenState extends ConsumerState<AccessRecoveryScreen> {
                           controller: _email,
                           enabled: !_submitting,
                           keyboardType: TextInputType.emailAddress,
-                          textCapitalization: TextCapitalization.none,
                           autocorrect: false,
                           enableSuggestions: false,
                           autofillHints: const [AutofillHints.email],

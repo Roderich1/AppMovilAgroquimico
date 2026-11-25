@@ -1,17 +1,7 @@
 import 'installation_client_id_store.dart';
 import 'app_log.dart';
-
-enum InstallationIdentityStatus { ready, corrupt, unavailable }
-
-class InstallationIdentityInitialization {
-  const InstallationIdentityInitialization(this.status);
-
-  final InstallationIdentityStatus status;
-
-  bool get isReady => status == InstallationIdentityStatus.ready;
-}
-
-typedef InstallationIdentityDiagnostic = void Function(String message);
+import '../domain/installation_identity.dart';
+export '../domain/installation_identity.dart';
 
 /// Inicializa la identidad auxiliar sin convertir su indisponibilidad en un
 /// bloqueo del dominio local. El resultado debe estar READY antes de que una

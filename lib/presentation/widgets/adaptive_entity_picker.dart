@@ -149,11 +149,6 @@ class _AdaptiveEntityPickerState<T> extends State<AdaptiveEntityPicker<T>> {
         borderRadius: BorderRadius.circular(12),
         onTap: widget.enabled && !widget.loading ? _open : null,
         child: InputDecorator(
-          // `isEmpty: true` mantenia la etiqueta en el centro del campo, justo
-          // donde se pinta "Seleccionar": ambos textos quedaban superpuestos e
-          // ilegibles (UIBUG-006). Con la etiqueta siempre flotando, el hueco
-          // central queda libre para el valor o el texto de ayuda.
-          isEmpty: false,
           decoration: InputDecoration(
             labelText: widget.label,
             floatingLabelBehavior: FloatingLabelBehavior.always,

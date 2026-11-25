@@ -1,4 +1,4 @@
-import '../../data/sync/identification_request_store.dart';
+import '../../domain/sync/identification_models.dart';
 
 /// Alcance de los respaldos (F08) respecto de la foto de la etiqueta (E1,
 /// limitación B del 2026-11-11): el respaldo privado y la copia local llevan

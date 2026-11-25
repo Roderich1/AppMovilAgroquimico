@@ -21,222 +21,14 @@
 //   sigue en la base y se exporta en el modo con varias personas.
 import 'package:sqflite/sqflite.dart';
 
+import '../domain/ind_c_chacos_models.dart';
 import '../domain/operation_mode.dart';
 import '../domain/read_models.dart' show FarmCostRead, ProductCostRead;
 import 'agro_repository.dart';
 import 'app_database.dart';
 import 'typed_reads.dart';
 
-/// Campaña del alcance; `null` = todas las campañas.
-typedef IndCCampaign = ({int id, String name, String status});
-
-/// Un chaco con sus cifras en el alcance elegido.
-class IndCFarm {
-  const IndCFarm({
-    required this.farmId,
-    required this.name,
-    required this.areaM2,
-    required this.ownerPersonId,
-    required this.ownerName,
-    required this.active,
-    required this.applicationCount,
-    required this.appliedCostMinor,
-    required this.treatedAreaM2,
-    required this.applicationsWithTreatedArea,
-    required this.pendingPlanCount,
-  });
-
-  final int farmId;
-  final String name;
-
-  /// Superficie del chaco en m². El esquema exige `> 0`; si una base antigua
-  /// trajera un valor no positivo, se trata como «falta la superficie».
-  final int areaM2;
-  final int ownerPersonId;
-  final String ownerName;
-  final bool active;
-
-  /// Aplicaciones no revertidas en el alcance.
-  final int applicationCount;
-  final int appliedCostMinor;
-
-  /// Superficie tratada sumada de las aplicaciones del alcance que la tienen
-  /// registrada ([applicationsWithTreatedArea] de [applicationCount]).
-  final int treatedAreaM2;
-  final int applicationsWithTreatedArea;
-
-  /// Planes por hacer (borrador o planificado) en el alcance.
-  final int pendingPlanCount;
-
-  bool get hasArea => areaM2 > 0;
-
-  /// Para reutilizar el cálculo del costo por hectárea del informe.
-  FarmCostRead get cost => FarmCostRead(
-    farmId: farmId,
-    farmName: name,
-    ownerName: ownerName,
-    areaM2: areaM2,
-    totalCostBobMinor: appliedCostMinor,
-    applicationCount: applicationCount,
-  );
-
-  /// `null` = «No disponible» (sin superficie o sin aplicaciones).
-  int? get costPerHectareMinor => cost.costPerHectareMinor;
-
-  factory IndCFarm._fromRow(Map<String, Object?> row) => IndCFarm(
-    farmId: row['id']! as int,
-    name: row['name']! as String,
-    areaM2: (row['area_m2'] as int?) ?? 0,
-    ownerPersonId: row['owner_person_id']! as int,
-    ownerName: row['owner_name']! as String,
-    active: row['active'] == 1,
-    applicationCount: row['application_count']! as int,
-    appliedCostMinor: row['applied_cost']! as int,
-    treatedAreaM2: row['treated_sum']! as int,
-    applicationsWithTreatedArea: row['treated_count']! as int,
-    pendingPlanCount: row['pending_plans']! as int,
-  );
-}
-
-/// Costo de un producto en el alcance.
-class IndCProductCost {
-  const IndCProductCost({
-    required this.productId,
-    required this.name,
-    required this.unit,
-    required this.quantityBase,
-    required this.costMinor,
-    required this.applicationCount,
-  });
-  final int productId;
-  final String name;
-  final String unit;
-  final int quantityBase;
-  final int costMinor;
-  final int applicationCount;
-}
-
-/// Costo aplicado de una campaña (pestaña «Por campaña»).
-class IndCCampaignCost {
-  const IndCCampaignCost({
-    required this.campaign,
-    required this.applicationCount,
-    required this.costMinor,
-  });
-  final IndCCampaign campaign;
-  final int applicationCount;
-  final int costMinor;
-}
-
-/// Modalidad, titular, campañas y la campaña activa, en una consulta.
-class IndCScope {
-  const IndCScope({
-    required this.mode,
-    required this.ownerPersonId,
-    required this.campaigns,
-  });
-  final OperationMode mode;
-  final int? ownerPersonId;
-
-  /// De la más reciente a la más antigua.
-  final List<IndCCampaign> campaigns;
-
-  bool get personal => mode == OperationMode.personal;
-
-  /// Dueño por el que se filtran los chacos: el titular en modo individual.
-  int? get ownerFilter => personal ? ownerPersonId : null;
-
-  IndCCampaign? get activeCampaign =>
-      campaigns.where((c) => c.status == 'ACTIVE').firstOrNull;
-
-  IndCCampaign? campaign(int? id) =>
-      id == null ? null : campaigns.where((c) => c.id == id).firstOrNull;
-}
-
-/// Lista de chacos (I-40) y pestaña «Por chaco» (I-42).
-class IndCChacos {
-  const IndCChacos({
-    required this.scope,
-    required this.campaign,
-    required this.farms,
-  });
-  final IndCScope scope;
-
-  /// Alcance de las cifras; `null` = todas las campañas.
-  final IndCCampaign? campaign;
-
-  /// Chacos activos y, además, los archivados con aplicaciones en el alcance
-  /// (su costo cuenta: archivar no borra el historial).
-  final List<IndCFarm> farms;
-
-  List<IndCFarm> get activeFarms => [
-    for (final farm in farms)
-      if (farm.active) farm,
-  ];
-
-  int get appliedCostMinor =>
-      farms.fold(0, (sum, farm) => sum + farm.appliedCostMinor);
-  int get applicationCount =>
-      farms.fold(0, (sum, farm) => sum + farm.applicationCount);
-}
-
-/// Una aplicación del detalle (I-41).
-class IndCApplication {
-  const IndCApplication({
-    required this.id,
-    required this.appliedAt,
-    required this.campaignName,
-    required this.treatedAreaM2,
-    required this.costMinor,
-    required this.reversed,
-    required this.status,
-    required this.items,
-  });
-  final int id;
-  final String appliedAt;
-  final String campaignName;
-  final int? treatedAreaM2;
-  final int costMinor;
-  final bool reversed;
-  final String status;
-
-  /// Producto, cantidad y unidad de cada línea.
-  final List<({String name, int quantityBase, String unit})> items;
-}
-
-/// Un plan por hacer del detalle (I-41).
-class IndCPlan {
-  const IndCPlan({
-    required this.id,
-    required this.plannedDate,
-    required this.status,
-    required this.items,
-  });
-  final int id;
-  final String? plannedDate;
-  final String status;
-  final List<({String name, int quantityBase, String unit, int areaM2})> items;
-}
-
-/// Detalle de un chaco en un alcance (I-41).
-class IndCChacoDetail {
-  const IndCChacoDetail({
-    required this.scope,
-    required this.campaign,
-    required this.farm,
-    required this.plans,
-    required this.applications,
-    required this.products,
-  });
-  final IndCScope scope;
-  final IndCCampaign? campaign;
-  final IndCFarm farm;
-  final List<IndCPlan> plans;
-
-  /// Del alcance, también las revertidas (se muestran como tales y no suman).
-  final List<IndCApplication> applications;
-  final List<IndCProductCost> products;
-}
+export '../domain/ind_c_chacos_models.dart';
 
 extension IndCChacosReads on AgroRepository {
   Future<Database> get _indDb => appDatabase.database;
@@ -371,7 +163,7 @@ extension IndCChacosReads on AgroRepository {
       FROM farms f JOIN persons p ON p.id=f.owner_person_id
       ${where.isEmpty ? '' : 'WHERE ${where.join(' AND ')}'}
       ORDER BY f.name COLLATE NOCASE, f.id''');
-    return rows.map(IndCFarm._fromRow).toList(growable: false);
+    return rows.map(IndCFarm.fromRow).toList(growable: false);
   }
 
   /// Costo por producto del alcance (pestaña «Por producto» y «Productos
@@ -540,4 +332,54 @@ extension IndCChacosReads on AgroRepository {
       products: await _productCosts(db, scope, c, farmId: farmId),
     );
   }
+}
+
+/// Adaptador concreto de [IndCChacosGateway] sobre [AgroRepository].
+class DataIndCChacosGateway implements IndCChacosGateway {
+  const DataIndCChacosGateway(this._repo);
+
+  final AgroRepository _repo;
+
+  @override
+  Future<IndCScope> indCScope() => _repo.indCScope();
+
+  @override
+  Future<IndCChacos> indCChacos({
+    int? campaignId,
+    bool useActiveCampaign = false,
+  }) => _repo.indCChacos(
+    campaignId: campaignId,
+    useActiveCampaign: useActiveCampaign,
+  );
+
+  @override
+  Future<({List<FarmCostRead> lines, bool ownerOnly})> farmCostLines({
+    int? campaignId,
+  }) => _repo.farmCostLines(campaignId: campaignId);
+
+  @override
+  Future<({List<ProductCostRead> lines, bool ownerOnly})> productCostLines({
+    int? campaignId,
+  }) => _repo.productCostLines(campaignId: campaignId);
+
+  @override
+  Future<List<IndCProductCost>> indCProductCosts({
+    int? campaignId,
+    int? farmId,
+  }) => _repo.indCProductCosts(campaignId: campaignId, farmId: farmId);
+
+  @override
+  Future<List<IndCCampaignCost>> indCCampaignCosts() =>
+      _repo.indCCampaignCosts();
+
+  @override
+  Future<IndCChacoDetail?> indCChacoDetail(
+    int farmId, {
+    int? campaignId,
+    bool useActiveCampaign = true,
+  }) => _repo.indCChacoDetail(
+    farmId,
+    campaignId: campaignId,
+    useActiveCampaign: useActiveCampaign,
+  );
 }

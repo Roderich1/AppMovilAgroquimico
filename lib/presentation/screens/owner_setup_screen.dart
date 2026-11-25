@@ -3,10 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../app.dart';
-import '../../data/operation_mode_store.dart';
-import '../../data/owner_binding_store.dart';
 import '../../domain/installation_access.dart' show InstallationAccessState;
 import '../../domain/operation_mode.dart';
+import '../../domain/owner_binding_models.dart';
 import '../../domain/person_roles.dart';
 import '../../installation_access.dart';
 import '../../operation_mode_controller.dart';
@@ -156,8 +155,7 @@ class _OwnerSetupScreenState extends ConsumerState<OwnerSetupScreen> {
       return;
     }
     setState(() => _saving = true);
-    final database = ref.read(repositoryProvider).appDatabase;
-    final store = OwnerBindingStore(database);
+    final store = ref.read(ownerBindingGatewayProvider);
     try {
       final OwnerBinding binding;
       if (_createNew) {
@@ -179,7 +177,8 @@ class _OwnerSetupScreenState extends ConsumerState<OwnerSetupScreen> {
       String? modeNotice;
       if (_mode == OperationMode.personal) {
         try {
-          await OperationModeStore(database)
+          await ref
+              .read(operationModeGatewayProvider)
               .apply(OperationMode.personal, confirmed: true);
         } on ModeTransitionException catch (error) {
           modeNotice = '${error.message} Queda en el modo con varias personas.';

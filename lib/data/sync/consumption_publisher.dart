@@ -4,164 +4,16 @@ import 'package:sqflite/sqflite.dart' show DatabaseExecutor;
 
 import '../../domain/campaign_calendar.dart';
 import '../../domain/sync/consumption_projection.dart';
+import '../../domain/sync/consumption_publisher_models.dart';
 import '../../domain/sync/intention_planner.dart';
 import '../../domain/sync/sync_types.dart';
 import '../../domain/sync/sync_wire.dart';
-import '../agro_repository.dart' show BusinessRuleException;
 import '../app_database.dart';
 import '../farmer_operation_gate.dart';
 import 'central_binding_store.dart';
 import 'sync_outbox_store.dart';
 
-class ConsumptionPublishException extends BusinessRuleException {
-  ConsumptionPublishException(super.message);
-}
-
-/// Qué pasaría con un total si se publica ahora.
-enum ConsumptionChange {
-  /// Nunca se publicó (o se retiró): PUBLISH.
-  publish,
-
-  /// Cambió respecto del último total enviado: SUPERSEDE.
-  supersede,
-
-  /// Ya se publicó (o está en camino) ese mismo total: nada que enviar.
-  unchanged,
-
-  /// Central registró un conflicto: decide el titular.
-  conflict,
-
-  /// El vínculo dejó de ser válido: no se publica hasta corregirlo.
-  blocked,
-
-  /// Central rechazó el último envío de este total por el estado de la
-  /// campaña (`CAMPAIGN_NOT_OPEN` o `CAMPAIGN_SEALED`). Es un fallo terminal
-  /// que requiere intervención (F04 §2.4): «Publicar» no lo vuelve a enviar
-  /// ni lo reasigna a otra campaña. Sólo deja de estarlo si, después del
-  /// rechazo, las referencias actualizadas muestran que la campaña vuelve a
-  /// admitir aportes (vínculo vigente comprobado más tarde).
-  rejected,
-}
-
-/// Estado de envío de un total, en las tres palabras de la pantalla.
-enum ConsumptionSendState {
-  /// Sin publicar todavía, en la cola o enviado sin confirmación.
-  pending,
-
-  /// Aceptado por el sindicato y sin cambios locales.
-  sent,
-
-  /// Conflicto, vínculo no vigente, rechazo del sindicato, cola pausada o
-  /// acceso sin verificar: hace falta una decisión o una acción del titular.
-  attention,
-}
-
-class ConsumptionPreviewRow {
-  const ConsumptionPreviewRow({
-    required this.campaignName,
-    required this.productName,
-    required this.baseUnit,
-    required this.quantityBase,
-    required this.change,
-    required this.target,
-    required this.prior,
-    this.blockedDetail,
-    this.lastRejection,
-  });
-
-  final String campaignName;
-  final String productName;
-  final BaseUnit baseUnit;
-
-  /// Total local vigente. Cero si todas sus aplicaciones se revirtieron.
-  final int quantityBase;
-  final ConsumptionChange change;
-  final ContributionTarget target;
-
-  /// Última intención vigente de ese total (null si nunca se publicó).
-  final OutboxEntry? prior;
-
-  /// Por qué está bloqueado, con los dos períodos cuando es por período
-  /// (D-F04-C2); null si no está bloqueado o el motivo no es de período.
-  final String? blockedDetail;
-
-  /// El último envío de este total (el más reciente no descartado) si Central
-  /// lo rechazó (REJECTED o FAILED); null si no. No cuenta como antecesor.
-  final OutboxEntry? lastRejection;
-
-  bool get sends =>
-      change == ConsumptionChange.publish ||
-      change == ConsumptionChange.supersede;
-
-  /// Estado de envío derivado de la outbox. Sólo presenta: no decide qué se
-  /// envía ([sends] y [change] lo deciden).
-  ConsumptionSendState get sendState {
-    if (change == ConsumptionChange.conflict ||
-        change == ConsumptionChange.blocked ||
-        change == ConsumptionChange.rejected ||
-        lastRejection != null) {
-      return ConsumptionSendState.attention;
-    }
-    final last = prior;
-    if (last != null && last.action != SyncAction.cancel) {
-      if (_pausedStatuses.contains(last.status)) {
-        return ConsumptionSendState.attention;
-      }
-      if (last.status.isSendable &&
-          syncCodeFamily(last.lastCode) == SyncCodeFamily.authorization) {
-        return ConsumptionSendState.attention;
-      }
-    }
-    if (sends) return ConsumptionSendState.pending;
-    return last?.status == OutboxStatus.acked
-        ? ConsumptionSendState.sent
-        : ConsumptionSendState.pending;
-  }
-
-  static const _pausedStatuses = {
-    OutboxStatus.authPaused,
-    OutboxStatus.ownerPaused,
-    OutboxStatus.restorePaused,
-    OutboxStatus.versionMismatch,
-  };
-
-  /// Un total aceptado por Central (o en camino) bajo un vínculo bloqueado:
-  /// el titular puede retirarlo (CANCEL, F06 §6) con su confirmación. No se
-  /// envía un cero ni se reasigna a otra campaña.
-  bool get canWithdraw =>
-      change == ConsumptionChange.blocked &&
-      prior != null &&
-      prior!.action != SyncAction.cancel &&
-      !(prior!.status == OutboxStatus.conflict && prior!.resolvedAt == null);
-}
-
-/// Campaña × producto con consumo propio que no se publica, con nombres y,
-/// si es por período, el detalle con los dos períodos.
-typedef ExcludedPairView = ({
-  String campaign,
-  String product,
-  ConsumptionExclusion reason,
-  String? detail,
-});
-
-class ConsumptionPreview {
-  const ConsumptionPreview({
-    required this.ownerBindingId,
-    required this.rows,
-    required this.excludedLines,
-    required this.excludedPairs,
-  });
-
-  /// Vínculo de titular para el que se calculó: confirmar esta vista previa
-  /// no publica el consumo de otro titular.
-  final int ownerBindingId;
-  final List<ConsumptionPreviewRow> rows;
-  final Map<ConsumptionExclusion, int> excludedLines;
-
-  final List<ExcludedPairView> excludedPairs;
-
-  bool get hasChanges => rows.any((row) => row.sends);
-}
+export '../../domain/sync/consumption_publisher_models.dart';
 
 /// Publicación explícita de `CONSUMPTION_TOTAL` (MOB #33). Calcula los
 /// totales con [buildConsumptionProjection], los compara con la última
@@ -169,7 +21,7 @@ class ConsumptionPreview {
 /// SUPERSEDE donde cambió: en una transacción, con la misma outbox, el mismo
 /// planner y el mismo worker que la necesidad declarada (D3). No toca
 /// inventario ni aplicaciones.
-class ConsumptionPublisher {
+class ConsumptionPublisher implements ConsumptionGateway {
   ConsumptionPublisher(
     this._database, {
     FarmerOperationGate gate = const FarmerOperationGate.unrestricted(),
@@ -187,6 +39,7 @@ class ConsumptionPublisher {
   String _now() => _clock().toUtc().toIso8601String();
 
   /// Vista previa de sólo lectura: no escribe nada.
+  @override
   Future<ConsumptionPreview> preview() async =>
       _compute(await _database.database);
 
@@ -194,6 +47,7 @@ class ConsumptionPublisher {
   /// vista previa (titular, destino, cantidad, unidad, cambio o intención
   /// previa), no escribe nada y pide revisarla otra vez. La comparación y la
   /// escritura ocurren en la misma transacción.
+  @override
   Future<int> publish(
     ConsumptionPreview confirmed,
   ) => _database.replacement.write(() async {
@@ -226,6 +80,7 @@ class ConsumptionPublisher {
   /// el head que Central mostró (F06 §6: el consumo lo recalcula Mobile). Si
   /// el total, su destino o la intención en conflicto cambiaron desde que se
   /// mostró, no escribe nada.
+  @override
   Future<void> resolveConflict({
     required ConsumptionPreviewRow row,
     required OperationView view,
@@ -283,6 +138,7 @@ class ConsumptionPublisher {
   /// explícita. La intención aceptada no se modifica; no se envía un cero ni
   /// se reasigna a otra campaña. Si el estado cambió desde que se mostró, no
   /// escribe nada.
+  @override
   Future<void> withdraw(
     ConsumptionPreviewRow row,
   ) => _database.replacement.write(() async {

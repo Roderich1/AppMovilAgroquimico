@@ -4,71 +4,16 @@ import 'package:sqflite/sqflite.dart'
 import '../domain/installation_access.dart';
 import '../domain/models.dart';
 import '../domain/operation_mode.dart';
+import '../domain/owner_binding_models.dart';
 import '../domain/person_roles.dart';
-import 'agro_repository.dart' show BusinessRuleException;
 import 'app_database.dart';
 import 'sync/sync_outbox_store.dart' show SyncOutboxInspector;
 
-/// Vínculo inmutable entre el titular local (una persona de `persons`) y el
-/// Member/tenant autenticado que lo eligió explícitamente.
-class OwnerBinding {
-  const OwnerBinding({
-    required this.id,
-    required this.personId,
-    required this.scope,
-    required this.ownerRole,
-    required this.boundAt,
-    this.endedAt,
-    this.endReason,
-  });
+export '../domain/owner_binding_models.dart';
 
-  final int id;
-  final int personId;
-  final OwnerScope scope;
-
-  /// Rol privado con el que se aceptó al titular (no el rol central).
-  final PersonRole ownerRole;
-  final String boundAt;
-  final String? endedAt;
-  final String? endReason;
-
-  bool get isActive => endedAt == null;
-
-  static OwnerBinding fromRow(Map<String, Object?> row) => OwnerBinding(
-    id: row['id']! as int,
-    personId: row['person_id']! as int,
-    scope: OwnerScope(
-      memberId: row['member_id']! as String,
-      tenantId: row['tenant_id']! as String,
-    ),
-    ownerRole: personRoleFromCode(row['owner_role'])!,
-    boundAt: row['bound_at']! as String,
-    endedAt: row['ended_at'] as String?,
-    endReason: row['end_reason'] as String?,
-  );
-}
-
-/// Intenciones de sincronización de un vínculo que cambiaron o pueden
-/// cambiar su contribución central. La implementa la outbox de F05
-/// (`SyncOutboxInspector`).
 abstract interface class SyncQueueInspector {
   /// Filas del vínculo que no fueron rechazadas, fallidas ni descartadas.
   Future<int> operationsBoundTo(DatabaseExecutor db, int bindingId);
-}
-
-class OwnerBindingException extends BusinessRuleException {
-  OwnerBindingException(super.message);
-}
-
-/// La persona figura como administradora de pagos: puede ser titular sólo si
-/// se confirma explícitamente que es el agricultor propietario.
-class OwnerAdministratorConfirmationRequired extends OwnerBindingException {
-  OwnerAdministratorConfirmationRequired()
-    : super(
-        'Esta persona figura como administradora de pagos. Confirme que es el '
-        'agricultor titular: conserva su rol, sus movimientos y sus reglas de '
-        'cobro, y no se crea otra persona.',
-      );
 }
 
 final RegExp _uuid = RegExp(
@@ -79,7 +24,7 @@ final RegExp _uuid = RegExp(
 /// vínculo de titular. Nunca deduce el titular por nombre o teléfono, nunca
 /// cambia roles de personas y nunca reasigna operaciones. El rol privado de
 /// negocio (`persons.role`) no se confunde con el rol central de la cuenta.
-class OwnerBindingStore {
+class OwnerBindingStore implements OwnerBindingGateway {
   OwnerBindingStore(this._database, {DateTime Function()? clock})
     : _clock = clock ?? DateTime.now;
 
@@ -95,10 +40,24 @@ class OwnerBindingStore {
         () async => (await _database.database).transaction(body),
       );
 
+  @override
   Future<OwnerBinding?> activeBinding([DatabaseExecutor? executor]) async {
     final db = executor ?? await _database.database;
     final rows = await db.query('owner_bindings', where: 'ended_at IS NULL');
     return rows.isEmpty ? null : OwnerBinding.fromRow(rows.single);
+  }
+
+  @override
+  Future<String?> activeOwnerName() async {
+    final binding = await activeBinding();
+    if (binding == null) return null;
+    final rows = await (await _database.database).query(
+      'persons',
+      columns: ['name'],
+      where: 'id=?',
+      whereArgs: [binding.personId],
+    );
+    return rows.isEmpty ? null : rows.single['name'] as String?;
   }
 
   Future<List<OwnerBinding>> history() async {
@@ -198,6 +157,7 @@ class OwnerBindingStore {
   /// Vincula una persona existente como titular del Member autenticado.
   /// Sólo con la sesión legible del mismo contexto y sin vínculo previo. Un
   /// administrador de pagos exige [confirmAdministrator].
+  @override
   Future<OwnerBinding> bindExistingPerson({
     required int personId,
     required OwnerScope scope,
@@ -240,6 +200,7 @@ class OwnerBindingStore {
   }
 
   /// Crea la persona del titular (familiar) y su vínculo en una transacción.
+  @override
   Future<OwnerBinding> bindNewPerson({
     required String name,
     String? phone,

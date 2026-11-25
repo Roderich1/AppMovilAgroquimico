@@ -277,7 +277,7 @@ class SyncController extends Notifier<SyncState> {
       }
       return report;
     } on Object {
-      state = state.copyWith(busy: false, message: null);
+      state = state.copyWith(busy: false);
       return null;
     } finally {
       await refreshSummary();
@@ -566,3 +566,27 @@ class SyncAccessUnavailable implements Exception {
   @override
   String toString() => message;
 }
+
+final syncOutboxGatewayProvider = Provider<SyncOutboxGateway>(
+  (ref) => ref.watch(syncOutboxStoreProvider),
+);
+
+final centralBindingGatewayProvider = Provider<CentralBindingGateway>(
+  (ref) => ref.watch(centralBindingStoreProvider),
+);
+
+final declaredNeedGatewayProvider = Provider<DeclaredNeedGateway>(
+  (ref) => ref.watch(declaredNeedStoreProvider),
+);
+
+final consumptionGatewayProvider = Provider<ConsumptionGateway>(
+  (ref) => ref.watch(consumptionPublisherProvider),
+);
+
+final identificationGatewayProvider = Provider<IdentificationGateway>(
+  (ref) => ref.watch(identificationRequestStoreProvider),
+);
+
+final jointPurchaseGatewayProvider = Provider<JointPurchaseGateway>(
+  (ref) => ref.watch(jointPurchaseStoreProvider),
+);

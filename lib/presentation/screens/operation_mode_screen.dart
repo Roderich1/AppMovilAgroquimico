@@ -2,11 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../app.dart';
-import '../../data/operation_mode_store.dart';
-import '../../data/sync/joint_purchase_store.dart';
 import '../../domain/operation_mode.dart';
+import '../../domain/owner_binding_models.dart';
 import '../../operation_mode_controller.dart';
+import '../../services/sync/sync_providers.dart'
+    show jointPurchaseGatewayProvider;
 import '../theme/agro_theme.dart';
 import '../widgets/agro_ui.dart';
 import '../widgets/common.dart';
@@ -66,7 +66,7 @@ String _names(List<String> names) => names.length <= 1
 /// requisitos: titular vinculado y ninguna existencia, plan abierto ni saldo
 /// de otras personas (v1.5 CU-05 A2/E1).
 Future<List<ModePending>> modePendings(
-  OperationModeStore store,
+  OperationModeGateway store,
   ModeTransitionDecision decision,
 ) async {
   final pendings = <ModePending>[];
@@ -131,8 +131,7 @@ class _OperationModeScreenState extends ConsumerState<OperationModeScreen> {
   late Future<_ModeView> _view = _load();
   bool _saving = false;
 
-  OperationModeStore get _store =>
-      OperationModeStore(ref.read(repositoryProvider).appDatabase);
+  OperationModeGateway get _store => ref.read(operationModeGatewayProvider);
 
   static OperationMode _other(OperationMode mode) =>
       mode == OperationMode.shared
@@ -165,9 +164,9 @@ class _OperationModeScreenState extends ConsumerState<OperationModeScreen> {
     }
     // H1: una sola consulta, sólo al confirmar (no en cada pintado). Sólo
     // informa: no bloquea ni toca la cola.
-    final jointPending = await JointPurchaseStore(
-      ref.read(repositoryProvider).appDatabase,
-    ).awaitingSendForActiveOwner();
+    final jointPending = await ref
+        .read(jointPurchaseGatewayProvider)
+        .awaitingSendForActiveOwner();
     if (!mounted) return;
     final confirmed =
         await showDialog<bool>(

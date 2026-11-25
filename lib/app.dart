@@ -7,6 +7,8 @@ import 'data/agro_repository.dart';
 import 'data/app_database.dart';
 import 'data/backup_service.dart';
 import 'data/farmer_operation_gate.dart';
+import 'data/ind_c_chacos_reads.dart';
+import 'domain/agro_gateway.dart';
 import 'domain/installation_access.dart';
 import 'domain/operation_mode.dart';
 import 'installation_access.dart';
@@ -81,6 +83,14 @@ final repositoryProvider = Provider<AgroRepository>(
     // configurado ahora en el almacén de la instalación.
     ownerCredential: () => ref.read(localOwnerCredentialProvider),
   ),
+);
+
+final agroGatewayProvider = Provider<AgroGateway>(
+  (ref) => ref.watch(repositoryProvider),
+);
+
+final indChacosGatewayProvider = Provider<IndCChacosGateway>(
+  (ref) => DataIndCChacosGateway(ref.watch(repositoryProvider)),
 );
 
 final backupServiceProvider = Provider<BackupService>(

@@ -2,11 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app.dart';
-import '../../data/sync/central_binding_store.dart';
-import '../../data/sync/identification_request_store.dart';
 import '../../domain/campaign_calendar.dart';
 import '../../domain/sync/campaign_period_check.dart';
+import '../../domain/sync/central_binding_models.dart';
 import '../../domain/sync/central_references.dart';
+import '../../domain/sync/identification_models.dart';
 import '../../domain/sync/sync_types.dart';
 import '../../services/sync/sync_access.dart';
 import '../../services/sync/sync_api.dart';
@@ -70,21 +70,20 @@ class _CentralBindingScreenState extends ConsumerState<CentralBindingScreen> {
 
   Future<_LocalCatalog> _readLocal() async {
     final repository = ref.read(repositoryProvider);
-    final bindings = ref.read(centralBindingStoreProvider);
+    final bindings = ref.read(centralBindingGatewayProvider);
     final campaigns = await repository.campaigns();
     final campaignBindings = await bindings.campaignBindings();
     // Los productos y sus solicitudes de identificación en una sola
     // consulta, en lugar de `products()`: la pantalla no suma lecturas.
     final products = await ref
-        .read(identificationRequestStoreProvider)
+        .read(identificationGatewayProvider)
         .productsWithRequests();
     return _LocalCatalog(
       campaigns,
       [for (final item in products) item.product],
       {for (final b in campaignBindings) b.campaignId: b},
       {for (final b in await bindings.productBindings()) b.productId: b},
-      await CentralBindingStore.reviewsFor(
-        await ref.read(databaseProvider).database,
+      await bindings.reviewsForCampaigns(
         bindings: campaignBindings,
         periods: {
           for (final row in campaigns)
@@ -245,7 +244,7 @@ class _CentralBindingScreenState extends ConsumerState<CentralBindingScreen> {
     }
     try {
       await ref
-          .read(centralBindingStoreProvider)
+          .read(centralBindingGatewayProvider)
           .bindCampaign(
             campaignId: campaign['id']! as int,
             central: chosen,
@@ -264,7 +263,7 @@ class _CentralBindingScreenState extends ConsumerState<CentralBindingScreen> {
   Future<void> _setEnd(Map<String, Object?> campaign) async {
     final local = CampaignPeriod.fromRow(campaign);
     final binding =
-        (await ref.read(centralBindingStoreProvider).campaignBindings())
+        (await ref.read(centralBindingGatewayProvider).campaignBindings())
             .where((b) => b.campaignId == local.id)
             .firstOrNull;
     if (!mounted) return;
@@ -346,7 +345,7 @@ class _CentralBindingScreenState extends ConsumerState<CentralBindingScreen> {
     if (!await _confirm(product['name']! as String, chosen.name)) return;
     try {
       await ref
-          .read(centralBindingStoreProvider)
+          .read(centralBindingGatewayProvider)
           .bindProduct(
             productId: product['id']! as int,
             central: chosen,
@@ -374,7 +373,7 @@ class _CentralBindingScreenState extends ConsumerState<CentralBindingScreen> {
     if (answer == null || !mounted) return;
     try {
       await ref
-          .read(identificationRequestStoreProvider)
+          .read(identificationGatewayProvider)
           .create(
             productId: product['id']! as int,
             sharePhoto: hasPhoto && answer.sharePhoto,
@@ -441,7 +440,7 @@ class _CentralBindingScreenState extends ConsumerState<CentralBindingScreen> {
     if (!await _confirm(product['name']! as String, central.name)) return;
     try {
       await ref
-          .read(centralBindingStoreProvider)
+          .read(centralBindingGatewayProvider)
           .bindProduct(
             productId: product['id']! as int,
             central: central,
@@ -488,7 +487,7 @@ class _CentralBindingScreenState extends ConsumerState<CentralBindingScreen> {
   ) {
     final central = b.centralPeriod;
     final problem = (b.invalidReason?.holdsQueue ?? false) || review != null
-        ? CentralBindingStore.periodProblem(b, local)
+        ? centralBindingPeriodProblem(b, local)
         : null;
     return '${b.centralName}'
         '${central == null ? '' : ' (${central.describe})'} · '
@@ -692,8 +691,9 @@ class _CentralBindingScreenState extends ConsumerState<CentralBindingScreen> {
           'end' => _setEnd(campaign),
           _ => _unbind(
             local.name,
-            () =>
-                ref.read(centralBindingStoreProvider).unbindCampaign(local.id),
+            () => ref
+                .read(centralBindingGatewayProvider)
+                .unbindCampaign(local.id),
           ),
         },
         items: [
@@ -777,7 +777,7 @@ class _CentralBindingScreenState extends ConsumerState<CentralBindingScreen> {
           'identify' => _requestIdentification(product),
           _ => _unbind(
             product['name']! as String,
-            () => ref.read(centralBindingStoreProvider).unbindProduct(id),
+            () => ref.read(centralBindingGatewayProvider).unbindProduct(id),
           ),
         },
         items: [

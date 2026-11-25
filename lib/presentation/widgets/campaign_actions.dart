@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 
-import '../../data/agro_repository.dart';
-import '../../data/typed_reads.dart';
+import '../../domain/agro_gateway.dart';
 import '../../domain/campaign_calendar.dart';
 import '../../domain/money.dart';
+import '../../domain/repository_exceptions.dart';
 import 'catalog_dialogs.dart';
 import 'common.dart';
 
@@ -17,7 +17,7 @@ import 'common.dart';
 /// Activa [row]. Si otra está activa, ofrece cerrarla y activar ésta.
 Future<bool> activateCampaignFlow(
   BuildContext context,
-  AgroRepository repo,
+  AgroGateway repo,
   Map<String, Object?> row,
 ) async {
   try {
@@ -53,7 +53,7 @@ Future<bool> activateCampaignFlow(
 /// Cierra [row] después de mostrar su resumen y elegir el fin efectivo.
 Future<bool> closeCampaignFlow(
   BuildContext context,
-  AgroRepository repo,
+  AgroGateway repo,
   Map<String, Object?> row,
 ) async {
   final summary = await repo.campaignCloseSummaryTyped(row['id'] as int);
@@ -152,7 +152,7 @@ Future<bool> closeCampaignFlow(
 }
 
 /// Alta de campaña: nombre y día de inicio, sugerido por el repositorio.
-Future<bool> addCampaignFlow(BuildContext context, AgroRepository repo) async {
+Future<bool> addCampaignFlow(BuildContext context, AgroGateway repo) async {
   // RN-16: el inicio se elige (antes era siempre el día de alta) y el
   // repositorio comprueba que no solape ni deje operaciones fuera.
   final suggested = await repo.suggestedCampaignStart();

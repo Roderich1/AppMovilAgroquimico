@@ -26,6 +26,8 @@ final class NativeEventHub {
 
   final EventChannel _channel;
   final List<_HubListener> _listeners = <_HubListener>[];
+  // La suscripción compartida se cancela en `_detach` al desconectarse el último adaptador.
+  // ignore: cancel_subscriptions
   StreamSubscription<dynamic>? _subscription;
 
   /// Engancha [onEvent] y [onError] a los eventos de [channel].

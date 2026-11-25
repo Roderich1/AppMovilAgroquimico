@@ -14,7 +14,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../data/agro_repository.dart';
+import '../../domain/agro_gateway.dart';
 import '../../domain/inventory_alerts.dart';
 import '../../domain/money.dart';
 import '../../domain/read_models.dart';
@@ -77,7 +77,7 @@ class IndHomeFigures {
 }
 
 Future<IndHomeFigures> loadIndHomeFigures(
-  AgroRepository repo, {
+  AgroGateway repo, {
   required List<CampaignRead> campaigns,
   required List<Map<String, Object?>> purchases,
 }) async {

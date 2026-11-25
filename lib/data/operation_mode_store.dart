@@ -2,27 +2,24 @@ import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:sqflite/sqflite.dart' show ConflictAlgorithm, DatabaseExecutor;
 
 import '../domain/operation_mode.dart';
+import '../domain/owner_binding_models.dart';
 import 'account_ledger_query.dart';
-import 'agro_repository.dart' show BusinessRuleException;
 import 'app_database.dart';
 
-class ModeTransitionException extends BusinessRuleException {
-  ModeTransitionException(super.message, {this.decision});
-
-  final ModeTransitionDecision? decision;
-}
+export '../domain/owner_binding_models.dart';
 
 /// Persistencia y transiciones de la modalidad (MODE-01, MODE-04).
 ///
 /// La modalidad sólo vive en `app_settings`; el dominio y la base son los
 /// mismos en ambas. Ninguna transición modifica ni borra datos de negocio.
-class OperationModeStore {
+class OperationModeStore implements OperationModeGateway {
   OperationModeStore(this._database, {DateTime Function()? clock})
     : _clock = clock ?? DateTime.now;
 
   final AppDatabase _database;
   final DateTime Function() _clock;
 
+  @override
   Future<OperationMode> current([DatabaseExecutor? executor]) async {
     final db = executor ?? await _database.database;
     final rows = await db.query(
@@ -81,6 +78,7 @@ class OperationModeStore {
 
   /// Nombres de lo que bloquea el paso a propio, para que la pantalla diga
   /// qué resolver (#25). Sólo lee.
+  @override
   Future<
     ({
       List<String> withStock,
@@ -119,6 +117,7 @@ class OperationModeStore {
     );
   }
 
+  @override
   Future<ModeTransitionDecision> evaluate(
     OperationMode target, [
     DatabaseExecutor? executor,
@@ -136,6 +135,7 @@ class OperationModeStore {
   /// Aplica la transición en una sola transacción, re-evaluándola dentro de
   /// ella. Exige confirmación explícita (CU-05, paso 5). Si algo falla, la
   /// modalidad y los datos quedan como estaban.
+  @override
   Future<ModeTransitionDecision> apply(
     OperationMode target, {
     required bool confirmed,

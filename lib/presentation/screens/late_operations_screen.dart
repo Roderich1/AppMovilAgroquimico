@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app.dart' show repositoryProvider;
-import '../../data/agro_repository.dart';
+import '../../domain/repository_exceptions.dart';
+import '../../domain/repository_types.dart';
 import '../../services/auth/local_owner_credential.dart';
 import '../../domain/money.dart' show formatDate;
 import '../widgets/agro_ui.dart';

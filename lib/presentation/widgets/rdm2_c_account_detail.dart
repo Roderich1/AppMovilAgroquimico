@@ -105,10 +105,7 @@ class _Rdm2cAccountDetailState extends ConsumerState<Rdm2cAccountDetail> {
     isExpanded: true,
     decoration: const InputDecoration(labelText: 'Período'),
     items: [
-      const DropdownMenuItem<int?>(
-        value: null,
-        child: Text('Todas las campañas'),
-      ),
+      const DropdownMenuItem<int?>(child: Text('Todas las campañas')),
       for (final campaign in statement.ledger.campaigns)
         DropdownMenuItem<int?>(value: campaign.id, child: Text(campaign.name)),
     ],

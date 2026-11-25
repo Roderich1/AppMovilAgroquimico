@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -59,7 +61,7 @@ class _ApplicationsScreenState extends ConsumerState<ApplicationsScreen> {
           ],
         ),
       );
-      if (go == true && mounted) context.push('/campanas');
+      if (go == true && mounted) unawaited(context.push('/campanas'));
       return;
     }
     final saved = await context.push<bool>('/aplicaciones/nueva');
@@ -145,7 +147,7 @@ class _ApplicationsScreenState extends ConsumerState<ApplicationsScreen> {
                     initialValue: campaignFilter,
                     decoration: const InputDecoration(labelText: 'Campaña'),
                     items: [
-                      const DropdownMenuItem(value: null, child: Text('Todas')),
+                      const DropdownMenuItem(child: Text('Todas')),
                       for (final row in campaigns.values)
                         DropdownMenuItem(
                           value: row['campaign_id'] as int,

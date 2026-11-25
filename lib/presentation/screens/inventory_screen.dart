@@ -2,12 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../app.dart';
-import '../../data/typed_reads.dart';
 import '../../domain/inventory_alerts.dart';
 import '../../domain/money.dart';
 import '../../domain/read_models.dart';
 import '../../operation_mode_controller.dart' show personalModeProvider;
+import '../providers/agro_providers.dart';
 import '../theme/agro_theme.dart';
 import '../widgets/agro_ui.dart';
 import '../widgets/common.dart';
@@ -58,7 +57,7 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
   @override
   void initState() {
     super.initState();
-    future = ref.read(repositoryProvider).inventorySummaryTyped();
+    future = ref.read(agroGatewayProvider).inventorySummaryTyped();
     alerts = ref.read(repositoryProvider).inventoryAlerts();
   }
 
@@ -69,7 +68,7 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
   }
 
   void refresh() {
-    final next = ref.read(repositoryProvider).inventorySummaryTyped();
+    final next = ref.read(agroGatewayProvider).inventorySummaryTyped();
     final nextAlerts = ref.read(repositoryProvider).inventoryAlerts();
     setState(() {
       future = next;

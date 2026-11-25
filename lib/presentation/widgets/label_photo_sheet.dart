@@ -3,11 +3,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../app.dart';
-import '../../data/product_photo_storage.dart';
-import '../../data/sync/identification_request_store.dart';
+import '../../domain/product_photo.dart';
+import '../../domain/sync/identification_models.dart';
 import '../../domain/sync/identification_view.dart';
 import '../../services/sync/sync_providers.dart'
-    show identificationRequestStoreProvider;
+    show identificationGatewayProvider;
 import '../theme/agro_theme.dart';
 import 'agro_ui.dart';
 import 'common.dart';
@@ -70,7 +70,7 @@ class _LabelPhotoSheetState extends ConsumerState<LabelPhotoSheet> {
   Future<_SheetData> _load() async => (
     photo: await ref.read(repositoryProvider).productPhoto(widget.productId),
     request: await ref
-        .read(identificationRequestStoreProvider)
+        .read(identificationGatewayProvider)
         .byProduct(widget.productId),
   );
 

@@ -211,7 +211,6 @@ final class LocalSpeechTranscriptionAdapter implements SpeechTranscriptionPort {
       final availability = TranscriptionAvailability(
         recognizerAvailable: usable,
         onDeviceApiReports: false,
-        localeSupportKnown: true,
         installedLocales: usable ? const ['es'] : const [],
         supportedLocales: usable ? const ['es'] : const [],
         airplaneMode: switch (map['airplaneMode']) {

@@ -2,13 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../app.dart';
 import '../../domain/account_ledger.dart';
 import '../../domain/account_texts.dart';
-import '../../data/typed_reads.dart';
 import '../../domain/money.dart';
 import '../../domain/operation_mode.dart';
 import '../../operation_mode_controller.dart';
+import '../providers/agro_providers.dart';
 import '../theme/agro_theme.dart';
 import '../widgets/common.dart';
 import '../widgets/rdm_a_payment.dart';
@@ -61,7 +60,7 @@ class _PersonDetailScreenState extends ConsumerState<PersonDetailScreen> {
   /// «Registrar pago» de la cabecera (lámina Persona): la misma hoja y el
   /// mismo registro que Cuentas, en la campaña activa (sólo de registro).
   Future<void> _pay(AccountStatement s) async {
-    final campaigns = await ref.read(repositoryProvider).campaignsTyped();
+    final campaigns = await ref.read(agroGatewayProvider).campaignsTyped();
     if (!mounted) return;
     final recorded = await recordAccountPayment(
       context,

@@ -2,11 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app.dart';
-import '../../data/typed_reads.dart';
 import '../../domain/read_models.dart';
 import '../../domain/reports/report_composer.dart';
 import '../../services/reports/report_export_service.dart';
 import '../../services/reports/report_storage.dart';
+import '../providers/agro_providers.dart';
 import '../theme/agro_theme.dart';
 import '../widgets/agro_ui.dart';
 import '../widgets/common.dart';
@@ -66,7 +66,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
   }
 
   Future<_Filters> _load() async {
-    final repo = ref.read(repositoryProvider);
+    final repo = ref.read(agroGatewayProvider);
     final campaigns = await repo.campaignsTyped();
     final people = await repo.peopleTyped();
     if (!_campaignInitialized) {
@@ -312,7 +312,6 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                           // corte de un periodo contable concreto.
                           if (!_kind.requiresCampaign)
                             const DropdownMenuItem<int?>(
-                              value: null,
                               child: Text('Todas las campañas'),
                             ),
                           for (final campaign in data.campaigns)

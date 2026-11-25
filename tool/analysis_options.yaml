@@ -1,0 +1,14 @@
+include: ../analysis_options.yaml
+
+analyzer:
+  language:
+    strict-raw-types: false
+
+linter:
+  rules:
+    # Scripts auxiliares de captura; Fase 1.1 y 1.2 exigen estas reglas en lib/.
+    unawaited_futures: false
+    avoid_dynamic_calls: false
+    prefer_final_locals: false
+    use_super_parameters: false
+    avoid_redundant_argument_values: false

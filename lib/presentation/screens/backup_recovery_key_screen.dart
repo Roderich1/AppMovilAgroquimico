@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../data/backup_encryption.dart';
+import '../../domain/backup_models.dart';
 import '../../services/backup/backup_keyring.dart';
 import '../../services/backup/remote_backup_providers.dart';
 import '../../services/backup/screen_secure.dart';

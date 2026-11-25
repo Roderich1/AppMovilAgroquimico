@@ -1,12 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../app.dart';
-import '../../data/typed_reads.dart';
 import '../../domain/campaign_calendar.dart' show storedLocalDay;
 import '../../domain/money.dart';
 import '../../domain/read_models.dart' show FarmCostRead;
 import '../../operation_mode_controller.dart' show personalModeProvider;
+import '../providers/agro_providers.dart';
 import '../theme/agro_theme.dart';
 import '../widgets/common.dart';
 import '../widgets/rdm_a_list.dart' show RdmAEmpty;
@@ -43,7 +42,7 @@ class FarmLogbookScreen extends ConsumerWidget {
     final repo = ref.read(repositoryProvider);
     final farm = await repo.farmProfile(farmId);
     final entries = await repo.farmLogbook(farmId);
-    final costs = await repo.farmCostReportTyped();
+    final costs = await ref.read(agroGatewayProvider).farmCostReportTyped();
     return (
       farm: farm,
       entries: entries,
