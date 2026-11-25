@@ -1,5 +1,3 @@
-import 'database_constants.dart';
-
 const List<String> dbJointPurchaseAccessSchema = <String>[
   '''CREATE TABLE IF NOT EXISTS joint_purchase_access_ops (
       operation_id TEXT PRIMARY KEY,
