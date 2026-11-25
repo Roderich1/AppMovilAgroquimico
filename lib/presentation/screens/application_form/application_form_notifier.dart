@@ -2,7 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../app.dart';
+import '../../../local_data_providers.dart' show repositoryProvider;
 import '../../../domain/campaign_calendar.dart';
 import '../../../domain/models.dart';
 import '../../../domain/money.dart';

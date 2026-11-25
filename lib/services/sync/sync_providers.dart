@@ -2,7 +2,8 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../app.dart' show databaseProvider, repositoryProvider;
+import '../../local_data_providers.dart'
+    show databaseProvider, repositoryProvider;
 import '../../data/farmer_operation_gate.dart';
 import '../../data/owner_binding_store.dart';
 import '../../data/sync/central_binding_store.dart';

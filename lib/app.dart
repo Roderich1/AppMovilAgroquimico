@@ -3,17 +3,11 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import 'data/agro_repository.dart';
-import 'data/app_database.dart';
-import 'data/backup_service.dart';
-import 'data/farmer_operation_gate.dart';
-import 'data/ind_c_chacos_reads.dart';
-import 'domain/agro_gateway.dart';
 import 'domain/installation_access.dart';
 import 'domain/operation_mode.dart';
 import 'installation_access.dart';
+import 'local_data_providers.dart';
 import 'operation_mode_controller.dart';
-import 'services/auth/local_owner_credential_providers.dart';
 import 'domain/reports/report_composer.dart';
 import 'presentation/app_shell.dart';
 import 'presentation/theme/agro_theme.dart';
@@ -66,36 +60,7 @@ import 'presentation/voice/voice_entry_screen.dart';
 import 'presentation/voice/voice_evidence_consent_screen.dart';
 import 'presentation/voice/voice_evidence_hook.dart';
 
-final databaseProvider = Provider<AppDatabase>((ref) {
-  final database = AppDatabase();
-  ref.onDispose(database.close);
-  return database;
-});
-
-/// El repositorio de la app aplica la política de activación en cada
-/// escritura (#76). Las pruebas que no tratan la activación sobrescriben este
-/// proveedor con un repositorio sin restricción.
-final repositoryProvider = Provider<AgroRepository>(
-  (ref) => AgroRepository(
-    ref.watch(databaseProvider),
-    gate: FarmerOperationGate(() => ref.read(installationAccessProvider)),
-    // RF-13/RF-03: una autorización del titular vale sólo con el PIN
-    // configurado ahora en el almacén de la instalación.
-    ownerCredential: () => ref.read(localOwnerCredentialProvider),
-  ),
-);
-
-final agroGatewayProvider = Provider<AgroGateway>(
-  (ref) => ref.watch(repositoryProvider),
-);
-
-final indChacosGatewayProvider = Provider<IndCChacosGateway>(
-  (ref) => DataIndCChacosGateway(ref.watch(repositoryProvider)),
-);
-
-final backupServiceProvider = Provider<BackupService>(
-  (ref) => BackupService(ref.watch(databaseProvider)),
-);
+export 'local_data_providers.dart';
 
 /// Dónde se guardan los reportes. Es un proveedor propio para que las pruebas
 /// de pantalla puedan escribir en una carpeta temporal.

@@ -1,4 +1,4 @@
-export '../../app.dart'
+export '../../local_data_providers.dart'
     show
         agroGatewayProvider,
         backupServiceProvider,

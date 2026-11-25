@@ -5,7 +5,7 @@ import 'package:flutter/widgets.dart'
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:http/http.dart' as http;
 
-import '../../app.dart' show repositoryProvider;
+import '../../local_data_providers.dart' show repositoryProvider;
 import '../../data/installation_client_id_store.dart';
 import '../../data/installation_identity_initializer.dart';
 import '../../data/owner_binding_store.dart';

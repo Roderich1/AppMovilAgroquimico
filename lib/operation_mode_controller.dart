@@ -8,7 +8,7 @@
 // abiertas reflejan el cambio sin reiniciar.
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'app.dart';
+import 'local_data_providers.dart' show databaseProvider, repositoryProvider;
 import 'data/operation_mode_store.dart';
 import 'data/owner_binding_store.dart';
 import 'domain/operation_mode.dart';
