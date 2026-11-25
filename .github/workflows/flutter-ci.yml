@@ -80,3 +80,22 @@ jobs:
       # No se sube ningún secreto a este workflow.
       - name: Build de release (sin firmar)
         run: flutter build apk --release
+
+      - name: Conservar APK y SHA-256
+        if: github.ref == 'refs/heads/main'
+        shell: bash
+        run: |
+          mkdir -p apk-artifact
+          cp build/app/outputs/flutter-apk/app-release.apk apk-artifact/agrocuentas-${{ github.sha }}-sin-firmar.apk
+          cd apk-artifact
+          sha256sum *.apk > SHA256SUMS.txt
+          printf '%s\n' '${{ github.sha }}' > SOURCE_COMMIT.txt
+
+      - name: Publicar artefacto de compilación
+        if: github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: agrocuentas-apk-${{ github.sha }}
+          path: apk-artifact/
+          if-no-files-found: error
+          retention-days: 30
