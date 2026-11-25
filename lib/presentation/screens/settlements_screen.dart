@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 
-import '../widgets/rdm2_c_accounts.dart';
 import 'persons_screen.dart';
 
 /// `/liquidacion` (ronda 2, sesión C): ya no es una segunda lista de las
@@ -15,6 +14,5 @@ class SettlementsScreen extends StatelessWidget {
   const SettlementsScreen({super.key});
 
   @override
-  Widget build(BuildContext context) =>
-      const PersonsScreen(initialArea: PersonsArea.accounts);
+  Widget build(BuildContext context) => const PersonsScreen();
 }

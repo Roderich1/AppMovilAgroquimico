@@ -333,7 +333,6 @@ class _OwnerCredentialScreenState extends ConsumerState<OwnerCredentialScreen> {
                   controller: _email,
                   enabled: !_busy,
                   keyboardType: TextInputType.emailAddress,
-                  textCapitalization: TextCapitalization.none,
                   autocorrect: false,
                   enableSuggestions: false,
                   decoration: const InputDecoration(labelText: 'Correo'),

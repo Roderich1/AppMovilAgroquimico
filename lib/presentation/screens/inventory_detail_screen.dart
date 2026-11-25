@@ -2,12 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app.dart';
-import '../../data/agro_repository.dart' show AgroRepository;
-import '../../data/app_database.dart';
+import '../../domain/agro_gateway.dart';
 import '../../domain/campaign_calendar.dart';
 import '../../domain/inventory_alerts.dart';
 import '../../domain/money.dart';
 import '../../domain/person_roles.dart' show PersonPurpose;
+import '../../domain/repository_types.dart' show repositoryMaxAlertLeadDays;
 import '../../operation_mode_controller.dart' show personalModeProvider;
 import '../../services/auth/local_owner_credential.dart'
     show AuthorizationPurpose;
@@ -89,7 +89,7 @@ class _InventoryDetailScreenState extends ConsumerState<InventoryDetailScreen> {
     );
   }
 
-  static Future<String?> _titularName(AgroRepository repo) async {
+  static Future<String?> _titularName(AgroGateway repo) async {
     final read = await repo.peopleAndContextFor(PersonPurpose.providerPayer);
     final owner = read.context.ownerPersonId;
     for (final person in read.people) {
@@ -113,13 +113,13 @@ class _InventoryDetailScreenState extends ConsumerState<InventoryDetailScreen> {
     String min(int? v) =>
         v == null ? 'sin nivel mínimo' : formatQuantity(v, current.unit);
     String lead(int? v) => v == null
-        ? '${AppDatabase.defaultAlertLeadDays} días (valor inicial)'
+        ? '$defaultAlertLeadDays días (valor inicial)'
         : (v == 1 ? '1 día' : '$v días');
     final authorization = await requestOwnerAuthorization(
       context,
       ref,
       purpose: AuthorizationPurpose.configureProductAlerts,
-      subjectRef: AgroRepository.productAlertsSubjectRef(widget.productId),
+      subjectRef: productAlertsSubjectRef(widget.productId),
       title: 'Avisos de ${current.productName}',
       effects:
           'Nivel mínimo: ${min(current.minStockBase)} → '
@@ -274,8 +274,7 @@ class _InventoryDetailScreenState extends ConsumerState<InventoryDetailScreen> {
       // Vencimiento de los lotes con existencia, con el plazo del producto
       // (RN-31), agrupado por fecha con su cantidad.
       final today = localDay(DateTime.now());
-      final lead =
-          data.alertSettings.leadDays ?? AppDatabase.defaultAlertLeadDays;
+      final lead = data.alertSettings.leadDays ?? defaultAlertLeadDays;
       final portions = expiryPortions(
         lots: [
           for (final lot in data.lots)
@@ -450,7 +449,7 @@ class _InventoryDetailScreenState extends ConsumerState<InventoryDetailScreen> {
 }
 
 String _leadText(int? leadDays) =>
-    '${leadDaysText(leadDays ?? AppDatabase.defaultAlertLeadDays)}'
+    '${leadDaysText(leadDays ?? defaultAlertLeadDays)}'
     '${leadDays == null ? ' (valor inicial)' : ''}';
 
 /// Título de sección del detalle.
@@ -715,7 +714,6 @@ class _PersonalPlansCard extends StatelessWidget {
           children: [
             AmountAside(
               amount: formatQuantity(committed, unit),
-              amountStyle: AgroText.amount,
               minTextWidth: 140,
               child: const Text(
                 'Previsto en planes',
@@ -1168,12 +1166,10 @@ class _AlertSettingsDialogState extends State<AlertSettingsDialog> {
       final parsed = RegExp(r'^\d{1,3}$').hasMatch(text)
           ? int.parse(text)
           : null;
-      if (parsed == null ||
-          parsed < 0 ||
-          parsed > AgroRepository.maxAlertLeadDays) {
+      if (parsed == null || parsed < 0 || parsed > repositoryMaxAlertLeadDays) {
         dayError =
             'Escriba un número entero de días, de 0 a '
-            '${AgroRepository.maxAlertLeadDays}.';
+            '$repositoryMaxAlertLeadDays.';
       } else {
         leadDays = parsed;
       }
@@ -1246,8 +1242,8 @@ class _AlertSettingsDialogState extends State<AlertSettingsDialog> {
                 // Siempre visible (suffixText sólo se ve con foco o texto).
                 suffixIcon: _UnitSuffix('días'),
                 helperText:
-                    'De 0 a ${AgroRepository.maxAlertLeadDays} días. Vacío: '
-                    '${AppDatabase.defaultAlertLeadDays} días (valor inicial).',
+                    'De 0 a $repositoryMaxAlertLeadDays días. Vacío: '
+                    '$defaultAlertLeadDays días (valor inicial).',
                 helperMaxLines: 6,
                 errorText: daysError,
                 errorMaxLines: 6,

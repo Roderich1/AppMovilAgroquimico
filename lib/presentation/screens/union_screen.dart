@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../data/sync/sync_outbox_store.dart' show SyncQueueSummary;
 import '../../domain/money.dart' show formatDate;
+import '../../domain/sync/sync_outbox_models.dart' show SyncQueueSummary;
 import '../../services/sync/sync_providers.dart';
 import '../theme/agro_theme.dart';
 import '../widgets/agro_ui.dart';

@@ -143,7 +143,6 @@ final class WholeTurnTranscriptionAdapter implements SpeechTranscriptionPort {
       final availability = TranscriptionAvailability(
         recognizerAvailable: usable,
         onDeviceApiReports: false,
-        localeSupportKnown: true,
         installedLocales: usable ? const ['es'] : const [],
         supportedLocales: usable ? const ['es'] : const [],
         airplaneMode: switch (map['airplaneMode']) {
@@ -153,8 +152,6 @@ final class WholeTurnTranscriptionAdapter implements SpeechTranscriptionPort {
         },
         engineName: 'Un solo transcriptor por turno ($chosen)',
         engineVersion: models[chosen] as String? ?? '',
-        // Sin revisión aparte: el único modelo es el transcriptor.
-        reviewModel: null,
         reviewDetail: usable ? 'turno-entero' : null,
         detail: detail,
       );
@@ -332,7 +329,6 @@ final class WholeTurnTranscriptionAdapter implements SpeechTranscriptionPort {
                   text,
                   elapsed: _elapsed,
                   sequence: 0,
-                  revised: false,
                   turn: _generation,
                 ),
               );

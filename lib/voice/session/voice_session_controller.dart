@@ -521,10 +521,6 @@ class VoiceSessionController extends ChangeNotifier {
     await _port.start(
       TranscriptionRequest(
         locale: _localeOrder[_localeIndex],
-        // Se sigue pidiendo trabajar sin conexión también por el servicio del
-        // sistema. Es una preferencia, no una garantía, y la pantalla lo dice.
-        preferOffline: true,
-        partialResults: true,
         // Un motor que escucha a través de las pausas tiene un solo turno por
         // sesión: su plazo es el de la sesión.
         maxTurnDuration: _port.listensAcrossPauses

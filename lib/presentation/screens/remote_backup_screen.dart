@@ -5,8 +5,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:path/path.dart' as p;
 
 import '../../app.dart' show backupServiceProvider;
-import '../../data/backup_encryption.dart';
-import '../../data/restore_safety_copies.dart';
+import '../../domain/backup_models.dart';
+import '../../domain/restore_safety_models.dart';
 import '../../guarded_restore.dart' show GuardedRestoreOutcome;
 import '../../services/backup/backup_keyring.dart';
 import '../../services/backup/remote_backup_api.dart';

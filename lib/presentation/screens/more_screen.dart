@@ -3,8 +3,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../app.dart';
-import '../../data/app_database.dart';
-import '../../data/owner_binding_store.dart';
 import '../../domain/installation_access.dart';
 import '../../domain/operation_mode.dart';
 import '../../installation_access.dart';
@@ -242,21 +240,9 @@ class _ModeCard extends ConsumerStatefulWidget {
 }
 
 class _ModeCardState extends ConsumerState<_ModeCard> {
-  late final Future<String?> _owner = _ownerName(
-    ref.read(repositoryProvider).appDatabase,
-  );
-
-  static Future<String?> _ownerName(AppDatabase database) async {
-    final binding = await OwnerBindingStore(database).activeBinding();
-    if (binding == null) return null;
-    final rows = await (await database.database).query(
-      'persons',
-      columns: ['name'],
-      where: 'id=?',
-      whereArgs: [binding.personId],
-    );
-    return rows.isEmpty ? null : rows.single['name'] as String?;
-  }
+  late final Future<String?> _owner = ref
+      .read(ownerBindingGatewayProvider)
+      .activeOwnerName();
 
   @override
   Widget build(BuildContext context) => Material(

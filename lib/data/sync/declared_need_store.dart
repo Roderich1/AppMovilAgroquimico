@@ -4,177 +4,20 @@ import 'package:sqflite/sqflite.dart' show DatabaseExecutor, Transaction;
 
 import '../../domain/campaign_calendar.dart' show CampaignPeriod;
 import '../../domain/numeric_input.dart' show maxBaseQuantity;
+import '../../domain/sync/declared_need_models.dart';
 import '../../domain/sync/intention_planner.dart';
 import '../../domain/sync/sync_types.dart';
 import '../../domain/sync/sync_wire.dart';
-import '../agro_repository.dart' show BusinessRuleException;
 import '../app_database.dart';
 import '../farmer_operation_gate.dart';
 import 'central_binding_store.dart';
 import 'sync_outbox_store.dart';
 
-class DeclaredNeedException extends BusinessRuleException {
-  DeclaredNeedException(super.message);
-}
+export '../../domain/sync/declared_need_models.dart';
 
-/// La campaña o el producto no tienen vínculo vigente con el sindicato.
-class BindingRequiredException extends DeclaredNeedException {
-  BindingRequiredException(super.message);
-}
-
-enum DeclaredNeedStatus {
-  active('ACTIVE'),
-  cancelled('CANCELLED');
-
-  const DeclaredNeedStatus(this.code);
-  final String code;
-
-  static DeclaredNeedStatus fromCode(Object? code) =>
-      values.firstWhere((status) => status.code == code);
-}
-
-/// Por qué no se puede determinar la campaña de una fecha.
-enum CampaignForDateProblem {
-  /// Ninguna campaña local cubre la fecha.
-  none,
-
-  /// Más de una campaña local la cubre: no se elige en silencio.
-  ambiguous,
-
-  /// La campaña no está vinculada con el sindicato.
-  notBound,
-
-  /// El vínculo dejó de estar vigente.
-  bindingInvalid,
-}
-
-class CampaignForDate {
-  const CampaignForDate({
-    this.campaignId,
-    this.name,
-    this.problem,
-    this.reason,
-    this.detail,
-  });
-
-  final int? campaignId;
-  final String? name;
-  final CampaignForDateProblem? problem;
-  final BindingInvalidReason? reason;
-
-  /// Detalle del problema de período con los dos períodos (D-F04-C2).
-  final String? detail;
-
-  bool get isUsable => problem == null;
-
-  String get message => switch (problem) {
-    null => 'Campaña: $name',
-    CampaignForDateProblem.none =>
-      'Ninguna campaña cubre esa fecha. Revise las fechas de sus campañas.',
-    CampaignForDateProblem.ambiguous =>
-      'Más de una campaña cubre esa fecha. Corrija las fechas de sus campañas.',
-    CampaignForDateProblem.notBound =>
-      'La campaña $name requiere vinculación con el sindicato.',
-    CampaignForDateProblem.bindingInvalid =>
-      'La campaña $name no admite declaraciones: '
-          '${detail ?? reason?.message ?? ''}',
-  };
-}
-
-/// Producto local que se puede declarar: activo y con vínculo vigente.
-class DeclarableProduct {
-  const DeclarableProduct(this.productId, this.name, this.baseUnit);
-  final int productId;
-  final String name;
-  final BaseUnit baseUnit;
-}
-
-class DeclaredNeed {
-  const DeclaredNeed({
-    required this.id,
-    required this.ownerBindingId,
-    required this.campaignId,
-    required this.campaignName,
-    required this.productId,
-    required this.productName,
-    required this.baseUnit,
-    required this.status,
-    required this.quantityBase,
-    required this.referenceDate,
-    required this.currentVersion,
-    required this.updatedAt,
-    required this.syncOperationId,
-    required this.syncStatus,
-    required this.syncCode,
-    required this.conflictResolved,
-    this.syncAttempts = 0,
-    this.syncAckedAt,
-  });
-
-  final int id;
-  final int ownerBindingId;
-  final int campaignId;
-  final String campaignName;
-  final int productId;
-  final String productName;
-  final BaseUnit baseUnit;
-  final DeclaredNeedStatus status;
-  final int? quantityBase;
-  final String referenceDate;
-  final int currentVersion;
-  final String updatedAt;
-
-  /// Última intención de su contribución; null si no hay nada que enviar
-  /// (p. ej. se anuló antes de que saliera la primera).
-  final String? syncOperationId;
-  final OutboxStatus? syncStatus;
-  final String? syncCode;
-
-  /// La última intención es un conflicto que el propietario ya resolvió.
-  final bool conflictResolved;
-
-  /// Intentos de envío de la última intención (0: todavía no salió del
-  /// teléfono) y cuándo la confirmó el sindicato; sólo para mostrar.
-  final int syncAttempts;
-  final String? syncAckedAt;
-
-  /// Conflicto pendiente de la decisión del propietario.
-  bool get needsResolution =>
-      syncStatus == OutboxStatus.conflict && !conflictResolved;
-}
-
-class DeclaredNeedVersion {
-  const DeclaredNeedVersion({
-    required this.version,
-    required this.status,
-    required this.quantityBase,
-    required this.referenceDate,
-    required this.operationId,
-    required this.createdAt,
-  });
-
-  final int version;
-  final DeclaredNeedStatus status;
-  final int? quantityBase;
-  final String referenceDate;
-  final String? operationId;
-  final String createdAt;
-}
-
-/// Cómo resuelve el propietario un conflicto (F05 §6): nunca lo decide la app.
-enum ConflictChoice {
-  /// Enviar de nuevo su valor local vigente como nueva intención.
-  keepMine,
-
-  /// Retirar su declaración.
-  withdraw,
-}
-
-/// Necesidad declarada (F06-COLL-04, F06 §3): sólo nace de una declaración
-/// expresa del agricultor, nunca de un plan, stock ni consumo. Cada cambio
 /// escribe la necesidad, su versión y la intención de la outbox en **una**
 /// transacción. No toca inventario.
-class DeclaredNeedStore {
+class DeclaredNeedStore implements DeclaredNeedGateway {
   DeclaredNeedStore(
     this._database, {
     FarmerOperationGate gate = const FarmerOperationGate.unrestricted(),
@@ -263,9 +106,11 @@ class DeclaredNeedStore {
     return CampaignForDate(campaignId: id, name: name);
   }
 
+  @override
   Future<CampaignForDate> campaignFor(DateTime date) async =>
       campaignForDate(await _database.database, date);
 
+  @override
   Future<List<DeclarableProduct>> declarableProducts() async {
     final db = await _database.database;
     final rows = await db.rawQuery(
@@ -367,6 +212,7 @@ class DeclaredNeedStore {
 
   /// Declara (o actualiza) la necesidad total de un producto para la campaña
   /// que corresponde a [referenceDate]. Cero es una declaración válida.
+  @override
   Future<int> declare({
     required DateTime referenceDate,
     required int productId,
@@ -404,6 +250,7 @@ class DeclaredNeedStore {
 
   /// Nuevo total para una necesidad existente: SUPERSEDE (o PUBLISH si
   /// estaba retirada). La campaña y el producto no cambian.
+  @override
   Future<int> updateQuantity(int needId, int quantityBase) {
     _checkQuantity(quantityBase);
     return _write((txn) async {
@@ -489,6 +336,7 @@ class DeclaredNeedStore {
 
   /// Retira la necesidad: CANCEL sin cantidad. El historial se conserva y la
   /// retirada queda pendiente de envío.
+  @override
   Future<void> withdraw(int needId) => _write((txn) async {
     final need = await _need(txn, needId);
     if (DeclaredNeedStatus.fromCode(need['status']) !=
@@ -544,6 +392,7 @@ class DeclaredNeedStore {
   /// intención en conflicto. La intención en conflicto no se modifica; se
   /// emite una nueva (o se reescribe la que nunca salió) con el head y la
   /// referencia vigentes.
+  @override
   Future<void> resolveConflict({
     required int needId,
     required ConflictChoice choice,
@@ -661,6 +510,7 @@ class DeclaredNeedStore {
 
   /// Necesidades del titular activo (las de vínculos anteriores no se
   /// muestran como propias ni se envían).
+  @override
   Future<List<DeclaredNeed>> needs() async {
     final db = await _database.database;
     final owner = await db.query(
@@ -718,6 +568,7 @@ class DeclaredNeedStore {
         .toList();
   }
 
+  @override
   Future<List<DeclaredNeedVersion>> history(int needId) async {
     final db = await _database.database;
     final rows = await db.query(

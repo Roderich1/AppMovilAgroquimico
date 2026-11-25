@@ -8,7 +8,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app.dart' show repositoryProvider;
-import '../../data/product_photo_storage.dart' show ProductPhoto;
+import '../../domain/product_photo.dart' show ProductPhoto;
 import '../../domain/sync/identification_view.dart' show photoConsentText;
 import '../theme/agro_theme.dart';
 import 'agro_ui.dart';

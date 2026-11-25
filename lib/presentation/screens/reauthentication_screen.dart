@@ -86,9 +86,6 @@ class _ReauthenticationScreenState
                           controller: _email,
                           enabled: !_submitting,
                           keyboardType: TextInputType.emailAddress,
-                          // #87: un correo no se capitaliza ni se autocorrige; el
-                          // teclado del POCO cambiaba «juan» por «Juan» y el login daba 401.
-                          textCapitalization: TextCapitalization.none,
                           autocorrect: false,
                           enableSuggestions: false,
                           autofillHints: const [AutofillHints.email],

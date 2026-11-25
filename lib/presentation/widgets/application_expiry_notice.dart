@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 
-import '../../data/agro_repository.dart' show ApplicationLotPreview;
 import '../../domain/campaign_calendar.dart' show displayDay;
 import '../../domain/inventory_alerts.dart';
 import '../../domain/money.dart' show formatQuantity;
+import '../../domain/repository_types.dart' show ApplicationLotPreview;
 
 /// Aviso de lote vencido en una aplicación (RN-31, RN-32; decisión de
 /// presentación del 2026-11-05).

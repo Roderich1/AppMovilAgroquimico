@@ -4,7 +4,6 @@ import 'package:go_router/go_router.dart';
 
 import '../../app.dart';
 import '../../domain/campaign_calendar.dart';
-import '../../data/app_database.dart';
 import '../../domain/inventory_alerts.dart';
 import '../../domain/money.dart';
 import '../theme/agro_theme.dart';
@@ -151,7 +150,7 @@ List<(String, String)> sectionHelp(InventoryAlerts? a) => [
   (
     'Lotes próximos a vencer',
     'Vencen dentro del plazo de aviso de cada producto. El plazo '
-        'inicial es de ${_daysText(a?.defaultLeadDays ?? AppDatabase.defaultAlertLeadDays)}; '
+        'inicial es de ${_daysText(a?.defaultLeadDays ?? defaultAlertLeadDays)}; '
         'puede cambiarlo en el detalle de cada producto.',
   ),
   (

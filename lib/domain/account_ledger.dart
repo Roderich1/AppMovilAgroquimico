@@ -509,7 +509,8 @@ final class AccountLedger {
   /// Consumo propio de [personId] en [campaignId] (nulo = todas).
   OwnConsumption ownConsumption(int personId, {int? campaignId}) {
     final consumption = OwnConsumption();
-    for (final application in _ownApplications[personId] ?? const []) {
+    for (final application
+        in _ownApplications[personId] ?? const <LedgerApplication>[]) {
       if (campaignId == null || application.campaignId == campaignId) {
         consumption.add(application);
       }
@@ -521,7 +522,8 @@ final class AccountLedger {
   List<({int? campaignId, OwnConsumption consumption})>
   ownConsumptionByCampaign(int personId) {
     final byCampaign = <int?, OwnConsumption>{};
-    for (final application in _ownApplications[personId] ?? const []) {
+    for (final application
+        in _ownApplications[personId] ?? const <LedgerApplication>[]) {
       byCampaign
           .putIfAbsent(application.campaignId, OwnConsumption.new)
           .add(application);

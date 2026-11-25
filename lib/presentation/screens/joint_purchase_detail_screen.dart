@@ -2,11 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../data/app_log.dart';
-import '../../data/sync/joint_purchase_store.dart';
 import '../../domain/money.dart' show baseUnitsPerMajor, formatQuantity;
 import '../../domain/numeric_input.dart' show formatForInput, parseBaseQuantity;
 import '../../domain/sync/joint_purchase_call_view.dart';
+import '../../domain/sync/joint_purchase_models.dart';
+import '../../services/app_log.dart';
 import '../../services/auth/remote_session_coordinator.dart';
 import '../../services/auth/remote_session_providers.dart';
 import '../../services/sync/sync_providers.dart';
@@ -46,7 +46,7 @@ class _JointPurchaseDetailScreenState
   }
 
   Future<_Detail> _read({bool markSeen = false}) async {
-    final store = ref.read(jointPurchaseStoreProvider);
+    final store = ref.read(jointPurchaseGatewayProvider);
     if (markSeen && await store.markSeen(widget.callId) && mounted) {
       ref.read(jointPurchaseRevisionProvider.notifier).bump();
     }
@@ -96,7 +96,7 @@ class _JointPurchaseDetailScreenState
     }
     await _save(
       () => ref
-          .read(jointPurchaseStoreProvider)
+          .read(jointPurchaseGatewayProvider)
           .confirm(
             callId: call.callId,
             lines: lines,
@@ -124,7 +124,7 @@ class _JointPurchaseDetailScreenState
     );
     if (!confirmed || !mounted) return;
     await _save(
-      () => ref.read(jointPurchaseStoreProvider).withdraw(call.callId),
+      () => ref.read(jointPurchaseGatewayProvider).withdraw(call.callId),
       'Retiro guardado en el teléfono: pendiente de envío al sindicato.',
     );
   }
@@ -645,7 +645,7 @@ class _QuantityRow extends StatelessWidget {
             padding: const EdgeInsets.only(right: 12),
             child: Text(product.unit, style: AgroText.value),
           ),
-          suffixIconConstraints: const BoxConstraints(minWidth: 0),
+          suffixIconConstraints: const BoxConstraints(),
           errorText: error,
           errorMaxLines: 4,
         ),

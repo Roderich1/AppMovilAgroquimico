@@ -5,7 +5,7 @@ library;
 
 import 'package:flutter/material.dart';
 
-import '../../data/ind_c_chacos_reads.dart';
+import '../../domain/ind_c_chacos_models.dart';
 import '../../domain/money.dart';
 import '../theme/agro_theme.dart';
 import 'agro_ui.dart';

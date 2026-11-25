@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../data/sync/sync_outbox_store.dart';
+import '../../domain/sync/sync_outbox_models.dart';
 import '../../domain/sync/sync_types.dart';
 import '../../services/sync/sync_providers.dart';
 import '../../operation_mode_controller.dart' show personalModeProvider;
@@ -16,7 +16,7 @@ final syncSummaryProvider = FutureProvider.autoDispose<SyncQueueSummary?>((
 ) async {
   ref.watch(syncControllerProvider.select((state) => state.summary));
   try {
-    return await ref.read(syncOutboxStoreProvider).summary();
+    return await ref.read(syncOutboxGatewayProvider).summary();
   } on Object {
     return null;
   }

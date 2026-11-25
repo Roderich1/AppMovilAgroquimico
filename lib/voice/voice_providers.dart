@@ -49,11 +49,8 @@ final speechPortFactoryProvider = Provider<SpeechPortFactory>((ref) {
   if (voiceEngine == 'android') return AndroidSpeechTranscriptionAdapter.new;
   final facts = ref.watch(reviewFactsProvider);
   final fieldFacts = ref.watch(reviewFieldFactsProvider);
-  return () => LocalSpeechTranscriptionAdapter(
-    facts: facts,
-    fieldFacts: fieldFacts,
-    reviewTimeout: const Duration(milliseconds: voiceReviewTimeoutMs),
-  );
+  return () =>
+      LocalSpeechTranscriptionAdapter(facts: facts, fieldFacts: fieldFacts);
 });
 
 /// Puerto de **turno entero con un solo transcriptor** (Whisper sobre todo

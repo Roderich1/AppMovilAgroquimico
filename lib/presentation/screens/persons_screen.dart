@@ -2,9 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../app.dart';
-import '../../data/agro_repository.dart';
-import '../../data/ind_c_chacos_reads.dart' show IndCChacosReads;
 import '../../domain/account_ledger.dart';
 import '../../domain/account_texts.dart';
 import '../../domain/campaign_calendar.dart';
@@ -12,6 +9,7 @@ import '../../domain/operation_mode.dart';
 import '../../domain/read_models.dart';
 import '../../domain/reports/report_composer.dart';
 import '../../operation_mode_controller.dart';
+import '../providers/agro_providers.dart';
 import '../theme/agro_theme.dart';
 import '../widgets/agro_ui.dart';
 import '../widgets/common.dart';
@@ -61,7 +59,7 @@ class _PersonsScreenState extends ConsumerState<PersonsScreen> {
   int? campaignId;
   bool campaignInitialized = false;
 
-  static Future<_PersonsData> _load(AgroRepository repo) async => (
+  static Future<_PersonsData> _load(AgroGateway repo) async => (
     await repo.personProfiles(),
     await repo.accountLedger(withDetails: false),
   );
@@ -69,11 +67,11 @@ class _PersonsScreenState extends ConsumerState<PersonsScreen> {
   @override
   void initState() {
     super.initState();
-    data = _load(ref.read(repositoryProvider));
+    data = _load(ref.read(agroGatewayProvider));
   }
 
   void _refresh() {
-    final next = _load(ref.read(repositoryProvider));
+    final next = _load(ref.read(agroGatewayProvider));
     setState(() {
       data = next;
       if (costs != null) costs = _loadCosts();
@@ -81,11 +79,11 @@ class _PersonsScreenState extends ConsumerState<PersonsScreen> {
   }
 
   Future<_CostsData> _loadCosts() async {
-    final repo = ref.read(repositoryProvider);
+    final chacos = ref.read(indChacosGatewayProvider);
     return (
       // Mismo alcance que la exportación «Costo por chaco» (decisión C).
-      (await repo.farmCostLines(campaignId: campaignId)).lines,
-      (await repo.productCostLines(campaignId: campaignId)).lines,
+      (await chacos.farmCostLines(campaignId: campaignId)).lines,
+      (await chacos.productCostLines(campaignId: campaignId)).lines,
     );
   }
 
@@ -251,10 +249,7 @@ class _PersonsScreenState extends ConsumerState<PersonsScreen> {
         isExpanded: true,
         decoration: const InputDecoration(labelText: 'Filtrar por campaña'),
         items: [
-          const DropdownMenuItem<int?>(
-            value: null,
-            child: Text('Todas las campañas'),
-          ),
+          const DropdownMenuItem<int?>(child: Text('Todas las campañas')),
           for (final campaign in campaigns)
             DropdownMenuItem<int?>(
               value: campaign.id,

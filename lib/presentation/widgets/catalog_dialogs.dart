@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../../data/agro_repository.dart';
+import '../../domain/agro_gateway.dart';
 import '../../domain/models.dart';
 import '../../domain/money.dart';
 import '../../domain/operation_mode.dart';
@@ -18,7 +18,7 @@ import 'common.dart';
 /// pierde nada: el diálogo se abre encima del borrador.
 Future<int?> createProductFromDialog(
   BuildContext context,
-  AgroRepository repo,
+  AgroGateway repo,
 ) async {
   final result = await showDialog<(String, String, String)?>(
     context: context,
@@ -38,7 +38,7 @@ Future<int?> createProductFromDialog(
 /// Alta de proveedor desde un formulario. Igual que [createProductFromDialog].
 Future<int?> createSupplierFromDialog(
   BuildContext context,
-  AgroRepository repo,
+  AgroGateway repo,
 ) async {
   final name = await showDialog<String?>(
     context: context,
@@ -57,7 +57,7 @@ Future<int?> createSupplierFromDialog(
 /// titular, como en Catálogos (#26).
 Future<int?> createFarmFromDialog(
   BuildContext context,
-  AgroRepository repo, {
+  AgroGateway repo, {
   int? ownerId,
 }) async {
   final read = await repo.peopleAndContextFor(PersonPurpose.farmOwner);
@@ -96,7 +96,7 @@ Future<int?> createFarmFromDialog(
 /// se canceló, falló (el error ya se mostró) o la modalidad no lo permite.
 Future<int?> createPersonFromDialog(
   BuildContext context,
-  AgroRepository repo, {
+  AgroGateway repo, {
   required PersonPurpose purpose,
 }) async {
   final operating = await repo.operatingContext();

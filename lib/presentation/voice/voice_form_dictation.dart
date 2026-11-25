@@ -216,7 +216,7 @@ class VoiceFormDictation<S> extends ChangeNotifier {
     _shadow = shadow;
     _consumed = session.snapshot.committedText;
     _text.clear();
-    _setPhase(VoiceFormPhase.opening, message: null);
+    _setPhase(VoiceFormPhase.opening);
     await session.startListening();
   }
 

@@ -3,11 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app.dart';
-import '../../data/agro_repository.dart';
 import '../../domain/campaign_calendar.dart';
 import '../../domain/models.dart';
 import '../../domain/money.dart';
 import '../../domain/operation_mode.dart';
+import '../../domain/repository_exceptions.dart';
 import '../../operation_mode_controller.dart';
 import '../theme/agro_theme.dart';
 import '../widgets/adaptive_entity_picker.dart';

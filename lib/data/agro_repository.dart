@@ -1,268 +1,37 @@
-import 'dart:io';
+import 'dart:io' show Directory;
 
-import 'package:path/path.dart' as p;
-import 'package:sqflite/sqflite.dart'
-    show Database, DatabaseException, DatabaseExecutor, Sqflite, Transaction;
+import 'package:flutter/foundation.dart' show visibleForTesting;
 
-import 'package:flutter/foundation.dart' show compute, visibleForTesting;
-
-import '../domain/account_ledger.dart';
+import '../domain/account_ledger.dart'
+    show AccountLedger, AccountStatement, AccountSummary;
 import '../domain/account_texts.dart' show AccountPaymentResult;
-import '../domain/campaign_calendar.dart';
-import '../domain/installation_access.dart' show OwnerScope;
-import '../domain/inventory_alerts.dart';
-import '../domain/sync/operation_id.dart' show newOperationId;
-import 'late_operation_codec.dart';
-import '../services/auth/local_owner_credential.dart';
+import '../domain/agro_gateway.dart';
+import '../domain/inventory_alerts.dart'
+    show InventoryAlerts, ProductAlertSettings;
 import '../domain/models.dart';
-import '../domain/money.dart';
-import '../domain/operation_mode.dart';
-import '../domain/person_roles.dart';
-import 'account_ledger_query.dart';
+import '../domain/person_roles.dart' show PersonPurpose;
+import '../domain/product_photo.dart';
+import '../services/auth/local_owner_credential.dart'
+    show LocalOwnerCredential, OwnerAuthorization;
 import 'app_database.dart';
-import 'app_log.dart';
 import 'farmer_operation_gate.dart';
-import 'invoice_storage.dart';
-import 'operation_mode_store.dart';
-import 'product_photo_storage.dart';
-import 'sync/central_binding_store.dart' show CentralBindingStore;
-import 'sync/identification_request_store.dart' show IdentificationRequestStore;
+import 'repositories/account_repository.dart';
+import 'repositories/application_plan_repository.dart';
+import 'repositories/campaign_repository.dart';
+import 'repositories/catalog_repository.dart';
+import 'repositories/inventory_repository.dart';
+import 'repositories/late_operation_repository.dart';
+import 'repositories/purchase_repository.dart';
+import 'repositories/repository_session.dart';
+import 'repositories/repository_types.dart';
+import 'repositories/reversal_repository.dart';
+import 'repositories/stock_fifo_queries.dart';
+import 'repositories/transfer_repository.dart';
 
-/// Resultado de corregir vencimiento o número de lote (F04-AV): cuántos
-/// lotes cambiaron y cuántos de la línea quedaron sin tocar por no tener la
-/// procedencia demostrada.
-class LotDataCorrectionResult {
-  const LotDataCorrectionResult({
-    required this.correctionId,
-    required this.correctedLots,
-    required this.unprovenLots,
-  });
-  final int correctionId;
-  final int correctedLots;
-  final int unprovenLots;
-}
+export 'repositories/repository_exceptions.dart';
+export 'repositories/repository_types.dart';
 
-class BusinessRuleException implements Exception {
-  BusinessRuleException(this.message);
-  final String message;
-  @override
-  String toString() => message;
-}
-
-/// Una acción confirmada con el PIN del titular falló **después** de
-/// consumir la autorización, ya dentro de la transacción que escribe: no se
-/// guardó nada (la transacción se deshizo) y la autorización no vale otra
-/// vez. Un rechazo de validación anterior al consumo no usa esta excepción y
-/// deja la autorización sin gastar.
-class AuthorizedChangeNotSaved implements Exception {
-  AuthorizedChangeNotSaved(this.cause);
-
-  /// El error original, para el registro técnico.
-  final Object cause;
-
-  @override
-  String toString() =>
-      'No se guardó el cambio. La confirmación con el PIN ya se usó: '
-      'vuelva a intentarlo y confirme otra vez con el PIN.';
-}
-
-/// Una aplicación con fecha pasada pide más de lo que la persona tenía ese
-/// día y no se usó después (D-03, precisión de RN-25). En unidad base:
-/// [heldBase] es lo que tenía al final de ese día y [availableBase] la
-/// existencia elegible, lo que de eso queda sin usar después; las dos pueden
-/// ser cero.
-class HistoricalStockException extends BusinessRuleException {
-  HistoricalStockException({
-    required this.productId,
-    required this.day,
-    required this.heldBase,
-    required this.availableBase,
-    required this.requestedBase,
-    required String message,
-  }) : super(message);
-
-  final int productId;
-
-  /// Día local efectivo, `aaaa-mm-dd`.
-  final String day;
-  final int heldBase;
-  final int availableBase;
-  final int requestedBase;
-}
-
-class CampaignConflictException extends BusinessRuleException {
-  CampaignConflictException(this.activeCampaignId, this.activeCampaignName)
-    : super(
-        'Está activa $activeCampaignName. Cierre esa campaña antes de activar otra.',
-      );
-  final int activeCampaignId;
-  final String activeCampaignName;
-}
-
-/// Activar una sucesora que todavía no empezó cerraría la campaña actual antes
-/// de tiempo: el día de hoy quedaría dentro de una campaña cerrada y sin
-/// campaña operable (#125). No se aplica nada; la sucesora sigue planificada y
-/// se podrá activar desde su día de inicio.
-class CampaignActivationNotYetException extends BusinessRuleException {
-  CampaignActivationNotYetException({
-    required this.campaignName,
-    required this.activeCampaignName,
-    required this.activableFromDay,
-  }) : super(
-         '«$campaignName» empieza el ${displayDay(activableFromDay)}, después '
-         'de hoy. Mientras «$activeCampaignName» esté activa no se puede '
-         'activar cerrándola: el día de hoy quedaría dentro de una campaña '
-         'cerrada. Se podrá activar desde el ${displayDay(activableFromDay)}; '
-         'hasta entonces queda planificada.',
-       );
-  final String campaignName;
-  final String activeCampaignName;
-
-  /// Día local `aaaa-mm-dd` desde el que se admite la activación.
-  final String activableFromDay;
-}
-
-/// Por qué la fecha efectiva de una operación no permite registrarla en la
-/// campaña del borrador (RN-15, RN-16, RF-03).
-enum CampaignDateProblem {
-  /// Ninguna campaña contiene la fecha.
-  none,
-
-  /// Más de una campaña contiene la fecha: calendario solapado heredado.
-  ambiguous,
-
-  /// La fecha es de una campaña cerrada (Cap. III §3.11.13: requiere
-  /// revisión). Su registro asociado está pendiente de decisión: D-F04-C1.
-  closed,
-
-  /// La fecha es de una campaña planificada, todavía no activa.
-  planned,
-
-  /// La fecha es posterior a hoy: una compra o aplicación ya realizada no
-  /// puede tener una fecha futura (#121).
-  future,
-}
-
-/// La operación no se registra: su fecha efectiva no clasifica en la campaña
-/// activa. Nunca se asigna a otra campaña en silencio.
-class CampaignDateException extends BusinessRuleException {
-  CampaignDateException(this.problem, super.message);
-  final CampaignDateProblem problem;
-}
-
-/// Un cambio del calendario de campañas solaparía períodos o dejaría
-/// operaciones fuera del período de su campaña. No se aplica nada.
-class CampaignCalendarException extends BusinessRuleException {
-  CampaignCalendarException(super.message);
-}
-
-/// Se lanza cuando la modalidad propia (PERSONAL) no admite la operación.
-class PersonalModeRestrictionException extends BusinessRuleException {
-  PersonalModeRestrictionException(super.message);
-}
-
-/// Rechazo de un pago de cuenta personal al titular (decisión del autor del
-/// 2026-11-12, que revisa el criterio Q-2/C-12): su consumo y sus costos son
-/// propios, no una deuda consigo mismo.
-const ownerAccountPaymentRejectedMessage =
-    'El titular no tiene cuenta por cobrar: su consumo y sus costos son '
-    'propios, no una deuda. No se registra un pago a su cuenta. Sus compras '
-    'y pagos a proveedores se registran como siempre.';
-
-/// Modalidad y titular vigentes, leídos dentro de la transacción que escribe.
-typedef WriteContext = ({OperationMode mode, int? ownerPersonId});
-
-/// RF-13: responsable y fecha efectiva de la operación revertida, tal como
-/// estaban (la operación original no se reasigna).
-typedef OriginalOperation = ({int? personId, String? effectiveDate});
-
-/// Filas guardadas de una compra, sin calcular nada (ver `purchaseDetail`).
-typedef PurchaseDetailRead = ({
-  Map<String, Object?> purchase,
-  List<Map<String, Object?>> items,
-  List<Map<String, Object?>> allocations,
-  List<Map<String, Object?>> payments,
-});
-
-/// Una porción de la asignación FIFO de una aplicación: de qué lote y cuánto.
-typedef FifoTake = ({Map<String, Object?> lot, int take});
-
-/// Lote que una aplicación consumiría, según la previsión de sólo lectura
-/// [AgroRepository.previewApplicationLots]. [expiryDay] es el día civil
-/// `aaaa-mm-dd` registrado en la compra, o nulo si no se registró.
-typedef ApplicationLotPreview = ({
-  int lotId,
-  int quantityBase,
-  String? expiryDay,
-  String? lotNumber,
-});
-
-/// Reparto FIFO de [quantityBase] sobre [lots], ya ordenados del más antiguo
-/// al más nuevo y con su cupo en `available`. Es **la** regla de asignación
-/// de una aplicación: la usan la escritura (`confirmApplication`) y la
-/// previsión que muestra el formulario, para que lo previsto y lo consumido
-/// no puedan divergir. Si el cupo no alcanza, reparte lo que hay; quien
-/// escribe ya lo rechazó antes.
-List<FifoTake> fifoTakes(List<Map<String, Object?>> lots, int quantityBase) {
-  final takes = <FifoTake>[];
-  var remaining = quantityBase;
-  for (final lot in lots) {
-    if (remaining <= 0) break;
-    final lotAvailable = lot['available']! as int;
-    final take = remaining < lotAvailable ? remaining : lotAvailable;
-    takes.add((lot: lot, take: take));
-    remaining -= take;
-  }
-  return takes;
-}
-
-/// RF-03: resultado de confirmar o rechazar un borrador tardío.
-enum LateResolutionOutcome { confirmed, rejected, conflict }
-
-/// Códigos de conflicto de una confirmación tardía que no se aplicó.
-abstract final class LateConflict {
-  /// El cupo temporal de los lotes no alcanza (§2.3).
-  static const stockUnavailable = 'LATE_STOCK_UNAVAILABLE';
-
-  /// La fecha ya no clasifica en la campaña capturada (§2.3, I4 de B).
-  static const campaignChanged = 'LATE_CAMPAIGN_CHANGED';
-}
-
-class LateResolution {
-  const LateResolution(
-    this.outcome, {
-    this.operationId,
-    this.conflictCode,
-    this.message,
-  });
-
-  final LateResolutionOutcome outcome;
-  final int? operationId;
-  final String? conflictCode;
-  final String? message;
-}
-
-/// RF-13: las filas compensatorias que escribe o anula una reversión, para
-/// referenciarlas en `reversal_audit_effects`.
-class ReversalEffects {
-  ReversalEffects() : _discard = false;
-  ReversalEffects.discard() : _discard = true;
-
-  final bool _discard;
-  final List<(String, int)> _rows = [];
-
-  List<(String, int)> get rows => List.unmodifiable(_rows);
-
-  void add(String table, int rowId) {
-    if (_discard) return;
-    if (!AppDatabase.reversalEffectTables.contains(table)) {
-      throw ArgumentError.value(table, 'table', 'not a reversal effect table');
-    }
-    _rows.add((table, rowId));
-  }
-}
-
-class AgroRepository {
+class AgroRepository implements AgroGateway {
   /// [ownerCredential] da la credencial del titular de la instalación: las
   /// acciones autorizadas exigen que la autorización la haya emitido ella con
   /// el PIN vigente (`LocalOwnerCredential.accepts`), dentro de su
@@ -272,719 +41,122 @@ class AgroRepository {
     FarmerOperationGate gate = const FarmerOperationGate.unrestricted(),
     LocalOwnerCredential? Function()? ownerCredential,
     @visibleForTesting Future<Directory> Function()? productPhotoDocuments,
-  }) : _gate = gate,
-       _ownerCredential = ownerCredential ?? _noCredential,
+  }) : _session = RepositorySession(
+         appDatabase,
+         gate: gate,
+         ownerCredential: ownerCredential,
+       ),
        _productPhotoDocuments = productPhotoDocuments;
+
   final AppDatabase appDatabase;
+  final RepositorySession _session;
+  final StockFifoQueries _fifoQueries = const StockFifoQueries();
+  late final CatalogRepository _catalogs = CatalogRepository(
+    _session,
+    productPhotoDocuments: _productPhotoDocuments,
+  );
+  late final CampaignRepository _campaigns = CampaignRepository(_session);
+  late final PurchaseRepository _purchases = PurchaseRepository(
+    _session,
+    _campaigns,
+  );
+  late final ApplicationPlanRepository _applications =
+      ApplicationPlanRepository(_session, _campaigns, _fifoQueries);
+  late final InventoryRepository _inventory = InventoryRepository(_session);
+  late final TransferRepository _transfers = TransferRepository(_session);
+  late final AccountRepository _accounts = AccountRepository(_session);
+  late final ReversalRepository _reversals = ReversalRepository(_session);
+  late final LateOperationRepository _lateOperations = LateOperationRepository(
+    _session,
+    _campaigns,
+    _purchases,
+    _applications,
+    _fifoQueries,
+  );
 
   /// Carpeta de documentos para las fotos de producto; sólo pruebas.
   final Future<Directory> Function()? _productPhotoDocuments;
-  final FarmerOperationGate _gate;
-  final LocalOwnerCredential? Function() _ownerCredential;
 
-  static LocalOwnerCredential? _noCredential() => null;
-
-  Future<Database> get _db => appDatabase.database;
-  String _date(DateTime date) => date.toUtc().toIso8601String();
-
-  /// Toda escritura del agricultor pasa por aquí: primero la política de
-  /// activación y después, **dentro de la misma transacción que escribe**, la
-  /// modalidad y el titular vigentes. Leerlos antes, fuera de ella, dejaba que
-  /// un cambio de modalidad (también transaccional) se confirmara entre la
-  /// lectura y la escritura: una compra iniciada en compartido podía asignar
-  /// existencias a un tercero después del paso a propio.
-  ///
-  /// La compuerta se consulta ya dentro de la exclusión de sustitución: una
-  /// restauración no puede colarse entre esa autorización y la transacción, y
-  /// mientras se restaura ninguna escritura entra.
-  Future<T> _write<T>(
-    Future<T> Function(Transaction txn, WriteContext context) body,
-  ) => appDatabase.replacement.write(() async {
-    _gate.ensureAllowed();
-    return (await _db).transaction(
-      (txn) async => body(txn, await _readWriteContext(txn)),
-    );
-  });
-
-  Future<WriteContext> _readWriteContext(DatabaseExecutor txn) async {
-    final mode = await OperationModeStore(appDatabase).current(txn);
-    final owner = await txn.query(
-      'owner_bindings',
-      columns: ['person_id'],
-      where: 'ended_at IS NULL',
-    );
-    final ownerPersonId = owner.isEmpty
-        ? null
-        : owner.single['person_id'] as int;
-    if (mode == OperationMode.personal && ownerPersonId == null) {
-      throw PersonalModeRestrictionException(
-        'El modo individual necesita un titular vinculado.',
-      );
-    }
-    return (mode: mode, ownerPersonId: ownerPersonId);
-  }
-
-  /// En modo propio, la persona responsable sólo puede ser el titular.
-  void _requireOwnerInPersonal(
-    WriteContext context,
-    Iterable<int> personIds,
-    String message,
-  ) {
-    if (context.mode != OperationMode.personal) return;
-    if (personIds.any((id) => id != context.ownerPersonId)) {
-      throw PersonalModeRestrictionException(message);
-    }
-  }
-
-  /// Las transferencias entre responsables no existen en modo propio
-  /// (RF-06: el modo compartido habilita responsables y transferencias).
-  void _rejectTransferInPersonal(WriteContext context) {
-    if (context.mode == OperationMode.personal) {
-      throw PersonalModeRestrictionException(
-        'En el modo individual no hay transferencias entre responsables.',
-      );
-    }
-  }
-
-  Future<void> _requireOwnerFarmInPersonal(
-    DatabaseExecutor txn,
-    WriteContext context,
-    int farmId,
-  ) async {
-    if (context.mode != OperationMode.personal) return;
-    final farm = await txn.query(
-      'farms',
-      columns: ['owner_person_id'],
-      where: 'id=?',
-      whereArgs: [farmId],
-    );
-    if (farm.isNotEmpty &&
-        farm.single['owner_person_id'] != context.ownerPersonId) {
-      throw PersonalModeRestrictionException(
-        'En el modo individual sólo se usan los chacos del titular.',
-      );
-    }
-  }
-
+  @override
   Future<int> addPerson({
     required String name,
     required PersonRole role,
     SettlementPolicy? policy,
     String? phone,
-  }) {
-    final effective =
-        policy ??
-        switch (role) {
-          PersonRole.admin => SettlementPolicy.manual,
-          PersonRole.family => SettlementPolicy.byActualUsage,
-          PersonRole.thirdParty => SettlementPolicy.byPurchaseAllocation,
-        };
-    return _write(
-      (txn, _) => txn.insert('persons', {
-        'name': name.trim(),
-        'role': role.code,
-        'settlement_policy': effective.code,
-        'phone': phone,
-        'created_at': _date(DateTime.now()),
-      }),
-    );
-  }
+  }) =>
+      _catalogs.addPerson(name: name, role: role, policy: policy, phone: phone);
 
+  @override
   Future<int> addFarm({
     required int ownerId,
     required String name,
     required int areaM2,
     String? location,
-  }) => _write((txn, context) {
-    _requireOwnerInPersonal(context, [
-      ownerId,
-    ], 'En el modo individual los chacos pertenecen al titular.');
-    return txn.insert('farms', {
-      'owner_person_id': ownerId,
-      'name': name.trim(),
-      'area_m2': areaM2,
-      'location': location,
-    });
-  });
+  }) => _catalogs.addFarm(
+    ownerId: ownerId,
+    name: name,
+    areaM2: areaM2,
+    location: location,
+  );
 
   /// Alta de campaña (RN-16: los períodos no se solapan).
-  ///
-  /// Las campañas se agregan en orden: la nueva empieza después del inicio
-  /// de todas las existentes. Si la última sigue abierta, termina el día
-  /// anterior al inicio de la nueva, siempre que eso no deje fuera ninguna de
-  /// sus operaciones; si las dejaría, se rechaza sin cambios.
+  @override
   Future<int> addCampaign({
     required String name,
     required DateTime start,
     DateTime? end,
-  }) => _write((txn, _) async {
-    final trimmed = name.trim();
-    final startDay = localDay(start);
-    final endDay = end == null ? null : localDay(end);
-    if (endDay != null && endDay.compareTo(startDay) < 0) {
-      throw CampaignCalendarException(
-        'La fecha de fin no puede ser anterior a la de inicio.',
-      );
-    }
-    final periods = await _campaignPeriods(txn);
-    CampaignPeriod? latest;
-    for (final period in periods) {
-      if (latest == null || period.startDay.compareTo(latest.startDay) > 0) {
-        latest = period;
-      }
-    }
-    if (latest != null && latest.startDay.compareTo(startDay) >= 0) {
-      throw CampaignCalendarException(
-        'La campaña nueva debe empezar después del '
-        '${displayDay(latest.startDay)}, inicio de «${latest.name}». '
-        'Las campañas se agregan en orden y sus períodos no se solapan.',
-      );
-    }
-    final proposed = CampaignPeriod(
-      id: -1,
-      name: trimmed,
-      status: 'PLANNED',
-      startDay: startDay,
-      endDay: endDay,
-    );
-    for (final period in periods) {
-      if (period.id == latest?.id && period.endDay == null) continue;
-      if (period.overlaps(proposed)) {
-        throw CampaignCalendarException(
-          'El período propuesto (${proposed.describe}) se solapa con '
-          '«${period.name}» (${period.describe}).',
-        );
-      }
-    }
-    if (latest != null && latest.endDay == null) {
-      await _endOpenCampaignBefore(txn, latest, startDay, trimmed);
-    }
-    final active =
-        Sqflite.firstIntValue(
-          await txn.rawQuery(
-            "SELECT COUNT(*) FROM campaigns WHERE status='ACTIVE'",
-          ),
-        ) ??
-        0;
-    return txn.insert('campaigns', {
-      'name': trimmed,
-      'start_date': _date(start),
-      'end_date': end == null ? null : _date(end),
-      'status': active == 0 ? 'ACTIVE' : 'PLANNED',
-    });
-  });
+  }) => _campaigns.addCampaign(name: name, start: start, end: end);
 
   /// Inicio que propone el alta: hoy, salvo que el orden del calendario
-  /// exija uno posterior (después del inicio y del fin fijado de cada
-  /// campaña). Es sólo una propuesta: el usuario la cambia y [addCampaign]
-  /// vuelve a validar.
-  Future<DateTime> suggestedCampaignStart() async {
-    final periods = await _campaignPeriods(await _db);
-    var day = localDay(DateTime.now());
-    var changed = true;
-    while (changed) {
-      changed = false;
-      for (final period in periods) {
-        for (final bound in [period.startDay, period.endDay]) {
-          if (bound != null && bound.compareTo(day) >= 0) {
-            day = nextLocalDay(bound);
-            changed = true;
-          }
-        }
-      }
-    }
-    return startOfLocalDay(day);
-  }
+  /// exija uno posterior.
+  @override
+  Future<DateTime> suggestedCampaignStart() =>
+      _campaigns.suggestedCampaignStart();
 
-  Future<List<CampaignPeriod>> _campaignPeriods(
-    DatabaseExecutor executor,
-  ) async => [
-    for (final row in await executor.query(
-      'campaigns',
-      columns: ['id', 'name', 'status', 'start_date', 'end_date'],
-      orderBy: 'id',
-    ))
-      CampaignPeriod.fromRow(row),
-  ];
+  /// Fin previsto de una campaña activa o planificada (D-F04-C2).
+  Future<void> setCampaignEnd(int campaignId, {required DateTime end}) =>
+      _campaigns.setCampaignEnd(campaignId, end: end);
 
-  /// Último día local con un registro fechado de la campaña: compras y
-  /// aplicaciones (revertidas incluidas, también son su historia) y
-  /// necesidades declaradas de F05 con todas sus versiones, que se publican
-  /// con la referencia de esa campaña (revisión de B sobre #110).
-  Future<String?> _lastOperationDay(
-    DatabaseExecutor executor,
-    int campaignId,
-  ) async {
-    final rows = [
-      ...await executor.query(
-        'purchases',
-        columns: ['purchase_date AS day'],
-        where: 'campaign_id=?',
-        whereArgs: [campaignId],
-      ),
-      ...await executor.query(
-        'applications',
-        columns: ['applied_at AS day'],
-        where: 'campaign_id=?',
-        whereArgs: [campaignId],
-      ),
-      ...await executor.query(
-        'declared_needs',
-        columns: ['reference_date AS day'],
-        where: 'campaign_id=?',
-        whereArgs: [campaignId],
-      ),
-      ...await executor.rawQuery(
-        'SELECT v.reference_date AS day FROM declared_need_versions v '
-        'JOIN declared_needs n ON n.id = v.declared_need_id '
-        'WHERE n.campaign_id=?',
-        [campaignId],
-      ),
-    ];
-    String? last;
-    for (final row in rows) {
-      final day = storedLocalDay(row['day']! as String);
-      if (last == null || day.compareTo(last) > 0) last = day;
-    }
-    return last;
-  }
+  @override
+  Future<Map<String, Object?>?> activeCampaign() => _campaigns.activeCampaign();
 
-  /// Cierra el período abierto de [open] el día anterior a [nextStartDay].
-  /// Las operaciones no cambian de campaña: si alguna cae en ese día o
-  /// después, se rechaza.
-  Future<void> _endOpenCampaignBefore(
-    DatabaseExecutor executor,
-    CampaignPeriod open,
-    String nextStartDay,
-    String nextName,
-  ) async {
-    final last = await _lastOperationDay(executor, open.id);
-    if (last != null && last.compareTo(nextStartDay) >= 0) {
-      throw CampaignCalendarException(
-        '«${open.name}» tiene operaciones del ${displayDay(last)}, que no es '
-        'anterior al inicio de «$nextName» (${displayDay(nextStartDay)}). '
-        'Las operaciones no se cambian de campaña: el inicio de la campaña '
-        'nueva tiene que ser posterior a esa fecha.',
-      );
-    }
-    await executor.update(
-      'campaigns',
-      {'end_date': _date(startOfLocalDay(previousLocalDay(nextStartDay)))},
-      where: 'id=?',
-      whereArgs: [open.id],
-    );
-    // D-F04-C2: el fin nuevo puede caber o no en la campaña central
-    // vinculada; el vínculo se asienta en la misma transacción.
-    await CentralBindingStore.revalidateCampaignPeriod(
-      executor,
-      open.id,
-      now: _date(DateTime.now()),
-    );
-  }
+  @override
+  Future<void> activateCampaign(int campaignId, {bool closeCurrent = false}) =>
+      _campaigns.activateCampaign(campaignId, closeCurrent: closeCurrent);
 
-  /// Fin previsto de una campaña activa o planificada (D-F04-C2): el período
-  /// se fija **sin** cerrar la campaña ni cambiar su estado. Se rechaza, sin
-  /// escribir nada, si el fin es anterior al inicio, si deja fuera algún
-  /// registro fechado de la campaña (compras, aplicaciones, necesidades y sus
-  /// versiones) o si solapa otra campaña. Una campaña cerrada o archivada no
-  /// cambia su período. Después se vuelve a comprobar el vínculo central.
-  Future<void> setCampaignEnd(int campaignId, {required DateTime end}) async {
-    await _write((txn, _) async {
-      final periods = await _campaignPeriods(txn);
-      final current = periods.where((p) => p.id == campaignId).firstOrNull;
-      if (current == null) throw BusinessRuleException('La campaña no existe.');
-      if (current.status != 'ACTIVE' && current.status != 'PLANNED') {
-        throw CampaignCalendarException(
-          'El período de «${current.name}» no se cambia: la campaña está '
-          '${current.status == 'CLOSED' ? 'cerrada' : 'archivada'}.',
-        );
-      }
-      final endDay = localDay(end);
-      if (endDay.compareTo(current.startDay) < 0) {
-        throw CampaignCalendarException(
-          'El fin (${displayDay(endDay)}) no puede ser anterior al inicio de '
-          '«${current.name}» (${displayDay(current.startDay)}). No se cambió.',
-        );
-      }
-      final last = await _lastOperationDay(txn, campaignId);
-      if (last != null && last.compareTo(endDay) > 0) {
-        throw CampaignCalendarException(
-          '«${current.name}» tiene registros del ${displayDay(last)}, '
-          'posteriores al fin elegido (${displayDay(endDay)}). Las operaciones '
-          'no se cambian de campaña: no se cambió el fin.',
-        );
-      }
-      final proposed = current.withEnd(endDay);
-      for (final other in periods) {
-        if (other.id != campaignId && other.overlaps(proposed)) {
-          throw CampaignCalendarException(
-            'El período propuesto (${proposed.describe}) se solapa con '
-            '«${other.name}» (${other.describe}). No se cambió el fin.',
-          );
-        }
-      }
-      await txn.update(
-        'campaigns',
-        {'end_date': _date(startOfLocalDay(endDay))},
-        where: 'id=?',
-        whereArgs: [campaignId],
-      );
-      await CentralBindingStore.revalidateCampaignPeriod(
-        txn,
-        campaignId,
-        now: _date(DateTime.now()),
-      );
-    });
-  }
-
-  Future<Map<String, Object?>?> activeCampaign() async {
-    final rows = await (await _db).query(
-      'campaigns',
-      where: "status='ACTIVE'",
-      orderBy: 'start_date DESC,id DESC',
-      limit: 1,
-    );
-    return rows.isEmpty ? null : rows.single;
-  }
-
-  Future<void> activateCampaign(
-    int campaignId, {
-    bool closeCurrent = false,
-  }) async {
-    await _write((txn, _) async {
-      final target = await txn.query(
-        'campaigns',
-        where: 'id=?',
-        whereArgs: [campaignId],
-        limit: 1,
-      );
-      if (target.isEmpty) throw BusinessRuleException('La campaña no existe.');
-      if (target.single['status'] == 'ARCHIVED') {
-        throw BusinessRuleException(
-          'Una campaña archivada no puede activarse.',
-        );
-      }
-      // **Una campaña cerrada es terminal** (UIBUG-059). Representa un periodo
-      // contable ya rendido: reabrirlo dejaría que movimientos nuevos entraran
-      // en un ejercicio dado por concluido, y que un cierre —que el usuario
-      // confirma sabiendo que es irreversible— se deshiciera con dos toques.
-      //
-      // Esconder el botón no basta: esta comprobación protege también de una
-      // pantalla desactualizada, de una doble ejecución y de cualquier camino
-      // indirecto que aparezca en el futuro. Si hiciera falta una corrección
-      // administrativa, sería otra funcionalidad explícita y auditable.
-      if (target.single['status'] == 'CLOSED') {
-        throw BusinessRuleException(
-          'Una campaña cerrada no puede volver a activarse. '
-          'Cree una campaña nueva para seguir operando.',
-        );
-      }
-      final active = await txn.query(
-        'campaigns',
-        where: "status='ACTIVE' AND id<>?",
-        whereArgs: [campaignId],
-        limit: 1,
-      );
-      // #125: con otra campaña activa, una sucesora cuyo inicio aún no llegó
-      // no se activa, con o sin `closeCurrent`: cerraría la actual antes de
-      // tiempo y hoy quedaría en una campaña cerrada. Se decide aquí, en la
-      // transacción y antes del conflicto, para que la pantalla no ofrezca
-      // «Cerrar y activar» como salida. Sin otra activa no aplica: una
-      // campaña ACTIVE con inicio futuro sigue siendo posible (excepción ya
-      // documentada, que no se amplía ni se quita). El día de inicio cuenta
-      // como ya llegado (inclusivo).
-      if (active.isNotEmpty) {
-        final targetStart = storedLocalDay(
-          target.single['start_date']! as String,
-        );
-        if (targetStart.compareTo(localDay(DateTime.now())) > 0) {
-          throw CampaignActivationNotYetException(
-            campaignName: target.single['name']! as String,
-            activeCampaignName: active.single['name']! as String,
-            activableFromDay: targetStart,
-          );
-        }
-      }
-      if (active.isNotEmpty && !closeCurrent) {
-        throw CampaignConflictException(
-          active.single['id']! as int,
-          active.single['name']! as String,
-        );
-      }
-      // Activar sólo cambia estados: los períodos se fijan al dar de alta la
-      // campaña (RN-16). Antes se borraba el fin de la activada y se ponía
-      // «hoy» como fin de la cerrada, lo que solapaba el día del cambio.
-      final periods = await _campaignPeriods(txn);
-      final targetPeriod = periods.firstWhere((p) => p.id == campaignId);
-      if (active.isNotEmpty) {
-        final closing = periods.firstWhere((p) => p.id == active.single['id']);
-        // Base anterior a esta regla: la campaña activa sigue abierta.
-        if (closing.endDay == null) {
-          if (targetPeriod.startDay.compareTo(closing.startDay) <= 0) {
-            throw CampaignCalendarException(
-              '«${targetPeriod.name}» empieza el '
-              '${displayDay(targetPeriod.startDay)}, no después del inicio de '
-              '«${closing.name}» (${displayDay(closing.startDay)}): sus '
-              'períodos se solaparían. No se activó.',
-            );
-          }
-          await _endOpenCampaignBefore(
-            txn,
-            closing,
-            targetPeriod.startDay,
-            targetPeriod.name,
-          );
-        }
-        await txn.update(
-          'campaigns',
-          {'status': 'CLOSED'},
-          where: 'id=?',
-          whereArgs: [closing.id],
-        );
-      }
-      final current = await _campaignPeriods(txn);
-      final activated = current.firstWhere((p) => p.id == campaignId);
-      for (final other in current) {
-        if (other.id != campaignId && other.overlaps(activated)) {
-          throw CampaignCalendarException(
-            'El período de «${activated.name}» (${activated.describe}) se solapa '
-            'con «${other.name}» (${other.describe}). No se activó.',
-          );
-        }
-      }
-      await txn.update(
-        'campaigns',
-        {'status': 'ACTIVE'},
-        where: 'id=?',
-        whereArgs: [campaignId],
-      );
-    });
-  }
-
-  /// Cierre sin sucesora. El fin **efectivo** lo confirma quien cierra
-  /// ([end]; por defecto, hoy) también cuando el alta de la siguiente o
-  /// «Fijar fin previsto…» ya habían fijado un fin (#122): ese fin previsto se
-  /// muestra en el diálogo, pero no sustituye la validación ni se conserva en
-  /// silencio. Las reglas son las mismas haya o no fin previsto: no antes del
-  /// inicio; no después de hoy, o del inicio si la campaña todavía no empezó
-  /// (excepción ya documentada, que no se amplía); ningún registro fechado de
-  /// la campaña después del fin (compras, aplicaciones, necesidades y sus
-  /// versiones); sin solapes. El vínculo central se revalida en la misma
-  /// transacción. Un rechazo no escribe nada.
-  Future<void> closeCampaign(int campaignId, {DateTime? end}) async {
-    await _write((txn, _) async {
-      final periods = await _campaignPeriods(txn);
-      final period = periods
-          .where((p) => p.id == campaignId && p.status == 'ACTIVE')
-          .firstOrNull;
-      if (period == null)
-        throw BusinessRuleException('Solo una campaña activa puede cerrarse.');
-      final endDay = localDay(end ?? DateTime.now());
-      if (endDay.compareTo(period.startDay) < 0) {
-        throw CampaignCalendarException(
-          'El fin (${displayDay(endDay)}) no puede ser anterior al inicio '
-          'de «${period.name}» (${displayDay(period.startDay)}). No se '
-          'cerró.',
-        );
-      }
-      // Un fin futuro dejaría los días entre hoy y ese fin como de una
-      // campaña cerrada (revisión de B sobre #110): se admite hasta hoy, o
-      // hasta el inicio si la campaña todavía no empezó. Vale igual si ya
-      // había un fin previsto (#122): un 30/11 previsto no cierra el 17/10.
-      final today = localDay(DateTime.now());
-      final latestEnd = today.compareTo(period.startDay) < 0
-          ? period.startDay
-          : today;
-      if (endDay.compareTo(latestEnd) > 0) {
-        throw CampaignCalendarException(
-          'El fin (${displayDay(endDay)}) no puede ser posterior al '
-          '${displayDay(latestEnd)}: los días siguientes quedarían en una '
-          'campaña cerrada. No se cerró.',
-        );
-      }
-      final last = await _lastOperationDay(txn, campaignId);
-      if (last != null && last.compareTo(endDay) > 0) {
-        throw CampaignCalendarException(
-          '«${period.name}» tiene operaciones del ${displayDay(last)}, '
-          'posteriores al fin elegido (${displayDay(endDay)}). Las '
-          'operaciones no se cambian de campaña: no se cerró.',
-        );
-      }
-      final proposed = period.withEnd(endDay);
-      for (final other in periods) {
-        if (other.id != campaignId && other.overlaps(proposed)) {
-          throw CampaignCalendarException(
-            'El período propuesto (${proposed.describe}) se solapa con '
-            '«${other.name}» (${other.describe}). No se cerró.',
-          );
-        }
-      }
-      await txn.update(
-        'campaigns',
-        {'status': 'CLOSED', 'end_date': _date(startOfLocalDay(endDay))},
-        where: 'id=?',
-        whereArgs: [campaignId],
-      );
-      // D-F04-C2: con el fin efectivo fijado, el vínculo central se vuelve a
-      // comprobar en la misma transacción.
-      await CentralBindingStore.revalidateCampaignPeriod(
-        txn,
-        campaignId,
-        now: _date(DateTime.now()),
-      );
-    });
-  }
+  /// Cierre sin sucesora.
+  @override
+  Future<void> closeCampaign(int campaignId, {DateTime? end}) =>
+      _campaigns.closeCampaign(campaignId, end: end);
 
   /// Estados en los que un plan todavía **no se ha consumido**.
   ///
   /// `DRAFT` es el valor por defecto histórico de la columna; `addPlanMulti`
   /// siempre escribe `PLANNED`. Se aceptan los dos para no dejar fuera a bases
   /// antiguas.
-  static const pendingPlanStatuses = <String>{'PLANNED', 'DRAFT'};
+  static const pendingPlanStatuses =
+      ApplicationPlanRepository.pendingPlanStatuses;
 
   /// Estado de un plan ya consumido por su aplicación.
-  static const appliedPlanStatus = 'APPLIED';
+  static const appliedPlanStatus = ApplicationPlanRepository.appliedPlanStatus;
 
-  /// Rechaza aplicar un plan que ya se usó (UIBUG-045).
-  ///
-  /// Mira **las dos** señales: el estado del plan y la existencia de una
-  /// aplicación que lo referencie. Basta con una para rechazar, de modo que un
-  /// estado desincronizado por cualquier motivo no abra la puerta a duplicar
-  /// el movimiento.
-  Future<void> _ensurePlanNotApplied(
-    DatabaseExecutor executor,
-    int planId,
-  ) async {
-    final rows = await executor.query(
-      'application_plans',
-      columns: ['status'],
-      where: 'id=?',
-      whereArgs: [planId],
-      limit: 1,
-    );
-    if (rows.isEmpty) {
-      throw BusinessRuleException('El plan indicado no existe.');
-    }
-    final status = rows.single['status'] as String?;
-    final alreadyUsed =
-        (Sqflite.firstIntValue(
-              await executor.rawQuery(
-                'SELECT COUNT(*) FROM applications WHERE plan_id=?',
-                [planId],
-              ),
-            ) ??
-            0) >
-        0;
-    if (alreadyUsed || !pendingPlanStatuses.contains(status)) {
-      throw BusinessRuleException(
-        'Este plan ya fue aplicado y no puede volver a aplicarse. '
-        'Cree un plan nuevo si necesita repetir la aplicación.',
-      );
-    }
-  }
-
-  /// La fecha efectiva de una compra o aplicación no puede ser posterior a
-  /// hoy (#121) y tiene que clasificar en la campaña del borrador, que es la
-  /// activa (RN-15, RN-16, RF-03). Se lee dentro de la transacción que
-  /// escribe, antes de escribir: un rechazo no deja nada. Nunca se elige otra
-  /// campaña en silencio, y el mensaje nombra la campaña de la fecha sin
-  /// invitar a registrar en otra.
-  Future<void> _ensureEffectiveDateInCampaign(
-    DatabaseExecutor executor,
-    int campaignId,
-    DateTime effective,
-  ) async {
-    final day = localDay(effective);
-    final today = localDay(DateTime.now());
-    if (day.compareTo(today) > 0) {
-      throw CampaignDateException(
-        CampaignDateProblem.future,
-        'La fecha ${displayDay(day)} es posterior a hoy '
-        '(${displayDay(today)}). Una compra o aplicación ya realizada no '
-        'puede tener una fecha futura. No se registró nada.',
-      );
-    }
-    final periods = await _campaignPeriods(executor);
-    final containing = campaignsContaining(periods, day);
-    if (containing.length == 1 && containing.single.id == campaignId) return;
-    final when = displayDay(day);
-    if (containing.isEmpty) {
-      final own = periods.where((p) => p.id == campaignId).firstOrNull;
-      throw CampaignDateException(
-        CampaignDateProblem.none,
-        'La fecha $when no está dentro de ninguna campaña'
-        '${own == null ? '' : ' («${own.name}» va ${own.describe})'}. '
-        'Revise la fecha. No se registró nada.',
-      );
-    }
-    if (containing.length > 1) {
-      throw CampaignDateException(
-        CampaignDateProblem.ambiguous,
-        'La fecha $when está en más de una campaña '
-        '(${containing.map((p) => '«${p.name}»').join(', ')}): sus períodos '
-        'se solapan y no se puede saber a cuál corresponde. No se registró '
-        'nada.',
-      );
-    }
-    final other = containing.single;
-    if (other.status == 'PLANNED') {
-      throw CampaignDateException(
-        CampaignDateProblem.planned,
-        'La fecha $when corresponde a «${other.name}» (${other.describe}), '
-        'que todavía no está activa. No se registra en otra campaña. No se '
-        'registró nada.',
-      );
-    }
-    throw CampaignDateException(
-      CampaignDateProblem.closed,
-      'La fecha $when corresponde a la campaña cerrada «${other.name}» '
-      '(${other.describe}). Una operación de un período cerrado requiere '
-      'revisión y no se registra en otra campaña. No se registró nada.',
-    );
-  }
-
-  Future<void> _ensureCampaignActive(
-    DatabaseExecutor executor,
-    int campaignId,
-  ) async {
-    final rows = await executor.query(
-      'campaigns',
-      columns: ['name'],
-      where: "id=? AND status='ACTIVE'",
-      whereArgs: [campaignId],
-      limit: 1,
-    );
-    if (rows.isEmpty) {
-      throw BusinessRuleException(
-        'La campaña no está activa. Active una campaña para continuar.',
-      );
-    }
-  }
-
+  @override
   Future<int> addProduct({
     required String name,
     String? activeIngredient,
     String unit = 'L',
-  }) => _write(
-    (txn, _) => txn.insert('products', {
-      'name': name.trim(),
-      'active_ingredient': activeIngredient,
-      'unit': unit,
-      'base_unit': unit == 'L' ? 'ML' : 'G',
-    }),
+  }) => _catalogs.addProduct(
+    name: name,
+    activeIngredient: activeIngredient,
+    unit: unit,
   );
 
+  @override
   Future<int> addSupplier({
     required String name,
     String? phone,
     String? notes,
-  }) => _write(
-    (txn, _) => txn.insert('suppliers', {
-      'name': name.trim(),
-      'phone': phone,
-      'notes': notes,
-    }),
-  );
+  }) => _catalogs.addSupplier(name: name, phone: phone, notes: notes);
 
   Future<int> addPlan({
     required int farmId,
@@ -993,18 +165,16 @@ class AgroRepository {
     required int areaM2,
     required int doseBasePerHa,
     DateTime? plannedDate,
-  }) async {
-    return addPlanMulti(
-      farmId: farmId,
-      campaignId: campaignId,
-      areaM2: areaM2,
-      items: [
-        PlanItemDraft(productId: productId, doseBasePerHa: doseBasePerHa),
-      ],
-      plannedDate: plannedDate,
-    );
-  }
+  }) => _applications.addPlan(
+    farmId: farmId,
+    campaignId: campaignId,
+    productId: productId,
+    areaM2: areaM2,
+    doseBasePerHa: doseBasePerHa,
+    plannedDate: plannedDate,
+  );
 
+  @override
   Future<int> addPlanMulti({
     required int farmId,
     required int campaignId,
@@ -1012,1325 +182,89 @@ class AgroRepository {
     required List<PlanItemDraft> items,
     DateTime? plannedDate,
     String? notes,
-  }) async {
-    if (areaM2 <= 0 || items.isEmpty) {
-      throw BusinessRuleException(
-        'El plan necesita área y al menos un producto.',
-      );
-    }
-    final productIds = items.map((item) => item.productId).toSet();
-    if (productIds.length != items.length) {
-      throw BusinessRuleException('No repita productos dentro del plan.');
-    }
-    if (items.any((item) => item.doseBasePerHa <= 0)) {
-      throw BusinessRuleException('Todas las dosis deben ser mayores a cero.');
-    }
-    return _write((txn, context) async {
-      await _requireOwnerFarmInPersonal(txn, context, farmId);
-      await _ensureCampaignActive(txn, campaignId);
-      final planId = await txn.insert('application_plans', {
-        'farm_id': farmId,
-        'campaign_id': campaignId,
-        'planned_date': plannedDate == null ? null : _date(plannedDate),
-        'status': 'PLANNED',
-        'notes': notes,
-      });
-      for (final item in items) {
-        final requiredBase = divideRoundedHalfUp(
-          areaM2 * item.doseBasePerHa,
-          10000,
-        );
-        await txn.insert('application_plan_items', {
-          'plan_id': planId,
-          'product_id': item.productId,
-          'area_m2': areaM2,
-          'dose_base_per_ha': item.doseBasePerHa,
-          'required_quantity_base': requiredBase,
-        });
-      }
-      return planId;
-    });
-  }
+  }) => _applications.addPlanMulti(
+    farmId: farmId,
+    campaignId: campaignId,
+    areaM2: areaM2,
+    items: items,
+    plannedDate: plannedDate,
+    notes: notes,
+  );
 
-  /// Confirma la compra y, con [paidInFull], deja registrado en la **misma
-  /// transacción** el pago del total al proveedor a nombre del titular
-  /// vigente, con el medio y la fecha que indicó la persona: aquí no se
-  /// supone ningún dato del pago. Antes el formulario escribía la compra y
-  /// después el pago en dos transacciones: si la segunda fallaba, la compra ya
-  /// estaba guardada, la pantalla anunciaba un error y reintentar la
-  /// duplicaba. Ahora un fallo deshace las dos escrituras y no hay éxito
-  /// parcial que anunciar.
+  /// Confirma la compra y, con [paidInFull], registra en la **misma
+  /// transacción** el pago del total al proveedor a nombre del titular vigente.
+  @override
   Future<int> confirmPurchase(
     PurchaseDraft draft, {
     ProviderPaymentDetails? paidInFull,
-  }) async {
-    final purchaseTotal = _validatePurchaseDraft(draft);
-    final payment = paidInFull;
-    return _write((txn, context) async {
-      _requireOwnerInPersonal(context, [
-        for (final item in draft.items)
-          for (final allocation in item.allocations) allocation.personId,
-      ], 'En el modo individual la compra se asigna sólo al titular.');
-      // El pagador se comprueba antes de escribir nada: sin titular no se
-      // guarda ni la compra ni el pago.
-      final payer = payment == null ? null : _requireOwnerPayer(context);
-      await _ensureCampaignActive(txn, draft.campaignId);
-      await _ensureEffectiveDateInCampaign(
-        txn,
-        draft.campaignId,
-        draft.purchaseDate,
-      );
-      final purchaseId = await _insertPurchase(txn, draft, purchaseTotal);
-      if (payer != null && payment != null) {
-        await _insertProviderPayment(
-          txn,
-          purchaseId: purchaseId,
-          payerPersonId: payer,
-          amountBobMinor: purchaseTotal,
-          // Medio y fecha tal como los indicó la persona (o `unspecified`,
-          // explícito). La fecha se valida contra la de la compra y hoy.
-          method: payment.method,
-          date: payment.date,
-        );
-      }
-      return purchaseId;
-    });
-  }
+  }) => _purchases.confirmPurchase(draft, paidInFull: paidInFull);
 
-  /// Regla del pagador (aprobada el 2026-10-26, tras el piloto X01): el pago
-  /// al proveedor lo registra el **titular vigente** de la instalación, en las
-  /// dos modalidades. Se lee del vínculo real (`owner_bindings`, en la misma
-  /// transacción que escribe), nunca del rol ADMIN, del nombre ni de la
-  /// primera fila. Devuelve su `person_id`.
-  int _requireOwnerPayer(WriteContext context, {int? payerPersonId}) {
-    final owner = context.ownerPersonId;
-    if (owner == null) {
-      throw BusinessRuleException(
-        'Para registrar el pago al proveedor, la instalación necesita un '
-        'titular vinculado.',
-      );
-    }
-    if (payerPersonId != null && payerPersonId != owner) {
-      throw BusinessRuleException(
-        'El pago al proveedor lo registra el titular vigente, no otra persona.',
-      );
-    }
-    return owner;
-  }
-
-  /// Validaciones de una compra que no dependen de la base. Devuelve el total.
-  int _validatePurchaseDraft(PurchaseDraft draft) {
-    if (draft.items.isEmpty)
-      throw BusinessRuleException('La compra necesita al menos un producto.');
-    if (draft.items.map((item) => item.productId).toSet().length !=
-        draft.items.length) {
-      throw BusinessRuleException('No repita productos dentro de la compra.');
-    }
-    var purchaseTotal = 0;
-    for (final item in draft.items) {
-      if (item.quantityBase <= 0 || item.originalUnitPriceMinor <= 0) {
-        throw BusinessRuleException(
-          'Cantidad y precio deben ser mayores a cero.',
-        );
-      }
-      if (item.currency == CurrencyCode.usd &&
-          (item.exchangeRateScaled ?? 0) <= 0) {
-        throw BusinessRuleException(
-          'Una compra en USD requiere tipo de cambio.',
-        );
-      }
-      if (item.currency == CurrencyCode.bob &&
-          item.exchangeRateScaled != null) {
-        throw BusinessRuleException(
-          'Una compra en BOB no debe guardar tipo de cambio.',
-        );
-      }
-      final allocated = item.allocations.fold<int>(
-        0,
-        (sum, value) => sum + value.quantityBase,
-      );
-      if (allocated != item.quantityBase) {
-        throw BusinessRuleException(
-          'La cantidad asignada debe coincidir con la cantidad comprada.',
-        );
-      }
-      // Vencimiento y número de lote son opcionales (RF-42): sólo se
-      // comprueba su forma, nunca se exigen ni se suponen.
-      _checkExpiryDay(item.expiryDay);
-      // normalizeLotNumber rechaza el exceso de largo con su mensaje.
-      if (item.lotNumber != null &&
-          normalizeLotNumber(item.lotNumber) != item.lotNumber) {
-        throw BusinessRuleException(
-          'El número de lote no puede quedar vacío ni empezar o terminar con '
-          'espacios.',
-        );
-      }
-      purchaseTotal += subtotalMinor(
-        quantityBase: item.quantityBase,
-        unitPriceMinor: item.originalUnitPriceMinor,
-        fxScaled: item.exchangeRateScaled,
-      );
-    }
-
-    return purchaseTotal;
-  }
-
-  /// Escribe una compra ya validada en [draft.campaignId] (ordinaria o, en
-  /// RF-03, una tardía confirmada en su campaña cerrada).
-  Future<int> _insertPurchase(
-    Transaction txn,
-    PurchaseDraft draft,
-    int purchaseTotal,
-  ) async {
-    final purchaseId = await txn.insert('purchases', {
-      'supplier_id': draft.supplierId,
-      'campaign_id': draft.campaignId,
-      'purchase_date': _date(draft.purchaseDate),
-      'invoice_number': draft.invoiceNumber,
-      'default_currency_code': draft.items.first.currency.code,
-      'default_exchange_rate_scaled': draft.items.first.exchangeRateScaled,
-      'exchange_rate_source': draft.exchangeRateSource?.code,
-      'exchange_rate_note': draft.exchangeRateNote,
-      'total_bob_minor': purchaseTotal,
-      'status': 'CONFIRMED',
-      'notes': draft.notes,
-      'invoice_image_path': draft.invoiceImagePath,
-    });
-    for (final item in draft.items) {
-      final unitBob = convertedUnitPriceBobMinor(
-        item.originalUnitPriceMinor,
-        item.exchangeRateScaled,
-      );
-      final originalSubtotal = divideRoundedHalfUp(
-        item.quantityBase * item.originalUnitPriceMinor,
-        baseUnitsPerMajor,
-      );
-      final bobSubtotal = subtotalMinor(
-        quantityBase: item.quantityBase,
-        unitPriceMinor: item.originalUnitPriceMinor,
-        fxScaled: item.exchangeRateScaled,
-      );
-      final purchaseItemId = await txn.insert('purchase_items', {
-        'purchase_id': purchaseId,
-        'product_id': item.productId,
-        'quantity_base': item.quantityBase,
-        'currency_code': item.currency.code,
-        'original_unit_price_minor': item.originalUnitPriceMinor,
-        'exchange_rate_scaled': item.exchangeRateScaled,
-        'converted_unit_price_bob_minor': unitBob,
-        'original_subtotal_minor': originalSubtotal,
-        'subtotal_bob_minor': bobSubtotal,
-      });
-      for (final allocation in item.allocations) {
-        final person = (await txn.query(
-          'persons',
-          where: 'id = ?',
-          whereArgs: [allocation.personId],
-          limit: 1,
-        )).single;
-        final policy = person['settlement_policy']! as String;
-        final allocationCost = costForBaseQuantity(
-          allocation.quantityBase,
-          unitBob,
-        );
-        final allocationId = await txn.insert('purchase_allocations', {
-          'purchase_item_id': purchaseItemId,
-          'person_id': allocation.personId,
-          'quantity_base': allocation.quantityBase,
-          'charge_policy_snapshot': policy,
-          'amount_bob_minor_if_allocation_charge':
-              policy == 'BY_PURCHASE_ALLOCATION' ? allocationCost : null,
-        });
-        final lotId = await txn.insert('inventory_lots', {
-          'purchase_item_id': purchaseItemId,
-          'product_id': item.productId,
-          'owner_person_id': allocation.personId,
-          'acquired_date': _date(draft.purchaseDate),
-          'initial_quantity_base': allocation.quantityBase,
-          'unit_cost_bob_minor_per_major_unit': unitBob,
-          'currency_code': item.currency.code,
-          'original_unit_price_minor': item.originalUnitPriceMinor,
-          'exchange_rate_scaled': item.exchangeRateScaled,
-          // F04-AV: cada lote de la línea lleva su vencimiento y su número
-          // de lote, si se conocen (RF-42). No influyen en el FIFO.
-          'expiry_date': item.expiryDay,
-          'lot_number': item.lotNumber,
-        });
-        await txn.insert('inventory_movements', {
-          'lot_id': lotId,
-          'product_id': item.productId,
-          'owner_person_id': allocation.personId,
-          'movement_date': _date(draft.purchaseDate),
-          'type': 'PURCHASE_IN',
-          'quantity_signed': allocation.quantityBase,
-          'reference_type': 'PURCHASE_ALLOCATION',
-          'reference_id': allocationId,
-        });
-        if (policy == 'BY_PURCHASE_ALLOCATION') {
-          await txn.insert('account_transactions', {
-            'person_id': allocation.personId,
-            'campaign_id': draft.campaignId,
-            'transaction_date': _date(draft.purchaseDate),
-            'type': 'PURCHASE_ALLOCATION_CHARGE',
-            'amount_bob_minor_signed': allocationCost,
-            'reference_type': 'PURCHASE_ALLOCATION',
-            'reference_id': allocationId,
-          });
-        }
-      }
-    }
-    return purchaseId;
-  }
-
-  /// Pago posterior al proveedor. [method] y [date] son lo que indicó la
-  /// persona; sin [date], el pago es de ahora (el momento de registrarlo).
+  /// Pago posterior al proveedor.
   Future<int> addProviderPayment({
     required int purchaseId,
     required int payerPersonId,
     required int amountBobMinor,
     required PaymentMethod method,
     DateTime? date,
-  }) async {
-    if (amountBobMinor <= 0)
-      throw BusinessRuleException('El pago debe ser mayor a cero.');
-    return _write((txn, context) async {
-      _requireOwnerInPersonal(context, [
-        payerPersonId,
-      ], 'En el modo individual el pago al proveedor lo registra el titular.');
-      // Regla del pagador: el titular vigente, también en compartido. Los
-      // pagos ya guardados no se reasignan; sólo se juzgan los nuevos.
-      _requireOwnerPayer(context, payerPersonId: payerPersonId);
-      return _insertProviderPayment(
-        txn,
-        purchaseId: purchaseId,
-        payerPersonId: payerPersonId,
-        amountBobMinor: amountBobMinor,
-        method: method,
-        date: date ?? DateTime.now(),
-      );
-    });
-  }
-
-  /// Escribe un pago al proveedor ya autorizado, dentro de la transacción de
-  /// quien lo llama (la compra que se confirma pagada, o un pago posterior).
-  /// La fecha del pago no es futura: un pago ya hecho no puede tener una
-  /// fecha posterior a hoy (como la compra, `_ensureEffectiveDateInCampaign`).
-  /// No se exige que sea posterior a la compra: un anticipo al proveedor es
-  /// legítimo y el contrato no lo prohíbe. Sólo se juzgan los pagos nuevos;
-  /// los guardados no se tocan.
-  Future<int> _insertProviderPayment(
-    Transaction txn, {
-    required int purchaseId,
-    required int payerPersonId,
-    required int amountBobMinor,
-    required PaymentMethod method,
-    required DateTime date,
-  }) async {
-    final purchase = (await txn.query(
-      'purchases',
-      where: 'id = ? AND reversed_at IS NULL',
-      whereArgs: [purchaseId],
-      limit: 1,
-    ));
-    if (purchase.isEmpty)
-      throw BusinessRuleException('La compra no está activa.');
-    final day = localDay(date);
-    final today = localDay(DateTime.now());
-    if (day.compareTo(today) > 0) {
-      throw BusinessRuleException(
-        'La fecha del pago (${displayDay(day)}) es posterior a hoy '
-        '(${displayDay(today)}). Un pago ya hecho no puede tener una fecha '
-        'futura. No se registró nada.',
-      );
-    }
-    final paid =
-        Sqflite.firstIntValue(
-          await txn.rawQuery(
-            'SELECT COALESCE(SUM(amount_bob_minor),0) FROM provider_payments WHERE purchase_id = ? AND reversed_at IS NULL',
-            [purchaseId],
-          ),
-        ) ??
-        0;
-    final total = purchase.single['total_bob_minor']! as int;
-    if (paid + amountBobMinor > total)
-      throw BusinessRuleException('El pago supera el saldo de la compra.');
-    return txn.insert('provider_payments', {
-      'purchase_id': purchaseId,
-      'payer_person_id': payerPersonId,
-      'payment_date': _date(date),
-      'amount_bob_minor': amountBobMinor,
-      'method': method.code,
-    });
-  }
-
-  Future<int> confirmApplication(ApplicationDraft draft) async {
-    if (draft.lines.isEmpty)
-      throw BusinessRuleException(
-        'La aplicación necesita al menos un producto.',
-      );
-    if (draft.lines.map((line) => line.productId).toSet().length !=
-        draft.lines.length) {
-      throw BusinessRuleException(
-        'No repita productos dentro de la aplicación.',
-      );
-    }
-    return _write((txn, context) async {
-      _requireOwnerInPersonal(context, [
-        draft.personId,
-      ], 'En el modo individual la aplicación la realiza el titular.');
-      await _requireOwnerFarmInPersonal(txn, context, draft.farmId);
-      await _ensureCampaignActive(txn, draft.campaignId);
-      await _ensureEffectiveDateInCampaign(
-        txn,
-        draft.campaignId,
-        draft.appliedAt,
-      );
-      // **Un plan se aplica una sola vez** (UIBUG-045). La comprobación vive
-      // dentro de la transacción, así que un doble toque o una llamada
-      // repetida no pueden colarse entre la lectura y la escritura; el índice
-      // único parcial de `applications(plan_id)` es la segunda barrera, por si
-      // alguien llega por otro camino.
-      if (draft.planId != null) {
-        await _ensurePlanNotApplied(txn, draft.planId!);
-      }
-      // D-03 (decisión del autor, 2026-10-27): una aplicación no consume
-      // producto que todavía no existía en su fecha efectiva, tampoco en la
-      // campaña activa. Si el día local efectivo es hoy, nada posterior puede
-      // existir (no se admiten fechas futuras, #121) y el saldo de hoy es el
-      // cupo: se conserva la ruta de siempre, con la misma consulta, el mismo
-      // FIFO y el mismo costo. Si es un día pasado, se usa la elegibilidad de
-      // RF-03 (§2.3): lotes adquiridos ese día o antes y un cupo que no deja
-      // negativo ningún saldo posterior. Todo dentro de esta transacción.
-      final day = localDay(draft.appliedAt);
-      if (day == localDay(DateTime.now())) {
-        return _insertApplication(txn, draft, lotsFor: _lotsAvailableNow);
-      }
-      return _insertApplication(
-        txn,
-        draft,
-        lotsFor: (executor, productId, personId) =>
-            _lotsAvailableAt(executor, productId, personId, day),
-        shortfall: (line, available) =>
-            _historicalShortfall(txn, line, draft.personId, available, day),
-      );
-    });
-  }
-
-  /// Rechazo de una aplicación con fecha pasada cuyo cupo histórico no
-  /// alcanza (D-03), también cuando tampoco alcanza el saldo de hoy. Nombra
-  /// el producto, el día y la existencia elegible, y distingue si ese día la
-  /// persona no tenía el producto o si lo tenía y queda menos sin usar en
-  /// operaciones posteriores. Sólo se lee en el camino del rechazo.
-  Future<HistoricalStockException> _historicalShortfall(
-    DatabaseExecutor txn,
-    ApplicationLineDraft line,
-    int personId,
-    int available,
-    String day,
-  ) async {
-    final history = await _lotHistoryAt(txn, line.productId, personId, day);
-    // Lo que tenía al final de ese día, por lote; un saldo histórico
-    // negativo (registros anteriores inconsistentes) cuenta como nada.
-    final held = history.fold<int>(0, (sum, lot) {
-      final atDay = lot['held']! as int;
-      return sum + (atDay > 0 ? atDay : 0);
-    });
-    final product = (await txn.query(
-      'products',
-      columns: ['name', 'unit'],
-      where: 'id=?',
-      whereArgs: [line.productId],
-      limit: 1,
-    )).single;
-    final unit = product['unit']! as String;
-    final name = product['name']! as String;
-    final when = displayDay(day);
-    final asked = formatQuantity(line.quantityBase, unit);
-    final String what;
-    if (held <= 0) {
-      what =
-          '$name: el $when esa persona no tenía este producto; pidió $asked.';
-    } else if (available == held) {
-      what =
-          '$name: el $when esa persona tenía ${formatQuantity(held, unit)}; '
-          'pidió $asked.';
-    } else {
-      what =
-          '$name: el $when esa persona tenía ${formatQuantity(held, unit)}; '
-          'de eso quedan ${formatQuantity(available, unit)} sin usar en '
-          'operaciones posteriores; pidió $asked.';
-    }
-    return HistoricalStockException(
-      productId: line.productId,
-      day: day,
-      heldBase: held,
-      availableBase: available,
-      requestedBase: line.quantityBase,
-      message:
-          '$what Una aplicación con fecha pasada sólo puede usar lo que esa '
-          'persona ya tenía ese día y no se usó después: no cuenta el producto '
-          'comprado o recibido más tarde. Revise la fecha o la cantidad. No se '
-          'registró nada.',
-    );
-  }
-
-  /// Lotes con saldo hoy, en orden FIFO (registro ordinario).
-  Future<List<Map<String, Object?>>> _lotsAvailableNow(
-    DatabaseExecutor txn,
-    int productId,
-    int personId,
-  ) => txn.rawQuery(
-    '''
-          SELECT l.*, COALESCE(SUM(m.quantity_signed), 0) AS available
-          FROM inventory_lots l JOIN inventory_movements m ON m.lot_id = l.id
-          WHERE l.product_id = ? AND l.owner_person_id = ? AND l.reversed_at IS NULL
-          GROUP BY l.id HAVING available > 0 ORDER BY l.acquired_date, l.id
-        ''',
-    [productId, personId],
+  }) => _purchases.addProviderPayment(
+    purchaseId: purchaseId,
+    payerPersonId: payerPersonId,
+    amountBobMinor: amountBobMinor,
+    method: method,
+    date: date,
   );
 
-  /// Escribe una aplicación ya validada consumiendo de [lotsFor] (FIFO; cada
-  /// fila trae su cupo en `available`). Si el cupo de una línea no alcanza,
-  /// lanza la excepción de [shortfall] o, sin ella, la de RN-25; la
-  /// transacción se deshace entera.
-  Future<int> _insertApplication(
-    Transaction txn,
-    ApplicationDraft draft, {
-    required Future<List<Map<String, Object?>>> Function(
-      DatabaseExecutor txn,
-      int productId,
-      int personId,
-    )
-    lotsFor,
-    Future<BusinessRuleException> Function(
-      ApplicationLineDraft line,
-      int available,
-    )?
-    shortfall,
-  }) async {
-    final person = (await txn.query(
-      'persons',
-      where: 'id = ?',
-      whereArgs: [draft.personId],
-      limit: 1,
-    )).single;
-    final policy = person['settlement_policy']! as String;
-    final applicationId = await txn.insert('applications', {
-      'farm_id': draft.farmId,
-      'person_id': draft.personId,
-      'campaign_id': draft.campaignId,
-      'plan_id': draft.planId,
-      'applied_at': _date(draft.appliedAt),
-      'status': 'CONFIRMED',
-      'treated_area_m2': draft.treatedAreaM2 ?? draft.lines.first.treatedAreaM2,
-      'notes': draft.notes,
-    });
-    var totalCost = 0;
-    for (final line in draft.lines) {
-      if (line.quantityBase <= 0)
-        throw BusinessRuleException(
-          'La cantidad aplicada debe ser mayor a cero.',
-        );
-      final lots = await lotsFor(txn, line.productId, draft.personId);
-      final available = lots.fold<int>(
-        0,
-        (sum, row) => sum + (row['available']! as int),
-      );
-      if (available < line.quantityBase) {
-        if (shortfall != null) throw await shortfall(line, available);
-        throw BusinessRuleException(
-          'Stock insuficiente para confirmar la aplicación.',
-        );
-      }
-      final product = (await txn.query(
-        'products',
-        columns: ['unit'],
-        where: 'id=?',
-        whereArgs: [line.productId],
-        limit: 1,
-      )).single;
-      final applicationItemId = await txn.insert('application_items', {
-        'application_id': applicationId,
-        'product_id': line.productId,
-        'quantity_base': line.quantityBase,
-        'cost_bob_minor': 0,
-        'treated_area_m2': line.treatedAreaM2,
-        'dose_base_per_ha': line.doseBasePerHa,
-        'theoretical_quantity_base': line.theoreticalQuantityBase,
-        'unit': product['unit'],
-        'variance_quantity_base': line.theoreticalQuantityBase == null
-            ? null
-            : line.quantityBase - line.theoreticalQuantityBase!,
-      });
-      var lineCost = 0;
-      // La misma regla que la previsión del formulario (`fifoTakes`).
-      for (final (:lot, :take) in fifoTakes(lots, line.quantityBase)) {
-        final cost = costForBaseQuantity(
-          take,
-          lot['unit_cost_bob_minor_per_major_unit']! as int,
-        );
-        await txn.insert('application_consumptions', {
-          'application_item_id': applicationItemId,
-          'inventory_lot_id': lot['id'],
-          'quantity_consumed_base': take,
-          'cost_bob_minor': cost,
-        });
-        await txn.insert('inventory_movements', {
-          'lot_id': lot['id'],
-          'product_id': line.productId,
-          'owner_person_id': draft.personId,
-          'movement_date': _date(draft.appliedAt),
-          'type': 'APPLICATION_OUT',
-          'quantity_signed': -take,
-          'reference_type': 'APPLICATION',
-          'reference_id': applicationId,
-        });
-        lineCost += cost;
-      }
-      await txn.update(
-        'application_items',
-        {'cost_bob_minor': lineCost, 'fifo_estimated_cost_bob_minor': lineCost},
-        where: 'id = ?',
-        whereArgs: [applicationItemId],
-      );
-      totalCost += lineCost;
-    }
-    await txn.update(
-      'applications',
-      {'total_cost_bob_minor': totalCost},
-      where: 'id = ?',
-      whereArgs: [applicationId],
-    );
-    if (policy == 'BY_ACTUAL_USAGE') {
-      await txn.insert('account_transactions', {
-        'person_id': draft.personId,
-        'campaign_id': draft.campaignId,
-        'transaction_date': _date(draft.appliedAt),
-        'type': 'USAGE_CHARGE',
-        'amount_bob_minor_signed': totalCost,
-        'reference_type': 'APPLICATION',
-        'reference_id': applicationId,
-      });
-    }
-    if (draft.planId != null) {
-      // PLANNED -> APPLIED, y ahí se queda (UIBUG-045).
-      await txn.update(
-        'application_plans',
-        {'status': appliedPlanStatus},
-        where: 'id=?',
-        whereArgs: [draft.planId],
-      );
-    }
-    return applicationId;
-  }
+  @override
+  Future<int> confirmApplication(ApplicationDraft draft) =>
+      _applications.confirmApplication(draft);
 
   // ---------------------------------------------------------------------
   // RF-03: operaciones tardías con revisión
   // (docs/architecture/F04_RF13_RF03_ACTOR_Y_TARDIAS.md §2)
   // ---------------------------------------------------------------------
 
-  /// La campaña CERRADA a la que pertenece [effective], o la excepción de
-  /// fecha de siempre (futura, ambigua, sin campaña, planificada). Una fecha
-  /// de la campaña activa se registra por el camino ordinario.
-  Future<CampaignPeriod> _closedCampaignFor(
-    DatabaseExecutor executor,
-    DateTime effective,
-  ) async {
-    final day = localDay(effective);
-    final today = localDay(DateTime.now());
-    if (day.compareTo(today) > 0) {
-      throw CampaignDateException(
-        CampaignDateProblem.future,
-        'La fecha ${displayDay(day)} es posterior a hoy. Una operación ya '
-        'realizada no puede tener una fecha futura. No se registró nada.',
-      );
-    }
-    final containing = campaignsContaining(
-      await _campaignPeriods(executor),
-      day,
-    );
-    if (containing.isEmpty) {
-      throw CampaignDateException(
-        CampaignDateProblem.none,
-        'La fecha ${displayDay(day)} no está dentro de ninguna campaña. Puede '
-        'crear un período histórico para ella. No se registró nada.',
-      );
-    }
-    if (containing.length > 1) {
-      throw CampaignDateException(
-        CampaignDateProblem.ambiguous,
-        'La fecha ${displayDay(day)} está en más de una campaña: no se puede '
-        'saber a cuál corresponde. No se registró nada.',
-      );
-    }
-    final period = containing.single;
-    if (period.status == 'CLOSED') return period;
-    if (period.status == 'PLANNED') {
-      throw CampaignDateException(
-        CampaignDateProblem.planned,
-        'La fecha ${displayDay(day)} corresponde a «${period.name}», que '
-        'todavía no está activa. No se registró nada.',
-      );
-    }
-    throw BusinessRuleException(
-      'La fecha ${displayDay(day)} pertenece a la campaña activa '
-      '«${period.name}»: regístrela de la forma ordinaria.',
-    );
-  }
-
-  /// Guarda una compra de una campaña cerrada como borrador pendiente, sin
-  /// efectos (§2.1). Devuelve el `draft_ref`.
+  /// Guarda una compra de una campaña cerrada como borrador pendiente (§2.1).
   Future<String> captureLatePurchase(
     PurchaseDraft draft, {
     required String reason,
-  }) async {
-    _validatePurchaseDraft(draft);
-    final trimmed = _requireReason(reason);
-    return _write((txn, context) async {
-      _requireOwnerInPersonal(context, [
-        for (final item in draft.items)
-          for (final allocation in item.allocations) allocation.personId,
-      ], 'En el modo individual la compra se asigna sólo al titular.');
-      final campaign = await _closedCampaignFor(txn, draft.purchaseDate);
-      final stored = PurchaseDraft(
-        supplierId: draft.supplierId,
-        campaignId: campaign.id,
-        purchaseDate: draft.purchaseDate,
-        invoiceNumber: draft.invoiceNumber,
-        exchangeRateSource: draft.exchangeRateSource,
-        exchangeRateNote: draft.exchangeRateNote,
-        notes: draft.notes,
-        items: draft.items,
-      );
-      return _insertLateDraft(
-        txn,
-        kind: 'PURCHASE',
-        campaignId: campaign.id,
-        effective: draft.purchaseDate,
-        reason: trimmed,
-        payload: encodeLatePurchase(stored),
-        invoiceImagePath: draft.invoiceImagePath,
-      );
-    });
-  }
+  }) => _lateOperations.captureLatePurchase(draft, reason: reason);
 
-  /// Guarda una aplicación de una campaña cerrada como borrador pendiente,
-  /// sin efectos (§2.1). Una aplicación tardía no se vincula a un plan.
+  /// Guarda una aplicación de una campaña cerrada como borrador pendiente (§2.1).
   Future<String> captureLateApplication(
     ApplicationDraft draft, {
     required String reason,
-  }) async {
-    if (draft.lines.isEmpty) {
-      throw BusinessRuleException(
-        'La aplicación necesita al menos un producto.',
-      );
-    }
-    if (draft.lines.map((line) => line.productId).toSet().length !=
-        draft.lines.length) {
-      throw BusinessRuleException(
-        'No repita productos dentro de la aplicación.',
-      );
-    }
-    if (draft.lines.any((line) => line.quantityBase <= 0)) {
-      throw BusinessRuleException(
-        'La cantidad aplicada debe ser mayor a cero.',
-      );
-    }
-    if (draft.planId != null) {
-      throw BusinessRuleException(
-        'Una aplicación tardía no se vincula a un plan.',
-      );
-    }
-    final trimmed = _requireReason(reason);
-    return _write((txn, context) async {
-      _requireOwnerInPersonal(context, [
-        draft.personId,
-      ], 'En el modo individual la aplicación la realiza el titular.');
-      await _requireOwnerFarmInPersonal(txn, context, draft.farmId);
-      final campaign = await _closedCampaignFor(txn, draft.appliedAt);
-      final stored = ApplicationDraft(
-        personId: draft.personId,
-        farmId: draft.farmId,
-        campaignId: campaign.id,
-        appliedAt: draft.appliedAt,
-        lines: draft.lines,
-        treatedAreaM2: draft.treatedAreaM2,
-        notes: draft.notes,
-      );
-      return _insertLateDraft(
-        txn,
-        kind: 'APPLICATION',
-        campaignId: campaign.id,
-        effective: draft.appliedAt,
-        reason: trimmed,
-        payload: encodeLateApplication(stored),
-      );
-    });
-  }
-
-  String _requireReason(String reason) {
-    final trimmed = reason.trim();
-    if (trimmed.isEmpty) throw BusinessRuleException('Indique el motivo.');
-    return trimmed;
-  }
-
-  Future<String> _insertLateDraft(
-    Transaction txn, {
-    required String kind,
-    required int campaignId,
-    required DateTime effective,
-    required String reason,
-    required String payload,
-    String? invoiceImagePath,
-  }) async {
-    final ref = newOperationId();
-    await txn.insert('late_operation_drafts', {
-      'draft_ref': ref,
-      'kind': kind,
-      'campaign_id': campaignId,
-      'effective_date': _date(effective),
-      'captured_at': _date(DateTime.now()),
-      'reason': reason,
-      'payload': payload,
-      'invoice_image_path': invoiceImagePath,
-      'status': 'PENDING',
-    });
-    return ref;
-  }
+  }) => _lateOperations.captureLateApplication(draft, reason: reason);
 
   /// Borradores tardíos, los pendientes primero.
-  Future<List<Map<String, Object?>>> lateOperationDrafts() async =>
-      (await _db).rawQuery(
-        '''SELECT d.*, c.name campaign_name FROM late_operation_drafts d
-        JOIN campaigns c ON c.id=d.campaign_id
-        ORDER BY CASE d.status WHEN 'PENDING' THEN 0 ELSE 1 END, d.captured_at DESC, d.id DESC''',
-      );
+  Future<List<Map<String, Object?>>> lateOperationDrafts() =>
+      _lateOperations.lateOperationDrafts();
 
-  /// Lotes elegibles para una aplicación del día [day] y su cupo temporal
-  /// (§2.3, I1 de B; §2.6 para D-03): adquiridos ese día o antes, no
-  /// anulados; el cupo es el mínimo del saldo al final del día efectivo y al
-  /// final de cada día posterior con movimientos, ordenando por día efectivo
-  /// y después por id. La aplicación va al final de su día. Lo usan la
-  /// operación tardía (`confirmLateOperation`) y la aplicación ordinaria con
-  /// fecha pasada (`confirmApplication`, D-03), sobre la misma proyección
-  /// corregida por anulaciones demostradas. Sólo lotes con cupo positivo.
-  Future<List<Map<String, Object?>>> _lotsAvailableAt(
-    DatabaseExecutor txn,
-    int productId,
-    int personId,
-    String day,
-  ) async => [
-    for (final lot in await _lotHistoryAt(txn, productId, personId, day))
-      if ((lot['available']! as int) > 0) lot,
-  ];
-
-  /// Cada lote adquirido el día [day] o antes, con `held` (saldo al final de
-  /// ese día) y `available` (su cupo, que puede ser cero o negativo), sobre
-  /// la proyección histórica corregida (§2.6): los pares de anulación
-  /// demostrados ([_demonstratedAnnulments]) no cuentan, y el cupo nunca
-  /// supera el saldo actual del lote. La base no cambia.
-  Future<List<Map<String, Object?>>> _lotHistoryAt(
-    DatabaseExecutor txn,
-    int productId,
-    int personId,
-    String day,
-  ) async {
-    final lots = await txn.query(
-      'inventory_lots',
-      where: 'product_id=? AND owner_person_id=? AND reversed_at IS NULL',
-      whereArgs: [productId, personId],
-      orderBy: 'acquired_date, id',
-    );
-    final eligible = <Map<String, Object?>>[];
-    for (final lot in lots) {
-      if (storedLocalDay(lot['acquired_date']! as String).compareTo(day) > 0) {
-        continue;
-      }
-      final movements = await txn.query(
-        'inventory_movements',
-        columns: [
-          'id',
-          'movement_date',
-          'quantity_signed',
-          'type',
-          'reference_type',
-          'reference_id',
-        ],
-        where: 'lot_id=?',
-        whereArgs: [lot['id']],
-      );
-      final current = movements.fold<int>(
-        0,
-        (sum, m) => sum + (m['quantity_signed']! as int),
-      );
-      final neutral = await _demonstratedAnnulments(
-        txn,
-        lot['id']! as int,
-        movements,
-      );
-      final ordered =
-          movements
-              .where((m) => !neutral.contains(m['id']))
-              .map(
-                (m) => (
-                  day: storedLocalDay(m['movement_date']! as String),
-                  id: m['id']! as int,
-                  quantity: m['quantity_signed']! as int,
-                ),
-              )
-              .toList()
-            ..sort((a, b) {
-              final byDay = a.day.compareTo(b.day);
-              return byDay != 0 ? byDay : a.id.compareTo(b.id);
-            });
-      // Saldo acumulado al final del día efectivo (todo lo de días ≤ day) y
-      // mínimo del saldo al final de cada día posterior con movimientos.
-      var balance = 0;
-      var atDay = 0;
-      int? laterMin;
-      for (var i = 0; i < ordered.length; i++) {
-        balance += ordered[i].quantity;
-        final endOfDay =
-            i == ordered.length - 1 || ordered[i + 1].day != ordered[i].day;
-        if (!endOfDay) continue;
-        if (ordered[i].day.compareTo(day) <= 0) {
-          atDay = balance;
-        } else {
-          laterMin = laterMin == null || balance < laterMin
-              ? balance
-              : laterMin;
-        }
-      }
-      var cap = laterMin == null || atDay < laterMin ? atDay : laterMin;
-      // Tope del saldo de hoy, defensivo e inalcanzable con datos válidos: un
-      // par neutralizado suma cero, así que el saldo corregido al final del
-      // último día coincide con el actual y el mínimo de los saldos
-      // posteriores ya lo acota. Se deja por si un dato inconsistente rompe
-      // esa igualdad.
-      if (cap > current) cap = current;
-      eligible.add({...lot, 'held': atDay, 'available': cap});
-    }
-    return eligible;
-  }
-
-  /// Pares de anulación **demostrados** del lote [lotId] (D-03, decisión del
-  /// autor del 2026-10-28; contrato §2.6): ids de los movimientos que la
-  /// proyección histórica trata como si no hubieran existido. La bitácora
-  /// conserva la operación, la reversión y sus fechas reales; aquí sólo se
-  /// leen.
-  ///
-  /// Un par es una salida original y su reversión, con todo esto a la vez:
-  /// - el mismo lote;
-  /// - la misma operación: `APPLICATION_OUT`/`APPLICATION` y
-  ///   `APPLICATION_REVERSAL`/`APPLICATION_REVERSAL`, o `TRANSFER_OUT`/
-  ///   `TRANSFER` y `TRANSFER_REVERSAL_IN`/`TRANSFER_REVERSAL`, con el mismo
-  ///   `reference_id`;
-  /// - exactamente una salida y una reversión de esa operación en el lote;
-  /// - cantidades opuestas e iguales (salida negativa);
-  /// - la operación con `reversed_at` y estado `REVERSED`, y su detalle en
-  ///   este lote único, revertido y por la misma cantidad (el consumo de la
-  ///   aplicación; la fila de `transfer_lot_items` con su lote de destino
-  ///   anulado);
-  /// - si existe auditoría de RF-13 de esa operación, que nombre el
-  ///   movimiento de reversión entre sus efectos.
-  /// Si falta cualquier condición o hay ambigüedad, no se neutraliza nada de
-  /// esa operación. Las reversiones de compra no se neutralizan: el lote
-  /// queda anulado.
-  Future<Set<int>> _demonstratedAnnulments(
-    DatabaseExecutor txn,
-    int lotId,
-    List<Map<String, Object?>> movements,
-  ) async {
-    const kinds = [
-      (
-        out: 'APPLICATION_OUT',
-        outRef: 'APPLICATION',
-        back: 'APPLICATION_REVERSAL',
-        backRef: 'APPLICATION_REVERSAL',
-        operation: 'APPLICATION',
-      ),
-      (
-        out: 'TRANSFER_OUT',
-        outRef: 'TRANSFER',
-        back: 'TRANSFER_REVERSAL_IN',
-        backRef: 'TRANSFER_REVERSAL',
-        operation: 'TRANSFER',
-      ),
-    ];
-    final neutral = <int>{};
-    for (final kind in kinds) {
-      bool isBack(Map<String, Object?> m) =>
-          m['type'] == kind.back && m['reference_type'] == kind.backRef;
-      final operations = {
-        for (final m in movements)
-          if (isBack(m) && m['reference_id'] is int) m['reference_id']! as int,
-      };
-      for (final operation in operations) {
-        final outs = [
-          for (final m in movements)
-            if (m['type'] == kind.out &&
-                m['reference_type'] == kind.outRef &&
-                m['reference_id'] == operation)
-              m,
-        ];
-        final backs = [
-          for (final m in movements)
-            if (isBack(m) && m['reference_id'] == operation) m,
-        ];
-        if (outs.length != 1 || backs.length != 1) continue;
-        final quantity = backs.single['quantity_signed']! as int;
-        if (quantity <= 0 || outs.single['quantity_signed'] != -quantity) {
-          continue;
-        }
-        final backId = backs.single['id']! as int;
-        if (!await _annulmentRecorded(
-          txn,
-          kind.operation,
-          operation,
-          lotId,
-          quantity,
-          backId,
-        )) {
-          continue;
-        }
-        neutral
-          ..add(outs.single['id']! as int)
-          ..add(backId);
-      }
-    }
-    return neutral;
-  }
-
-  /// La operación consta como revertida en este lote por [quantity], y la
-  /// auditoría de RF-13, si existe, nombra el movimiento [reversalMovementId].
-  Future<bool> _annulmentRecorded(
-    DatabaseExecutor txn,
-    String operationType,
-    int operationId,
-    int lotId,
-    int quantity,
-    int reversalMovementId,
-  ) async {
-    if (operationType == 'APPLICATION') {
-      final application = await txn.query(
-        'applications',
-        columns: ['status', 'reversed_at'],
-        where: 'id=?',
-        whereArgs: [operationId],
-      );
-      if (application.length != 1 ||
-          application.single['reversed_at'] == null ||
-          application.single['status'] != 'REVERSED') {
-        return false;
-      }
-      final consumptions = await txn.rawQuery(
-        '''SELECT c.quantity_consumed_base q, c.reversed_at r
-        FROM application_consumptions c
-        JOIN application_items i ON i.id=c.application_item_id
-        WHERE i.application_id=? AND c.inventory_lot_id=?''',
-        [operationId, lotId],
-      );
-      if (consumptions.length != 1 ||
-          consumptions.single['r'] == null ||
-          consumptions.single['q'] != quantity) {
-        return false;
-      }
-    } else {
-      final transfer = await txn.query(
-        'transfers',
-        columns: ['status', 'reversed_at'],
-        where: 'id=?',
-        whereArgs: [operationId],
-      );
-      if (transfer.length != 1 ||
-          transfer.single['reversed_at'] == null ||
-          transfer.single['status'] != 'REVERSED') {
-        return false;
-      }
-      final items = await txn.rawQuery(
-        '''SELECT i.quantity_base q, d.reversed_at r FROM transfer_lot_items i
-        JOIN inventory_lots d ON d.id=i.destination_lot_id
-        WHERE i.transfer_id=? AND i.source_lot_id=?''',
-        [operationId, lotId],
-      );
-      if (items.length != 1 ||
-          items.single['r'] == null ||
-          items.single['q'] != quantity) {
-        return false;
-      }
-    }
-    final audit = await txn.query(
-      'reversal_audit',
-      columns: ['id'],
-      where: 'operation_type=? AND operation_id=?',
-      whereArgs: [operationType, operationId],
-    );
-    if (audit.isEmpty) return true;
-    final named = await txn.query(
-      'reversal_audit_effects',
-      columns: ['id'],
-      where: "audit_id=? AND table_name='inventory_movements' AND row_id=?",
-      whereArgs: [audit.single['id'], reversalMovementId],
-    );
-    return named.length == 1;
-  }
-
-  /// Confirma un borrador tardío con la autorización del titular (§2.1 paso
-  /// 5): revalida, aplica los efectos una vez en la campaña de la fecha y lo
-  /// marca CONFIRMED, todo en una transacción. Si no puede aplicarse sin
-  /// tocar operaciones posteriores o la campaña cambió, queda PENDING con su
-  /// conflicto y no se escribe ningún efecto.
+  /// Confirma un borrador tardío con la autorización del titular (§2.1 paso 5).
   Future<LateResolution> confirmLateOperation(
     String draftRef, {
     required OwnerAuthorization authorization,
-  }) => _write((txn, context) async {
-    // El vínculo vigente y el PIN vigente, leídos justo antes de consumir.
-    final current = await _currentOwnerBinding(txn);
-    final installation = _ownerCredential();
-    consumeOwnerAuthorization(
-      authorization,
-      installation: installation,
-      purpose: AuthorizationPurpose.confirmLateOperation,
-      subjectRef: 'late:$draftRef',
-      current: current,
-      now: DateTime.now(),
-    );
-    final draft = await _pendingLateDraft(txn, draftRef);
-    final effective = DateTime.parse(draft['effective_date']! as String);
-    final campaignId = draft['campaign_id']! as int;
-    Future<LateResolution> conflict(String code, String message) async {
-      await txn.update(
-        'late_operation_drafts',
-        {'last_conflict_code': code, 'last_conflict_at': _date(DateTime.now())},
-        where: "draft_ref=? AND status='PENDING'",
-        whereArgs: [draftRef],
-      );
-      return LateResolution(
-        LateResolutionOutcome.conflict,
-        conflictCode: code,
-        message: message,
-      );
-    }
-
-    CampaignPeriod? period;
-    try {
-      period = await _closedCampaignFor(txn, effective);
-    } on BusinessRuleException {
-      period = null;
-    }
-    if (period == null || period.id != campaignId) {
-      return conflict(
-        LateConflict.campaignChanged,
-        'La fecha ya no corresponde a la campaña con la que se registró. No '
-        'se aplicó nada: rechace este borrador y regístrelo de nuevo si '
-        'corresponde.',
-      );
-    }
-    final int operationId;
-    if (draft['kind'] == 'PURCHASE') {
-      final purchase = decodeLatePurchase(
-        draft['payload']! as String,
-        invoiceImagePath: draft['invoice_image_path'] as String?,
-      );
-      final total = _validatePurchaseDraft(purchase);
-      _requireOwnerInPersonal(context, [
-        for (final item in purchase.items)
-          for (final allocation in item.allocations) allocation.personId,
-      ], 'En el modo individual la compra se asigna sólo al titular.');
-      operationId = await _insertPurchase(txn, purchase, total);
-    } else {
-      final application = decodeLateApplication(draft['payload']! as String);
-      _requireOwnerInPersonal(context, [
-        application.personId,
-      ], 'En el modo individual la aplicación la realiza el titular.');
-      await _requireOwnerFarmInPersonal(txn, context, application.farmId);
-      final day = localDay(application.appliedAt);
-      for (final line in application.lines) {
-        final lots = await _lotsAvailableAt(
-          txn,
-          line.productId,
-          application.personId,
-          day,
-        );
-        final cap = lots.fold<int>(
-          0,
-          (sum, l) => sum + (l['available']! as int),
-        );
-        if (cap < line.quantityBase) {
-          return conflict(
-            LateConflict.stockUnavailable,
-            'Las existencias de esa fecha no alcanzan: parte ya se usó en '
-            'operaciones posteriores o se adquirió después. No se aplicó nada. '
-            'Puede registrar antes la compra tardía que falta (también con '
-            'revisión) o rechazar este borrador.',
-          );
-        }
-      }
-      operationId = await _insertApplication(
-        txn,
-        application,
-        lotsFor: (executor, productId, personId) =>
-            _lotsAvailableAt(executor, productId, personId, day),
-      );
-    }
-    await _resolveLateDraft(
-      txn,
-      draftRef,
-      status: 'CONFIRMED',
-      authorization: authorization,
-      resultOperationId: operationId,
-    );
-    return LateResolution(
-      LateResolutionOutcome.confirmed,
-      operationId: operationId,
-      message:
-          'Confirmada en «${period.name}». Es una corrección privada de una '
-          'campaña cerrada: el consolidado del sindicato (sellado o no) no se '
-          'actualiza con ella.',
-    );
-  });
+  }) => _lateOperations.confirmLateOperation(
+    draftRef,
+    authorization: authorization,
+  );
 
   /// Rechaza un borrador tardío con la autorización del titular: sin efectos.
   Future<LateResolution> rejectLateOperation(
     String draftRef, {
     required OwnerAuthorization authorization,
     String? note,
-  }) => _write((txn, context) async {
-    // El vínculo vigente y el PIN vigente, leídos justo antes de consumir.
-    final current = await _currentOwnerBinding(txn);
-    final installation = _ownerCredential();
-    consumeOwnerAuthorization(
-      authorization,
-      installation: installation,
-      purpose: AuthorizationPurpose.rejectLateOperation,
-      subjectRef: 'late:$draftRef',
-      current: current,
-      now: DateTime.now(),
-    );
-    await _pendingLateDraft(txn, draftRef);
-    await _resolveLateDraft(
-      txn,
-      draftRef,
-      status: 'REJECTED',
-      authorization: authorization,
-      note: note?.trim().isEmpty ?? true ? null : note!.trim(),
-    );
-    return const LateResolution(LateResolutionOutcome.rejected);
-  });
+  }) => _lateOperations.rejectLateOperation(
+    draftRef,
+    authorization: authorization,
+    note: note,
+  );
 
-  Future<Map<String, Object?>> _pendingLateDraft(
-    DatabaseExecutor txn,
-    String draftRef,
-  ) async {
-    final rows = await txn.query(
-      'late_operation_drafts',
-      where: 'draft_ref=?',
-      whereArgs: [draftRef],
-    );
-    if (rows.isEmpty) throw BusinessRuleException('El borrador no existe.');
-    if (rows.single['status'] != 'PENDING') {
-      throw BusinessRuleException('Este borrador ya fue resuelto.');
-    }
-    return rows.single;
-  }
-
-  Future<void> _resolveLateDraft(
-    Transaction txn,
-    String draftRef, {
-    required String status,
-    required OwnerAuthorization authorization,
-    int? resultOperationId,
-    String? note,
-  }) async {
-    final updated = await txn.update(
-      'late_operation_drafts',
-      {
-        'status': status,
-        'resolved_at': _date(DateTime.now()),
-        'resolution_note': note,
-        'resolver_person_id': authorization.personId,
-        'resolver_binding_id': authorization.bindingId,
-        'resolver_member_id': authorization.scope.memberId,
-        'resolver_tenant_id': authorization.scope.tenantId,
-        'resolver_method': authorization.method,
-        'resolver_enrolment_ref': authorization.enrolmentId,
-        'result_operation_id': resultOperationId,
-      },
-      where: "draft_ref=? AND status='PENDING'",
-      whereArgs: [draftRef],
-    );
-    if (updated != 1) {
-      throw BusinessRuleException('Este borrador ya fue resuelto.');
-    }
-  }
-
-  /// Período histórico explícito (§2.5): una campaña CLOSED, entera antes de
-  /// hoy, sin solapes con ninguna campaña local ni con el período central de
-  /// sus vínculos. No cambia la campaña activa ni el orden de las demás. No
-  /// tiene campaign_ref: nunca se publica desde él.
+  /// Período histórico cerrado (RF-03 §2.5).
   Future<int> addHistoricalCampaign({
     required String name,
     required DateTime start,
     required DateTime end,
-  }) => _write((txn, _) async {
-    final trimmed = name.trim();
-    if (trimmed.isEmpty) {
-      throw CampaignCalendarException('Indique el nombre del período.');
-    }
-    final startDay = localDay(start);
-    final endDay = localDay(end);
-    if (endDay.compareTo(startDay) < 0) {
-      throw CampaignCalendarException(
-        'La fecha de fin no puede ser anterior a la de inicio.',
-      );
-    }
-    if (endDay.compareTo(localDay(DateTime.now())) >= 0) {
-      throw CampaignCalendarException(
-        'Un período histórico debe terminar antes de hoy.',
-      );
-    }
-    final proposed = CampaignPeriod(
-      id: -1,
-      name: trimmed,
-      status: 'CLOSED',
-      startDay: startDay,
-      endDay: endDay,
-    );
-    for (final period in await _campaignPeriods(txn)) {
-      if (period.overlaps(proposed)) {
-        throw CampaignCalendarException(
-          'El período ${proposed.describe} se solapa con «${period.name}» '
-          '(${period.describe}).',
-        );
-      }
-    }
-    final central = await txn.query(
-      'campaign_bindings',
-      columns: ['central_start_day', 'central_end_day', 'central_name'],
-      where: 'central_start_day IS NOT NULL',
-    );
-    for (final row in central) {
-      final other = CampaignPeriod(
-        id: -2,
-        name: row['central_name']! as String,
-        status: 'CLOSED',
-        startDay: row['central_start_day']! as String,
-        endDay: row['central_end_day'] as String?,
-      );
-      if (other.overlaps(proposed)) {
-        throw CampaignCalendarException(
-          'El período ${proposed.describe} se solapa con la campaña del '
-          'sindicato «${other.name}» (${other.describe}).',
-        );
-      }
-    }
-    return txn.insert('campaigns', {
-      'name': trimmed,
-      'start_date': _date(startOfLocalDay(startDay)),
-      'end_date': _date(startOfLocalDay(endDay)),
-      'status': 'CLOSED',
-    });
-  });
+  }) => _campaigns.addHistoricalCampaign(name: name, start: start, end: end);
 
   Future<int> addAccountPayment({
     required int personId,
@@ -2339,24 +273,17 @@ class AgroRepository {
     bool advance = false,
     DateTime? date,
     String? notes,
-  }) async => (await registerAccountPayment(
+  }) => _accounts.addAccountPayment(
     personId: personId,
     campaignId: campaignId,
     amountBobMinor: amountBobMinor,
     advance: advance,
     date: date,
     notes: notes,
-  )).paymentId;
+  );
 
   /// Registra un pago o adelanto y lo imputa a las deudas más antiguas de la
-  /// persona (RN-38), de cualquier campaña. [campaignId] es sólo la campaña de
-  /// registro, que puede ser nula: no decide qué deuda se cancela.
-  ///
-  /// D-04 (decisión del autor del 2026-10-27; criterio Q-5 del documento
-  /// D04_E15 §7): sólo se imputa a **cargos** con deuda pendiente
-  /// (importe − revertido − ya imputado) y en orden de día local y luego `id`
-  /// (F04 §2.3). Un cargo revertido no es deuda. Las imputaciones ya guardadas
-  /// no se tocan; el sobrante queda sin imputar.
+  /// persona (RN-38), de cualquier campaña.
   Future<AccountPaymentResult> registerAccountPayment({
     required int personId,
     int? campaignId,
@@ -2364,255 +291,45 @@ class AgroRepository {
     bool advance = false,
     DateTime? date,
     String? notes,
-  }) async {
-    if (amountBobMinor <= 0)
-      throw BusinessRuleException('El importe debe ser mayor a cero.');
-    return _write((txn, context) async {
-      // E-15: la clase (propia o por cobrar) se decide con los vínculos
-      // leídos en esta misma transacción.
-      final rule = OwnershipRule([
-        for (final row in await txn.query('owner_bindings'))
-          LedgerBinding(
-            id: row['id']! as int,
-            personId: row['person_id']! as int,
-            boundAt: row['bound_at']! as String,
-            endedAt: row['ended_at'] as String?,
-          ),
-      ]);
-      final paymentOwn = rule.isOwn(personId, localDay(date ?? DateTime.now()));
-      // Decisión del autor del 2026-11-12 (revisa el criterio Q-2/C-12):
-      // el titular no se debe a sí mismo, así que no se le registra un pago
-      // de cuenta personal. Un pago que sería propio (del titular vigente,
-      // o de quien era titular el día del pago) se rechaza. No toca sus
-      // compras ni sus pagos a proveedores, y los asientos ya guardados se
-      // siguen leyendo como registro.
-      if (paymentOwn) {
-        throw BusinessRuleException(ownerAccountPaymentRejectedMessage);
-      }
-      _requireOwnerInPersonal(
-        context,
-        [personId],
-        'En el modo individual no hay cuentas por cobrar: no se registran '
-        'pagos de cuenta.',
-      );
-      final paymentId = await txn.insert('account_transactions', {
-        'person_id': personId,
-        'campaign_id': campaignId,
-        'transaction_date': _date(date ?? DateTime.now()),
-        'type': advance ? 'ADVANCE' : 'PAYMENT',
-        'amount_bob_minor_signed': -amountBobMinor,
-        'reference_type': advance ? 'ADVANCE' : 'PAYMENT',
-        'notes': notes,
-      });
-      var remaining = amountBobMinor;
-      final charges = [
-        ...await txn.rawQuery(
-          '''SELECT t.id, t.transaction_date, t.campaign_id, c.name campaign_name,
-          t.amount_bob_minor_signed
-          - COALESCE((SELECT -SUM(r.amount_bob_minor_signed) FROM account_transactions r
-              WHERE r.reversal_of_id=t.id AND r.amount_bob_minor_signed<0),0)
-          - COALESCE((SELECT SUM(a.amount_bob_minor) FROM payment_allocations a
-              WHERE a.charge_transaction_id=t.id),0) outstanding
-          FROM account_transactions t LEFT JOIN campaigns c ON c.id=t.campaign_id
-          WHERE t.person_id=? AND t.amount_bob_minor_signed>0
-            AND t.reversal_of_id IS NULL''',
-          [personId],
-        ),
-      ];
-      charges.sort((a, b) {
-        final byDay = storedLocalDay(a['transaction_date']! as String)
-            .compareTo(storedLocalDay(b['transaction_date']! as String));
-        return byDay != 0
-            ? byDay
-            : (a['id']! as int).compareTo(b['id']! as int);
-      });
-      // E-15 (A1): un pago sólo se imputa a cargos de su misma clase. Un
-      // cargo propio no es deuda, igual que un cargo revertido (Q-5); y un
-      // pago propio no es cobro (ya no se registra: ver arriba).
-      charges.removeWhere(
-        (charge) =>
-            rule.isOwn(
-              personId,
-              storedLocalDay(charge['transaction_date']! as String),
-            ) !=
-            paymentOwn,
-      );
-      final imputed =
-          <({int? campaignId, String campaignName, int amountMinor})>[];
-      for (final charge in charges) {
-        if (remaining == 0) break;
-        final outstanding = charge['outstanding']! as int;
-        if (outstanding <= 0) continue;
-        final allocated = remaining < outstanding ? remaining : outstanding;
-        await txn.insert('payment_allocations', {
-          'payment_transaction_id': paymentId,
-          'charge_transaction_id': charge['id'],
-          'amount_bob_minor': allocated,
-        });
-        imputed.add((
-          campaignId: charge['campaign_id'] as int?,
-          campaignName:
-              charge['campaign_name'] as String? ??
-              'Campaña #${charge['campaign_id']}',
-          amountMinor: allocated,
-        ));
-        remaining -= allocated;
-      }
-      return AccountPaymentResult(
-        paymentId: paymentId,
-        amountMinor: amountBobMinor,
-        advance: advance,
-        imputed: imputed,
-        unappliedMinor: remaining,
-      );
-    });
-  }
+  }) => _accounts.registerAccountPayment(
+    personId: personId,
+    campaignId: campaignId,
+    amountBobMinor: amountBobMinor,
+    advance: advance,
+    date: date,
+    notes: notes,
+  );
 
-  /// RF-13: revierte una aplicación con la autorización del titular, el
-  /// motivo y la auditoría en la misma transacción
-  /// (docs/architecture/F04_RF13_RF03_ACTOR_Y_TARDIAS.md §1).
+  /// RF-13: revierte una aplicación con la autorización del titular.
   Future<void> reverseApplication(
     int applicationId, {
     required String reason,
     required OwnerAuthorization authorization,
-  }) => _authorizedReversal(
-    type: 'APPLICATION',
-    operationId: applicationId,
-    purpose: AuthorizationPurpose.reverseApplication,
+  }) => _reversals.reverseApplication(
+    applicationId,
     reason: reason,
     authorization: authorization,
-    effects: (txn, context, recorder) => _reverseApplicationIn(
-      txn,
-      context,
-      applicationId,
-      reason.trim(),
-      recorder,
-    ),
   );
 
   /// Sólo pruebas: los efectos de la reversión sin auditoría ni autorización.
-  /// El análisis estático impide usarlo desde la app.
   @visibleForTesting
   Future<void> reverseApplicationUnauditedForTesting(
     int applicationId, {
     String? reason,
-  }) => _write(
-    (txn, context) => _reverseApplicationIn(
-      txn,
-      context,
-      applicationId,
-      reason,
-      ReversalEffects.discard(),
-    ),
+  }) => _reversals.reverseApplicationUnauditedForTesting(
+    applicationId,
+    reason: reason,
   );
-
-  Future<OriginalOperation> _reverseApplicationIn(
-    Transaction txn,
-    WriteContext context,
-    int applicationId,
-    String? reason,
-    ReversalEffects effects,
-  ) async {
-    {
-      final rows = await txn.query(
-        'applications',
-        where: 'id = ? AND reversed_at IS NULL',
-        whereArgs: [applicationId],
-      );
-      if (rows.isEmpty)
-        throw BusinessRuleException(
-          'La aplicación ya fue revertida o no existe.',
-        );
-      final application = rows.single;
-      // Revertir devuelve existencias y cargos a quien aplicó. En modo propio
-      // eso crearía actividad de otra persona (#26/#27).
-      _requireOwnerInPersonal(
-        context,
-        [application['person_id']! as int],
-        'En el modo individual sólo se revierten aplicaciones del titular. '
-        'Para revertir la de otra persona, cambie al modo con varias personas.',
-      );
-      final consumptions = await txn.rawQuery(
-        '''SELECT c.*, i.product_id FROM application_consumptions c
-        JOIN application_items i ON i.id = c.application_item_id WHERE i.application_id = ? AND c.reversed_at IS NULL''',
-        [applicationId],
-      );
-      for (final consumption in consumptions) {
-        effects.add(
-          'inventory_movements',
-          await txn.insert('inventory_movements', {
-            'lot_id': consumption['inventory_lot_id'],
-            'product_id': consumption['product_id'],
-            'owner_person_id': application['person_id'],
-            'movement_date': _date(DateTime.now()),
-            'type': 'APPLICATION_REVERSAL',
-            'quantity_signed': consumption['quantity_consumed_base'],
-            'reference_type': 'APPLICATION_REVERSAL',
-            'reference_id': applicationId,
-            'notes': reason,
-          }),
-        );
-        effects.add('application_consumptions', consumption['id']! as int);
-      }
-      await txn.update(
-        'application_consumptions',
-        {'reversed_at': _date(DateTime.now())},
-        where: 'application_item_id IN (SELECT id FROM application_items WHERE application_id = ?)',
-        whereArgs: [applicationId],
-      );
-      final charges = await txn.query(
-        'account_transactions',
-        where: "reference_type = 'APPLICATION' AND reference_id = ? AND type = 'USAGE_CHARGE'",
-        whereArgs: [applicationId],
-      );
-      for (final charge in charges) {
-        effects.add(
-          'account_transactions',
-          await txn.insert('account_transactions', {
-            'person_id': charge['person_id'],
-            'campaign_id': charge['campaign_id'],
-            'transaction_date': _date(DateTime.now()),
-            'type': 'CREDIT_ADJUSTMENT',
-            'amount_bob_minor_signed':
-                -(charge['amount_bob_minor_signed']! as int),
-            'reference_type': 'APPLICATION_REVERSAL',
-            'reference_id': applicationId,
-            'notes': reason,
-            'reversal_of_id': charge['id'],
-          }),
-        );
-      }
-      await txn.update(
-        'applications',
-        {'status': 'REVERSED', 'reversed_at': _date(DateTime.now())},
-        where: 'id = ?',
-        whereArgs: [applicationId],
-      );
-      // **El plan NO vuelve a PLANNED** (UIBUG-045). Revertir corrige un
-      // movimiento que ocurrió de verdad; no devuelve la intención al futuro.
-      // Reabrirlo en silencio dejaba un plan listo para volver a aplicarse sin
-      // que nadie lo hubiera pedido, y borraba el rastro de que ya se usó. Si
-      // hay que ejecutar otra vez la planificación, se crea un plan nuevo.
-      return (
-        personId: application['person_id'] as int?,
-        effectiveDate: application['applied_at'] as String?,
-      );
-    }
-  }
 
   /// RF-13: revierte una compra con la autorización del titular (§1).
   Future<void> reversePurchase(
     int purchaseId, {
     required String reason,
     required OwnerAuthorization authorization,
-  }) => _authorizedReversal(
-    type: 'PURCHASE',
-    operationId: purchaseId,
-    purpose: AuthorizationPurpose.reversePurchase,
+  }) => _reversals.reversePurchase(
+    purchaseId,
     reason: reason,
     authorization: authorization,
-    effects: (txn, context, recorder) =>
-        _reversePurchaseIn(txn, context, purchaseId, reason.trim(), recorder),
   );
 
   /// Sólo pruebas: los efectos de la reversión sin auditoría ni autorización.
@@ -2620,165 +337,8 @@ class AgroRepository {
   Future<void> reversePurchaseUnauditedForTesting(
     int purchaseId, {
     String? reason,
-  }) => _write(
-    (txn, context) => _reversePurchaseIn(
-      txn,
-      context,
-      purchaseId,
-      reason,
-      ReversalEffects.discard(),
-    ),
-  );
-
-  Future<OriginalOperation> _reversePurchaseIn(
-    Transaction txn,
-    WriteContext context,
-    int purchaseId,
-    String? reason,
-    ReversalEffects effects,
-  ) async {
-    {
-      final consumed =
-          Sqflite.firstIntValue(
-            await txn.rawQuery(
-              '''SELECT COUNT(*) FROM application_consumptions c
-        JOIN inventory_lots l ON l.id = c.inventory_lot_id JOIN purchase_items i ON i.id = l.purchase_item_id
-        WHERE i.purchase_id = ? AND c.reversed_at IS NULL''',
-              [purchaseId],
-            ),
-          ) ??
-          0;
-      if (consumed > 0)
-        throw BusinessRuleException(
-          'La compra tiene lotes consumidos. Revierta primero las aplicaciones relacionadas.',
-        );
-      final purchase = await txn.query(
-        'purchases',
-        where: 'id = ? AND reversed_at IS NULL',
-        whereArgs: [purchaseId],
-      );
-      if (purchase.isEmpty)
-        throw BusinessRuleException('La compra ya fue revertida o no existe.');
-      final lots = await txn.rawQuery(
-        'SELECT l.* FROM inventory_lots l JOIN purchase_items i ON i.id=l.purchase_item_id WHERE i.purchase_id=?',
-        [purchaseId],
-      );
-      final allocationCharges = await txn.rawQuery(
-        '''SELECT t.* FROM account_transactions t JOIN purchase_allocations a ON
-        t.reference_type='PURCHASE_ALLOCATION' AND t.reference_id=a.id JOIN purchase_items i ON i.id=a.purchase_item_id
-        WHERE i.purchase_id=?''',
-        [purchaseId],
-      );
-      // Revertir anula los lotes y abona los cargos a quien se le asignó la
-      // compra. En modo propio eso crearía actividad de otra persona
-      // (#26/#27, #102), como en las reversiones de aplicación y de
-      // transferencia. Se comprueba antes de escribir y sólo sobre lo que se
-      // va a escribir: un lote ya anulado (F04-BUG-02) no cuenta. La compra
-      // sigue disponible para revertirse en inventario compartido.
-      _requireOwnerInPersonal(
-        context,
-        [
-          for (final lot in lots)
-            if (lot['reversed_at'] == null) lot['owner_person_id']! as int,
-          for (final charge in allocationCharges) charge['person_id']! as int,
-        ],
-        'En el modo individual sólo se revierten compras asignadas al titular. '
-        'Para revertir una compra con asignaciones a otras personas, cambie '
-        'al modo con varias personas.',
-      );
-      for (final lot in lots) {
-        final available =
-            Sqflite.firstIntValue(
-              await txn.rawQuery(
-                'SELECT COALESCE(SUM(quantity_signed),0) FROM inventory_movements WHERE lot_id=?',
-                [lot['id']],
-              ),
-            ) ??
-            0;
-        // F04-BUG-02: el lote destino de una transferencia hereda el
-        // `purchase_item_id` de su origen. Si esa transferencia ya se revirtió,
-        // el lote quedó anulado y en saldo 0: no hay nada que restituir y no
-        // debe bloquear la reversión. Un lote anulado con saldo distinto de 0
-        // sería un estado inconsistente: se rechaza en lugar de ignorarlo.
-        if (lot['reversed_at'] != null) {
-          if (available != 0) {
-            throw BusinessRuleException(
-              'Un lote anulado de esta compra conserva saldo; revise sus '
-              'movimientos antes de revertir.',
-            );
-          }
-          continue;
-        }
-        if (available != lot['initial_quantity_base'])
-          throw BusinessRuleException(
-            'El lote fue transferido o ajustado; requiere reversión consistente previa.',
-          );
-        effects.add(
-          'inventory_movements',
-          await txn.insert('inventory_movements', {
-            'lot_id': lot['id'],
-            'product_id': lot['product_id'],
-            'owner_person_id': lot['owner_person_id'],
-            'movement_date': _date(DateTime.now()),
-            'type': 'PURCHASE_REVERSAL',
-            'quantity_signed': -available,
-            'reference_type': 'PURCHASE_REVERSAL',
-            'reference_id': purchaseId,
-            'notes': reason,
-          }),
-        );
-        await txn.update(
-          'inventory_lots',
-          {'reversed_at': _date(DateTime.now())},
-          where: 'id=?',
-          whereArgs: [lot['id']],
-        );
-        effects.add('inventory_lots', lot['id']! as int);
-      }
-      for (final charge in allocationCharges) {
-        effects.add(
-          'account_transactions',
-          await txn.insert('account_transactions', {
-            'person_id': charge['person_id'],
-            'campaign_id': charge['campaign_id'],
-            'transaction_date': _date(DateTime.now()),
-            'type': 'CREDIT_ADJUSTMENT',
-            'amount_bob_minor_signed':
-                -(charge['amount_bob_minor_signed']! as int),
-            'reference_type': 'PURCHASE_REVERSAL',
-            'reference_id': purchaseId,
-            'notes': reason,
-            'reversal_of_id': charge['id'],
-          }),
-        );
-      }
-      for (final payment in await txn.query(
-        'provider_payments',
-        columns: ['id'],
-        where: 'purchase_id=? AND reversed_at IS NULL',
-        whereArgs: [purchaseId],
-      )) {
-        effects.add('provider_payments', payment['id']! as int);
-      }
-      await txn.update(
-        'provider_payments',
-        {'reversed_at': _date(DateTime.now())},
-        where: 'purchase_id=? AND reversed_at IS NULL',
-        whereArgs: [purchaseId],
-      );
-      await txn.update(
-        'purchases',
-        {'status': 'REVERSED', 'reversed_at': _date(DateTime.now())},
-        where: 'id=?',
-        whereArgs: [purchaseId],
-      );
-      // Una compra se asigna a varias personas: no tiene un único responsable.
-      return (
-        personId: null,
-        effectiveDate: purchase.single['purchase_date'] as String?,
-      );
-    }
-  }
+  }) =>
+      _reversals.reversePurchaseUnauditedForTesting(purchaseId, reason: reason);
 
   Future<int> transferStock({
     required int sourceLotId,
@@ -2786,36 +346,13 @@ class AgroRepository {
     required int quantityBase,
     DateTime? date,
     String? notes,
-  }) async {
-    // La compuerta y la modalidad se comprueban dentro de la transferencia,
-    // en la misma transacción que escribe.
-    final source = await (await _db).query(
-      'inventory_lots',
-      columns: ['product_id', 'owner_person_id'],
-      where: 'id=? AND reversed_at IS NULL',
-      whereArgs: [sourceLotId],
-    );
-    if (source.isEmpty) {
-      throw BusinessRuleException('El lote de origen no está activo.');
-    }
-    final transferId = await transferProductFifo(
-      fromPersonId: source.single['owner_person_id']! as int,
-      toPersonId: destinationPersonId,
-      productId: source.single['product_id']! as int,
-      quantityBase: quantityBase,
-      date: date,
-      notes: notes,
-    );
-    final item = await (await _db).query(
-      'transfer_lot_items',
-      columns: ['destination_lot_id'],
-      where: 'transfer_id=?',
-      whereArgs: [transferId],
-      orderBy: 'id',
-      limit: 1,
-    );
-    return item.single['destination_lot_id']! as int;
-  }
+  }) => _transfers.transferStock(
+    sourceLotId: sourceLotId,
+    destinationPersonId: destinationPersonId,
+    quantityBase: quantityBase,
+    date: date,
+    notes: notes,
+  );
 
   Future<int> transferProductFifo({
     required int fromPersonId,
@@ -2824,12 +361,11 @@ class AgroRepository {
     required int quantityBase,
     DateTime? date,
     String? notes,
-  }) => transferProductsFifo(
+  }) => _transfers.transferProductFifo(
     fromPersonId: fromPersonId,
     toPersonId: toPersonId,
-    items: [
-      TransferItemDraft(productId: productId, quantityBase: quantityBase),
-    ],
+    productId: productId,
+    quantityBase: quantityBase,
     date: date,
     notes: notes,
   );
@@ -2840,153 +376,23 @@ class AgroRepository {
     required List<TransferItemDraft> items,
     DateTime? date,
     String? notes,
-  }) async {
-    if (fromPersonId == toPersonId) {
-      throw BusinessRuleException(
-        'El origen y el destino deben ser diferentes.',
-      );
-    }
-    final validItems = items.where((item) => item.quantityBase > 0).toList();
-    if (validItems.isEmpty) {
-      throw BusinessRuleException(
-        'Seleccione al menos un producto para transferir.',
-      );
-    }
-    if (validItems.map((item) => item.productId).toSet().length !=
-        validItems.length) {
-      throw BusinessRuleException(
-        'No repita productos dentro de la transferencia.',
-      );
-    }
-    return _write((txn, context) async {
-      _rejectTransferInPersonal(context);
-      final movementDate = _date(date ?? DateTime.now());
-      final transferId = await txn.insert('transfers', {
-        'product_id': validItems.first.productId,
-        'from_person_id': fromPersonId,
-        'to_person_id': toPersonId,
-        'transfer_date': movementDate,
-        'quantity_base': validItems.first.quantityBase,
-        'total_cost_bob_minor': 0,
-        'notes': notes,
-      });
-      var transferCost = 0;
-      for (final item in validItems) {
-        final lots = await txn.rawQuery(
-          '''SELECT l.*, COALESCE(SUM(m.quantity_signed),0) available
-          FROM inventory_lots l LEFT JOIN inventory_movements m ON m.lot_id=l.id
-          WHERE l.owner_person_id=? AND l.product_id=? AND l.reversed_at IS NULL
-          GROUP BY l.id HAVING available>0 ORDER BY l.acquired_date,l.id''',
-          [fromPersonId, item.productId],
-        );
-        final available = lots.fold<int>(
-          0,
-          (sum, lot) => sum + (lot['available'] as int),
-        );
-        if (available < item.quantityBase) {
-          throw BusinessRuleException(
-            'Stock insuficiente en uno de los productos. No se transfirió ningún item.',
-          );
-        }
-        final transferItemId = await txn.insert('transfer_items', {
-          'transfer_id': transferId,
-          'product_id': item.productId,
-          'quantity_base': item.quantityBase,
-          'total_cost_bob_minor': 0,
-        });
-        var remaining = item.quantityBase;
-        var itemCost = 0;
-        for (final source in lots) {
-          if (remaining == 0) break;
-          final lotAvailable = source['available'] as int;
-          final take = remaining < lotAvailable ? remaining : lotAvailable;
-          final cost = costForBaseQuantity(
-            take,
-            source['unit_cost_bob_minor_per_major_unit'] as int,
-          );
-          final destinationLotId = await txn.insert('inventory_lots', {
-            'purchase_item_id': source['purchase_item_id'],
-            'product_id': item.productId,
-            'owner_person_id': toPersonId,
-            'acquired_date': source['acquired_date'],
-            'initial_quantity_base': take,
-            'unit_cost_bob_minor_per_major_unit':
-                source['unit_cost_bob_minor_per_major_unit'],
-            'currency_code': source['currency_code'],
-            'original_unit_price_minor': source['original_unit_price_minor'],
-            'exchange_rate_scaled': source['exchange_rate_scaled'],
-            'parent_lot_id': source['id'],
-            'notes': notes,
-            // El lote de destino conserva el vencimiento y el número de lote
-            // de su origen (RN-31 de la tesis, MOB #168).
-            'expiry_date': source['expiry_date'],
-            'lot_number': source['lot_number'],
-          });
-          for (final movement in <Map<String, Object?>>[
-            {
-              'lot_id': source['id'],
-              'owner_person_id': fromPersonId,
-              'quantity_signed': -take,
-              'type': 'TRANSFER_OUT',
-            },
-            {
-              'lot_id': destinationLotId,
-              'owner_person_id': toPersonId,
-              'quantity_signed': take,
-              'type': 'TRANSFER_IN',
-            },
-          ]) {
-            await txn.insert('inventory_movements', {
-              ...movement,
-              'product_id': item.productId,
-              'movement_date': movementDate,
-              'reference_type': 'TRANSFER',
-              'reference_id': transferId,
-              'notes': notes,
-            });
-          }
-          await txn.insert('transfer_lot_items', {
-            'transfer_id': transferId,
-            'transfer_item_id': transferItemId,
-            'source_lot_id': source['id'],
-            'destination_lot_id': destinationLotId,
-            'quantity_base': take,
-            'cost_bob_minor': cost,
-          });
-          remaining -= take;
-          itemCost += cost;
-        }
-        await txn.update(
-          'transfer_items',
-          {'total_cost_bob_minor': itemCost},
-          where: 'id=?',
-          whereArgs: [transferItemId],
-        );
-        transferCost += itemCost;
-      }
-      await txn.update(
-        'transfers',
-        {'total_cost_bob_minor': transferCost},
-        where: 'id=?',
-        whereArgs: [transferId],
-      );
-      return transferId;
-    });
-  }
+  }) => _transfers.transferProductsFifo(
+    fromPersonId: fromPersonId,
+    toPersonId: toPersonId,
+    items: items,
+    date: date,
+    notes: notes,
+  );
 
   /// RF-13: revierte una transferencia con la autorización del titular (§1).
   Future<void> reverseTransfer(
     int transferId, {
     required String reason,
     required OwnerAuthorization authorization,
-  }) => _authorizedReversal(
-    type: 'TRANSFER',
-    operationId: transferId,
-    purpose: AuthorizationPurpose.reverseTransfer,
+  }) => _reversals.reverseTransfer(
+    transferId,
     reason: reason,
     authorization: authorization,
-    effects: (txn, context, recorder) =>
-        _reverseTransferIn(txn, context, transferId, reason.trim(), recorder),
   );
 
   /// Sólo pruebas: los efectos de la reversión sin auditoría ni autorización.
@@ -2994,438 +400,81 @@ class AgroRepository {
   Future<void> reverseTransferUnauditedForTesting(
     int transferId, {
     String? reason,
-  }) => _write(
-    (txn, context) => _reverseTransferIn(
-      txn,
-      context,
-      transferId,
-      reason,
-      ReversalEffects.discard(),
-    ),
-  );
+  }) =>
+      _reversals.reverseTransferUnauditedForTesting(transferId, reason: reason);
 
-  Future<OriginalOperation> _reverseTransferIn(
-    Transaction txn,
-    WriteContext context,
-    int transferId,
-    String? reason,
-    ReversalEffects effects,
-  ) async {
-    {
-      // Revertir mueve existencias entre responsables: en modo propio no hay
-      // transferencias, tampoco para deshacerlas (#26/#27).
-      _rejectTransferInPersonal(context);
-      final transfers = await txn.query(
-        'transfers',
-        where: "id=? AND status='CONFIRMED' AND reversed_at IS NULL",
-        whereArgs: [transferId],
-      );
-      if (transfers.isEmpty) {
-        throw BusinessRuleException(
-          'La transferencia ya fue revertida o no existe.',
-        );
-      }
-      final transfer = transfers.single;
-      // F04-BUG-01: el producto de cada movimiento de reversión sale de su
-      // lote, nunca de `transfers.product_id`, que solo guarda el primer
-      // producto de una transferencia multiproducto.
-      final items = await txn.rawQuery(
-        '''SELECT i.*, source.product_id source_product_id,
-        destination.product_id destination_product_id
-        FROM transfer_lot_items i
-        JOIN inventory_lots source ON source.id=i.source_lot_id
-        JOIN inventory_lots destination ON destination.id=i.destination_lot_id
-        WHERE i.transfer_id=? ORDER BY i.id''',
-        [transferId],
-      );
-      for (final item in items) {
-        final available =
-            Sqflite.firstIntValue(
-              await txn.rawQuery(
-                'SELECT COALESCE(SUM(quantity_signed),0) FROM inventory_movements WHERE lot_id=?',
-                [item['destination_lot_id']],
-              ),
-            ) ??
-            0;
-        if (available != item['quantity_base']) {
-          throw BusinessRuleException(
-            'El stock transferido ya tuvo movimientos. Reviértalos antes de continuar.',
-          );
-        }
-      }
-      final reversedAt = _date(DateTime.now());
-      for (final item in items) {
-        final quantity = item['quantity_base']! as int;
-        for (final movement in <Map<String, Object?>>[
-          {
-            'lot_id': item['source_lot_id'],
-            'product_id': item['source_product_id'],
-            'owner_person_id': transfer['from_person_id'],
-            'quantity_signed': quantity,
-            'type': 'TRANSFER_REVERSAL_IN',
-          },
-          {
-            'lot_id': item['destination_lot_id'],
-            'product_id': item['destination_product_id'],
-            'owner_person_id': transfer['to_person_id'],
-            'quantity_signed': -quantity,
-            'type': 'TRANSFER_REVERSAL_OUT',
-          },
-        ]) {
-          effects.add(
-            'inventory_movements',
-            await txn.insert('inventory_movements', {
-              ...movement,
-              'movement_date': reversedAt,
-              'reference_type': 'TRANSFER_REVERSAL',
-              'reference_id': transferId,
-              'notes': reason,
-            }),
-          );
-        }
-        await txn.update(
-          'inventory_lots',
-          {'reversed_at': reversedAt},
-          where: 'id=?',
-          whereArgs: [item['destination_lot_id']],
-        );
-        effects.add('inventory_lots', item['destination_lot_id']! as int);
-      }
-      await txn.update(
-        'transfers',
-        {'status': 'REVERSED', 'reversed_at': reversedAt},
-        where: 'id=?',
-        whereArgs: [transferId],
-      );
-      return (
-        personId: transfer['from_person_id'] as int?,
-        effectiveDate: transfer['transfer_date'] as String?,
-      );
-    }
-  }
+  /// Auditoría de la reversión de una operación.
+  Future<Map<String, Object?>?> reversalAudit(String type, int operationId) =>
+      _reversals.reversalAudit(type, operationId);
 
-  /// El vínculo de titular vigente, leído en la transacción que escribe.
-  Future<OwnerBindingContext?> _currentOwnerBinding(
-    DatabaseExecutor txn,
-  ) async {
-    final rows = await txn.query(
-      'owner_bindings',
-      columns: ['id', 'person_id', 'member_id', 'tenant_id'],
-      where: 'ended_at IS NULL',
-    );
-    if (rows.isEmpty) return null;
-    final row = rows.single;
-    return OwnerBindingContext(
-      bindingId: row['id']! as int,
-      personId: row['person_id']! as int,
-      scope: OwnerScope(
-        memberId: row['member_id']! as String,
-        tenantId: row['tenant_id']! as String,
-      ),
-    );
-  }
+  Future<List<Map<String, Object?>>> transfers({int limit = 50}) =>
+      _transfers.transfers(limit: limit);
 
-  /// RF-13 (§1): consume la autorización contra el vínculo vigente, aplica los
-  /// efectos y escribe la auditoría y sus referencias, todo en una
-  /// transacción. Una reversión por operación (doble toque o reintento).
-  Future<void> _authorizedReversal({
-    required String type,
-    required int operationId,
-    required AuthorizationPurpose purpose,
-    required String reason,
-    required OwnerAuthorization authorization,
-    required Future<OriginalOperation> Function(
-      Transaction txn,
-      WriteContext context,
-      ReversalEffects effects,
-    )
-    effects,
-  }) async {
-    final trimmed = reason.trim();
-    if (trimmed.isEmpty) {
-      throw BusinessRuleException('Indique el motivo de la reversión.');
-    }
-    await _write((txn, context) async {
-      // El vínculo vigente y el PIN vigente, leídos justo antes de consumir.
-      final current = await _currentOwnerBinding(txn);
-      final installation = _ownerCredential();
-      consumeOwnerAuthorization(
-        authorization,
-        installation: installation,
-        purpose: purpose,
-        subjectRef: '${type.toLowerCase()}:$operationId',
-        current: current,
-        now: DateTime.now(),
-      );
-      final recorder = ReversalEffects();
-      final original = await effects(txn, context, recorder);
-      final auditId = await txn.insert('reversal_audit', {
-        'reversal_ref': newOperationId(),
-        'operation_type': type,
-        'operation_id': operationId,
-        'original_person_id': original.personId,
-        'original_effective_date': original.effectiveDate,
-        'reason': trimmed,
-        'actor_person_id': authorization.personId,
-        'actor_binding_id': authorization.bindingId,
-        'actor_member_id': authorization.scope.memberId,
-        'actor_tenant_id': authorization.scope.tenantId,
-        'actor_method': authorization.method,
-        'credential_enrolment_ref': authorization.enrolmentId,
-        'recorded_at': _date(DateTime.now()),
-      });
-      for (final (table, rowId) in recorder.rows) {
-        await txn.insert('reversal_audit_effects', {
-          'audit_id': auditId,
-          'table_name': table,
-          'row_id': rowId,
-        });
-      }
-    });
-  }
-
-  /// Auditoría de la reversión de una operación, o null si se revirtió antes
-  /// de v11 («Actor no registrado») o no está revertida.
-  Future<Map<String, Object?>?> reversalAudit(
-    String type,
-    int operationId,
-  ) async {
-    final rows = await (await _db).query(
-      'reversal_audit',
-      where: 'operation_type=? AND operation_id=?',
-      whereArgs: [type, operationId],
-    );
-    return rows.isEmpty ? null : rows.single;
-  }
-
-  Future<List<Map<String, Object?>>> transfers({int limit = 50}) async =>
-      (await _db).rawQuery(
-        '''SELECT t.*, pr.name product_name, pr.unit,
-        source.name from_person_name, destination.name to_person_name,
-        (SELECT COUNT(*) FROM transfer_lot_items i WHERE i.transfer_id=t.id) lot_count,
-        COALESCE((SELECT COUNT(*) FROM transfer_items ti WHERE ti.transfer_id=t.id),1) item_count,
-        COALESCE((SELECT GROUP_CONCAT(p.name || '|' || ti.quantity_base || '|' || p.unit, ';')
-          FROM transfer_items ti JOIN products p ON p.id=ti.product_id WHERE ti.transfer_id=t.id),
-          pr.name || '|' || t.quantity_base || '|' || pr.unit) products_summary
-        FROM transfers t JOIN products pr ON pr.id=t.product_id
-        JOIN persons source ON source.id=t.from_person_id
-        JOIN persons destination ON destination.id=t.to_person_id
-        ORDER BY t.transfer_date DESC, t.id DESC LIMIT ?''',
-        [limit],
-      );
-
+  @override
   Future<List<Map<String, Object?>>> availableProductsForOwner(
     int personId, {
     String query = '',
     int limit = 100,
-  }) async => (await _db).rawQuery(
-    '''SELECT p.id product_id, p.name product_name, p.unit,
-        SUM(m.quantity_signed) available_base, COUNT(DISTINCT l.id) lot_count,
-        (SELECT fl.unit_cost_bob_minor_per_major_unit FROM inventory_lots fl
-          JOIN inventory_movements fm ON fm.lot_id=fl.id
-          WHERE fl.owner_person_id=? AND fl.product_id=p.id AND fl.reversed_at IS NULL
-          GROUP BY fl.id HAVING SUM(fm.quantity_signed)>0 ORDER BY fl.acquired_date,fl.id LIMIT 1) next_fifo_cost_minor
-        FROM products p JOIN inventory_movements m ON m.product_id=p.id AND m.owner_person_id=?
-        JOIN inventory_lots l ON l.id=m.lot_id
-        WHERE p.name LIKE ? GROUP BY p.id HAVING available_base>0
-        ORDER BY p.name LIMIT ?''',
-    [personId, personId, '%${query.trim()}%', limit],
+  }) => _transfers.availableProductsForOwner(
+    personId,
+    query: query,
+    limit: limit,
   );
 
   Future<List<Map<String, Object?>>> list(String table, {String? orderBy}) =>
-      _db.then((db) => db.query(table, orderBy: orderBy ?? 'id DESC'));
+      _catalogs.list(table, orderBy: orderBy);
 
-  Future<void> renameCatalog(String table, int id, String name) async {
-    const allowed = {'persons', 'farms', 'products', 'suppliers', 'campaigns'};
-    if (!allowed.contains(table)) throw ArgumentError('Catálogo no permitido.');
-    if (name.trim().isEmpty)
-      throw BusinessRuleException('El nombre no puede estar vacío.');
-    await _write(
-      (txn, _) => txn.update(
-        table,
-        {'name': name.trim()},
-        where: 'id=?',
-        whereArgs: [id],
-      ),
-    );
-  }
+  Future<void> renameCatalog(String table, int id, String name) =>
+      _catalogs.renameCatalog(table, id, name);
 
-  Future<void> archiveCatalog(String table, int id) async {
-    const activeTables = {'persons', 'farms', 'products', 'suppliers'};
-    if (!activeTables.contains(table) && table != 'campaigns') {
-      throw ArgumentError('Catálogo no permitido.');
-    }
-    await _write((txn, context) async {
-      if (table == 'persons' && id == context.ownerPersonId) {
-        throw BusinessRuleException(
-          'El titular vinculado no se puede archivar.',
-        );
-      }
-      await txn.update(
-        table,
-        activeTables.contains(table) ? {'active': 0} : {'status': 'CLOSED'},
-        where: 'id=?',
-        whereArgs: [id],
-      );
-    });
-  }
+  Future<void> archiveCatalog(String table, int id) =>
+      _catalogs.archiveCatalog(table, id);
 
-  Future<List<Map<String, Object?>>> people() async =>
-      (await _db).query('persons', where: 'active=1', orderBy: 'name');
-
-  /// Modalidad y titular vigentes, en una sola consulta.
-  static const _contextColumns =
-      '(SELECT value FROM app_settings WHERE key=?) context_mode, '
-      '(SELECT person_id FROM owner_bindings WHERE ended_at IS NULL) '
-      'context_owner';
+  @override
+  Future<List<Map<String, Object?>>> people() => _catalogs.people();
 
   /// Modalidad y titular vigentes, sólo para presentar opciones. Cada
   /// escritura los vuelve a leer dentro de su propia transacción.
-  Future<WriteContext> operatingContext() async {
-    final row = (await (await _db).rawQuery('SELECT $_contextColumns', [
-      AppDatabase.operationModeKey,
-    ])).single;
-    return (
-      mode: OperationMode.fromCode(row['context_mode'] as String?),
-      ownerPersonId: row['context_owner'] as int?,
-    );
-  }
+  @override
+  Future<WriteContext> operatingContext() => _session.operatingContext();
 
   /// Personas activas que pueden cumplir [purpose] según el titular y la
   /// modalidad (`person_roles.dart`). Una sola consulta: personas, modalidad
   /// y titular se leen juntos.
-  Future<List<Map<String, Object?>>> peopleFor(PersonPurpose purpose) async =>
-      (await peopleAndContextFor(purpose)).people;
+  @override
+  Future<List<Map<String, Object?>>> peopleFor(PersonPurpose purpose) =>
+      _catalogs.peopleFor(purpose);
 
   /// Como [peopleFor], y además la modalidad y el titular con que se
   /// filtró, para que el formulario sepa si debe ocultar la elección de
   /// persona (#26). Sigue siendo una sola consulta.
+  @override
   Future<({List<Map<String, Object?>> people, WriteContext context})>
-  peopleAndContextFor(PersonPurpose purpose) async {
-    final rows = await (await _db).rawQuery(
-      'SELECT $_contextColumns, p.* FROM (SELECT 1) '
-      'LEFT JOIN persons p ON p.active=1 ORDER BY p.name',
-      [AppDatabase.operationModeKey],
-    );
-    final mode = OperationMode.fromCode(rows.first['context_mode'] as String?);
-    final owner = rows.first['context_owner'] as int?;
-    return (
-      people: eligiblePeople(
-        [
-          for (final row in rows)
-            if (row['id'] != null)
-              {
-                for (final entry in row.entries)
-                  if (!entry.key.startsWith('context_')) entry.key: entry.value,
-              },
-        ],
-        purpose,
-        ownerPersonId: owner,
-        mode: mode,
-      ),
-      context: (mode: mode, ownerPersonId: owner),
-    );
-  }
+  peopleAndContextFor(PersonPurpose purpose) =>
+      _catalogs.peopleAndContextFor(purpose);
 
-  Future<List<Map<String, Object?>>> products() async =>
-      (await _db).query('products', where: 'active=1', orderBy: 'name');
-  Future<List<Map<String, Object?>>> suppliers() async =>
-      (await _db).query('suppliers', where: 'active=1', orderBy: 'name');
-  Future<List<Map<String, Object?>>> campaigns() =>
-      list('campaigns', orderBy: 'start_date DESC');
-  Future<List<Map<String, Object?>>> farms() async => (await _db).rawQuery(
-    'SELECT f.*, p.name owner_name FROM farms f JOIN persons p ON p.id=f.owner_person_id WHERE f.active=1 ORDER BY f.name',
-  );
+  @override
+  Future<List<Map<String, Object?>>> products() => _catalogs.products();
+  @override
+  Future<List<Map<String, Object?>>> suppliers() => _catalogs.suppliers();
+  @override
+  Future<List<Map<String, Object?>>> campaigns() => _campaigns.campaigns();
+  @override
+  Future<List<Map<String, Object?>>> farms() => _catalogs.farms();
 
   /// Chacos que se pueden planificar o aplicar según la modalidad: en propio,
   /// sólo los del titular (#26). Una sola consulta con modalidad y titular.
+  @override
   Future<({List<Map<String, Object?>> farms, WriteContext context})>
-  farmsAndContext() async {
-    final rows = await (await _db).rawQuery(
-      'SELECT $_contextColumns, f.*, p.name owner_name FROM (SELECT 1) '
-      'LEFT JOIN (farms f JOIN persons p ON p.id=f.owner_person_id) '
-      'ON f.active=1 ORDER BY f.name',
-      [AppDatabase.operationModeKey],
-    );
-    final mode = OperationMode.fromCode(rows.first['context_mode'] as String?);
-    final owner = rows.first['context_owner'] as int?;
-    return (
-      farms: [
-        for (final row in rows)
-          if (row['id'] != null &&
-              (mode != OperationMode.personal ||
-                  row['owner_person_id'] == owner))
-            {
-              for (final entry in row.entries)
-                if (!entry.key.startsWith('context_')) entry.key: entry.value,
-            },
-      ],
-      context: (mode: mode, ownerPersonId: owner),
-    );
-  }
+  farmsAndContext() => _catalogs.farmsAndContext();
 
-  Future<List<Map<String, Object?>>> purchases({int limit = 200}) async =>
-      (await _db).rawQuery(
-        '''SELECT p.*, s.name supplier_name, c.name campaign_name,
-    COALESCE((SELECT SUM(amount_bob_minor) FROM provider_payments pp WHERE pp.purchase_id=p.id AND pp.reversed_at IS NULL),0) paid_bob_minor,
-    (SELECT COUNT(*) FROM purchase_items i WHERE i.purchase_id=p.id) item_count
-    FROM purchases p JOIN suppliers s ON s.id=p.supplier_id
-    JOIN campaigns c ON c.id=p.campaign_id ORDER BY purchase_date DESC LIMIT ?''',
-        [limit],
-      );
+  @override
+  Future<List<Map<String, Object?>>> purchases({int limit = 200}) =>
+      _purchases.purchases(limit: limit);
 
-  /// Detalle de una compra tal como está guardada (bloque de experiencia
-  /// 2026-10-30, A2): cabecera, líneas, a quién se asignó cada línea y los
-  /// pagos al proveedor, también los revertidos. Sólo lectura: cuatro SELECT,
-  /// ninguna escritura. `null` si la compra no existe.
-  Future<PurchaseDetailRead?> purchaseDetail(int purchaseId) async {
-    final db = await _db;
-    final header = await db.rawQuery(
-      '''SELECT p.*, s.name supplier_name, c.name campaign_name
-      FROM purchases p JOIN suppliers s ON s.id=p.supplier_id
-      JOIN campaigns c ON c.id=p.campaign_id WHERE p.id=?''',
-      [purchaseId],
-    );
-    if (header.isEmpty) return null;
-    return (
-      purchase: header.single,
-      // Vencimiento y número de lote de la línea: los de su primer lote de
-      // compra con procedencia demostrada, como en `correctLotData`, y
-      // cuántas veces se corrigieron (F04-AV).
-      items: await db.rawQuery(
-        '''SELECT i.*, pr.name product_name, pr.unit,
-        (SELECT l.expiry_date FROM inventory_lots l WHERE l.purchase_item_id=i.id
-          AND l.parent_lot_id IS NULL AND EXISTS (SELECT 1 FROM inventory_movements m
-          JOIN purchase_allocations a ON a.id=m.reference_id WHERE m.lot_id=l.id
-          AND m.type='PURCHASE_IN' AND m.reference_type='PURCHASE_ALLOCATION'
-          AND a.purchase_item_id=i.id) ORDER BY l.id LIMIT 1) expiry_date,
-        (SELECT l.lot_number FROM inventory_lots l WHERE l.purchase_item_id=i.id
-          AND l.parent_lot_id IS NULL AND EXISTS (SELECT 1 FROM inventory_movements m
-          JOIN purchase_allocations a ON a.id=m.reference_id WHERE m.lot_id=l.id
-          AND m.type='PURCHASE_IN' AND m.reference_type='PURCHASE_ALLOCATION'
-          AND a.purchase_item_id=i.id) ORDER BY l.id LIMIT 1) lot_number,
-        (SELECT COUNT(*) FROM lot_data_corrections c
-          WHERE c.purchase_item_id=i.id) lot_data_corrections
-        FROM purchase_items i JOIN products pr ON pr.id=i.product_id
-        WHERE i.purchase_id=? ORDER BY i.id''',
-        [purchaseId],
-      ),
-      allocations: await db.rawQuery(
-        '''SELECT a.*, pe.name person_name
-        FROM purchase_allocations a
-        JOIN purchase_items i ON i.id=a.purchase_item_id
-        JOIN persons pe ON pe.id=a.person_id
-        WHERE i.purchase_id=? ORDER BY a.purchase_item_id, a.id''',
-        [purchaseId],
-      ),
-      payments: await db.rawQuery(
-        '''SELECT pp.*, pe.name payer_name
-        FROM provider_payments pp JOIN persons pe ON pe.id=pp.payer_person_id
-        WHERE pp.purchase_id=? ORDER BY pp.payment_date, pp.id''',
-        [purchaseId],
-      ),
-    );
-  }
+  /// Detalle de una compra tal como está guardada (A2).
+  Future<PurchaseDetailRead?> purchaseDetail(int purchaseId) =>
+      _purchases.purchaseDetail(purchaseId);
 
   Future<List<Map<String, Object?>>> applications({
     int? campaignId,
@@ -3433,346 +482,76 @@ class AgroRepository {
     int? farmId,
     int? productId,
     int? limit,
-  }) async {
-    final conditions = <String>[];
-    final args = <Object?>[];
-    if (campaignId != null) {
-      conditions.add('a.campaign_id=?');
-      args.add(campaignId);
-    }
-    if (personId != null) {
-      conditions.add('a.person_id=?');
-      args.add(personId);
-    }
-    if (farmId != null) {
-      conditions.add('a.farm_id=?');
-      args.add(farmId);
-    }
-    if (productId != null) {
-      conditions.add(
-        'EXISTS (SELECT 1 FROM application_items x WHERE x.application_id=a.id AND x.product_id=?)',
-      );
-      args.add(productId);
-    }
-    if (limit != null) args.add(limit);
-    return (await _db).rawQuery(
-      '''SELECT a.*, p.name person_name, f.name farm_name,
-        c.name campaign_name,
-        COALESCE(SUM(i.theoretical_quantity_base),0) theoretical_quantity_base,
-        COALESCE(SUM(i.quantity_base),0) real_quantity_base,
-        GROUP_CONCAT(DISTINCT pr.unit) units, COUNT(i.id) item_count,
-        GROUP_CONCAT(pr.name || '|' || i.quantity_base || '|' || pr.unit, ';') items_summary
-        FROM applications a JOIN persons p ON p.id=a.person_id JOIN farms f ON f.id=a.farm_id
-        JOIN campaigns c ON c.id=a.campaign_id
-        LEFT JOIN application_items i ON i.application_id=a.id LEFT JOIN products pr ON pr.id=i.product_id
-        ${conditions.isEmpty ? '' : 'WHERE ${conditions.join(' AND ')}'}
-        GROUP BY a.id ORDER BY applied_at DESC, a.id DESC ${limit == null ? '' : 'LIMIT ?'}''',
-      args,
-    );
-  }
+  }) => _applications.applications(
+    campaignId: campaignId,
+    personId: personId,
+    farmId: farmId,
+    productId: productId,
+    limit: limit,
+  );
 
   /// Planes con sus productos.
-  ///
-  /// Por omisión devuelve **sólo los pendientes**: la vista operativa de
-  /// Planificación no debe llenarse con años de planes ya consumidos
-  /// (UIBUG-045). Los aplicados se conservan íntegros para trazabilidad y se
-  /// piden con `includeApplied: true`.
-  ///
-  /// Cada fila trae `plan_status`, para que la pantalla sepa si ofrecer la
-  /// acción de aplicar sin volver a consultar.
+  @override
   Future<List<Map<String, Object?>>> plans({
     int limit = 400,
     bool includeApplied = false,
-  }) async {
-    final pending = pendingPlanStatuses.map((_) => '?').join(',');
-    return (await _db).rawQuery(
-      '''SELECT i.*, p.name product_name, p.unit, f.name farm_name, pe.name owner_name,
-    c.name campaign_name, a.campaign_id, a.status plan_status, a.planned_date
-    FROM application_plan_items i
-    JOIN application_plans a ON a.id=i.plan_id JOIN products p ON p.id=i.product_id
-    JOIN farms f ON f.id=a.farm_id JOIN persons pe ON pe.id=f.owner_person_id
-    JOIN campaigns c ON c.id=a.campaign_id
-    ${includeApplied ? '' : 'WHERE a.status IN ($pending)'}
-    ORDER BY a.id DESC LIMIT ?''',
-      [if (!includeApplied) ...pendingPlanStatuses, limit],
-    );
-  }
+  }) => _applications.plans(limit: limit, includeApplied: includeApplied);
 
-  Future<List<Map<String, Object?>>> planForApplication(int planId) async =>
-      (await _db).rawQuery(
-        '''SELECT a.id plan_id, a.campaign_id, a.farm_id,
-        f.owner_person_id person_id, f.name farm_name, f.area_m2 farm_area_m2,
-        i.area_m2, i.product_id, i.dose_base_per_ha,
-        i.required_quantity_base, p.name product_name, p.unit
-        FROM application_plans a JOIN farms f ON f.id=a.farm_id
-        JOIN application_plan_items i ON i.plan_id=a.id
-        JOIN products p ON p.id=i.product_id WHERE a.id=? ORDER BY i.id''',
-        [planId],
-      );
-  Future<List<Map<String, Object?>>> stock() async => (await _db).rawQuery(
-    '''SELECT l.id lot_id, l.owner_person_id, pr.name product_name, pr.unit, pe.name owner_name,
-    SUM(m.quantity_signed) quantity_base, l.unit_cost_bob_minor_per_major_unit unit_cost
-    FROM inventory_movements m JOIN inventory_lots l ON l.id=m.lot_id JOIN products pr ON pr.id=m.product_id
-    JOIN persons pe ON pe.id=m.owner_person_id GROUP BY l.id HAVING quantity_base <> 0 ORDER BY l.acquired_date''',
-  );
+  @override
+  Future<List<Map<String, Object?>>> planForApplication(int planId) =>
+      _applications.planForApplication(planId);
+  Future<List<Map<String, Object?>>> stock() => _inventory.stock();
 
-  // Cifras netas (#46, #51): comprado y consumido descuentan sus reversiones
-  // y la asignación de una persona es su comprado neto más sus transferencias
-  // netas, sin la restitución de una aplicación revertida. Se filtra por tipo,
-  // no por signo, de modo que asignación − consumo = físico. Los `HAVING` por
-  // `COUNT(m.id)` conservan la fila de quien tuvo movimientos aunque sumen 0.
-  Future<List<Map<String, Object?>>> inventorySummary({int? limit}) async =>
-      (await _db).rawQuery(
-        '''SELECT p.id product_id, p.name product_name, p.unit,
-        COALESCE(SUM(CASE WHEN m.type IN ('PURCHASE_IN','PURCHASE_REVERSAL') THEN m.quantity_signed ELSE 0 END),0) purchased_base,
-        COALESCE(-SUM(CASE WHEN m.type IN ('APPLICATION_OUT','APPLICATION_REVERSAL') THEN m.quantity_signed ELSE 0 END),0) consumed_base,
-        COALESCE(SUM(m.quantity_signed),0) available_base,
-        COALESCE((SELECT SUM(pi.required_quantity_base) FROM application_plan_items pi
-          JOIN application_plans ap ON ap.id=pi.plan_id JOIN campaigns c ON c.id=ap.campaign_id
-          WHERE pi.product_id=p.id AND ap.status IN ('DRAFT','PLANNED') AND c.status='ACTIVE'),0) committed_base,
-        COALESCE(SUM(m.quantity_signed),0) - COALESCE((SELECT SUM(pi.required_quantity_base)
-          FROM application_plan_items pi JOIN application_plans ap ON ap.id=pi.plan_id
-          JOIN campaigns c ON c.id=ap.campaign_id WHERE pi.product_id=p.id
-          AND ap.status IN ('DRAFT','PLANNED') AND c.status='ACTIVE'),0) projected_base,
-        COALESCE((SUM(m.quantity_signed*l.unit_cost_bob_minor_per_major_unit)+500)/1000,0) available_value_bob_minor,
-        COUNT(DISTINCT CASE WHEN m.quantity_signed <> 0 THEN l.owner_person_id END) people_count
-        FROM products p LEFT JOIN inventory_movements m ON m.product_id=p.id
-        LEFT JOIN inventory_lots l ON l.id=m.lot_id GROUP BY p.id ORDER BY p.name
-        ${limit == null ? '' : 'LIMIT ?'}''',
-        limit == null ? null : [limit],
-      );
+  @override
+  Future<List<Map<String, Object?>>> inventorySummary({int? limit}) =>
+      _inventory.inventorySummary(limit: limit);
 
-  Future<List<Map<String, Object?>>> personStockSummary(int personId) async =>
-      (await _db).rawQuery(
-        '''SELECT p.id product_id, p.name product_name, p.unit,
-        COALESCE(SUM(CASE WHEN m.type IN ('PURCHASE_IN','PURCHASE_REVERSAL','TRANSFER_IN','TRANSFER_OUT',
-          'TRANSFER_REVERSAL_IN','TRANSFER_REVERSAL_OUT') THEN m.quantity_signed ELSE 0 END),0) assigned_base,
-        COALESCE(-SUM(CASE WHEN m.type IN ('APPLICATION_OUT','APPLICATION_REVERSAL') THEN m.quantity_signed ELSE 0 END),0) consumed_base,
-        COALESCE(SUM(m.quantity_signed),0) available_base
-        FROM products p LEFT JOIN inventory_movements m ON m.product_id=p.id AND m.owner_person_id=?
-        GROUP BY p.id HAVING COUNT(m.id)>0 ORDER BY p.name''',
-        [personId],
-      );
+  Future<List<Map<String, Object?>>> personStockSummary(int personId) =>
+      _inventory.personStockSummary(personId);
 
-  Future<Map<String, Object?>> inventoryProductHeader(int productId) async {
-    final rows = await (await _db).rawQuery(
-      '''SELECT p.id product_id, p.name product_name, p.unit,
-      COALESCE(SUM(CASE WHEN m.type IN ('PURCHASE_IN','PURCHASE_REVERSAL') THEN m.quantity_signed ELSE 0 END),0) purchased_base,
-      COALESCE(-SUM(CASE WHEN m.type IN ('APPLICATION_OUT','APPLICATION_REVERSAL') THEN m.quantity_signed ELSE 0 END),0) consumed_base,
-      COALESCE(SUM(m.quantity_signed),0) physical_base,
-      COALESCE((SUM(m.quantity_signed*l.unit_cost_bob_minor_per_major_unit)+500)/1000,0) value_bob_minor,
-      COALESCE((SELECT SUM(pi.required_quantity_base) FROM application_plan_items pi
-        JOIN application_plans ap ON ap.id=pi.plan_id JOIN campaigns c ON c.id=ap.campaign_id
-        WHERE pi.product_id=p.id AND ap.status IN ('DRAFT','PLANNED') AND c.status='ACTIVE'),0) committed_base
-      FROM products p LEFT JOIN inventory_movements m ON m.product_id=p.id
-      LEFT JOIN inventory_lots l ON l.id=m.lot_id WHERE p.id=? GROUP BY p.id''',
-      [productId],
-    );
-    if (rows.isEmpty) throw BusinessRuleException('El producto no existe.');
-    return rows.single;
-  }
+  Future<Map<String, Object?>> inventoryProductHeader(int productId) =>
+      _inventory.inventoryProductHeader(productId);
 
   Future<List<Map<String, Object?>>> inventoryProductDistribution(
     int productId,
-  ) async => (await _db).rawQuery(
-    '''SELECT p.id person_id, p.name person_name,
-        COALESCE(SUM(CASE WHEN m.type IN ('PURCHASE_IN','PURCHASE_REVERSAL','TRANSFER_IN','TRANSFER_OUT',
-          'TRANSFER_REVERSAL_IN','TRANSFER_REVERSAL_OUT') THEN m.quantity_signed ELSE 0 END),0) assigned_base,
-        COALESCE(-SUM(CASE WHEN m.type IN ('APPLICATION_OUT','APPLICATION_REVERSAL') THEN m.quantity_signed ELSE 0 END),0) consumed_base,
-        COALESCE(SUM(m.quantity_signed),0) available_base
-        FROM persons p LEFT JOIN inventory_movements m ON m.owner_person_id=p.id AND m.product_id=?
-        GROUP BY p.id HAVING COUNT(m.id)>0
-        ORDER BY p.name''',
-    [productId],
-  );
+  ) => _inventory.inventoryProductDistribution(productId);
 
-  // ---------------------------------------------------------------------
-  // F04-AV: avisos de existencias y vencimiento (MOB #168–#171).
-  // Numeración de la tesis (RF-42 a RF-44, RN-31, RN-32, DAT-22, CU-22),
-  // no la de docs/15_BUSINESS_RULES.md.
-  // ---------------------------------------------------------------------
+  /// Largo máximo del número de lote (decisión del autor del 2026-11-01).
+  static const int maxLotNumberLength = repositoryMaxLotNumberLength;
 
-  /// Largo máximo del número de lote (decisión del autor del 2026-11-01),
-  /// en caracteres Unicode, como los cuenta `length()` de SQLite.
-  static const int maxLotNumberLength = 100;
-
-  /// Plazo de aviso admitido, en días. Es el rango funcional elegido por el
-  /// autor el 2026-11-01 para la configuración, no una regla agronómica.
-  static const int maxAlertLeadDays = 365;
+  /// Plazo de aviso admitido, en días.
+  static const int maxAlertLeadDays = repositoryMaxAlertLeadDays;
 
   /// Si se puede corregir la línea: existe y su compra no está revertida.
-  Future<bool> canCorrectLotData(int purchaseItemId) async {
-    final rows = await (await _db).rawQuery(
-      '''SELECT p.status, p.reversed_at FROM purchase_items i
-      JOIN purchases p ON p.id=i.purchase_id WHERE i.id=?''',
-      [purchaseItemId],
-    );
-    return rows.isNotEmpty &&
-        rows.single['status'] != 'REVERSED' &&
-        rows.single['reversed_at'] == null;
-  }
+  Future<bool> canCorrectLotData(int purchaseItemId) =>
+      _inventory.canCorrectLotData(purchaseItemId);
 
   /// Número de lote sin espacios a los lados; vacío es «sin dato» (null).
-  /// El contenido se conserva tal cual: no se trunca ni se completa. Lanza
-  /// si excede [maxLotNumberLength].
-  static String? normalizeLotNumber(String? value) {
-    final trimmed = value?.trim();
-    if (trimmed == null || trimmed.isEmpty) return null;
-    final error = lotNumberLengthError(trimmed);
-    if (error != null) throw BusinessRuleException(error);
-    return trimmed;
-  }
+  static String? normalizeLotNumber(String? value) =>
+      normalizeRepositoryLotNumber(value);
 
-  /// Mensaje si [text] (sin los espacios de los lados) pasa del largo
-  /// máximo; null si cabe. Lo usan también los formularios, que no cortan
-  /// lo escrito.
-  static String? lotNumberLengthError(String text) {
-    final length = text.trim().runes.length;
-    if (length <= maxLotNumberLength) return null;
-    return 'El número de lote admite hasta $maxLotNumberLength caracteres; '
-        'tiene $length. Revise lo escrito: no se recorta.';
-  }
-
-  void _checkExpiryDay(String? day) {
-    if (day != null && !isCivilDay(day)) {
-      throw BusinessRuleException(
-        'La fecha de vencimiento no es válida (aaaa-mm-dd).',
-      );
-    }
-  }
+  /// Mensaje si [text] (sin los espacios de los lados) pasa del largo máximo.
+  static String? lotNumberLengthError(String text) =>
+      repositoryLotNumberLengthError(text);
 
   /// Referencia que firma la autorización de una corrección.
   static String lotDataSubjectRef(int purchaseItemId) =>
-      'purchase_item:$purchaseItemId';
+      InventoryRepository.lotDataSubjectRef(purchaseItemId);
 
-  /// Lotes de una línea de compra cuya procedencia está demostrada: sus lotes
-  /// de compra (sin padre, con su entrada de compra por una asignación de esa
-  /// línea) y, recursivamente, los lotes de destino de una transferencia
-  /// registrada en `transfer_lot_items` desde uno de ellos. Un lote de la
-  /// línea al que no se llega así no se toca.
-  static const String _provenLotsSql = '''WITH RECURSIVE proven(id) AS (
-      SELECT l.id FROM inventory_lots l
-      WHERE l.purchase_item_id=?1 AND l.parent_lot_id IS NULL
-        AND EXISTS (SELECT 1 FROM inventory_movements m
-          JOIN purchase_allocations a ON a.id=m.reference_id
-          WHERE m.lot_id=l.id AND m.type='PURCHASE_IN'
-            AND m.reference_type='PURCHASE_ALLOCATION' AND a.purchase_item_id=?1)
-      UNION
-      SELECT l.id FROM inventory_lots l JOIN proven p ON l.parent_lot_id=p.id
-      WHERE l.purchase_item_id=?1
-        AND EXISTS (SELECT 1 FROM transfer_lot_items t
-          WHERE t.source_lot_id=p.id AND t.destination_lot_id=l.id))
-    SELECT id FROM proven ORDER BY id''';
-
-  /// Corrige el vencimiento y el número de lote de una línea de compra ya
-  /// registrada (RF-42; decisión del autor del 2026-11-01). Exige el PIN del
-  /// titular ([authorization], para [lotDataSubjectRef]) y un motivo. No se
-  /// admite sobre una compra revertida. Cambia esos dos datos sólo en los
-  /// lotes de procedencia demostrada y deja la auditoría: la corrección con
-  /// su actor y una fila por lote cambiado. No toca cantidades, costos,
-  /// movimientos ni el orden de consumo. Un valor nulo deja el dato «sin
-  /// registrar».
+  /// Corrige el vencimiento y el número de lote de una línea de compra (RF-42).
   Future<LotDataCorrectionResult> correctLotData(
     int purchaseItemId, {
     required String? expiryDay,
     required String? lotNumber,
     required String reason,
     required OwnerAuthorization authorization,
-  }) async {
-    _checkExpiryDay(expiryDay);
-    final number = normalizeLotNumber(lotNumber);
-    final note = reason.trim();
-    if (note.isEmpty) {
-      throw BusinessRuleException('Indique el motivo de la corrección.');
-    }
-    return _writeAuthorized((txn, consume) async {
-      final purchase = await txn.rawQuery(
-        '''SELECT p.status, p.reversed_at FROM purchase_items i
-        JOIN purchases p ON p.id=i.purchase_id WHERE i.id=?''',
-        [purchaseItemId],
-      );
-      if (purchase.isEmpty) {
-        throw BusinessRuleException('La línea de compra no existe.');
-      }
-      if (purchase.single['status'] == 'REVERSED' ||
-          purchase.single['reversed_at'] != null) {
-        throw BusinessRuleException(
-          'La compra está revertida: se puede consultar, pero no corregir.',
-        );
-      }
-      // Todo lo que puede rechazar la corrección se comprueba antes de gastar
-      // la autorización: un rechazo deja el PIN sin usar.
-      final proven = [
-        for (final row in await txn.rawQuery(_provenLotsSql, [purchaseItemId]))
-          row['id']! as int,
-      ];
-      if (proven.isEmpty) {
-        throw BusinessRuleException(
-          'No se pudo demostrar la procedencia de ningún lote de esta línea: '
-          'no se corrige nada.',
-        );
-      }
-      // Los valores anteriores son los del primer lote de procedencia
-      // demostrada (un lote de compra de la línea).
-      final first = (await txn.query(
-        'inventory_lots',
-        columns: ['expiry_date', 'lot_number'],
-        where: 'id=?',
-        whereArgs: [proven.first],
-      )).single;
-      final previousExpiry = first['expiry_date'] as String?;
-      final previousNumber = first['lot_number'] as String?;
-      if (previousExpiry == expiryDay && previousNumber == number) {
-        throw BusinessRuleException('No hay cambios que guardar.');
-      }
-      await consume(
-        authorization,
-        AuthorizationPurpose.correctLotData,
-        lotDataSubjectRef(purchaseItemId),
-      );
-      final allLots =
-          Sqflite.firstIntValue(
-            await txn.rawQuery(
-              'SELECT COUNT(*) FROM inventory_lots WHERE purchase_item_id=?',
-              [purchaseItemId],
-            ),
-          ) ??
-          0;
-      final correctionId = await txn.insert('lot_data_corrections', {
-        'purchase_item_id': purchaseItemId,
-        'previous_expiry_date': previousExpiry,
-        'previous_lot_number': previousNumber,
-        'new_expiry_date': expiryDay,
-        'new_lot_number': number,
-        'reason': note,
-        'actor_person_id': authorization.personId,
-        'actor_binding_id': authorization.bindingId,
-        'actor_member_id': authorization.scope.memberId,
-        'actor_tenant_id': authorization.scope.tenantId,
-        'actor_method': authorization.method,
-        'credential_enrolment_ref': authorization.enrolmentId,
-        'unproven_lot_count': allLots - proven.length,
-        'recorded_at': _date(DateTime.now()),
-      });
-      for (final lotId in proven) {
-        await txn.update(
-          'inventory_lots',
-          {'expiry_date': expiryDay, 'lot_number': number},
-          where: 'id=?',
-          whereArgs: [lotId],
-        );
-        await txn.insert('lot_data_correction_lots', {
-          'correction_id': correctionId,
-          'lot_id': lotId,
-        });
-      }
-      return LotDataCorrectionResult(
-        correctionId: correctionId,
-        correctedLots: proven.length,
-        unprovenLots: allLots - proven.length,
-      );
-    });
-  }
+  }) => _inventory.correctLotData(
+    purchaseItemId,
+    expiryDay: expiryDay,
+    lotNumber: lotNumber,
+    reason: reason,
+    authorization: authorization,
+  );
 
   /// Sólo pruebas: la corrección sin autorización, para preparar datos.
   @visibleForTesting
@@ -3780,131 +559,32 @@ class AgroRepository {
     int lotId, {
     String? expiryDay,
     String? lotNumber,
-  }) => _write(
-    (txn, _) => txn.update(
-      'inventory_lots',
-      {'expiry_date': expiryDay, 'lot_number': lotNumber},
-      where: 'id=?',
-      whereArgs: [lotId],
-    ),
+  }) => _inventory.setLotDataUnauditedForTesting(
+    lotId,
+    expiryDay: expiryDay,
+    lotNumber: lotNumber,
   );
 
-  /// Correcciones de una línea de compra, de la más reciente a la más
-  /// antigua.
-  Future<List<Map<String, Object?>>> lotDataCorrections(
-    int purchaseItemId,
-  ) async => (await _db).rawQuery(
-    '''SELECT c.*, pe.name actor_name,
-    (SELECT COUNT(*) FROM lot_data_correction_lots x WHERE x.correction_id=c.id) lot_count
-    FROM lot_data_corrections c JOIN persons pe ON pe.id=c.actor_person_id
-    WHERE c.purchase_item_id=? ORDER BY c.id DESC''',
-    [purchaseItemId],
-  );
-
-  /// Consume la autorización de una acción del titular dentro de la
-  /// transacción que escribe, contra el vínculo y el PIN vigentes leídos
-  /// justo antes.
-  ///
-  /// Distingue dos fallos. Lo que [body] rechace antes de llamar a `consume`
-  /// (validaciones) sale tal cual y deja la autorización sin gastar. Si la
-  /// escritura falla dentro de la transacción después de consumirla, la
-  /// transacción se deshace, la autorización sigue gastada (no se reutiliza)
-  /// y sale [AuthorizedChangeNotSaved]; la causa técnica queda en el registro
-  /// local. Un rechazo de `consumeOwnerAuthorization` es de antes del
-  /// consumo: sale tal cual.
-  Future<T> _writeAuthorized<T>(
-    Future<T> Function(
-      Transaction txn,
-      Future<void> Function(OwnerAuthorization, AuthorizationPurpose, String)
-      consume,
-    )
-    body,
-  ) async {
-    var consumed = false;
-    try {
-      return await _write(
-        (txn, _) => body(txn, (authorization, purpose, subjectRef) async {
-          final current = await _currentOwnerBinding(txn);
-          consumeOwnerAuthorization(
-            authorization,
-            installation: _ownerCredential(),
-            purpose: purpose,
-            subjectRef: subjectRef,
-            current: current,
-            now: DateTime.now(),
-          );
-          consumed = true;
-        }),
-      );
-    } catch (error, stack) {
-      if (!consumed) rethrow;
-      // Sólo el tipo y el código: el texto de SQLite puede llevar datos.
-      AppLog.error(
-        'Cambio autorizado con PIN no guardado tras consumir la '
-        'autorización; causa: ${error.runtimeType}'
-        '${error is DatabaseException ? ' (código ${error.getResultCode()})' : ''}',
-        stackTrace: stack,
-      );
-      Error.throwWithStackTrace(AuthorizedChangeNotSaved(error), stack);
-    }
-  }
+  /// Correcciones de una línea de compra, de la más reciente a la más antigua.
+  Future<List<Map<String, Object?>>> lotDataCorrections(int purchaseItemId) =>
+      _inventory.lotDataCorrections(purchaseItemId);
 
   /// Referencia que firma la autorización de la configuración de avisos.
   static String productAlertsSubjectRef(int productId) =>
-      'product_alerts:$productId';
+      InventoryRepository.productAlertsSubjectRef(productId);
 
-  void _checkAlertSettings(int? minStockBase, int? leadDays) {
-    if (minStockBase != null && minStockBase < 0) {
-      throw BusinessRuleException('El nivel mínimo no puede ser negativo.');
-    }
-    if (leadDays != null && (leadDays < 0 || leadDays > maxAlertLeadDays)) {
-      throw BusinessRuleException(
-        'El plazo de aviso debe ser un número entero de días, de 0 a '
-        '$maxAlertLeadDays.',
-      );
-    }
-  }
-
-  /// Nivel mínimo (unidad base) y plazo de aviso (días) de un producto
-  /// (RF-44). Nulo en [minStockBase]: sin nivel. Nulo en [leadDays]: el
-  /// valor inicial. Corresponde al titular: exige su PIN vigente
-  /// ([authorization], para [productAlertsSubjectRef]) una vez para los dos
-  /// datos (decisión del autor del 2026-11-01). Sólo cambia esa
-  /// configuración: ningún aviso modifica existencias ni bloquea
-  /// operaciones. Sin cambios, o con valores fuera de rango, no se gasta la
-  /// autorización.
+  /// Nivel mínimo (unidad base) y plazo de aviso (días) de un producto (RF-44).
   Future<void> setProductAlertSettings(
     int productId, {
     required int? minStockBase,
     required int? leadDays,
     required OwnerAuthorization authorization,
-  }) async {
-    _checkAlertSettings(minStockBase, leadDays);
-    await _writeAuthorized((txn, consume) async {
-      final rows = await txn.query(
-        'products',
-        columns: ['min_stock_base', 'alert_lead_days'],
-        where: 'id=?',
-        whereArgs: [productId],
-      );
-      if (rows.isEmpty) throw BusinessRuleException('El producto no existe.');
-      if (rows.single['min_stock_base'] == minStockBase &&
-          rows.single['alert_lead_days'] == leadDays) {
-        throw BusinessRuleException('No hay cambios que guardar.');
-      }
-      await consume(
-        authorization,
-        AuthorizationPurpose.configureProductAlerts,
-        productAlertsSubjectRef(productId),
-      );
-      await txn.update(
-        'products',
-        {'min_stock_base': minStockBase, 'alert_lead_days': leadDays},
-        where: 'id=?',
-        whereArgs: [productId],
-      );
-    });
-  }
+  }) => _inventory.setProductAlertSettings(
+    productId,
+    minStockBase: minStockBase,
+    leadDays: leadDays,
+    authorization: authorization,
+  );
 
   /// Sólo pruebas y siembras sintéticas: la configuración sin PIN.
   @visibleForTesting
@@ -3912,751 +592,180 @@ class AgroRepository {
     int productId, {
     required int? minStockBase,
     required int? leadDays,
-  }) async {
-    _checkAlertSettings(minStockBase, leadDays);
-    await _write((txn, _) async {
-      final changed = await txn.update(
-        'products',
-        {'min_stock_base': minStockBase, 'alert_lead_days': leadDays},
-        where: 'id=?',
-        whereArgs: [productId],
-      );
-      if (changed == 0) {
-        throw BusinessRuleException('El producto no existe.');
-      }
-    });
-  }
-
-  static const _alertSettingsColumns = [
-    'id',
-    'name',
-    'unit',
-    'active',
-    'min_stock_base',
-    'alert_lead_days',
-  ];
+  }) => _inventory.setProductAlertSettingsWithoutPinForTesting(
+    productId,
+    minStockBase: minStockBase,
+    leadDays: leadDays,
+  );
 
   /// Configuración de avisos de un producto.
-  Future<ProductAlertSettings> productAlertSettings(int productId) async {
-    final rows = await (await _db).query(
-      'products',
-      columns: _alertSettingsColumns,
-      where: 'id=?',
-      whereArgs: [productId],
-    );
-    if (rows.isEmpty) throw BusinessRuleException('El producto no existe.');
-    return _alertSettingsOf(rows.single);
-  }
+  Future<ProductAlertSettings> productAlertSettings(int productId) =>
+      _inventory.productAlertSettings(productId);
 
-  ProductAlertSettings _alertSettingsOf(Map<String, Object?> row) =>
-      ProductAlertSettings(
-        productId: row['id']! as int,
-        productName: row['name']! as String,
-        unit: row['unit']! as String,
-        active: row['active'] == 1,
-        minStockBase: row['min_stock_base'] as int?,
-        leadDays: row['alert_lead_days'] as int?,
-      );
-
-  /// Avisos de existencias y vencimiento (RF-43, RF-44, CU-22), calculados
-  /// sin red con los datos locales en el momento de consultar. Sólo lee:
-  /// no escribe nada ni cambia el orden de consumo. [now] es inyectable
-  /// para las pruebas; por defecto, el reloj del teléfono.
-  Future<InventoryAlerts> inventoryAlerts({DateTime? now}) async {
-    final db = await _db;
-    final today = localDay(now ?? DateTime.now());
-    final mode = await OperationModeStore(appDatabase).current(db);
-    final products = await db.query('products', columns: _alertSettingsColumns);
-    final lots = await db.rawQuery(
-      '''SELECT l.id lot_id, l.product_id, p.name product_name, p.unit,
-      p.alert_lead_days, l.owner_person_id, pe.name owner_name,
-      l.expiry_date, l.lot_number, COALESCE(SUM(m.quantity_signed),0) remaining_base
-      FROM inventory_lots l JOIN products p ON p.id=l.product_id
-      JOIN persons pe ON pe.id=l.owner_person_id
-      LEFT JOIN inventory_movements m ON m.lot_id=l.id
-      WHERE l.reversed_at IS NULL GROUP BY l.id HAVING remaining_base>0
-      ORDER BY p.name, pe.name, l.acquired_date, l.id''',
-    );
-    // Existencia neta por producto y responsable: la suma de sus
-    // movimientos, como el «Físico» del inventario. Los planes no son
-    // movimientos y no cuentan (CU-22, paso 2).
-    final perPerson = await db.rawQuery(
-      '''SELECT m.product_id, m.owner_person_id, pe.name person_name,
-      SUM(m.quantity_signed) net_base
-      FROM inventory_movements m JOIN persons pe ON pe.id=m.owner_person_id
-      WHERE pe.active=1
-      GROUP BY m.product_id, m.owner_person_id''',
-    );
-    final totals = {
-      for (final row in await db.rawQuery(
-        '''SELECT product_id, SUM(quantity_signed) net_base
-        FROM inventory_movements GROUP BY product_id''',
-      ))
-        row['product_id']! as int: row['net_base']! as int,
-    };
-    final last = await db.rawQuery(
-      'SELECT MAX(movement_date) day FROM inventory_movements',
-    );
-    final lastStored = last.single['day'] as String?;
-
-    final settings = [for (final row in products) _alertSettingsOf(row)];
-    final byId = {for (final p in settings) p.productId: p};
-    const fallback = AppDatabase.defaultAlertLeadDays;
-    return computeInventoryAlerts(
-      today: today,
-      shared: mode != OperationMode.personal,
-      defaultLeadDays: fallback,
-      lastMovementDay: lastStored == null ? null : storedLocalDay(lastStored),
-      products: settings,
-      lots: [
-        for (final row in lots)
-          AlertLot(
-            lotId: row['lot_id']! as int,
-            productId: row['product_id']! as int,
-            productName: row['product_name']! as String,
-            unit: row['unit']! as String,
-            ownerPersonId: row['owner_person_id']! as int,
-            ownerName: row['owner_name']! as String,
-            remainingBase: row['remaining_base']! as int,
-            expiryDay: row['expiry_date'] as String?,
-            lotNumber: row['lot_number'] as String?,
-            leadDays: row['alert_lead_days'] as int? ?? fallback,
-            leadDaysIsDefault: row['alert_lead_days'] == null,
-          ),
-      ],
-      stock: [
-        for (final p in settings)
-          StockLine(
-            productId: p.productId,
-            productName: p.productName,
-            unit: p.unit,
-            netBase: totals[p.productId] ?? 0,
-          ),
-        for (final row in perPerson)
-          StockLine(
-            productId: row['product_id']! as int,
-            productName: byId[row['product_id']]!.productName,
-            unit: byId[row['product_id']]!.unit,
-            netBase: row['net_base']! as int,
-            personId: row['owner_person_id']! as int,
-            personName: row['person_name']! as String,
-          ),
-      ],
-    );
-  }
+  /// Avisos de existencias y vencimiento (RF-43, RF-44, CU-22).
+  Future<InventoryAlerts> inventoryAlerts({DateTime? now}) =>
+      _inventory.inventoryAlerts(now: now);
 
   Future<List<Map<String, Object?>>> inventoryProductLots(
     int productId, {
     int? personId,
     int? supplierId,
     int? campaignId,
-  }) async {
-    final conditions = <String>['l.product_id=?', 'l.reversed_at IS NULL'];
-    final args = <Object?>[productId];
-    if (personId != null) {
-      conditions.add('l.owner_person_id=?');
-      args.add(personId);
-    }
-    if (supplierId != null) {
-      conditions.add('pu.supplier_id=?');
-      args.add(supplierId);
-    }
-    if (campaignId != null) {
-      conditions.add('pu.campaign_id=?');
-      args.add(campaignId);
-    }
-    return (await _db).rawQuery(
-      '''SELECT l.id lot_id, l.acquired_date, l.initial_quantity_base,
-      l.expiry_date, l.lot_number,
-      l.unit_cost_bob_minor_per_major_unit unit_cost, l.currency_code,
-      l.original_unit_price_minor, l.exchange_rate_scaled, l.parent_lot_id,
-      pe.name owner_name, s.name supplier_name, c.name campaign_name,
-      COALESCE(SUM(m.quantity_signed),0) available_base
-      FROM inventory_lots l JOIN persons pe ON pe.id=l.owner_person_id
-      JOIN purchase_items pi ON pi.id=l.purchase_item_id
-      JOIN purchases pu ON pu.id=pi.purchase_id JOIN suppliers s ON s.id=pu.supplier_id
-      JOIN campaigns c ON c.id=pu.campaign_id
-      LEFT JOIN inventory_movements m ON m.lot_id=l.id
-      WHERE ${conditions.join(' AND ')} GROUP BY l.id
-      HAVING available_base<>0 ORDER BY l.acquired_date,l.id LIMIT 500''',
-      args,
-    );
-  }
+  }) => _inventory.inventoryProductLots(
+    productId,
+    personId: personId,
+    supplierId: supplierId,
+    campaignId: campaignId,
+  );
 
   /// Historial del producto movimiento a movimiento, del más reciente al más
-  /// antiguo, con la persona dueña y la contraparte que explica cada fila:
-  /// el chaco de la aplicación, la otra persona del pase o el proveedor de la
-  /// compra, según `reference_type`/`reference_id` (E-10). Sólo lectura. Una
-  /// operación que tocó varios lotes (aplicación o pase sobre dos lotes) es
-  /// una sola fila: se agrupa por operación, persona y tipo y se suma la
-  /// cantidad.
+  /// antiguo (E-10).
   Future<List<Map<String, Object?>>> productMovements(
     int productId, {
     int limit = 20,
-  }) async => (await _db).rawQuery(
-    '''SELECT MIN(m.id) id, m.movement_date, m.type, SUM(m.quantity_signed) quantity_signed,
-      m.reference_type, m.reference_id, MAX(m.notes) notes, pe.name owner_name,
-      CASE WHEN m.reference_type IN ('APPLICATION','APPLICATION_REVERSAL') THEN
-        (SELECT f.name FROM applications a JOIN farms f ON f.id=a.farm_id
-          WHERE a.id=m.reference_id) END farm_name,
-      CASE WHEN m.reference_type IN ('TRANSFER','TRANSFER_REVERSAL') THEN
-        (SELECT CASE WHEN t.from_person_id=m.owner_person_id THEN pt.name ELSE pf.name END
-          FROM transfers t JOIN persons pf ON pf.id=t.from_person_id
-          JOIN persons pt ON pt.id=t.to_person_id WHERE t.id=m.reference_id) END counterpart_name,
-      CASE WHEN m.reference_type='PURCHASE_ALLOCATION' THEN
-        (SELECT s.name FROM purchase_allocations pa
-          JOIN purchase_items pi ON pi.id=pa.purchase_item_id
-          JOIN purchases pu ON pu.id=pi.purchase_id JOIN suppliers s ON s.id=pu.supplier_id
-          WHERE pa.id=m.reference_id)
-        WHEN m.reference_type='PURCHASE_REVERSAL' THEN
-        (SELECT s.name FROM purchases pu JOIN suppliers s ON s.id=pu.supplier_id
-          WHERE pu.id=m.reference_id) END supplier_name
-      FROM inventory_movements m JOIN persons pe ON pe.id=m.owner_person_id
-      WHERE m.product_id=?
-      GROUP BY m.reference_type, m.reference_id, m.owner_person_id, m.type
-      ORDER BY m.movement_date DESC, id DESC LIMIT ?''',
-    [productId, limit],
-  );
+  }) => _inventory.productMovements(productId, limit: limit);
 
-  Future<List<Map<String, Object?>>> personProfiles() async =>
-      (await _db).rawQuery('''SELECT p.*,
-        COALESCE((SELECT SUM(f.area_m2) FROM farms f WHERE f.owner_person_id=p.id AND f.active=1),0) area_m2,
-        COALESCE((SELECT SUM(t.amount_bob_minor_signed) FROM account_transactions t WHERE t.person_id=p.id),0) balance,
-        COALESCE((SELECT COUNT(DISTINCT m.product_id) FROM inventory_movements m
-          WHERE m.owner_person_id=p.id GROUP BY m.owner_person_id HAVING SUM(m.quantity_signed)<>0),0) stock_products
-        FROM persons p WHERE p.active=1 ORDER BY p.name''');
+  @override
+  Future<List<Map<String, Object?>>> personProfiles() =>
+      _catalogs.personProfiles();
 
-  Future<Map<String, Object?>> personProfile(int personId) async {
-    final rows = await (await _db).rawQuery(
-      '''SELECT p.*,
-      COALESCE((SELECT SUM(f.area_m2) FROM farms f WHERE f.owner_person_id=p.id AND f.active=1),0) area_m2,
-      COALESCE((SELECT SUM(t.amount_bob_minor_signed) FROM account_transactions t WHERE t.person_id=p.id),0) balance
-      FROM persons p WHERE p.id=?''',
-      [personId],
-    );
-    if (rows.isEmpty) throw BusinessRuleException('La persona no existe.');
-    return rows.single;
-  }
+  Future<Map<String, Object?>> personProfile(int personId) =>
+      _catalogs.personProfile(personId);
 
-  Future<List<Map<String, Object?>>> farmsForPerson(int personId) async =>
-      (await _db).query(
-        'farms',
-        where: 'owner_person_id=? AND active=1',
-        whereArgs: [personId],
-        orderBy: 'name',
-      );
+  Future<List<Map<String, Object?>>> farmsForPerson(int personId) =>
+      _catalogs.farmsForPerson(personId);
 
-  Future<Map<String, Object?>> farmProfile(int farmId) async {
-    final rows = await (await _db).rawQuery(
-      '''SELECT f.*, p.name owner_name FROM farms f
-      JOIN persons p ON p.id=f.owner_person_id WHERE f.id=?''',
-      [farmId],
-    );
-    if (rows.isEmpty) throw BusinessRuleException('El chaco no existe.');
-    return rows.single;
-  }
+  Future<Map<String, Object?>> farmProfile(int farmId) =>
+      _catalogs.farmProfile(farmId);
 
   Future<List<Map<String, Object?>>> farmLogbook(
     int farmId, {
     int? campaignId,
     int? productId,
-  }) async {
-    final conditions = <String>['a.farm_id=?'];
-    final args = <Object?>[farmId];
-    if (campaignId != null) {
-      conditions.add('a.campaign_id=?');
-      args.add(campaignId);
-    }
-    if (productId != null) {
-      conditions.add('i.product_id=?');
-      args.add(productId);
-    }
-    return (await _db).rawQuery(
-      '''SELECT a.id application_id, a.applied_at, a.status, a.notes,
-      c.name campaign_name, pe.name person_name, i.id application_item_id,
-      pr.id product_id, pr.name product_name, pr.unit, i.treated_area_m2,
-      i.dose_base_per_ha, i.theoretical_quantity_base, i.quantity_base,
-      i.cost_bob_minor,
-      (SELECT GROUP_CONCAT('#' || ac.inventory_lot_id || ': ' || ac.quantity_consumed_base)
-        FROM application_consumptions ac WHERE ac.application_item_id=i.id AND ac.reversed_at IS NULL) fifo_lots
-      FROM applications a JOIN campaigns c ON c.id=a.campaign_id
-      JOIN persons pe ON pe.id=a.person_id JOIN application_items i ON i.application_id=a.id
-      JOIN products pr ON pr.id=i.product_id
-      WHERE ${conditions.join(' AND ')} ORDER BY a.applied_at DESC,a.id DESC,i.id''',
-      args,
-    );
-  }
+  }) => _applications.farmLogbook(
+    farmId,
+    campaignId: campaignId,
+    productId: productId,
+  );
 
-  Future<Map<String, Object?>> campaignCloseSummary(int campaignId) async {
-    final db = await _db;
-    Future<int> value(String sql) async =>
-        Sqflite.firstIntValue(await db.rawQuery(sql, [campaignId])) ?? 0;
-    return {
-      'purchases_count': await value(
-        'SELECT COUNT(*) FROM purchases WHERE campaign_id=? AND reversed_at IS NULL',
-      ),
-      'purchases_bob_minor': await value(
-        'SELECT COALESCE(SUM(total_bob_minor),0) FROM purchases WHERE campaign_id=? AND reversed_at IS NULL',
-      ),
-      'applications_count': await value(
-        'SELECT COUNT(*) FROM applications WHERE campaign_id=? AND reversed_at IS NULL',
-      ),
-      'applications_bob_minor': await value(
-        'SELECT COALESCE(SUM(total_cost_bob_minor),0) FROM applications WHERE campaign_id=? AND reversed_at IS NULL',
-      ),
-      'pending_plans': await value(
-        "SELECT COUNT(*) FROM application_plans WHERE campaign_id=? AND status IN ('DRAFT','PLANNED')",
-      ),
-      // D-04: deuda pendiente por origen de la campaña, sin ADMIN (D-R6). Ya
-      // no es la suma con signo de los asientos con ese `campaign_id`, que
-      // restaba pagos de otras deudas y omitía los registrados sin campaña.
-      'receivable_bob_minor': (await accountLedger(withDetails: false))
-          .pendingForCampaign(campaignId),
-    };
-  }
+  @override
+  Future<Map<String, Object?>> campaignCloseSummary(int campaignId) =>
+      _campaigns.campaignCloseSummary(campaignId);
 
-  // ---------------------------------------------------------------------
-  // D-04: libro de cuentas (decisión del autor del 2026-10-27; documento
-  // docs/architecture/D04_E15_CUENTAS_IMPUTACION_Y_COSTO_PROPIO.md §2)
-  // ---------------------------------------------------------------------
-
-  /// Libro de cuentas en **una** consulta (`readAccountLedger`). Con
-  /// [personId], sólo esa persona; con [withDetails] en `false`, sin concepto
-  /// ni chaco (sin `GROUP_CONCAT`), que basta para cifras.
+  /// Libro de cuentas en **una** consulta (`readAccountLedger`).
+  @override
   Future<AccountLedger> accountLedger({
     int? personId,
     bool withDetails = true,
-  }) async => readAccountLedger(
-    await _db,
-    personId: personId,
-    withDetails: withDetails,
-  );
+  }) => _accounts.accountLedger(personId: personId, withDetails: withDetails);
 
-  /// Filas de la lista de Cuentas (§2.3): sin ADMIN, con el alcance de
-  /// [campaignId] y el saldo neto de todas las campañas.
-  Future<List<AccountSummary>> accountSummaries({int? campaignId}) async =>
-      (await accountLedger(withDetails: false))
-          .summaries(campaignId: campaignId);
+  /// Filas de la lista de Cuentas (§2.3).
+  Future<List<AccountSummary>> accountSummaries({int? campaignId}) =>
+      _accounts.accountSummaries(campaignId: campaignId);
 
-  /// Estado de cuenta (§2.5): desglose por campaña de origen y cronológico
-  /// por período de fechas con apertura.
-  Future<AccountStatement> accountStatement(
-    int personId, {
-    int? campaignId,
-  }) async =>
-      (await accountLedger(personId: personId))
-          .statement(personId, campaignId: campaignId);
+  /// Estado de cuenta (§2.5).
+  Future<AccountStatement> accountStatement(int personId, {int? campaignId}) =>
+      _accounts.accountStatement(personId, campaignId: campaignId);
 
   /// Heredada: sólo caracterización (EVO-004); la app usa `accountStatement` (D-04).
+  @override
   Future<Map<String, Object?>> personCampaignBalance(
     int personId,
     int campaignId,
-  ) async {
-    final db = await _db;
-    final campaign = (await db.query(
-      'campaigns',
-      columns: ['start_date'],
-      where: 'id=?',
-      whereArgs: [campaignId],
-    )).single;
-    final start = campaign['start_date'];
-    final rows = await db.rawQuery(
-      '''SELECT
-      COALESCE(SUM(CASE WHEN c.start_date < ? THEN t.amount_bob_minor_signed ELSE 0 END),0) opening_balance,
-      COALESCE(SUM(CASE WHEN t.campaign_id=? AND t.amount_bob_minor_signed>0 THEN t.amount_bob_minor_signed ELSE 0 END),0) campaign_charges,
-      COALESCE(-SUM(CASE WHEN t.campaign_id=? AND t.amount_bob_minor_signed<0 THEN t.amount_bob_minor_signed ELSE 0 END),0) campaign_payments,
-      COALESCE(SUM(t.amount_bob_minor_signed),0) total_balance
-      FROM account_transactions t LEFT JOIN campaigns c ON c.id=t.campaign_id
-      WHERE t.person_id=?''',
-      [start, campaignId, campaignId, personId],
-    );
-    return rows.single;
-  }
+  ) => _accounts.personCampaignBalance(personId, campaignId);
 
   Future<Map<String, Object?>> productStockInsight({
     required int personId,
     required int productId,
     required int campaignId,
-  }) async {
-    final db = await _db;
-    final ownerAvailable =
-        Sqflite.firstIntValue(
-          await db.rawQuery(
-            'SELECT COALESCE(SUM(quantity_signed),0) FROM inventory_movements WHERE owner_person_id=? AND product_id=?',
-            [personId, productId],
-          ),
-        ) ??
-        0;
-    final physicalTotal =
-        Sqflite.firstIntValue(
-          await db.rawQuery(
-            'SELECT COALESCE(SUM(quantity_signed),0) FROM inventory_movements WHERE product_id=?',
-            [productId],
-          ),
-        ) ??
-        0;
-    final consumedCampaign =
-        Sqflite.firstIntValue(
-          await db.rawQuery(
-            '''SELECT COALESCE(-SUM(m.quantity_signed),0) FROM inventory_movements m
-            JOIN applications a ON a.id=m.reference_id AND m.reference_type='APPLICATION'
-            WHERE m.owner_person_id=? AND m.product_id=? AND m.type='APPLICATION_OUT'
-            AND a.campaign_id=? AND a.reversed_at IS NULL''',
-            [personId, productId, campaignId],
-          ),
-        ) ??
-        0;
-    final lots = await db.rawQuery(
-      '''SELECT l.unit_cost_bob_minor_per_major_unit unit_cost, SUM(m.quantity_signed) available
-      FROM inventory_lots l JOIN inventory_movements m ON m.lot_id=l.id
-      WHERE l.owner_person_id=? AND l.product_id=? AND l.reversed_at IS NULL
-      GROUP BY l.id HAVING available>0 ORDER BY l.acquired_date,l.id''',
-      [personId, productId],
-    );
-    return {
-      'owner_available_base': ownerAvailable,
-      'physical_total_base': physicalTotal,
-      'consumed_campaign_base': consumedCampaign,
-      'next_fifo_cost_minor': lots.isEmpty ? 0 : lots.first['unit_cost'],
-      'available_lots': lots.length,
-    };
-  }
+  }) => _applications.productStockInsight(
+    personId: personId,
+    productId: productId,
+    campaignId: campaignId,
+  );
 
-  /// Previsión de **sólo lectura** de los lotes que consumiría una aplicación
-  /// de [quantityBase] de [productId] por [personId] en la fecha
-  /// [appliedAt]: los mismos lotes elegibles que leería `confirmApplication`
-  /// (hoy, el saldo actual; un día pasado, el cupo histórico de D-03) y el
-  /// mismo reparto ([fifoTakes]). No escribe nada ni cambia el orden de
-  /// consumo; el formulario la usa para avisar de un lote vencido antes de
-  /// confirmar (RN-31 de la tesis: el aviso no bloquea).
+  /// Previsión de **sólo lectura** de los lotes que consumiría una aplicación.
+  @override
   Future<List<ApplicationLotPreview>> previewApplicationLots({
     required int personId,
     required int productId,
     required int quantityBase,
     required DateTime appliedAt,
-  }) async {
-    final db = await _db;
-    final day = localDay(appliedAt);
-    final lots = day == localDay(DateTime.now())
-        ? await _lotsAvailableNow(db, productId, personId)
-        : await _lotsAvailableAt(db, productId, personId, day);
-    return [
-      for (final (:lot, :take) in fifoTakes(lots, quantityBase))
-        (
-          lotId: lot['id']! as int,
-          quantityBase: take,
-          expiryDay: lot['expiry_date'] as String?,
-          lotNumber: lot['lot_number'] as String?,
-        ),
-    ];
-  }
+  }) => _applications.previewApplicationLots(
+    personId: personId,
+    productId: productId,
+    quantityBase: quantityBase,
+    appliedAt: appliedAt,
+  );
 
+  @override
   Future<int> estimateFifoCost({
     required int personId,
     required int productId,
     required int quantityBase,
-  }) async {
-    final lots = await (await _db).rawQuery(
-      '''SELECT l.unit_cost_bob_minor_per_major_unit unit_cost, SUM(m.quantity_signed) available
-      FROM inventory_lots l JOIN inventory_movements m ON m.lot_id=l.id
-      WHERE l.owner_person_id=? AND l.product_id=? AND l.reversed_at IS NULL
-      GROUP BY l.id HAVING available>0 ORDER BY l.acquired_date,l.id''',
-      [personId, productId],
-    );
-    var remaining = quantityBase;
-    var cost = 0;
-    for (final lot in lots) {
-      if (remaining <= 0) break;
-      final available = lot['available']! as int;
-      final take = remaining < available ? remaining : available;
-      cost += costForBaseQuantity(take, lot['unit_cost']! as int);
-      remaining -= take;
-    }
-    return cost;
-  }
+  }) => _applications.estimateFifoCost(
+    personId: personId,
+    productId: productId,
+    quantityBase: quantityBase,
+  );
 
   /// Heredada: sólo caracterización (EVO-004); la app usa `accountSummaries` (D-04).
-  Future<List<Map<String, Object?>>> settlements({int? campaignId}) async =>
-      (await _db).rawQuery(
-        '''SELECT p.id, p.name, p.role,
-    COALESCE(SUM(t.amount_bob_minor_signed),0) balance,
-    COALESCE(SUM(CASE WHEN t.amount_bob_minor_signed>0 THEN t.amount_bob_minor_signed ELSE 0 END),0) charges,
-    COALESCE(-SUM(CASE WHEN t.amount_bob_minor_signed<0 THEN t.amount_bob_minor_signed ELSE 0 END),0) payments
-    FROM persons p LEFT JOIN account_transactions t ON t.person_id=p.id ${campaignId == null ? '' : 'AND t.campaign_id=?'}
-    WHERE p.role<>'ADMIN' GROUP BY p.id ORDER BY balance DESC, p.name''',
-        [if (campaignId != null) campaignId],
-      );
+  @override
+  Future<List<Map<String, Object?>>> settlements({int? campaignId}) =>
+      _accounts.settlements(campaignId: campaignId);
 
-  Future<List<Map<String, Object?>>> topSettlements({int limit = 5}) async =>
-      (await _db).rawQuery(
-        '''SELECT p.id, p.name, p.role, COALESCE(SUM(t.amount_bob_minor_signed),0) balance
-        FROM persons p LEFT JOIN account_transactions t ON t.person_id=p.id
-        WHERE p.role<>'ADMIN' GROUP BY p.id ORDER BY balance DESC,p.name LIMIT ?''',
-        [limit],
-      );
+  @override
+  Future<List<Map<String, Object?>>> topSettlements({int limit = 5}) =>
+      _accounts.topSettlements(limit: limit);
 
   /// Heredada: sólo caracterización (EVO-004); la app usa `accountStatement` (D-04).
   Future<List<Map<String, Object?>>> statement(
     int personId, {
     int? campaignId,
-  }) async => (await _db).rawQuery(
-    '''SELECT * FROM account_transactions
-    WHERE person_id=? ${campaignId == null ? '' : 'AND campaign_id=?'} ORDER BY transaction_date,id''',
-    [personId, if (campaignId != null) campaignId],
-  );
+  }) => _accounts.statement(personId, campaignId: campaignId);
 
   /// Heredada: sólo caracterización (EVO-004); la app usa `accountStatement`; Personas la usa hasta E-15 (D-04).
+  @override
   Future<List<Map<String, Object?>>> detailedStatement(
     int personId, {
     int? campaignId,
-  }) async => (await _db).rawQuery(
-    '''SELECT t.*,
-    COALESCE(
-      (SELECT GROUP_CONCAT(p.name, ', ') FROM application_items i JOIN products p ON p.id=i.product_id
-       WHERE i.application_id=t.reference_id AND t.reference_type='APPLICATION'),
-      (SELECT p.name FROM purchase_allocations a JOIN purchase_items i ON i.id=a.purchase_item_id
-       JOIN products p ON p.id=i.product_id WHERE a.id=t.reference_id AND t.reference_type='PURCHASE_ALLOCATION'),
-      t.notes, t.type) concept,
-    (SELECT f.name FROM applications a JOIN farms f ON f.id=a.farm_id
-     WHERE a.id=t.reference_id AND t.reference_type='APPLICATION') farm_name
-    FROM account_transactions t WHERE t.person_id=?
-    ${campaignId == null ? '' : 'AND t.campaign_id=?'} ORDER BY t.transaction_date,t.id''',
-    [personId, if (campaignId != null) campaignId],
-  );
+  }) => _accounts.detailedStatement(personId, campaignId: campaignId);
 
-  Future<List<Map<String, Object?>>> farmCostReport({int? campaignId}) async =>
-      (await _db).rawQuery(
-        '''SELECT f.id, f.name, f.area_m2, p.name owner_name,
-        COALESCE(SUM(a.total_cost_bob_minor),0) total_cost_bob_minor
-        FROM farms f JOIN persons p ON p.id=f.owner_person_id
-        LEFT JOIN applications a ON a.farm_id=f.id AND a.reversed_at IS NULL
-        ${campaignId == null ? '' : 'AND a.campaign_id=?'} GROUP BY f.id ORDER BY f.name''',
-        campaignId == null ? null : [campaignId],
-      );
+  @override
+  Future<List<Map<String, Object?>>> farmCostReport({int? campaignId}) =>
+      _accounts.farmCostReport(campaignId: campaignId);
 
-  Future<List<Map<String, Object?>>> productCostReport({
-    int? campaignId,
-  }) async => (await _db).rawQuery(
-    '''SELECT p.id, p.name, p.unit,
-        COALESCE(SUM(CASE WHEN a.id IS NOT NULL THEN i.quantity_base ELSE 0 END),0) quantity_base,
-        COALESCE(SUM(CASE WHEN a.id IS NOT NULL THEN i.cost_bob_minor ELSE 0 END),0) total_cost_bob_minor
-        FROM products p LEFT JOIN application_items i ON i.product_id=p.id
-        LEFT JOIN applications a ON a.id=i.application_id AND a.reversed_at IS NULL
-        ${campaignId == null ? '' : 'AND a.campaign_id=?'} GROUP BY p.id ORDER BY p.name''',
-    campaignId == null ? null : [campaignId],
-  );
+  @override
+  Future<List<Map<String, Object?>>> productCostReport({int? campaignId}) =>
+      _accounts.productCostReport(campaignId: campaignId);
 
-  Future<DashboardSummary> dashboard() async {
-    final db = await _db;
-    final purchases =
-        Sqflite.firstIntValue(
-          await db.rawQuery(
-            "SELECT COALESCE(SUM(total_bob_minor),0) FROM purchases WHERE reversed_at IS NULL",
-          ),
-        ) ??
-        0;
-    final provider =
-        Sqflite.firstIntValue(
-          await db.rawQuery(
-            "SELECT COALESCE(SUM(amount_bob_minor),0) FROM provider_payments WHERE reversed_at IS NULL",
-          ),
-        ) ??
-        0;
-    // D-04 (§2.7): «por cobrar» = Σ max(0, saldo neto) por persona, y lo que
-    // queda a favor se informa aparte. Una sola lectura del libro sustituye a
-    // las tres sumas por rol y por tipo.
-    final ledger = await accountLedger(withDetails: false);
-    final family = ledger.receivableByRole('FAMILY');
-    final third = ledger.receivableByRole('THIRD_PARTY');
-    final received = ledger.receivedMinor();
-    final stock =
-        Sqflite.firstIntValue(
-          await db.rawQuery(
-            'SELECT COALESCE(SUM(quantity_signed),0) FROM inventory_movements',
-          ),
-        ) ??
-        0;
-    return DashboardSummary(
-      purchasesBobMinor: purchases,
-      providerPaidMinor: provider,
-      familyReceivableMinor: family.receivableMinor,
-      thirdPartyReceivableMinor: third.receivableMinor,
-      familyCreditMinor: family.creditMinor,
-      thirdPartyCreditMinor: third.creditMinor,
-      topBalances: [
-        for (final row in ledger.topBalances())
-          (
-            personId: row.personId,
-            name: row.name,
-            role: row.role,
-            balanceMinor: row.account.netMinor,
-          ),
-      ],
-      receivedMinor: received,
-      stockBase: stock,
-    );
-  }
+  Future<DashboardSummary> dashboard() => _accounts.dashboard();
 
   /// Foto de la etiqueta de [productId] (E1-D10), o null si no tiene.
   /// [ProductPhoto.exists] es falso si la base la registra pero el archivo
   /// ya no está en el teléfono.
-  Future<ProductPhoto?> productPhoto(int productId) async {
-    final rows = await (await _db).query(
-      'products',
-      columns: ['photo_path', 'photo_sha256', 'photo_updated_at'],
-      where: 'id=?',
-      whereArgs: [productId],
-    );
-    if (rows.isEmpty) return null;
-    final relative = rows.single['photo_path'] as String?;
-    final sha = rows.single['photo_sha256'] as String?;
-    if (relative == null || sha == null) return null;
-    final file = productPhotoFile(await _photoDocuments(), relative);
-    if (file == null) return null;
-    return ProductPhoto(
-      productId: productId,
-      relativePath: relative,
-      file: file,
-      sha256: sha,
-      updatedAt: rows.single['photo_updated_at'] as String?,
-      exists: await file.exists(),
-    );
-  }
+  Future<ProductPhoto?> productPhoto(int productId) =>
+      _catalogs.productPhoto(productId);
 
   /// Guarda como foto de la etiqueta de [productId] la imagen de
   /// [sourcePath], ya procesada: orientación aplicada, lado mayor ≤ 1600 px y
   /// JPEG sin metadatos. Reemplazar borra el archivo anterior.
-  ///
-  /// Si el producto tiene una solicitud de identificación con la foto
-  /// compartida, [shareWithUnion] decide en la misma transacción si la nueva
-  /// también se envía (consentimiento `FOTO-1` nuevo) o se queda sólo en el
-  /// teléfono; null equivale a no enviarla: un consentimiento nunca se
-  /// amplía en silencio (E1-D11).
   Future<ProductPhoto> setProductPhoto(
     int productId,
     String sourcePath, {
     bool? shareWithUnion,
-  }) async {
-    final ProcessedLabelPhoto processed;
-    try {
-      processed = await compute(
-        processLabelPhoto,
-        await File(sourcePath).readAsBytes(),
-      );
-    } on LabelPhotoFormatException catch (error) {
-      throw BusinessRuleException(error.toString());
-    } on FileSystemException {
-      throw BusinessRuleException(
-        'No se pudo leer la foto elegida. Inténtelo otra vez.',
-      );
-    }
-    final documents = await _photoDocuments();
-    final relative = productPhotoRelativePath(productId, processed.sha256);
-    final target = productPhotoFile(documents, relative)!;
-    String? previous;
-    var wroteFile = false;
-    try {
-      await _write((txn, _) async {
-        final rows = await txn.query(
-          'products',
-          columns: ['photo_path'],
-          where: 'id=?',
-          whereArgs: [productId],
-        );
-        if (rows.isEmpty) throw BusinessRuleException('El producto no existe.');
-        previous = rows.single['photo_path'] as String?;
-        await target.parent.create(recursive: true);
-        await target.writeAsBytes(processed.bytes, flush: true);
-        wroteFile = true;
-        final now = _date(DateTime.now());
-        await txn.update(
-          'products',
-          {
-            'photo_path': relative,
-            'photo_sha256': processed.sha256,
-            'photo_updated_at': now,
-          },
-          where: 'id=?',
-          whereArgs: [productId],
-        );
-        await IdentificationRequestStore.onPhotoReplaced(
-          txn,
-          productId,
-          newSha: processed.sha256,
-          share: shareWithUnion,
-          now: now,
-        );
-      });
-    } on Object {
-      // Nada quedó registrado: el archivo nuevo sobra, salvo que sea el
-      // mismo que ya estaba guardado.
-      if (wroteFile && previous != relative) await _deleteQuietly(target);
-      rethrow;
-    }
-    if (previous != null && previous != relative) {
-      final old = productPhotoFile(documents, previous);
-      if (old != null) await _deleteQuietly(old);
-    }
-    return (await productPhoto(productId))!;
-  }
+  }) => _catalogs.setProductPhoto(
+    productId,
+    sourcePath,
+    shareWithUnion: shareWithUnion,
+  );
 
   /// Quita la foto de la etiqueta de [productId]: borra el archivo y deja
-  /// las columnas en NULL. Si la foto se había compartido con el sindicato,
-  /// su retiro queda pendiente de envío (`REMOVE_PENDING`), en la misma
-  /// transacción.
-  Future<void> removeProductPhoto(int productId) async {
-    String? previous;
-    await _write((txn, _) async {
-      final rows = await txn.query(
-        'products',
-        columns: ['photo_path'],
-        where: 'id=?',
-        whereArgs: [productId],
-      );
-      if (rows.isEmpty) throw BusinessRuleException('El producto no existe.');
-      previous = rows.single['photo_path'] as String?;
-      final now = _date(DateTime.now());
-      await txn.update(
-        'products',
-        {'photo_path': null, 'photo_sha256': null, 'photo_updated_at': null},
-        where: 'id=?',
-        whereArgs: [productId],
-      );
-      await IdentificationRequestStore.onPhotoRemoved(txn, productId, now: now);
-    });
-    final file = productPhotoFile(await _photoDocuments(), previous);
-    if (file != null) await _deleteQuietly(file);
-  }
-
-  Future<Directory> _photoDocuments() =>
-      _productPhotoDocuments?.call() ?? resolveDocumentsDirectory();
-
-  static Future<void> _deleteQuietly(File file) async {
-    try {
-      if (await file.exists()) await file.delete();
-    } on FileSystemException {
-      // Limpieza: no cambia el resultado.
-    }
-  }
+  /// las columnas en NULL.
+  Future<void> removeProductPhoto(int productId) =>
+      _catalogs.removeProductPhoto(productId);
 
   /// Sólo copia un archivo: basta la compuerta, no hay contexto de modalidad.
-  /// También queda excluida mientras se restaura, porque la restauración
-  /// reemplaza la carpeta de fotografías.
   Future<String> storeInvoiceImage(String sourcePath) =>
-      appDatabase.replacement.write(() async {
-        _gate.ensureAllowed();
-        // La carpeta la decide `invoice_storage.dart`, que es también donde la
-        // busca `BackupService` para meterla en el respaldo y devolverla al
-        // restaurar.
-        final invoices = await resolveInvoicesDirectory();
-        final extension = p.extension(sourcePath).isEmpty
-            ? '.jpg'
-            : p.extension(sourcePath);
-        final target = p.join(
-          invoices.path,
-          'invoice_${DateTime.now().microsecondsSinceEpoch}$extension',
-        );
-        await File(sourcePath).copy(target);
-        return target;
-      });
+      _purchases.storeInvoiceImage(sourcePath);
 }

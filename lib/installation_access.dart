@@ -4,7 +4,7 @@
 // activación o un vínculo de titular. No guarda credenciales ni las registra.
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import 'app.dart';
+import 'local_data_providers.dart' show repositoryProvider;
 import 'data/app_log.dart';
 import 'data/owner_binding_store.dart';
 import 'domain/installation_access.dart';

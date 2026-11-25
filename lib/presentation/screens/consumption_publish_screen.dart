@@ -4,9 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../data/sync/consumption_publisher.dart';
 import '../../domain/money.dart';
 import '../../domain/sync/consumption_projection.dart';
+import '../../domain/sync/consumption_publisher_models.dart';
 import '../../domain/sync/sync_types.dart'
     show
         OutboxStatus,
@@ -40,7 +40,7 @@ class _ConsumptionPublishScreenState
     extends ConsumerState<ConsumptionPublishScreen> {
   late Future<ConsumptionPreview> preview;
 
-  ConsumptionPublisher get _publisher => ref.read(consumptionPublisherProvider);
+  ConsumptionGateway get _publisher => ref.read(consumptionGatewayProvider);
 
   @override
   void initState() {

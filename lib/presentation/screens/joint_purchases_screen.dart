@@ -2,9 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../data/sync/joint_purchase_store.dart';
 import '../../domain/sync/joint_purchase_call_view.dart'
     show jointPurchaseRecentFinishedDays;
+import '../../domain/sync/joint_purchase_models.dart';
 import '../../services/sync/joint_purchase_sender.dart';
 import '../../services/sync/sync_providers.dart';
 import '../theme/agro_theme.dart';
@@ -51,7 +51,7 @@ class _JointPurchasesScreenState extends ConsumerState<JointPurchasesScreen> {
   }
 
   Future<JointPurchaseOverview> _read() =>
-      ref.read(jointPurchaseStoreProvider).overviewForActiveOwner();
+      ref.read(jointPurchaseGatewayProvider).overviewForActiveOwner();
 
   void _reload() {
     final next = _read();

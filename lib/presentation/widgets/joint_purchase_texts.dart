@@ -1,6 +1,6 @@
 import 'package:intl/intl.dart';
 
-import '../../data/sync/joint_purchase_store.dart';
+import '../../domain/sync/joint_purchase_models.dart';
 import '../../domain/money.dart' show formatQuantity;
 import '../../domain/sync/joint_purchase_call_view.dart';
 import '../../services/sync/joint_purchase_sender.dart'

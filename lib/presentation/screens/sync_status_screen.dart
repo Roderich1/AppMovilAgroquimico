@@ -3,8 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart' show DateFormat;
 
-import '../../data/sync/sync_outbox_store.dart' show SyncQueueSummary;
 import '../../domain/money.dart';
+import '../../domain/sync/sync_outbox_models.dart' show SyncQueueSummary;
 import '../../domain/sync/sync_types.dart';
 import '../../services/sync/sync_providers.dart';
 import '../theme/agro_theme.dart';
@@ -45,12 +45,12 @@ class _SyncStatusScreenState extends ConsumerState<SyncStatusScreen> {
   @override
   void initState() {
     super.initState();
-    entries = ref.read(syncOutboxStoreProvider).entries();
+    entries = ref.read(syncOutboxGatewayProvider).entries();
     ref.read(syncControllerProvider.notifier).refreshSummary();
   }
 
   void _reload() {
-    final next = ref.read(syncOutboxStoreProvider).entries();
+    final next = ref.read(syncOutboxGatewayProvider).entries();
     setState(() {
       entries = next;
     });

@@ -1,5 +1,5 @@
 import '../domain/installation_access.dart';
-import 'agro_repository.dart' show BusinessRuleException;
+import '../domain/repository_exceptions.dart' show BusinessRuleException;
 
 /// Se lanza cuando la política de activación no habilita operaciones locales.
 class FarmerOperationBlockedException extends BusinessRuleException {

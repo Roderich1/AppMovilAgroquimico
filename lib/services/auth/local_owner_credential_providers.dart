@@ -1,6 +1,6 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../app.dart' show repositoryProvider;
+import '../../local_data_providers.dart' show repositoryProvider;
 import '../../data/owner_binding_store.dart';
 import '../../domain/installation_access.dart' show InstallationAccessState;
 import '../../installation_access.dart';

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../data/app_log.dart';
+import '../../services/app_log.dart';
 import '../../services/auth/local_owner_credential.dart'
     show OwnerAuthorizationRejected;
 import '../../services/sync/sync_api.dart' show SyncQueryException;

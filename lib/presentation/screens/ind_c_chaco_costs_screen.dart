@@ -10,10 +10,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../app.dart';
-import '../../data/ind_c_chacos_reads.dart';
+import '../../domain/ind_c_chacos_models.dart';
 import '../../domain/money.dart';
 import '../../domain/reports/report_composer.dart' show ReportKind;
+import '../providers/agro_providers.dart';
 import '../theme/agro_theme.dart';
 import '../widgets/agro_ui.dart';
 import '../widgets/common.dart';
@@ -57,7 +57,7 @@ class _IndCChacoCostsScreenState extends ConsumerState<IndCChacoCostsScreen> {
   late Future<_CostsData> data = _load();
 
   Future<_CostsData> _load() async {
-    final repo = ref.read(repositoryProvider);
+    final repo = ref.read(indChacosGatewayProvider);
     return (
       chacos: await repo.indCChacos(campaignId: campaignId),
       products: await repo.indCProductCosts(campaignId: campaignId),
