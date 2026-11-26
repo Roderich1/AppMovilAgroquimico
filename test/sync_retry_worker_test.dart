@@ -287,7 +287,7 @@ void main() {
     final entry = (await h.entries()).single;
     expect(entry.status, OutboxStatus.rejected);
     expect(entry.lastCode, 'CAMPAIGN_SEALED');
-    expect(entry.interventionMessage, contains('sellada'));
+    expect(entry.interventionMessage, contains('cerrada'));
     // Neither this worker nor a new one (app restart) sends it again.
     expect((await h.worker.run()).sent, 0);
     final restarted = SyncWorker(

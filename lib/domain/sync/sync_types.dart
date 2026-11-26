@@ -246,8 +246,8 @@ String contributionKeyOf(
 /// la campaña. El registro privado no cambia; nada se reasigna ni se reintenta.
 String? rejectionExplanation(String? code) => switch (code) {
   'CAMPAIGN_SEALED' =>
-    'Esta campaña está sellada en el sindicato: el histórico colectivo '
-        'sellado no se actualiza con correcciones posteriores. Su registro '
+    'Esta campaña está cerrada en el sindicato y ya no admite cifras '
+        'nuevas ni cambios de cantidades. Su registro '
         'privado se conserva.',
   'CAMPAIGN_NOT_OPEN' =>
     'La campaña ya no admite publicaciones en el sindicato. Su registro '

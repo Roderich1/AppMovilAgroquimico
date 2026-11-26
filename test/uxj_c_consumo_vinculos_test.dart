@@ -220,7 +220,7 @@ void main() {
         findsOneWidget,
       );
       expect(
-        rowText(kiloRef, 'Esta campaña está sellada en el sindicato'),
+        rowText(kiloRef, 'Esta campaña está cerrada en el sindicato'),
         findsOneWidget,
       );
       // Fallo terminal (F04 §2.4): «Publicar» no tiene nada que enviar.
