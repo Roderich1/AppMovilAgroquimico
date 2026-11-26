@@ -25,6 +25,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+import 'support/f04_mode_ui_harness.dart' show waitUntil;
+
 class _MemoryVault implements BackupKeyVault {
   String? value;
   @override
@@ -197,28 +199,15 @@ void main() {
     }
   }
 
-  /// Como [settle], hasta que las acciones [expected] que la interfaz pidió
-  /// al registro hayan terminado de escribirlo en disco (como mucho 100
-  /// vueltas, igual que [settleUntil]). Si no terminan, falla con lo pedido y
-  /// lo terminado en vez de dejar leer el estado anterior.
-  Future<void> settleRegistry(
-    WidgetTester tester,
-    List<String> expected,
-  ) async {
-    final done = equals(expected);
-    for (var i = 0; i < 100 && !done.matches(registry.finished, {}); i++) {
-      await tester.runAsync(
-        () => Future<void>.delayed(const Duration(milliseconds: 5)),
+  /// Espera la escritura que la pantalla ya inició antes de releerla.
+  Future<void> settleRegistry(WidgetTester tester, List<String> expected) =>
+      waitUntil(
+        tester,
+        'la escritura $expected del registro de copias',
+        () => equals(expected).matches(registry.finished, {}),
+        state: () =>
+            'pedidas ${registry.calls}, terminadas ${registry.finished}',
       );
-      await tester.pump(const Duration(milliseconds: 50));
-    }
-    if (!done.matches(registry.finished, {})) {
-      fail(
-        'El registro no terminó $expected en 100 vueltas: pedidas '
-        '${registry.calls}, terminadas ${registry.finished}.',
-      );
-    }
-  }
 
   Future<(_FakeRemote, ValueNotifier<bool>)> pumpScreen(
     WidgetTester tester,

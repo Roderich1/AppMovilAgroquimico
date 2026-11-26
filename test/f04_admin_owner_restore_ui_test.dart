@@ -435,7 +435,9 @@ void main() {
     setUp(() async {
       workspace = await Directory.systemTemp.createTemp('agro_f04_ui_');
       await Directory(p.join(workspace.path, 'invoices')).create();
+      final previousPaths = PathProviderPlatform.instance;
       PathProviderPlatform.instance = _WorkspacePaths(workspace.path);
+      addTearDown(() => PathProviderPlatform.instance = previousPaths);
     });
     tearDown(() async {
       try {
@@ -587,7 +589,9 @@ void main() {
         await chooseBackup(tester, c, 'propio');
         await waitFor(tester, find.text('¿Restaurar este respaldo?'));
         await tester.tap(find.text('Restaurar'));
-        await waitFor(tester, find.textContaining('Respaldo restaurado'));
+        final success = find.textContaining('Respaldo restaurado');
+        await waitFor(tester, success);
+        expect(success, findsOneWidget);
         await settle(tester);
 
         expect(c.read(operationModeProvider), OperationMode.personal);
