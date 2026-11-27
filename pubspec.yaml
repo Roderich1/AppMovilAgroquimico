@@ -49,6 +49,7 @@ dependencies:
   # E1-D10: foto de la etiqueta sin metadatos (Dart puro). Acotada a 4.9.x:
   # la 4.11 ya no compila con archive 4.2.0, que usa el respaldo.
   image: ">=4.9.2 <4.10.0"
+  connectivity_plus: 6.1.5
 
 dev_dependencies:
   flutter_test:

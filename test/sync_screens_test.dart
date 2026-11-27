@@ -356,10 +356,7 @@ void main() {
     );
     await tester.tap(find.text('Actualizar'));
     await settle(tester);
-    expect(
-      find.textContaining('Los vínculos existentes se conservan'),
-      findsOneWidget,
-    );
+    expect(find.text('Sin conexión · pendiente de consultar'), findsOneWidget);
     expect(
       (await tester.runAsync(fixture.bindings.productBindings))!,
       hasLength(2),

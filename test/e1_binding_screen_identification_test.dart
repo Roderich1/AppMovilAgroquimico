@@ -1,9 +1,10 @@
 // E1 §5.2–§5.6 en la pantalla «Vincular con el sindicato»: pedir la
 // identificación muestra exactamente lo que se enviará; la fila nunca dice
-// «Enviado» mientras la solicitud sólo existe en el teléfono; al actualizar
-// las referencias se envía y se lee el estado; cuando el sindicato la
+// «Enviado» mientras la solicitud sólo existe en el teléfono; actualizar
+// consulta y «Enviar ahora» procesa la cola. Cuando el sindicato la
 // identifica, «Vincular» usa la confirmación de siempre y `bindProduct`.
 // Sin red: MockClient. Datos sintéticos.
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -11,12 +12,14 @@ import 'package:agroquimicos/app.dart';
 import 'package:agroquimicos/data/sync/identification_request_store.dart';
 import 'package:agroquimicos/presentation/screens/central_binding_screen.dart';
 import 'package:agroquimicos/presentation/widgets/identification_clarification_sheet.dart';
+import 'package:agroquimicos/presentation/widgets/union_updates.dart';
 import 'package:agroquimicos/services/auth/api_endpoint_config.dart';
 import 'package:agroquimicos/services/auth/auth_http_client.dart';
 import 'package:agroquimicos/services/sync/identification_api.dart';
 import 'package:agroquimicos/services/sync/sync_access.dart';
 import 'package:agroquimicos/services/sync/sync_api.dart';
 import 'package:agroquimicos/services/sync/sync_providers.dart';
+import 'package:agroquimicos/services/sync/union_refresh.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -26,6 +29,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'support/e1_identification_fixtures.dart';
 import 'support/f04_mode_fixtures.dart';
+import 'support/f04_mode_ui_harness.dart' show waitFor;
 import 'support/f05_sync_fixtures.dart';
 
 const _base = '/api/v1/catalog/identification-requests';
@@ -84,6 +88,9 @@ void main() {
       final config = ApiEndpointConfig(Uri.parse('https://sindicato.example'));
       final staged = <Map<String, dynamic>>[];
       final uploads = <String>[];
+      final connection = StreamController<bool>.broadcast();
+      addTearDown(connection.close);
+      var reads = 0;
       var received = false;
       Map<String, Object?> view() => serverView(
         request.requestId,
@@ -95,11 +102,13 @@ void main() {
         consentVersion: received ? 'FOTO-1' : null,
       );
       final client = MockClient((call) async {
-        if (call.method == 'GET')
+        if (call.method == 'GET') {
+          reads++;
           return json({
             'contractVersion': 1,
             'requests': [view()],
           }, 200);
+        }
         if (call.url.path.endsWith('/clarification-response')) {
           staged.add(jsonDecode(call.body) as Map<String, dynamic>);
           return json({'received': received, 'request': view()}, 200);
@@ -125,6 +134,11 @@ void main() {
             syncOutboxStoreProvider.overrideWithValue(fixture.outbox),
             identificationRequestStoreProvider.overrideWithValue(store),
             syncAccessHolderProvider.overrideWithValue(access),
+            unionAutoRefreshEnabledProvider.overrideWithValue(true),
+            unionConnectivityProvider.overrideWith((ref) async* {
+              yield false;
+              yield* connection.stream;
+            }),
             clarificationPhotoPickerProvider.overrideWithValue(
               (_) async => source.path,
             ),
@@ -145,17 +159,24 @@ void main() {
             ),
           ],
           child: const MaterialApp(
-            home: Scaffold(body: CentralBindingScreen()),
+            home: Scaffold(
+              body: UnionUpdates(
+                feeds: {UnionFeed.references, UnionFeed.identification},
+                child: CentralBindingScreen(),
+              ),
+            ),
           ),
         ),
       );
       await settle(tester);
-      await tester.tap(find.text('Actualizar'));
-      await settle(tester);
-      expect(
-        find.text('Nota del sindicato: Adjunte la foto de la etiqueta'),
-        findsOneWidget,
+      expect(reads, 0);
+      connection.add(true);
+      final note = find.text(
+        'Nota del sindicato: Adjunte la foto de la etiqueta',
       );
+      await waitFor(tester, note);
+      expect(note, findsOneWidget);
+      expect(reads, 1);
       await tester.tap(find.text('Completar información'));
       await settle(tester);
       expect(find.text('Unidad: KG'), findsOneWidget);
@@ -321,11 +342,15 @@ void main() {
       await tester.tapAt(const Offset(5, 5));
       await settle(tester, rounds: 3);
 
-      // «Actualizar»: referencias, envío y lectura del estado.
+      // Actualizar consulta. El PUT requiere el envío explícito.
       linked = true;
       await tester.tap(find.text('Actualizar'));
       await settle(tester, rounds: 16);
+      expect(identificationCalls, ['GET $_base']);
+      await tester.tap(find.text('Enviar ahora'));
+      await settle(tester, rounds: 16);
       expect(identificationCalls, [
+        'GET $_base',
         'PUT $_base/${created.requestId}',
         'GET $_base',
       ]);

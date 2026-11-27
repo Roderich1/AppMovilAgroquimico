@@ -1,18 +1,27 @@
 // Pestaña «Sindicato» del rediseño (sesión C). Datos sintéticos.
 import 'package:agroquimicos/app.dart';
 import 'package:agroquimicos/data/sync/joint_purchase_store.dart'
-    show JointPurchaseNotice;
+    show JointPurchaseNotice, JointPurchaseStore;
 import 'package:agroquimicos/presentation/screens/sync_status_screen.dart';
 import 'package:agroquimicos/presentation/screens/union_screen.dart';
+import 'package:agroquimicos/presentation/widgets/union_updates.dart';
+import 'package:agroquimicos/services/auth/api_endpoint_config.dart';
+import 'package:agroquimicos/services/auth/auth_http_client.dart';
+import 'package:agroquimicos/services/sync/joint_purchase_api.dart';
+import 'package:agroquimicos/services/sync/sync_access.dart';
 import 'package:agroquimicos/services/sync/sync_providers.dart';
+import 'package:agroquimicos/services/sync/union_refresh.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_riverpod/misc.dart' show Override;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+import 'package:http/testing.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-import 'support/f04_mode_ui_harness.dart' show settle;
+import 'support/f04_mode_ui_harness.dart' show settle, waitFor;
+import 'support/f04_mode_fixtures.dart' show memberA;
+import 'support/e2_joint_purchase_fixtures.dart';
 import 'support/f05_sync_fixtures.dart';
 
 void main() {
@@ -36,7 +45,13 @@ void main() {
     }))!;
     final router = GoRouter(
       routes: [
-        GoRoute(path: '/', builder: (_, _) => const UnionScreen()),
+        GoRoute(
+          path: '/',
+          builder: (_, _) => const UnionUpdates(
+            feeds: {UnionFeed.calls},
+            child: UnionScreen(),
+          ),
+        ),
         for (final path in [
           '/sincronizacion',
           '/compras-conjuntas',
@@ -55,6 +70,9 @@ void main() {
           declaredNeedStoreProvider.overrideWithValue(fixture.needs),
           centralBindingStoreProvider.overrideWithValue(fixture.bindings),
           syncOutboxStoreProvider.overrideWithValue(fixture.outbox),
+          jointPurchaseStoreProvider.overrideWithValue(
+            JointPurchaseStore(fixture.database),
+          ),
           ...overrides,
         ],
         child: MaterialApp.router(
@@ -79,6 +97,69 @@ void main() {
       findsOneWidget,
     );
   });
+
+  testWidgets(
+    'consulta al abrir y muestra la novedad al volver a primer plano',
+    (tester) async {
+      var reads = 0;
+      final client = MockClient((request) async {
+        expect(request.method, 'GET');
+        expect(request.url.path, JointPurchaseApi.basePath);
+        reads++;
+        return reads == 1
+            ? jsonResponse({}, 503)
+            : jsonResponse(
+                listJson([
+                  callJson(
+                    name: 'Herbicidas nuevos',
+                    deadlineAt: DateTime.now()
+                        .toUtc()
+                        .add(const Duration(days: 1))
+                        .toIso8601String(),
+                  ),
+                ]),
+                200,
+              );
+      });
+      final access = SyncAccessHolder()
+        ..accept('prueba', memberA.memberId, memberA.tenantId);
+
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await pumpUnion(
+        tester,
+        overrides: [
+          unionAutoRefreshEnabledProvider.overrideWithValue(true),
+          unionConnectivityProvider.overrideWith((ref) => Stream.value(true)),
+          syncAccessHolderProvider.overrideWithValue(access),
+          jointPurchaseApiProvider.overrideWithValue(
+            JointPurchaseApi(
+              json: AuthHttpClient(
+                config: ApiEndpointConfig(
+                  Uri.parse('https://sindicato.example'),
+                ),
+                client: client,
+              ),
+            ),
+          ),
+        ],
+      );
+      final failure = find.text('No se pudo consultar al sindicato.');
+      await waitFor(tester, failure);
+      expect(failure, findsOneWidget);
+      expect(reads, 1);
+
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.paused);
+      await tester.pump(const Duration(seconds: 30));
+      expect(reads, 1);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      final notice = find.textContaining(
+        'Nueva convocatoria: Herbicidas nuevos',
+      );
+      await waitFor(tester, notice);
+      expect(notice, findsOneWidget);
+      expect(reads, 2);
+    },
+  );
 
   testWidgets('una necesidad guardada cuenta como envío pendiente', (
     tester,

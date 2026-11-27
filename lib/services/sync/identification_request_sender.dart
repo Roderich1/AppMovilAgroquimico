@@ -6,6 +6,7 @@ import '../../data/sync/identification_request_store.dart';
 import '../../domain/sync/identification_view.dart';
 import 'identification_api.dart';
 import 'sync_access.dart';
+import 'sync_read.dart';
 import 'sync_worker.dart' show SyncBackoff;
 
 /// Resultado de un ciclo del emisor. Sin datos del producto ni credenciales.
@@ -26,6 +27,7 @@ class IdentificationRunReport {
 
   /// La lista del sindicato no se pudo leer o no respetó el contrato.
   bool listUnavailable = false;
+  bool offline = false;
 
   @override
   String toString() =>
@@ -59,6 +61,7 @@ class IdentificationRequestSender {
     required IdentificationApi Function() api,
     required Future<ProductPhoto?> Function(int productId) photoOf,
     this.backoff = const SyncBackoff(),
+    this.readGuard,
     Random? random,
     DateTime Function()? clock,
   }) : _store = store,
@@ -75,6 +78,8 @@ class IdentificationRequestSender {
   final SyncBackoff backoff;
   final Random _random;
   final DateTime Function() _clock;
+  final ReadIsCurrent Function(VerifiedAccess)? readGuard;
+  final _reads = SyncRead<IdentificationRunReport>();
 
   Future<IdentificationRunReport>? _running;
 
@@ -155,8 +160,29 @@ class IdentificationRequestSender {
         return report;
       }
     }
-    await _readViews(api, token, report);
+    final read = await fetchViews(access);
+    report
+      ..authFailed = read.authFailed
+      ..ownerMismatch = read.ownerMismatch
+      ..listUnavailable = read.listUnavailable
+      ..offline = read.offline
+      ..viewsApplied = read.viewsApplied;
     return report;
+  }
+
+  /// Sólo trae vistas del agricultor, incluso si hay envíos pendientes.
+  Future<IdentificationRunReport> fetchViews(VerifiedAccess access) {
+    final isCurrent = readGuard?.call(access) ?? unrestrictedSyncRead;
+    return _reads.run(access, isCurrent, () async {
+      final report = IdentificationRunReport();
+      if (!await _store.hasAny(access.scope.tenantId)) return report;
+      if ((await _owners.activeBinding())?.scope != access.scope) {
+        return report..ownerMismatch = true;
+      }
+      requireCurrentRead(isCurrent);
+      await _readViews(_api(), access, report, isCurrent);
+      return report;
+    });
   }
 
   Future<bool> _processClarification(
@@ -460,16 +486,19 @@ class IdentificationRequestSender {
 
   Future<void> _readViews(
     IdentificationApi api,
-    String token,
+    VerifiedAccess access,
     IdentificationRunReport report,
+    ReadIsCurrent isCurrent,
   ) async {
-    final response = await api.listOwn(token);
+    final response = await api.listOwn(access.accessToken);
+    requireCurrentRead(isCurrent);
     if (_isAuth(response)) {
       report.authFailed = true;
       return;
     }
     if (!response.ok) {
       report.listUnavailable = true;
+      report.offline = response.transportCode == 'NETWORK';
       return;
     }
     final List<IdentificationServerView> views;
@@ -479,9 +508,14 @@ class IdentificationRequestSender {
       report.listUnavailable = true;
       return;
     }
+    if ((await _owners.activeBinding())?.scope != access.scope) {
+      throw const SyncReadInvalidated();
+    }
     for (final view in views) {
+      requireCurrentRead(isCurrent);
       if (await _store.applyParsedView(view)) report.viewsApplied++;
     }
+    requireCurrentRead(isCurrent);
   }
 
   static IdentificationServerView? _view(Object? body) {

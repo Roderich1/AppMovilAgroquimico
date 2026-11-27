@@ -16,6 +16,8 @@ import '../../domain/sync/central_references.dart';
 import '../../domain/sync/sync_wire.dart' show OperationView;
 import '../../installation_access.dart' show installationAccessProvider;
 import '../auth/auth_api_exception.dart';
+import '../auth/existing_session_providers.dart'
+    show runtimeSessionTransitionProvider;
 import '../auth/first_activation_providers.dart';
 import '../auth/remote_session_coordinator.dart' show RemoteSessionPhase;
 import '../auth/remote_session_providers.dart';
@@ -25,10 +27,24 @@ import 'joint_purchase_api.dart';
 import 'joint_purchase_sender.dart';
 import 'sync_access.dart';
 import 'sync_api.dart';
+import 'sync_read.dart';
 import 'sync_worker.dart';
 
 FarmerOperationGate _gate(Ref ref) =>
     FarmerOperationGate(() => ref.read(installationAccessProvider));
+
+ReadIsCurrent _readGuard(Ref ref, VerifiedAccess access) {
+  final db = ref.read(databaseProvider);
+  final generation = db.replacement.generation;
+  final session = ref.read(runtimeSessionTransitionProvider);
+  return () =>
+      ref.mounted &&
+      !db.replacement.isReplacing &&
+      db.replacement.generation == generation &&
+      identical(ref.read(databaseProvider), db) &&
+      identical(ref.read(runtimeSessionTransitionProvider), session) &&
+      identical(ref.read(syncAccessHolderProvider).current, access);
+}
 
 final syncOutboxStoreProvider = Provider<SyncOutboxStore>(
   (ref) => SyncOutboxStore(ref.watch(databaseProvider)),
@@ -81,6 +97,7 @@ final identificationRequestSenderProvider =
         owners: OwnerBindingStore(ref.watch(databaseProvider)),
         api: () => ref.read(identificationApiProvider),
         photoOf: ref.watch(repositoryProvider).productPhoto,
+        readGuard: (access) => _readGuard(ref, access),
       ),
     );
 
@@ -103,6 +120,7 @@ final jointPurchaseSenderProvider = Provider<JointPurchaseSender>(
     store: ref.watch(jointPurchaseStoreProvider),
     owners: OwnerBindingStore(ref.watch(databaseProvider)),
     api: () => ref.read(jointPurchaseApiProvider),
+    readGuard: (access) => _readGuard(ref, access),
   ),
 );
 
@@ -110,6 +128,9 @@ final jointPurchaseSenderProvider = Provider<JointPurchaseSender>(
 /// (lista leída, envío, «visto»): Inicio y las pantallas de compras
 /// conjuntas releen al cambiar.
 final jointPurchaseRevisionProvider =
+    NotifierProvider<JointPurchaseRevision, int>(JointPurchaseRevision.new);
+
+final identificationRevisionProvider =
     NotifierProvider<JointPurchaseRevision, int>(JointPurchaseRevision.new);
 
 class JointPurchaseRevision extends Notifier<int> {
@@ -300,6 +321,8 @@ class SyncController extends Notifier<SyncState> {
       }
     }
     await resumeAfterVerification();
+    unawaited(_identificationCycle(includePaused: true));
+    unawaited(_jointPurchaseCycle(includePaused: true));
     return kick();
   }
 
@@ -429,31 +452,52 @@ class SyncController extends Notifier<SyncState> {
   Future<IdentificationRunReport?> _identificationCycle({
     VerifiedAccess? access,
     bool includePaused = false,
-    bool sendClarifications = true,
   }) async {
     final current = access ?? ref.read(syncAccessHolderProvider).current;
     if (current == null) return null;
     try {
-      final report = await ref
-          .read(identificationRequestSenderProvider)
-          .run(
-            current,
-            includePaused: includePaused,
-            sendClarifications: sendClarifications,
-          );
+      final sender = ref.read(identificationRequestSenderProvider);
+      final report = await (includePaused
+          ? sender.sendRequested(current)
+          : sender.run(current));
       if (report.authFailed) ref.read(syncAccessHolderProvider).clear();
+      if (report.viewsApplied > 0 && ref.mounted) {
+        ref.read(identificationRevisionProvider.notifier).bump();
+      }
       return report;
     } on Object {
       return null;
     }
   }
 
-  /// «Actualizar» de Compras conjuntas: verifica el acceso si hace falta (lo
-  /// pidió el agricultor), envía lo pendiente —también lo pausado por
-  /// autorización— y lee la lista del sindicato.
-  Future<JointPurchaseRunReport> refreshJointPurchases() async {
-    final access = await ensureAccess();
-    return _jointPurchaseRun(access, includePaused: true, forceList: true);
+  /// Consulta de convocatorias sin ejecutar la cola.
+  Future<JointPurchaseRunReport> readJointPurchases(
+    VerifiedAccess access,
+  ) async {
+    final report = await ref
+        .read(jointPurchaseSenderProvider)
+        .fetchList(access);
+    if (report.authFailed &&
+        identical(ref.read(syncAccessHolderProvider).current, access)) {
+      ref.read(syncAccessHolderProvider).clear();
+    }
+    if (report.listed) ref.read(jointPurchaseRevisionProvider.notifier).bump();
+    return report;
+  }
+
+  Future<IdentificationRunReport> readIdentification(
+    VerifiedAccess access,
+  ) async {
+    final report = await ref
+        .read(identificationRequestSenderProvider)
+        .fetchViews(access);
+    if (report.authFailed &&
+        identical(ref.read(syncAccessHolderProvider).current, access)) {
+      ref.read(syncAccessHolderProvider).clear();
+    }
+    if (report.viewsApplied > 0)
+      ref.read(identificationRevisionProvider.notifier).bump();
+    return report;
   }
 
   /// «Enviar ahora» de una convocatoria: lo pendiente vence ya (sin volverse
@@ -550,30 +594,36 @@ class SyncController extends Notifier<SyncState> {
     }
   }
 
-  /// Referencias centrales del tenant con el acceso vigente (lo verifica si
-  /// hace falta). Revisa además los vínculos existentes.
-  Future<CentralReferences> loadReferences() async {
-    final access = await ensureAccess();
+  /// Lee referencias del mismo titular y revalida sus vínculos locales.
+  Future<CentralReferences> readReferences(VerifiedAccess access) async {
+    final isCurrent = _readGuard(ref, access);
     try {
+      requireCurrentRead(isCurrent);
+      final db = ref.read(databaseProvider);
+      if ((await OwnerBindingStore(db).activeBinding())?.scope !=
+          access.scope) {
+        throw const SyncAccessUnavailable('Verifique el acceso del titular.');
+      }
+      requireCurrentRead(isCurrent);
       final references = await ref
           .read(syncApiProvider)
           .references(access.accessToken);
+      if ((await OwnerBindingStore(db).activeBinding())?.scope !=
+          access.scope) {
+        throw const SyncReadInvalidated();
+      }
+      requireCurrentRead(isCurrent);
       await ref
           .read(centralBindingStoreProvider)
-          .refreshFrom(references, access.scope.tenantId);
-      // E1: al actualizar las referencias se envían las solicitudes de
-      // identificación pendientes y se lee su estado. Un fallo aquí nunca
-      // impide usar las referencias.
-      await _identificationCycle(
-        access: access,
-        includePaused: true,
-        sendClarifications: false,
-      );
-      // E2: también las convocatorias de compra conjunta. No se espera: las
-      // referencias no dependen de ellas y nunca fallan por ellas.
-      unawaited(_jointPurchaseCycle(access: access, includePaused: true));
+          .refreshFrom(
+            references,
+            access.scope.tenantId,
+            cacheFor: access.scope,
+          );
+      requireCurrentRead(isCurrent);
       return references;
     } on SyncQueryException catch (error) {
+      requireCurrentRead(isCurrent);
       if (error.authRequired || error.forbidden) {
         ref.read(syncAccessHolderProvider).clear();
       }

@@ -9,6 +9,7 @@ import 'installation_access.dart';
 import 'presentation/voice/voice_evidence_hook.dart';
 import 'presentation/voice/voice_quantity_facts.dart';
 import 'presentation/widgets/sync_lifecycle.dart';
+import 'presentation/widgets/union_updates.dart';
 import 'services/auth/existing_session_providers.dart';
 import 'services/auth/existing_session_startup.dart';
 import 'services/auth/first_activation_providers.dart';
@@ -39,6 +40,7 @@ Future<void> main() async {
   runApp(
     ProviderScope(
       overrides: [
+        unionAutoRefreshEnabledProvider.overrideWithValue(true),
         installationIdentityProvider.overrideWithValue(bootstrap.identity),
         installationClientIdStoreProvider.overrideWithValue(identityStore),
         existingSessionStartupProvider.overrideWithValue(bootstrap.session),

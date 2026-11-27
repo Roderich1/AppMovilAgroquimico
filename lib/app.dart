@@ -48,6 +48,8 @@ import 'presentation/screens/settlements_screen.dart';
 import 'presentation/screens/sync_status_screen.dart';
 import 'presentation/screens/transfers_screen.dart';
 import 'presentation/screens/union_screen.dart';
+import 'presentation/widgets/union_updates.dart';
+import 'services/sync/union_refresh.dart';
 import 'presentation/screens/transfer_form_screen.dart';
 import 'presentation/screens/access_recovery_screen.dart';
 import 'presentation/screens/owner_credential_screen.dart';
@@ -258,10 +260,19 @@ final routerProvider = Provider<GoRouter>((ref) {
           ),
           // Rediseño: pestaña «Sindicato» (envíos, convocatorias, lo que se
           // comparte). Sólo navega a las pantallas de siempre.
-          GoRoute(path: '/sindicato', builder: (_, __) => const UnionScreen()),
+          GoRoute(
+            path: '/sindicato',
+            builder: (_, __) => const UnionUpdates(
+              feeds: {UnionFeed.calls},
+              child: UnionScreen(),
+            ),
+          ),
           GoRoute(
             path: '/sindicato/vinculos',
-            builder: (_, __) => const CentralBindingScreen(),
+            builder: (_, __) => const UnionUpdates(
+              feeds: {UnionFeed.references, UnionFeed.identification},
+              child: CentralBindingScreen(),
+            ),
           ),
           GoRoute(
             path: '/sincronizacion/consumo',
@@ -271,12 +282,19 @@ final routerProvider = Provider<GoRouter>((ref) {
           // Inicio.
           GoRoute(
             path: '/compras-conjuntas',
-            builder: (_, __) => const JointPurchasesScreen(),
+            builder: (_, __) => const UnionUpdates(
+              feeds: {UnionFeed.calls},
+              child: JointPurchasesScreen(),
+            ),
           ),
           GoRoute(
             path: '/compras-conjuntas/:id',
-            builder: (_, state) =>
-                JointPurchaseDetailScreen(callId: state.pathParameters['id']!),
+            builder: (_, state) => UnionUpdates(
+              feeds: const {UnionFeed.calls},
+              child: JointPurchaseDetailScreen(
+                callId: state.pathParameters['id']!,
+              ),
+            ),
           ),
           GoRoute(
             path: '/respaldo-remoto',

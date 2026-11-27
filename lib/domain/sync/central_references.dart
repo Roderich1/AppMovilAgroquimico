@@ -55,6 +55,32 @@ class CentralReferences {
   final List<CentralCampaign> campaigns;
   final List<CentralProduct> products;
 
+  Map<String, Object?> toJson() => {
+    'contractVersion': 1,
+    'campaigns': [
+      for (final campaign in campaigns)
+        {
+          'campaign_ref': campaign.ref,
+          'name': campaign.name,
+          'status': campaign.status,
+          'start_date': campaign.startDate,
+          'end_date': campaign.endDate,
+          'accepts_contributions': campaign.acceptsContributions,
+        },
+    ],
+    'products': [
+      for (final product in products)
+        {
+          'product_ref': product.ref,
+          'name': product.name,
+          'unit': product.unit,
+          'base_unit': product.baseUnit?.code,
+          'is_active': product.isActive,
+          'linkable': product.linkable,
+        },
+    ],
+  };
+
   CentralCampaign? campaign(String ref) {
     for (final campaign in campaigns) {
       if (campaign.ref == ref) return campaign;

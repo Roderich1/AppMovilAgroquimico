@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../domain/money.dart' show formatDate;
 import '../../domain/sync/sync_outbox_models.dart' show SyncQueueSummary;
 import '../../services/sync/sync_providers.dart';
+import '../../services/sync/union_refresh.dart';
 import '../theme/agro_theme.dart';
 import '../widgets/agro_ui.dart';
 import '../widgets/common.dart';
@@ -12,11 +13,11 @@ import '../widgets/joint_purchase_texts.dart' show jointPurchaseNoticeText;
 import '../widgets/rdm_c_page.dart';
 import '../widgets/sync_status_banner.dart'
     show SyncNoticeCard, syncSummaryProvider;
-import 'joint_purchases_screen.dart' show refreshProblem;
+import '../widgets/union_updates.dart';
 
 /// «Sindicato»: la única pantalla principal de lo que se comparte con el
 /// sindicato. Llegan aquí la pestaña y el acceso «Sindicato» de Inicio
-/// (revisión del autor del 2026-11-12). Entrar no envía ni consulta nada.
+/// (revisión del autor del 2026-11-12). La ruta consulta convocatorias.
 ///
 /// Tres operaciones distintas, con su nombre real:
 /// - «Enviar pendientes»: la acción expresa de siempre (C-02, `syncNow`):
@@ -25,9 +26,7 @@ import 'joint_purchases_screen.dart' show refreshProblem;
 ///   ciclo, participaciones y solicitudes de identificación pendientes).
 ///   Sólo aparece si hay totales por enviar o que requieren atención.
 /// - «Actualizar»: consulta las convocatorias del sindicato
-///   (`refreshJointPurchases`, el mismo «Actualizar» de Convocatorias, que
-///   también envía las participaciones pendientes). Siempre disponible: no
-///   depende de que haya envíos pendientes.
+///   sin ejecutar la cola de envíos. Disponible aunque no haya pendientes.
 /// - «Ver estado de los envíos»: la pantalla secundaria con cada envío, su
 ///   último intento y el detalle técnico.
 class UnionScreen extends ConsumerStatefulWidget {
@@ -61,10 +60,6 @@ class UnionScreen extends ConsumerStatefulWidget {
 }
 
 class _UnionScreenState extends ConsumerState<UnionScreen> {
-  /// Aviso de la última consulta de convocatorias, o null.
-  String? refreshNotice;
-  bool refreshing = false;
-
   /// «Enviar pendientes»: misma acción expresa que en Estado de los envíos.
   Future<void> _send() async {
     final report = await ref.read(syncControllerProvider.notifier).syncNow();
@@ -83,36 +78,18 @@ class _UnionScreenState extends ConsumerState<UnionScreen> {
   }
 
   /// «Actualizar»: consulta las convocatorias del sindicato.
-  Future<void> _refresh() async {
-    setState(() {
-      refreshing = true;
-      refreshNotice = null;
-    });
-    String? problem;
-    try {
-      final report = await ref
-          .read(syncControllerProvider.notifier)
-          .refreshJointPurchases();
-      problem = refreshProblem(report);
-    } on SyncAccessUnavailable catch (error) {
-      problem = error.message;
-    } on Object catch (error) {
-      problem = friendlyError(error);
-    }
-    if (!mounted) return;
-    ref.invalidate(syncSummaryProvider);
-    setState(() {
-      refreshing = false;
-      refreshNotice = problem;
-    });
-    if (problem == null) showSuccess(context, 'Convocatorias consultadas.');
-  }
+  Future<void> _refresh() => refreshUnionNow(ref, {UnionFeed.calls});
 
   @override
   Widget build(BuildContext context) {
     final sync = ref.watch(syncControllerProvider);
     final summary = ref.watch(syncSummaryProvider).value;
     final notice = ref.watch(jointPurchaseNoticeProvider).value;
+    final status = ref.watch(
+      unionRefreshProvider.select(
+        (statuses) => statuses[UnionFeed.calls] ?? emptyUnionRead,
+      ),
+    );
     return RdmCPage(
       title: 'Sindicato',
       child: Column(
@@ -121,7 +98,10 @@ class _UnionScreenState extends ConsumerState<UnionScreen> {
           _SendCard(
             summary: summary,
             sending: sync.busy,
-            refreshing: refreshing,
+            refreshing: status.busy,
+            refreshLabel: status.issue == UnionReadIssue.access
+                ? 'Verificar acceso'
+                : 'Actualizar',
             onSend: _send,
             onRefresh: _refresh,
             onStatus: () => context.push('/sincronizacion'),
@@ -130,13 +110,7 @@ class _UnionScreenState extends ConsumerState<UnionScreen> {
             const SizedBox(height: 10),
             SyncNoticeCard(message: sync.message!),
           ],
-          if (refreshNotice != null) ...[
-            const SizedBox(height: 10),
-            SyncNoticeCard(
-              key: const Key('union-refresh-notice'),
-              message: refreshNotice!,
-            ),
-          ],
+          const UnionUpdateStatus(feed: UnionFeed.calls),
           const SizedBox(height: 16),
           const SectionHeader(title: 'Compras conjuntas'),
           const SizedBox(height: 10),
@@ -185,6 +159,7 @@ class _SendCard extends StatelessWidget {
     required this.summary,
     required this.sending,
     required this.refreshing,
+    required this.refreshLabel,
     required this.onSend,
     required this.onRefresh,
     required this.onStatus,
@@ -193,6 +168,7 @@ class _SendCard extends StatelessWidget {
   final SyncQueueSummary? summary;
   final bool sending;
   final bool refreshing;
+  final String refreshLabel;
   final VoidCallback onSend;
   final VoidCallback onRefresh;
   final VoidCallback onStatus;
@@ -272,7 +248,7 @@ class _SendCard extends StatelessWidget {
                         minimumSize: const Size(0, 52),
                       ),
                       icon: refreshIcon,
-                      label: const Text('Actualizar'),
+                      label: Text(refreshLabel),
                     ),
                   ] else
                     FilledButton.icon(
@@ -280,7 +256,7 @@ class _SendCard extends StatelessWidget {
                       onPressed: busy ? null : onRefresh,
                       style: limeStyle,
                       icon: refreshIcon,
-                      label: const Text('Actualizar'),
+                      label: Text(refreshLabel),
                     ),
                 ],
               ),

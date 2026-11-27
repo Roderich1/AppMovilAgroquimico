@@ -35,8 +35,10 @@ class DatabaseReplacementGuard {
   Completer<void>? _finished;
   int _activeWrites = 0;
   Completer<void>? _drained;
+  int _generation = 0;
 
   bool get isReplacing => _token != null;
+  int get generation => _generation;
 
   bool get _insideReplacement =>
       _token != null && identical(Zone.current[_replacementKey], _token);
@@ -75,6 +77,7 @@ class DatabaseReplacementGuard {
     final token = Object();
     final finished = Completer<void>();
     _token = token;
+    _generation++;
     _finished = finished;
     try {
       if (_activeWrites > 0) {

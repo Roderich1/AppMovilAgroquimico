@@ -6,6 +6,7 @@ import '../../domain/sync/joint_purchase_call_view.dart';
 import '../auth/auth_api_exception.dart';
 import 'joint_purchase_api.dart';
 import 'sync_access.dart';
+import 'sync_read.dart';
 import 'sync_worker.dart' show SyncBackoff;
 
 /// Resultado de un ciclo del emisor. Sin cantidades ni credenciales.
@@ -138,6 +139,7 @@ class JointPurchaseSender {
     required JointPurchaseApi Function() api,
     this.backoff = const SyncBackoff(),
     this.listInterval = const Duration(minutes: 10),
+    this.readGuard,
     Random? random,
     DateTime Function()? clock,
   }) : _store = store,
@@ -157,9 +159,32 @@ class JointPurchaseSender {
   final Duration listInterval;
   final Random _random;
   final DateTime Function() _clock;
+  final ReadIsCurrent Function(VerifiedAccess)? readGuard;
+  final _reads = SyncRead<JointPurchaseRunReport>();
 
   Future<JointPurchaseRunReport>? _running;
   DateTime? _lastListedAt;
+  VerifiedAccess? _lastListAccess;
+
+  /// Sólo consulta y guarda la lista. Comparte la lectura con el worker.
+  Future<JointPurchaseRunReport> fetchList(VerifiedAccess access) {
+    final isCurrent = readGuard?.call(access) ?? unrestrictedSyncRead;
+    return _reads.run(access, isCurrent, () async {
+      final report = JointPurchaseRunReport();
+      if ((await _owners.activeBinding())?.scope != access.scope) {
+        return report..ownerMismatch = true;
+      }
+      requireCurrentRead(isCurrent);
+      final JointPurchaseApi api;
+      try {
+        api = _api();
+      } on AuthApiException {
+        return report..apiUnavailable = true;
+      }
+      await _list(api, access, report, isCurrent);
+      return report;
+    });
+  }
 
   /// Un ciclo con [access]. [includePaused] reanuda lo pausado por
   /// autorización (sólo en una acción del agricultor); [forceList] lee la
@@ -242,9 +267,17 @@ class JointPurchaseSender {
     final last = _lastListedAt;
     if (forceList ||
         processed ||
+        _lastListAccess?.scope != access.scope ||
         last == null ||
         now.difference(last) >= listInterval) {
-      await _list(api, access, report);
+      final read = await fetchList(access);
+      report
+        ..listed = read.listed
+        ..listUnavailable = read.listUnavailable
+        ..listProblem = read.listProblem
+        ..authFailed = read.authFailed
+        ..ownerMismatch = read.ownerMismatch
+        ..apiUnavailable = read.apiUnavailable;
     }
     return report;
   }
@@ -573,8 +606,10 @@ class JointPurchaseSender {
     JointPurchaseApi api,
     VerifiedAccess access,
     JointPurchaseRunReport report,
+    ReadIsCurrent isCurrent,
   ) async {
     final response = await api.list(access.accessToken);
+    requireCurrentRead(isCurrent);
     if (response.isAuth) {
       report.authFailed = true;
       return;
@@ -599,8 +634,14 @@ class JointPurchaseSender {
       report.listProblem = JointPurchaseListProblem.temporary;
       return;
     }
+    if ((await _owners.activeBinding())?.scope != access.scope) {
+      throw const SyncReadInvalidated();
+    }
+    requireCurrentRead(isCurrent);
     await _store.saveFetched(access.scope, list);
+    requireCurrentRead(isCurrent);
     _lastListedAt = _clock();
+    _lastListAccess = access;
     report.listed = true;
   }
 }
