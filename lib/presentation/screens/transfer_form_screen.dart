@@ -7,6 +7,7 @@ import '../../domain/models.dart';
 import '../../domain/money.dart';
 import '../../domain/operation_mode.dart';
 import '../../domain/person_roles.dart';
+import '../../domain/repository_types.dart';
 import '../../operation_mode_controller.dart';
 import '../theme/agro_theme.dart';
 import '../widgets/adaptive_entity_picker.dart';
@@ -21,7 +22,8 @@ class TransferFormScreen extends ConsumerStatefulWidget {
 }
 
 class _TransferFormScreenState extends ConsumerState<TransferFormScreen> {
-  late Future<List<Map<String, Object?>>> peopleFuture;
+  late Future<({List<Map<String, Object?>> people, WriteContext context})>
+  peopleFuture;
   int? fromId, toId;
   List<Map<String, Object?>> available = [];
   final quantities = <int, TextEditingController>{};
@@ -35,7 +37,7 @@ class _TransferFormScreenState extends ConsumerState<TransferFormScreen> {
     // titular registrado como administrador de pagos también transfiere.
     peopleFuture = ref
         .read(repositoryProvider)
-        .peopleFor(PersonPurpose.transferParty);
+        .peopleAndContextFor(PersonPurpose.transferParty);
   }
 
   @override
@@ -254,12 +256,12 @@ class _TransferFormScreenState extends ConsumerState<TransferFormScreen> {
             color: AgroColors.surface,
             borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
           ),
-          child: FutureBuilder<List<Map<String, Object?>>>(
+          child: FutureBuilder(
             future: peopleFuture,
             builder: (context, snapshot) => FilledButton.icon(
               onPressed: saving || !snapshot.hasData
                   ? null
-                  : () => submit(snapshot.data!),
+                  : () => submit(snapshot.data!.people),
               style: FilledButton.styleFrom(
                 backgroundColor: AgroColors.ink,
                 foregroundColor: Colors.white,
@@ -276,7 +278,7 @@ class _TransferFormScreenState extends ConsumerState<TransferFormScreen> {
         ),
       ),
       body: SafeArea(
-        child: FutureBuilder<List<Map<String, Object?>>>(
+        child: FutureBuilder(
           future: peopleFuture,
           builder: (context, snapshot) {
             final header = FlowTopBar(
@@ -307,7 +309,12 @@ class _TransferFormScreenState extends ConsumerState<TransferFormScreen> {
             if (!snapshot.hasData) {
               return const Center(child: CircularProgressIndicator());
             }
-            final people = snapshot.data!;
+            final read = snapshot.data!;
+            final people = read.people;
+            String roleOf(Map<String, Object?> person) => personRoleLabel(
+              person['role'],
+              isOwner: person['id'] == read.context.ownerPersonId,
+            );
             final origin = people.where((p) => p['id'] == fromId).firstOrNull;
             final destination = people
                 .where((p) => p['id'] == toId)
@@ -339,7 +346,7 @@ class _TransferFormScreenState extends ConsumerState<TransferFormScreen> {
                         // Mismo criterio de subtítulo que el selector de
                         // destino y que el del formulario de compra
                         // (UIBUG-054/016).
-                        secondaryOf: (p) => personRoleLabel(p['role']),
+                        secondaryOf: roleOf,
                         onChanged: selectOrigin,
                       ),
                       AdaptiveEntityPicker<Map<String, Object?>>(
@@ -348,7 +355,7 @@ class _TransferFormScreenState extends ConsumerState<TransferFormScreen> {
                         items: people.where((p) => p['id'] != fromId).toList(),
                         value: destination,
                         labelOf: (p) => p['name'] as String,
-                        secondaryOf: (p) => personRoleLabel(p['role']),
+                        secondaryOf: roleOf,
                         onChanged: (p) => setState(() {
                           toId = p?['id'] as int?;
                           dirty = true;

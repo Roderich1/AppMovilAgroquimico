@@ -25,12 +25,12 @@ enum PersonsArea { accounts, costs }
 /// «Familiar · 2 ha», o la de un ADMIN, que no participa en la liquidación.
 String rdm2cRoleLine(Map<String, Object?>? profile, {bool owner = false}) {
   if (profile == null) return '';
-  final role = personRoleLabel(profile['role']);
+  final role = personRoleLabel(profile['role'], isOwner: owner);
   if (profile['role'] == 'ADMIN' && !owner) {
     return '$role · no participa en la liquidación';
   }
   final area = formatHectares((profile['area_m2'] as int?) ?? 0);
-  return owner ? '$role · titular · $area' : '$role · $area';
+  return '$role · $area';
 }
 
 const _actionText = TextStyle(

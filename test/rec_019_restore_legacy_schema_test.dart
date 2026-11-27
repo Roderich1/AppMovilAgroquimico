@@ -11,6 +11,8 @@ import 'dart:io';
 import 'package:agroquimicos/data/agro_repository.dart';
 import 'package:agroquimicos/data/app_database.dart';
 import 'package:agroquimicos/data/backup_service.dart';
+import 'package:agroquimicos/data/owner_binding_store.dart';
+import 'package:agroquimicos/domain/models.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -43,9 +45,36 @@ void main() {
       factory: databaseFactoryFfi,
       path: pathFor('v7.db'),
     );
-    final household = await seedHousehold(AgroRepository(source));
-    await household.buy(household.titular, 5000);
-    await household.apply(household.titular, household.titularFarm, 2000);
+    final originalRepo = AgroRepository(source);
+    final household = await seedHousehold(originalRepo);
+    await OwnerBindingStore(source).bindExistingPerson(
+      personId: household.titular,
+      scope: memberA,
+      installationRef: installationHere,
+    );
+    final legacyAdmin = await originalRepo.addPerson(
+      name: 'Administrador histórico',
+      role: PersonRole.admin,
+    );
+    final purchase = await household.buy(household.titular, 5000);
+    await originalRepo.addProviderPayment(
+      purchaseId: purchase,
+      payerPersonId: household.titular,
+      amountBobMinor: 10000,
+      method: PaymentMethod.cash,
+      date: DateTime.utc(2026, 1, 3),
+    );
+    await household.buy(legacyAdmin, 1000);
+    await household.buy(household.thirdParty, 2500);
+    await originalRepo.transferProductFifo(
+      fromPersonId: household.titular,
+      toPersonId: household.relative,
+      productId: household.product,
+      quantityBase: 1000,
+      date: DateTime.utc(2026, 1, 5),
+    );
+    await household.apply(household.relative, household.relativeFarm, 500);
+    final balances = await originalRepo.settlements();
     await source.close();
     await downgradeToV7(pathFor('v7.db'));
 
@@ -100,9 +129,12 @@ void main() {
     // Los datos son los de la copia, y se leen con el dominio actual.
     final repo = AgroRepository(target);
     expect((await repo.products()).map((r) => r['name']), ['Glifosato']);
-    expect(
-      (await stockByPersonProduct(db))[(household.titular, household.product)],
-      3000,
-    );
+    expect(await stockByPersonProduct(db), {
+      (household.titular, household.product): 4000,
+      (household.relative, household.product): 500,
+      (household.thirdParty, household.product): 2500,
+      (legacyAdmin, household.product): 1000,
+    });
+    expect(await repo.settlements(), balances);
   });
 }

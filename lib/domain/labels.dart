@@ -6,8 +6,9 @@
 /// (UIBUG-016). La regla vive en un solo sitio para que no vuelva a divergir.
 library;
 
-/// Rol de una persona: `ADMIN`, `FAMILY`, `THIRD_PARTY`.
-String personRoleLabel(Object? role) => switch (role) {
+/// Rótulo según el vínculo vigente o el rol guardado de la persona.
+String personRoleLabel(Object? role, {bool isOwner = false}) => switch (role) {
+  _ when isOwner => 'Titular',
   'ADMIN' => 'Administrador',
   'FAMILY' => 'Familiar',
   'THIRD_PARTY' => 'Tercero',

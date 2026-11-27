@@ -107,7 +107,10 @@ List<Widget> buildApplicationWhoStep(
             items: data.people,
             value: person,
             labelOf: (p) => p['name'] as String,
-            secondaryOf: (p) => personRoleLabel(p['role']),
+            secondaryOf: (p) => personRoleLabel(
+              p['role'],
+              isOwner: p['id'] == state.ownerPersonId,
+            ),
             onChanged: onSelectPerson,
             createLabel: 'Agregar persona',
             onCreate: onCreatePerson,

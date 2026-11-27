@@ -73,7 +73,7 @@ Leyenda: 🟢 validado · 🔵 solo interfaz · 🟡 hueco identificado · ⬜ n
 | Importe > 0 | 🔵 el diálogo precarga el máximo | 🟢 RN-16 | 🟢 `CHECK(> 0)` | **Triple cobertura** |
 | Importe ≤ saldo | 🔵 solo `helperText` "Máximo …" | 🟢 RN-16 | ⬜ | Cubierto por repositorio |
 | Compra no revertida | ⬜ el menú se oculta | 🟢 | ⬜ | Cubierto |
-| Pagador es ADMIN | 🟢 filtra la lista | 🟡 | 🟡 | **Hueco menor**: el repositorio aceptaría cualquier `person_id`. Inalcanzable desde la UI |
+| Pagador es el titular vigente | 🟢 el titular se asigna automáticamente | 🟢 el repositorio comprueba el vínculo dentro de la transacción | 🟡 | La regla se aplica en ambos modos |
 | **Planes** | | | | |
 | Chaco seleccionado | 🟢 | ⬜ | 🟢 FK | Cubierto |
 | Área > 0 | 🟡 | 🟢 RN-17 | ⬜ | Solo repositorio; la UI dejaría enviar área vacía (→ 0) y el mensaje sería el genérico del repositorio |

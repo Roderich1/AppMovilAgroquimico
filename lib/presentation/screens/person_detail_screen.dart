@@ -95,6 +95,10 @@ class _PersonDetailScreenState extends ConsumerState<PersonDetailScreen> {
       final s = d.statement;
       final ownCost = s.ledger.ownConsumption(personId).activeCostMinor;
       final net = s.account.netMinor;
+      final role = personRoleLabel(
+        d.profile['role'],
+        isOwner: s.isCurrentOwner,
+      );
       // Al titular no se le registran pagos de cuenta (decisión del autor del
       // 2026-11-12, que revisa Q-2); en inventario propio nadie los recibe y
       // ADMIN no participa en la liquidación.
@@ -108,11 +112,9 @@ class _PersonDetailScreenState extends ConsumerState<PersonDetailScreen> {
           header: RdmAHero(
             title: d.profile['name'] as String,
             subtitle: s.isCurrentOwner
-                ? '${personRoleLabel(d.profile['role'])} · titular · consumo '
-                      'propio ${bob(ownCost)}'
+                ? '$role · consumo propio ${bob(ownCost)}'
                 // E-15 (A2): el neto por cobrar del libro, sin lo propio.
-                : '${personRoleLabel(d.profile['role'])} · saldo total '
-                      '${formatBob(net)}',
+                : '$role · saldo total ${formatBob(net)}',
             children: [
               const Divider(height: 1, color: AgroColors.inkSoft),
               const SizedBox(height: 14),

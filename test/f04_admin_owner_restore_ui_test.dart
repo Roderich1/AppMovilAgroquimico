@@ -183,10 +183,7 @@ void main() {
         findsNothing,
         reason: 'un tercero no se ofrece como titular',
       );
-      expect(
-        find.textContaining('Administrador de pagos (rol de estos registros'),
-        findsOneWidget,
-      );
+      expect(find.text('Administrador · registro anterior'), findsOneWidget);
 
       await tester.ensureVisible(farmerTile);
       await tester.tap(farmerTile);

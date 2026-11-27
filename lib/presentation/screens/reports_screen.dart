@@ -18,7 +18,11 @@ import '../widgets/rdm_c_page.dart';
 /// [ReportExportService]. Los cinco reportes y los dos formatos salen de los
 /// mismos enums que usa el servicio, así que no puede aparecer aquí una opción
 /// que el servicio no sepa atender.
-typedef _Filters = ({List<CampaignRead> campaigns, List<PersonRead> people});
+typedef _Filters = ({
+  List<CampaignRead> campaigns,
+  List<PersonRead> people,
+  int? ownerId,
+});
 
 class ReportsScreen extends ConsumerStatefulWidget {
   const ReportsScreen({
@@ -69,13 +73,18 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
     final repo = ref.read(agroGatewayProvider);
     final campaigns = await repo.campaignsTyped();
     final people = await repo.peopleTyped();
+    final operating = await repo.operatingContext();
     if (!_campaignInitialized) {
       final active = campaigns.where((row) => row.isActive);
       _campaignId = active.isEmpty ? null : active.first.id;
       _campaignInitialized = true;
     }
     _location = await ref.read(reportStorageProvider).describeLocation();
-    return (campaigns: campaigns, people: people);
+    return (
+      campaigns: campaigns,
+      people: people,
+      ownerId: operating.ownerPersonId,
+    );
   }
 
   /// Filtros efectivos: un reporte que no admite campaña la ignora aunque la
@@ -352,7 +361,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                               value: person.id,
                               child: Text(
                                 '${person.name} · '
-                                '${personRoleLabel(person.role)}',
+                                '${personRoleLabel(person.role, isOwner: person.id == data.ownerId)}',
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                               ),

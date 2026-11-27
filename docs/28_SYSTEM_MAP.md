@@ -20,7 +20,10 @@ de todo el sistema:
 |---|---|---|---|
 | `FAMILY` | por **consumo real** | al **aplicar** producto | `USAGE_CHARGE` |
 | `THIRD_PARTY` | por **asignación de compra** | al **confirmar la compra** | `PURCHASE_ALLOCATION_CHARGE` |
-| `ADMIN` | nada (`MANUAL`) | — | Paga a los proveedores; excluido de liquidaciones |
+| `ADMIN` histórico | nada (`MANUAL`) | — | Excluido de liquidaciones |
+
+El titular vinculado registra los pagos al proveedor. El catálogo de personas permite
+dar de alta familiares y terceros en modo compartido.
 
 Todo el estado vive en **SQLite local**. No hay servidor, ni red, ni login, ni
 sincronización.
@@ -336,7 +339,7 @@ El manifiesto de Android de release **no declara ni un solo permiso**, incluido 
 ### 1. Configuración inicial (orden obligatorio)
 
 ```
-Personas (>=1 ADMIN + >=1 FAMILY/THIRD_PARTY)
+Titular vinculado (y familiares o terceros cuando corresponda)
   → Campaña (la primera queda ACTIVE automáticamente)
   → Chacos (requieren propietario)
   → Productos + Proveedores
