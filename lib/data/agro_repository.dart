@@ -611,19 +611,32 @@ class AgroRepository implements AgroGateway {
     int? personId,
     int? supplierId,
     int? campaignId,
+    bool includeExhausted = false,
+    String? expiryThrough,
+    int limit = 500,
+    int offset = 0,
   }) => _inventory.inventoryProductLots(
     productId,
     personId: personId,
     supplierId: supplierId,
     campaignId: campaignId,
+    includeExhausted: includeExhausted,
+    expiryThrough: expiryThrough,
+    limit: limit,
+    offset: offset,
   );
+
+  Future<List<({int availableBase, String? expiryDay})>>
+  inventoryProductExpiryTotals(int productId) =>
+      _inventory.inventoryProductExpiryTotals(productId);
 
   /// Historial del producto movimiento a movimiento, del más reciente al más
   /// antiguo (E-10).
   Future<List<Map<String, Object?>>> productMovements(
     int productId, {
     int limit = 20,
-  }) => _inventory.productMovements(productId, limit: limit);
+    ProductMovementFilter filter = ProductMovementFilter.all,
+  }) => _inventory.productMovements(productId, limit: limit, filter: filter);
 
   @override
   Future<List<Map<String, Object?>>> personProfiles() =>

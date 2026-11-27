@@ -224,9 +224,26 @@ void main() {
         false,
       );
 
+      const ana0501Agotado = (
+        'Ana',
+        'Agro Sur',
+        'Verano',
+        10000,
+        0,
+        10000,
+        false,
+      );
       final all = await repo.inventoryProductLots(glifosato);
-      // El lote de Ana del 05/01 quedó en 0 y no se muestra.
+      // Con `includeExhausted: false` (por defecto), el lote de Ana del 05/01
+      // que quedó en 0 no se muestra; con `includeExhausted: true` («Lotes ›
+      // Todos») sí se incluye al final de los vigentes.
       expect(view(all), [beto0501, ana1001, beto1001, beto1003]);
+      expect(
+        view(
+          await repo.inventoryProductLots(glifosato, includeExhausted: true),
+        ),
+        [beto0501, ana1001, beto1001, beto1003, ana0501Agotado],
+      );
       expect(all.map((r) => r['acquired_date']), [
         '2026-01-05T00:00:00.000Z',
         '2026-01-10T00:00:00.000Z',
@@ -277,6 +294,69 @@ void main() {
       expect(view(await repo.inventoryProductLots(atrazina)), [
         ('Beto', 'Agro Sur', 'Verano', 7000, 7000, 5000, false),
       ]);
+    },
+  );
+
+  test(
+    'los lotes posteriores al 500 aparecen en las páginas y los vencimientos',
+    () async {
+      final initialStock =
+          (await repo.inventoryProductHeader(glifosato))['physical_base']!
+              as int;
+      const lastExpiry = '2026-03-31';
+      final date = DateTime.utc(2026, 3, 11);
+      for (var i = 0; i < 501; i++) {
+        await buy(
+          supplier: sur,
+          campaign: invierno,
+          date: date,
+          items: [
+            PurchaseItemDraft(
+              productId: glifosato,
+              quantityBase: 1000,
+              currency: CurrencyCode.bob,
+              originalUnitPriceMinor: 10000,
+              allocations: [AllocationDraft(personId: ana, quantityBase: 1000)],
+              expiryDay: switch (i) {
+                499 => '2026-04-01',
+                500 => lastExpiry,
+                _ => null,
+              },
+            ),
+          ],
+        );
+      }
+
+      final first = await repo.inventoryProductLots(
+        glifosato,
+        includeExhausted: true,
+      );
+      final tail = await repo.inventoryProductLots(
+        glifosato,
+        includeExhausted: true,
+        limit: 20,
+        offset: 500,
+      );
+      expect(first, hasLength(500));
+      expect(tail, hasLength(6));
+      expect(
+        first.map((row) => row['lot_id']),
+        isNot(contains(tail.first['lot_id'])),
+      );
+      expect(tail[4]['expiry_date'], lastExpiry);
+      expect(tail.last['available_base'], 0);
+
+      final expiring = await repo.inventoryProductLots(
+        glifosato,
+        expiryThrough: lastExpiry,
+        limit: 1,
+      );
+      expect(expiring.single['lot_id'], tail[4]['lot_id']);
+      final totals = await repo.inventoryProductExpiryTotals(glifosato);
+      expect(
+        {for (final row in totals) row.expiryDay: row.availableBase},
+        {null: initialStock + 499000, lastExpiry: 1000, '2026-04-01': 1000},
+      );
     },
   );
 

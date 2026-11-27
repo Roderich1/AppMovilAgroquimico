@@ -237,71 +237,82 @@ class _OwnerSetupScreenState extends ConsumerState<OwnerSetupScreen> {
           }
           final candidates = snapshot.data!;
           return ListView(
-            padding: const EdgeInsets.all(20),
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 16),
             children: [
               const Text(
                 'Elija la persona que es el agricultor dueño de estos '
                 'registros. Sólo se vincula con su cuenta del sindicato; no se '
                 'cambia el rol de ninguna persona.',
               ),
-              const SizedBox(height: 16),
-              RadioGroup<int>(
-                groupValue: _createNew ? -1 : _selected,
-                onChanged: (value) => setState(() {
-                  _createNew = value == -1;
-                  _selected = value == -1 ? null : value;
-                  _selectedIsAdministrator = candidates.any(
-                    (person) =>
-                        person['id'] == _selected &&
-                        _eligibility(person) ==
-                            OwnerEligibility.requiresAdministratorConfirmation,
-                  );
-                  _administratorConfirmed = false;
-                }),
-                child: Column(
-                  children: [
-                    for (final person in candidates)
-                      RadioListTile<int>(
-                        key: Key('owner-candidate-${person['id']}'),
-                        value: person['id']! as int,
-                        title: Text(person['name']! as String),
-                        subtitle:
+              const SizedBox(height: 8),
+              AgroGroup(
+                children: [
+                  RadioGroup<int>(
+                    groupValue: _createNew ? -1 : _selected,
+                    onChanged: (value) => setState(() {
+                      _createNew = value == -1;
+                      _selected = value == -1 ? null : value;
+                      _selectedIsAdministrator = candidates.any(
+                        (person) =>
+                            person['id'] == _selected &&
                             _eligibility(person) ==
                                 OwnerEligibility
-                                    .requiresAdministratorConfirmation
-                            ? const Text('Administrador · registro anterior')
-                            : null,
-                      ),
-                    const RadioListTile<int>(
-                      key: Key('owner-create-new'),
-                      value: -1,
-                      title: Text('Crear el titular'),
+                                    .requiresAdministratorConfirmation,
+                      );
+                      _administratorConfirmed = false;
+                    }),
+                    child: Column(
+                      children: [
+                        for (final person in candidates)
+                          RadioListTile<int>(
+                            key: Key('owner-candidate-${person['id']}'),
+                            value: person['id']! as int,
+                            title: Text(person['name']! as String),
+                            subtitle:
+                                _eligibility(person) ==
+                                    OwnerEligibility
+                                        .requiresAdministratorConfirmation
+                                ? const Text(
+                                    'Administrador · registro anterior',
+                                  )
+                                : null,
+                          ),
+                        const RadioListTile<int>(
+                          key: Key('owner-create-new'),
+                          value: -1,
+                          title: Text('Crear el titular'),
+                        ),
+                      ],
                     ),
-                  ],
-                ),
+                  ),
+                  if (!_createNew && _selectedIsAdministrator)
+                    CheckboxListTile(
+                      key: const Key('owner-confirm-administrator'),
+                      value: _administratorConfirmed,
+                      onChanged: (value) => setState(
+                        () => _administratorConfirmed = value ?? false,
+                      ),
+                      title: const Text(
+                        'Confirmo que esta persona es el agricultor titular',
+                      ),
+                      subtitle: const Text(
+                        'Al vincularla, se mostrará como «Titular» y registrará los '
+                        'pagos al proveedor. Se conservan sus movimientos y su '
+                        'regla de liquidación.',
+                      ),
+                    ),
+                  if (_createNew)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                      child: TextField(
+                        key: const Key('owner-new-name'),
+                        controller: _newName,
+                        decoration: const InputDecoration(labelText: 'Nombre'),
+                      ),
+                    ),
+                ],
               ),
-              if (!_createNew && _selectedIsAdministrator)
-                CheckboxListTile(
-                  key: const Key('owner-confirm-administrator'),
-                  value: _administratorConfirmed,
-                  onChanged: (value) =>
-                      setState(() => _administratorConfirmed = value ?? false),
-                  title: const Text(
-                    'Confirmo que esta persona es el agricultor titular',
-                  ),
-                  subtitle: const Text(
-                    'Al vincularla, se mostrará como «Titular» y registrará los '
-                    'pagos al proveedor. Se conservan sus movimientos y su '
-                    'regla de liquidación.',
-                  ),
-                ),
-              if (_createNew)
-                TextField(
-                  key: const Key('owner-new-name'),
-                  controller: _newName,
-                  decoration: const InputDecoration(labelText: 'Nombre'),
-                ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 12),
               Text(
                 'Modo de uso',
                 style: Theme.of(context).textTheme.titleMedium,
@@ -312,32 +323,39 @@ class _OwnerSetupScreenState extends ConsumerState<OwnerSetupScreen> {
                 'registros y sin conexión.',
                 key: Key('owner-mode-help'),
               ),
-              RadioGroup<OperationMode>(
-                groupValue: _mode,
-                onChanged: (value) =>
-                    setState(() => _mode = value ?? OperationMode.shared),
-                child: Column(
-                  children: [
-                    RadioListTile<OperationMode>(
-                      key: const Key('owner-mode-shared'),
-                      value: OperationMode.shared,
-                      title: Text(operationModeTitle(OperationMode.shared)),
-                      subtitle: Text(
-                        operationModeExplanation(OperationMode.shared),
-                      ),
+              const SizedBox(height: 6),
+              AgroGroup(
+                children: [
+                  RadioGroup<OperationMode>(
+                    groupValue: _mode,
+                    onChanged: (value) =>
+                        setState(() => _mode = value ?? OperationMode.shared),
+                    child: Column(
+                      children: [
+                        RadioListTile<OperationMode>(
+                          key: const Key('owner-mode-shared'),
+                          value: OperationMode.shared,
+                          title: Text(operationModeTitle(OperationMode.shared)),
+                          subtitle: Text(
+                            operationModeExplanation(OperationMode.shared),
+                          ),
+                        ),
+                        RadioListTile<OperationMode>(
+                          key: const Key('owner-mode-personal'),
+                          value: OperationMode.personal,
+                          title: Text(
+                            operationModeTitle(OperationMode.personal),
+                          ),
+                          subtitle: Text(
+                            operationModeExplanation(OperationMode.personal),
+                          ),
+                        ),
+                      ],
                     ),
-                    RadioListTile<OperationMode>(
-                      key: const Key('owner-mode-personal'),
-                      value: OperationMode.personal,
-                      title: Text(operationModeTitle(OperationMode.personal)),
-                      subtitle: Text(
-                        operationModeExplanation(OperationMode.personal),
-                      ),
-                    ),
-                  ],
-                ),
+                  ),
+                ],
               ),
-              const SizedBox(height: 20),
+              const SizedBox(height: 12),
               FilledButton(
                 key: const Key('owner-confirm'),
                 onPressed: _saving ? null : _confirm,

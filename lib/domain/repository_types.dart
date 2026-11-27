@@ -60,6 +60,11 @@ List<FifoTake> fifoTakes(List<Map<String, Object?>> lots, int quantityBase) {
 /// RF-03: resultado de confirmar o rechazar un borrador tardío.
 enum LateResolutionOutcome { confirmed, rejected, conflict }
 
+/// Filtro por categoría de movimiento en el detalle de un producto.
+/// Cada categoría conserva sus reversiones; [all] incluye también los pases
+/// históricos aunque la instalación esté en modo individual.
+enum ProductMovementFilter { all, purchases, applications, transfers }
+
 /// Códigos de conflicto de una confirmación tardía que no se aplicó.
 abstract final class LateConflict {
   /// El cupo temporal de los lotes no alcanza (§2.3).

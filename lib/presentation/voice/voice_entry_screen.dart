@@ -7,7 +7,10 @@ library;
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
+import '../theme/agro_theme.dart';
+import '../widgets/agro_ui.dart';
 import '../widgets/common.dart';
+import '../widgets/rdm_b_ui.dart';
 import 'voice_evidence_consent_screen.dart' show voiceEvidenceConsentPath;
 import 'voice_evidence_hook.dart' show voiceEvidenceEnabled;
 
@@ -54,31 +57,51 @@ class VoiceEntryScreen extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          for (final option in options)
-            Card(
-              child: ListTile(
-                key: Key(option.key),
-                contentPadding: const EdgeInsets.all(16),
-                leading: CircleAvatar(child: Icon(option.icon)),
-                title: Text(
-                  option.title,
-                  style: const TextStyle(fontWeight: FontWeight.w700),
+          AgroGroup(
+            children: [
+              for (final option in options)
+                ListTile(
+                  key: Key(option.key),
+                  contentPadding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 8,
+                  ),
+                  leading: IconCircle(icon: option.icon),
+                  title: Text(
+                    option.title,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.w700,
+                      color: AgroColors.ink,
+                    ),
+                  ),
+                  subtitle: Text(option.subtitle, style: AgroText.detail),
+                  trailing: const Icon(
+                    Icons.chevron_right,
+                    color: AgroColors.muted,
+                  ),
+                  onTap: () => context.push(option.path),
                 ),
-                subtitle: Text(option.subtitle),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: () => context.push(option.path),
-              ),
-            ),
+            ],
+          ),
           // Sólo en una compilación de evaluación (#167).
-          if (voiceEvidenceEnabled)
-            ListTile(
-              key: const Key('voz-entrada-evidencia'),
-              leading: const Icon(Icons.fact_check_outlined),
-              title: const Text('Evaluación de la voz'),
-              subtitle: const Text('Permiso para guardar lo dictado'),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () => context.push(voiceEvidenceConsentPath),
+          if (voiceEvidenceEnabled) ...[
+            const SizedBox(height: 12),
+            AgroGroup(
+              children: [
+                ListTile(
+                  key: const Key('voz-entrada-evidencia'),
+                  leading: const IconCircle(icon: Icons.fact_check_outlined),
+                  title: const Text('Evaluación de la voz'),
+                  subtitle: const Text('Permiso para guardar lo dictado'),
+                  trailing: const Icon(
+                    Icons.chevron_right,
+                    color: AgroColors.muted,
+                  ),
+                  onTap: () => context.push(voiceEvidenceConsentPath),
+                ),
+              ],
             ),
+          ],
         ],
       ),
     );

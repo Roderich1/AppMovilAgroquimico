@@ -6,6 +6,8 @@ import '../../domain/backup_models.dart';
 import '../../services/backup/backup_keyring.dart';
 import '../../services/backup/remote_backup_providers.dart';
 import '../../services/backup/screen_secure.dart';
+import '../theme/agro_theme.dart';
+import '../widgets/agro_ui.dart';
 import '../widgets/common.dart';
 
 /// Campo para escribir una clave de recuperación: sin sugerencias, sin
@@ -212,101 +214,146 @@ class _BackupRecoveryKeyScreenState
   Widget build(BuildContext context) {
     final key = _key;
     return Scaffold(
-      appBar: AppBar(
-        title: Text(
-          widget.rotation
-              ? 'Cambiar la clave de recuperación'
-              : 'Clave de recuperación',
-        ),
+      appBar: AgroAppBar(
+        title: widget.rotation
+            ? 'Cambiar la clave de recuperación'
+            : 'Clave de recuperación',
       ),
       body: SafeArea(
         child: ScreenSecureScope(
-          child: ListView(
+          child: SingleChildScrollView(
             padding: const EdgeInsets.all(16),
-            children: [
-              const Text(
-                'Esta clave descifra sus respaldos en la nube. El servidor del '
-                'sindicato y el proveedor sólo guardan la copia cifrada: nadie, '
-                'tampoco la Directiva ni el administrador del servidor, puede '
-                'leerla ni recuperar esta clave por usted.',
-              ),
-              const SizedBox(height: 8),
-              const Text(
-                'Es distinta de su contraseña y de su PIN. Recuperar la cuenta o '
-                'el PIN no recupera esta clave. Si pierde el teléfono y también '
-                'la clave, sus copias cifradas no se podrán recuperar.',
-              ),
-              if (widget.rotation) ...[
-                const SizedBox(height: 8),
-                const Text(
-                  'Conserve también la clave anterior: las copias que ya subió '
-                  'siguen necesitándola hasta que el servidor las sustituya por '
-                  'copias nuevas.',
-                  style: TextStyle(fontWeight: FontWeight.w600),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                AgroGroup(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Esta clave descifra sus respaldos en la nube. El servidor del '
+                            'sindicato y el proveedor sólo guardan la copia cifrada: nadie, '
+                            'tampoco la Directiva ni el administrador del servidor, puede '
+                            'leerla ni recuperar esta clave por usted.',
+                          ),
+                          const SizedBox(height: 8),
+                          const Text(
+                            'Es distinta de su contraseña y de su PIN. Recuperar la cuenta o '
+                            'el PIN no recupera esta clave. Si pierde el teléfono y también '
+                            'la clave, sus copias cifradas no se podrán recuperar.',
+                            style: AgroText.detail,
+                          ),
+                          if (widget.rotation) ...[
+                            const SizedBox(height: 8),
+                            const Text(
+                              'Conserve también la clave anterior: las copias que ya subió '
+                              'siguen necesitándola hasta que el servidor las sustituya por '
+                              'copias nuevas.',
+                              style: TextStyle(
+                                fontWeight: FontWeight.w600,
+                                color: AgroColors.ink,
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
-              ],
-              const SizedBox(height: 16),
-              if (key == null && _error == null)
-                const Center(child: CircularProgressIndicator())
-              else if (key != null && !_confirming) ...[
-                const Text(
-                  'Anótela en papel, tal como aparece, y guárdela fuera del '
-                  'teléfono. No le haga una foto ni la copie en mensajes.',
-                  style: TextStyle(fontWeight: FontWeight.w600),
-                ),
-                const SizedBox(height: 8),
-                RecoveryKeyDisplay(key),
-                CheckboxListTile(
-                  value: _written,
-                  onChanged: (value) =>
-                      setState(() => _written = value ?? false),
-                  title: const Text(
-                    'La anoté en papel y la guardo fuera del teléfono.',
+                const SizedBox(height: 16),
+                if (key == null && _error == null)
+                  const Center(child: CircularProgressIndicator())
+                else if (key != null && !_confirming) ...[
+                  const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 4),
+                    child: Text(
+                      'Anótela en papel, tal como aparece, y guárdela fuera del '
+                      'teléfono. No le haga una foto ni la copie en mensajes.',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w600,
+                        color: AgroColors.ink,
+                      ),
+                    ),
                   ),
-                  controlAffinity: ListTileControlAffinity.leading,
-                ),
-                FilledButton(
-                  onPressed: _written
-                      ? () => setState(() {
-                          _confirming = true;
-                          _error = null;
-                        })
-                      : null,
-                  child: const Text('Continuar'),
-                ),
-              ] else if (key != null) ...[
-                const Text(
-                  'Escriba la clave completa tal como la anotó. Así se comprueba '
-                  'que la tiene fuera del teléfono antes de depender de ella.',
-                ),
-                const SizedBox(height: 12),
-                recoveryKeyField(_typed, errorText: _error, autofocus: true),
-                const SizedBox(height: 12),
-                FilledButton(
-                  onPressed: _confirm,
-                  child: const Text('Confirmar la clave'),
-                ),
-                TextButton(
-                  onPressed: () => setState(() {
-                    _confirming = false;
-                    _error = null;
-                  }),
-                  child: const Text('Volver a ver la clave'),
-                ),
-              ],
-              if (key == null && _error != null)
-                EmptyState(icon: Icons.key_off_outlined, message: _error!),
-              const SizedBox(height: 24),
-              if (key != null)
-                TextButton(
-                  onPressed: _discard,
-                  child: Text(
-                    widget.rotation
-                        ? 'Cancelar el cambio (se mantiene la clave actual)'
-                        : 'Descartar esta clave y no subir respaldos',
+                  const SizedBox(height: 8),
+                  RecoveryKeyDisplay(key),
+                  const SizedBox(height: 12),
+                  AgroGroup(
+                    children: [
+                      CheckboxListTile(
+                        value: _written,
+                        onChanged: (value) =>
+                            setState(() => _written = value ?? false),
+                        title: const Text(
+                          'La anoté en papel y la guardo fuera del teléfono.',
+                        ),
+                        controlAffinity: ListTileControlAffinity.leading,
+                      ),
+                    ],
                   ),
-                ),
-            ],
+                  const SizedBox(height: 16),
+                  FilledButton(
+                    onPressed: _written
+                        ? () => setState(() {
+                            _confirming = true;
+                            _error = null;
+                          })
+                        : null,
+                    child: const Text('Continuar'),
+                  ),
+                ] else if (key != null) ...[
+                  AgroGroup(
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.all(16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            const Text(
+                              'Escriba la clave completa tal como la anotó. Así se comprueba '
+                              'que la tiene fuera del teléfono antes de depender de ella.',
+                            ),
+                            const SizedBox(height: 12),
+                            recoveryKeyField(
+                              _typed,
+                              errorText: _error,
+                              autofocus: true,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  FilledButton(
+                    onPressed: _confirm,
+                    child: const Text('Confirmar la clave'),
+                  ),
+                  TextButton(
+                    onPressed: () => setState(() {
+                      _confirming = false;
+                      _error = null;
+                    }),
+                    child: const Text('Volver a ver la clave'),
+                  ),
+                ],
+                if (key == null && _error != null)
+                  EmptyState(icon: Icons.key_off_outlined, message: _error!),
+                const SizedBox(height: 24),
+                if (key != null)
+                  TextButton(
+                    onPressed: _discard,
+                    child: Text(
+                      widget.rotation
+                          ? 'Cancelar el cambio (se mantiene la clave actual)'
+                          : 'Descartar esta clave y no subir respaldos',
+                    ),
+                  ),
+              ],
+            ),
           ),
         ),
       ),

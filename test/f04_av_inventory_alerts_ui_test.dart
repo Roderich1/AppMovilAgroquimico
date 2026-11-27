@@ -378,15 +378,15 @@ void main() {
       find.text('Aviso de vencimiento: 30 días antes (valor inicial).'),
       findsOneWidget,
     );
-    final lotsTile = find.byKey(const Key('inventory-lots'));
-    await tester.ensureVisible(lotsTile);
-    await tester.tap(lotsTile);
+    await tester.tap(find.byKey(const Key('inventory-tab-lots')));
     await settle(tester);
-    // Ronda 2: cada lote es una tarjeta; el texto empieza con mayúscula.
+    // Cada lote es una tarjeta; el texto empieza con mayúscula.
     expect(
       find.textContaining('Sin fecha de vencimiento registrada'),
       findsOneWidget,
     );
+    await tester.tap(find.byKey(const Key('inventory-tab-summary')));
+    await settle(tester);
 
     Future<Row> product() async => (await rows(
       tester,

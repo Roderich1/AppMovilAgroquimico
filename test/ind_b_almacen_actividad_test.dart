@@ -162,7 +162,7 @@ void main() {
         'en planes como proyección y sin repetir al titular', (tester) async {
       final w = await individual(tester, 'indb-detalle');
       w.c.read(routerProvider).push('/inventario/${w.seed.fungicide}');
-      await waitFor(tester, find.byKey(const Key('inventory-movements')));
+      await waitFor(tester, find.byKey(const Key('inventory-totals')));
       await settle(tester);
 
       expect(find.text('Tiene ahora'), findsOneWidget);
@@ -177,12 +177,21 @@ void main() {
         keyText('inventory-plans-projection', 'Un plan no descuenta'),
         findsOneWidget,
       );
+
+      // Movimientos: sin el nombre del titular y sin pastilla «Pases».
+      await tester.tap(find.byKey(const Key('inventory-tab-movements')));
+      await waitFor(tester, find.byKey(const Key('inventory-movements')));
+      await settle(tester);
+      expect(
+        find.byKey(const Key('inventory-movements-filter-transfers')),
+        findsNothing,
+      );
       expect(find.text('Compra · Agroinsumos'), findsNWidgets(2));
       expect(find.textContaining('Rosa Vargas'), findsNothing);
 
       // Lotes: sin el nombre del titular; la fecha de compra encabeza.
-      await tester.ensureVisible(find.byKey(const Key('inventory-lots')));
-      await tester.tap(find.byKey(const Key('inventory-lots')));
+      await tester.tap(find.byKey(const Key('inventory-tab-lots')));
+      await waitFor(tester, find.byKey(const Key('inventory-lots')));
       await settle(tester);
       expect(find.byKey(const Key('inventory-lot-0')), findsOneWidget);
       expect(find.textContaining('Rosa Vargas'), findsNothing);
@@ -202,9 +211,12 @@ void main() {
       await tester.runAsync(() => s.household.buy(s.household.titular, 5000));
       final c = await pumpModeApp(tester, s.database);
       c.read(routerProvider).push('/inventario/${s.household.product}');
-      await waitFor(tester, find.byKey(const Key('inventory-movements')));
+      await waitFor(tester, find.byKey(const Key('inventory-distribution')));
       expect(find.text('Hay ahora'), findsOneWidget);
       expect(find.byKey(const Key('inventory-distribution')), findsOneWidget);
+      await tester.tap(find.byKey(const Key('inventory-tab-movements')));
+      await waitFor(tester, find.byKey(const Key('inventory-movements')));
+      await settle(tester);
       final tile = tester.widget<ListTile>(
         find.descendant(
           of: find.byKey(const Key('inventory-movements')),

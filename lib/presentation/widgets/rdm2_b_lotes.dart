@@ -255,6 +255,7 @@ class LotCard extends StatelessWidget {
     this.manufacturerLot,
     this.reference,
     this.fromTransfer = false,
+    this.exhausted = false,
   });
 
   /// Quién lo tiene. `null` en el modo individual para un lote del titular:
@@ -278,6 +279,10 @@ class LotCard extends StatelessWidget {
   /// del lote de origen).
   final bool fromTransfer;
 
+  /// Lote sin existencia restante (`available_base == 0`), visible en el
+  /// filtro «Todos» con la etiqueta «Agotado».
+  final bool exhausted;
+
   @override
   Widget build(BuildContext context) => Container(
     padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
@@ -297,8 +302,34 @@ class LotCard extends StatelessWidget {
                 style: AgroText.question,
               ),
             ),
+            if (exhausted) ...[
+              const SizedBox(width: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 3,
+                ),
+                decoration: BoxDecoration(
+                  color: AgroColors.track,
+                  borderRadius: BorderRadius.circular(999),
+                ),
+                child: const Text(
+                  'Agotado',
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: AgroColors.muted,
+                  ),
+                ),
+              ),
+            ],
             const SizedBox(width: 8),
-            Text(quantity, style: AgroText.amount),
+            Text(
+              quantity,
+              style: exhausted
+                  ? AgroText.amount.copyWith(color: AgroColors.muted)
+                  : AgroText.amount,
+            ),
           ],
         ),
         const SizedBox(height: 2),
@@ -316,7 +347,10 @@ class LotCard extends StatelessWidget {
             ),
           ),
         const SizedBox(height: 4),
-        ExpiryLine(status: expiryStatus, text: expiryText),
+        ExpiryLine(
+          status: exhausted ? ExpiryStatus.later : expiryStatus,
+          text: expiryText,
+        ),
         if (details.isNotEmpty || manufacturerLot != null)
           const SizedBox(height: 6),
         for (final line in details) Text(line, style: AgroText.detail),

@@ -49,8 +49,12 @@ void main() {
         await settle(tester);
 
         final fab = find.byKey(const Key('shell-registrar'));
+        final bar = find.byKey(const Key('shell-registrar-zona'));
         expect(fab, findsOneWidget);
+        expect(bar, findsOneWidget);
+        expect(find.text('Registrar'), findsOneWidget);
         final fabRect = tester.getRect(fab);
+        final barRect = tester.getRect(bar);
         // La lista de la página (en ancho, el riel también se desplaza).
         final scrollable = find
             .descendant(
@@ -59,8 +63,12 @@ void main() {
             )
             .first;
         final viewport = tester.getRect(scrollable);
-        // La vista desplazable termina por encima del botón: nada de la lista
-        // puede quedar debajo de él, en ninguna posición.
+        // La vista desplazable termina por encima de la barra blanca y del
+        // botón compacto alineado a la derecha: nada de la lista puede quedar
+        // debajo de él, en ninguna posición.
+        expect(viewport.bottom, lessThanOrEqualTo(barRect.top));
+        expect(barRect.contains(fabRect.center), isTrue);
+        expect(fabRect.center.dx, greaterThan(barRect.center.dx));
         expect(
           viewport.bottom,
           lessThanOrEqualTo(fabRect.top),

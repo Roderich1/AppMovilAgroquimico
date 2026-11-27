@@ -60,17 +60,30 @@ class InventoryRepository {
     int? personId,
     int? supplierId,
     int? campaignId,
+    bool includeExhausted = false,
+    String? expiryThrough,
+    int limit = 500,
+    int offset = 0,
   }) => _queries.inventoryProductLots(
     productId,
     personId: personId,
     supplierId: supplierId,
     campaignId: campaignId,
+    includeExhausted: includeExhausted,
+    expiryThrough: expiryThrough,
+    limit: limit,
+    offset: offset,
   );
+
+  Future<List<({int availableBase, String? expiryDay})>>
+  inventoryProductExpiryTotals(int productId) =>
+      _queries.inventoryProductExpiryTotals(productId);
 
   Future<List<Map<String, Object?>>> productMovements(
     int productId, {
     int limit = 20,
-  }) => _queries.productMovements(productId, limit: limit);
+    ProductMovementFilter filter = ProductMovementFilter.all,
+  }) => _queries.productMovements(productId, limit: limit, filter: filter);
 
   /// Si se puede corregir la línea: existe y su compra no está revertida.
   Future<bool> canCorrectLotData(int purchaseItemId) async {

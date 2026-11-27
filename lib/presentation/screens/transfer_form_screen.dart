@@ -238,7 +238,7 @@ class _TransferFormScreenState extends ConsumerState<TransferFormScreen> {
   Widget build(BuildContext context) =>
       ref.watch(operationModeProvider) == OperationMode.personal
       ? Scaffold(
-          appBar: AppBar(title: const Text('Nueva transferencia')),
+          appBar: const AgroAppBar(title: 'Nueva transferencia'),
           body: SharedOnlyNotice(onBack: () => context.go('/operaciones')),
         )
       : _form(context);

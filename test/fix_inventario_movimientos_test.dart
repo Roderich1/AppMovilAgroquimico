@@ -160,6 +160,37 @@ void main() {
         '2026-01-05T12:00:00.000Z',
       ]);
       expect(await repo.productMovements(glifosato, limit: 3), hasLength(3));
+      // Filtros aplicados antes del LIMIT: cada categoría conserva sus
+      // reversiones.
+      final purchases = await repo.productMovements(
+        glifosato,
+        limit: 2,
+        filter: ProductMovementFilter.purchases,
+      );
+      expect(purchases.map((r) => r['type']).toList(), [
+        'PURCHASE_REVERSAL',
+        'PURCHASE_IN',
+      ]);
+      final applications = await repo.productMovements(
+        glifosato,
+        limit: 2,
+        filter: ProductMovementFilter.applications,
+      );
+      expect(applications.map((r) => r['type']).toList(), [
+        'APPLICATION_REVERSAL',
+        'APPLICATION_OUT',
+      ]);
+      final transfers = await repo.productMovements(
+        glifosato,
+        limit: 10,
+        filter: ProductMovementFilter.transfers,
+      );
+      expect(transfers.map((r) => r['type']).toList(), [
+        'TRANSFER_REVERSAL_OUT',
+        'TRANSFER_REVERSAL_IN',
+        'TRANSFER_IN',
+        'TRANSFER_OUT',
+      ]);
       // Otro producto no se mezcla.
       final otro = await repo.addProduct(name: 'Otro');
       expect(await repo.productMovements(otro), isEmpty);
@@ -216,13 +247,24 @@ void main() {
           ),
         ),
       );
-      await waitFor(tester, find.byKey(const Key('inventory-movements')));
+      await waitFor(tester, find.byKey(const Key('inventory-totals')));
     }
 
-    testWidgets('con una compra y una aplicación, «Movimientos» muestra las '
-        'dos filas con su fecha; lotes y valor quedan plegados; etiquetas '
-        'nuevas', (tester) async {
+    testWidgets('con una compra y una aplicación, las pestañas Resumen, '
+        'Movimientos y Lotes separan cada vista', (tester) async {
       await mount(tester, seedBasic);
+      // En Resumen no hay planes; las cifras netas están visibles de entrada.
+      expect(find.byKey(const Key('inventory-plans')), findsNothing);
+      expect(find.text('Quedarán'), findsNothing);
+      expect(find.text('Reservado por planes'), findsNothing);
+      expect(find.text('Comprometido'), findsNothing);
+      expect(find.text('Libre proyectado'), findsNothing);
+      expect(find.byKey(const Key('inventory-lot-0')), findsNothing);
+
+      // Pestaña «Movimientos».
+      await tester.tap(find.byKey(const Key('inventory-tab-movements')));
+      await waitFor(tester, find.byKey(const Key('inventory-movements')));
+      await settle(tester);
       final list = find.byKey(const Key('inventory-movements'));
       expect(
         find.descendant(of: list, matching: find.byType(ListTile)),
@@ -239,23 +281,10 @@ void main() {
       expect((tiles[1].title! as Text).data, 'Compra');
       expect((tiles[1].subtitle! as Text).data, '05/01/2026 · Ana · Agro Sur');
       expect((tiles[1].trailing! as Text).data, '+10 L');
-      expect(find.byKey(const Key('inventory-movements-all')), findsNothing);
 
-      // Rediseño B (COORDINACION): no es una reserva real. Ronda 2 (encargo
-      // del autor del 2026-11-12): lo previsto en planes se muestra sólo
-      // cuando corresponde; aquí no hay planes (con planes, en
-      // rdm2_b_almacen_detalle_test.dart).
-      expect(find.byKey(const Key('inventory-plans')), findsNothing);
-      expect(find.text('Quedarán'), findsNothing);
-      expect(find.text('Reservado por planes'), findsNothing);
-      expect(find.text('Comprometido'), findsNothing);
-      expect(find.text('Libre proyectado'), findsNothing);
-      // Plegado: el lote no se ve hasta desplegar (ronda 2: panel «Lotes»).
-      expect(find.byKey(const Key('inventory-lots')), findsOneWidget);
-      expect(find.byKey(const Key('inventory-lot-0')), findsNothing);
-      expect(find.textContaining('Lote #'), findsNothing);
-      await tester.ensureVisible(find.byKey(const Key('inventory-lots')));
-      await tester.tap(find.byKey(const Key('inventory-lots')));
+      // Pestaña «Lotes».
+      await tester.tap(find.byKey(const Key('inventory-tab-lots')));
+      await waitFor(tester, find.byKey(const Key('inventory-lots')));
       await settle(tester);
       Finder inLot(String text) => find.descendant(
         of: find.byKey(const Key('inventory-lot-0')),
@@ -266,8 +295,8 @@ void main() {
       expect(find.textContaining('Lote #'), findsNothing);
     });
 
-    testWidgets('todos los tipos en palabras y «Ver más» cuando hay más de '
-        'veinte', (tester) async {
+    testWidgets('todos los tipos en palabras, filtros antes de paginar y '
+        '«Ver más» cuando hay más de veinte', (tester) async {
       await mount(tester, () async {
         await seedAll();
         // Doce aplicaciones más: 24 filas en total.
@@ -275,14 +304,10 @@ void main() {
           await apply(100, 21 + (i % 10));
         }
       });
-      // Ronda 2: el detalle muestra los recientes; el historial completo,
-      // con «Ver más», se abre aparte.
-      await tester.ensureVisible(
-        find.byKey(const Key('inventory-movements-all')),
-      );
-      await tester.tap(find.byKey(const Key('inventory-movements-all')));
-      await waitFor(tester, find.byKey(const Key('inventory-history')));
-      final list = find.byKey(const Key('inventory-history'));
+      await tester.tap(find.byKey(const Key('inventory-tab-movements')));
+      await waitFor(tester, find.byKey(const Key('inventory-movements')));
+      await settle(tester);
+      final list = find.byKey(const Key('inventory-movements'));
       Iterable<String> titles() => tester
           .widgetList<ListTile>(
             find.descendant(of: list, matching: find.byType(ListTile)),
@@ -310,6 +335,54 @@ void main() {
           'Pase revertido: devuelto a Ana',
         ]),
       );
+
+      // Filtrar «Compras» consulta antes de paginar: aunque las 20 filas más
+      // recientes incluyan aplicaciones posteriores, «Compras» trae todas las
+      // compras de la base (incluidas las antiguas que habían quedado en la
+      // segunda página de «Todo») y conserva las reversiones.
+      await tester.tap(
+        find.byKey(const Key('inventory-movements-filter-purchases')),
+      );
+      await settle(tester);
+      expect(titles().toList(), [
+        'Compra revertida',
+        'Compra',
+        'Compra',
+        'Compra',
+      ]);
+
+      // «Lotes › Todos» incluye el lote agotado con la etiqueta «Agotado»,
+      // mientras que la compra revertida no aparece como lote.
+      await tester.tap(find.byKey(const Key('inventory-tab-lots')));
+      await waitFor(tester, find.byKey(const Key('inventory-lots')));
+      await settle(tester);
+      expect(find.text('Agotado'), findsNothing);
+      await tester.tap(find.byKey(const Key('inventory-lots-filter-all')));
+      await tester.pump();
+      await waitFor(tester, find.text('Agotado'));
+      expect(find.text('Agotado'), findsOneWidget);
+      expect(find.text('0 L'), findsOneWidget);
+    });
+
+    testWidgets('Ver más añade la siguiente página de lotes', (tester) async {
+      await mount(tester, () async {
+        await seedBasic();
+        final supplier = await repo.addSupplier(name: 'Agro paginado');
+        for (var i = 0; i < 21; i++) {
+          await buy(ana, supplier, 1000, 25);
+        }
+      });
+      await tester.tap(find.byKey(const Key('inventory-tab-lots')));
+      final more = find.byKey(const Key('inventory-lots-more'));
+      await waitFor(tester, more);
+      expect(find.byKey(const Key('inventory-lot-19')), findsOneWidget);
+      expect(find.byKey(const Key('inventory-lot-20')), findsNothing);
+      await tester.ensureVisible(more);
+      await tester.pump();
+      await tester.tap(more);
+      await waitFor(tester, find.byKey(const Key('inventory-lot-21')));
+      expect(find.byKey(const Key('inventory-lot-0')), findsOneWidget);
+      expect(more, findsNothing);
     });
   });
 }
