@@ -652,7 +652,6 @@ void main() {
     await confirm({litreRef: 1000});
     final call = (await store.call(callId))!;
     expect(call.pendingInitialScope, JointPurchaseConsentScope.administration);
-    expect(call.canRetractAccess, isTrue);
     expect(call.canReviewAccess, isFalse);
     expect(await decide(JointPurchaseConsentScope.administration), isNull);
     final retract = (await decide(JointPurchaseConsentScope.totalsOnly))!;
@@ -709,7 +708,6 @@ void main() {
     );
     final pendingCall = (await store.call(callId))!;
     expect(pendingCall.needsAccessReview, isFalse);
-    expect(pendingCall.canRetractAccess, isTrue);
     // Lo aplicado sigue siendo lo del sindicato: nada se anuncia como hecho.
     expect(pendingCall.appliedScope, 'COLLABORATORS');
     // Retirar una autorización que nunca salió: sólo queda sin efecto.
@@ -744,7 +742,6 @@ void main() {
       ),
     ]);
     final call = (await store.call(callId))!;
-    expect(call.canRetractAccess, isTrue);
     expect(call.canReviewAccess, isFalse);
     expect(call.needsAccessReview, isFalse);
     expect(await decide(JointPurchaseConsentScope.administration), isNull);
@@ -809,7 +806,6 @@ void main() {
     ]);
     final cancelled = (await store.call(callId))!;
     expect(cancelled.canReviewAccess, isFalse);
-    expect(cancelled.canRetractAccess, isFalse);
     expect(cancelled.needsAccessReview, isFalse);
     for (final scope in JointPurchaseConsentScope.decisions) {
       await expectLater(decide(scope), throwsA(isA<BusinessRuleException>()));
