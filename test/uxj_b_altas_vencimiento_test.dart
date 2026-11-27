@@ -419,13 +419,16 @@ void main() {
     await settle(tester);
 
     await openCreate(tester, applicationPersonLabel, 'Agregar persona');
+    expect(find.text('Cobro por lo aplicado'), findsOneWidget);
     await tester.tap(find.byType(DropdownButtonFormField<PersonRole>));
     await settle(tester);
-    // Una persona nueva no es el titular: «Administrador» no podría aplicar.
+    // El alta desde Aplicaciones usa los mismos tipos que el catálogo.
     expect(find.text('Administrador'), findsNothing);
-    expect(find.text('Tercero · cobro por asignación'), findsWidgets);
-    await tester.tap(find.text('Tercero · cobro por asignación').last);
+    expect(find.text('Familiar'), findsWidgets);
+    expect(find.text('Tercero'), findsWidgets);
+    await tester.tap(find.text('Tercero').last);
     await settle(tester);
+    expect(find.text('Cobro por lo asignado en la compra'), findsOneWidget);
     await tester.enterText(find.byKey(const Key('person-name')), 'Peón');
     await save(
       tester,
@@ -434,9 +437,11 @@ void main() {
     );
     expect(pickerAt(tester, applicationPersonLabel).value?['name'], 'Peón');
     final people = await rows(tester, s.database, 'persons');
+    final person = people.singleWhere((p) => p['name'] == 'Peón');
+    expect(person['role'], PersonRole.thirdParty.code);
     expect(
-      people.singleWhere((p) => p['name'] == 'Peón')['role'],
-      PersonRole.thirdParty.code,
+      person['settlement_policy'],
+      SettlementPolicy.byPurchaseAllocation.code,
     );
 
     await openCreate(tester, 'Chaco', 'Crear chaco');
