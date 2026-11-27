@@ -39,13 +39,12 @@ Confirmados en `lib/domain/models.dart:1` (`enum PersonRole`) y en el `CHECK` de
 
 | Rol (`persons.role`) | Política de cobro por defecto | Significado operativo |
 |---|---|---|
-| `ADMIN` | `MANUAL` | Administra el sistema y **paga a los proveedores**. Excluido de liquidaciones (`settlements()` filtra `role<>'ADMIN'`, `agro_repository.dart:1715`) y de los selectores de aplicación/transferencia. |
+| `ADMIN` | `MANUAL` | Registro histórico, excluido de la liquidación. Puede elegirse para aplicar o transferir si es el titular vinculado. |
 | `FAMILY` | `BY_ACTUAL_USAGE` | Familiar. Recibir stock **no le genera deuda**; la deuda nace al **aplicar**. |
 | `THIRD_PARTY` | `BY_PURCHASE_ALLOCATION` | Tercero. La deuda nace al **confirmarse la compra**, por la cantidad asignada. |
 
-La asignación de la política ocurre en `addPerson` (`agro_repository.dart:40-46`) y puede
-sobreescribirse pasando `policy`, aunque **la UI nunca lo hace** (`catalogs_screen.dart:_add`
-llama `addPerson(name:, role:)` sin `policy`).
+En modo compartido se pueden dar de alta familiares y terceros con sus políticas por
+defecto. La persona vinculada aparece como «Titular» y registra los pagos al proveedor.
 
 > No existe concepto de "usuario logueado". El operador de la app tiene acceso total.
 > Ver [12_AUTHENTICATION](12_AUTHENTICATION.md).

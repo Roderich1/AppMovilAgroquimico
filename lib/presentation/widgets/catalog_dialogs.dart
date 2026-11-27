@@ -86,18 +86,12 @@ Future<int?> createFarmFromDialog(
   );
 }
 
-/// Alta de persona desde un formulario («Agregar persona»), con la misma
-/// regla que Catálogos: sólo en inventario compartido (#26; en propio
-/// registra sólo el titular). La modalidad se vuelve a leer aquí, no se
-/// confía en la que tenía la pantalla. El diálogo ofrece sólo los tipos que
-/// pueden cumplir [purpose] en ese formulario (`canActAs`): una persona nueva
-/// nunca es el titular, así que en una aplicación no se ofrece
-/// «Administrador», que no podría aplicar. Devuelve el id creado, o nulo si
-/// se canceló, falló (el error ya se mostró) o la modalidad no lo permite.
+/// Alta desde Catálogos o desde un formulario. Sólo en modo compartido,
+/// con los tipos que pueden cumplir [purpose] si se abre desde un formulario.
 Future<int?> createPersonFromDialog(
   BuildContext context,
   AgroGateway repo, {
-  required PersonPurpose purpose,
+  PersonPurpose? purpose,
 }) async {
   final operating = await repo.operatingContext();
   if (!context.mounted) return null;
@@ -110,10 +104,12 @@ Future<int?> createPersonFromDialog(
     return null;
   }
   final roles = [
-    for (final role in PersonDialog.allRoles)
-      if (canActAs(purpose, role: role, isOwner: false, mode: operating.mode))
+    for (final role in PersonDialog.creationRoles)
+      if (purpose == null ||
+          canActAs(purpose, role: role, isOwner: false, mode: operating.mode))
         role,
   ];
+  if (roles.isEmpty) return null;
   final result = await showDialog<(String, PersonRole)?>(
     context: context,
     builder: (_) => PersonDialog(roles: roles),
@@ -284,17 +280,10 @@ class _CampaignDialogState extends State<CampaignDialog> {
 }
 
 class PersonDialog extends StatefulWidget {
-  const PersonDialog({super.key, this.roles = allRoles});
+  const PersonDialog({super.key, this.roles = creationRoles});
 
-  /// Tipos que ofrece el diálogo, en este orden. Catálogos ofrece todos;
-  /// un formulario, sólo los que pueden cumplir su papel.
+  static const creationRoles = [PersonRole.family, PersonRole.thirdParty];
   final List<PersonRole> roles;
-
-  static const allRoles = [
-    PersonRole.admin,
-    PersonRole.family,
-    PersonRole.thirdParty,
-  ];
 
   @override
   State<PersonDialog> createState() => _PersonDialogState();
@@ -303,15 +292,8 @@ class PersonDialog extends StatefulWidget {
 class _PersonDialogState extends State<PersonDialog> {
   final name = TextEditingController();
   final formKey = GlobalKey<FormState>();
-  late PersonRole role = widget.roles.contains(PersonRole.family)
-      ? PersonRole.family
-      : widget.roles.first;
+  late PersonRole role = widget.roles.first;
 
-  static String _roleLabel(PersonRole role) => switch (role) {
-    PersonRole.admin => 'Administrador',
-    PersonRole.family => 'Familiar · cobro por uso',
-    PersonRole.thirdParty => 'Tercero · cobro por asignación',
-  };
   @override
   void dispose() {
     name.dispose();
@@ -343,12 +325,21 @@ class _PersonDialogState extends State<PersonDialog> {
           const SizedBox(height: 12),
           DropdownButtonFormField(
             initialValue: role,
-            decoration: const InputDecoration(labelText: 'Tipo'),
+            isExpanded: true,
+            decoration: InputDecoration(
+              labelText: 'Tipo',
+              helperText: switch (role) {
+                PersonRole.family => 'Cobro por lo aplicado',
+                PersonRole.thirdParty => 'Cobro por lo asignado en la compra',
+                PersonRole.admin => null,
+              },
+              helperMaxLines: 2,
+            ),
             items: [
               for (final option in widget.roles)
                 DropdownMenuItem(
                   value: option,
-                  child: Text(_roleLabel(option)),
+                  child: Text(personRoleLabel(option.code)),
                 ),
             ],
             onChanged: (value) => setState(() => role = value!),

@@ -41,7 +41,7 @@ lo imponen.
 
 ```mermaid
 flowchart TD
-    S(["Base vacía"]) --> P["1. Crear personas<br/>(al menos 1 ADMIN + 1 FAMILY/THIRD_PARTY)"]
+    S(["Base vacía"]) --> P["1. Vincular al titular<br/>Agregar familiares o terceros en compartido"]
     P --> C["2. Crear campaña<br/>(la primera queda ACTIVE automáticamente)"]
     P --> F["3. Crear chacos<br/>(requiere propietario)"]
     C --> PR["4. Crear productos"]
@@ -56,8 +56,7 @@ flowchart TD
 - **Detalle importante**: `addCampaign` (`agro_repository.dart:74-88`) cuenta las campañas
   activas dentro de una transacción; si no hay ninguna, la nueva nace `ACTIVE`; si ya hay
   una, nace `PLANNED`. **La primera campaña que se crea queda activa sin intervención.**
-- **Sin ADMIN no se puede pagar al proveedor**: `PurchasesScreen._pay` avisa "Registra una
-  persona administradora para pagar al proveedor."
+- **Pago al proveedor**: se registra a nombre del titular vinculado en ambos modos.
 
 ---
 
@@ -109,7 +108,7 @@ flowchart TD
     D --> D1["Por línea: producto, cantidad, moneda, precio, TC si USD"]
     D1 --> D2["Por línea: 1..N asignaciones persona + cantidad"]
     D2 --> D3["Subtítulo en vivo: cantidad · subtotal · pendiente por asignar"]
-    D3 --> E["Sección Pago al proveedor (switch + pagador ADMIN)"]
+    D3 --> E["Sección Pago al proveedor (paga el titular vinculado)"]
     E --> F["Confirmar"]
     F --> G{"validaciones de UI"}
     G -->|falla| E1["showError específico por ítem"]
@@ -157,7 +156,7 @@ flowchart TD
     A["ApplicationsScreen.add()"] --> B{"activeCampaign()?"}
     B -->|no| C["Diálogo 'Falta una campaña activa'<br/>botón → /catalogos"]
     B -->|sí| D["push /aplicaciones/nueva"]
-    D --> E["_load(): people (sin ADMIN) + farms + campaña activa"]
+    D --> E["_load(): aplicadores elegibles + chacos + campaña activa"]
     E --> F["Elegir persona"]
     F --> G["availableProductsForOwner(persona) → stock con lotes y costo FIFO"]
     G --> H["Elegir chaco (filtrado al propietario) → precarga área en ha"]
@@ -235,7 +234,7 @@ producto planificado; al confirmar, la validación de cantidad ≤ stock lo bloq
 
 ```mermaid
 flowchart TD
-    A["TransferFormScreen"] --> B["people() filtrando ADMIN"]
+    A["TransferFormScreen"] --> B["Personas elegibles, incluido el titular"]
     B --> C["1. Origen"]
     C --> D["availableProductsForOwner(origen)<br/>crea un TextEditingController por producto, inicializado en '0'"]
     D --> E["2. Productos: teclear cantidad por fila<br/>(buscador si hay >= 8 productos)"]

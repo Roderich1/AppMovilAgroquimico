@@ -338,10 +338,10 @@ class PurchaseFormState {
 
   /// Rótulo secundario de una persona: el titular se dice «Titular»; los
   /// demás, su rol («Familiar», «Tercero»). Nunca «Titular · Familiar».
-  String personRole(Map<String, Object?> person) =>
-      ownerPersonId != null && person['id'] == ownerPersonId
-      ? 'Titular'
-      : personRoleLabel(person['role']);
+  String personRole(Map<String, Object?> person) => personRoleLabel(
+    person['role'],
+    isOwner: ownerPersonId != null && person['id'] == ownerPersonId,
+  );
 
   PurchaseFormState copyWith({
     Object? catalogs = _absent,

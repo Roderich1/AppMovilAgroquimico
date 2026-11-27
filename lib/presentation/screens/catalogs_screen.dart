@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app.dart';
-import '../../domain/models.dart';
 import '../../domain/money.dart';
 import '../../domain/operation_mode.dart';
 import '../../operation_mode_controller.dart';
@@ -83,6 +82,8 @@ class _CatalogsScreenState extends ConsumerState<CatalogsScreen>
   }
 
   Future<void> _edit(Map<String, Object?> row) async {
+    const tables = ['persons', 'farms', 'products', 'suppliers', 'campaigns'];
+    final table = tables[tabs.index];
     final value = await showDialog<String?>(
       context: context,
       builder: (_) => NameDialog(
@@ -91,13 +92,12 @@ class _CatalogsScreenState extends ConsumerState<CatalogsScreen>
         initial: row['name']! as String,
       ),
     );
-    if (value == null) return;
-    const tables = ['persons', 'farms', 'products', 'suppliers', 'campaigns'];
+    if (value == null || !mounted) return;
     try {
       await ref
           .read(repositoryProvider)
-          .renameCatalog(tables[tabs.index], row['id']! as int, value);
-      _refresh();
+          .renameCatalog(table, row['id']! as int, value);
+      if (mounted) _refresh();
     } catch (error) {
       if (mounted) showError(context, error);
     }
@@ -166,12 +166,7 @@ class _CatalogsScreenState extends ConsumerState<CatalogsScreen>
           // En propio no se agregan responsables (#26); el botón no se
           // muestra, pero la regla no depende de él.
           if (_personal) return;
-          final result = await showDialog<(String, PersonRole)?>(
-            context: context,
-            builder: (_) => const PersonDialog(),
-          );
-          if (result != null)
-            await repo.addPerson(name: result.$1, role: result.$2);
+          await createPersonFromDialog(context, repo);
         // Chaco, producto y proveedor: las mismas altas que ofrecen los
         // selectores de los formularios (catalog_dialogs.dart). En modo propio
         // los chacos son del titular, que se aplica sin elegirlo (#26).
@@ -184,7 +179,7 @@ class _CatalogsScreenState extends ConsumerState<CatalogsScreen>
         case 4:
           await addCampaignFlow(context, repo);
       }
-      _refresh();
+      if (mounted) _refresh();
     } catch (error) {
       if (mounted) showError(context, error);
     }
@@ -332,11 +327,9 @@ class _CatalogsScreenState extends ConsumerState<CatalogsScreen>
                       final (title, subtitle, icon) = switch (tabs.index) {
                         0 => (
                           row['name'].toString(),
-                          isPersonal &&
-                                  ownerPersonId != null &&
-                                  row['id'] == ownerPersonId
-                              ? 'Titular'
-                              : '${_roleLabel(row['role']! as String)} · ${_policyLabel(row['settlement_policy']! as String)}',
+                          row['id'] == ownerPersonId
+                              ? personRoleLabel(row['role'], isOwner: true)
+                              : '${personRoleLabel(row['role'])} · ${_policyLabel(row['settlement_policy']! as String)}',
                           Icons.person_outline,
                         ),
                         1 => (
@@ -443,13 +436,6 @@ class _CatalogsScreenState extends ConsumerState<CatalogsScreen>
       ],
     ),
   );
-
-  String _roleLabel(String role) => switch (role) {
-    'ADMIN' => 'Administrador',
-    'FAMILY' => 'Familiar',
-    'THIRD_PARTY' => 'Tercero',
-    _ => role,
-  };
 
   String _policyLabel(String policy) => switch (policy) {
     'BY_ACTUAL_USAGE' => 'Cobro por consumo',

@@ -118,8 +118,8 @@ Convención de estados usada abajo:
 | **Servicios** | `purchases()` (límite 200), `people()`, `addProviderPayment`, `reversePurchase` |
 | **Datos mostrados** | Por compra: proveedor · nº de factura, campaña, nº de productos, Total, pagado, estado (Confirmada/Revertida) |
 | **Acciones** | "Nueva compra" (`push`); filtro por campaña; buscador de proveedor/factura; **tocar la tarjeta abre el detalle** (`/compras/detalle/:id`, también revertidas, 2026-10-30); ⋮ → Ver factura (solo si hay imagen) / Registrar pago / Revertir compra |
-| **Diálogos** | `_PaymentDialog` (pagador ADMIN + importe con máximo precargado); visor de factura con `InteractiveViewer` |
-| **Validaciones** | `_pay` avisa si no hay ningún `ADMIN`; `showInvoiceImage` (compartido con el detalle) comprueba que el archivo exista |
+| **Diálogos** | Pago al proveedor a nombre del titular vigente; visor de factura con `InteractiveViewer` |
+| **Validaciones** | El pago exige un titular vinculado; `showInvoiceImage` (compartido con el detalle) comprueba que el archivo exista |
 | **loading / empty / error** | Spinner · `EmptyState` "No hay compras confirmadas." · `EmptyState` con `snapshot.error.toString()` |
 | **Defecto de orden** | Comprueba `!snapshot.hasData` **antes** que `snapshot.hasError`, por lo que un error muestra el spinner indefinidamente en vez del mensaje. Ver [27](27_KNOWN_ISSUES.md) |
 | **Permisos** | Lectura del archivo de factura en el sandbox de la app (no requiere permiso explícito) |
@@ -152,7 +152,7 @@ Convención de estados usada abajo:
 | **Cálculo en vivo** | Por línea: `Costo Bs X/unidad · Subtotal Bs Y` y en el subtítulo `cantidad · subtotal · pendiente de asignar`; total general en la tarjeta inferior |
 | **Precarga** | La campaña `ACTIVE` se preselecciona en `_loadCatalogs` |
 | **Filtro inteligente** | El selector de producto de cada línea **excluye los productos ya usados en otras líneas** (`usedProductIds`) |
-| **Acciones** | Cámara / Galería; agregar y quitar líneas; agregar y quitar asignaciones; switch de pago total (autoselecciona el ADMIN si solo hay uno); Confirmar |
+| **Acciones** | Cámara / Galería; agregar y quitar líneas; agregar y quitar asignaciones; registrar el pago total a nombre del titular; Confirmar |
 | **Validaciones** | 7 comprobaciones secuenciales, ver [UF-04 en 06](06_USER_FLOWS.md) |
 | **loading** | Spinner mientras cargan los catálogos; spinner de 16px en el botón Confirmar mientras `saving` |
 | **error** | `showError(context, error)` como snackbar rojo — **no** hay estado de error de pantalla |
@@ -253,7 +253,7 @@ Convención de estados usada abajo:
 | **Archivo** | `persons_screen.dart` (55 líneas — la más pequeña con datos) |
 | **Tipo** | `ConsumerWidget` |
 | **Servicios** | `personProfiles()` |
-| **Datos mostrados** | Avatar con inicial; nombre; "Familiar/Tercero/Administrador · N ha"; saldo |
+| **Datos mostrados** | Avatar con inicial; nombre; «Titular» para la persona vinculada, tipo guardado para las demás; consumo propio o saldo según corresponda |
 | **Acciones** | Tocar → `/personas/:id` |
 | **Sin refresco** | No tiene botón de recarga; el `Future` se crea en `build()`, de modo que se recarga en cada reconstrucción |
 | **Formato de superficie** | `(row['area_m2'] as int) / 10000` sin formatear → puede mostrar `28.0 ha` o `2.8000000000000003 ha`. Ver [27](27_KNOWN_ISSUES.md) |

@@ -160,7 +160,7 @@ compra"* — con un `personId` inexistente, no queda ni compra, ni ítems, ni lo
 | **Reglas** | RN-23 (origen ≠ destino), RN-24 (al menos un ítem con cantidad > 0), RN-25 (sin productos repetidos), RN-26 (stock suficiente por ítem, atómico) |
 | **Atomicidad confirmada por test** | *"un item insuficiente revierte toda transferencia multiproducto"* — si el segundo producto no alcanza, el primero tampoco se mueve |
 | **Efecto contable** | **Ninguno.** Transferir no genera ni cancela deuda; solo mueve inventario |
-| **Filtro de personas** | El formulario excluye `ADMIN` de origen y destino |
+| **Filtro de personas** | El titular puede ser origen o destino, incluso si su registro histórico es `ADMIN`. Los demás registros `ADMIN` quedan fuera |
 
 ---
 
@@ -327,14 +327,14 @@ Funcionalidades explícitamente **fuera** de esta baseline y diferidas:
 
 Tres nociones distintas (`lib/domain/person_roles.dart`):
 
-- **Titular**: la persona local elegida por un Member (`owner_bindings`).
-- **Rol privado de negocio**: `persons.role`. `ADMIN` paga a los proveedores, tiene política `MANUAL` y no participa en la liquidación.
+- **Titular**: la persona local elegida por un Member (`owner_bindings`). La app la muestra como «Titular» y registra a su nombre los pagos al proveedor.
+- **Rol privado de negocio**: `persons.role`. En compartido, las altas ofrecen «Familiar» (cobro por lo aplicado) y «Tercero» (cobro por lo asignado en la compra). Los registros históricos `ADMIN` conservan su política `MANUAL` y siguen fuera de la liquidación. Editar su nombre conserva su rol.
 - **Rol central de seguridad**: el de la cuenta en el sindicato (AGRICULTOR, ADMINISTRADOR, DIRECTIVA). No vive en `persons`.
 
 | Formulario | Compartido | Propio |
 |---|---|---|
 | Asignación de compra y dueño de chaco | todas las personas (sin cambios) | sólo el titular |
-| Pagador al proveedor | personas `ADMIN` (sin cambios) | sólo el titular, aunque sea familiar |
+| Pagador al proveedor | titular vigente | titular vigente |
 | Aplicación | personas no `ADMIN`, **más el titular aunque sea `ADMIN`**; sólo chacos de quien puede aplicar | sólo el titular y sus chacos |
 | Transferencia | personas no `ADMIN`, **más el titular aunque sea `ADMIN`** | no hay transferencias |
 

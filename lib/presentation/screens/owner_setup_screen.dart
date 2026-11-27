@@ -269,10 +269,7 @@ class _OwnerSetupScreenState extends ConsumerState<OwnerSetupScreen> {
                             _eligibility(person) ==
                                 OwnerEligibility
                                     .requiresAdministratorConfirmation
-                            ? const Text(
-                                'Administrador de pagos (rol de estos '
-                                'registros, no del sindicato)',
-                              )
+                            ? const Text('Administrador · registro anterior')
                             : null,
                       ),
                     const RadioListTile<int>(
@@ -293,10 +290,9 @@ class _OwnerSetupScreenState extends ConsumerState<OwnerSetupScreen> {
                     'Confirmo que esta persona es el agricultor titular',
                   ),
                   subtitle: const Text(
-                    'Conserva su rol de administrador de pagos: sigue pagando a '
-                    'los proveedores, no se le cargan consumos y no entra en la '
-                    'liquidación. No se crea otra persona ni se mueve ningún '
-                    'registro.',
+                    'Al vincularla, se mostrará como «Titular» y registrará los '
+                    'pagos al proveedor. Se conservan sus movimientos y su '
+                    'regla de liquidación.',
                   ),
                 ),
               if (_createNew)

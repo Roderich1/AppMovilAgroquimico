@@ -24,6 +24,7 @@ typedef _Filters = ({
   List<CampaignRead> campaigns,
   List<PersonRead> people,
   OperationMode mode,
+  int? ownerId,
 });
 
 class ReportsScreen extends ConsumerStatefulWidget {
@@ -88,7 +89,12 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
     } else {
       _loadedMode = operating.mode;
     }
-    return (campaigns: campaigns, people: people, mode: operating.mode);
+    return (
+      campaigns: campaigns,
+      people: people,
+      mode: operating.mode,
+      ownerId: operating.ownerPersonId,
+    );
   }
 
   /// Filtros efectivos: un reporte que no admite campaña la ignora aunque la
@@ -390,7 +396,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
                                 value: person.id,
                                 child: Text(
                                   '${person.name} · '
-                                  '${personRoleLabel(person.role)}',
+                                  '${personRoleLabel(person.role, isOwner: person.id == data.ownerId)}',
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                 ),
