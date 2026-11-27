@@ -426,9 +426,8 @@ class JointPurchaseStore implements JointPurchaseGateway {
   /// operación.
   ///
   /// E2 §10.6: el consentimiento ([consentVersion] aceptado en
-  /// [consentAcceptedAt]) sólo se pide y se envía cuando el sindicato todavía
-  /// no tiene participación de este titular. Modificar cantidades conserva lo
-  /// aceptado: no lleva consentimiento y nunca lo amplía ni lo reduce.
+  /// [consentAcceptedAt]) se guarda con el pedido si falta autorización
+  /// vigente. Los reintentos conservan la versión y fecha guardadas.
   @override
   Future<JointPurchaseOp> confirm({
     required String callId,
@@ -436,8 +435,7 @@ class JointPurchaseStore implements JointPurchaseGateway {
     String? consentVersion,
     DateTime? consentAcceptedAt,
   }) async {
-    if (consentVersion != null &&
-        consentVersion != jointPurchaseConsentVersion) {
+    if (consentVersion != null && !coversJointPurchaseOrder(consentVersion)) {
       throw JointPurchaseException(
         'Debe aceptar el texto de consentimiento vigente para participar.',
       );
@@ -448,6 +446,7 @@ class JointPurchaseStore implements JointPurchaseGateway {
         callId,
         JointPurchaseOpKind.confirm,
         lines: lines,
+        consentVersion: consentVersion,
         consentAcceptedAt: consentVersion == null
             ? null
             : consentAcceptedAt?.toUtc().toIso8601String(),
@@ -456,10 +455,9 @@ class JointPurchaseStore implements JointPurchaseGateway {
     return (await op(id!))!;
   }
 
-  /// Si [callId] necesita el consentimiento al confirmar: el sindicato no
-  /// tiene todavía una participación de este titular.
+  /// Si [callId] necesita autorización para confirmar el pedido.
   Future<bool> needsConsent(String callId) async =>
-      (await call(callId))?.serverParticipation == null;
+      (await call(callId))?.hasOrderAuthorization != true;
 
   /// «Retirar participación». Si el sindicato nunca pudo recibir nada de
   /// esta convocatoria, sólo deja sin efecto lo pendiente y devuelve null;
@@ -477,6 +475,7 @@ class JointPurchaseStore implements JointPurchaseGateway {
     String callId,
     String kind, {
     Map<String, int> lines = const {},
+    String? consentVersion,
     String? consentAcceptedAt,
   }) async {
     final owner = await _activeOwner(txn);
@@ -502,13 +501,15 @@ class JointPurchaseStore implements JointPurchaseGateway {
         'sindicato.',
       );
     }
-    // E2 §10.6: sin participación en el sindicato, la confirmación lleva el
-    // consentimiento aceptado; con ella, nunca.
     final carriesConsent =
-        kind == JointPurchaseOpKind.confirm && call.serverParticipation == null;
-    if (carriesConsent && consentAcceptedAt == null) {
+        kind == JointPurchaseOpKind.confirm && !call.hasOrderAuthorization;
+    if (carriesConsent &&
+        (consentAcceptedAt == null ||
+            (call.serverParticipation != null &&
+                consentVersion != jointPurchaseOrderConsentVersion))) {
       throw JointPurchaseException(
-        'Debe aceptar el texto de consentimiento vigente para participar.',
+        'Autoriza a Administración a ver tu nombre y las cantidades '
+        'solicitadas para poder confirmar el pedido.',
       );
     }
     if (kind == JointPurchaseOpKind.confirm) {
@@ -551,8 +552,10 @@ class JointPurchaseStore implements JointPurchaseGateway {
     if (pending.isNotEmpty &&
         pending.first.kind == kind &&
         _sameLines(pending.first.lines, ordered) &&
-        (!carriesConsent ||
-            pending.first.consentVersion == jointPurchaseConsentVersion)) {
+        pending.first.consentVersion ==
+            (carriesConsent ? consentVersion : null) &&
+        pending.first.consentAcceptedAt ==
+            (carriesConsent ? consentAcceptedAt : null)) {
       return pending.first.operationId;
     }
     final now = _now();
@@ -611,7 +614,7 @@ class JointPurchaseStore implements JointPurchaseGateway {
                 {'product_ref': entry.key, 'quantity_base': '${entry.value}'},
             ])
           : null,
-      'consent_version': carriesConsent ? jointPurchaseConsentVersion : null,
+      'consent_version': carriesConsent ? consentVersion : null,
       'consent_accepted_at': carriesConsent ? consentAcceptedAt : null,
       // E4 §6.3: `CONV-4` no autoriza a una responsable; la columna de P-A
       // queda sin dato en las confirmaciones nuevas.

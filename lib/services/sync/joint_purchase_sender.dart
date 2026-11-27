@@ -346,8 +346,7 @@ class JointPurchaseSender {
       response.statusCode == 409 &&
       JointPurchaseErrorCodes.definitive.contains(response.errorCode);
 
-  /// E2 §10.6: el consentimiento sólo viaja en la confirmación que lo
-  /// guardó (la primera participación); modificar no lo lleva.
+  /// Envía únicamente el consentimiento guardado con esta operación.
   Map<String, Object?> _body(JointPurchaseOp op) => op.isWithdraw
       ? {'operation_id': op.operationId, 'sequence': op.sequence}
       : {

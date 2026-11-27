@@ -381,6 +381,14 @@ class JointPurchaseCall {
   JointPurchaseParticipation? get acceptedActive =>
       serverParticipation?.isActive == true ? serverParticipation : null;
 
+  bool get hasOrderAuthorization {
+    final participation = acceptedActive;
+    return participation != null &&
+        participation.consentScope ==
+            JointPurchaseConsentScope.administration &&
+        coversJointPurchaseOrder(participation.consentScopeVersion);
+  }
+
   /// Un cambio preparado en el teléfono que todavía no llegó.
   JointPurchaseOp? get pendingOp =>
       latestOp?.isAwaitingSend == true ? latestOp : null;

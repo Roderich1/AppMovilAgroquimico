@@ -121,9 +121,25 @@ void main() {
                 ),
             },
     );
-    // Las cantidades nunca cambian el alcance (E2 §10.6).
+    // La autorización del pedido puede reemplazar un alcance insuficiente.
     if (keptScope != null) {
-      accepted[id] = {...accepted[id]!, 'consent_scope': keptScope};
+      final scope = keptScope as Map;
+      final consent = body['consent'] as Map?;
+      accepted[id] = {
+        ...accepted[id]!,
+        'consent_scope':
+            !withdraw &&
+                scope['scope'] != 'ADMINISTRATION' &&
+                consent?['version'] == jointPurchaseOrderConsentVersion
+            ? {
+                'scope': 'ADMINISTRATION',
+                'version': consent!['version'],
+                'decided_at': consent['accepted_at'],
+                'received_at': now.toIso8601String(),
+                'sequence': (scope['sequence'] as int) + 1,
+              }
+            : keptScope,
+      };
     }
     if (keptConsent != null) {
       accepted[id] = {...accepted[id]!, 'consent': keptConsent};
@@ -894,7 +910,7 @@ void main() {
     return id;
   }
 
-  test('E4: modificar no lleva consentimiento; «Revisar» va aparte, después de las cantidades, con CONV-4', () async {
+  test('el reintento de una edición histórica envía la misma autorización del pedido', () async {
     // Una participación anterior a E4 en el sindicato.
     accepted[callId] = participationJson(
       consentVersion: 'CONV-3',
@@ -906,37 +922,32 @@ void main() {
     final modified = await store.confirm(
       callId: callId,
       lines: {litreRef: 30000},
-      consentVersion: jointPurchaseConsentVersion,
+      consentVersion: jointPurchaseOrderConsentVersion,
       consentAcceptedAt: now,
     );
-    expect(modified.consentVersion, isNull);
-    final review = (await decide(JointPurchaseConsentScope.administration))!;
+    expect(modified.consentVersion, jointPurchaseOrderConsentVersion);
     requests.clear();
+    respond = (_) => throw http.ClientException('sin red');
+    expect((await sender.run(access())).retried, 1);
+    final firstBody = requests.first.body;
+    now = now.add(const Duration(hours: 1));
+    requests.clear();
+    respond = central;
     final report = await sender.run(access());
-    expect(report.received, 2);
-    expect(calls(), [
-      'PUT /$callId/participation',
-      'POST /$callId/participation/consent',
-      'GET ',
-    ]);
-    expect(
-      (jsonDecode(requests.first.body) as Map).containsKey('consent'),
-      isFalse,
-    );
-    expect(jsonDecode(requests[1].body), {
-      'operation_id': review.operationId,
-      'sequence': 1,
-      'scope': 'ADMINISTRATION',
-      'consent': {'version': 'CONV-4', 'decided_at': now.toIso8601String()},
+    expect(report.received, 1);
+    expect(calls(), ['PUT /$callId/participation', 'GET ']);
+    expect(requests.first.body, firstBody);
+    expect(jsonDecode(firstBody)['consent'], {
+      'version': jointPurchaseOrderConsentVersion,
+      'accepted_at': modified.consentAcceptedAt,
     });
-    expect(requests[1].headers['x-joint-purchase-contract'], '4');
     final call = (await store.call(callId))!;
     expect(call.serverParticipation!.consentScope, 'ADMINISTRATION');
     expect(call.serverParticipation!.lines, {litreRef: 30000});
     // El texto aceptado al participar no se reescribe.
     expect(call.serverParticipation!.consentVersion, 'CONV-3');
     expect(call.pendingConsentOp, isNull);
-    expect(call.latestConsentOp!.sendStatus, JointPurchaseOpStatus.received);
+    expect(call.latestConsentOp, isNull);
     expect(call.needsAccessReview, isFalse);
   });
 
@@ -1085,7 +1096,12 @@ void main() {
     );
 
     // Y en la cola de cantidades: APP_UPDATE_REQUIRED también es definitivo.
-    final op = await store.confirm(callId: callId, lines: {litreRef: 7000});
+    final op = await store.confirm(
+      callId: callId,
+      lines: {litreRef: 7000},
+      consentVersion: jointPurchaseOrderConsentVersion,
+      consentAcceptedAt: now,
+    );
     respond = (request) => request.method == 'PUT'
         ? jsonResponse({'errorCode': 'APP_UPDATE_REQUIRED'}, 409)
         : central(request);
@@ -1096,7 +1112,7 @@ void main() {
     expect(rejected.nextAttemptAt, isNull);
   });
 
-  test('E4 §7.2: una confirmación pendiente con CONV-3 se envía tal cual y el sindicato la acepta con su alcance anterior', () async {
+  test('una confirmación pendiente con CONV-3 se envía tal cual y queda rechazada sin ampliar el consentimiento', () async {
     final db = await fixture.database.database;
     const legacyId = '9c1b2c3d-4e5f-4a6b-8c7d-9e0f1a2b3c4d';
     await db.insert(JointPurchaseStore.opsTable, {
@@ -1118,26 +1134,17 @@ void main() {
       'updated_at': '2026-11-12T00:00:00.000Z',
     });
     final pendingCall = (await store.call(callId))!;
-    // Mientras no llega, se sabe que regirá un alcance anterior.
+    // La cola conserva el texto anterior tal como se aceptó.
     expect(pendingCall.pendingInitialScope, 'RESPONSIBLE_ONLY');
     expect(pendingCall.needsAccessReview, isTrue);
     respond = (request) {
       if (request.method == 'PUT') {
-        accepted[callId] = participationJson(
-          lines: {litreRef: 10000},
-          consentVersion: 'CONV-3',
-          consentScope: 'RESPONSIBLE_ONLY',
-          consentScopeVersion: 'CONV-3',
-        );
-        return jsonResponse({
-          'outcome': 'ACCEPTED',
-          'participation': accepted[callId],
-        }, 200);
+        return jsonResponse({'errorCode': 'ORDER_CONSENT_REQUIRED'}, 409);
       }
       return central(request);
     };
     final report = await sender.run(access());
-    expect(report.received, 1);
+    expect(report.rejected, 1);
     expect(jsonDecode(requests.first.body), {
       'operation_id': legacyId,
       'sequence': 1,
@@ -1151,8 +1158,9 @@ void main() {
       ],
     });
     final call = (await store.call(callId))!;
-    expect(call.serverParticipation!.consentScope, 'RESPONSIBLE_ONLY');
-    expect(call.needsAccessReview, isTrue);
+    expect(call.serverParticipation, isNull);
+    expect(call.latestOp!.lastCode, 'ORDER_CONSENT_REQUIRED');
+    expect(call.latestOp!.isTerminal, isTrue);
   });
 
   test('E4: una decisión atrasada no revierte la posterior (STALE_SEQUENCE adopta la vigente)', () async {
@@ -1232,6 +1240,8 @@ void main() {
     final modified = await store.confirm(
       callId: callId,
       lines: {litreRef: 40000},
+      consentVersion: jointPurchaseOrderConsentVersion,
+      consentAcceptedAt: now,
     );
     // El servidor responde con cantidades nuevas pero un alcance anterior.
     respond = (request) => jsonResponse({

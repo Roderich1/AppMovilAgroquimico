@@ -35,6 +35,7 @@ String callStatusText(JointPurchaseCall call) => switch (call.status) {
 /// Motivo legible de un rechazo (E2 §4.2). Nunca muestra datos del cuerpo.
 String jointPurchaseReason(String? code) => switch (code) {
   'CONSENT_REQUIRED' => 'falta el consentimiento',
+  JointPurchaseErrorCodes.orderAuthorizationRequired => 'abre el pedido y autoriza a Administración a ver tu nombre y las cantidades para la entrega',
   'PRODUCT_NOT_IN_CALL' => 'un producto no pertenece a la convocatoria',
   'QUANTITY_INVALID' => 'una cantidad no es válida',
   'PAYLOAD_INVALID' => 'los datos no tienen el formato esperado',

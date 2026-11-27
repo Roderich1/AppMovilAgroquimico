@@ -162,6 +162,33 @@ void main() {
   });
 
   test(
+    'una nueva aceptación reemplaza la pendiente con las mismas cantidades',
+    () async {
+      Future<JointPurchaseOp> accept(DateTime acceptedAt) => store.confirm(
+        callId: callId,
+        lines: {litreRef: 25000},
+        consentVersion: jointPurchaseOrderConsentVersion,
+        consentAcceptedAt: acceptedAt,
+      );
+
+      final first = await accept(now);
+      final acceptedAt = now.add(const Duration(seconds: 1));
+      final next = await accept(acceptedAt);
+
+      expect(next.operationId, isNot(first.operationId));
+      expect(next.consentAcceptedAt, acceptedAt.toIso8601String());
+      expect(
+        (await store.op(first.operationId))?.sendStatus,
+        JointPurchaseOpStatus.superseded,
+      );
+      expect(
+        (await store.sendable(memberA, includePaused: true)).single.operationId,
+        next.operationId,
+      );
+    },
+  );
+
+  test(
     'confirmar exige productos de la convocatoria y cantidades > 0',
     () async {
       await expectLater(
@@ -640,7 +667,7 @@ void main() {
     });
   });
 
-  test('E4: participación anterior: modificar no lleva consentimiento; revisar tiene su orden, doble toque y no toca cantidades', () async {
+  test('editar una participación anterior exige autorización y conserva el texto aceptado al reintentar', () async {
     await seedCalls(store, memberA, [
       callJson(
         participation: participationJson(
@@ -653,10 +680,20 @@ void main() {
     ]);
     final before = (await store.call(callId))!;
     expect(before.needsAccessReview, isTrue);
-    final modified = await confirm({litreRef: 2000});
-    expect(modified.consentVersion, isNull);
-    expect(modified.consentAcceptedAt, isNull);
-    // Cambiar cantidades no decide nada sobre quién ve los datos.
+    await expectLater(
+      store.confirm(callId: callId, lines: {litreRef: 2000}),
+      throwsA(isA<BusinessRuleException>()),
+    );
+    expect(await store.ops(callId), isEmpty);
+    final modified = await store.confirm(
+      callId: callId,
+      lines: {litreRef: 2000},
+      consentVersion: jointPurchaseOrderConsentVersion,
+      consentAcceptedAt: now,
+    );
+    expect(modified.consentVersion, jointPurchaseOrderConsentVersion);
+    expect(modified.consentAcceptedAt, now.toIso8601String());
+    // La aceptación viaja con las cantidades, no como autorización separada.
     expect(await store.consentOps(callId), isEmpty);
 
     final review = (await decide(JointPurchaseConsentScope.administration))!;
