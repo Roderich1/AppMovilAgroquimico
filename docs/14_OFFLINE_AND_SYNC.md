@@ -132,7 +132,7 @@ cruza: ni compras, ni lotes, ni personas, ni costos, ni el respaldo.
 | Orden causal | Como máximo una intención en vuelo por contribución; la sucesora espera el ACK de su antecesora | `SyncOutboxStore.readyToSend` |
 | Conflictos | Sin LWW: un `CONFLICT` queda visible y **decide el agricultor** (enviar su valor o retirar), con el head y la referencia que muestra Central | `DeclaredNeedStore.resolveConflict` |
 | Disparadores | Al iniciar, tras encolar, «Sincronizar ahora» y cada minuto en primer plano. Sin trabajo en segundo plano | `SyncController`, `SyncLifecycle` |
-| Credencial | El access token vive **sólo en memoria** tras una verificación explícita (refresh o reautenticación). El worker nunca renueva por su cuenta; sin acceso vigente no hace llamadas de red | `lib/services/sync/sync_access.dart` |
+| Credencial | El access token vive **sólo en memoria**. Las pantallas de Sindicato pueden renovar el acceso para consultar. El worker requiere acceso habilitado por una acción explícita del titular y no renueva por su cuenta. | `lib/services/sync/sync_access.dart` |
 | Restauración | Las intenciones por enviar que trae una copia quedan `RESTORE_PAUSED` hasta que el titular las libere; restaurar no publica | `lib/guarded_restore.dart` |
 | Vínculo con el catálogo central | Explícito, por campaña y producto, con validación de dimensión (L↔L, KG↔KG) y sin coincidencia por nombre | `lib/data/sync/central_binding_store.dart` |
 
@@ -152,4 +152,6 @@ Pendiente: el total de consumo (`CONSUMPTION_TOTAL`) y su prueba de propiedad (F
 
 Sindicato consulta convocatorias. Compras conjuntas actualiza la lista y el detalle; Productos y campañas trae las referencias del catálogo y las notas de identificación. Con acceso vigente, las pantallas consultan al abrirse, al volver a primer plano y al recuperar conectividad. Mientras son visibles, las convocatorias y notas se consultan cada minuto y las referencias cada cinco minutos. La señal de conectividad sólo indica que hay una red disponible. Una respuesta válida del sindicato confirma la consulta.
 
-La app conserva las convocatorias, las solicitudes y las referencias validadas del titular para consultarlas sin conexión. La fecha de actualización se registra después de guardar los datos. «Actualizar» consulta, mientras que «Enviar pendientes» y las acciones de envío de cada solicitud o pedido permiten reanudar operaciones que quedaron pausadas. Si el acceso en memoria caduca, la app ofrece «Verificar acceso».
+La app conserva las convocatorias, las solicitudes y las referencias validadas del titular para consultarlas sin conexión. La fecha de actualización se registra después de guardar los datos. «Actualizar» consulta. «Enviar pendientes» y las acciones de envío de cada solicitud o pedido permiten reanudar operaciones que quedaron pausadas.
+
+Si una pantalla de Sindicato está visible en primer plano y necesita consultar, puede renovar el acceso con la sesión guardada vigente de la misma instalación, titular y sindicato. Antes de rotar la sesión comprueba la disponibilidad de la API por HTTPS, sin enviar credenciales. Si se interrumpe la rotación y el resultado es incierto, se conserva la protección de la credencial anterior. «Verificar acceso» lleva a la acción de autenticación o recuperación que corresponda. La renovación de las consultas no habilita la cola de envíos.

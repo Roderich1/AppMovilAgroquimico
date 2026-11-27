@@ -30,6 +30,7 @@ final remoteSessionProvider =
 
 class RemoteSessionController extends Notifier<RemoteSessionState> {
   late RemoteSessionCoordinator _coordinator;
+  Future<RemoteSessionState?>? _silentRefresh;
 
   @override
   RemoteSessionState build() {
@@ -51,10 +52,36 @@ class RemoteSessionController extends Notifier<RemoteSessionState> {
   }
 
   Future<RemoteSessionState> verifyOnline() async {
+    final silent = _silentRefresh;
+    if (silent != null) {
+      final result = await silent;
+      if (result != null &&
+          result.phase != RemoteSessionPhase.remoteAvailable) {
+        return result;
+      }
+    }
+    final access = ref.read(syncAccessHolderProvider);
+    if (access.current == null && access.enableGeneralAccess()) {
+      return const RemoteSessionState(RemoteSessionPhase.remoteAvailable);
+    }
     final result = await _coordinator.refreshOnDemand();
     ref.invalidate(refreshGuardStateProvider);
     return result;
   }
+
+  Future<RemoteSessionState?> renewForUnionReads(
+    ForegroundSessionCheck check,
+  ) => _silentRefresh ??= _coordinator
+      .refreshInForeground(
+        check,
+        onVerified: (token, member, tenant) => ref
+            .read(syncAccessHolderProvider)
+            .acceptForReads(token, member, tenant, check.contextIsCurrent),
+      )
+      .whenComplete(() {
+        _silentRefresh = null;
+        if (ref.mounted) ref.invalidate(refreshGuardStateProvider);
+      });
 
   /// Acredita la cuenta de la sesión guardada sin cambiarla (F03, PIN).
   Future<bool> confirmAccount({

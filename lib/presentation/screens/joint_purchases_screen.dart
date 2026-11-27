@@ -60,7 +60,7 @@ class _JointPurchasesScreenState extends ConsumerState<JointPurchasesScreen> {
     });
   }
 
-  Future<void> _refresh() => refreshUnionNow(ref, {UnionFeed.calls});
+  Future<void> _refresh() => refreshUnionNow(context, ref, {UnionFeed.calls});
 
   /// «Consultar historial» (sin [more]) o «Ver más».
   Future<void> _queryHistory({bool more = false}) async {

@@ -43,7 +43,7 @@ ReadIsCurrent _readGuard(Ref ref, VerifiedAccess access) {
       db.replacement.generation == generation &&
       identical(ref.read(databaseProvider), db) &&
       identical(ref.read(runtimeSessionTransitionProvider), session) &&
-      identical(ref.read(syncAccessHolderProvider).current, access);
+      identical(ref.read(syncAccessHolderProvider).forUnionReads, access);
 }
 
 final syncOutboxStoreProvider = Provider<SyncOutboxStore>(
@@ -239,7 +239,7 @@ final syncControllerProvider = NotifierProvider<SyncController, SyncState>(
 
 /// Disparadores del worker: al iniciar, tras encolar, «Enviar pendientes» y
 /// un temporizador mientras la app está abierta. Sin acceso verificado no
-/// envía nada ni hace llamadas de red: la verificación (refresh) es siempre
+/// envía nada ni hace llamadas de red. Sólo usa el acceso habilitado por
 /// una acción explícita del agricultor.
 class SyncController extends Notifier<SyncState> {
   static const period = Duration(minutes: 1);
@@ -477,9 +477,8 @@ class SyncController extends Notifier<SyncState> {
     final report = await ref
         .read(jointPurchaseSenderProvider)
         .fetchList(access);
-    if (report.authFailed &&
-        identical(ref.read(syncAccessHolderProvider).current, access)) {
-      ref.read(syncAccessHolderProvider).clear();
+    if (report.authFailed) {
+      ref.read(syncAccessHolderProvider).reject(access);
     }
     if (report.listed) ref.read(jointPurchaseRevisionProvider.notifier).bump();
     return report;
@@ -491,9 +490,8 @@ class SyncController extends Notifier<SyncState> {
     final report = await ref
         .read(identificationRequestSenderProvider)
         .fetchViews(access);
-    if (report.authFailed &&
-        identical(ref.read(syncAccessHolderProvider).current, access)) {
-      ref.read(syncAccessHolderProvider).clear();
+    if (report.authFailed) {
+      ref.read(syncAccessHolderProvider).reject(access);
     }
     if (report.viewsApplied > 0)
       ref.read(identificationRevisionProvider.notifier).bump();
@@ -625,7 +623,7 @@ class SyncController extends Notifier<SyncState> {
     } on SyncQueryException catch (error) {
       requireCurrentRead(isCurrent);
       if (error.authRequired || error.forbidden) {
-        ref.read(syncAccessHolderProvider).clear();
+        ref.read(syncAccessHolderProvider).reject(access);
       }
       rethrow;
     }

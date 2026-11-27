@@ -3,7 +3,13 @@ import 'dart:async';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
+import '../../installation_access.dart';
+import '../../services/auth/access_recovery.dart';
+import '../../services/auth/existing_session_providers.dart';
+import '../../services/auth/remote_session_providers.dart';
+import '../../services/sync/sync_access.dart';
 import '../../services/sync/union_refresh.dart';
 import '../theme/agro_theme.dart';
 
@@ -20,15 +26,44 @@ final unionConnectivityProvider = StreamProvider.autoDispose<bool>((
   yield* connectivity.onConnectivityChanged.map(connected).distinct();
 });
 
-Future<void> refreshUnionNow(WidgetRef ref, Set<UnionFeed> feeds) => ref
-    .read(unionRefreshProvider.notifier)
-    .refresh(
-      feeds,
-      manual: true,
-      connected:
-          !ref.read(unionAutoRefreshEnabledProvider) ||
-          (ref.read(unionConnectivityProvider).value ?? true),
+Future<void> refreshUnionNow(
+  BuildContext context,
+  WidgetRef ref,
+  Set<UnionFeed> feeds,
+) async {
+  bool openAccessScreen() {
+    final router = GoRouter.maybeOf(context);
+    if (router == null ||
+        ref.read(syncAccessHolderProvider).forUnionReads != null) {
+      return false;
+    }
+    final recovery = accessRecoveryModeFor(
+      ref.read(installationAccessProvider),
+      ref.read(effectiveLocalSessionProvider),
     );
+    if (recovery == AccessRecoveryMode.signInAsOwner) {
+      router.push('/recuperar');
+    } else if (ref.read(remoteSessionProvider).needsReauthentication) {
+      router.push('/reauth');
+    } else {
+      return false;
+    }
+    return true;
+  }
+
+  final connected =
+      !ref.read(unionAutoRefreshEnabledProvider) ||
+      (ref.read(unionConnectivityProvider).value ?? true);
+  if (connected && openAccessScreen()) return;
+  await ref
+      .read(unionRefreshProvider.notifier)
+      .refresh(feeds, manual: true, connected: connected);
+  if (context.mounted &&
+      connected &&
+      (ModalRoute.isCurrentOf(context) ?? true)) {
+    openAccessScreen();
+  }
+}
 
 class UnionUpdates extends ConsumerStatefulWidget {
   const UnionUpdates({super.key, required this.feeds, required this.child});
@@ -87,13 +122,20 @@ class _UnionUpdatesState extends ConsumerState<UnionUpdates>
     if (!mounted || !_visible || !_foreground) return;
     final connection = ref.read(unionConnectivityProvider);
     if (connection.isLoading) return;
+    final connected = connection.value ?? true;
     unawaited(
       ref
           .read(unionRefreshProvider.notifier)
           .refresh(
             widget.feeds,
-            connected: connection.value ?? true,
+            connected: connected,
             reconnect: reconnect,
+            inForeground: () =>
+                mounted &&
+                _visible &&
+                _foreground &&
+                (!connected ||
+                    ref.read(unionConnectivityProvider).value != false),
           ),
     );
   }

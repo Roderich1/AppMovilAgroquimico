@@ -5,6 +5,7 @@ class ApiEndpointConfig {
   ApiEndpointConfig(Uri origin) : origin = _validate(origin);
 
   static const _allowedPaths = <String>{
+    '/api/v1/health',
     '/api/v1/auth/v2/login',
     '/api/v1/auth/clients',
     '/api/v1/auth/v2/session/client',

@@ -107,8 +107,10 @@ class _CentralBindingScreenState extends ConsumerState<CentralBindingScreen> {
     ref.invalidate(syncSummaryProvider);
   }
 
-  Future<void> _loadReferences() =>
-      refreshUnionNow(ref, {UnionFeed.references, UnionFeed.identification});
+  Future<void> _loadReferences() => refreshUnionNow(context, ref, {
+    UnionFeed.references,
+    UnionFeed.identification,
+  });
 
   Future<bool> _confirm(String local, String central, {String? note}) async =>
       await showDialog<bool>(

@@ -78,7 +78,7 @@ class _UnionScreenState extends ConsumerState<UnionScreen> {
   }
 
   /// «Actualizar»: consulta las convocatorias del sindicato.
-  Future<void> _refresh() => refreshUnionNow(ref, {UnionFeed.calls});
+  Future<void> _refresh() => refreshUnionNow(context, ref, {UnionFeed.calls});
 
   @override
   Widget build(BuildContext context) {

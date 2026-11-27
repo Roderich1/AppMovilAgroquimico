@@ -1,11 +1,16 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../data/owner_binding_store.dart';
-import '../../domain/installation_access.dart' show OwnerScope;
+import '../../domain/installation_access.dart'
+    show InstallationAccessState, OwnerScope, installationReference;
 import '../../domain/sync/central_references.dart';
+import '../../installation_access.dart'
+    show installationAccessProvider, installationRefProvider;
 import '../../local_data_providers.dart' show databaseProvider;
 import '../auth/existing_session_providers.dart'
     show runtimeSessionTransitionProvider;
+import '../auth/remote_session_coordinator.dart';
+import '../auth/remote_session_providers.dart';
 import 'joint_purchase_sender.dart' show JointPurchaseListProblem;
 import 'sync_access.dart';
 import 'sync_api.dart';
@@ -48,6 +53,7 @@ class UnionRefresh extends Notifier<Map<UnionFeed, UnionReadStatus>> {
   final _failures = <UnionFeed, int>{};
   Future<void>? _cacheLoad;
   Future<VerifiedAccess>? _verification;
+  DateTime? _nextRenewalProbe;
   int? _generation;
   int _revision = 0;
   OwnerScope? _scope;
@@ -65,6 +71,7 @@ class UnionRefresh extends Notifier<Map<UnionFeed, UnionReadStatus>> {
     _failures.clear();
     _cacheLoad = null;
     _verification = null;
+    _nextRenewalProbe = null;
     _scope = null;
     state = {};
   }
@@ -93,9 +100,11 @@ class UnionRefresh extends Notifier<Map<UnionFeed, UnionReadStatus>> {
     bool manual = false,
     bool connected = true,
     bool reconnect = false,
+    bool Function()? inForeground,
   }) async {
     final db = ref.read(databaseProvider);
-    final scope = ref.read(syncAccessHolderProvider).current?.scope;
+    final holder = ref.read(syncAccessHolderProvider);
+    final scope = holder.forUnionReads?.scope;
     if (_generation != db.replacement.generation ||
         (_scope != null && scope != null && scope != _scope)) {
       _generation = db.replacement.generation;
@@ -107,11 +116,12 @@ class UnionRefresh extends Notifier<Map<UnionFeed, UnionReadStatus>> {
     bool current() =>
         ref.mounted &&
         revision == _revision &&
+        identical(ref.read(databaseProvider), db) &&
         !db.replacement.isReplacing &&
         db.replacement.generation == _generation;
 
     await (_cacheLoad ??= _restoreCache(current));
-    if (!current()) return;
+    if (!current() || inForeground?.call() == false) return;
     if (!connected) {
       for (final feed in feeds) {
         if (!_running.containsKey(feed) &&
@@ -122,8 +132,36 @@ class UnionRefresh extends Notifier<Map<UnionFeed, UnionReadStatus>> {
       return;
     }
 
+    final now = DateTime.now();
+    final due = feeds
+        .where(
+          (feed) =>
+              manual || _due(feed, now) || (reconnect && !_justRead(feed, now)),
+        )
+        .toSet();
+    if (due.isEmpty) return;
+
     final sync = ref.read(syncControllerProvider.notifier);
-    var access = ref.read(syncAccessHolderProvider).current;
+    var access = holder.forUnionReads;
+    var missingAccess = UnionReadIssue.access;
+    if (access == null && !manual && inForeground != null) {
+      final retryAt = _nextRenewalProbe;
+      if (!reconnect && retryAt != null && now.isBefore(retryAt)) return;
+      final result = await _renewForReads(
+        current: current,
+        inForeground: inForeground,
+      );
+      if (!current() || !inForeground()) return;
+      access = holder.forUnionReads;
+      if (result?.phase == RemoteSessionPhase.offline) {
+        _nextRenewalProbe = DateTime.now().add(const Duration(seconds: 30));
+        missingAccess = UnionReadIssue.offline;
+      } else if (result?.problem == RemoteSessionProblem.alreadyRunning) {
+        return;
+      } else {
+        _nextRenewalProbe = null;
+      }
+    }
     if (access == null && manual) {
       final task = _verification ??= sync.ensureAccess();
       try {
@@ -139,29 +177,81 @@ class UnionRefresh extends Notifier<Map<UnionFeed, UnionReadStatus>> {
         if (identical(_verification, task)) _verification = null;
       }
     }
-    if (!current()) return;
+    if (!current() || inForeground?.call() == false) return;
     if (access != null && _scope != null && access.scope != _scope) {
       _reset();
-      return refresh(feeds, connected: connected, reconnect: true);
+      return refresh(
+        feeds,
+        connected: connected,
+        reconnect: true,
+        inForeground: inForeground,
+      );
     }
     if (access == null) {
-      for (final feed in feeds) {
+      for (final feed in due) {
         if (!_running.containsKey(feed) &&
-            state[feed]?.issue != UnionReadIssue.access) {
-          _update(feed, issue: UnionReadIssue.access);
+            state[feed]?.issue != missingAccess) {
+          _update(feed, issue: missingAccess);
         }
       }
       return;
     }
-    final now = DateTime.now();
+    _scope ??= access.scope;
     await Future.wait([
-      for (final feed in feeds)
-        if (manual || _due(feed, now) || (reconnect && !_justRead(feed, now)))
-          _running[feed] ??= _refreshFeed(feed, access, sync, current)
-              .whenComplete(() {
-                if (current()) _running.remove(feed);
-              }),
+      for (final feed in due)
+        _running[feed] ??= _refreshFeed(feed, access, sync, current)
+            .whenComplete(() {
+              if (current()) _running.remove(feed);
+            }),
     ]);
+  }
+
+  Future<RemoteSessionState?> _renewForReads({
+    required ReadIsCurrent current,
+    required bool Function() inForeground,
+  }) async {
+    final holder = ref.read(syncAccessHolderProvider);
+    final installation = ref.read(installationRefProvider);
+    bool sameContext() =>
+        current() &&
+        holder.canRenewSilently &&
+        installation != null &&
+        ref.read(installationRefProvider) == installation &&
+        ref.read(installationAccessProvider) ==
+            InstallationAccessState.activated;
+
+    if (!sameContext()) return null;
+    final remote = ref.read(remoteSessionProvider);
+    if (remote.needsReauthentication ||
+        remote.phase == RemoteSessionPhase.guardUnavailable ||
+        remote.problem == RemoteSessionProblem.noReadableSession) {
+      return remote;
+    }
+    final store = OwnerBindingStore(ref.read(databaseProvider));
+    return ref
+        .read(remoteSessionProvider.notifier)
+        .renewForUnionReads(
+          ForegroundSessionCheck(
+            canStart: () => sameContext() && inForeground(),
+            contextIsCurrent: sameContext,
+            isSameInstallation: (session) async {
+              if (!sameContext() ||
+                  installationReference(session.installationClientId) !=
+                      installation) {
+                return false;
+              }
+              final owner = await store.activeBinding();
+              final activated = await store.activatedInstallationRef();
+              return sameContext() &&
+                  activated == installation &&
+                  owner?.scope ==
+                      OwnerScope(
+                        memberId: session.memberId,
+                        tenantId: session.tenantId,
+                      );
+            },
+          ),
+        );
   }
 
   bool _justRead(UnionFeed feed, DateTime now) {
@@ -188,7 +278,10 @@ class UnionRefresh extends Notifier<Map<UnionFeed, UnionReadStatus>> {
         ref.read(databaseProvider),
       ).activeBinding())?.scope;
       if (!current() || scope == null) return;
-      final remoteScope = ref.read(syncAccessHolderProvider).current?.scope;
+      final remoteScope = ref
+          .read(syncAccessHolderProvider)
+          .forUnionReads
+          ?.scope;
       if (remoteScope != null && remoteScope != scope) return;
       _scope ??= scope;
       final lastCalls = await ref

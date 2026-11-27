@@ -7,6 +7,7 @@ import 'secure_session_store.dart';
 
 enum RemoteSessionPhase {
   idle,
+  offline,
   refreshing,
   reauthenticating,
   remoteAvailable,
@@ -19,6 +20,7 @@ enum RemoteSessionPhase {
 
 enum RemoteSessionProblem {
   noReadableSession,
+  expiredLocally,
   quarantined,
   invalidCredentials,
   rejected,
@@ -26,6 +28,7 @@ enum RemoteSessionProblem {
 
   /// La sesión nueva es de otra cuenta, Member o tenant que la vinculada.
   otherAccount,
+  refreshOutcomeUnknown,
   remoteOutcomeUnknown,
   localCommitFailed,
   localCommitUnknown,
@@ -50,8 +53,20 @@ class RemoteSessionState {
       phase == RemoteSessionPhase.refreshing ||
       phase == RemoteSessionPhase.reauthenticating;
 
+  bool get needsReauthentication =>
+      phase == RemoteSessionPhase.outcomeUnknown ||
+      phase == RemoteSessionPhase.registrationRejected ||
+      (phase == RemoteSessionPhase.requiresReauthentication &&
+          problem != RemoteSessionProblem.alreadyRunning &&
+          problem != RemoteSessionProblem.noReadableSession);
+
+  bool get reauthenticationOutcomeUnknown =>
+      phase == RemoteSessionPhase.outcomeUnknown &&
+      problem != RemoteSessionProblem.refreshOutcomeUnknown;
+
   String get safeMessage => switch (phase) {
     RemoteSessionPhase.idle => 'El acceso en línea todavía no se verificó.',
+    RemoteSessionPhase.offline => 'No se pudo conectar con el sindicato.',
     RemoteSessionPhase.refreshing => 'Verificando acceso en línea…',
     RemoteSessionPhase.reauthenticating => 'Verificando credenciales…',
     RemoteSessionPhase.remoteAvailable =>
@@ -66,6 +81,8 @@ class RemoteSessionState {
     RemoteSessionPhase.guardUnavailable => 'No se pudo verificar la protección de la sesión. Las funciones en línea permanecen bloqueadas.',
     RemoteSessionPhase.requiresReauthentication => switch (problem) {
       RemoteSessionProblem.invalidCredentials => 'Revise el correo y la contraseña. Sus datos locales siguen disponibles.',
+      RemoteSessionProblem.expiredLocally =>
+        'Su sesión venció. Vuelva a autenticar para consultar al sindicato.',
       // C38 (#18): la sesión de otra cuenta se cierra sin vincularla.
       RemoteSessionProblem.otherAccount => 'Esa cuenta no es la vinculada a este teléfono. Los datos de este teléfono son de su titular y sólo se envían con la cuenta del titular: ingrese con esa cuenta. No se envió nada ni cambió el titular.',
       _ => 'Se requiere volver a autenticar para las funciones en línea. Sus datos locales siguen disponibles.',
@@ -92,9 +109,22 @@ class _RemoteAbort implements Exception {
   final RemoteSessionProblem problem;
 }
 
-/// Both operations are explicit user actions. No caller at startup invokes an
-/// HTTP method. The guard is durably committed before the old refresh can be
-/// sent, and neither this class nor the UI ever retries that credential.
+/// Requirements supplied by the foreground Sindicato view. The local context
+/// stays fixed through the rotation, even if the user leaves the view.
+class ForegroundSessionCheck {
+  const ForegroundSessionCheck({
+    required this.canStart,
+    required this.contextIsCurrent,
+    required this.isSameInstallation,
+  });
+
+  final bool Function() canStart;
+  final bool Function() contextIsCurrent;
+  final Future<bool> Function(StoredSession) isSameInstallation;
+}
+
+/// The guard is durably committed before the old refresh can be sent, and
+/// neither this class nor the UI ever retries that credential.
 class RemoteSessionCoordinator {
   RemoteSessionCoordinator({
     required Future<SessionReadResult> Function() readSession,
@@ -125,11 +155,24 @@ class RemoteSessionCoordinator {
 
   RemoteSessionState get state => _state;
 
-  Future<RemoteSessionState> refreshOnDemand() async {
+  Future<RemoteSessionState> refreshOnDemand() async => (await _refresh())!;
+
+  Future<RemoteSessionState?> refreshInForeground(
+    ForegroundSessionCheck check, {
+    required AccessVerifiedCallback onVerified,
+  }) => _refresh(foreground: check, onVerified: onVerified);
+
+  Future<RemoteSessionState?> _refresh({
+    ForegroundSessionCheck? foreground,
+    AccessVerifiedCallback? onVerified,
+  }) async {
     if (_running || _isolateRemoteOperationActive) return _alreadyRunning();
+    if (foreground != null && !foreground.canStart()) return null;
     _running = true;
     _isolateRemoteOperationActive = true;
-    _emit(const RemoteSessionState(RemoteSessionPhase.refreshing));
+    if (foreground == null) {
+      _emit(const RemoteSessionState(RemoteSessionPhase.refreshing));
+    }
     var mayHaveSent = false;
     var committing = false;
     var rotatedRefreshKnown = false;
@@ -137,6 +180,18 @@ class RemoteSessionCoordinator {
     V2AuthResponse? response;
     try {
       final stored = await _requireStoredSession();
+      if (foreground != null) {
+        if (!await foreground.isSameInstallation(stored) ||
+            !foreground.canStart()) {
+          return null;
+        }
+        if (stored.isExpiredLocally(_clock())) {
+          throw const _RemoteAbort(
+            RemoteSessionPhase.requiresReauthentication,
+            RemoteSessionProblem.expiredLocally,
+          );
+        }
+      }
       // Constructing the API validates HTTPS before quarantine or network.
       api = _apiFactory();
       if (await _guard.isQuarantined()) {
@@ -144,6 +199,17 @@ class RemoteSessionCoordinator {
           RemoteSessionPhase.requiresReauthentication,
           RemoteSessionProblem.quarantined,
         );
+      }
+      if (foreground != null) {
+        if (!foreground.canStart()) return null;
+        if (!await api.canReachBackend()) {
+          return const RemoteSessionState(RemoteSessionPhase.offline);
+        }
+        if (!await foreground.isSameInstallation(stored) ||
+            !foreground.canStart()) {
+          return null;
+        }
+        _emit(const RemoteSessionState(RemoteSessionPhase.refreshing));
       }
       try {
         await _guard.quarantine();
@@ -153,15 +219,35 @@ class RemoteSessionCoordinator {
           RemoteSessionProblem.guardFailure,
         );
       }
+      if (foreground != null && !foreground.canStart()) {
+        // This operation owns the marker and has yet to send the token.
+        await _guard.clear();
+        _emit(const RemoteSessionState(RemoteSessionPhase.idle));
+        return null;
+      }
       // From this point the old token is never eligible for another request.
       mayHaveSent = true;
       response = await api.refresh(stored.refreshToken);
       rotatedRefreshKnown = response.refreshToken != stored.refreshToken;
       _validateRefresh(response, stored);
+      if (foreground != null && !await foreground.isSameInstallation(stored)) {
+        throw const _RemoteAbort(
+          RemoteSessionPhase.requiresReauthentication,
+          RemoteSessionProblem.contextMismatch,
+        );
+      }
       committing = true;
       await _secureSession.commitAndVerify(
         _candidate(response, stored, stored.sessionId),
       );
+      if (foreground?.contextIsCurrent() == false) {
+        return _emit(
+          const RemoteSessionState(
+            RemoteSessionPhase.requiresReauthentication,
+            problem: RemoteSessionProblem.contextMismatch,
+          ),
+        );
+      }
       // A lost clear acknowledgement is fail-closed. The new token is already
       // durably committed, but no remote availability is claimed.
       try {
@@ -172,7 +258,11 @@ class RemoteSessionCoordinator {
           RemoteSessionProblem.guardFailure,
         );
       }
-      _verified(response.accessToken, stored);
+      if (foreground?.contextIsCurrent() == false) {
+        _emit(const RemoteSessionState(RemoteSessionPhase.idle));
+        return null;
+      }
+      _verified(response.accessToken, stored, notify: onVerified);
       return _emit(
         const RemoteSessionState(RemoteSessionPhase.remoteAvailable),
       );
@@ -228,11 +318,12 @@ class RemoteSessionCoordinator {
       }
       if (error.kind == AuthApiErrorKind.network ||
           error.kind == AuthApiErrorKind.timeout ||
-          error.kind == AuthApiErrorKind.invalidResponse) {
+          error.kind == AuthApiErrorKind.invalidResponse ||
+          (foreground != null && error.kind == AuthApiErrorKind.server)) {
         return _emit(
           const RemoteSessionState(
             RemoteSessionPhase.outcomeUnknown,
-            problem: RemoteSessionProblem.remoteOutcomeUnknown,
+            problem: RemoteSessionProblem.refreshOutcomeUnknown,
           ),
         );
       }
@@ -311,10 +402,13 @@ class RemoteSessionCoordinator {
       api = _apiFactory();
       stage = 'guard';
       if (!await _guard.isQuarantined()) {
-        throw const _RemoteAbort(
-          RemoteSessionPhase.requiresReauthentication,
-          RemoteSessionProblem.quarantined,
-        );
+        if (!stored.isExpiredLocally(_clock())) {
+          throw const _RemoteAbort(
+            RemoteSessionPhase.requiresReauthentication,
+            RemoteSessionProblem.quarantined,
+          );
+        }
+        await _guard.quarantine();
       }
       stage = 'login';
       login = await api.login(LoginV2Request(email: email, password: password));
@@ -564,9 +658,17 @@ class RemoteSessionCoordinator {
   );
 
   /// Sólo tras confirmar el commit y liberar la guarda.
-  void _verified(String accessToken, StoredSession stored) {
+  void _verified(
+    String accessToken,
+    StoredSession stored, {
+    AccessVerifiedCallback? notify,
+  }) {
     try {
-      _onAccessVerified?.call(accessToken, stored.memberId, stored.tenantId);
+      (notify ?? _onAccessVerified)?.call(
+        accessToken,
+        stored.memberId,
+        stored.tenantId,
+      );
     } on Object {
       // Un consumidor del token no puede cambiar el resultado de seguridad.
     }

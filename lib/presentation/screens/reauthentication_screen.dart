@@ -127,8 +127,7 @@ class _ReauthenticationScreenState
                   FilledButton(
                     key: const Key('reauth-submit'),
                     onPressed:
-                        _submitting ||
-                            remote.phase == RemoteSessionPhase.outcomeUnknown
+                        _submitting || remote.reauthenticationOutcomeUnknown
                         ? null
                         : _submit,
                     child: const Text('Volver a autenticar'),
