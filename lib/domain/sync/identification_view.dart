@@ -53,6 +53,10 @@ class IdentificationServerView {
     required this.photoState,
     required this.resolution,
     required this.pendingNote,
+    this.pendingNoteAt,
+    this.photoSha256,
+    this.localName,
+    this.activeIngredient,
   });
 
   final String requestId;
@@ -63,8 +67,12 @@ class IdentificationServerView {
 
   /// `NONE`, `STORED` o `REMOVED`.
   final String photoState;
+  final String? photoSha256;
   final IdentificationResolution? resolution;
   final String? pendingNote;
+  final String? pendingNoteAt;
+  final String? localName;
+  final String? activeIngredient;
 
   static const _rootKeys = {
     'contractVersion',
@@ -111,8 +119,8 @@ class IdentificationServerView {
     final unit = _oneOf(json['unit'], const {'L', 'KG'});
     final baseUnit = _oneOf(json['base_unit'], const {'ML', 'G'});
     if ((unit == 'L') != (baseUnit == 'ML')) _invalid();
-    _text(json['local_name']);
-    _optionalText(json['active_ingredient']);
+    final localName = _text(json['local_name']);
+    final activeIngredient = _optionalText(json['active_ingredient']);
     _text(json['received_at']);
     _text(json['updated_at']);
 
@@ -152,19 +160,24 @@ class IdentificationServerView {
     if ((status == 'LINKED') != (resolution != null)) _invalid();
 
     String? note;
+    String? noteAt;
     if (json['pending_note'] != null) {
       final item = _object(json['pending_note']);
       _knownKeys(item, _noteKeys);
       note = _text(item['text']);
-      _text(item['at']);
+      noteAt = _text(item['at']);
     }
     return IdentificationServerView(
       requestId: requestId,
       status: status,
       unit: unit,
       photoState: photoState,
+      photoSha256: sha as String?,
       resolution: resolution,
       pendingNote: note,
+      pendingNoteAt: noteAt,
+      localName: localName,
+      activeIngredient: activeIngredient,
     );
   }
 

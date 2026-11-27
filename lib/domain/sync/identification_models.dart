@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import '../repository_exceptions.dart' show BusinessRuleException;
 
 abstract final class IdentificationSendStatus {
@@ -50,6 +52,8 @@ class IdentificationRequest {
     required this.serverCheckedAt,
     required this.createdAt,
     required this.updatedAt,
+    this.serverNoteAt,
+    this.clarificationReply,
   });
 
   final String requestId;
@@ -78,6 +82,15 @@ class IdentificationRequest {
   final String? serverCheckedAt;
   final String createdAt;
   final String updatedAt;
+  final String? serverNoteAt;
+  final IdentificationReply? clarificationReply;
+
+  bool get canCompleteInformation =>
+      serverStatus == 'PENDING' &&
+      serverNoteAt != null &&
+      (clarificationReply == null ||
+          clarificationReply!.noteAt != serverNoteAt ||
+          clarificationReply!.isTerminal);
 
   bool get isLinked =>
       serverStatus == 'LINKED' &&
@@ -130,7 +143,57 @@ class IdentificationRequest {
     serverCheckedAt: row['${prefix}server_checked_at'] as String?,
     createdAt: row['${prefix}created_at']! as String,
     updatedAt: row['${prefix}updated_at']! as String,
+    serverNoteAt: row['${prefix}server_note_at'] as String?,
+    clarificationReply: IdentificationReply.decode(
+      row['${prefix}clarification_reply'] as String?,
+    ),
   );
+}
+
+/// Copia inmutable de la respuesta autorizada, conservada para reintentos.
+class IdentificationReply {
+  const IdentificationReply(
+    this.body, {
+    this.attempts = 0,
+    this.retryAt,
+    this.error,
+    this.isTerminal = false,
+  });
+
+  final Map<String, Object?> body;
+  final int attempts;
+  final String? retryAt;
+  final String? error;
+  final bool isTerminal;
+
+  String get operationId => body['operation_id']! as String;
+  String get noteAt => body['note_at']! as String;
+  String get name => body['local_name']! as String;
+  String? get ingredient => body['active_ingredient'] as String?;
+  String? get photoSha => body['photo_sha256'] as String?;
+  String? get photoConsentAt =>
+      (body['photo_consent'] as Map<String, Object?>?)?['accepted_at']
+          as String?;
+
+  String encode() => jsonEncode({
+    'body': body,
+    'attempts': attempts,
+    'retry_at': retryAt,
+    'error': error,
+    'terminal': isTerminal,
+  });
+
+  static IdentificationReply? decode(String? encoded) {
+    if (encoded == null) return null;
+    final json = jsonDecode(encoded) as Map<String, dynamic>;
+    return IdentificationReply(
+      Map<String, Object?>.unmodifiable(json['body'] as Map<String, dynamic>),
+      attempts: json['attempts']! as int,
+      retryAt: json['retry_at'] as String?,
+      error: json['error'] as String?,
+      isTerminal: json['terminal']! as bool,
+    );
+  }
 }
 
 /// Un producto local activo con su solicitud, si la tiene.

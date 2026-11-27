@@ -11,6 +11,13 @@ const String labelPhotosNotInBackups =
 /// Motivo legible de un código de rechazo o de fallo (E1 §4.1). Nunca
 /// muestra datos del cuerpo recibido.
 String identificationReason(String? code) => switch (code) {
+  'CLARIFICATION_CHANGED' =>
+    'el sindicato cambió la aclaración. Pulse «Actualizar»',
+  'CLARIFICATION_RESPONSE_EMPTY' =>
+    'hace falta completar un dato o adjuntar la etiqueta',
+  'CLARIFICATION_RESPONSE_CONFLICT' =>
+    'la respuesta ya se registró con otros datos. Pulse «Actualizar»',
+  'REQUEST_ALREADY_LINKED' => 'el sindicato ya identificó el producto',
   'PAYLOAD_INVALID' => 'los datos no tienen el formato esperado',
   'UNIT_UNSUPPORTED' => 'la unidad no es L ni KG',
   'UNIT_IMMUTABLE' => 'la unidad no puede cambiar',
@@ -21,6 +28,21 @@ String identificationReason(String? code) => switch (code) {
   'PHOTO_MISSING' => 'la foto autorizada ya no está en este teléfono',
   _ => 'el sindicato no la aceptó',
 };
+
+String identificationClarificationStatus(IdentificationReply reply) {
+  if (reply.error == null) {
+    return reply.photoSha == null
+        ? 'Respuesta pendiente de envío'
+        : 'Respuesta y foto pendientes de envío';
+  }
+  if (reply.error == 'AUTH_REQUIRED')
+    return 'Respuesta pendiente: verifique el acceso para reenviarla.';
+  if (reply.isTerminal)
+    return 'Respuesta sin enviar: ${identificationReason(reply.error)}.';
+  return reply.photoSha == null
+      ? 'La respuesta sigue guardada. Puede reintentar.'
+      : 'El envío de la respuesta con foto falló. Puede reintentar.';
+}
 
 /// Textos de estado de una solicitud (contrato E1 §5.6), en orden. Nunca
 /// «Enviado» para una solicitud que sólo existe en el teléfono: «Recibida»

@@ -773,7 +773,7 @@ void main() {
       (await db.rawQuery('PRAGMA user_version')).single.values.single,
       AppDatabase.schemaVersion,
     );
-    expect(AppDatabase.schemaVersion, 20);
+    expect(AppDatabase.schemaVersion, 21);
     expect(await db.query('joint_purchase_access_ops'), isEmpty);
     // Nada existente cambia: ni columnas, ni filas, ni lo pendiente, ni la
     // participación con su alcance anterior (no se reinterpreta).

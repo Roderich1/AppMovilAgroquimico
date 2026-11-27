@@ -5,10 +5,12 @@
 // identifica, «Vincular» usa la confirmación de siempre y `bindProduct`.
 // Sin red: MockClient. Datos sintéticos.
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:agroquimicos/app.dart';
 import 'package:agroquimicos/data/sync/identification_request_store.dart';
 import 'package:agroquimicos/presentation/screens/central_binding_screen.dart';
+import 'package:agroquimicos/presentation/widgets/identification_clarification_sheet.dart';
 import 'package:agroquimicos/services/auth/api_endpoint_config.dart';
 import 'package:agroquimicos/services/auth/auth_http_client.dart';
 import 'package:agroquimicos/services/sync/identification_api.dart';
@@ -46,6 +48,159 @@ void main() {
     jsonEncode(body),
     status,
     headers: {'content-type': 'application/json; charset=utf-8'},
+  );
+
+  testWidgets(
+    'boro: responde con su primera foto, reintenta y deja el ingrediente vacío',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(420, 2500));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final fixture = (await tester.runAsync(
+        () => seedSyncFixture(path: inMemoryDatabasePath, bindCatalog: false),
+      ))!;
+      final workspace = (await tester.runAsync(() => photoWorkspace(fixture)))!;
+      final source = File('${workspace.root.path}/etiqueta.jpg');
+      final store = IdentificationRequestStore(
+        fixture.database,
+        documents: () async => workspace.documents,
+      );
+      final request = (await tester.runAsync(() async {
+        await source.writeAsBytes(labelJpeg(width: 320, height: 240));
+        await (await fixture.database.database).update(
+          'products',
+          {'name': 'boro', 'unit': 'KG', 'active_ingredient': null},
+          where: 'id=?',
+          whereArgs: [fixture.unboundProductId],
+        );
+        final request = await store.create(
+          productId: fixture.unboundProductId,
+          sharePhoto: false,
+        );
+        await store.markReceived(request.requestId);
+        return request;
+      }))!;
+      final access = SyncAccessHolder()
+        ..accept('token-sintetico', memberA.memberId, memberA.tenantId);
+      final config = ApiEndpointConfig(Uri.parse('https://sindicato.example'));
+      final staged = <Map<String, dynamic>>[];
+      final uploads = <String>[];
+      var received = false;
+      Map<String, Object?> view() => serverView(
+        request.requestId,
+        localName: 'boro',
+        unit: 'KG',
+        note: received ? null : 'Adjunte la foto de la etiqueta',
+        photoState: received ? 'STORED' : 'NONE',
+        photoSha: received ? staged.last['photo_sha256'] as String : null,
+        consentVersion: received ? 'FOTO-1' : null,
+      );
+      final client = MockClient((call) async {
+        if (call.method == 'GET')
+          return json({
+            'contractVersion': 1,
+            'requests': [view()],
+          }, 200);
+        if (call.url.path.endsWith('/clarification-response')) {
+          staged.add(jsonDecode(call.body) as Map<String, dynamic>);
+          return json({'received': received, 'request': view()}, 200);
+        }
+        expect(call.url.path, endsWith('/photo'));
+        uploads.add(
+          call.headers['X-Identification-Response-Id'] ??
+              call.headers['x-identification-response-id']!,
+        );
+        expect(call.bodyBytes, isNotEmpty);
+        if (uploads.length == 1)
+          return json({'errorCode': 'PHOTO_STORAGE_UNAVAILABLE'}, 503);
+        received = true;
+        return json(view(), 201);
+      });
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            databaseProvider.overrideWithValue(fixture.database),
+            repositoryProvider.overrideWithValue(fixture.repo),
+            declaredNeedStoreProvider.overrideWithValue(fixture.needs),
+            centralBindingStoreProvider.overrideWithValue(fixture.bindings),
+            syncOutboxStoreProvider.overrideWithValue(fixture.outbox),
+            identificationRequestStoreProvider.overrideWithValue(store),
+            syncAccessHolderProvider.overrideWithValue(access),
+            clarificationPhotoPickerProvider.overrideWithValue(
+              (_) async => source.path,
+            ),
+            syncApiProvider.overrideWithValue(
+              SyncApi(
+                AuthHttpClient(
+                  config: config,
+                  client: MockClient((_) async => json(referencesJson(), 200)),
+                ),
+              ),
+            ),
+            identificationApiProvider.overrideWithValue(
+              IdentificationApi(
+                json: AuthHttpClient(config: config, client: client),
+                config: config,
+                client: client,
+              ),
+            ),
+          ],
+          child: const MaterialApp(
+            home: Scaffold(body: CentralBindingScreen()),
+          ),
+        ),
+      );
+      await settle(tester);
+      await tester.tap(find.text('Actualizar'));
+      await settle(tester);
+      expect(
+        find.text('Nota del sindicato: Adjunte la foto de la etiqueta'),
+        findsOneWidget,
+      );
+      await tester.tap(find.text('Completar información'));
+      await settle(tester);
+      expect(find.text('Unidad: KG'), findsOneWidget);
+      await tester.tap(find.text('Tomar foto'));
+      await settle(tester);
+      await tester.tap(find.byKey(const Key('clarification-send')));
+      await settle(tester, rounds: 3);
+      expect(staged, isEmpty);
+      await tester.tap(find.byKey(const Key('clarification-photo-consent')));
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('clarification-send')));
+      await settle(tester, rounds: 28);
+      expect(staged.single['active_ingredient'], isNull);
+      expect(staged.single['local_name'], 'boro');
+      expect(staged.single['unit'], 'KG');
+      expect(staged.single['note_at'], '2026-11-12T09:00:00.000Z');
+      expect(staged.single['photo_consent'], containsPair('version', 'FOTO-1'));
+      expect(uploads, hasLength(1));
+      final failed = await tester.runAsync(() => store.byId(request.requestId));
+      expect(failed?.clarificationReply?.error, 'PHOTO_STORAGE_UNAVAILABLE');
+      final retryMessage = find.text(
+        'El envío de la respuesta con foto falló. Puede reintentar.',
+      );
+      for (var poll = 0; poll < 12 && !tester.any(retryMessage); poll++) {
+        await settle(tester, rounds: 5);
+      }
+      expect(retryMessage, findsOneWidget);
+
+      await tester.tap(find.text('Actualizar'));
+      await settle(tester);
+      expect(uploads, hasLength(1));
+      await tester.tap(find.text('Reintentar respuesta'));
+      await settle(tester, rounds: 22);
+      expect(uploads, [
+        staged.first['operation_id'],
+        staged.first['operation_id'],
+      ]);
+      expect(staged.last, staged.first);
+      expect(
+        find.text('Nota del sindicato: Adjunte la foto de la etiqueta'),
+        findsNothing,
+      );
+      expect(find.text('Foto enviada'), findsOneWidget);
+      expect(await tester.runAsync(fixture.bindings.productBindings), isEmpty);
+    },
   );
 
   testWidgets(
