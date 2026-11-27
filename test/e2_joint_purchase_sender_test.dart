@@ -1163,6 +1163,23 @@ void main() {
     expect(call.latestOp!.isTerminal, isTrue);
   });
 
+  test('el retiro guardado por una app anterior queda rechazado sin cambiar el permiso', () async {
+    await confirm({litreRef: 25000});
+    await sender.run(access());
+    final queued = (await decide(JointPurchaseConsentScope.totalsOnly))!;
+    respond = (request) => request.method == 'POST'
+        ? jsonResponse({'errorCode': 'ORDER_CONSENT_LOCKED'}, 409)
+        : central(request);
+
+    final report = await sender.run(access());
+
+    expect(report.rejected, 1);
+    final decision = (await store.consentOp(queued.operationId))!;
+    expect(decision.sendStatus, JointPurchaseOpStatus.rejected);
+    expect(decision.lastCode, JointPurchaseErrorCodes.orderAuthorizationLocked);
+    expect((await store.call(callId))!.hasOrderAuthorization, isTrue);
+  });
+
   test('E4: una decisión atrasada no revierte la posterior (STALE_SEQUENCE adopta la vigente)', () async {
     await confirm({litreRef: 25000});
     await sender.run(access());

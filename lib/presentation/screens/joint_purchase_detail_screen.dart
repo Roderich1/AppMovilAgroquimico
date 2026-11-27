@@ -407,9 +407,7 @@ class _JointPurchaseDetailScreenState
             textKey: const Key('joint-consent-result'),
             icon: Icons.fact_check_outlined,
           ),
-        // E4 §4.2: revisar (también en una cerrada) o retirar la
-        // autorización; acciones propias, aparte de las cantidades (se
-        // muestran solas si aplican; nunca en una cancelada).
+        // La revisión de participaciones anteriores no cambia cantidades.
         JointPurchaseAccessActions(call: call, onChanged: _reload),
       ],
     );
@@ -714,6 +712,8 @@ class _JointPurchaseConsentDialogState
           const JointPurchaseConsentHelp(
             textKey: Key('joint-consent-dialog-help'),
           ),
+          const SizedBox(height: 8),
+          const Text(jointPurchaseAuthorizationLockNotice),
           CheckboxListTile(
             key: const Key('joint-consent-check'),
             contentPadding: EdgeInsets.zero,

@@ -113,12 +113,14 @@ String initialConsentScope(String consentVersion) => switch (consentVersion) {
 abstract final class JointPurchaseErrorCodes {
   static const consentVersionRetired = 'CONSENT_VERSION_RETIRED';
   static const orderAuthorizationRequired = 'ORDER_CONSENT_REQUIRED';
+  static const orderAuthorizationLocked = 'ORDER_CONSENT_LOCKED';
   static const appUpdateRequired = 'APP_UPDATE_REQUIRED';
   static const wideningNotAllowed = 'WIDENING_NOT_ALLOWED';
   static const participationRequired = 'PARTICIPATION_REQUIRED';
   static const definitive = {
     consentVersionRetired,
     orderAuthorizationRequired,
+    orderAuthorizationLocked,
     appUpdateRequired,
     wideningNotAllowed,
   };

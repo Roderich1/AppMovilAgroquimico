@@ -208,26 +208,14 @@ const jointPurchaseAccessReviewLabel =
 /// anterior a E4 que todavía no se revisaron.
 const jointPurchaseAccessReviewChip = 'Revisar autorización';
 
-/// Acción que retira la autorización `CONV-4` sin retirar la participación
-/// (D-05).
-const jointPurchaseAccessRetractLabel = 'Retirar la autorización';
+const jointPurchaseAuthorizationLockNotice =
+    'Una vez aplicada, la autorización se mantiene para esta convocatoria.';
 
 /// Casilla del diálogo de revisión: nunca marcada de antemano.
 const jointPurchaseAccessReviewCheck =
     'Entiendo y acepto este texto para mi participación en esta convocatoria.';
 
-/// Lo que explica el diálogo de retirada (la participación sigue).
-const jointPurchaseAccessRetractDetail =
-    'La Administración dejará de ver su nombre y sus cantidades cuando el '
-    'sindicato reciba esta decisión; lo que ya se haya visto no se puede '
-    'retirar. Su participación sigue vigente y sus cantidades siguen '
-    'contando en los totales por producto, que se muestran sin nombres.';
-
-/// Casilla del diálogo de retirada: nunca marcada de antemano.
-const jointPurchaseAccessRetractCheck =
-    'Quiero retirar la autorización y conservar mi participación.';
-
-/// En los dos diálogos: decidir quién ve los datos no cambia el pedido.
+/// Autorizar desde el diálogo de revisión conserva las cantidades.
 const jointPurchaseQuantitiesUnchanged = 'Sus cantidades no cambian.';
 
 /// Quién ve el nombre y las cantidades del agricultor en esta convocatoria,
@@ -317,6 +305,8 @@ String? jointPurchaseConsentResultText(JointPurchaseCall call) {
           : 'Su última decisión sobre quién ve sus datos está aplicada en el '
                 'sindicato.',
     JointPurchaseOpStatus.rejected => switch (op.lastCode) {
+      JointPurchaseErrorCodes.orderAuthorizationLocked =>
+        'La autorización de Administración se mantiene para esta convocatoria.',
       JointPurchaseErrorCodes.consentVersionRetired =>
         'El sindicato no aplicó una decisión preparada con un texto anterior: '
             'esa opción ya no existe. Rige lo que se indica arriba.',

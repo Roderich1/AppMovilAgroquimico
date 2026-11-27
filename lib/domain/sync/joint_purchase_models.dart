@@ -346,13 +346,8 @@ class JointPurchaseCall {
   /// `ADMINISTRATION` (un alcance anterior, o la autorización retirada).
   bool get canReviewAccess =>
       _canDecideAccess &&
+      appliedScope != JointPurchaseConsentScope.administration &&
       expectedScope != JointPurchaseConsentScope.administration;
-
-  /// «Retirar la autorización» (D-05): cuando lo que regirá es
-  /// `ADMINISTRATION`. La participación y las cantidades no cambian.
-  bool get canRetractAccess =>
-      _canDecideAccess &&
-      expectedScope == JointPurchaseConsentScope.administration;
 
   /// Transición (E4 §4.4): una participación con un alcance anterior a E4
   /// (también en una cerrada) que el agricultor todavía no revisó. Etiqueta

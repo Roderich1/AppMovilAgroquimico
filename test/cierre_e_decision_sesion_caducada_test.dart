@@ -7,7 +7,7 @@
 //       verifica el acceso; si el sindicato pide volver a autenticar, el
 //       aviso lleva a la pantalla existente `/reauth`);
 //   (3) nada se muestra como aplicado antes del acuse del sindicato;
-//   (4) una reducción a TOTALS_ONLY sin acuse deja a la vista el alcance
+//   (4) una autorización sin acuse deja a la vista el alcance
 //       aplicado (el sindicato manda) y no amplía nada.
 // Sin red real: sindicato sintético con MockClient; datos sintéticos.
 import 'dart:convert';
@@ -72,9 +72,9 @@ class _ExpiredRemote extends RemoteSessionController {
   }
 }
 
-const _pendingRetract =
-    'Pendiente de envío: retirar la autorización. Hasta que el sindicato la '
-    'reciba, no está aplicada y rige lo que se indica arriba.';
+const _pendingGrant =
+    'Pendiente de envío: autorizar a la Administración a ver su nombre y sus '
+    'cantidades. Hasta que el sindicato la reciba, no está aplicada y rige lo que se indica arriba.';
 const _adminSees =
     'La Administración habilitada de su sindicato puede ver su nombre y sus '
     'cantidades. La Directiva sólo ve los totales por producto, sin su '
@@ -194,12 +194,12 @@ void main() {
   String text(WidgetTester tester, String key) =>
       tester.widget<Text>(find.byKey(Key(key))).data!;
 
-  Future<void> retract(WidgetTester tester) async {
-    await tester.tap(find.byKey(const Key('joint-access-retract')));
+  Future<void> grantAccess(WidgetTester tester) async {
+    await tester.tap(find.byKey(const Key('joint-access-review')));
     await settle(tester, rounds: 2);
-    await tester.tap(find.byKey(const Key('joint-access-retract-check')));
+    await tester.tap(find.byKey(const Key('joint-access-review-check')));
     await tester.pump();
-    await tester.tap(find.byKey(const Key('joint-access-retract-confirm')));
+    await tester.tap(find.byKey(const Key('joint-access-review-confirm')));
     await settle(tester);
   }
 
@@ -210,113 +210,115 @@ void main() {
   }
 
   /// (3) y (4): mientras no hay acuse, lo vigente es lo aplicado.
-  Future<void> expectStillAdministration(
+  Future<void> expectStillTotalsOnly(
     WidgetTester tester,
     JointPurchaseStore store,
   ) async {
-    expect(text(tester, 'joint-consent-pending'), _pendingRetract);
-    expect(text(tester, 'joint-who-can-see'), _adminSees);
-    expect(find.textContaining('Usted retiró la autorización'), findsNothing);
+    expect(text(tester, 'joint-consent-pending'), _pendingGrant);
+    expect(
+      text(tester, 'joint-who-can-see'),
+      startsWith('Usted retiró la autorización'),
+    );
+    expect(find.text(_adminSees), findsNothing);
     expect(find.textContaining('aplicada en el sindicato'), findsNothing);
     final call = (await tester.runAsync(() => store.call(callId)))!;
-    expect(call.appliedScope, JointPurchaseConsentScope.administration);
+    expect(call.appliedScope, JointPurchaseConsentScope.totalsOnly);
     final ops = (await tester.runAsync(() => store.consentOps(callId)))!;
-    // Una sola decisión, la reducción; ninguna ampliación añadida.
-    expect(ops.map((op) => op.scope), [JointPurchaseConsentScope.totalsOnly]);
+    // Una sola decisión: autorizar a Administración.
+    expect(ops.map((op) => op.scope), [
+      JointPurchaseConsentScope.administration,
+    ]);
     expect(ops.single.isAwaitingSend, isTrue);
   }
 
   setUp(() => _ExpiredRemote.refreshWorks = false);
 
-  testWidgets('reducir a TOTALS_ONLY con la sesión caducada: «pendiente, no '
-      'aplicada», rige lo aplicado; «Enviar ahora» sin sesión no envía nada y '
-      'lleva a volver a autenticar; después se envía y sólo con el acuse se '
-      'muestra aplicada', (tester) async {
-    final s = await pumpDetail(
-      tester,
-      scope: JointPurchaseConsentScope.administration,
-    );
-    await retract(tester);
-    // (1) Guardada en el teléfono, no enviada (sin acceso, no hay red).
-    expect(
-      find.text(
-        'Retirada guardada en el teléfono: pendiente de envío. Hasta que el '
-        'sindicato la reciba, no está aplicada.',
-      ),
-      findsOneWidget,
-    );
-    expect(s.requests, isEmpty);
-    await expectStillAdministration(tester, s.store);
-    expect(find.text('Enviar ahora'), findsOneWidget);
+  testWidgets(
+    'autorizar a Administración con la sesión caducada: «pendiente, no '
+    'aplicada», rige lo aplicado; «Enviar ahora» sin sesión no envía nada y '
+    'lleva a volver a autenticar; después se envía y sólo con el acuse se '
+    'muestra aplicada',
+    (tester) async {
+      final s = await pumpDetail(
+        tester,
+        scope: JointPurchaseConsentScope.totalsOnly,
+      );
+      await grantAccess(tester);
+      // (1) Guardada en el teléfono, no enviada (sin acceso, no hay red).
+      expect(
+        find.text(
+          'Autorización guardada en el teléfono: pendiente de envío. '
+          'Hasta que el sindicato la reciba, no está aplicada.',
+        ),
+        findsOneWidget,
+      );
+      expect(s.requests, isEmpty);
+      await expectStillTotalsOnly(tester, s.store);
+      expect(find.text('Enviar ahora'), findsOneWidget);
 
-    // «Enviar ahora»: el sindicato pide volver a autenticar. No se envía
-    // nada, el aviso dice que lo pendiente no se envió y ofrece la pantalla
-    // existente para volver a autenticar.
-    await sendNow(tester);
-    expect(s.requests, isEmpty);
-    expect(
-      find.textContaining(
-        'Se requiere volver a autenticar para las funciones en línea.',
-      ),
-      findsOneWidget,
-    );
-    expect(find.textContaining('Lo pendiente no se envió'), findsOneWidget);
-    await expectStillAdministration(tester, s.store);
-    final action = find.widgetWithText(SnackBarAction, 'Volver a autenticar');
-    expect(action, findsOneWidget);
-    await tester.tap(action);
-    await settle(tester, rounds: 3);
-    expect(find.text('Pantalla Volver a autenticar'), findsOneWidget);
+      // «Enviar ahora»: el sindicato pide volver a autenticar. No se envía
+      // nada, el aviso dice que lo pendiente no se envió y ofrece la pantalla
+      // existente para volver a autenticar.
+      await sendNow(tester);
+      expect(s.requests, isEmpty);
+      expect(
+        find.textContaining(
+          'Se requiere volver a autenticar para las funciones en línea.',
+        ),
+        findsOneWidget,
+      );
+      expect(find.textContaining('Lo pendiente no se envió'), findsOneWidget);
+      await expectStillTotalsOnly(tester, s.store);
+      final action = find.widgetWithText(SnackBarAction, 'Volver a autenticar');
+      expect(action, findsOneWidget);
+      await tester.tap(action);
+      await settle(tester, rounds: 3);
+      expect(find.text('Pantalla Volver a autenticar'), findsOneWidget);
 
-    // Volver a autenticar (lo que hace `/reauth`) y volver al detalle.
-    await tester.runAsync(
-      () => s.c
-          .read(remoteSessionProvider.notifier)
-          .reauthenticate(email: 'titular@example.invalid', password: 'x'),
-    );
-    s.router.pop();
-    await settle(tester);
-    await expectStillAdministration(tester, s.store);
+      // Volver a autenticar (lo que hace `/reauth`) y volver al detalle.
+      await tester.runAsync(
+        () => s.c
+            .read(remoteSessionProvider.notifier)
+            .reauthenticate(email: 'titular@example.invalid', password: 'x'),
+      );
+      s.router.pop();
+      await settle(tester);
+      await expectStillTotalsOnly(tester, s.store);
 
-    // (2) Ahora sí se envía; (3) sólo con el acuse se muestra aplicada.
-    await sendNow(tester);
-    final posted = s.requests.where((r) => r.method == 'POST').toList();
-    expect(posted, hasLength(1));
-    expect(
-      (jsonDecode(posted.single.body) as Map<String, dynamic>)['scope'],
-      JointPurchaseConsentScope.totalsOnly,
-    );
-    expect(find.byKey(const Key('joint-consent-pending')), findsNothing);
-    expect(
-      text(tester, 'joint-who-can-see'),
-      startsWith('Usted retiró la autorización'),
-    );
-    expect(
-      text(tester, 'joint-consent-result'),
-      'Su última decisión sobre quién ve sus datos está aplicada en el '
-      'sindicato.',
-    );
-    final call = (await tester.runAsync(() => s.store.call(callId)))!;
-    expect(call.appliedScope, JointPurchaseConsentScope.totalsOnly);
-  });
+      // (2) Ahora sí se envía; (3) sólo con el acuse se muestra aplicada.
+      await sendNow(tester);
+      final posted = s.requests.where((r) => r.method == 'POST').toList();
+      expect(posted, hasLength(1));
+      expect(
+        (jsonDecode(posted.single.body) as Map<String, dynamic>)['scope'],
+        JointPurchaseConsentScope.administration,
+      );
+      expect(find.byKey(const Key('joint-consent-pending')), findsNothing);
+      expect(text(tester, 'joint-who-can-see'), _adminSees);
+      expect(
+        text(tester, 'joint-consent-result'),
+        'Su última decisión sobre quién ve sus datos está aplicada en el '
+        'sindicato.',
+      );
+      final call = (await tester.runAsync(() => s.store.call(callId)))!;
+      expect(call.appliedScope, JointPurchaseConsentScope.administration);
+    },
+  );
 
   testWidgets('acceso en memoria caducado con la sesión todavía renovable: '
       '«Enviar ahora» verifica el acceso y envía la decisión', (tester) async {
     _ExpiredRemote.refreshWorks = true;
     final s = await pumpDetail(
       tester,
-      scope: JointPurchaseConsentScope.administration,
+      scope: JointPurchaseConsentScope.totalsOnly,
     );
-    await retract(tester);
+    await grantAccess(tester);
     expect(s.requests, isEmpty);
-    await expectStillAdministration(tester, s.store);
+    await expectStillTotalsOnly(tester, s.store);
 
     await sendNow(tester);
     expect(s.requests.where((r) => r.method == 'POST'), hasLength(1));
-    expect(
-      text(tester, 'joint-who-can-see'),
-      startsWith('Usted retiró la autorización'),
-    );
+    expect(text(tester, 'joint-who-can-see'), _adminSees);
     expect(find.byKey(const Key('joint-consent-pending')), findsNothing);
   });
 

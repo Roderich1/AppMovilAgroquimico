@@ -120,6 +120,7 @@ void main() {
       // Sin la casilla no se puede confirmar; cancelar no guarda nada.
       await enterQuantities(tester);
       expect(find.text(jointPurchaseOrderConsentText), findsOneWidget);
+      expect(find.text(jointPurchaseAuthorizationLockNotice), findsOneWidget);
       expect(find.text('Autorizo a Administración'), findsOneWidget);
       final confirm = find.byKey(const Key('joint-consent-confirm'));
       expect(tester.widget<FilledButton>(confirm).onPressed, isNull);
@@ -789,14 +790,14 @@ void main() {
         'rige lo que se indica arriba.',
       );
       expect(find.text('Enviar ahora'), findsOneWidget);
-      // Ahora la acción ofrecida es retirarla.
+      // Una vez aplicada, la autorización se conserva.
       expect(find.byKey(const Key('joint-access-review')), findsNothing);
-      expect(find.byKey(const Key('joint-access-retract')), findsOneWidget);
+      expect(find.byKey(const Key('joint-access-retract')), findsNothing);
     },
   );
 
   testWidgets(
-    'E4: retirar la autorización, casilla sin marcar; pendiente no se anuncia como efectiva; aplicada, se dice y la participación sigue',
+    'la autorización aplicada se conserva y el pedido todavía se puede retirar',
     (tester) async {
       final s = await pumpDetail(tester);
       await tester.runAsync(
@@ -809,75 +810,9 @@ void main() {
       s.c.read(jointPurchaseRevisionProvider.notifier).bump();
       await settle(tester);
       expect(find.byKey(const Key('joint-access-review')), findsNothing);
-      await tester.tap(find.byKey(const Key('joint-access-retract')));
-      await settle(tester, rounds: 2);
-      expect(find.text(jointPurchaseAccessRetractDetail), findsOneWidget);
-      expect(find.text('Sus cantidades no cambian.'), findsOneWidget);
-      expect(
-        tester
-            .widget<CheckboxListTile>(
-              find.byKey(const Key('joint-access-retract-check')),
-            )
-            .value,
-        isFalse,
-      );
-      expect(
-        tester
-            .widget<FilledButton>(
-              find.byKey(const Key('joint-access-retract-confirm')),
-            )
-            .onPressed,
-        isNull,
-      );
-      await tester.tap(find.byKey(const Key('joint-access-retract-check')));
-      await tester.pump();
-      await tester.tap(find.byKey(const Key('joint-access-retract-confirm')));
-      await settle(tester);
-      final pending = (await tester.runAsync(() => s.store.consentOps(callId)))!
-          .single;
-      expect(pending.scope, 'TOTALS_ONLY');
-      expect(pending.sequence, 1);
-      expect(await tester.runAsync(() => s.store.ops(callId)), isEmpty);
-      expect(
-        tester
-            .widget<Text>(find.byKey(const Key('joint-consent-pending')))
-            .data,
-        contains('no está aplicada'),
-      );
-      expect(
-        tester.widget<Text>(find.byKey(const Key('joint-who-can-see'))).data,
-        startsWith('La Administración habilitada de su sindicato puede ver'),
-      );
-
-      // El sindicato la acepta (como haría el emisor).
-      await tester.runAsync(
-        () => s.store.markConsentReceived(
-          pending,
-          JointPurchaseParticipation.fromJson(
-            participationJson(
-              consentScope: 'TOTALS_ONLY',
-              consentScopeSequence: 1,
-            ),
-          ),
-        ),
-      );
-      s.c.read(jointPurchaseRevisionProvider.notifier).bump();
-      await settle(tester);
-      expect(find.byKey(const Key('joint-consent-pending')), findsNothing);
-      expect(
-        tester.widget<Text>(find.byKey(const Key('joint-who-can-see'))).data,
-        startsWith('Usted retiró la autorización'),
-      );
-      expect(
-        tester.widget<Text>(find.byKey(const Key('joint-consent-result'))).data,
-        contains('aplicada en el sindicato'),
-      );
-      // La participación sigue y se puede volver a autorizar.
-      expect(
-        find.text('El sindicato tiene: 25 L de Herbicida central'),
-        findsOneWidget,
-      );
-      expect(find.byKey(const Key('joint-access-review')), findsOneWidget);
+      expect(find.text('Retirar la autorización'), findsNothing);
+      expect(find.text('Retirar participación'), findsOneWidget);
+      expect(await tester.runAsync(() => s.store.consentOps(callId)), isEmpty);
     },
   );
 
