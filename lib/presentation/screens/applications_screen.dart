@@ -10,6 +10,8 @@ import '../widgets/owner_reversal_flow.dart';
 
 import '../../app.dart';
 import '../../domain/money.dart';
+import '../../domain/operation_mode.dart';
+import '../../operation_mode_controller.dart';
 import '../theme/agro_theme.dart';
 import '../widgets/agro_ui.dart';
 import '../widgets/common.dart';
@@ -21,18 +23,37 @@ class ApplicationsScreen extends ConsumerStatefulWidget {
   ConsumerState<ApplicationsScreen> createState() => _ApplicationsScreenState();
 }
 
+typedef _ApplicationsView = ({
+  List<Map<String, Object?>> rows,
+  OperationMode mode,
+  int? ownerPersonId,
+});
+
 class _ApplicationsScreenState extends ConsumerState<ApplicationsScreen> {
-  late Future<List<Map<String, Object?>>> future;
+  late Future<_ApplicationsView> future;
   String query = '';
   int? campaignFilter;
   @override
   void initState() {
     super.initState();
-    future = ref.read(repositoryProvider).applications(limit: 200);
+    future = _load();
+  }
+
+  Future<_ApplicationsView> _load() async {
+    final repo = ref.read(repositoryProvider);
+    final (rows, operating) = await (
+      repo.applications(limit: 200),
+      repo.operatingContext(),
+    ).wait;
+    return (
+      rows: rows,
+      mode: operating.mode,
+      ownerPersonId: operating.ownerPersonId,
+    );
   }
 
   void refresh() {
-    final next = ref.read(repositoryProvider).applications(limit: 200);
+    final next = _load();
     setState(() {
       future = next;
     });
@@ -71,7 +92,11 @@ class _ApplicationsScreenState extends ConsumerState<ApplicationsScreen> {
     }
   }
 
-  Future<void> reverse(Map<String, Object?> row) async {
+  Future<void> reverse(
+    Map<String, Object?> row, {
+    required bool personal,
+    required bool hideOwner,
+  }) async {
     final id = row['id']! as int;
     // RF-13: motivo y PIN del titular; el actor sale de la autorización.
     final approval = await requestOwnerApproval(
@@ -81,12 +106,13 @@ class _ApplicationsScreenState extends ConsumerState<ApplicationsScreen> {
       subjectRef: 'application:$id',
       title: '¿Revertir esta aplicación?',
       effects:
-          '${row['person_name']} · ${row['farm_name']}\n'
+          '${hideOwner ? '${row['farm_name']}' : '${row['person_name']} · ${row['farm_name']}'}\n'
           '${row['campaign_name']}\n'
           'Costo ${formatBob(row['total_cost_bob_minor']! as int)}\n\n'
-          'Se devolverá el producto consumido al inventario y se anulará el '
-          'cargo correspondiente. Esta acción no se puede deshacer. La '
-          'aplicación original conserva su responsable y su fecha.',
+          'Se devolverá el producto consumido al inventario y '
+          '${personal ? 'se restará de los costos del chaco' : 'se anulará el cargo correspondiente'}. '
+          'Esta acción no se puede deshacer. '
+          '${personal ? 'La aplicación original conserva su fecha.' : 'La aplicación original conserva su responsable y su fecha.'}',
       confirmLabel: 'Revertir aplicación',
       revalidate: reversalStillPending(ref, 'applications', id),
     );
@@ -106,104 +132,126 @@ class _ApplicationsScreenState extends ConsumerState<ApplicationsScreen> {
   }
 
   @override
-  Widget build(BuildContext context) => RdmAListPage(
-    title: 'Aplicaciones',
-    // Desde B1 no hay «+ Registrar» flotante aquí: el botón dice qué registra.
-    action: RdmARegisterButton(
-      key: const Key('applications-register'),
-      label: 'Registrar aplicación',
-      onPressed: add,
-    ),
-    child: FutureBuilder<List<Map<String, Object?>>>(
-      future: future,
-      builder: (context, snapshot) {
-        if (snapshot.hasError) {
-          return EmptyState(
-            icon: Icons.error_outline,
-            message: friendlyError(snapshot.error!),
-          );
-        }
-        if (!snapshot.hasData) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        final campaigns = {
-          for (final row in snapshot.data!) row['campaign_id'] as int: row,
-        };
-        final rows = snapshot.data!
-            .where(
-              (row) =>
-                  (campaignFilter == null ||
-                      row['campaign_id'] == campaignFilter) &&
-                  matchesSearch('$row', query),
-            )
-            .toList();
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            LayoutBuilder(
-              builder: (context, c) {
-                final filters = [
-                  DropdownButtonFormField<int?>(
-                    initialValue: campaignFilter,
-                    decoration: const InputDecoration(labelText: 'Campaña'),
-                    items: [
-                      const DropdownMenuItem(child: Text('Todas')),
-                      for (final row in campaigns.values)
-                        DropdownMenuItem(
-                          value: row['campaign_id'] as int,
-                          child: Text(row['campaign_name'] as String),
-                        ),
-                    ],
-                    onChanged: (v) => setState(() => campaignFilter = v),
-                  ),
-                  TextField(
-                    onChanged: (v) =>
-                        setState(() => query = v.trim().toLowerCase()),
-                    decoration: const InputDecoration(
-                      prefixIcon: Icon(Icons.search),
-                      labelText: 'Buscar persona o chaco',
+  Widget build(BuildContext context) {
+    final liveMode = ref.watch(operationModeProvider);
+    return RdmAListPage(
+      title: 'Aplicaciones',
+      // Desde B1 no hay «+ Registrar» flotante aquí: el botón dice qué registra.
+      action: RdmARegisterButton(
+        key: const Key('applications-register'),
+        label: 'Registrar aplicación',
+        onPressed: add,
+      ),
+      child: FutureBuilder<_ApplicationsView>(
+        future: future,
+        builder: (context, snapshot) {
+          if (snapshot.hasError) {
+            return EmptyState(
+              icon: Icons.error_outline,
+              message: friendlyError(snapshot.error!),
+            );
+          }
+          if (!snapshot.hasData) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          final loaded = snapshot.data!;
+          final personal = (liveMode ?? loaded.mode) == OperationMode.personal;
+          final ownerPersonId = loaded.ownerPersonId;
+          bool isHiddenOwner(Map<String, Object?> row) =>
+              personal &&
+              ownerPersonId != null &&
+              row['person_id'] == ownerPersonId;
+          final campaigns = {
+            for (final row in loaded.rows) row['campaign_id'] as int: row,
+          };
+          final rows = loaded.rows.where((row) {
+            if (campaignFilter != null &&
+                row['campaign_id'] != campaignFilter) {
+              return false;
+            }
+            if (query.isEmpty) return true;
+            final hide = isHiddenOwner(row);
+            final searchable =
+                '${row['farm_name']} ${row['campaign_name']} '
+                '${row['items_summary'] ?? ''} '
+                '${hide ? '' : row['person_name']}';
+            return matchesSearch(searchable, query);
+          }).toList();
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              LayoutBuilder(
+                builder: (context, c) {
+                  final filters = [
+                    DropdownButtonFormField<int?>(
+                      initialValue: campaignFilter,
+                      decoration: const InputDecoration(labelText: 'Campaña'),
+                      items: [
+                        const DropdownMenuItem(child: Text('Todas')),
+                        for (final row in campaigns.values)
+                          DropdownMenuItem(
+                            value: row['campaign_id'] as int,
+                            child: Text(row['campaign_name'] as String),
+                          ),
+                      ],
+                      onChanged: (v) => setState(() => campaignFilter = v),
                     ),
-                  ),
-                ];
-                return c.maxWidth >= 600
-                    ? Row(
-                        children: [
-                          Expanded(child: filters[0]),
-                          const SizedBox(width: 8),
-                          Expanded(child: filters[1]),
-                        ],
-                      )
-                    : Column(
-                        children: [
-                          filters[0],
-                          const SizedBox(height: 8),
-                          filters[1],
-                        ],
-                      );
-              },
-            ),
-            const SizedBox(height: 16),
-            if (rows.isEmpty)
-              const RdmAEmpty(
-                icon: Icons.spa_outlined,
-                message: 'No hay aplicaciones para mostrar.',
-              )
-            else
-              AgroGroup(
-                children: [
-                  for (final row in rows)
-                    _ApplicationRow(
-                      key: Key('application-row-${row['id']}'),
-                      row: row,
-                      onReverse: () => reverse(row),
+                    TextField(
+                      onChanged: (v) =>
+                          setState(() => query = v.trim().toLowerCase()),
+                      decoration: InputDecoration(
+                        prefixIcon: const Icon(Icons.search),
+                        labelText: personal
+                            ? 'Buscar chaco o producto'
+                            : 'Buscar persona o chaco',
+                      ),
                     ),
-                ],
+                  ];
+                  return c.maxWidth >= 600
+                      ? Row(
+                          children: [
+                            Expanded(child: filters[0]),
+                            const SizedBox(width: 8),
+                            Expanded(child: filters[1]),
+                          ],
+                        )
+                      : Column(
+                          children: [
+                            filters[0],
+                            const SizedBox(height: 8),
+                            filters[1],
+                          ],
+                        );
+                },
               ),
-          ],
-        );
-      },
-    ),
-  );
+              const SizedBox(height: 16),
+              if (rows.isEmpty)
+                const RdmAEmpty(
+                  icon: Icons.spa_outlined,
+                  message: 'No hay aplicaciones para mostrar.',
+                )
+              else
+                AgroGroup(
+                  children: [
+                    for (final row in rows)
+                      _ApplicationRow(
+                        key: Key('application-row-${row['id']}'),
+                        row: row,
+                        hideOwner: isHiddenOwner(row),
+                        onReverse: () => reverse(
+                          row,
+                          personal: personal,
+                          hideOwner: isHiddenOwner(row),
+                        ),
+                      ),
+                  ],
+                ),
+            ],
+          );
+        },
+      ),
+    );
+  }
 }
 
 /// Una aplicación de la lista: persona y chaco, campaña y productos, costo
@@ -214,10 +262,12 @@ class _ApplicationRow extends StatelessWidget {
   const _ApplicationRow({
     super.key,
     required this.row,
+    required this.hideOwner,
     required this.onReverse,
   });
 
   final Map<String, Object?> row;
+  final bool hideOwner;
   final VoidCallback onReverse;
 
   @override
@@ -241,7 +291,9 @@ class _ApplicationRow extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  '${row['person_name']} · ${row['farm_name']}',
+                  hideOwner
+                      ? '${row['farm_name']}'
+                      : '${row['person_name']} · ${row['farm_name']}',
                   style: AgroText.value,
                 ),
                 Text(

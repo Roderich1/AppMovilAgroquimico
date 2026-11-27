@@ -347,7 +347,7 @@ class _PurchaseRow extends StatelessWidget {
         : 'Compra de ${_bob(total)}';
     final detail = balance > 0
         ? 'Compra del $day · total ${splitBob(total).number} · '
-              '${paid <= 0 ? 'sin pagos' : 'pagó ${splitBob(paid).number}'}'
+              '${paid <= 0 ? 'sin pagos' : 'pagado ${splitBob(paid).number}'}'
         : 'Compra del $day';
     final trailing = balance > 0
         ? FilledButton(

@@ -14,7 +14,9 @@ import '../../app.dart';
 import '../../domain/campaign_calendar.dart';
 import '../../domain/models.dart';
 import '../../domain/money.dart';
+import '../../domain/operation_mode.dart';
 import '../../domain/person_roles.dart';
+import '../../operation_mode_controller.dart';
 import '../../services/auth/local_owner_credential.dart'
     show AuthorizationPurpose;
 import 'common.dart';
@@ -50,6 +52,10 @@ Future<bool> payPurchaseProvider(
   // modalidades. La lista sólo trae al titular; si está vacía es que no hay
   // titular vinculado, y registrar otra persona no lo arreglaría.
   final payers = await repo.peopleFor(PersonPurpose.providerPayer);
+  final personal =
+      (ref.read(operationModeProvider) ??
+          (await repo.operatingContext()).mode) ==
+      OperationMode.personal;
   if (!context.mounted) return false;
   if (payers.isEmpty) {
     showError(
@@ -68,6 +74,7 @@ Future<bool> payPurchaseProvider(
       title: 'Pago al proveedor',
       // El pagador no se elige: es el titular (en propio y en compartido).
       fixedPayer: payers.length == 1,
+      personalMode: personal,
     ),
   );
   if (result == null) return false;
@@ -94,6 +101,12 @@ Future<bool> reversePurchaseWithApproval(
   WidgetRef ref,
   PurchaseActionTarget purchase,
 ) async {
+  final repo = ref.read(repositoryProvider);
+  final personal =
+      (ref.read(operationModeProvider) ??
+          (await repo.operatingContext()).mode) ==
+      OperationMode.personal;
+  if (!context.mounted) return false;
   final paid = purchase.paidMinor;
   final id = purchase.id;
   final approval = await requestOwnerApproval(
@@ -106,7 +119,7 @@ Future<bool> reversePurchaseWithApproval(
         '${purchase.supplierName} · '
         '${purchase.invoiceNumber ?? 'Sin factura'}\n'
         'Total ${formatBob(purchase.totalMinor)}\n\n'
-        'Se anularán los lotes creados y los cargos generados'
+        '${personal ? 'Se anularán los lotes creados' : 'Se anularán los lotes creados y los cargos generados'}'
         '${paid > 0 ? ', y se revertirán los pagos al proveedor por ${formatBob(paid)}' : ''}. '
         'Esta acción no se puede deshacer.',
     confirmLabel: 'Revertir compra',
@@ -134,6 +147,7 @@ class _PaymentDialog extends StatefulWidget {
     required this.maxMinor,
     required this.title,
     this.fixedPayer = false,
+    this.personalMode = false,
   });
   final List<Map<String, Object?>> people;
   final int maxMinor;
@@ -141,6 +155,7 @@ class _PaymentDialog extends StatefulWidget {
 
   /// Paga el titular: no se elige pagador (#26 y regla del piloto X01).
   final bool fixedPayer;
+  final bool personalMode;
   @override
   State<_PaymentDialog> createState() => _PaymentDialogState();
 }
@@ -190,12 +205,13 @@ class _PaymentDialogState extends State<_PaymentDialog> {
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (widget.fixedPayer)
+          if (widget.fixedPayer && !widget.personalMode) ...[
             Text(
               'Paga el titular: ${widget.people.single['name']}',
               key: const Key('payment-personal-payer'),
-            )
-          else
+            ),
+            const SizedBox(height: 12),
+          ] else if (!widget.fixedPayer) ...[
             DropdownButtonFormField<int>(
               initialValue: person,
               decoration: const InputDecoration(labelText: 'Pagador'),
@@ -208,7 +224,8 @@ class _PaymentDialogState extends State<_PaymentDialog> {
               ],
               onChanged: (value) => setState(() => person = value),
             ),
-          const SizedBox(height: 12),
+            const SizedBox(height: 12),
+          ],
           TextField(
             controller: amount,
             keyboardType: TextInputType.number,

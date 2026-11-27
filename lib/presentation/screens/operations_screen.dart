@@ -371,7 +371,7 @@ StatusBadge _purchaseBadge(_Row row) {
   }
   if (paid < total) {
     return StatusBadge(
-      label: 'Pagó ${splitBob(paid).number}',
+      label: 'Pagado ${splitBob(paid).number}',
       tone: BadgeTone.review,
     );
   }

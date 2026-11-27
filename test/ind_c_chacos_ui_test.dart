@@ -130,7 +130,7 @@ void main() {
 
     await tester.tap(find.byKey(const Key('ind-chacos-agregar')));
     await settle(tester);
-    expect(find.byKey(const Key('farm-personal-owner')), findsOneWidget);
+    expect(find.byKey(const Key('farm-personal-owner')), findsNothing);
     await tester.enterText(
       find.widgetWithText(TextFormField, 'Nombre'),
       'Chaco Norte',

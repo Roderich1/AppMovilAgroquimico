@@ -203,9 +203,9 @@ List<Widget> buildApplicationReviewStep(
             ),
             if (state.showCostHelp)
               Text(
-                'Se calcula con el precio de las compras de '
-                '${state.personalMode ? 'el titular' : 'esta persona'} que se '
-                'irán usando, las más antiguas primero. Cada producto '
+                'Se calcula con el precio de '
+                '${state.personalMode ? 'sus compras' : 'las compras de esta persona'} '
+                'que se irán usando, las más antiguas primero. Cada producto '
                 'cuesta la cantidad usada por el precio de su compra; si '
                 'una compra no alcanza, se sigue con la siguiente. Es una '
                 'estimación: el costo final se fija al confirmar.',

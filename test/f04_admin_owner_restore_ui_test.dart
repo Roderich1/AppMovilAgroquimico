@@ -366,13 +366,11 @@ void main() {
       await tester.tap(find.byType(PopupMenuButton<String>).first);
       await settle(tester);
       await tester.tap(find.text('Registrar pago'));
-      // #26: en propio paga el titular sin elegirlo. Antes se comprobaba que
-      // el selector sólo ofreciera al titular; ahora no hay selector y el
-      // pago queda a su nombre, nunca al del otro administrador.
-      await waitFor(tester, find.byKey(const Key('payment-personal-payer')));
+      // #26: en propio paga el titular sin elegirlo ni repetir su nombre.
+      await waitFor(tester, find.widgetWithText(TextField, 'Importe BOB'));
       expect(find.byType(DropdownButton<int>), findsNothing);
-      expect(find.text('Paga el titular: Titular'), findsOneWidget);
-      expect(find.textContaining('Paga '), findsOneWidget);
+      expect(find.byKey(const Key('payment-personal-payer')), findsNothing);
+      expect(find.textContaining('Paga '), findsNothing);
       await tester.tap(textOutsideShellFab('Registrar'));
       await settle(tester);
       expect(
@@ -418,13 +416,13 @@ void main() {
       await closePurchaseLine(tester);
       await tester.tap(find.byKey(const Key('purchase-continue')));
       await settle(tester);
-      // Paso 2 (piloto X01): ningún selector de pagador; con «Sí» paga el
-      // titular, nunca el otro administrador.
+      // Paso 2 (piloto X01): ningún selector de pagador ni texto redundante;
+      // con «Sí» paga el titular, nunca el otro administrador.
       expect(find.text('Pagador'), findsNothing);
       await tester.tap(find.byKey(const Key('purchase-paid-yes')));
       await settle(tester);
-      expect(find.byKey(const Key('purchase-payer-owner')), findsOneWidget);
-      expect(find.text('Paga el titular: Titular'), findsOneWidget);
+      expect(find.byKey(const Key('purchase-payer-owner')), findsNothing);
+      expect(find.textContaining('Paga el titular'), findsNothing);
       expect(ids.payer, isNot(ids.titular));
     },
   );

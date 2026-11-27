@@ -3,8 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../domain/campaign_calendar.dart' show storedLocalDay;
 import '../../domain/money.dart';
+import '../../domain/operation_mode.dart';
 import '../../domain/read_models.dart' show FarmCostRead;
-import '../../operation_mode_controller.dart' show personalModeProvider;
+import '../../operation_mode_controller.dart'
+    show operationModeProvider, personalModeProvider;
 import '../providers/agro_providers.dart';
 import '../theme/agro_theme.dart';
 import '../widgets/common.dart';
@@ -20,6 +22,8 @@ typedef _FarmData = ({
   /// Costo aplicado del chaco en todas las campañas, del mismo informe que
   /// «Costos por chaco» (`farmCostReport`); nulo si el chaco no figura.
   FarmCostRead? cost,
+  OperationMode mode,
+  int? ownerPersonId,
 });
 
 /// Bitácora de un chaco: lo aplicado y su costo, y cada aplicación por mes
@@ -40,13 +44,18 @@ class FarmLogbookScreen extends ConsumerWidget {
   final bool logbook;
   Future<_FarmData> _load(WidgetRef ref) async {
     final repo = ref.read(repositoryProvider);
-    final farm = await repo.farmProfile(farmId);
-    final entries = await repo.farmLogbook(farmId);
-    final costs = await ref.read(agroGatewayProvider).farmCostReportTyped();
+    final (farm, entries, costs, operating) = await (
+      repo.farmProfile(farmId),
+      repo.farmLogbook(farmId),
+      ref.read(agroGatewayProvider).farmCostReportTyped(),
+      repo.operatingContext(),
+    ).wait;
     return (
       farm: farm,
       entries: entries,
       cost: costs.where((row) => row.farmId == farmId).firstOrNull,
+      mode: operating.mode,
+      ownerPersonId: operating.ownerPersonId,
     );
   }
 
@@ -77,6 +86,14 @@ class FarmLogbookScreen extends ConsumerWidget {
         return const Center(child: CircularProgressIndicator());
       }
       final d = snapshot.data!;
+      final personal =
+          (ref.watch(operationModeProvider) ?? d.mode) ==
+          OperationMode.personal;
+      final ownerPersonId = d.ownerPersonId;
+      final hideFarmOwner =
+          personal &&
+          ownerPersonId != null &&
+          d.farm['owner_person_id'] == ownerPersonId;
       final cost = d.cost;
       final perHectare = cost?.costPerHectareMinor;
       // Agrupadas por mes, en el orden de la consulta (más reciente primero).
@@ -89,9 +106,10 @@ class FarmLogbookScreen extends ConsumerWidget {
         header: RdmAHero(
           overline: 'Bitácora',
           title: d.farm['name'] as String,
-          subtitle:
-              'Bitácora · ${d.farm['owner_name']} · '
-              '${formatHectares(d.farm['area_m2'] as int)}',
+          subtitle: hideFarmOwner
+              ? 'Bitácora · ${formatHectares(d.farm['area_m2'] as int)}'
+              : 'Bitácora · ${d.farm['owner_name']} · '
+                    '${formatHectares(d.farm['area_m2'] as int)}',
           children: [
             if (cost != null)
               RdmAStatPair(
@@ -144,7 +162,13 @@ class FarmLogbookScreen extends ConsumerWidget {
                             endIndent: 16,
                             color: AgroColors.line,
                           ),
-                        _LogbookEntry(row: row),
+                        _LogbookEntry(
+                          row: row,
+                          hidePerson:
+                              personal &&
+                              ownerPersonId != null &&
+                              row['person_id'] == ownerPersonId,
+                        ),
                       ],
                     ],
                   ),
@@ -162,8 +186,9 @@ class FarmLogbookScreen extends ConsumerWidget {
 /// si se hubiera aplicado: lo dice, como el historial de compras (REC-015,
 /// #51).
 class _LogbookEntry extends StatelessWidget {
-  const _LogbookEntry({required this.row});
+  const _LogbookEntry({required this.row, this.hidePerson = false});
   final Map<String, Object?> row;
+  final bool hidePerson;
 
   @override
   Widget build(BuildContext context) {
@@ -183,9 +208,12 @@ class _LogbookEntry extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            '${formatDate(row['applied_at'])} · ${row['campaign_name']} · '
-            '${row['person_name']}'
-            '${reversed ? ' · ${operationStatusLabel(row['status'])}' : ''}',
+            [
+              formatDate(row['applied_at']),
+              '${row['campaign_name']}',
+              if (!hidePerson) '${row['person_name']}',
+              if (reversed) operationStatusLabel(row['status']),
+            ].join(' · '),
             style: AgroText.detail,
           ),
           Padding(
