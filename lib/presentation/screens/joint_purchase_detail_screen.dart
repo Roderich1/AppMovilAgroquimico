@@ -82,11 +82,8 @@ class _JointPurchaseDetailScreenState
       ),
     );
     if (lines == null || !mounted) return;
-    // E2 §10.6 y E4 §4: el consentimiento (`CONV-4`) se pide sólo para
-    // participar por primera vez; modificar cantidades conserva lo aceptado
-    // y nunca cambia quién ve los datos.
     DateTime? acceptedAt;
-    if (call.serverParticipation == null) {
+    if (!call.hasOrderAuthorization) {
       acceptedAt = await showDialog<DateTime>(
         context: context,
         barrierDismissible: false,
@@ -102,7 +99,7 @@ class _JointPurchaseDetailScreenState
             lines: lines,
             consentVersion: acceptedAt == null
                 ? null
-                : jointPurchaseConsentVersion,
+                : jointPurchaseOrderConsentVersion,
             consentAcceptedAt: acceptedAt,
           ),
       acceptedAt == null
@@ -682,8 +679,8 @@ class _QuantityRow extends StatelessWidget {
   }
 }
 
-/// Consentimiento vigente (`CONV-4`, E4 §4.1) con su ayuda y una casilla
-/// obligatoria sin marcar, sólo al participar por primera vez: aceptarlo da
+/// Autorización del pedido (`CONV-5`) con su ayuda y una casilla
+/// obligatoria sin marcar cuando falta autorización vigente: aceptarlo da
 /// el alcance `ADMINISTRATION` (la Administración habilitada ve el nombre y
 /// las cantidades; la Directiva, sólo los totales). Devuelve la fecha de
 /// aceptación (del teléfono) o null si se cancela.
@@ -707,7 +704,12 @@ class _JointPurchaseConsentDialogState
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(jointPurchaseConsentText),
+          const Text(jointPurchaseOrderConsentText),
+          const SizedBox(height: 8),
+          const Text(
+            'Directiva podrá ver los totales por producto, incluso si '
+            'participa una sola persona. El pedido no genera una deuda.',
+          ),
           const SizedBox(height: 8),
           const JointPurchaseConsentHelp(
             textKey: Key('joint-consent-dialog-help'),
@@ -718,7 +720,7 @@ class _JointPurchaseConsentDialogState
             controlAffinity: ListTileControlAffinity.leading,
             value: accepted,
             onChanged: (value) => setState(() => accepted = value ?? false),
-            title: const Text('Entiendo y acepto'),
+            title: const Text('Autorizo a Administración'),
           ),
         ],
       ),
@@ -733,7 +735,7 @@ class _JointPurchaseConsentDialogState
         onPressed: accepted
             ? () => Navigator.pop(context, DateTime.now())
             : null,
-        child: const Text('Confirmar participación'),
+        child: const Text('Confirmar pedido'),
       ),
     ],
   );

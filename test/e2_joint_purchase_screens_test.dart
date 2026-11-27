@@ -119,8 +119,8 @@ void main() {
 
       // Sin la casilla no se puede confirmar; cancelar no guarda nada.
       await enterQuantities(tester);
-      expect(find.text(jointPurchaseConsentText), findsOneWidget);
-      expect(find.text('Entiendo y acepto'), findsOneWidget);
+      expect(find.text(jointPurchaseOrderConsentText), findsOneWidget);
+      expect(find.text('Autorizo a Administración'), findsOneWidget);
       final confirm = find.byKey(const Key('joint-consent-confirm'));
       expect(tester.widget<FilledButton>(confirm).onPressed, isNull);
       await tester.tap(find.text('Cancelar'));
@@ -130,6 +130,26 @@ void main() {
         find.text('Todavía no participa en esta convocatoria.'),
         findsOneWidget,
       );
+    },
+  );
+
+  testWidgets(
+    'editar con autorización vigente reutiliza el permiso sin abrir la casilla',
+    (tester) async {
+      final s = await pumpDetail(tester);
+      await tester.runAsync(
+        () => seedCalls(s.store, memberA, [
+          callJson(participation: participationJson(lines: {litreRef: 10000})),
+        ]),
+      );
+      s.c.read(jointPurchaseRevisionProvider.notifier).bump();
+      await settle(tester);
+      await enterQuantities(tester);
+      expect(find.byKey(const Key('joint-consent-check')), findsNothing);
+      final saved = (await tester.runAsync(() => s.store.ops(callId)))!.single;
+      expect(saved.lines, {litreRef: 25000});
+      expect(saved.consentVersion, isNull);
+      await settle(tester);
     },
   );
 
@@ -145,7 +165,7 @@ void main() {
 
       final ops = (await tester.runAsync(() => s.store.ops(callId)))!;
       expect(ops.single.lines, {litreRef: 25000});
-      expect(ops.single.consentVersion, 'CONV-4');
+      expect(ops.single.consentVersion, jointPurchaseOrderConsentVersion);
       expect(find.text('Pendiente de envío'), findsOneWidget);
       expect(
         find.text('Pendiente de envío: 25 L de Herbicida central'),
@@ -670,7 +690,7 @@ void main() {
   // (reescritas desde P-C, E2 §10.6: ampliar y reducir se retiran del flujo)
 
   testWidgets(
-    'E4: modificar no pide consentimiento; revisar una participación anterior con CONV-4, casilla sin marcar, queda «pendiente», no aplicada',
+    'modificar una participación anterior exige autorización y la revisión separada conserva CONV-4',
     (tester) async {
       final s = await pumpDetail(tester);
       await tester.runAsync(
@@ -694,11 +714,20 @@ void main() {
         findsNothing,
       );
       expect(find.byKey(const Key('joint-access-retract')), findsNothing);
-      // Modificar: sin diálogo de consentimiento; quién ve los datos no cambia.
+      // Modificar exige autorización. Salir conserva las cantidades.
       await enterQuantities(tester);
-      expect(find.text(jointPurchaseConsentText), findsNothing);
-      final ops = (await tester.runAsync(() => s.store.ops(callId)))!;
-      expect(ops.single.consentVersion, isNull);
+      expect(find.text(jointPurchaseOrderConsentText), findsOneWidget);
+      expect(
+        tester
+            .widget<FilledButton>(
+              find.byKey(const Key('joint-consent-confirm')),
+            )
+            .onPressed,
+        isNull,
+      );
+      await tester.tap(find.text('Cancelar'));
+      await settle(tester, rounds: 2);
+      expect(await tester.runAsync(() => s.store.ops(callId)), isEmpty);
       expect(await tester.runAsync(() => s.store.consentOps(callId)), isEmpty);
 
       // Revisar: diálogo con el texto CONV-4, su ayuda y una casilla SIN marcar.
@@ -745,9 +774,7 @@ void main() {
       expect(decisions.single.consentVersion, 'CONV-4');
       expect(decisions.single.sendStatus, 'PENDING_SEND');
       // Las cantidades pendientes no cambiaron.
-      expect((await tester.runAsync(() => s.store.ops(callId)))!.single.lines, {
-        litreRef: 25000,
-      });
+      expect(await tester.runAsync(() => s.store.ops(callId)), isEmpty);
       // Lo vigente sigue siendo lo aplicado en el sindicato.
       expect(
         tester.widget<Text>(find.byKey(const Key('joint-who-can-see'))).data,

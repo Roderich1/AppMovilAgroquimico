@@ -20,12 +20,21 @@ import 'operation_id.dart';
 const int jointPurchaseContractVersion = 4;
 const String jointPurchaseContractHeader = 'X-Joint-Purchase-Contract';
 
-/// Versión vigente del texto de consentimiento de la participación (E4
-/// §4.1). Aceptarla al participar por primera vez da el alcance
-/// `ADMINISTRATION`; las operaciones preparadas antes con `CONV-1`, `CONV-2`
-/// o `CONV-3` se envían tal como se guardaron y el sindicato las acepta con
-/// el alcance de su texto, nunca como `CONV-4` (E4 §7.2).
+/// Texto vigente para consultar convocatorias y revisar el acceso por separado.
+/// Las operaciones antiguas conservan su versión al salir de la cola.
 const String jointPurchaseConsentVersion = 'CONV-4';
+
+/// Texto mostrado al confirmar un pedido. CONV-4 sigue rigiendo la decisión
+/// separada de acceso y la lectura de convocatorias.
+const String jointPurchaseOrderConsentVersion = 'CONV-5';
+const String jointPurchaseOrderConsentText =
+    'Para confirmar tu pedido, autoriza que Administración vea tu nombre y '
+    'las cantidades que solicitas en esta convocatoria. Usará esos datos para '
+    'preparar la entrega';
+
+bool coversJointPurchaseOrder(String scopeVersion) =>
+    scopeVersion == jointPurchaseConsentVersion ||
+    scopeVersion == jointPurchaseOrderConsentVersion;
 
 /// Texto exacto `CONV-4`, copiado byte a byte de
 /// `E4_EJEMPLOS_RESPUESTAS.md` §0 (`CONSENT_V4_TEXT` del Backend). Si el
@@ -92,7 +101,8 @@ const String jointPurchaseLegacyConsentVersion = 'CONV-1';
 /// que aceptó (E4 §3.3 y §7.2): `CONV-4` → `ADMINISTRATION`; `CONV-2` →
 /// `COLLABORATORS`; las demás → `RESPONSIBLE_ONLY`.
 String initialConsentScope(String consentVersion) => switch (consentVersion) {
-  jointPurchaseConsentVersion => JointPurchaseConsentScope.administration,
+  jointPurchaseConsentVersion ||
+  jointPurchaseOrderConsentVersion => JointPurchaseConsentScope.administration,
   jointPurchaseConsentV2Version => JointPurchaseConsentScope.collaborators,
   _ => JointPurchaseConsentScope.responsibleOnly,
 };
@@ -102,11 +112,13 @@ String initialConsentScope(String consentVersion) => switch (consentVersion) {
 /// misma operación devuelve el mismo código, así que nunca se reintentan.
 abstract final class JointPurchaseErrorCodes {
   static const consentVersionRetired = 'CONSENT_VERSION_RETIRED';
+  static const orderAuthorizationRequired = 'ORDER_CONSENT_REQUIRED';
   static const appUpdateRequired = 'APP_UPDATE_REQUIRED';
   static const wideningNotAllowed = 'WIDENING_NOT_ALLOWED';
   static const participationRequired = 'PARTICIPATION_REQUIRED';
   static const definitive = {
     consentVersionRetired,
+    orderAuthorizationRequired,
     appUpdateRequired,
     wideningNotAllowed,
   };
