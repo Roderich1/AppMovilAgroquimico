@@ -174,10 +174,12 @@ void main() {
     );
 
     testWidgets('detalle: mismas cifras que las lecturas actuales y que el '
-        'código anterior, en el orden pedido', (tester) async {
+        'código anterior, divididas en Resumen, Movimientos y Lotes', (
+      tester,
+    ) async {
       final r = await open(tester, 'rdm2-b-detalle');
       r.c.read(routerProvider).push('/inventario/${r.seed.product}');
-      await waitFor(tester, find.byKey(const Key('inventory-lots')));
+      await waitFor(tester, find.byKey(const Key('inventory-totals')));
       await settle(tester);
       final h = r.header;
       final unit = h['unit']! as String;
@@ -217,7 +219,8 @@ void main() {
         ),
         findsOneWidget,
       );
-      // 5. Cifras netas y valor, como información secundaria.
+      // 5. Cifras netas y valor en Resumen: «neto» se explica una sola vez
+      // y «No es una deuda.» se mantiene junto al valor del stock.
       expect(
         metric(
           'Comprado neto',
@@ -239,6 +242,13 @@ void main() {
         ),
         findsOneWidget,
       );
+      expect(
+        find.text('De lo que hay ahora. No es una deuda.'),
+        findsOneWidget,
+      );
+      expect(find.text('Neto: sin operaciones revertidas.'), findsOneWidget);
+      expect(find.text('Sin compras revertidas'), findsNothing);
+      expect(find.text('En aplicaciones, sin las revertidas'), findsNothing);
 
       // 2. Quién lo tiene: cada persona con lo que tiene y su consumido neto
       // de su asignación neta (antes: «Asignación neta 3,5 L · consumido
@@ -301,25 +311,19 @@ void main() {
       expect(find.text('Por vencer'), findsNothing);
       expect(find.text('Lote vencido'), findsNothing);
 
-      // Orden: cantidad → personas → planes → movimientos → más datos.
+      // Orden en Resumen: cantidad → pestañas → personas → planes → cifras → avisos.
       double top(String key) => tester.getTopLeft(find.byKey(Key(key))).dy;
-      expect(top('metric-Hay ahora'), lessThan(top('inventory-distribution')));
+      expect(top('metric-Hay ahora'), lessThan(top('inventory-detail-tabs')));
+      expect(
+        top('inventory-detail-tabs'),
+        lessThan(top('inventory-distribution')),
+      );
       expect(top('inventory-distribution'), lessThan(top('inventory-plans')));
-      expect(top('inventory-plans'), lessThan(top('inventory-movements')));
-      expect(top('inventory-movements'), lessThan(top('inventory-lots')));
-      expect(top('inventory-lots'), lessThan(top('inventory-totals')));
+      expect(top('inventory-plans'), lessThan(top('inventory-totals')));
       expect(
         top('inventory-totals'),
         lessThan(top('inventory-alert-settings')),
       );
-
-      // 4. Movimientos recientes (cinco) y acceso al historial completo.
-      final recent = find.descendant(
-        of: find.byKey(const Key('inventory-movements')),
-        matching: find.byType(ListTile),
-      );
-      expect(recent, findsNWidgets(5));
-      expect(r.movements.length, greaterThan(5));
 
       // Términos técnicos fuera de la vista principal; sin identificadores
       // internos ni «sin número de lote».
@@ -334,10 +338,10 @@ void main() {
         expect(find.textContaining(term), findsNothing, reason: term);
       }
 
-      // Lotes desplegados: una tarjeta por lote, con la cantidad de la
-      // lectura actual; el número del fabricante sólo si existe.
-      await tester.ensureVisible(find.byKey(const Key('inventory-lots')));
-      await tester.tap(find.byKey(const Key('inventory-lots')));
+      // Pestaña «Lotes»: «Con stock» como filtro inicial; una tarjeta por
+      // lote con existencia; el número del fabricante sólo si existe.
+      await tester.tap(find.byKey(const Key('inventory-tab-lots')));
+      await waitFor(tester, find.byKey(const Key('inventory-lots')));
       await settle(tester);
       for (final (i, lot) in r.lots.indexed) {
         final card = find.byKey(Key('inventory-lot-$i'));
@@ -401,17 +405,35 @@ void main() {
       expect(find.textContaining('sin número de lote'), findsNothing);
       expect(find.textContaining('origen'), findsNothing);
 
-      // Historial completo: todas las filas de la lectura actual.
-      await tester.ensureVisible(
-        find.byKey(const Key('inventory-movements-all')),
+      // Al filtrar «Por vencer» o «Todos», el resumen de vencimientos de la
+      // cabecera sigue considerando todos los lotes con existencia.
+      await tester.tap(find.byKey(const Key('inventory-lots-filter-expiring')));
+      await settle(tester);
+      expect(
+        find.descendant(
+          of: expiry,
+          matching: find.text('1 L sin fecha de vencimiento'),
+        ),
+        findsOneWidget,
       );
-      await tester.tap(find.byKey(const Key('inventory-movements-all')));
-      await waitFor(tester, find.byKey(const Key('inventory-history')));
+      await tester.tap(find.byKey(const Key('inventory-lots-filter-all')));
+      await settle(tester);
+      expect(
+        find.descendant(
+          of: expiry,
+          matching: find.text('0,5 L vencieron el ${day(-5)}'),
+        ),
+        findsOneWidget,
+      );
+
+      // Pestaña «Movimientos»: todas las filas de la lectura actual.
+      await tester.tap(find.byKey(const Key('inventory-tab-movements')));
+      await waitFor(tester, find.byKey(const Key('inventory-movements')));
       await settle(tester);
       final history = tester
           .widgetList<ListTile>(
             find.descendant(
-              of: find.byKey(const Key('inventory-history')),
+              of: find.byKey(const Key('inventory-movements')),
               matching: find.byType(ListTile),
             ),
           )

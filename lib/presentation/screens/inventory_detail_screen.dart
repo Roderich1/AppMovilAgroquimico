@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -7,7 +9,8 @@ import '../../domain/campaign_calendar.dart';
 import '../../domain/inventory_alerts.dart';
 import '../../domain/money.dart';
 import '../../domain/person_roles.dart' show PersonPurpose;
-import '../../domain/repository_types.dart' show repositoryMaxAlertLeadDays;
+import '../../domain/repository_types.dart'
+    show ProductMovementFilter, repositoryMaxAlertLeadDays;
 import '../../operation_mode_controller.dart' show personalModeProvider;
 import '../../services/auth/local_owner_credential.dart'
     show AuthorizationPurpose;
@@ -21,38 +24,38 @@ import 'owner_credential_screen.dart' show requestOwnerAuthorization;
 typedef _InventoryDetail = ({
   Map<String, Object?> header,
   List<Map<String, Object?>> distribution,
-  List<Map<String, Object?>> lots,
+  List<({int availableBase, String? expiryDay})> expiryTotals,
   ProductAlertSettings alertSettings,
   String? titularName,
 });
 
-/// Movimientos más recientes que se ven en el detalle; el resto, en el
-/// historial completo.
-const _recentMovements = 5;
-
-/// Cuántos movimientos muestra el historial de entrada y cuántos más por
+/// Cuántos movimientos o lotes muestra cada página inicial y cuántos añade
 /// «Ver más».
 const _movementsPage = 20;
+const _lotsPage = 20;
 
-/// Detalle de un producto (ronda 2 del rediseño, 2026-11-12), en el orden que
-/// pidió el autor:
+enum _ProductDetailTab { summary, movements, lots }
+
+enum _LotFilter { inStock, expiring, all }
+
+/// Detalle de un producto dividido en tres subvistas («Resumen»,
+/// «Movimientos» y «Lotes») bajo la cabecera de existencias y
+/// vencimientos:
 ///
-/// 1. cuánto hay ahora y qué parte vence (con su cantidad);
-/// 2. quién lo tiene;
-/// 3. lo previsto en planes, sólo si hay planes pendientes que lo piden;
-/// 4. los movimientos recientes y el acceso al historial completo (que
-///    explica el saldo: tarea T3 del piloto, E-10);
-/// 5. «Más datos»: lotes, cifras netas y valor, y avisos del producto.
-///
-/// Las cifras y cálculos son los de antes (`inventoryProductHeader`,
-/// `inventoryProductDistribution`, `inventoryProductLots`); sólo cambia la
-/// presentación. Las lecturas se hacen una vez al abrir (B-15).
-///
-/// **Modo individual** (lámina I-31, 2026-11-13): sin «Quién lo tiene» (todo
-/// es del titular), «Tiene ahora» en la cabecera, lo previsto en planes con
-/// su proyección y la aclaración de que un plan no descuenta existencias, y
-/// los movimientos y lotes sin repetir el nombre del titular. Mismas
-/// lecturas y cifras; el modo con varias personas no cambia.
+/// - **Cabecera:** cuánto hay ahora y qué parte vence (calculado siempre sobre
+///   todos los lotes con existencia, sin verse afectado por filtros ni
+///   paginación de las pestañas).
+/// - **Resumen** (vista inicial): quién lo tiene (en modo compartido), lo
+///   previsto en planes (si hay comprometido), cifras clave («Comprado neto»,
+///   «Consumido neto» y «Valor a costo de compra» con «No es una deuda») y
+///   avisos del producto.
+/// - **Movimientos:** filtros por categoría aplicados en la consulta antes de
+///   paginar («Todo», «Compras», «Aplicaciones» y, en compartido, «Pases»; las
+///   reversiones permanecen en su categoría y los pases históricos siguen en
+///   «Todo» también en modo individual).
+/// - **Lotes:** «Con stock» como vista inicial, «Por vencer» y «Todos» (que
+///   incluye los lotes agotados identificados con la etiqueta «Agotado»; los
+///   de compras revertidas se consultan en Movimientos).
 class InventoryDetailScreen extends ConsumerStatefulWidget {
   const InventoryDetailScreen({super.key, required this.productId});
   final int productId;
@@ -66,6 +69,12 @@ class _InventoryDetailScreenState extends ConsumerState<InventoryDetailScreen> {
   late Future<_InventoryDetail> detail;
   late Future<List<Map<String, Object?>>> movements;
 
+  _ProductDetailTab _tab = _ProductDetailTab.summary;
+  ProductMovementFilter _movementFilter = ProductMovementFilter.all;
+  int _movementLimit = _movementsPage;
+
+  _LotFilter _lotFilter = _LotFilter.inStock;
+
   @override
   void initState() {
     super.initState();
@@ -78,7 +87,7 @@ class _InventoryDetailScreenState extends ConsumerState<InventoryDetailScreen> {
     return (
       header: await repo.inventoryProductHeader(widget.productId),
       distribution: await repo.inventoryProductDistribution(widget.productId),
-      lots: await repo.inventoryProductLots(widget.productId),
+      expiryTotals: await repo.inventoryProductExpiryTotals(widget.productId),
       alertSettings: await repo.productAlertSettings(widget.productId),
       // Sólo en propio (una consulta más): el nombre del titular, para no
       // repetirlo en cada movimiento y lote y conservar el de otra persona
@@ -146,27 +155,37 @@ class _InventoryDetailScreenState extends ConsumerState<InventoryDetailScreen> {
     }
   }
 
-  /// Se pide una fila más que las que se muestran para saber si hay más.
-  Future<List<Map<String, Object?>>> _loadMovements() => ref
+  /// Se pide una fila más que las que se muestran para saber si hay más, con
+  /// el filtro aplicado antes del límite en la consulta SQL.
+  Future<List<Map<String, Object?>>> _loadMovements({
+    ProductMovementFilter? filter,
+    int? limit,
+  }) => ref
       .read(repositoryProvider)
-      .productMovements(widget.productId, limit: _recentMovements + 1);
+      .productMovements(
+        widget.productId,
+        limit: (limit ?? _movementLimit) + 1,
+        filter: filter ?? _movementFilter,
+      );
 
-  /// El historial completo, en su propia vista (el detalle sólo muestra los
-  /// más recientes).
-  Future<void> _openHistory(
-    String productName,
-    String unit,
-    String? titularName,
-  ) => Navigator.of(context).push<void>(
-    MaterialPageRoute(
-      builder: (_) => _MovementsHistoryPage(
-        productId: widget.productId,
-        productName: productName,
-        unit: unit,
-        titularName: titularName,
-      ),
-    ),
-  );
+  void _selectMovementFilter(ProductMovementFilter next) {
+    if (_movementFilter == next) return;
+    setState(() {
+      _movementFilter = next;
+      _movementLimit = _movementsPage;
+      movements = _loadMovements(filter: next, limit: _movementsPage);
+    });
+  }
+
+  void _showMoreMovements() {
+    final nextLimit = _movementLimit + _movementsPage;
+    setState(() {
+      _movementLimit = nextLimit;
+      movements = _loadMovements(limit: nextLimit);
+    });
+  }
+
+  void _selectLotFilter(_LotFilter next) => setState(() => _lotFilter = next);
 
   /// Lo que significan las cifras: se abre con «i» en la cabecera, sin
   /// párrafos permanentes. Los términos técnicos («neto», «asignación neta»)
@@ -273,19 +292,28 @@ class _InventoryDetailScreenState extends ConsumerState<InventoryDetailScreen> {
       final committed = h['committed_base'] as int;
       // Vencimiento de los lotes con existencia, con el plazo del producto
       // (RN-31), agrupado por fecha con su cantidad.
-      final today = localDay(DateTime.now());
+      final now = DateTime.now();
+      final today = localDay(now);
       final lead = data.alertSettings.leadDays ?? defaultAlertLeadDays;
+      final expiryThrough = _lotFilter == _LotFilter.expiring
+          ? localDay(DateTime(now.year, now.month, now.day + lead))
+          : null;
       final portions = expiryPortions(
-        lots: [
-          for (final lot in data.lots)
-            (
-              availableBase: lot['available_base'] as int,
-              expiryDay: lot['expiry_date'] as String?,
-            ),
-        ],
+        lots: data.expiryTotals,
         today: today,
         leadDays: lead,
       );
+      // En modo individual no se muestra la pastilla «Pases»; si estaba
+      // elegida antes de cambiar de modo, vuelve a «Todo» (donde los pases
+      // históricos siguen visibles).
+      if (personal && _movementFilter == ProductMovementFilter.transfers) {
+        _movementFilter = ProductMovementFilter.all;
+        _movementLimit = _movementsPage;
+        movements = _loadMovements(
+          filter: ProductMovementFilter.all,
+          limit: _movementsPage,
+        );
+      }
       return RdmScrollPage(
         header: _Header(
           productName: productName,
@@ -297,151 +325,238 @@ class _InventoryDetailScreenState extends ConsumerState<InventoryDetailScreen> {
           onInfo: () => _showInfo(personal),
         ),
         children: [
-          // En propio todo es del titular: «Quién lo tiene» repetiría su
-          // nombre con la misma cifra de la cabecera (lámina I-31).
-          if (!personal) ...[
-            const _SectionTitle('Quién lo tiene'),
-            AgroGroup(
-              key: const Key('inventory-distribution'),
-              children: [
-                for (final row in data.distribution)
-                  // Material propio: el grupo blanco tiene color de fondo.
-                  _onWhite(
-                    ListTile(
-                      title: Text(
-                        row['person_name'] as String,
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w700,
-                          color: AgroColors.ink,
-                        ),
-                      ),
-                      // Consumido neto de su asignación neta (los términos,
-                      // en «i»).
-                      subtitle: Text(
-                        'Usó ${formatQuantity(row['consumed_base'] as int, unit)} '
-                        'de ${formatQuantity(row['assigned_base'] as int, unit)}',
-                        style: AgroText.detail,
-                      ),
-                      trailing: Text(
-                        formatQuantity(row['available_base'] as int, unit),
-                        style: AgroText.amount,
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          ],
-          // Sólo cuando hay planes pendientes que piden este producto.
-          if (committed != 0) ...[
-            if (!personal) const SizedBox(height: 18),
-            if (personal)
-              _PersonalPlansCard(
-                physical: physical,
-                committed: committed,
-                unit: unit,
-              )
-            else
-              _PlansCard(physical: physical, committed: committed, unit: unit),
-          ],
-          const SizedBox(height: 18),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(4, 0, 4, 8),
-            child: Semantics(
-              header: true,
-              child: const Text(
-                'Movimientos recientes',
-                key: Key('inventory-movements-title'),
-                style: AgroText.h2,
+          SegmentToggle<_ProductDetailTab>(
+            key: const Key('inventory-detail-tabs'),
+            selected: _tab,
+            onChanged: (next) => setState(() => _tab = next),
+            options: const [
+              ToggleOption(
+                _ProductDetailTab.summary,
+                'Resumen',
+                key: Key('inventory-tab-summary'),
               ),
-            ),
-          ),
-          FutureBuilder<List<Map<String, Object?>>>(
-            future: movements,
-            builder: (context, snapshot) {
-              if (snapshot.hasError) {
-                return EmptyState(
-                  icon: Icons.error_outline,
-                  message: friendlyError(snapshot.error!),
-                );
-              }
-              if (!snapshot.hasData) {
-                return const Center(
-                  child: Padding(
-                    padding: EdgeInsets.all(16),
-                    child: CircularProgressIndicator(),
-                  ),
-                );
-              }
-              final rows = snapshot.data!;
-              if (rows.isEmpty) {
-                return const EmptyState(
-                  icon: Icons.history_outlined,
-                  message: 'Todavía no hay movimientos de este producto.',
-                );
-              }
-              final hasMore = rows.length > _recentMovements;
-              return AgroGroup(
-                key: const Key('inventory-movements'),
-                children: [
-                  for (final row in rows.take(_recentMovements))
-                    _MovementTile(
-                      row: row,
-                      unit: unit,
-                      personal: personal,
-                      titularName: data.titularName,
-                    ),
-                  if (hasMore)
-                    _onWhite(
-                      TextButton.icon(
-                        key: const Key('inventory-movements-all'),
-                        onPressed: () =>
-                            _openHistory(productName, unit, data.titularName),
-                        icon: const Icon(Icons.history),
-                        label: const Text('Ver todo el historial'),
-                      ),
-                    ),
-                ],
-              );
-            },
-          ),
-          const SizedBox(height: 22),
-          const GroupLabel('Más datos'),
-          _LotsPanel(
-            lots: data.lots,
-            unit: unit,
-            today: today,
-            lead: lead,
-            personal: personal,
-            titularName: data.titularName,
-          ),
-          const SizedBox(height: 12),
-          AgroGroup(
-            key: const Key('inventory-totals'),
-            children: [
-              _FigureRow(
-                label: 'Comprado neto',
-                hint: 'Sin compras revertidas',
-                value: formatQuantity(h['purchased_base'] as int, unit),
+              ToggleOption(
+                _ProductDetailTab.movements,
+                'Movimientos',
+                key: Key('inventory-tab-movements'),
               ),
-              _FigureRow(
-                label: 'Consumido neto',
-                hint: 'En aplicaciones, sin las revertidas',
-                value: formatQuantity(h['consumed_base'] as int, unit),
-              ),
-              _FigureRow(
-                label: 'Valor a costo de compra',
-                hint: 'De lo que hay ahora. No es una deuda.',
-                value: formatBob(h['value_bob_minor'] as int),
+              ToggleOption(
+                _ProductDetailTab.lots,
+                'Lotes',
+                key: Key('inventory-tab-lots'),
               ),
             ],
           ),
-          const SizedBox(height: 12),
-          _AlertSettingsCard(
-            settings: data.alertSettings,
-            onConfigure: () => _configureAlerts(data.alertSettings),
-            shared: !personal,
-          ),
+          const SizedBox(height: 16),
+          if (_tab == _ProductDetailTab.summary) ...[
+            // En propio todo es del titular: «Quién lo tiene» repetiría su
+            // nombre con la misma cifra de la cabecera (lámina I-31).
+            if (!personal) ...[
+              const _SectionTitle('Quién lo tiene'),
+              AgroGroup(
+                key: const Key('inventory-distribution'),
+                children: [
+                  for (final row in data.distribution)
+                    // Material propio: el grupo blanco tiene color de fondo.
+                    _onWhite(
+                      ListTile(
+                        title: Text(
+                          row['person_name'] as String,
+                          style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w700,
+                            color: AgroColors.ink,
+                          ),
+                        ),
+                        // Consumido neto de su asignación neta (los términos,
+                        // en «i»).
+                        subtitle: Text(
+                          'Usó ${formatQuantity(row['consumed_base'] as int, unit)} '
+                          'de ${formatQuantity(row['assigned_base'] as int, unit)}',
+                          style: AgroText.detail,
+                        ),
+                        trailing: Text(
+                          formatQuantity(row['available_base'] as int, unit),
+                          style: AgroText.amount,
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ],
+            // Sólo cuando hay planes pendientes que piden este producto.
+            if (committed != 0) ...[
+              if (!personal) const SizedBox(height: 18),
+              if (personal)
+                _PersonalPlansCard(
+                  physical: physical,
+                  committed: committed,
+                  unit: unit,
+                )
+              else
+                _PlansCard(
+                  physical: physical,
+                  committed: committed,
+                  unit: unit,
+                ),
+            ],
+            if (!personal || committed != 0) const SizedBox(height: 18),
+            const _SectionTitle('Cifras clave'),
+            AgroGroup(
+              key: const Key('inventory-totals'),
+              children: [
+                _FigureRow(
+                  label: 'Comprado neto',
+                  value: formatQuantity(h['purchased_base'] as int, unit),
+                ),
+                _FigureRow(
+                  label: 'Consumido neto',
+                  value: formatQuantity(h['consumed_base'] as int, unit),
+                ),
+                _FigureRow(
+                  label: 'Valor a costo de compra',
+                  hint: 'De lo que hay ahora. No es una deuda.',
+                  value: formatBob(h['value_bob_minor'] as int),
+                ),
+                const Padding(
+                  padding: EdgeInsets.fromLTRB(16, 8, 16, 10),
+                  child: Text(
+                    'Neto: sin operaciones revertidas.',
+                    key: Key('inventory-net-note'),
+                    style: AgroText.detail,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            _AlertSettingsCard(
+              settings: data.alertSettings,
+              onConfigure: () => _configureAlerts(data.alertSettings),
+            ),
+          ] else if (_tab == _ProductDetailTab.movements) ...[
+            FilterPillBar(
+              children: [
+                FilterPill(
+                  key: const Key('inventory-movements-filter-all'),
+                  label: 'Todo',
+                  selected: _movementFilter == ProductMovementFilter.all,
+                  onSelected: () =>
+                      _selectMovementFilter(ProductMovementFilter.all),
+                ),
+                FilterPill(
+                  key: const Key('inventory-movements-filter-purchases'),
+                  label: 'Compras',
+                  selected: _movementFilter == ProductMovementFilter.purchases,
+                  onSelected: () =>
+                      _selectMovementFilter(ProductMovementFilter.purchases),
+                ),
+                FilterPill(
+                  key: const Key('inventory-movements-filter-applications'),
+                  label: 'Aplicaciones',
+                  selected:
+                      _movementFilter == ProductMovementFilter.applications,
+                  onSelected: () =>
+                      _selectMovementFilter(ProductMovementFilter.applications),
+                ),
+                if (!personal)
+                  FilterPill(
+                    key: const Key('inventory-movements-filter-transfers'),
+                    label: 'Pases',
+                    selected:
+                        _movementFilter == ProductMovementFilter.transfers,
+                    onSelected: () =>
+                        _selectMovementFilter(ProductMovementFilter.transfers),
+                  ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            FutureBuilder<List<Map<String, Object?>>>(
+              key: ValueKey(('movements', _movementFilter, _movementLimit)),
+              future: movements,
+              builder: (context, snapshot) {
+                if (snapshot.hasError) {
+                  return EmptyState(
+                    icon: Icons.error_outline,
+                    message: friendlyError(snapshot.error!),
+                  );
+                }
+                if (!snapshot.hasData) {
+                  return const Center(
+                    child: Padding(
+                      padding: EdgeInsets.all(16),
+                      child: CircularProgressIndicator(),
+                    ),
+                  );
+                }
+                final rows = snapshot.data!;
+                if (rows.isEmpty) {
+                  return EmptyState(
+                    icon: Icons.history_outlined,
+                    message: _movementFilter == ProductMovementFilter.all
+                        ? 'Todavía no hay movimientos de este producto.'
+                        : 'No hay movimientos en esta categoría.',
+                  );
+                }
+                final hasMore = rows.length > _movementLimit;
+                return AgroGroup(
+                  key: const Key('inventory-movements'),
+                  children: [
+                    for (final row in rows.take(_movementLimit))
+                      _MovementTile(
+                        row: row,
+                        unit: unit,
+                        personal: personal,
+                        titularName: data.titularName,
+                      ),
+                    if (hasMore)
+                      _onWhite(
+                        TextButton.icon(
+                          key: const Key('inventory-history-more'),
+                          onPressed: _showMoreMovements,
+                          icon: const Icon(Icons.expand_more),
+                          label: const Text('Ver más'),
+                        ),
+                      ),
+                  ],
+                );
+              },
+            ),
+          ] else ...[
+            FilterPillBar(
+              children: [
+                FilterPill(
+                  key: const Key('inventory-lots-filter-inStock'),
+                  label: 'Con stock',
+                  selected: _lotFilter == _LotFilter.inStock,
+                  onSelected: () => _selectLotFilter(_LotFilter.inStock),
+                ),
+                FilterPill(
+                  key: const Key('inventory-lots-filter-expiring'),
+                  label: 'Por vencer',
+                  selected: _lotFilter == _LotFilter.expiring,
+                  onSelected: () => _selectLotFilter(_LotFilter.expiring),
+                ),
+                FilterPill(
+                  key: const Key('inventory-lots-filter-all'),
+                  label: 'Todos',
+                  selected: _lotFilter == _LotFilter.all,
+                  onSelected: () => _selectLotFilter(_LotFilter.all),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            _LotsSection(
+              key: ValueKey((widget.productId, _lotFilter, expiryThrough)),
+              productId: widget.productId,
+              filter: _lotFilter,
+              expiryThrough: expiryThrough,
+              unit: unit,
+              today: today,
+              lead: lead,
+              personal: personal,
+              titularName: data.titularName,
+            ),
+          ],
         ],
       );
     },
@@ -508,7 +623,7 @@ class _Header extends StatelessWidget {
           text:
               '${warns.length - _maxLines} '
               '${warns.length - _maxLines == 1 ? 'fecha más' : 'fechas más'}: '
-              'ver Lotes, en «Más datos»',
+              'ver pestaña Lotes',
           onDark: true,
         ),
       if (warns.isEmpty && later)
@@ -817,11 +932,15 @@ class _FigureRow extends StatelessWidget {
   );
 }
 
-/// Lotes con existencia, plegados: cada uno como tarjeta legible, sin el
-/// identificador interno; el número del fabricante sólo si existe.
-class _LotsPanel extends StatelessWidget {
-  const _LotsPanel({
-    required this.lots,
+/// Lista paginada de lotes en la subvista «Lotes»: cada uno como tarjeta
+/// legible, sin identificador interno; el número del fabricante sólo si
+/// existe, y los agotados con la etiqueta «Agotado».
+class _LotsSection extends ConsumerStatefulWidget {
+  const _LotsSection({
+    super.key,
+    required this.productId,
+    required this.filter,
+    required this.expiryThrough,
     required this.unit,
     required this.today,
     required this.lead,
@@ -829,7 +948,9 @@ class _LotsPanel extends StatelessWidget {
     this.titularName,
   });
 
-  final List<Map<String, Object?>> lots;
+  final int productId;
+  final _LotFilter filter;
+  final String? expiryThrough;
   final String unit;
   final String today;
   final int lead;
@@ -838,6 +959,53 @@ class _LotsPanel extends StatelessWidget {
   /// persona (si quedaran) con el suyo.
   final bool personal;
   final String? titularName;
+
+  @override
+  ConsumerState<_LotsSection> createState() => _LotsSectionState();
+}
+
+class _LotsSectionState extends ConsumerState<_LotsSection> {
+  final _lots = <Map<String, Object?>>[];
+  bool _loading = false;
+  bool _hasMore = false;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(_loadNext());
+  }
+
+  Future<void> _loadNext() async {
+    if (_loading) return;
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final rows = await ref
+          .read(repositoryProvider)
+          .inventoryProductLots(
+            widget.productId,
+            includeExhausted: widget.filter == _LotFilter.all,
+            expiryThrough: widget.expiryThrough,
+            limit: _lotsPage + 1,
+            offset: _lots.length,
+          );
+      if (!mounted) return;
+      setState(() {
+        _lots.addAll(rows.take(_lotsPage));
+        _hasMore = rows.length > _lotsPage;
+        _loading = false;
+      });
+    } on Object catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _error = friendlyError(error);
+        _loading = false;
+      });
+    }
+  }
 
   String _expiryText(ExpiryStatus status, String? day) => switch (status) {
     ExpiryStatus.expired => 'Venció el ${displayDay(day!)}',
@@ -849,184 +1017,99 @@ class _LotsPanel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final error = _error;
+    if (_lots.isEmpty && _loading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_lots.isEmpty && error == null) {
+      return EmptyState(
+        key: const Key('inventory-lots'),
+        icon: Icons.inventory_2_outlined,
+        message: switch (widget.filter) {
+          _LotFilter.inStock => 'No hay lotes con existencia.',
+          _LotFilter.expiring => 'No hay lotes vencidos ni próximos a vencer.',
+          _LotFilter.all => 'Todavía no hay lotes de este producto.',
+        },
+      );
+    }
     final references = lotReferences([
-      for (final lot in lots)
+      for (final lot in _lots)
         (
           person: lot['owner_name'] as String,
           acquiredDay: storedLocalDay(lot['acquired_date'] as String),
         ),
     ]);
-    final count = lots.length;
     return Container(
+      key: const Key('inventory-lots'),
       decoration: BoxDecoration(
         color: AgroColors.surface,
         borderRadius: BorderRadius.circular(20),
       ),
-      clipBehavior: Clip.antiAlias,
-      child: Theme(
-        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-        child: _onWhite(
-          ExpansionTile(
-            key: const Key('inventory-lots'),
-            title: const Text(
-              'Lotes',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.w700,
-                color: AgroColors.ink,
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (final (i, lot) in _lots.indexed) ...[
+            if (i > 0) const SizedBox(height: 8),
+            Builder(
+              builder: (context) {
+                final expiry = lot['expiry_date'] as String?;
+                final available = lot['available_base'] as int;
+                final exhausted = available == 0;
+                final status = classifyExpiry(
+                  expiryDay: expiry,
+                  today: widget.today,
+                  leadDays: widget.lead,
+                );
+                return LotCard(
+                  key: Key('inventory-lot-$i'),
+                  person:
+                      widget.personal &&
+                          widget.titularName != null &&
+                          lot['owner_name'] == widget.titularName
+                      ? null
+                      : lot['owner_name'] as String,
+                  quantity: formatQuantity(available, widget.unit),
+                  purchaseDay: formatDate(lot['acquired_date']),
+                  expiryStatus: status,
+                  expiryText: _expiryText(status, expiry),
+                  details: [
+                    'Costo ${lotCostText(lot['unit_cost'] as int, widget.unit)}',
+                    '${lot['supplier_name']} · ${lot['campaign_name']}',
+                  ],
+                  manufacturerLot: lot['lot_number'] as String?,
+                  reference: references[i],
+                  fromTransfer: lot['parent_lot_id'] != null,
+                  exhausted: exhausted,
+                );
+              },
+            ),
+          ],
+          if (error != null) Text(error, style: AgroText.detail),
+          if (_loading)
+            const LinearProgressIndicator()
+          else if (_hasMore || error != null) ...[
+            const SizedBox(height: 8),
+            _onWhite(
+              TextButton.icon(
+                key: const Key('inventory-lots-more'),
+                onPressed: _loadNext,
+                icon: const Icon(Icons.expand_more),
+                label: Text(error == null ? 'Ver más' : 'Reintentar'),
               ),
             ),
-            subtitle: Text(
-              count == 1
-                  ? '1 lote con existencia'
-                  : '$count lotes con existencia',
-              style: AgroText.detail,
-            ),
-            childrenPadding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-            children: [
-              for (final (i, lot) in lots.indexed) ...[
-                if (i > 0) const SizedBox(height: 8),
-                Builder(
-                  builder: (context) {
-                    final expiry = lot['expiry_date'] as String?;
-                    final status = classifyExpiry(
-                      expiryDay: expiry,
-                      today: today,
-                      leadDays: lead,
-                    );
-                    return LotCard(
-                      key: Key('inventory-lot-$i'),
-                      person:
-                          personal &&
-                              titularName != null &&
-                              lot['owner_name'] == titularName
-                          ? null
-                          : lot['owner_name'] as String,
-                      quantity: formatQuantity(
-                        lot['available_base'] as int,
-                        unit,
-                      ),
-                      purchaseDay: formatDate(lot['acquired_date']),
-                      expiryStatus: status,
-                      expiryText: _expiryText(status, expiry),
-                      details: [
-                        'Costo ${lotCostText(lot['unit_cost'] as int, unit)}',
-                        '${lot['supplier_name']} · ${lot['campaign_name']}',
-                      ],
-                      manufacturerLot: lot['lot_number'] as String?,
-                      reference: references[i],
-                      fromTransfer: lot['parent_lot_id'] != null,
-                    );
-                  },
-                ),
-              ],
-            ],
-          ),
-        ),
+          ],
+        ],
       ),
     );
   }
 }
 
-/// Historial completo de movimientos del producto, del más reciente al más
-/// antiguo, por páginas («Ver más»). Sólo lee.
-class _MovementsHistoryPage extends ConsumerStatefulWidget {
-  const _MovementsHistoryPage({
-    required this.productId,
-    required this.productName,
-    required this.unit,
-    this.titularName,
-  });
-
-  final int productId;
-  final String productName;
-  final String unit;
-  final String? titularName;
-
-  @override
-  ConsumerState<_MovementsHistoryPage> createState() =>
-      _MovementsHistoryPageState();
-}
-
-class _MovementsHistoryPageState extends ConsumerState<_MovementsHistoryPage> {
-  int limit = _movementsPage;
-  late Future<List<Map<String, Object?>>> movements = _load();
-
-  /// Se pide una fila más que el límite para saber si queda algo por ver.
-  Future<List<Map<String, Object?>>> _load() => ref
-      .read(repositoryProvider)
-      .productMovements(widget.productId, limit: limit + 1);
-
-  void _showMore() => setState(() {
-    limit += _movementsPage;
-    movements = _load();
-  });
-
-  @override
-  Widget build(BuildContext context) => Material(
-    color: AgroColors.canvas,
-    child: SafeArea(
-      bottom: false,
-      child: FutureBuilder<List<Map<String, Object?>>>(
-        future: movements,
-        builder: (context, snapshot) => RdmScrollPage(
-          children: [
-            ScreenTitleBar(
-              title: 'Movimientos',
-              subtitle: widget.productName,
-              compact: true,
-              leading: const RdmBackButton(),
-            ),
-            const SizedBox(height: 8),
-            if (snapshot.hasError)
-              EmptyState(
-                icon: Icons.error_outline,
-                message: friendlyError(snapshot.error!),
-              )
-            else if (!snapshot.hasData)
-              const Center(child: CircularProgressIndicator())
-            else
-              AgroGroup(
-                key: const Key('inventory-history'),
-                children: [
-                  for (final row in snapshot.data!.take(limit))
-                    _MovementTile(
-                      row: row,
-                      unit: widget.unit,
-                      personal: ref.watch(personalModeProvider),
-                      titularName: widget.titularName,
-                    ),
-                  if (snapshot.data!.length > limit)
-                    _onWhite(
-                      TextButton.icon(
-                        key: const Key('inventory-history-more'),
-                        onPressed: _showMore,
-                        icon: const Icon(Icons.expand_more),
-                        label: const Text('Ver más'),
-                      ),
-                    ),
-                ],
-              ),
-          ],
-        ),
-      ),
-    ),
-  );
-}
-
 /// Configuración de avisos del producto (RF-44), visible para el titular.
 class _AlertSettingsCard extends StatelessWidget {
-  const _AlertSettingsCard({
-    required this.settings,
-    required this.onConfigure,
-    required this.shared,
-  });
+  const _AlertSettingsCard({required this.settings, required this.onConfigure});
   final ProductAlertSettings settings;
   final VoidCallback onConfigure;
-
-  /// Modalidad compartida: el nivel se compara con el total y con cada
-  /// responsable.
-  final bool shared;
 
   @override
   Widget build(BuildContext context) {
@@ -1067,10 +1150,7 @@ class _AlertSettingsCard extends StatelessWidget {
                   Text(
                     min == null
                         ? 'Sin nivel mínimo: no se avisa cuando queda poco.'
-                        : 'Nivel mínimo: ${formatQuantity(min, settings.unit)}. '
-                              '${shared ? 'Se avisa cuando el total de la '
-                                        'instalación, o lo de un responsable, '
-                                        'queda en esa cantidad o menos.' : 'Se avisa cuando queda esa cantidad o menos.'}',
+                        : 'Nivel mínimo: ${formatQuantity(min, settings.unit)}.',
                     style: AgroText.detail.copyWith(color: AgroColors.ink),
                   ),
                   const SizedBox(height: 2),

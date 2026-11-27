@@ -208,18 +208,27 @@ class _AlertsBody extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         if (a.clockLooksBehind)
-          Card(
+          AgroGroup(
             key: const Key('alerts-clock-warning'),
-            color: theme.colorScheme.errorContainer,
-            child: ListTile(
-              leading: const Icon(Icons.schedule),
-              title: const Text('Revise la fecha del teléfono'),
-              subtitle: Text(
-                'El teléfono marca el ${displayDay(a.today)}, antes del último '
-                'movimiento registrado (${displayDay(a.lastMovementDay!)}). '
-                'Los vencimientos se calculan con la fecha del teléfono.',
+            borderColor: AgroColors.danger,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.schedule, color: AgroColors.danger),
+                title: const Text(
+                  'Revise la fecha del teléfono',
+                  style: TextStyle(
+                    fontWeight: FontWeight.w700,
+                    color: AgroColors.ink,
+                  ),
+                ),
+                subtitle: Text(
+                  'El teléfono marca el ${displayDay(a.today)}, antes del último '
+                  'movimiento registrado (${displayDay(a.lastMovementDay!)}). '
+                  'Los vencimientos se calculan con la fecha del teléfono.',
+                  style: AgroText.detail,
+                ),
               ),
-            ),
+            ],
           ),
         if (nothing)
           const EmptyState(

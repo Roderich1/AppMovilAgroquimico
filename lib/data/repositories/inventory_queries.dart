@@ -5,6 +5,7 @@ import '../app_database.dart';
 import '../operation_mode_store.dart';
 import 'repository_exceptions.dart';
 import 'repository_session.dart';
+import 'repository_types.dart';
 
 /// Consultas de sólo lectura de existencias, distribución, lotes, movimientos
 /// y avisos F04-AV.
@@ -192,6 +193,10 @@ class InventoryQueries {
     int? personId,
     int? supplierId,
     int? campaignId,
+    bool includeExhausted = false,
+    String? expiryThrough,
+    int limit = 500,
+    int offset = 0,
   }) async {
     final conditions = <String>['l.product_id=?', 'l.reversed_at IS NULL'];
     final args = <Object?>[productId];
@@ -207,6 +212,14 @@ class InventoryQueries {
       conditions.add('pu.campaign_id=?');
       args.add(campaignId);
     }
+    if (expiryThrough != null) {
+      conditions.add('l.expiry_date<=?');
+      args.add(expiryThrough);
+    }
+    final having = includeExhausted ? '' : 'HAVING available_base<>0 ';
+    final order = includeExhausted
+        ? 'ORDER BY CASE WHEN available_base<>0 THEN 0 ELSE 1 END, l.acquired_date, l.id'
+        : 'ORDER BY l.acquired_date,l.id';
     return (await _session.db).rawQuery(
       '''SELECT l.id lot_id, l.acquired_date, l.initial_quantity_base,
       l.expiry_date, l.lot_number,
@@ -220,18 +233,50 @@ class InventoryQueries {
       JOIN campaigns c ON c.id=pu.campaign_id
       LEFT JOIN inventory_movements m ON m.lot_id=l.id
       WHERE ${conditions.join(' AND ')} GROUP BY l.id
-      HAVING available_base<>0 ORDER BY l.acquired_date,l.id LIMIT 500''',
-      args,
+      $having$order LIMIT ? OFFSET ?''',
+      [...args, limit, offset],
     );
   }
 
+  /// Cantidades con existencia por día de vencimiento, sin paginar.
+  Future<List<({int availableBase, String? expiryDay})>>
+  inventoryProductExpiryTotals(int productId) async {
+    final rows = await (await _session.db).rawQuery(
+      '''SELECT expiry_date, SUM(available_base) available_base
+      FROM (
+        SELECT l.expiry_date, SUM(m.quantity_signed) available_base
+        FROM inventory_lots l JOIN inventory_movements m ON m.lot_id=l.id
+        WHERE l.product_id=? AND l.reversed_at IS NULL
+        GROUP BY l.id HAVING available_base>0
+      ) GROUP BY expiry_date''',
+      [productId],
+    );
+    return [
+      for (final row in rows)
+        (
+          availableBase: row['available_base']! as int,
+          expiryDay: row['expiry_date'] as String?,
+        ),
+    ];
+  }
+
   /// Historial del producto movimiento a movimiento, del más reciente al más
-  /// antiguo (E-10).
+  /// antiguo (E-10). El filtro por categoría se aplica antes de paginar.
   Future<List<Map<String, Object?>>> productMovements(
     int productId, {
     int limit = 20,
-  }) async => (await _session.db).rawQuery(
-    '''SELECT MIN(m.id) id, m.movement_date, m.type, SUM(m.quantity_signed) quantity_signed,
+    ProductMovementFilter filter = ProductMovementFilter.all,
+  }) async {
+    final typeClause = switch (filter) {
+      ProductMovementFilter.all => '',
+      ProductMovementFilter.purchases =>
+        " AND m.type IN ('PURCHASE_IN','PURCHASE_REVERSAL')",
+      ProductMovementFilter.applications =>
+        " AND m.type IN ('APPLICATION_OUT','APPLICATION_REVERSAL')",
+      ProductMovementFilter.transfers => " AND m.type IN ('TRANSFER_OUT','TRANSFER_IN','TRANSFER_REVERSAL_OUT','TRANSFER_REVERSAL_IN')",
+    };
+    return (await _session.db).rawQuery(
+      '''SELECT MIN(m.id) id, m.movement_date, m.type, SUM(m.quantity_signed) quantity_signed,
       m.reference_type, m.reference_id, MAX(m.notes) notes, pe.name owner_name,
       CASE WHEN m.reference_type IN ('APPLICATION','APPLICATION_REVERSAL') THEN
         (SELECT f.name FROM applications a JOIN farms f ON f.id=a.farm_id
@@ -249,9 +294,10 @@ class InventoryQueries {
         (SELECT s.name FROM purchases pu JOIN suppliers s ON s.id=pu.supplier_id
           WHERE pu.id=m.reference_id) END supplier_name
       FROM inventory_movements m JOIN persons pe ON pe.id=m.owner_person_id
-      WHERE m.product_id=?
+      WHERE m.product_id=?$typeClause
       GROUP BY m.reference_type, m.reference_id, m.owner_person_id, m.type
       ORDER BY m.movement_date DESC, id DESC LIMIT ?''',
-    [productId, limit],
-  );
+      [productId, limit],
+    );
+  }
 }

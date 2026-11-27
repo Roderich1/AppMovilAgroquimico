@@ -1,11 +1,11 @@
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart' show ScrollDirection;
 import 'package:flutter_riverpod/flutter_riverpod.dart'
     show UncontrolledProviderScope;
 import 'package:go_router/go_router.dart';
 
+import 'theme/agro_theme.dart';
 import 'widgets/common.dart';
 import 'widgets/register_sheet.dart';
 import 'widgets/sync_status_banner.dart';
@@ -334,46 +334,18 @@ class AppShell extends StatefulWidget {
 }
 
 class _AppShellState extends State<AppShell> {
-  /// «+ Registrar» se recoge a «+» mientras se desplaza hacia abajo (no tapa
-  /// las cifras de la derecha) y vuelve a extenderse al subir o al cambiar
-  /// de pantalla (sesión B, 2026-11-12).
-  bool _fabExtended = true;
-
-  @override
-  void didUpdateWidget(AppShell oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.location != widget.location) _fabExtended = true;
-  }
-
-  bool _onScroll(UserScrollNotification n) {
-    final extended = switch (n.direction) {
-      ScrollDirection.reverse => false,
-      ScrollDirection.forward => true,
-      ScrollDirection.idle => _fabExtended,
-    };
-    if (n.metrics.axis == Axis.vertical && extended != _fabExtended) {
-      setState(() => _fabExtended = extended);
-    }
-    return false;
-  }
-
   @override
   Widget build(BuildContext context) {
     final wide = MediaQuery.sizeOf(context).width >= 900;
     final keyboardOpen = MediaQuery.viewInsetsOf(context).bottom > 0;
-    // El FAB desaparece con el teclado abierto (UIBUG-009) y en las rutas que
-    // ya tienen su propia acción primaria (UIBUG-047).
+    // El botón desaparece con el teclado abierto (UIBUG-009) y en las rutas
+    // que ya tienen su propia acción primaria (UIBUG-047).
     final showFab = !keyboardOpen && !widget.hidesGlobalFab;
-    // **La lista termina por encima de «+ Registrar» (2026-11-12, revisión
-    // del autor).** Antes el contenido pasaba por detrás del botón y sólo se
-    // reservaba su alto al FINAL de la página (`ContentInsets`): con la lista
-    // arriba, el botón tapaba la existencia de la tarjeta que quedaba debajo
-    // (Almacén, Actividad). Ahora la zona del botón —su margen de 16, sus 56
-    // de alto y 16 de aire— queda fuera de la vista desplazable, dentro del
-    // área segura y por encima de la barra inferior: ninguna fila pasa por
-    // detrás, en ninguna posición del desplazamiento. El alto del botón no
-    // crece con la letra (Material fija 56), así que la franja tampoco.
-    // Las páginas ya no necesitan reservarlo al final (`bottomReserve: 0`).
+    // Barra de acción inferior compacta con «+ Registrar» alineado a la
+    // derecha y fuera de la vista desplazable: cierra visualmente la lista
+    // sobre una superficie blanca (sin franja vacía del color del lienzo) y
+    // garantiza que ninguna fila ni cantidad pase por detrás del botón en
+    // ninguna posición del desplazamiento.
     final content =
         context.findAncestorWidgetOfExactType<UncontrolledProviderScope>() ==
             null
@@ -381,26 +353,18 @@ class _AppShellState extends State<AppShell> {
         // Indicador de sincronización (RF-18). Sólo con estado de la app
         // disponible; sin nada pendiente deja el contenido intacto.
         : SyncAwareBody(child: widget.child);
-    final body = NotificationListener<UserScrollNotification>(
-      onNotification: _onScroll,
-      child: SafeArea(
-        child: Column(
-          children: [
-            Expanded(child: ContentInsets(bottomReserve: 0, child: content)),
-            if (showFab)
-              const SizedBox(
-                key: Key('shell-registrar-zona'),
-                height: AppShell.fabReserve,
-              ),
-          ],
-        ),
+    final body = SafeArea(
+      child: Column(
+        children: [
+          Expanded(child: ContentInsets(bottomReserve: 0, child: content)),
+          if (showFab) _registerBar(context),
+        ],
       ),
     );
     if (wide) {
       return _withBackPolicy(
         context,
         Scaffold(
-          floatingActionButton: showFab ? _newButton(context) : null,
           body: Row(
             children: [
               // **UIBUG-068 — el rail tiene que poder desplazarse.**
@@ -463,8 +427,6 @@ class _AppShellState extends State<AppShell> {
       context,
       Scaffold(
         body: body,
-        // Con el teclado abierto el FAB tapaba el campo activo (UIBUG-009).
-        floatingActionButton: showFab ? _newButton(context) : null,
         // **Etiquetas de la barra ajustadas al ancho de su destino.** Con
         // cinco destinos, «Operaciones» no cabía en una línea y se partía en
         // «Operacion / es» (UIBUG-017, POCO por encima del 100 %) y en
@@ -514,30 +476,55 @@ class _AppShellState extends State<AppShell> {
     );
   }
 
-  /// Botón flotante «Registrar» (rediseño, lámina «Actividad»): lima, con
-  /// el icono «+» y el nombre visible, que es también su nombre accesible.
-  /// Abre la hoja «Registrar» (lámina «Registrar»).
-  ///
-  /// Sin `Hero`: ningún formulario tiene un «+» al que animarlo, y al
-  /// ocultarse y volver con el teclado durante una transición coincidían dos
-  /// con la etiqueta por defecto (aserción de depuración, 2026-11-05).
-  Widget _newButton(BuildContext context) => Semantics(
-    // Recogido sigue llamándose «Registrar».
-    label: _fabExtended ? null : 'Registrar',
+  /// Barra inferior blanca y compacta que aloja «+ Registrar» a la derecha,
+  /// fuera de la vista desplazable.
+  Widget _registerBar(BuildContext context) => Container(
+    key: const Key('shell-registrar-zona'),
+    width: double.infinity,
+    padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+    decoration: const BoxDecoration(
+      color: AgroColors.surface,
+      border: Border(top: BorderSide(color: AgroColors.line)),
+    ),
+    alignment: Alignment.centerRight,
+    child: _newButton(context),
+  );
+
+  /// Botón compacto «+ Registrar» alineado a la derecha dentro de la barra
+  /// blanca: conserva siempre visible el texto «Registrar» y abre la hoja
+  /// «Registrar».
+  Widget _newButton(BuildContext context) => Theme(
+    data: Theme.of(context).copyWith(
+      floatingActionButtonTheme: Theme.of(context).floatingActionButtonTheme
+          .copyWith(
+            backgroundColor: AgroColors.lime,
+            foregroundColor: AgroColors.ink,
+            elevation: 0,
+            focusElevation: 0,
+            hoverElevation: 0,
+            highlightElevation: 0,
+            shape: const StadiumBorder(),
+            sizeConstraints: const BoxConstraints(minWidth: 48, minHeight: 48),
+          ),
+    ),
     child: FloatingActionButton.extended(
       key: const Key('shell-registrar'),
       heroTag: null,
-      isExtended: _fabExtended,
-      extendedIconLabelSpacing: _fabExtended ? 8 : 0,
-      extendedPadding: _fabExtended
-          ? null
-          : const EdgeInsets.symmetric(horizontal: 16),
+      elevation: 0,
+      focusElevation: 0,
+      hoverElevation: 0,
+      highlightElevation: 0,
+      backgroundColor: AgroColors.lime,
+      foregroundColor: AgroColors.ink,
+      shape: const StadiumBorder(),
+      extendedIconLabelSpacing: 8,
+      extendedPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 10),
       onPressed: () => showRegisterSheet(
         context,
         transfersEnabled: widget.transfersEnabled,
         personalMode: widget.personalMode,
       ),
-      icon: const Icon(Icons.add),
+      icon: const Icon(Icons.add, size: 20),
       label: const Text('Registrar'),
     ),
   );

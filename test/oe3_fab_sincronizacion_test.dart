@@ -415,8 +415,8 @@ void main() {
       }
     }
 
-    testWidgets('«Registrar» se recoge a «+» al bajar y vuelve al subir; '
-        'recogido sigue llamándose «Registrar»', (tester) async {
+    testWidgets('«+ Registrar» permanece visible con su texto dentro de la '
+        'barra inferior también al desplazarse', (tester) async {
       configure(tester, _screens.first, 1);
       final semantics = tester.ensureSemantics();
       await tester.pumpWidget(
@@ -427,9 +427,11 @@ void main() {
           .widget<FloatingActionButton>(find.byType(FloatingActionButton))
           .isExtended;
       expect(extended(), isTrue);
+      expect(find.text(_fabName), findsOneWidget);
       await tester.drag(find.byType(Scrollable).first, const Offset(0, -300));
       await tester.pumpAndSettle();
-      expect(extended(), isFalse);
+      expect(extended(), isTrue);
+      expect(find.text(_fabName), findsOneWidget);
       expect(
         find.semantics.byPredicate((node) => node.label == _fabName),
         findsOne,

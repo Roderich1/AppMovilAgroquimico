@@ -14,6 +14,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../voice_evidence/voice_evidence_providers.dart';
 import '../../voice_evidence/voice_evidence_store.dart';
+import '../widgets/agro_ui.dart';
 import '../widgets/common.dart';
 
 const voiceEvidenceConsentPath = '/voz/evidencia';
@@ -111,11 +112,13 @@ class _VoiceEvidenceConsentScreenState
           : Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const Card(
-                  child: Padding(
-                    padding: EdgeInsets.all(16),
-                    child: Text(voiceEvidenceConsentText),
-                  ),
+                const AgroGroup(
+                  children: [
+                    Padding(
+                      padding: EdgeInsets.all(16),
+                      child: Text(voiceEvidenceConsentText),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: 12),
                 Text(

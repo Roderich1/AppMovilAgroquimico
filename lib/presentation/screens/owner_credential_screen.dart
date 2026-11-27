@@ -307,74 +307,100 @@ class _OwnerCredentialScreenState extends ConsumerState<OwnerCredentialScreen> {
         appBar: const AgroAppBar(title: 'PIN del titular'),
         body: SafeArea(
           child: ListView(
-            padding: const EdgeInsets.all(24),
+            padding: const EdgeInsets.all(20),
             children: [
-              const Text(
-                'El PIN autoriza en este teléfono, incluso sin conexión, las '
-                'acciones que sólo puede aprobar el titular: revertir una '
-                'operación o revisar una operación tardía. No se guarda en el '
-                'respaldo y no sirve para descifrar copias: la clave de '
-                'recuperación del respaldo es otra.',
+              AgroGroup(
+                children: [
+                  const Padding(
+                    padding: EdgeInsets.all(16),
+                    child: Text(
+                      'El PIN autoriza en este teléfono, incluso sin conexión, las '
+                      'acciones que sólo puede aprobar el titular: revertir una '
+                      'operación o revisar una operación tardía. No se guarda en el '
+                      'respaldo y no sirve para descifrar copias: la clave de '
+                      'recuperación del respaldo es otra.',
+                    ),
+                  ),
+                ],
               ),
               const SizedBox(height: 16),
-              if (!activated)
-                const Text(
-                  'Para configurar o restablecer el PIN, la instalación debe '
-                  'estar activada con la sesión del titular disponible.',
-                  key: Key('pin-requires-activated'),
-                )
-              else if (_done)
-                Text(_message ?? '', key: const Key('pin-done'))
-              else if (_proof == null) ...[
-                const Text('Primero confirme la cuenta del titular en línea.'),
-                const SizedBox(height: 12),
-                TextField(
-                  key: const Key('pin-email'),
-                  controller: _email,
-                  enabled: !_busy,
-                  keyboardType: TextInputType.emailAddress,
-                  autocorrect: false,
-                  enableSuggestions: false,
-                  decoration: const InputDecoration(labelText: 'Correo'),
-                ),
-                const SizedBox(height: 12),
-                TextField(
-                  key: const Key('pin-password'),
-                  controller: _password,
-                  enabled: !_busy,
-                  obscureText: true,
-                  enableSuggestions: false,
-                  autocorrect: false,
-                  decoration: const InputDecoration(labelText: 'Contraseña'),
-                ),
-                const SizedBox(height: 12),
-                FilledButton(
-                  key: const Key('pin-verify-online'),
-                  onPressed: _busy ? null : _verifyOnline,
-                  child: const Text('Confirmar en línea'),
-                ),
-              ] else ...[
-                const Text(ActivationPinTexts.form),
-                const SizedBox(height: 12),
-                _pinField(_pin, 'PIN', const Key('pin-new')),
-                const SizedBox(height: 12),
-                _pinField(
-                  _pinConfirmation,
-                  'Repita el PIN',
-                  const Key('pin-confirm'),
-                ),
-                const SizedBox(height: 12),
-                FilledButton(
-                  key: const Key('pin-save'),
-                  onPressed: _busy ? null : _enroll,
-                  child: const Text('Guardar PIN'),
-                ),
-              ],
-              if (_busy) const LinearProgressIndicator(),
-              if (_message != null && !_done) ...[
-                const SizedBox(height: 12),
-                Text(_message!, key: const Key('pin-message')),
-              ],
+              AgroGroup(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        if (!activated)
+                          const Text(
+                            'Para configurar o restablecer el PIN, la instalación debe '
+                            'estar activada con la sesión del titular disponible.',
+                            key: Key('pin-requires-activated'),
+                          )
+                        else if (_done)
+                          Text(_message ?? '', key: const Key('pin-done'))
+                        else if (_proof == null) ...[
+                          const Text(
+                            'Primero confirme la cuenta del titular en línea.',
+                          ),
+                          const SizedBox(height: 12),
+                          TextField(
+                            key: const Key('pin-email'),
+                            controller: _email,
+                            enabled: !_busy,
+                            keyboardType: TextInputType.emailAddress,
+                            autocorrect: false,
+                            enableSuggestions: false,
+                            decoration: const InputDecoration(
+                              labelText: 'Correo',
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          TextField(
+                            key: const Key('pin-password'),
+                            controller: _password,
+                            enabled: !_busy,
+                            obscureText: true,
+                            enableSuggestions: false,
+                            autocorrect: false,
+                            decoration: const InputDecoration(
+                              labelText: 'Contraseña',
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          FilledButton(
+                            key: const Key('pin-verify-online'),
+                            onPressed: _busy ? null : _verifyOnline,
+                            child: const Text('Confirmar en línea'),
+                          ),
+                        ] else ...[
+                          const Text(ActivationPinTexts.form),
+                          const SizedBox(height: 12),
+                          _pinField(_pin, 'PIN', const Key('pin-new')),
+                          const SizedBox(height: 12),
+                          _pinField(
+                            _pinConfirmation,
+                            'Repita el PIN',
+                            const Key('pin-confirm'),
+                          ),
+                          const SizedBox(height: 12),
+                          FilledButton(
+                            key: const Key('pin-save'),
+                            onPressed: _busy ? null : _enroll,
+                            child: const Text('Guardar PIN'),
+                          ),
+                        ],
+                        if (_busy) const LinearProgressIndicator(),
+                        if (_message != null && !_done) ...[
+                          const SizedBox(height: 12),
+                          Text(_message!, key: const Key('pin-message')),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
               TextButton(
                 key: const Key('pin-back'),
                 onPressed: _busy ? null : _leave,
@@ -399,63 +425,108 @@ class _OwnerCredentialScreenState extends ConsumerState<OwnerCredentialScreen> {
         appBar: const AgroAppBar(title: 'PIN del titular'),
         body: SafeArea(
           child: ListView(
-            padding: const EdgeInsets.all(24),
+            padding: const EdgeInsets.all(20),
             children: [
-              Text(
-                notice == null
-                    ? 'Titular vinculado.'
-                    : 'Titular vinculado. $notice',
-                key: const Key('pin-activation-notice'),
-              ),
-              const SizedBox(height: 16),
-              if (ended) ...[
-                Text(
-                  _activationResult ?? ActivationPinTexts.expired,
-                  key: Key(
-                    _done ? 'pin-activation-done' : 'pin-activation-ended',
+              AgroGroup(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Text(
+                      notice == null
+                          ? 'Titular vinculado.'
+                          : 'Titular vinculado. $notice',
+                      key: const Key('pin-activation-notice'),
+                    ),
                   ),
-                ),
-                const SizedBox(height: 12),
-                FilledButton(
-                  key: const Key('pin-activation-continue'),
-                  onPressed: _busy ? null : () => context.go('/'),
-                  child: const Text('Continuar'),
-                ),
-              ] else ...[
-                const Text(
-                  ActivationPinTexts.offer,
-                  key: Key('pin-activation-offer'),
-                ),
-                const SizedBox(height: 12),
-                const Text(ActivationPinTexts.whyNow),
-                const SizedBox(height: 12),
-                const Text(ActivationPinTexts.separation),
-                const SizedBox(height: 16),
-                const Text(ActivationPinTexts.form),
-                const SizedBox(height: 12),
-                _pinField(_pin, 'PIN', const Key('pin-new')),
-                const SizedBox(height: 12),
-                _pinField(
-                  _pinConfirmation,
-                  'Repita el PIN',
-                  const Key('pin-confirm'),
-                ),
-                const SizedBox(height: 12),
-                FilledButton(
-                  key: const Key('pin-activation-create'),
-                  onPressed: _busy ? null : _createFromActivation,
-                  child: const Text('Crear PIN'),
-                ),
-                TextButton(
-                  key: const Key('pin-activation-skip'),
-                  onPressed: _busy ? null : _skip,
-                  child: const Text('Ahora no'),
-                ),
-                if (_busy) const LinearProgressIndicator(),
-                if (_message != null) ...[
-                  const SizedBox(height: 12),
-                  Text(_message!, key: const Key('pin-message')),
                 ],
+              ),
+              const SizedBox(height: 12),
+              if (ended)
+                AgroGroup(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          Text(
+                            _activationResult ?? ActivationPinTexts.expired,
+                            key: Key(
+                              _done
+                                  ? 'pin-activation-done'
+                                  : 'pin-activation-ended',
+                            ),
+                          ),
+                          const SizedBox(height: 12),
+                          FilledButton(
+                            key: const Key('pin-activation-continue'),
+                            onPressed: _busy ? null : () => context.go('/'),
+                            child: const Text('Continuar'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                )
+              else ...[
+                AgroGroup(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          const Text(ActivationPinTexts.form),
+                          const SizedBox(height: 12),
+                          _pinField(_pin, 'PIN', const Key('pin-new')),
+                          const SizedBox(height: 12),
+                          _pinField(
+                            _pinConfirmation,
+                            'Repita el PIN',
+                            const Key('pin-confirm'),
+                          ),
+                          const SizedBox(height: 12),
+                          FilledButton(
+                            key: const Key('pin-activation-create'),
+                            onPressed: _busy ? null : _createFromActivation,
+                            child: const Text('Crear PIN'),
+                          ),
+                          TextButton(
+                            key: const Key('pin-activation-skip'),
+                            onPressed: _busy ? null : _skip,
+                            child: const Text('Ahora no'),
+                          ),
+                          if (_busy) const LinearProgressIndicator(),
+                          if (_message != null) ...[
+                            const SizedBox(height: 12),
+                            Text(_message!, key: const Key('pin-message')),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                AgroGroup(
+                  children: const [
+                    Padding(
+                      padding: EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            ActivationPinTexts.offer,
+                            key: Key('pin-activation-offer'),
+                          ),
+                          SizedBox(height: 8),
+                          Text(ActivationPinTexts.whyNow),
+                          SizedBox(height: 8),
+                          Text(ActivationPinTexts.separation),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
               ],
             ],
           ),

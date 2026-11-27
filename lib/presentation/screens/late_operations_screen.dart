@@ -300,55 +300,57 @@ class _LateOperationsScreenState extends ConsumerState<LateOperationsScreen> {
         return ListView(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
           children: [
-            for (final draft in drafts)
-              Card(
-                child: ListTile(
-                  key: Key('late-draft-${draft['draft_ref']}'),
-                  title: Text(
-                    '${_kind(draft['kind'])} · ${formatDate(draft['effective_date'])} · ${draft['campaign_name']}',
+            AgroGroup(
+              children: [
+                for (final draft in drafts)
+                  ListTile(
+                    key: Key('late-draft-${draft['draft_ref']}'),
+                    title: Text(
+                      '${_kind(draft['kind'])} · ${formatDate(draft['effective_date'])} · ${draft['campaign_name']}',
+                    ),
+                    subtitle: Text(
+                      [
+                        'Motivo: ${draft['reason']}',
+                        switch (draft['status']) {
+                          'PENDING' =>
+                            'Pendiente de revisión: sin efectos todavía',
+                          'CONFIRMED' => 'Confirmada por el titular',
+                          _ => 'Rechazada',
+                        },
+                        if (draft['status'] == 'PENDING' &&
+                            draft['last_conflict_code'] != null)
+                          draft['last_conflict_code'] ==
+                                  LateConflict.stockUnavailable
+                              ? 'Último intento: las existencias de esa fecha no alcanzan'
+                              : 'Último intento: la fecha ya no corresponde a esa campaña',
+                      ].join('\n'),
+                    ),
+                    isThreeLine: true,
+                    trailing: draft['status'] != 'PENDING'
+                        ? null
+                        : Wrap(
+                            children: [
+                              IconButton(
+                                key: Key('late-confirm-${draft['draft_ref']}'),
+                                tooltip: 'Confirmar',
+                                onPressed: _busy
+                                    ? null
+                                    : () => _resolve(draft, confirm: true),
+                                icon: const Icon(Icons.check_circle_outline),
+                              ),
+                              IconButton(
+                                key: Key('late-reject-${draft['draft_ref']}'),
+                                tooltip: 'Rechazar',
+                                onPressed: _busy
+                                    ? null
+                                    : () => _resolve(draft, confirm: false),
+                                icon: const Icon(Icons.cancel_outlined),
+                              ),
+                            ],
+                          ),
                   ),
-                  subtitle: Text(
-                    [
-                      'Motivo: ${draft['reason']}',
-                      switch (draft['status']) {
-                        'PENDING' =>
-                          'Pendiente de revisión: sin efectos todavía',
-                        'CONFIRMED' => 'Confirmada por el titular',
-                        _ => 'Rechazada',
-                      },
-                      if (draft['status'] == 'PENDING' &&
-                          draft['last_conflict_code'] != null)
-                        draft['last_conflict_code'] ==
-                                LateConflict.stockUnavailable
-                            ? 'Último intento: las existencias de esa fecha no alcanzan'
-                            : 'Último intento: la fecha ya no corresponde a esa campaña',
-                    ].join('\n'),
-                  ),
-                  isThreeLine: true,
-                  trailing: draft['status'] != 'PENDING'
-                      ? null
-                      : Wrap(
-                          children: [
-                            IconButton(
-                              key: Key('late-confirm-${draft['draft_ref']}'),
-                              tooltip: 'Confirmar',
-                              onPressed: _busy
-                                  ? null
-                                  : () => _resolve(draft, confirm: true),
-                              icon: const Icon(Icons.check_circle_outline),
-                            ),
-                            IconButton(
-                              key: Key('late-reject-${draft['draft_ref']}'),
-                              tooltip: 'Rechazar',
-                              onPressed: _busy
-                                  ? null
-                                  : () => _resolve(draft, confirm: false),
-                              icon: const Icon(Icons.cancel_outlined),
-                            ),
-                          ],
-                        ),
-                ),
-              ),
+              ],
+            ),
           ],
         );
       },
