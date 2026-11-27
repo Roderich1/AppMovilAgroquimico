@@ -22,6 +22,7 @@ const _access = 'synthetic-access';
 const _password = 'synthetic-password';
 const _expiry = '2026-10-05T10:00:00.000Z';
 const _refreshPath = '/api/v1/auth/v2/refresh';
+const _healthPath = '/api/v1/health';
 const _loginPath = '/api/v1/auth/v2/login';
 const _bindPath = '/api/v1/auth/v2/session/client';
 const _mePath = '/api/v1/auth/v2/me';
@@ -156,6 +157,7 @@ class _Harness {
   );
   int reads = 0;
   bool configMissing = false;
+  DateTime now = DateTime.utc(2026, 10, 1);
 
   /// Tokens entregados a Sync v1 y cuántos eventos había en ese momento.
   final verified = <(String, String, String)>[];
@@ -167,6 +169,14 @@ class _Harness {
     final replacement = overrides[request.url.path];
     if (replacement != null) return replacement(request);
     switch (request.url.path) {
+      case _healthPath:
+        expect(request.method, 'GET');
+        expect(request.headers['authorization'], isNull);
+        expect(request.body, isEmpty);
+        return _json(200, {
+          'status': 'ok',
+          'service': 'agrochemical-inventory-api',
+        });
       case _refreshPath:
         expect(request.method, 'POST');
         expect(jsonDecode(request.body), {'refreshToken': _oldRefresh});
@@ -228,7 +238,7 @@ class _Harness {
         ),
       );
     },
-    clock: () => DateTime.utc(2026, 10, 1),
+    clock: () => now,
     onAccessVerified: (token, member, tenant) {
       verified.add((token, member, tenant));
       verifiedAfterEvents = events.length;
@@ -237,6 +247,140 @@ class _Harness {
 }
 
 void main() {
+  group('renovación de consultas en primer plano', () {
+    const foreground = ForegroundSessionCheck(
+      canStart: _yes,
+      contextIsCurrent: _yes,
+      isSameInstallation: _sameInstallation,
+    );
+
+    test(
+      'verifica HTTPS y publica sólo el acceso de lectura tras el commit',
+      () async {
+        final h = _Harness();
+        final published = <String>[];
+        final result = await h.coordinator().refreshInForeground(
+          foreground,
+          onVerified: (token, _, _) {
+            expect(h.events.last, 'guard-clear');
+            published.add(token);
+          },
+        );
+        expect(result?.phase, RemoteSessionPhase.remoteAvailable);
+        expect(h.paths, [_healthPath, _refreshPath]);
+        expect(
+          h.events.indexOf('guard-set'),
+          lessThan(h.events.indexOf('http:$_refreshPath')),
+        );
+        expect(published, [_access]);
+        expect(h.verified, isEmpty);
+      },
+    );
+
+    test(
+      'sin alcance HTTPS, conserva el token y permite intentar después',
+      () async {
+        final h = _Harness()
+          ..overrides[_healthPath] = (_) async => http.Response('portal', 200);
+        final coordinator = h.coordinator();
+        final result = await coordinator.refreshInForeground(
+          foreground,
+          onVerified: _ignoreAccess,
+        );
+        expect(result?.phase, RemoteSessionPhase.offline);
+        expect(h.disk.quarantined, isFalse);
+        expect(h.paths, [_healthPath]);
+        h.overrides.clear();
+        await coordinator.refreshInForeground(
+          foreground,
+          onVerified: _ignoreAccess,
+        );
+        expect(h.paths, [_healthPath, _healthPath, _refreshPath]);
+      },
+    );
+
+    test(
+      'si la pantalla se oculta durante la comprobación detiene la rotación',
+      () async {
+        var visible = true;
+        final h = _Harness()
+          ..overrides[_healthPath] = (_) async {
+            visible = false;
+            return _json(200, {
+              'status': 'ok',
+              'service': 'agrochemical-inventory-api',
+            });
+          };
+        final result = await h.coordinator().refreshInForeground(
+          ForegroundSessionCheck(
+            canStart: () => visible,
+            contextIsCurrent: _yes,
+            isSameInstallation: _sameInstallation,
+          ),
+          onVerified: _ignoreAccess,
+        );
+        expect(result, isNull);
+        expect(h.paths, [_healthPath]);
+        expect(h.events, isNot(contains('guard-set')));
+      },
+    );
+
+    test(
+      'una sesión vencida pide autenticación sin enviar el refresh',
+      () async {
+        final h = _Harness()..now = DateTime.parse(_expiry);
+        final coordinator = h.coordinator();
+        final result = await coordinator.refreshInForeground(
+          foreground,
+          onVerified: _ignoreAccess,
+        );
+        expect(result?.problem, RemoteSessionProblem.expiredLocally);
+        expect(h.paths, isEmpty);
+        expect(h.disk.quarantined, isFalse);
+        h.overrides[_loginPath] = (_) async => http.Response('', 401);
+        await coordinator.reauthenticate(
+          email: 'farmer@example.test',
+          password: _password,
+        );
+        expect(h.paths, [_loginPath]);
+      },
+    );
+
+    for (final (name, respond, problem) in [
+      (
+        'corte durante el POST',
+        (http.Request _) async => throw http.ClientException('corte'),
+        RemoteSessionProblem.refreshOutcomeUnknown,
+      ),
+      (
+        'revocación',
+        (http.Request _) async => http.Response('', 403),
+        RemoteSessionProblem.rejected,
+      ),
+    ]) {
+      test(
+        '$name exige acción explícita y deja el token en cuarentena',
+        () async {
+          final h = _Harness()..overrides[_refreshPath] = respond;
+          final coordinator = h.coordinator();
+          final result = await coordinator.refreshInForeground(
+            foreground,
+            onVerified: _ignoreAccess,
+          );
+          expect(result?.problem, problem);
+          expect(result?.needsReauthentication, isTrue);
+          expect(h.disk.quarantined, isTrue);
+          expect(h.commit.calls, 0);
+          await coordinator.refreshInForeground(
+            foreground,
+            onVerified: _ignoreAccess,
+          );
+          expect(h.paths, [_healthPath, _refreshPath]);
+        },
+      );
+    }
+  });
+
   test(
     'el access token sólo se entrega tras commit y guarda liberada',
     () async {
@@ -935,3 +1079,7 @@ void main() {
     });
   });
 }
+
+bool _yes() => true;
+Future<bool> _sameInstallation(StoredSession _) async => true;
+void _ignoreAccess(String _, String _, String _) {}

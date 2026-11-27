@@ -9,6 +9,20 @@ class AuthV2Api {
 
   final AuthHttpClient _http;
 
+  /// Confirms reachability over the configured HTTPS origin before a silent
+  /// refresh. A failed probe can be retried without touching the credential.
+  Future<bool> canReachBackend() async {
+    try {
+      final response = await _http.request('GET', '/api/v1/health');
+      if (response.statusCode != 200) return false;
+      final body = response.requireJsonObject();
+      return body['status'] == 'ok' &&
+          body['service'] == 'agrochemical-inventory-api';
+    } on AuthApiException {
+      return false;
+    }
+  }
+
   Future<V2AuthResponse> login(LoginV2Request request) async {
     final response = await _http.request(
       'POST',

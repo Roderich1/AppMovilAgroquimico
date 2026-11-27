@@ -3,6 +3,7 @@ import 'package:agroquimicos/data/agro_repository.dart';
 import 'package:agroquimicos/data/app_database.dart';
 import 'package:agroquimicos/domain/models.dart';
 import 'package:agroquimicos/presentation/screens/dashboard_screen.dart';
+import 'package:agroquimicos/presentation/screens/reauthentication_screen.dart';
 import 'package:agroquimicos/services/auth/existing_session_providers.dart';
 import 'package:agroquimicos/services/auth/existing_session_startup.dart';
 import 'package:agroquimicos/services/auth/first_activation_coordinator.dart';
@@ -39,11 +40,12 @@ class _NoCommit implements SecureSessionCommitPort {
 }
 
 class _FixedRemoteController extends RemoteSessionController {
-  _FixedRemoteController(this.phase);
+  _FixedRemoteController(this.phase, {this.problem});
   final RemoteSessionPhase phase;
+  final RemoteSessionProblem? problem;
   String? receivedPassword;
   @override
-  RemoteSessionState build() => RemoteSessionState(phase);
+  RemoteSessionState build() => RemoteSessionState(phase, problem: problem);
 
   @override
   Future<RemoteSessionState> reauthenticate({
@@ -74,6 +76,30 @@ Future<void> _settleDashboard(WidgetTester tester) async {
 
 void main() {
   sqfliteFfiInit();
+
+  testWidgets(
+    'un refresh incierto permite volver a autenticar explícitamente',
+    (tester) async {
+      final controller = _FixedRemoteController(
+        RemoteSessionPhase.outcomeUnknown,
+        problem: RemoteSessionProblem.refreshOutcomeUnknown,
+      );
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            existingSessionStartupProvider.overrideWithValue(
+              ExistingSessionStartupState.localSessionAvailable,
+            ),
+            remoteSessionProvider.overrideWith(() => controller),
+          ],
+          child: const MaterialApp(home: ReauthenticationScreen()),
+        ),
+      );
+      final submit = find.byKey(const Key('reauth-submit'));
+      expect(tester.widget<FilledButton>(submit).onPressed, isNotNull);
+      expect(controller.receivedPassword, isNull);
+    },
+  );
 
   for (final phase in [
     RemoteSessionPhase.idle,

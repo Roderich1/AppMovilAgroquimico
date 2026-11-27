@@ -1,10 +1,18 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:agroquimicos/data/sync/joint_purchase_store.dart';
+import 'package:agroquimicos/domain/installation_access.dart';
 import 'package:agroquimicos/domain/sync/joint_purchase_call_view.dart';
+import 'package:agroquimicos/installation_access.dart';
 import 'package:agroquimicos/local_data_providers.dart';
 import 'package:agroquimicos/services/auth/api_endpoint_config.dart';
 import 'package:agroquimicos/services/auth/auth_http_client.dart';
+import 'package:agroquimicos/services/auth/auth_v2_api.dart';
+import 'package:agroquimicos/services/auth/first_activation_providers.dart';
+import 'package:agroquimicos/services/auth/refresh_guard.dart';
+import 'package:agroquimicos/services/auth/remote_session_providers.dart';
+import 'package:agroquimicos/services/auth/secure_session_store.dart';
 import 'package:agroquimicos/services/sync/joint_purchase_api.dart';
 import 'package:agroquimicos/services/sync/sync_access.dart';
 import 'package:agroquimicos/services/sync/sync_api.dart';
@@ -17,6 +25,7 @@ import 'package:http/testing.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'support/e2_joint_purchase_fixtures.dart';
+import 'support/e12_activation_harness.dart';
 import 'support/f04_mode_fixtures.dart';
 import 'support/f05_sync_fixtures.dart';
 
@@ -26,6 +35,7 @@ void main() {
   late SyncFixture fixture;
   late JointPurchaseStore store;
   late SyncAccessHolder access;
+  late DateTime clock;
   final sent = <String>[];
   final date = DateTime.utc(2026, 11, 11, 18, 20);
 
@@ -33,21 +43,23 @@ void main() {
     sent.clear();
     fixture = await seedSyncFixture();
     store = JointPurchaseStore(fixture.database, clock: () => date);
-    access = SyncAccessHolder()
+    clock = date;
+    access = SyncAccessHolder(clock: () => clock)
       ..accept('prueba', memberA.memberId, memberA.tenantId);
   });
 
   ProviderContainer scope(
-    Future<http.Response> Function(http.Request) handler,
-  ) {
+    Future<http.Response> Function(http.Request) handler, {
+    StoredSession? session,
+    _Guard? guard,
+    E12CommitPort? commit,
+  }) {
     final client = MockClient((request) {
       sent.add(request.method);
       return handler(request);
     });
-    final httpClient = AuthHttpClient(
-      config: ApiEndpointConfig(Uri.parse('https://sindicato.example')),
-      client: client,
-    );
+    final config = ApiEndpointConfig(Uri.parse('https://sindicato.example'));
+    final httpClient = AuthHttpClient(config: config, client: client);
     final container = ProviderContainer(
       overrides: [
         databaseProvider.overrideWithValue(fixture.database),
@@ -59,10 +71,140 @@ void main() {
           JointPurchaseApi(json: httpClient),
         ),
         syncApiProvider.overrideWithValue(SyncApi(httpClient)),
+        if (session != null) ...[
+          installationRefProvider.overrideWithValue(e12InstallationRef),
+          installationAccessProvider.overrideWith(
+            () => FixedInstallationAccess(InstallationAccessState.activated),
+          ),
+          storedSessionReaderProvider.overrideWithValue(
+            () async => SessionReadResult(
+              SessionReadStatus.available,
+              session: session,
+            ),
+          ),
+          refreshGuardProvider.overrideWithValue(guard ?? _Guard()),
+          secureSessionCommitProvider.overrideWithValue(
+            commit ?? E12CommitPort(),
+          ),
+          apiEndpointConfigProvider.overrideWithValue(config),
+          authV2ApiProvider.overrideWithValue(AuthV2Api(httpClient)),
+        ],
       ],
     );
     addTearDown(container.dispose);
     return container;
+  }
+
+  test('renueva una sola vez, consulta y mantiene deshabilitado el acceso de envío', () async {
+    await fixture.owners.recordActivatedInstallation(
+      sessionScope: memberA,
+      installationRef: e12InstallationRef,
+    );
+    await seedCalls(store, memberA, [callJson()]);
+    final order = await store.confirm(
+      callId: callId,
+      lines: {litreRef: 25000},
+      consentVersion: jointPurchaseOrderConsentVersion,
+      consentAcceptedAt: date,
+    );
+    await store.markAuthPaused(order, 'AUTH_REQUIRED');
+    clock = clock.add(const Duration(minutes: 11));
+    final backend = E12Backend();
+    final paths = <String>[];
+    final entered = Completer<void>();
+    final proceed = Completer<void>();
+    final guard = _Guard();
+    final commit = E12CommitPort();
+    final container = scope(
+      (request) async {
+        paths.add(request.url.path);
+        switch (request.url.path) {
+          case '/api/v1/health':
+            entered.complete();
+            await proceed.future;
+            return jsonResponse({
+              'status': 'ok',
+              'service': 'agrochemical-inventory-api',
+            }, 200);
+          case '/api/v1/auth/v2/refresh':
+            expect(guard.quarantined, isTrue);
+            final context = await backend.respond(
+              http.Request(
+                'GET',
+                Uri.https('sindicato.example', '/api/v1/auth/v2/me'),
+              ),
+            );
+            return jsonResponse({
+              'contractVersion': 2,
+              'accessToken': e12Access,
+              'refreshToken': e12Refresh,
+              'refreshTransport': 'BODY',
+              'sessionExpiresAt': _expiry,
+              'context': jsonDecode(context.body),
+            }, 200);
+          case '/api/v1/me/joint-purchase-calls':
+            expect(commit.calls, 1);
+            expect(guard.quarantined, isFalse);
+            expect(request.headers['authorization'], 'Bearer $e12Access');
+            return jsonResponse(
+              listJson([callJson(name: 'Lista renovada')]),
+              200,
+            );
+          default:
+            fail('Se esperaba únicamente la renovación y la consulta');
+        }
+      },
+      session: _stored(),
+      guard: guard,
+      commit: commit,
+    );
+    final refresh = container.read(unionRefreshProvider.notifier);
+    final first = refresh.refresh({UnionFeed.calls}, inForeground: () => true);
+    await entered.future;
+    final second = refresh.refresh(
+      {UnionFeed.calls},
+      inForeground: () => true,
+      reconnect: true,
+    );
+    proceed.complete();
+    await Future.wait([first, second]);
+    expect(paths, [
+      '/api/v1/health',
+      '/api/v1/auth/v2/refresh',
+      '/api/v1/me/joint-purchase-calls',
+    ]);
+    expect((await store.call(callId))?.name, 'Lista renovada');
+    expect((await store.op(order.operationId))?.sendStatus, 'AUTH_PAUSED');
+    expect(access.current, isNull);
+    expect(access.forUnionReads?.accessToken, e12Access);
+    await fixture.database.replacement.replace(() async {});
+    expect(access.forUnionReads, isNull);
+  });
+
+  for (final (name, session) in [
+    ('otro titular', _stored(owner: memberB)),
+    ('otro sindicato', _stored(owner: memberAOtherTenant)),
+    ('otra instalación', _stored(clientId: e12RegistrationId)),
+  ]) {
+    test('no renueva con $name', () async {
+      clock = clock.add(const Duration(minutes: 11));
+      await fixture.owners.recordActivatedInstallation(
+        sessionScope: memberA,
+        installationRef: e12InstallationRef,
+      );
+      final container = scope(
+        (_) => throw StateError('No debe usar la red'),
+        session: session,
+      );
+      await container.read(unionRefreshProvider.notifier).refresh({
+        UnionFeed.calls,
+      }, inForeground: () => true);
+      expect(sent, isEmpty);
+      expect(
+        container.read(unionRefreshProvider)[UnionFeed.calls]?.issue,
+        UnionReadIssue.access,
+      );
+    });
   }
 
   test('reconexión y actualización manual comparten lectura sin reanudar un pedido', () async {
@@ -158,4 +300,33 @@ void main() {
       expect(sent, isEmpty);
     },
   );
+}
+
+const _expiry = '2099-10-05T10:00:00.000Z';
+
+StoredSession _stored({
+  OwnerScope owner = memberA,
+  String clientId = e12ClientId,
+}) => StoredSession(
+  refreshToken: 'refresh-anterior-de-prueba',
+  installationClientId: clientId,
+  registrationId: e12RegistrationId,
+  accountId: e12AccountId,
+  memberId: owner.memberId,
+  tenantId: owner.tenantId,
+  sessionId: e12SessionId,
+  expiresAt: DateTime.parse(_expiry),
+);
+
+class _Guard implements RefreshGuard {
+  bool quarantined = false;
+
+  @override
+  Future<bool> isQuarantined() async => quarantined;
+
+  @override
+  Future<void> quarantine() async => quarantined = true;
+
+  @override
+  Future<void> clear() async => quarantined = false;
 }
