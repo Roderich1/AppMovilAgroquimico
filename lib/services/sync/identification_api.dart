@@ -73,6 +73,17 @@ class IdentificationApi {
     String accessToken,
   ) => _jsonCall('PUT', requestPath(requestId), accessToken, body: body);
 
+  Future<IdentificationResponse> respond(
+    String requestId,
+    Map<String, Object?> body,
+    String accessToken,
+  ) => _jsonCall(
+    'PUT',
+    '${requestPath(requestId)}/clarification-response',
+    accessToken,
+    body: body,
+  );
+
   /// `GET /`: solicitudes propias.
   Future<IdentificationResponse> listOwn(String accessToken) =>
       _jsonCall('GET', basePath, accessToken);
@@ -89,8 +100,9 @@ class IdentificationApi {
     String requestId,
     File file,
     String sha256,
-    String accessToken,
-  ) async {
+    String accessToken, {
+    String? responseId,
+  }) async {
     final Uri url;
     try {
       url = _config.endpoint(photoPath(requestId));
@@ -110,6 +122,8 @@ class IdentificationApi {
             ..headers.addAll({
               'Content-Type': 'application/octet-stream',
               'X-Content-SHA256': sha256,
+              if (responseId != null)
+                'X-Identification-Response-Id': responseId,
               'Accept': 'application/json',
               'Authorization': 'Bearer $accessToken',
             });

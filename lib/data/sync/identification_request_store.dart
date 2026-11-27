@@ -1,12 +1,18 @@
+import 'dart:io';
 import 'dart:math';
 
+import 'package:flutter/foundation.dart' show compute;
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart' show DatabaseExecutor, Transaction;
 
 import '../../domain/sync/identification_models.dart';
 import '../../domain/sync/identification_view.dart';
-import '../../domain/sync/operation_id.dart' show newOperationId;
+import '../../domain/sync/operation_id.dart'
+    show newOperationId, uuidV4Lowercase;
 import '../app_database.dart';
 import '../farmer_operation_gate.dart';
+import '../product_photo_storage.dart' show processLabelPhoto;
 
 export '../../domain/sync/identification_models.dart';
 
@@ -17,14 +23,17 @@ class IdentificationRequestStore implements IdentificationGateway {
     FarmerOperationGate gate = const FarmerOperationGate.unrestricted(),
     DateTime Function()? clock,
     Random? random,
+    Future<Directory> Function()? documents,
   }) : _gate = gate,
        _clock = clock ?? DateTime.now,
-       _random = random;
+       _random = random,
+       _documents = documents ?? getApplicationDocumentsDirectory;
 
   final AppDatabase _database;
   final FarmerOperationGate _gate;
   final DateTime Function() _clock;
   final Random? _random;
+  final Future<Directory> Function() _documents;
 
   static const table = 'product_identification_requests';
 
@@ -216,6 +225,8 @@ class IdentificationRequestStore implements IdentificationGateway {
     'server_product_unit',
     'server_resolution',
     'server_note',
+    'server_note_at',
+    'clarification_reply',
     'server_checked_at',
     'created_at',
     'updated_at',
@@ -233,7 +244,8 @@ class IdentificationRequestStore implements IdentificationGateway {
       where:
           'tenant_id=? AND (send_status=? OR (send_status=? AND ?=1) OR '
           '(send_status=? AND (photo_send_status IN (?,?) OR '
-          '(photo_send_status=? AND photo_next_attempt_at IS NOT NULL))))',
+          '(photo_send_status=? AND photo_next_attempt_at IS NOT NULL))) '
+          'OR clarification_reply IS NOT NULL)',
       whereArgs: [
         tenantId,
         IdentificationSendStatus.pendingSend,
@@ -259,6 +271,221 @@ class IdentificationRequestStore implements IdentificationGateway {
         whereArgs: [tenantId],
         limit: 1,
       )).isNotEmpty;
+
+  Future<File> clarificationPhoto(String operationId) async {
+    if (!uuidV4Lowercase.hasMatch(operationId)) {
+      throw IdentificationRequestException(
+        'Identificador de respuesta no válido.',
+      );
+    }
+    return File(
+      p.join(
+        (await _documents()).path,
+        'identification_replies',
+        '$operationId.jpg',
+      ),
+    );
+  }
+
+  Future<void> _discardReplyPhoto(IdentificationReply? reply) async {
+    if (reply?.photoSha == null) return;
+    try {
+      final file = await clarificationPhoto(reply!.operationId);
+      if (await file.exists()) await file.delete();
+    } on FileSystemException {
+      // La operación ya está guardada. Este archivo privado no se volverá a enviar.
+    }
+  }
+
+  Future<void> queueClarification({
+    required String requestId,
+    required String noteAt,
+    required String name,
+    required String? ingredient,
+    String? authorizedPhotoPath,
+  }) async {
+    final cleanName = name.trim();
+    final trimmed = ingredient?.trim() ?? '';
+    final cleanIngredient = trimmed.isEmpty ? null : trimmed;
+    if (cleanName.isEmpty ||
+        cleanName.length > maxTextLength ||
+        trimmed.length > maxTextLength) {
+      throw IdentificationRequestException(
+        'Revise el nombre y el ingrediente. Cada campo admite hasta 120 caracteres.',
+      );
+    }
+    final operationId = newOperationId(_random);
+    final photo = authorizedPhotoPath == null
+        ? null
+        : await compute(
+            processLabelPhoto,
+            await File(authorizedPhotoPath).readAsBytes(),
+          );
+    if (photo != null && photo.bytes.length > 2097152) {
+      throw IdentificationRequestException(
+        'La foto es demasiado grande. Elija otra foto de la etiqueta.',
+      );
+    }
+    final file = photo == null ? null : await clarificationPhoto(operationId);
+    IdentificationReply? replaced;
+    try {
+      replaced = await _write((txn) async {
+        final request = await _readRequest(txn, requestId);
+        if (request == null ||
+            !request.canCompleteInformation ||
+            request.serverNoteAt != noteAt) {
+          throw IdentificationRequestException(
+            'La aclaración cambió. Pulse «Actualizar» y revise la nota vigente.',
+          );
+        }
+        if (photo == null &&
+            cleanName == request.sentName &&
+            cleanIngredient == request.sentActiveIngredient) {
+          throw IdentificationRequestException(
+            'Complete algún dato o adjunte la foto de la etiqueta.',
+          );
+        }
+        if (file != null && photo != null) {
+          await file.parent.create(recursive: true);
+          await file.writeAsBytes(photo.bytes, flush: true);
+        }
+        final reply = IdentificationReply({
+          'contractVersion': 1,
+          'operation_id': operationId,
+          'note_at': noteAt,
+          'local_name': cleanName,
+          'active_ingredient': cleanIngredient,
+          'unit': request.sentUnit,
+          if (photo != null) 'photo_sha256': photo.sha256,
+          if (photo != null)
+            'photo_consent': {
+              'version': photoConsentVersion,
+              'accepted_at': _now(),
+            },
+        });
+        await txn.update(
+          table,
+          {'clarification_reply': reply.encode()},
+          where: 'request_id=?',
+          whereArgs: [requestId],
+        );
+        return request.clarificationReply;
+      });
+    } catch (_) {
+      if (file != null && await file.exists()) {
+        try {
+          await file.delete();
+        } on FileSystemException {
+          /* Conserva el error original. */
+        }
+      }
+      rethrow;
+    }
+    await _discardReplyPhoto(replaced);
+  }
+
+  Future<IdentificationRequest?> _readRequest(
+    DatabaseExecutor db,
+    String id,
+  ) async {
+    final rows = await db.query(table, where: 'request_id=?', whereArgs: [id]);
+    return rows.isEmpty ? null : IdentificationRequest.fromRow(rows.single);
+  }
+
+  Future<void> retryClarification(String requestId) => _write((txn) async {
+    final reply = (await _readRequest(txn, requestId))?.clarificationReply;
+    if (reply == null || reply.isTerminal) return;
+    await txn.update(
+      table,
+      {
+        'clarification_reply': IdentificationReply(
+          reply.body,
+          attempts: reply.attempts,
+        ).encode(),
+      },
+      where: 'request_id=?',
+      whereArgs: [requestId],
+    );
+  });
+
+  Future<void> failClarification(
+    String requestId,
+    IdentificationReply reply,
+    String code, {
+    DateTime? retryAt,
+    bool terminal = false,
+  }) => _write((txn) async {
+    if ((await _readRequest(txn, requestId))?.clarificationReply?.operationId !=
+        reply.operationId)
+      return;
+    await txn.update(
+      table,
+      {
+        'clarification_reply': IdentificationReply(
+          reply.body,
+          attempts: reply.attempts + 1,
+          retryAt: retryAt?.toUtc().toIso8601String(),
+          error: code,
+          isTerminal: terminal,
+        ).encode(),
+      },
+      where: 'request_id=?',
+      whereArgs: [requestId],
+    );
+  });
+
+  Future<void> receiveClarification(
+    String requestId,
+    IdentificationReply reply,
+    IdentificationServerView view,
+  ) async {
+    final changed = await _write((txn) async {
+      if ((await _readRequest(
+            txn,
+            requestId,
+          ))?.clarificationReply?.operationId !=
+          reply.operationId)
+        return false;
+      await txn.update(
+        table,
+        {
+          ..._viewValues(view),
+          'clarification_reply': null,
+          'sent_name': view.localName ?? reply.name,
+          'sent_active_ingredient': view.localName == null
+              ? reply.ingredient
+              : view.activeIngredient,
+          if (reply.photoSha != null && view.photoSha256 == reply.photoSha) ...{
+            'photo_send_status': IdentificationPhotoStatus.sent,
+            'photo_consent_version': photoConsentVersion,
+            'photo_consent_at': reply.photoConsentAt,
+            'photo_sha256_consented': reply.photoSha,
+            'photo_attempts': 0,
+            'photo_next_attempt_at': null,
+            'photo_last_code': null,
+          },
+        },
+        where: 'request_id=?',
+        whereArgs: [requestId],
+      );
+      return true;
+    });
+    if (changed) await _discardReplyPhoto(reply);
+  }
+
+  Future<void> requestSharedPhotoRemoval(String requestId) =>
+      _write((txn) async {
+        await txn.update(
+          table,
+          {
+            'photo_send_status': IdentificationPhotoStatus.removePending,
+            'photo_next_attempt_at': null,
+            'photo_last_code': null,
+          },
+          where: 'request_id=? AND photo_send_status=?',
+          whereArgs: [requestId, IdentificationPhotoStatus.sent],
+        );
+      });
 
   /// «Enviar ahora»: lo pendiente queda listo para el próximo envío, sin
   /// esperar el reintento; lo pausado por autorización vuelve a la cola. Un
@@ -476,24 +703,26 @@ class IdentificationRequestStore implements IdentificationGateway {
 
   Future<bool> applyParsedView(IdentificationServerView view) =>
       _write((txn) async {
-        final resolution = view.resolution;
         final changed = await txn.update(
           table,
-          {
-            'server_status': view.status,
-            'server_product_ref': resolution?.productRef,
-            'server_product_name': resolution?.productName,
-            'server_product_unit': resolution?.unit,
-            'server_resolution': resolution?.kind,
-            'server_note': view.pendingNote,
-            'server_checked_at': _now(),
-            'updated_at': _now(),
-          },
+          _viewValues(view),
           where: 'request_id=?',
           whereArgs: [view.requestId],
         );
         return changed > 0;
       });
+
+  Map<String, Object?> _viewValues(IdentificationServerView view) => {
+    'server_status': view.status,
+    'server_product_ref': view.resolution?.productRef,
+    'server_product_name': view.resolution?.productName,
+    'server_product_unit': view.resolution?.unit,
+    'server_resolution': view.resolution?.kind,
+    'server_note': view.pendingNote,
+    'server_note_at': view.pendingNoteAt,
+    'server_checked_at': _now(),
+    'updated_at': _now(),
+  };
 
   // --- Foto local (desde AgroRepository, en su transacción) ---------------
 
