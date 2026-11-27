@@ -221,7 +221,7 @@ class _PurchaseRow extends StatelessWidget {
         : paid < total
         ? StatusBadge(
             label:
-                'Pagó ${splitBob(paid).number} · falta '
+                'Pagado ${splitBob(paid).number} · falta '
                 '${splitBob(total - paid).number}',
             tone: BadgeTone.review,
           )

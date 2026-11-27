@@ -10,8 +10,10 @@ import '../../domain/inventory_alerts.dart' show expiryPickerRange;
 import '../../domain/labels.dart';
 import '../../domain/models.dart';
 import '../../domain/money.dart';
+import '../../domain/operation_mode.dart';
 import '../../domain/repository_types.dart'
     show PurchaseDetailRead, lotDataSubjectRef, repositoryLotNumberLengthError;
+import '../../operation_mode_controller.dart';
 import '../theme/agro_theme.dart';
 import '../widgets/agro_ui.dart';
 import '../widgets/common.dart';
@@ -43,33 +45,55 @@ class PurchaseDetailScreen extends ConsumerStatefulWidget {
       _PurchaseDetailScreenState();
 }
 
+typedef _PurchaseDetailView = ({
+  PurchaseDetailRead? detail,
+  OperationMode mode,
+  int? ownerPersonId,
+});
+
 class _PurchaseDetailScreenState extends ConsumerState<PurchaseDetailScreen> {
   // Una lectura al abrir (y otra sólo si cambia la compra): reconstruir la
   // pantalla no vuelve a consultar.
-  late Future<PurchaseDetailRead?> data;
+  late Future<_PurchaseDetailView> data;
 
   @override
   void initState() {
     super.initState();
-    data = ref.read(repositoryProvider).purchaseDetail(widget.purchaseId);
+    data = _load();
   }
 
   @override
   void didUpdateWidget(PurchaseDetailScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.purchaseId != widget.purchaseId) {
-      data = ref.read(repositoryProvider).purchaseDetail(widget.purchaseId);
+      data = _load();
     }
+  }
+
+  Future<_PurchaseDetailView> _load() async {
+    final repo = ref.read(repositoryProvider);
+    final (detail, operating) = await (
+      repo.purchaseDetail(widget.purchaseId),
+      repo.operatingContext(),
+    ).wait;
+    return (
+      detail: detail,
+      mode: operating.mode,
+      ownerPersonId: operating.ownerPersonId,
+    );
   }
 
   /// Corregir después del registro (decisión del autor del 2026-11-01):
   /// primero los datos nuevos, después el motivo y el PIN del titular. El
   /// repositorio vuelve a comprobar todo en su transacción.
-  Future<void> _correctLotData(Map<String, Object?> item) async {
+  Future<void> _correctLotData(
+    Map<String, Object?> item, {
+    required bool personal,
+  }) async {
     final itemId = item['id']! as int;
     final result = await showDialog<_LotDataCorrection>(
       context: context,
-      builder: (_) => _LotDataDialog(item: item),
+      builder: (_) => _LotDataDialog(item: item, personal: personal),
     );
     if (result == null || !mounted) return;
     final repo = ref.read(repositoryProvider);
@@ -85,9 +109,8 @@ class _PurchaseDetailScreenState extends ConsumerState<PurchaseDetailScreen> {
           'Vencimiento: ${day(item['expiry_date'] as String?)} → '
           '${day(result.expiryDay)}. Lote del fabricante: '
           '${lot(item['lot_number'] as String?)} → ${lot(result.lotNumber)}. '
-          'Cambia en los lotes de esta compra y en los entregados desde '
-          'ellos cuando su procedencia está demostrada. Las cantidades y los '
-          'movimientos no cambian.',
+          '${personal ? 'Cambia en los lotes de esta compra. ' : 'Cambia en los lotes de esta compra y en los entregados desde ellos cuando su procedencia está demostrada. '}'
+          'Las cantidades y los movimientos no cambian.',
       revalidate: () async => await repo.canCorrectLotData(itemId)
           ? null
           : 'ya no se puede corregir',
@@ -110,9 +133,7 @@ class _PurchaseDetailScreenState extends ConsumerState<PurchaseDetailScreen> {
         '${done.unprovenLots == 0 ? '' : ' ${done.unprovenLots == 1 ? '1 lote' : '${done.unprovenLots} lotes'} de esta línea no se '
                   'cambiaron porque no se pudo demostrar su procedencia.'}',
       );
-      setState(() {
-        data = ref.read(repositoryProvider).purchaseDetail(widget.purchaseId);
-      });
+      _reload();
     } catch (error) {
       if (mounted) showError(context, error);
     }
@@ -171,8 +192,9 @@ class _PurchaseDetailScreenState extends ConsumerState<PurchaseDetailScreen> {
   }
 
   void _reload() {
+    final next = _load();
     setState(() {
-      data = ref.read(repositoryProvider).purchaseDetail(widget.purchaseId);
+      data = next;
     });
   }
 
@@ -205,60 +227,72 @@ class _PurchaseDetailScreenState extends ConsumerState<PurchaseDetailScreen> {
   }
 
   @override
-  Widget build(BuildContext context) => FutureBuilder<PurchaseDetailRead?>(
-    future: data,
-    builder: (context, snapshot) {
-      Widget plain(Widget child) => RdmScrollPage(
-        children: [
-          const ScreenTitleBar(
-            title: 'Detalle de compra',
-            leading: RdmBackButton(),
-          ),
-          const SizedBox(height: 12),
-          child,
-        ],
-      );
-      if (snapshot.hasError) {
-        return plain(
-          EmptyState(
-            icon: Icons.error_outline,
-            message: friendlyError(snapshot.error!),
-          ),
+  Widget build(BuildContext context) {
+    final liveMode = ref.watch(operationModeProvider);
+    return FutureBuilder<_PurchaseDetailView>(
+      future: data,
+      builder: (context, snapshot) {
+        Widget plain(Widget child) => RdmScrollPage(
+          children: [
+            const ScreenTitleBar(
+              title: 'Detalle de compra',
+              leading: RdmBackButton(),
+            ),
+            const SizedBox(height: 12),
+            child,
+          ],
         );
-      }
-      if (snapshot.connectionState != ConnectionState.done) {
-        return plain(const Center(child: CircularProgressIndicator()));
-      }
-      final detail = snapshot.data;
-      if (detail == null) {
-        return plain(
-          const EmptyState(
-            icon: Icons.receipt_long_outlined,
-            message: 'Esta compra ya no está en el teléfono.',
-          ),
-        );
-      }
-      return RdmScrollPage(
-        header: _DetailHero(
-          detail: detail,
-          paid: _paid(detail),
-          onPay: () => _pay(detail),
-          onReverse: () => _reverse(detail),
-        ),
-        children: [
-          _ItemsCard(
+        if (snapshot.hasError) {
+          return plain(
+            EmptyState(
+              icon: Icons.error_outline,
+              message: friendlyError(snapshot.error!),
+            ),
+          );
+        }
+        if (snapshot.connectionState != ConnectionState.done) {
+          return plain(const Center(child: CircularProgressIndicator()));
+        }
+        final loaded = snapshot.data!;
+        final detail = loaded.detail;
+        if (detail == null) {
+          return plain(
+            const EmptyState(
+              icon: Icons.receipt_long_outlined,
+              message: 'Esta compra ya no está en el teléfono.',
+            ),
+          );
+        }
+        final personal = (liveMode ?? loaded.mode) == OperationMode.personal;
+        return RdmScrollPage(
+          header: _DetailHero(
             detail: detail,
-            onCorrectLotData: _correctLotData,
-            onShowCorrections: _showCorrections,
+            paid: _paid(detail),
+            onPay: () => _pay(detail),
+            onReverse: () => _reverse(detail),
           ),
-          const SizedBox(height: 16),
-          _PaymentsCard(payments: detail.payments),
-          const SizedBox(height: 16),
-          _HeaderCard(detail: detail),
-        ],
-      );
-    },
-  );
+          children: [
+            _ItemsCard(
+              detail: detail,
+              personal: personal,
+              ownerPersonId: loaded.ownerPersonId,
+              onCorrectLotData: (item) =>
+                  _correctLotData(item, personal: personal),
+              onShowCorrections: _showCorrections,
+            ),
+            const SizedBox(height: 16),
+            _PaymentsCard(
+              payments: detail.payments,
+              personal: personal,
+              ownerPersonId: loaded.ownerPersonId,
+            ),
+            const SizedBox(height: 16),
+            _HeaderCard(detail: detail),
+          ],
+        );
+      },
+    );
+  }
 }
 
 /// Cabecera oscura del detalle (lámina 2.8): proveedor, fecha y factura,
@@ -636,11 +670,15 @@ class _HeaderCard extends StatelessWidget {
 class _ItemsCard extends StatelessWidget {
   const _ItemsCard({
     required this.detail,
+    required this.personal,
+    required this.ownerPersonId,
     required this.onCorrectLotData,
     required this.onShowCorrections,
   });
 
   final PurchaseDetailRead detail;
+  final bool personal;
+  final int? ownerPersonId;
   final void Function(Map<String, Object?> item) onCorrectLotData;
   final void Function(Map<String, Object?> item) onShowCorrections;
 
@@ -660,8 +698,15 @@ class _ItemsCard extends StatelessWidget {
           const SizedBox(height: 4),
           _Field('Precio', unitPriceText(item)),
           _Field('Subtotal', formatBob(item['subtotal_bob_minor']! as int)),
-          for (final allocation in detail.allocations)
-            if (allocation['purchase_item_id'] == item['id'])
+          for (final allocation in [
+            for (final a in detail.allocations)
+              if (a['purchase_item_id'] == item['id']) a,
+          ])
+            if (!(personal &&
+                ownerPersonId != null &&
+                detail.allocations
+                    .where((a) => a['purchase_item_id'] == item['id'])
+                    .every((a) => a['person_id'] == ownerPersonId)))
               _Field(
                 'Para ${allocation['person_name']}',
                 allocationText(allocation, item['unit']! as String),
@@ -714,8 +759,9 @@ typedef _LotDataCorrection = ({String? expiryDay, String? lotNumber});
 /// Datos nuevos de vencimiento y número de lote de una línea (RF-42). El
 /// motivo y el PIN se piden después, en la aprobación del titular.
 class _LotDataDialog extends StatefulWidget {
-  const _LotDataDialog({required this.item});
+  const _LotDataDialog({required this.item, this.personal = false});
   final Map<String, Object?> item;
+  final bool personal;
 
   @override
   State<_LotDataDialog> createState() => _LotDataDialogState();
@@ -805,10 +851,10 @@ class _LotDataDialogState extends State<_LotDataDialog> {
           ),
           const SizedBox(height: 12),
           Text(
-            'Después se pide el motivo y el PIN del titular. Se corrige en '
-            'los lotes de esta compra y en los entregados desde ellos cuando '
-            'su procedencia está demostrada. Las cantidades y los '
-            'movimientos no cambian, y la corrección queda registrada.',
+            'Después se pide el motivo y el PIN del titular. '
+            '${widget.personal ? 'Se corrige en los lotes de esta compra. ' : 'Se corrige en los lotes de esta compra y en los entregados desde ellos cuando su procedencia está demostrada. '}'
+            'Las cantidades y los movimientos no cambian, y la corrección queda '
+            'registrada.',
             style: Theme.of(context).textTheme.bodySmall,
           ),
         ],
@@ -839,9 +885,15 @@ class _LotDataDialogState extends State<_LotDataDialog> {
 }
 
 class _PaymentsCard extends StatelessWidget {
-  const _PaymentsCard({required this.payments});
+  const _PaymentsCard({
+    required this.payments,
+    required this.personal,
+    required this.ownerPersonId,
+  });
 
   final List<Map<String, Object?>> payments;
+  final bool personal;
+  final int? ownerPersonId;
 
   @override
   Widget build(BuildContext context) => _Section(
@@ -852,7 +904,11 @@ class _PaymentsCard extends StatelessWidget {
         Padding(
           padding: const EdgeInsets.only(bottom: 8),
           child: Text(
-            paymentText(payment),
+            paymentText(
+              payment,
+              personal: personal,
+              ownerPersonId: ownerPersonId,
+            ),
             style: payment['reversed_at'] == null
                 ? null
                 : TextStyle(color: Theme.of(context).colorScheme.outline),
@@ -895,15 +951,27 @@ String allocationText(Map<String, Object?> allocation, String unit) {
   return '$quantity · $how';
 }
 
-/// «05/01/2026 · Efectivo · pagó Titular · 180,00 Bs», y si se revirtió,
-/// «(revertido el …)».
-String paymentText(Map<String, Object?> payment) {
+/// «05/01/2026 · Efectivo · pagó Titular · 180,00 Bs» (en modo individual,
+/// sin repetir el nombre del titular: «05/01/2026 · Efectivo · 180,00 Bs»), y
+/// si se revirtió, «(revertido el …)».
+String paymentText(
+  Map<String, Object?> payment, {
+  bool personal = false,
+  int? ownerPersonId,
+}) {
   final method =
       PaymentMethod.fromCode('${payment['method']}')?.label ??
       '${payment['method']}';
   final reversedAt = payment['reversed_at'];
-  return '${formatDate(payment['payment_date'])} · $method · '
-      'pagó ${payment['payer_name']} · '
-      '${formatBob(payment['amount_bob_minor']! as int).trim()}'
-      '${reversedAt == null ? '' : ' (revertido el ${formatDate(reversedAt)})'}';
+  final hidePayer =
+      personal &&
+      ownerPersonId != null &&
+      payment['payer_person_id'] == ownerPersonId;
+  final summary = [
+    formatDate(payment['payment_date']),
+    method,
+    if (!hidePayer) 'pagó ${payment['payer_name']}',
+    formatBob(payment['amount_bob_minor']! as int).trim(),
+  ].join(' · ');
+  return '$summary${reversedAt == null ? '' : ' (revertido el ${formatDate(reversedAt)})'}';
 }

@@ -266,7 +266,8 @@ void main() {
       expect(find.text('Pagador'), findsNothing);
       await tester.tap(find.byKey(const Key('purchase-paid-yes')));
       await settle(tester);
-      expect(find.text('Paga el titular: Titular'), findsOneWidget);
+      expect(find.byKey(const Key('purchase-payer-owner')), findsNothing);
+      expect(find.textContaining('Paga el titular'), findsNothing);
       await tester.tap(find.byKey(const Key('purchase-confirm')));
       await settle(tester);
 
@@ -365,7 +366,7 @@ void main() {
       await tester.tap(find.text('Agregar chaco'));
       await settle(tester);
       expect(find.text('Propietario'), findsNothing);
-      expect(find.byKey(const Key('farm-personal-owner')), findsOneWidget);
+      expect(find.byKey(const Key('farm-personal-owner')), findsNothing);
     });
 
     // Ronda 2 (2026-11-12): antes «pagos y adelantos sólo del titular»; el

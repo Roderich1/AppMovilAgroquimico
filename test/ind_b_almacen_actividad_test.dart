@@ -355,7 +355,7 @@ void main() {
       expect(find.text('El Sembrador'), findsOneWidget);
       expect(find.text('Debe ${formatBob(62500).trim()}'), findsOneWidget);
       expect(find.text('Debe ${formatBob(126000).trim()}'), findsOneWidget);
-      expect(find.textContaining('pagó 600,00'), findsOneWidget);
+      expect(find.textContaining('pagado 600,00'), findsOneWidget);
       expect(find.text('Compra de ${formatBob(84000).trim()}'), findsOneWidget);
       expect(find.text('Pagada'), findsOneWidget);
       expect(
@@ -376,8 +376,8 @@ void main() {
       await tester.ensureVisible(pay);
       await tester.tap(pay);
       await settle(tester);
-      expect(find.byKey(const Key('payment-personal-payer')), findsOneWidget);
-      expect(find.text('Paga el titular: Rosa Vargas'), findsOneWidget);
+      expect(find.byKey(const Key('payment-personal-payer')), findsNothing);
+      expect(find.textContaining('Paga el titular'), findsNothing);
       await tester.tap(find.text('Registrar'));
       await settle(tester);
       final payments = await tester.runAsync(

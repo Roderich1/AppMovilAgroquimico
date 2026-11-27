@@ -170,22 +170,24 @@ List<Widget> buildPurchaseReviewStep(
       true => Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(
-            key: const Key('purchase-payer-owner'),
-            children: [
-              const Icon(Icons.check_circle_outline, color: AgroColors.link),
-              const SizedBox(width: 8),
-              Expanded(
-                child: Text(
-                  'Paga el titular: $ownerName',
-                  style: AgroText.question.copyWith(
-                    fontWeight: FontWeight.w500,
+          if (state.personalOwnerId == null) ...[
+            Row(
+              key: const Key('purchase-payer-owner'),
+              children: [
+                const Icon(Icons.check_circle_outline, color: AgroColors.link),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    'Paga el titular: $ownerName',
+                    style: AgroText.question.copyWith(
+                      fontWeight: FontWeight.w500,
+                    ),
                   ),
                 ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
+              ],
+            ),
+            const SizedBox(height: 12),
+          ],
           ProviderPaymentFields(
             method: state.paymentMethod,
             onMethodChanged: notifier.setPaymentMethod,

@@ -20,11 +20,18 @@ class CatalogsScreen extends ConsumerStatefulWidget {
   ConsumerState<CatalogsScreen> createState() => _CatalogsScreenState();
 }
 
+typedef _CatalogsView = ({
+  List<List<Map<String, Object?>>> tables,
+  OperationMode mode,
+  int? ownerPersonId,
+});
+
 class _CatalogsScreenState extends ConsumerState<CatalogsScreen>
     with SingleTickerProviderStateMixin {
   late TabController tabs;
-  late Future<List<List<Map<String, Object?>>>> data;
+  late Future<_CatalogsView> data;
   String query = '';
+  OperationMode? _loadedMode;
 
   @override
   void initState() {
@@ -44,15 +51,28 @@ class _CatalogsScreenState extends ConsumerState<CatalogsScreen>
     if (mounted) setState(() {});
   }
 
-  Future<List<List<Map<String, Object?>>>> _load() async {
+  Future<_CatalogsView> _load() async {
     final repo = ref.read(repositoryProvider);
-    return Future.wait([
-      repo.people(),
-      repo.farms(),
-      repo.products(),
-      repo.suppliers(),
-      repo.campaigns(),
-    ]);
+    final (tables, operating) = await (
+      Future.wait([
+        repo.people(),
+        repo.farms(),
+        repo.products(),
+        repo.suppliers(),
+        repo.campaigns(),
+      ]),
+      repo.operatingContext(),
+    ).wait;
+    if (mounted && _loadedMode != operating.mode) {
+      setState(() => _loadedMode = operating.mode);
+    } else {
+      _loadedMode = operating.mode;
+    }
+    return (
+      tables: tables,
+      mode: operating.mode,
+      ownerPersonId: operating.ownerPersonId,
+    );
   }
 
   void _refresh() {
@@ -183,18 +203,23 @@ class _CatalogsScreenState extends ConsumerState<CatalogsScreen>
   };
 
   bool get _personal =>
-      ref.read(operationModeProvider) == OperationMode.personal;
+      (ref.read(operationModeProvider) ?? _loadedMode) ==
+      OperationMode.personal;
 
   @override
   Widget build(BuildContext context) {
-    final personal = ref.watch(operationModeProvider) == OperationMode.personal;
+    final personal =
+        (ref.watch(operationModeProvider) ?? _loadedMode) ==
+        OperationMode.personal;
     return _page(context, personal);
   }
 
   Widget _page(BuildContext context, bool personal) => RdmCPage(
     // Rediseño (lámina «Datos»), desde «Ajustes y datos».
     title: 'Datos',
-    subtitle: 'Personas, chacos, productos, proveedores y campañas.',
+    subtitle: personal
+        ? 'Titular, chacos, productos, proveedores y campañas.'
+        : 'Personas, chacos, productos, proveedores y campañas.',
     // **UIBUG-047 — jerarquía de acciones en `/catalogos`.** La pantalla
     // presentaba dos acciones visualmente primarias: este botón y el FAB
     // global "Nuevo". Se conserva el botón específico, que dice **qué** va a
@@ -262,7 +287,7 @@ class _CatalogsScreenState extends ConsumerState<CatalogsScreen>
         // Sin altura fija: la lista participa del scroll de la página, así
         // que su última fila siempre es alcanzable (UIBUG-018).
         Builder(
-          builder: (context) => FutureBuilder(
+          builder: (context) => FutureBuilder<_CatalogsView>(
             future: data,
             builder: (context, snapshot) {
               if (snapshot.hasError)
@@ -272,7 +297,13 @@ class _CatalogsScreenState extends ConsumerState<CatalogsScreen>
                 );
               if (!snapshot.hasData)
                 return const Center(child: CircularProgressIndicator());
-              final rows = snapshot.data![tabs.index].where((row) {
+              final loaded = snapshot.data!;
+              final isPersonal =
+                  (ref.watch(operationModeProvider) ?? loaded.mode) ==
+                  OperationMode.personal;
+              final ownerPersonId = loaded.ownerPersonId;
+              final tabRows = loaded.tables[tabs.index];
+              final rows = tabRows.where((row) {
                 if (query.isEmpty) return true;
                 // La ruta y la huella de la foto de la etiqueta no son
                 // texto que el agricultor busque.
@@ -301,12 +332,20 @@ class _CatalogsScreenState extends ConsumerState<CatalogsScreen>
                       final (title, subtitle, icon) = switch (tabs.index) {
                         0 => (
                           row['name'].toString(),
-                          '${_roleLabel(row['role']! as String)} · ${_policyLabel(row['settlement_policy']! as String)}',
+                          isPersonal &&
+                                  ownerPersonId != null &&
+                                  row['id'] == ownerPersonId
+                              ? 'Titular'
+                              : '${_roleLabel(row['role']! as String)} · ${_policyLabel(row['settlement_policy']! as String)}',
                           Icons.person_outline,
                         ),
                         1 => (
                           row['name'].toString(),
-                          '${row['owner_name']} · ${formatHectares(row['area_m2'] as int)}',
+                          isPersonal &&
+                                  ownerPersonId != null &&
+                                  row['owner_person_id'] == ownerPersonId
+                              ? formatHectares(row['area_m2'] as int)
+                              : '${row['owner_name']} · ${formatHectares(row['area_m2'] as int)}',
                           Icons.landscape_outlined,
                         ),
                         2 => (
@@ -322,7 +361,7 @@ class _CatalogsScreenState extends ConsumerState<CatalogsScreen>
                         ),
                         _ => (
                           row['name'].toString(),
-                          campaignSubtitle(row, snapshot.data![tabs.index]),
+                          campaignSubtitle(row, tabRows),
                           Icons.calendar_month_outlined,
                         ),
                       };

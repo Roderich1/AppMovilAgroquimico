@@ -71,9 +71,10 @@ List<Widget> buildApplicationProductsStep(
       NoticeBox(
         key: const Key('application-no-stock'),
         icon: Icons.inventory_2_outlined,
-        text:
-            '${state.personalMode ? 'El titular' : 'Esta persona'} no tiene '
-            'productos en existencia. Registre primero la compra.',
+        text: state.personalMode
+            ? 'No tiene productos en existencia. Registre primero la compra.'
+            : 'Esta persona no tiene productos en existencia. Registre primero '
+                  'la compra.',
       ),
       const SizedBox(height: 10),
     ],
@@ -126,9 +127,7 @@ List<Widget> _withoutStock({
       if (!inStock.contains(product['id'])) product['name'].toString(),
   ];
   final person = state.person(data);
-  final who = state.personalMode
-      ? 'el titular'
-      : person?['name']?.toString() ?? 'esta persona';
+  final who = person?['name']?.toString() ?? 'esta persona';
   final register = TextButton.icon(
     key: const Key('application-register-purchase'),
     style: TextButton.styleFrom(
@@ -147,10 +146,13 @@ List<Widget> _withoutStock({
   return [
     ApplicationKeyedNotice(
       textKey: const Key('application-without-stock'),
-      text:
-          'Sin existencias de $who: ${missing.join(', ')}. '
-          '${missing.length == 1 ? 'No aparece' : 'No aparecen'} en '
-          '«Añadir producto» hasta que se registre una compra para $who.',
+      text: state.personalMode
+          ? 'Sin existencias en su almacén: ${missing.join(', ')}. '
+                '${missing.length == 1 ? 'No aparece' : 'No aparecen'} en '
+                '«Añadir producto» hasta que registre una compra.'
+          : 'Sin existencias de $who: ${missing.join(', ')}. '
+                '${missing.length == 1 ? 'No aparece' : 'No aparecen'} en '
+                '«Añadir producto» hasta que se registre una compra para $who.',
       action: register,
     ),
   ];

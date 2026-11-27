@@ -155,10 +155,12 @@ List<(String, String)> sectionHelp(InventoryAlerts? a) => [
   ),
   (
     'Existencia baja',
-    'Lo que queda en total, o lo que tiene cada responsable en el '
-        'modo con varias personas, es igual o menor al nivel mínimo. Puede '
-        'haber producto en otras manos: se indica el total de la '
-        'instalación.',
+    a == null || a.shared
+        ? 'Lo que queda en total, o lo que tiene cada responsable en el '
+              'modo con varias personas, es igual o menor al nivel mínimo. Puede '
+              'haber producto en otras manos: se indica el total de la '
+              'instalación.'
+        : 'Lo que queda en el almacén es igual o menor al nivel mínimo.',
   ),
   (
     'Lotes sin fecha de vencimiento',
