@@ -1,6 +1,11 @@
 package com.comunidad.agro.agroquimicos
 
 import android.app.Activity
+import android.content.ClipData
+import android.content.ClipDescription
+import android.content.ClipboardManager
+import android.os.Build
+import android.os.PersistableBundle
 import android.view.WindowManager
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodChannel
@@ -33,6 +38,20 @@ internal object ScreenSecureChannel {
                             activity.window.clearFlags(WindowManager.LayoutParams.FLAG_SECURE)
                         }
                         result.success(isSecure(activity))
+                    }
+                }
+                "copyRecoveryKey" -> {
+                    val text = call.argument<String>("text")
+                    val clipboard = activity.getSystemService(ClipboardManager::class.java)
+                    if (!isSecure(activity) || text.isNullOrEmpty() || clipboard == null) {
+                        result.error("CLIPBOARD_UNAVAILABLE", "Protected clipboard copy failed", null)
+                    } else {
+                        val clip = ClipData.newPlainText("Clave de recuperación", text)
+                        clip.description.extras = PersistableBundle().apply {
+                            putBoolean(ClipDescription.EXTRA_IS_SENSITIVE, true)
+                        }
+                        clipboard.setPrimaryClip(clip)
+                        result.success(Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
                     }
                 }
                 else -> result.notImplemented()

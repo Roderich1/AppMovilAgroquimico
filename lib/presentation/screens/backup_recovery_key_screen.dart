@@ -10,37 +10,85 @@ import '../theme/agro_theme.dart';
 import '../widgets/agro_ui.dart';
 import '../widgets/common.dart';
 
-/// Campo para escribir una clave de recuperación: sin sugerencias, sin
-/// autocorrección y sin aprendizaje del teclado (teclados como SwiftKey
-/// guardan lo escrito), en mayúsculas, y sin el menú de copiar y pegar: la
-/// clave no pasa por el portapapeles.
-TextField recoveryKeyField(
-  TextEditingController controller, {
-  String label = 'Clave de recuperación',
-  String? errorText,
-  bool autofocus = false,
-}) => TextField(
-  controller: controller,
-  autofocus: autofocus,
-  autocorrect: false,
-  enableSuggestions: false,
-  enableIMEPersonalizedLearning: false,
-  contextMenuBuilder: (context, editableTextState) => const SizedBox.shrink(),
-  keyboardType: TextInputType.visiblePassword,
-  textCapitalization: TextCapitalization.characters,
-  inputFormatters: [
-    FilteringTextInputFormatter.allow(RegExp(r'[0-9A-Za-z\- ]')),
-  ],
-  maxLines: 2,
-  minLines: 1,
-  style: const TextStyle(fontFamily: 'monospace', letterSpacing: 1.5),
-  decoration: InputDecoration(
-    labelText: label,
-    hintText: 'XXXX-XXXX-XXXX-…',
-    errorText: errorText,
-    border: const OutlineInputBorder(),
-  ),
-);
+/// Entrada manual y pegado explícito en la pantalla protegida.
+class _RecoveryKeyInput extends StatefulWidget {
+  const _RecoveryKeyInput(this.controller, {this.errorText});
+
+  final TextEditingController controller;
+  final String? errorText;
+
+  @override
+  State<_RecoveryKeyInput> createState() => _RecoveryKeyInputState();
+}
+
+class _RecoveryKeyInputState extends State<_RecoveryKeyInput> {
+  String? _pasteError;
+
+  Future<void> _paste() async {
+    final previous = widget.controller.value;
+    String? canonicalKey;
+    String? error;
+    try {
+      final text = (await Clipboard.getData(Clipboard.kTextPlain))?.text;
+      canonicalKey = BackupRecoveryKey.parse(text ?? '').displayText;
+    } on RecoveryKeyFormatException {
+      error = 'El portapapeles no contiene una clave de recuperación válida.';
+    } on Exception {
+      error = 'No se pudo leer el portapapeles.';
+    }
+    if (!mounted ||
+        ModalRoute.isCurrentOf(context) == false ||
+        widget.controller.value != previous) {
+      return;
+    }
+    if (canonicalKey != null) {
+      widget.controller.value = TextEditingValue(
+        text: canonicalKey,
+        selection: TextSelection.collapsed(offset: canonicalKey.length),
+      );
+    }
+    setState(() => _pasteError = error);
+  }
+
+  @override
+  Widget build(BuildContext context) => Column(
+    mainAxisSize: MainAxisSize.min,
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      TextField(
+        controller: widget.controller,
+        autofocus: true,
+        autocorrect: false,
+        enableSuggestions: false,
+        enableIMEPersonalizedLearning: false,
+        contextMenuBuilder: (_, _) => const SizedBox.shrink(),
+        keyboardType: TextInputType.visiblePassword,
+        textCapitalization: TextCapitalization.characters,
+        inputFormatters: [
+          FilteringTextInputFormatter.allow(RegExp(r'[0-9A-Za-z\- ]')),
+        ],
+        maxLines: 2,
+        minLines: 1,
+        style: const TextStyle(fontFamily: 'monospace', letterSpacing: 1.5),
+        decoration: InputDecoration(
+          labelText: 'Clave de recuperación',
+          hintText: 'XXXX-XXXX-XXXX-…',
+          errorText: _pasteError ?? widget.errorText,
+          errorMaxLines: 3,
+          border: const OutlineInputBorder(),
+        ),
+        onChanged: (_) {
+          if (_pasteError != null) setState(() => _pasteError = null);
+        },
+      ),
+      TextButton.icon(
+        onPressed: _paste,
+        icon: const Icon(Icons.content_paste),
+        label: const Text('Pegar clave'),
+      ),
+    ],
+  );
+}
 
 /// Muestra [child] sólo con la pantalla protegida contra capturas
 /// (FLAG_SECURE, [ScreenSecure]). Mientras Android no lo confirma se ve un
@@ -142,9 +190,8 @@ class RecoveryKeyDisplay extends StatelessWidget {
   }
 }
 
-/// Crear (o cambiar) la clave de recuperación: se muestra una vez, la persona
-/// la anota fuera del teléfono y la vuelve a escribir completa. Sólo entonces
-/// se activa (F08-ADR-003 §3.4). Devuelve true si quedó confirmada.
+/// Crear (o cambiar) la clave de recuperación: la persona la guarda y la
+/// introduce completa para activarla (F08-ADR-003 §3.4).
 class BackupRecoveryKeyScreen extends ConsumerStatefulWidget {
   const BackupRecoveryKeyScreen({super.key, this.rotationKey});
 
@@ -163,7 +210,7 @@ class BackupRecoveryKeyScreen extends ConsumerStatefulWidget {
 class _BackupRecoveryKeyScreenState
     extends ConsumerState<BackupRecoveryKeyScreen> {
   BackupRecoveryKey? _key;
-  bool _written = false;
+  bool _saved = false;
   bool _confirming = false;
   String? _error;
   final _typed = TextEditingController();
@@ -208,6 +255,19 @@ class _BackupRecoveryKeyScreenState
   Future<void> _discard() async {
     await ref.read(backupKeyringProvider).discardPending();
     if (mounted) Navigator.of(context).pop(false);
+  }
+
+  Future<void> _copy(BackupRecoveryKey key) async {
+    try {
+      final systemShowsConfirmation = await ref
+          .read(screenSecureProvider)
+          .copyRecoveryKey(key.displayText);
+      if (mounted && !systemShowsConfirmation) {
+        showSuccess(context, 'Clave copiada al portapapeles.');
+      }
+    } on Exception {
+      if (mounted) showError(context, 'No se pudo copiar la clave.');
+    }
   }
 
   @override
@@ -270,8 +330,8 @@ class _BackupRecoveryKeyScreenState
                   const Padding(
                     padding: EdgeInsets.symmetric(horizontal: 4),
                     child: Text(
-                      'Anótela en papel, tal como aparece, y guárdela fuera del '
-                      'teléfono. No le haga una foto ni la copie en mensajes.',
+                      'Guarde la clave fuera de Agrocuentas. Puede anotarla '
+                      'o copiarla tal como aparece.',
                       style: TextStyle(
                         fontWeight: FontWeight.w600,
                         color: AgroColors.ink,
@@ -280,15 +340,20 @@ class _BackupRecoveryKeyScreenState
                   ),
                   const SizedBox(height: 8),
                   RecoveryKeyDisplay(key),
+                  TextButton.icon(
+                    onPressed: () => _copy(key),
+                    icon: const Icon(Icons.content_copy),
+                    label: const Text('Copiar clave'),
+                  ),
                   const SizedBox(height: 12),
                   AgroGroup(
                     children: [
                       CheckboxListTile(
-                        value: _written,
+                        value: _saved,
                         onChanged: (value) =>
-                            setState(() => _written = value ?? false),
+                            setState(() => _saved = value ?? false),
                         title: const Text(
-                          'La anoté en papel y la guardo fuera del teléfono.',
+                          'Ya guardé la clave fuera de Agrocuentas.',
                         ),
                         controlAffinity: ListTileControlAffinity.leading,
                       ),
@@ -296,7 +361,7 @@ class _BackupRecoveryKeyScreenState
                   ),
                   const SizedBox(height: 16),
                   FilledButton(
-                    onPressed: _written
+                    onPressed: _saved
                         ? () => setState(() {
                             _confirming = true;
                             _error = null;
@@ -313,15 +378,10 @@ class _BackupRecoveryKeyScreenState
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
                             const Text(
-                              'Escriba la clave completa tal como la anotó. Así se comprueba '
-                              'que la tiene fuera del teléfono antes de depender de ella.',
+                              'Escriba o pegue la clave completa para confirmarla.',
                             ),
                             const SizedBox(height: 12),
-                            recoveryKeyField(
-                              _typed,
-                              errorText: _error,
-                              autofocus: true,
-                            ),
+                            _RecoveryKeyInput(_typed, errorText: _error),
                           ],
                         ),
                       ),
@@ -392,7 +452,7 @@ Future<void> revealActiveRecoveryKey(
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Text('Compruebe que coincide con la que tiene anotada.'),
+            const Text('Compruebe que coincide con la clave que guardó.'),
             const SizedBox(height: 8),
             RecoveryKeyDisplay(revealed),
           ],
@@ -409,38 +469,60 @@ Future<void> revealActiveRecoveryKey(
 }
 
 /// Pide la clave de recuperación de una copia. Null si se cancela.
-Future<String?> askRecoveryKey(BuildContext context, {String? problem}) {
-  final controller = TextEditingController();
-  return showDialog<String>(
-    context: context,
-    builder: (dialogContext) => AlertDialog(
-      title: const Text('Clave de recuperación'),
-      content: ScreenSecureScope(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Esta copia está cifrada con una clave que este teléfono no '
-              'tiene. Escriba la clave de recuperación que anotó. Sus datos '
-              'actuales no cambian hasta que confirme la restauración.',
-            ),
-            const SizedBox(height: 12),
-            recoveryKeyField(controller, errorText: problem, autofocus: true),
-          ],
-        ),
+Future<String?> askRecoveryKey(BuildContext context, {String? problem}) =>
+    showDialog<String>(
+      context: context,
+      builder: (_) => _RestoreRecoveryKeyDialog(problem: problem),
+    );
+
+class _RestoreRecoveryKeyDialog extends StatefulWidget {
+  const _RestoreRecoveryKeyDialog({this.problem});
+
+  final String? problem;
+
+  @override
+  State<_RestoreRecoveryKeyDialog> createState() =>
+      _RestoreRecoveryKeyDialogState();
+}
+
+class _RestoreRecoveryKeyDialogState extends State<_RestoreRecoveryKeyDialog> {
+  final _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    scrollable: true,
+    title: const Text('Clave de recuperación'),
+    content: ScreenSecureScope(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Esta copia está cifrada con una clave que este teléfono no '
+            'tiene. Escriba o pegue la clave de recuperación que guardó. Sus datos '
+            'actuales no cambian hasta que confirme la restauración.',
+          ),
+          const SizedBox(height: 12),
+          _RecoveryKeyInput(_controller, errorText: widget.problem),
+        ],
       ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(dialogContext),
-          child: const Text('Cancelar'),
-        ),
-        FilledButton(
-          onPressed: () => Navigator.pop(dialogContext, controller.text),
-          child: const Text('Descifrar'),
-        ),
-      ],
     ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: const Text('Cancelar'),
+      ),
+      FilledButton(
+        onPressed: () => Navigator.pop(context, _controller.text),
+        child: const Text('Descifrar'),
+      ),
+    ],
   );
 }
 

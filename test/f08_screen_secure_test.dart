@@ -27,12 +27,18 @@ class _FakeWindow {
   bool secure = false;
   Completer<void>? hold;
   bool fail = false;
+  String? copied;
 
   void install() {
     TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
         .setMockMethodCallHandler(
           const MethodChannel(ScreenSecure.channelName),
           (call) async {
+            if (call.method == 'copyRecoveryKey') {
+              expect(secure, isTrue);
+              copied = (call.arguments as Map)['text'] as String;
+              return true;
+            }
             expect(call.method, 'setSecure');
             final wanted = (call.arguments as Map)['secure'] as bool;
             calls.add(wanted);
@@ -197,12 +203,19 @@ void main() {
       expect(window.calls, [true]);
       expect(find.textContaining(firstGroup), findsNothing);
       expect(find.byType(RecoveryKeyDisplay), findsNothing);
+      expect(find.text('Copiar clave'), findsNothing);
 
       window.hold!.complete();
       window.hold = null;
       await settle(tester);
       expect(window.secure, isTrue);
       expect(find.byType(RecoveryKeyDisplay), findsOneWidget);
+      final copy = find.text('Copiar clave');
+      await tester.ensureVisible(copy);
+      await tester.tap(copy);
+      await settle(tester);
+      expect(window.copied, key.displayText);
+      expect(await keyring.readiness(), KeyringReadiness.pendingConfirmation);
 
       // Segundo plano y vuelta: la marca sigue y la clave también.
       for (final state in [
@@ -281,9 +294,24 @@ void main() {
       expect(window.secure, isTrue);
     });
 
-    testWidgets('pedir la clave para recuperar: protegida, usable, sin menú de '
-        'copiar y pegar, y liberada al cancelar o al aceptar', (tester) async {
+    testWidgets('recuperar: permite pegar por acción explícita con la pantalla '
+        'protegida y libera la protección al cerrar', (tester) async {
       String? typed = 'sin respuesta';
+      String? clipboard;
+      var clipboardReads = 0;
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      messenger.setMockMethodCallHandler(SystemChannels.platform, (call) async {
+        if (call.method == 'Clipboard.getData') {
+          expect(window.secure, isTrue);
+          clipboardReads++;
+          return clipboard == null ? null : {'text': clipboard};
+        }
+        return null;
+      });
+      addTearDown(
+        () => messenger.setMockMethodCallHandler(SystemChannels.platform, null),
+      );
       await pumpHost(
         tester,
         (context, ref) => FilledButton(
@@ -303,15 +331,36 @@ void main() {
       await tester.tap(find.text('Pedir'));
       await settle(tester);
       final field = find.byType(TextField);
+      expect(clipboardReads, 0);
       await tester.enterText(field, 'ABCD-EFGH');
       await tester.longPress(field);
       await settle(tester);
       expect(find.text('Paste'), findsNothing);
       expect(find.text('Copy'), findsNothing);
       expect(find.byType(AdaptiveTextSelectionToolbar), findsNothing);
+      final paste = find.text('Pegar clave');
+      await tester.ensureVisible(paste);
+      await tester.tap(paste);
+      await settle(tester);
+      expect(clipboardReads, 1);
+      expect(
+        find.textContaining('El portapapeles no contiene'),
+        findsOneWidget,
+      );
+      expect(tester.widget<TextField>(field).controller!.text, 'ABCD-EFGH');
+
+      final key = await keyring.pendingKey();
+      clipboard = key.displayText.toLowerCase().replaceAll('-', ' \n');
+      await tester.ensureVisible(paste);
+      await tester.tap(paste);
+      await settle(tester);
+      expect(clipboardReads, 2);
+      expect(find.textContaining('El portapapeles no contiene'), findsNothing);
+      expect(tester.widget<TextField>(field).controller!.text, key.displayText);
+      expect(typed, isNull);
       await tester.tap(find.text('Descifrar'));
       await settle(tester);
-      expect(typed, 'ABCD-EFGH');
+      expect(typed, key.displayText);
       expect(window.calls, [true, false, true, false]);
       expect(secure.holders, 0);
     });

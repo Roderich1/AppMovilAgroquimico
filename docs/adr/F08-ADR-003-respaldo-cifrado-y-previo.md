@@ -177,8 +177,8 @@ Cada copia tiene su propia clave, de modo que el nonce nunca se reutiliza con la
 
 ### 3.4 Confirmación antes de depender de la copia cifrada
 
-1. La app genera K_r y la muestra una sola vez en una pantalla dedicada, con instrucciones: anotarla en papel y guardarla fuera del teléfono. No se copia al portapapeles ni se comparte: los teclados con historial y las nubes quedan fuera. El campo donde se escribe no tiene menú de copiar y pegar.
-2. La persona **vuelve a escribirla completa**. La app comprueba la suma de verificación y la igualdad con K_r, y sólo entonces marca `confirmedAt`.
+1. La app genera K_r y la muestra antes de confirmar, con instrucciones para guardarla fuera de Agrocuentas. «Copiar clave» escribe en el portapapeles al pulsarlo. Android marca el contenido como sensible para ocultarlo de la vista previa del sistema. La acción de volver a mostrar una clave activa conserva la autorización del titular.
+2. La persona **escribe o pega la clave completa** y confirma. La app comprueba la suma de verificación y la igualdad con K_r, y sólo entonces marca `confirmedAt`. «Pegar clave» lee el portapapeles al pulsarlo y completa el campo si el texto tiene el formato y la suma de verificación de una clave.
 3. **Mientras no haya una clave confirmada, «Subir respaldo» no sube nada** y lleva a este procedimiento.
 4. **Pantalla protegida (FLAG_SECURE).** Mientras se muestra, se confirma o se escribe la clave (la pantalla de la clave, el diálogo que la vuelve a mostrar y el que la pide para recuperar) la ventana lleva `FLAG_SECURE`: sin capturas ni grabación, y la miniatura de recientes en blanco, también en segundo plano.
    - **Sin un primer fotograma desprotegido:** lo sensible se pinta sólo cuando Android ya confirmó la marca (`ScreenSecureChannel`, canal `agrocuentas/screen_secure`, que responde desde el hilo de la interfaz con el estado que quedó). Hasta entonces se ve un indicador.
@@ -190,7 +190,7 @@ Cada copia tiene su propia clave, de modo que el nonce nunca se reutiliza con la
 ### 3.5 Teléfono nuevo, reinstalación o llavero ilegible
 
 1. **Autenticación del titular** (Auth V2 y el flujo de activación de A) para listar y descargar. El servidor sólo sirve copias del mismo Member y tenant.
-2. Si el `key_id` de la cabecera no está en el llavero, se pide la **clave de recuperación**: se comprueba la suma, se deriva su `key_id` y se compara con el de la cabecera, y sólo entonces se descifra.
+2. Si el `key_id` de la cabecera no está en el llavero, se pide escribir o pegar la **clave de recuperación**. Se comprueba la suma, se deriva su `key_id` y se compara con el de la cabecera antes de descifrar.
 3. **Tras una restauración correcta**, la clave introducida se guarda en el llavero como confirmada, porque la persona demostró tenerla fuera del teléfono. «Correcta» es que `GuardedRestore.restore` devolvió su resultado (si falla, lanza y no se llega a guardarla), aunque después el recálculo del acceso quede en null (revisión de B, m2).
 4. **Regla de la clave activa** (revisión de B, I1): la activa es la última confirmada en este teléfono y no retirada; una clave pendiente nunca cifra. La clave escrita al restaurar:
    - pasa a activa sólo si el llavero no tenía ninguna activa (teléfono nuevo o reinstalado);

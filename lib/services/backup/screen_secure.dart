@@ -44,6 +44,20 @@ class ScreenSecure {
   /// Pantallas y diálogos que la necesitan ahora.
   int get holders => _holders;
 
+  /// Copia la clave desde una pantalla protegida. Devuelve si Android muestra
+  /// su propia confirmación.
+  Future<bool> copyRecoveryKey(String text) async {
+    if (!_enabled) {
+      await Clipboard.setData(ClipboardData(text: text));
+      return false;
+    }
+    if (_holders == 0 || !_applied) throw const ScreenSecureUnavailable();
+    return await _channel.invokeMethod<bool>('copyRecoveryKey', {
+          'text': text,
+        }) ??
+        false;
+  }
+
   Future<ScreenSecureLease> acquire() async {
     _holders++;
     try {
