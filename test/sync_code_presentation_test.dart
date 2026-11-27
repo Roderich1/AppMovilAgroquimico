@@ -140,7 +140,7 @@ void main() {
         syncCodeExplanation('CAMPAIGN_SEALED'),
         rejectionExplanation('CAMPAIGN_SEALED'),
       );
-      expect(syncCodeExplanation('CAMPAIGN_SEALED'), contains('sellada'));
+      expect(syncCodeExplanation('CAMPAIGN_SEALED'), contains('cerrada'));
       expect(
         syncCodeExplanation('CAMPAIGN_NOT_OPEN'),
         rejectionExplanation('CAMPAIGN_NOT_OPEN'),

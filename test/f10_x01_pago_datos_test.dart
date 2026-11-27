@@ -355,7 +355,13 @@ void main() {
         }
         await tapKey(tester, 'purchase-confirm');
         // Al guardarse, el formulario se cierra (el aviso lo da Inicio).
-        expect(find.byKey(const Key('purchase-confirm')), findsNothing);
+        final confirmation = find.byKey(const Key('purchase-confirm'));
+        await waitUntil(
+          tester,
+          'el guardado de la compra',
+          () => confirmation.evaluate().isEmpty,
+        );
+        expect(confirmation, findsNothing);
         final payment = (await rows(
           tester,
           s.database,
