@@ -81,6 +81,18 @@ PeriodMismatch? periodMismatch(CampaignPeriod local, CentralPeriod central) {
   return null;
 }
 
+/// Fin que permite completar un vínculo cuya única diferencia de período
+/// es que la campaña local sigue abierta. Los registros se validan al guardar.
+String? suggestedEndForBinding(CampaignPeriod local, CentralPeriod central) {
+  final end = central.endDay;
+  return end != null &&
+          local.allowsPlannedEnd &&
+          local.contains(end) &&
+          periodMismatch(local, central) == PeriodMismatch.openEndRequired
+      ? end
+      : null;
+}
+
 /// Mensaje para el agricultor con **los dos** períodos y qué hacer.
 String periodMismatchMessage({
   required String localName,

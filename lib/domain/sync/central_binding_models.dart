@@ -241,6 +241,7 @@ abstract interface class CentralBindingGateway {
     required int campaignId,
     required CentralCampaign central,
     required String tenantId,
+    DateTime? plannedEnd,
   });
   Future<ProductBinding> bindProduct({
     required int productId,

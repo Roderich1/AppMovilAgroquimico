@@ -403,6 +403,65 @@ void main() {
   });
 
   group('fin previsto (sin cerrar)', () {
+    test(
+      'si el vínculo falla después de escribir el fin, se revierte la fecha',
+      () async {
+        final fixture = await seedSyncFixture(bindCatalog: false);
+        final db = await fixture.database.database;
+        await db.execute('''
+        CREATE TRIGGER simulate_binding_failure BEFORE INSERT ON campaign_bindings
+        BEGIN
+          SELECT RAISE(ABORT, 'fallo de vínculo simulado');
+        END
+      ''');
+        final before = await dumpTables(db);
+        await expectLater(
+          fixture.bindings.bindCampaign(
+            campaignId: fixture.campaignId,
+            central: centralCampaign(endDate: _civil('2027-02-03')),
+            tenantId: memberA.tenantId,
+            plannedEnd: DateTime(2027, 2, 3),
+          ),
+          throwsA(
+            predicate(
+              (Object error) => '$error'.contains('fallo de vínculo simulado'),
+            ),
+          ),
+        );
+        expect(await dumpTables(db), before);
+      },
+    );
+
+    test(
+      'el vínculo con fin protege las fechas de los registros existentes',
+      () async {
+        final fixture = await seedSyncFixture();
+        await fixture.needs.declare(
+          referenceDate: DateTime(2026, 9, 20),
+          productId: fixture.litreProductId,
+          quantityBase: 1000,
+        );
+        final db = await fixture.database.database;
+        final before = await dumpTables(db);
+        await expectLater(
+          fixture.bindings.bindCampaign(
+            campaignId: fixture.campaignId,
+            central: centralCampaign(endDate: _civil('2027-02-03')),
+            tenantId: memberA.tenantId,
+            plannedEnd: DateTime(2026, 9, 19),
+          ),
+          throwsA(
+            isA<CampaignCalendarException>().having(
+              (error) => error.message,
+              'message',
+              contains('registros del 20/09/2026'),
+            ),
+          ),
+        );
+        expect(await dumpTables(db), before);
+      },
+    );
+
     test('fija el fin de una campaña activa sin cambiar su estado y permite vincular', () async {
       final fixture = await seedSyncFixture(bindCatalog: false);
       await fixture.repo.setCampaignEnd(

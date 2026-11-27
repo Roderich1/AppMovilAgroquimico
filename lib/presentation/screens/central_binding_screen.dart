@@ -136,27 +136,42 @@ class _CentralBindingScreenState extends ConsumerState<CentralBindingScreen> {
       ) ??
       false;
 
-  Future<T?> _choose<T>(String title, List<(T, String, String?)> options) =>
-      showDialog<T>(
-        context: context,
-        builder: (dialogContext) => SimpleDialog(
-          title: Text(title),
-          children: [
-            if (options.isEmpty)
-              const Padding(
-                padding: EdgeInsets.all(16),
-                child: Text('No hay opciones disponibles en el sindicato.'),
+  Future<T?> _choose<T>(
+    String title,
+    List<(T, String, String?)> options, {
+    Map<T, String> extraActions = const {},
+  }) => showDialog<T>(
+    context: context,
+    builder: (dialogContext) => SimpleDialog(
+      title: Text(title),
+      children: [
+        if (options.isEmpty)
+          const Padding(
+            padding: EdgeInsets.all(16),
+            child: Text('No hay opciones disponibles en el sindicato.'),
+          ),
+        for (final (value, label, disabledReason) in options)
+          if (extraActions[value] case final action?)
+            ListTile(
+              title: Text(label),
+              subtitle: Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: TextButton(
+                  onPressed: () => Navigator.pop(dialogContext, value),
+                  child: Text(action),
+                ),
               ),
-            for (final (value, label, disabledReason) in options)
-              ListTile(
-                enabled: disabledReason == null,
-                title: Text(label),
-                subtitle: disabledReason == null ? null : Text(disabledReason),
-                onTap: () => Navigator.pop(dialogContext, value),
-              ),
-          ],
-        ),
-      );
+            )
+          else
+            ListTile(
+              enabled: disabledReason == null,
+              title: Text(label),
+              subtitle: disabledReason == null ? null : Text(disabledReason),
+              onTap: () => Navigator.pop(dialogContext, value),
+            ),
+      ],
+    ),
+  );
 
   String? get _tenant =>
       ref.read(syncAccessHolderProvider).current?.scope.tenantId;
@@ -175,6 +190,10 @@ class _CentralBindingScreenState extends ConsumerState<CentralBindingScreen> {
     if (!central.acceptsContributions) return 'No admite nuevos aportes';
     final period = _centralPeriod(central);
     if (period == null) return 'Fechas ilegibles: actualice las referencias';
+    final end = period.endDay;
+    if (end != null && local.startDay.compareTo(end) > 0) {
+      return 'La campaña local empieza después del fin del ciclo del sindicato.';
+    }
     final mismatch = periodMismatch(local, period);
     if (mismatch == null) return null;
     return periodMismatchMessage(
@@ -186,14 +205,38 @@ class _CentralBindingScreenState extends ConsumerState<CentralBindingScreen> {
     );
   }
 
-  Future<void> _bindCampaign(Map<String, Object?> campaign) async {
+  String? _suggestedEnd(CampaignPeriod local, CentralCampaign campaign) {
+    if (!campaign.acceptsContributions) return null;
+    final period = _centralPeriod(campaign);
+    return period == null ? null : suggestedEndForBinding(local, period);
+  }
+
+  Future<void> _bindCampaign(
+    CampaignPeriod local,
+    Iterable<CampaignBinding> bindings,
+  ) async {
     final refs = references;
-    final tenant = _tenant;
+    // El vínculo se guarda localmente. La sesión de lectura aporta el
+    // sindicato, y el almacén comprueba la titularidad dentro de SQLite.
+    final tenant = ref
+        .read(syncAccessHolderProvider)
+        .forUnionReads
+        ?.scope
+        .tenantId;
     if (refs == null || tenant == null) {
       showError(context, 'Actualice primero las referencias del sindicato.');
       return;
     }
-    final local = CampaignPeriod.fromRow(campaign);
+    final takenRefs = {
+      for (final binding in bindings)
+        if (binding.campaignId != local.id && binding.tenantId == tenant)
+          binding.campaignRef,
+    };
+    final proposedEnds = <CentralCampaign, String>{
+      for (final central in refs.campaigns)
+        if (!takenRefs.contains(central.ref))
+          if (_suggestedEnd(local, central) case final String day) central: day,
+    };
     final chosen = await _choose<CentralCampaign>(
       'Campaña del sindicato (local: ${local.describe})',
       [
@@ -201,13 +244,24 @@ class _CentralBindingScreenState extends ConsumerState<CentralBindingScreen> {
           (
             central,
             '${central.name} · ${_centralPeriod(central)?.describe ?? 'fechas ilegibles'}',
-            _disabledReason(local, central),
+            takenRefs.contains(central.ref)
+                ? 'Ya está vinculada con otra campaña local.'
+                : _disabledReason(local, central),
           ),
       ],
+      extraActions: {
+        for (final central in proposedEnds.keys)
+          central: 'Fijar fin previsto y vincular',
+      },
     );
     if (chosen == null || !mounted) return;
     final period = _centralPeriod(chosen);
-    if (!await _confirm(
+    final endSuggestion = proposedEnds[chosen];
+    DateTime? plannedEnd;
+    if (endSuggestion != null) {
+      plannedEnd = await _confirmBindingWithEnd(local, chosen, endSuggestion);
+      if (plannedEnd == null) return;
+    } else if (!await _confirm(
       local.name,
       chosen.name,
       note: period == null
@@ -217,19 +271,91 @@ class _CentralBindingScreenState extends ConsumerState<CentralBindingScreen> {
     )) {
       return;
     }
+    if (!mounted) return;
     try {
       await ref
           .read(centralBindingGatewayProvider)
           .bindCampaign(
-            campaignId: campaign['id']! as int,
+            campaignId: local.id,
             central: chosen,
             tenantId: tenant,
+            plannedEnd: plannedEnd,
           );
       if (mounted) showSuccess(context, 'Campaña vinculada.');
     } on Object catch (error) {
       if (mounted) showError(context, error);
     }
     _reloadLocal();
+  }
+
+  Future<DateTime?> _confirmBindingWithEnd(
+    CampaignPeriod local,
+    CentralCampaign central,
+    String lastDay,
+  ) {
+    final lastDate = startOfLocalDay(lastDay);
+    var selected = lastDate;
+    return showDialog<DateTime>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (context, setDialogState) => AlertDialog(
+          scrollable: true,
+          title: const Text('Fijar fin previsto y vincular'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                'Vincular «${local.name}» con «${central.name}» del sindicato.',
+              ),
+              const SizedBox(height: 12),
+              Text('Fin previsto: ${displayDay(localDay(selected))}'),
+              TextButton(
+                onPressed: () async {
+                  final date = await showDatePicker(
+                    context: dialogContext,
+                    initialDate: selected,
+                    firstDate: startOfLocalDay(local.startDay),
+                    lastDate: lastDate,
+                    helpText: 'Fin previsto de «${local.name}»',
+                    cancelText: 'Cancelar',
+                    confirmText: 'Aceptar',
+                  );
+                  if (date != null && context.mounted) {
+                    setDialogState(() => selected = date);
+                  }
+                },
+                child: const Text('Cambiar fecha'),
+              ),
+              Text(
+                'El último día permitido es el ${displayDay(lastDay)}. '
+                '${local.status == 'ACTIVE' ? 'La campaña seguirá activa.' : 'La campaña seguirá planificada.'} '
+                'Sólo se enviarán totales con esta referencia.',
+              ),
+              if (local.status == 'ACTIVE' &&
+                  localDay(selected).compareTo(localDay(DateTime.now())) <
+                      0) ...[
+                const SizedBox(height: 8),
+                const Text(
+                  'Ese fin ya pasó. Las operaciones posteriores necesitan '
+                  'una campaña que cubra su fecha.',
+                ),
+              ],
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(dialogContext, selected),
+              child: const Text('Confirmar fecha y vínculo'),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   /// D-F04-C2: fin previsto de una campaña activa o planificada, sin cerrarla.
@@ -559,6 +685,9 @@ class _CentralBindingScreenState extends ConsumerState<CentralBindingScreen> {
     if (refs.campaigns.any((c) => _disabledReason(local, c) == null)) {
       return null;
     }
+    if (refs.campaigns.any((c) => _suggestedEnd(local, c) != null)) {
+      return 'Elija una campaña del sindicato para fijar el fin previsto y vincular.';
+    }
     return refs.campaigns.isEmpty
         ? 'El sindicato no tiene campañas para elegir.'
         : 'Ninguna campaña del sindicato es compatible: o no admite aportes, '
@@ -733,7 +862,7 @@ class _CentralBindingScreenState extends ConsumerState<CentralBindingScreen> {
     final review = data.reviews
         .where((r) => r.binding.campaignId == local.id)
         .firstOrNull;
-    final canSetEnd = local.status == 'ACTIVE' || local.status == 'PLANNED';
+    final canSetEnd = local.allowsPlannedEnd;
     final unboundDetail = binding == null ? _noCompatibleCampaign(local) : null;
     final status = binding == null
         ? 'Requiere vinculación'
@@ -746,7 +875,7 @@ class _CentralBindingScreenState extends ConsumerState<CentralBindingScreen> {
       trailing: RdmCOptionsMenu(
         tooltip: 'Opciones de vínculo',
         onSelected: (value) => switch (value) {
-          'bind' => _bindCampaign(campaign),
+          'bind' => _bindCampaign(local, data.campaignBindings.values),
           'end' => _setEnd(campaign),
           _ => _unbind(
             local.name,

@@ -93,6 +93,8 @@ final class CampaignPeriod {
   /// `null`: abierta.
   final String? endDay;
 
+  bool get allowsPlannedEnd => status == 'ACTIVE' || status == 'PLANNED';
+
   bool contains(String day) =>
       startDay.compareTo(day) <= 0 &&
       (endDay == null || endDay!.compareTo(day) >= 0);

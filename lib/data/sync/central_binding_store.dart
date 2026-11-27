@@ -10,6 +10,7 @@ import '../../domain/sync/central_references.dart';
 import '../../domain/sync/sync_types.dart';
 import '../app_database.dart';
 import '../farmer_operation_gate.dart';
+import '../repositories/campaign_period_queries.dart';
 
 export '../../domain/sync/central_binding_models.dart';
 
@@ -349,11 +350,14 @@ class CentralBindingStore implements CentralBindingGateway {
   /// confirmación explícita del agricultor. Sólo campañas que admiten aportes
   /// y sólo si el período local cabe en el central (D-F04-C2): si no, se
   /// rechaza con los dos períodos y sin escribir nada.
+  /// [plannedEnd] completa un período local abierto dentro de la misma
+  /// transacción que guarda el vínculo.
   @override
   Future<CampaignBinding> bindCampaign({
     required int campaignId,
     required CentralCampaign central,
     required String tenantId,
+    DateTime? plannedEnd,
   }) async {
     if (!central.acceptsContributions) {
       throw CentralBindingException(
@@ -369,16 +373,24 @@ class CentralBindingStore implements CentralBindingGateway {
         'Actualice las referencias.',
       );
     }
-    await _write((txn) async {
+    return _write((txn) async {
       await _requireOwnerTenant(txn, tenantId);
       final local = await _localPeriod(txn, campaignId);
       if (local == null) {
         throw CentralBindingException('La campaña local no existe.');
       }
-      final mismatch = periodMismatch(local, centralPeriod);
+      final endDay = plannedEnd == null ? null : localDay(plannedEnd);
+      if (endDay != null &&
+          suggestedEndForBinding(local, centralPeriod) == null) {
+        throw CentralBindingException(
+          'El período de la campaña cambió. Vuelva a elegir el vínculo.',
+        );
+      }
+      final proposed = endDay == null ? local : local.withEnd(endDay);
+      final mismatch = periodMismatch(proposed, centralPeriod);
       if (mismatch != null) {
         throw CentralBindingException(
-          '${periodMismatchMessage(localName: local.name, local: local, centralName: central.name, central: centralPeriod, mismatch: mismatch)} '
+          '${periodMismatchMessage(localName: local.name, local: proposed, centralName: central.name, central: centralPeriod, mismatch: mismatch)} '
           'No se vinculó.',
         );
       }
@@ -403,6 +415,23 @@ class CentralBindingStore implements CentralBindingGateway {
           localId: campaignId,
         );
       }
+      if (endDay != null) {
+        const calendar = CampaignPeriodQueries();
+        await calendar.validateCampaignEnd(
+          txn,
+          await calendar.campaignPeriods(txn),
+          local,
+          endDay,
+          actionLabel: 'El fin y el vínculo siguen como estaban.',
+          recordsLabel: 'registros',
+        );
+        await txn.update(
+          'campaigns',
+          {'end_date': startOfLocalDay(endDay).toUtc().toIso8601String()},
+          where: 'id=?',
+          whereArgs: [campaignId],
+        );
+      }
       final now = _now();
       await txn.rawInsert(
         'INSERT OR REPLACE INTO campaign_bindings (campaign_id, tenant_id, '
@@ -421,8 +450,8 @@ class CentralBindingStore implements CentralBindingGateway {
           now,
         ],
       );
+      return (await campaignBindingOf(txn, campaignId))!;
     });
-    return (await campaignBindingOf(await _database.database, campaignId))!;
   }
 
   /// Vincula el producto local [productId] con [central]. La dimensión debe

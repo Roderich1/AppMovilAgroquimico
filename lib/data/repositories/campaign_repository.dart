@@ -150,7 +150,7 @@ class CampaignRepository {
       final periods = await _queries.campaignPeriods(txn);
       final current = periods.where((p) => p.id == campaignId).firstOrNull;
       if (current == null) throw BusinessRuleException('La campaña no existe.');
-      if (current.status != 'ACTIVE' && current.status != 'PLANNED') {
+      if (!current.allowsPlannedEnd) {
         throw CampaignCalendarException(
           'El período de «${current.name}» no se cambia: la campaña está '
           '${current.status == 'CLOSED' ? 'cerrada' : 'archivada'}.',

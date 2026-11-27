@@ -1,6 +1,5 @@
-// D-F04-C2, pantalla «Vincular con el sindicato»: «Fijar fin previsto…» es la
-// única vía de la interfaz que escribe el período de una campaña. Se
-// comprueba que la fecha elegida en el selector llega a
+// D-F04-C2, pantalla «Vincular con el sindicato». Se comprueba que la
+// fecha elegida en la acción independiente de fin previsto llega a
 // `AgroRepository.setCampaignEnd` (una mutación que pasara otra fecha, o no
 // la pasara, falla aquí), que el vínculo se revalida en el acto, que un fin
 // anterior a hoy se advierte antes de confirmar, y que un fin que deja
@@ -12,7 +11,9 @@ import 'package:agroquimicos/data/sync/central_binding_store.dart';
 import 'package:agroquimicos/domain/campaign_calendar.dart';
 import 'package:agroquimicos/domain/sync/central_references.dart';
 import 'package:agroquimicos/presentation/screens/central_binding_screen.dart';
+import 'package:agroquimicos/services/sync/sync_access.dart';
 import 'package:agroquimicos/services/sync/sync_providers.dart';
+import 'package:agroquimicos/services/sync/union_refresh.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -92,6 +93,92 @@ void main() {
       whereArgs: [fixture.campaignId],
     )).single,
   ))!;
+
+  testWidgets(
+    'el selector propone el fin y guarda la fecha elegida con el vínculo',
+    (tester) async {
+      await tester.binding.setSurfaceSize(const Size(420, 1000));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      final fixture = (await tester.runAsync(
+        () => seedSyncFixture(bindCatalog: false),
+      ))!;
+      addTearDown(fixture.database.close);
+      final access = SyncAccessHolder()
+        ..acceptForReads(
+          'token-de-prueba',
+          memberA.memberId,
+          memberA.tenantId,
+          () => true,
+        );
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            databaseProvider.overrideWithValue(fixture.database),
+            repositoryProvider.overrideWithValue(fixture.repo),
+            centralBindingStoreProvider.overrideWithValue(fixture.bindings),
+            syncAccessHolderProvider.overrideWithValue(access),
+            unionRefreshProvider.overrideWith(_CampaignReferences.new),
+          ],
+          child: const MaterialApp(
+            home: Scaffold(body: CentralBindingScreen()),
+          ),
+        ),
+      );
+      await settle(tester);
+      await tester.tap(find.byKey(const Key('binding-tab-campaigns')));
+      await settle(tester);
+
+      Future<void> openCombinedAction() async {
+        final row = find.byKey(Key('campaign-binding-${fixture.campaignId}'));
+        await tester.tap(
+          find.descendant(
+            of: row,
+            matching: find.byType(PopupMenuButton<String>),
+          ),
+        );
+        await settle(tester);
+        await tester.tap(find.text('Vincular…'));
+        await settle(tester);
+        expect(find.text('Fijar fin previsto y vincular'), findsOneWidget);
+        expect(find.text('No admite nuevos aportes'), findsOneWidget);
+        expect(find.textContaining('empieza después del fin'), findsOneWidget);
+        await tester.tap(find.text('Fijar fin previsto y vincular'));
+        await settle(tester);
+        expect(find.text('Fin previsto: 03/02/2027'), findsOneWidget);
+      }
+
+      await openCombinedAction();
+      await tester.tap(find.text('Cancelar'));
+      await settle(tester);
+      expect((await campaignRow(tester, fixture))['end_date'], isNull);
+      expect(await tester.runAsync(fixture.bindings.campaignBindings), isEmpty);
+
+      await openCombinedAction();
+      await tester.tap(find.text('Cambiar fecha'));
+      await settle(tester);
+      final picker = tester.widget<DatePickerDialog>(
+        find.byType(DatePickerDialog),
+      );
+      expect(picker.lastDate, DateTime(2027, 2, 3));
+      await tester.tap(find.text('2'));
+      await tester.pump();
+      await tester.tap(find.text('Aceptar'));
+      await settle(tester);
+      expect(find.text('Fin previsto: 02/02/2027'), findsOneWidget);
+      await tester.tap(find.text('Confirmar fecha y vínculo'));
+      await settle(tester);
+
+      final local = await campaignRow(tester, fixture);
+      expect(local['status'], 'ACTIVE');
+      expect(storedLocalDay(local['end_date']! as String), '2027-02-02');
+      final bindings = (await tester.runAsync(
+        fixture.bindings.campaignBindings,
+      ))!;
+      expect(bindings.single.isValid, isTrue);
+      expect(bindings.single.campaignRef, campaignRef);
+      expect(access.current, isNull);
+    },
+  );
 
   /// Abre «Fijar fin previsto…» de la campaña y elige el día 15 del mes que
   /// propone el selector (el fin central, octubre de 2026).
@@ -191,4 +278,25 @@ void main() {
       expect(find.byKey(const Key('period-review')), findsOneWidget);
     },
   );
+}
+
+class _CampaignReferences extends UnionRefresh {
+  @override
+  Map<UnionFeed, UnionReadStatus> build() => {
+    UnionFeed.references: (
+      lastRead: null,
+      issue: null,
+      busy: false,
+      references: CentralReferences([
+        centralCampaign(endDate: '2027-02-03T00:00:00.000Z'),
+        centralCampaign(ref: otherCampaignRef, name: 'Cerrada', accepts: false),
+        centralCampaign(
+          ref: 'b1000000-0000-4000-8000-000000000001',
+          name: 'Ciclo anterior',
+          startDate: '2026-07-01T00:00:00.000Z',
+          endDate: '2026-08-31T00:00:00.000Z',
+        ),
+      ], const []),
+    ),
+  };
 }
