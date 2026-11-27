@@ -1,6 +1,9 @@
+import 'dart:convert';
+
 import 'package:sqflite/sqflite.dart' show DatabaseExecutor, Transaction;
 
 import '../../domain/campaign_calendar.dart';
+import '../../domain/installation_access.dart' show OwnerScope;
 import '../../domain/sync/campaign_period_check.dart';
 import '../../domain/sync/central_binding_models.dart';
 import '../../domain/sync/central_references.dart';
@@ -543,82 +546,118 @@ class CentralBindingStore implements CentralBindingGateway {
   /// publicaciones nuevas sin borrar nada. Si vuelve a cumplir, queda vigente
   /// otra vez. El período central se guarda para comprobarlo sin red. Devuelve
   /// cuántos vínculos cambiaron.
-  Future<int> refreshFrom(CentralReferences references, String tenantId) =>
-      _write((txn) async {
-        final now = _now();
-        var changed = 0;
-        final rows = await txn.query(
-          'campaign_bindings',
-          orderBy: 'campaign_id',
-        );
-        for (final row in rows) {
-          final binding = CampaignBinding.fromRow(row);
-          if (binding.tenantId != tenantId) continue;
-          final central = references.campaign(binding.campaignRef);
-          CentralPeriod? centralPeriod;
-          if (central != null) {
-            try {
-              centralPeriod = CentralPeriod.of(central);
-            } on FormatException {
-              centralPeriod = null;
-            }
-          }
-          final local = await _localPeriod(txn, binding.campaignId);
-          final BindingInvalidReason? reason;
-          if (central == null) {
-            reason = BindingInvalidReason.referenceMissing;
-          } else if (!central.acceptsContributions) {
-            reason = BindingInvalidReason.notAccepting;
-          } else if (centralPeriod == null) {
-            reason = BindingInvalidReason.periodUnverified;
-          } else if (local != null &&
-              periodMismatch(local, centralPeriod) != null) {
-            reason = BindingInvalidReason.periodIncompatible;
-          } else {
-            reason = null;
-          }
-          if (reason != binding.invalidReason) changed++;
-          await txn.update(
-            'campaign_bindings',
-            {
-              'status': reason == null ? 'VALID' : 'INVALID',
-              'invalid_reason': reason?.code,
-              'central_name': central?.name ?? binding.centralName,
-              'central_start_day':
-                  centralPeriod?.startDay ?? binding.centralStartDay,
-              'central_end_day': centralPeriod == null
-                  ? binding.centralEndDay
-                  : centralPeriod.endDay,
-              'checked_at': now,
-            },
-            where: 'campaign_id=?',
-            whereArgs: [binding.campaignId],
-          );
+  Future<int> refreshFrom(
+    CentralReferences references,
+    String tenantId, {
+    OwnerScope? cacheFor,
+  }) => _write((txn) async {
+    final now = _now();
+    var changed = 0;
+    final rows = await txn.query('campaign_bindings', orderBy: 'campaign_id');
+    for (final row in rows) {
+      final binding = CampaignBinding.fromRow(row);
+      if (binding.tenantId != tenantId) continue;
+      final central = references.campaign(binding.campaignRef);
+      CentralPeriod? centralPeriod;
+      if (central != null) {
+        try {
+          centralPeriod = CentralPeriod.of(central);
+        } on FormatException {
+          centralPeriod = null;
         }
-        for (final binding in await productBindings(txn)) {
-          if (binding.tenantId != tenantId) continue;
-          final central = references.product(binding.productRef);
-          final reason = central == null
-              ? BindingInvalidReason.referenceMissing
-              : central.baseUnit != binding.baseUnit
-              ? BindingInvalidReason.notLinkable
-              : !central.isActive
-              ? BindingInvalidReason.inactive
-              : null;
-          if (reason != binding.invalidReason) changed++;
-          await txn.update(
-            'product_bindings',
-            {
-              'status': reason == null ? 'VALID' : 'INVALID',
-              'invalid_reason': reason?.code,
-              'central_name': central?.name ?? binding.centralName,
-              'central_unit': central?.unit ?? binding.centralUnit,
-              'checked_at': now,
-            },
-            where: 'product_id=?',
-            whereArgs: [binding.productId],
-          );
-        }
-        return changed;
-      });
+      }
+      final local = await _localPeriod(txn, binding.campaignId);
+      final BindingInvalidReason? reason;
+      if (central == null) {
+        reason = BindingInvalidReason.referenceMissing;
+      } else if (!central.acceptsContributions) {
+        reason = BindingInvalidReason.notAccepting;
+      } else if (centralPeriod == null) {
+        reason = BindingInvalidReason.periodUnverified;
+      } else if (local != null &&
+          periodMismatch(local, centralPeriod) != null) {
+        reason = BindingInvalidReason.periodIncompatible;
+      } else {
+        reason = null;
+      }
+      if (reason != binding.invalidReason) changed++;
+      await txn.update(
+        'campaign_bindings',
+        {
+          'status': reason == null ? 'VALID' : 'INVALID',
+          'invalid_reason': reason?.code,
+          'central_name': central?.name ?? binding.centralName,
+          'central_start_day':
+              centralPeriod?.startDay ?? binding.centralStartDay,
+          'central_end_day': centralPeriod == null
+              ? binding.centralEndDay
+              : centralPeriod.endDay,
+          'checked_at': now,
+        },
+        where: 'campaign_id=?',
+        whereArgs: [binding.campaignId],
+      );
+    }
+    for (final binding in await productBindings(txn)) {
+      if (binding.tenantId != tenantId) continue;
+      final central = references.product(binding.productRef);
+      final reason = central == null
+          ? BindingInvalidReason.referenceMissing
+          : central.baseUnit != binding.baseUnit
+          ? BindingInvalidReason.notLinkable
+          : !central.isActive
+          ? BindingInvalidReason.inactive
+          : null;
+      if (reason != binding.invalidReason) changed++;
+      await txn.update(
+        'product_bindings',
+        {
+          'status': reason == null ? 'VALID' : 'INVALID',
+          'invalid_reason': reason?.code,
+          'central_name': central?.name ?? binding.centralName,
+          'central_unit': central?.unit ?? binding.centralUnit,
+          'checked_at': now,
+        },
+        where: 'product_id=?',
+        whereArgs: [binding.productId],
+      );
+    }
+    if (cacheFor != null) {
+      await txn.rawInsert(
+        'INSERT OR REPLACE INTO app_settings (key,value) VALUES (?,?)',
+        [
+          _cacheKey(cacheFor),
+          jsonEncode({'at': now, 'data': references.toJson()}),
+        ],
+      );
+    }
+    return changed;
+  });
+
+  Future<({CentralReferences references, DateTime at})?> cachedReferences(
+    OwnerScope scope,
+  ) async {
+    final rows = await (await _database.database).query(
+      'app_settings',
+      columns: ['value'],
+      where: 'key=?',
+      whereArgs: [_cacheKey(scope)],
+    );
+    if (rows.isEmpty) return null;
+    try {
+      final json =
+          jsonDecode(rows.single['value'] as String) as Map<String, dynamic>;
+      return (
+        references: CentralReferences.fromJson(
+          json['data'] as Map<String, dynamic>,
+        ),
+        at: DateTime.parse(json['at'] as String),
+      );
+    } on Object {
+      return null;
+    }
+  }
+
+  static String _cacheKey(OwnerScope scope) =>
+      'union.references.v1.${scope.tenantId}.${scope.memberId}';
 }

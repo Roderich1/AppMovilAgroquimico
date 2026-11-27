@@ -118,6 +118,18 @@ class JointPurchaseStore implements JointPurchaseGateway {
     );
   });
 
+  Future<DateTime?> lastListRead(OwnerScope scope) async {
+    final rows = await (await _database.database).query(
+      historyStateTable,
+      columns: ['updated_at'],
+      where: 'tenant_id=? AND member_id=?',
+      whereArgs: [scope.tenantId, scope.memberId],
+    );
+    return rows.isEmpty
+        ? null
+        : DateTime.tryParse(rows.single['updated_at'] as String);
+  }
+
   /// Guarda una página de «Historial» (`GET …/history`) para [scope]: inserta
   /// o actualiza cada convocatoria como [saveFetched], **sin borrar nada**
   /// (E2 §10.1 b).

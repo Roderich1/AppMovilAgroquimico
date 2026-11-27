@@ -7,12 +7,14 @@ import '../../domain/sync/joint_purchase_call_view.dart'
 import '../../domain/sync/joint_purchase_models.dart';
 import '../../services/sync/joint_purchase_sender.dart';
 import '../../services/sync/sync_providers.dart';
+import '../../services/sync/union_refresh.dart';
 import '../theme/agro_theme.dart';
 import '../widgets/agro_ui.dart';
 import '../widgets/common.dart';
 import '../widgets/joint_purchase_texts.dart';
 import '../widgets/rdm_c_joint.dart';
 import '../widgets/rdm_c_page.dart';
+import '../widgets/union_updates.dart';
 
 /// «Compras conjuntas» (contrato E2 §5 y §10.1): las convocatorias que el
 /// sindicato sirvió a este titular, guardadas en el teléfono. Se descubren
@@ -34,8 +36,6 @@ class JointPurchasesScreen extends ConsumerStatefulWidget {
 
 class _JointPurchasesScreenState extends ConsumerState<JointPurchasesScreen> {
   late Future<JointPurchaseOverview> overview;
-  bool loading = false;
-  String? problem;
 
   /// «Historial» del sindicato en esta visita: si ya se consultó, el cursor
   /// para «Ver más» y el último aviso.
@@ -60,24 +60,7 @@ class _JointPurchasesScreenState extends ConsumerState<JointPurchasesScreen> {
     });
   }
 
-  Future<void> _refresh() async {
-    setState(() {
-      loading = true;
-      problem = null;
-    });
-    try {
-      final report = await ref
-          .read(syncControllerProvider.notifier)
-          .refreshJointPurchases();
-      if (mounted) setState(() => problem = refreshProblem(report));
-    } on SyncAccessUnavailable catch (error) {
-      if (mounted) setState(() => problem = error.message);
-    } on Object catch (error) {
-      if (mounted) setState(() => problem = friendlyError(error));
-    } finally {
-      if (mounted) setState(() => loading = false);
-    }
-  }
+  Future<void> _refresh() => refreshUnionNow(ref, {UnionFeed.calls});
 
   /// «Consultar historial» (sin [more]) o «Ver más».
   Future<void> _queryHistory({bool more = false}) async {
@@ -118,13 +101,20 @@ class _JointPurchasesScreenState extends ConsumerState<JointPurchasesScreen> {
   @override
   Widget build(BuildContext context) {
     ref.listen(jointPurchaseRevisionProvider, (_, _) => _reload());
+    final status = ref.watch(
+      unionRefreshProvider.select(
+        (statuses) => statuses[UnionFeed.calls] ?? emptyUnionRead,
+      ),
+    );
     return RdmCPage(
       title: 'Compras conjuntas',
       subtitle: 'Convocatorias del sindicato y su participación.',
       action: RdmCHeaderAction(
         icon: Icons.sync,
-        label: 'Actualizar',
-        onPressed: loading ? null : _refresh,
+        label: status.issue == UnionReadIssue.access
+            ? 'Verificar acceso'
+            : 'Actualizar',
+        onPressed: status.busy ? null : _refresh,
       ),
       child: FutureBuilder<JointPurchaseOverview>(
         future: overview,
@@ -150,20 +140,15 @@ class _JointPurchasesScreenState extends ConsumerState<JointPurchasesScreen> {
           return Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              if (loading) ...[
+              if (status.busy) ...[
                 const LinearProgressIndicator(),
                 const SizedBox(height: 8),
               ],
-              if (problem != null) ...[
-                _Problem(text: problem!, textKey: 'joint-purchases-problem'),
-                const SizedBox(height: 12),
-              ],
+              const UnionUpdateStatus(feed: UnionFeed.calls),
               if (data.isEmpty)
                 const RdmCEmpty(
                   icon: Icons.groups_outlined,
-                  message:
-                      'No hay convocatorias en este teléfono. Pulse '
-                      '«Actualizar» para consultar al sindicato.',
+                  message: 'No hay convocatorias guardadas en este teléfono.',
                 )
               else if (data.recent.isEmpty)
                 const RdmCEmpty(

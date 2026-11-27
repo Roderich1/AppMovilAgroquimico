@@ -360,10 +360,7 @@ void main() {
     await pumpBinding(tester);
     expect(find.text('Elija el equivalente del sindicato.'), findsOneWidget);
     expect(find.textContaining('Nada se vincula por nombre'), findsNothing);
-    expect(
-      find.text('Pulse «Actualizar» para ver las opciones del sindicato.'),
-      findsOneWidget,
-    );
+    expect(find.text('Todavía no hay referencias guardadas.'), findsOneWidget);
     expect(find.textContaining('Herbicida central · vigente'), findsOneWidget);
   });
 

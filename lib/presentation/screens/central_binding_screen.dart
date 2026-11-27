@@ -9,8 +9,8 @@ import '../../domain/sync/central_references.dart';
 import '../../domain/sync/identification_models.dart';
 import '../../domain/sync/sync_types.dart';
 import '../../services/sync/sync_access.dart';
-import '../../services/sync/sync_api.dart';
 import '../../services/sync/sync_providers.dart';
+import '../../services/sync/union_refresh.dart';
 import '../widgets/agro_ui.dart';
 import '../widgets/common.dart';
 import '../widgets/identification_clarification_sheet.dart';
@@ -18,6 +18,7 @@ import '../widgets/identification_texts.dart';
 import '../widgets/rdm_c_identification.dart';
 import '../widgets/rdm_c_page.dart';
 import '../widgets/sync_status_banner.dart' show syncSummaryProvider;
+import '../widgets/union_updates.dart';
 
 class _LocalCatalog {
   const _LocalCatalog(
@@ -58,8 +59,8 @@ class CentralBindingScreen extends ConsumerStatefulWidget {
 
 class _CentralBindingScreenState extends ConsumerState<CentralBindingScreen> {
   late Future<_LocalCatalog> local;
-  CentralReferences? references;
-  String? loadProblem;
+  CentralReferences? get references =>
+      ref.read(unionRefreshProvider)[UnionFeed.references]?.references;
   bool loading = false;
   _BindingTab tab = _BindingTab.products;
 
@@ -106,37 +107,8 @@ class _CentralBindingScreenState extends ConsumerState<CentralBindingScreen> {
     ref.invalidate(syncSummaryProvider);
   }
 
-  Future<void> _loadReferences() async {
-    setState(() {
-      loading = true;
-      loadProblem = null;
-    });
-    try {
-      final loaded = await ref
-          .read(syncControllerProvider.notifier)
-          .loadReferences();
-      if (!mounted) return;
-      setState(() => references = loaded);
-      _reloadLocal();
-    } on SyncAccessUnavailable catch (error) {
-      if (mounted) setState(() => loadProblem = error.message);
-    } on SyncQueryException catch (error) {
-      if (mounted) {
-        setState(
-          () => loadProblem = error.forbidden
-              ? 'El sindicato no autorizó esta cuenta o este dispositivo.'
-              : error.authRequired
-              ? 'Se requiere volver a verificar el acceso en línea.'
-              : 'No se pudieron leer las referencias del sindicato. '
-                    'Los vínculos existentes se conservan.',
-        );
-      }
-    } on Object catch (error) {
-      if (mounted) setState(() => loadProblem = friendlyError(error));
-    } finally {
-      if (mounted) setState(() => loading = false);
-    }
-  }
+  Future<void> _loadReferences() =>
+      refreshUnionNow(ref, {UnionFeed.references, UnionFeed.identification});
 
   Future<bool> _confirm(String local, String central, {String? note}) async =>
       await showDialog<bool>(
@@ -626,15 +598,40 @@ class _CentralBindingScreenState extends ConsumerState<CentralBindingScreen> {
   void _showCampaigns() => setState(() => tab = _BindingTab.campaigns);
 
   @override
-  Widget build(BuildContext context) => RdmCPage(
+  Widget build(BuildContext context) {
+    final status = ref.watch(
+      unionRefreshProvider.select(
+        (statuses) => statuses[UnionFeed.references] ?? emptyUnionRead,
+      ),
+    );
+    ref.listen(identificationRevisionProvider, (_, _) => _reloadLocal());
+    ref.listen(
+      unionRefreshProvider.select(
+        (statuses) => statuses[UnionFeed.references]?.lastRead,
+      ),
+      (_, _) => _reloadLocal(),
+    );
+    final noteIssue = ref.watch(
+      unionRefreshProvider.select(
+        (statuses) => statuses[UnionFeed.identification]?.issue,
+      ),
+    );
+    return _page(status, noteIssue);
+  }
+
+  Widget _page(UnionReadStatus status, UnionReadIssue? noteIssue) => RdmCPage(
     title: 'Productos y campañas',
     // Texto inicial corto (pedido del autor del 2026-11-05): lo que ayuda a
     // resolver un problema está en la fila afectada y en los diálogos.
     subtitle: 'Elija el equivalente del sindicato.',
     action: RdmCHeaderAction(
       icon: Icons.sync,
-      label: 'Actualizar',
-      onPressed: loading ? null : _loadReferences,
+      label:
+          status.issue == UnionReadIssue.access ||
+              noteIssue == UnionReadIssue.access
+          ? 'Verificar acceso'
+          : 'Actualizar',
+      onPressed: loading || status.busy ? null : _loadReferences,
     ),
     child: FutureBuilder<_LocalCatalog>(
       future: local,
@@ -652,24 +649,15 @@ class _CentralBindingScreenState extends ConsumerState<CentralBindingScreen> {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            if (loading) ...[
+            if (loading || status.busy) ...[
               const LinearProgressIndicator(),
               const SizedBox(height: 8),
             ],
-            if (loadProblem != null) ...[
-              NoticeBox(
-                text: loadProblem!,
-                tone: NoticeTone.warning,
-                icon: Icons.cloud_off_outlined,
-              ),
-              const SizedBox(height: 12),
-            ],
-            if (references == null && loadProblem == null) ...[
-              const NoticeBox(
-                text: 'Pulse «Actualizar» para ver las opciones del sindicato.',
-              ),
-              const SizedBox(height: 12),
-            ],
+            const UnionUpdateStatus(feed: UnionFeed.references),
+            if (noteIssue != null && noteIssue != status.issue)
+              const UnionUpdateStatus(feed: UnionFeed.identification),
+            if (references == null && status.issue == null && !status.busy)
+              const NoticeBox(text: 'Todavía no hay referencias guardadas.'),
             // Aviso breve; el detalle (los dos períodos, los aportes y qué
             // hacer) va en la fila de cada campaña afectada.
             if (data.reviews.isNotEmpty) ...[

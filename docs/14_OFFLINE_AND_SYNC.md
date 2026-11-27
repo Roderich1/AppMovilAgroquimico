@@ -147,3 +147,9 @@ corregir una cantidad crea otra intención que la tiene por antecesora. Sólo un
 nunca salió (`PENDING` con `attempts = 0`) puede reescribirse o descartarse.
 
 Pendiente: el total de consumo (`CONSUMPTION_TOTAL`) y su prueba de propiedad (F06, D4).
+
+## Actualización de Sindicato
+
+Sindicato consulta convocatorias. Compras conjuntas actualiza la lista y el detalle; Productos y campañas trae las referencias del catálogo y las notas de identificación. Con acceso vigente, las pantallas consultan al abrirse, al volver a primer plano y al recuperar conectividad. Mientras son visibles, las convocatorias y notas se consultan cada minuto y las referencias cada cinco minutos. La señal de conectividad sólo indica que hay una red disponible. Una respuesta válida del sindicato confirma la consulta.
+
+La app conserva las convocatorias, las solicitudes y las referencias validadas del titular para consultarlas sin conexión. La fecha de actualización se registra después de guardar los datos. «Actualizar» consulta, mientras que «Enviar pendientes» y las acciones de envío de cada solicitud o pedido permiten reanudar operaciones que quedaron pausadas. Si el acceso en memoria caduca, la app ofrece «Verificar acceso».

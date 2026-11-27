@@ -33,6 +33,7 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import 'support/e2_joint_purchase_fixtures.dart';
 import 'support/f04_mode_fixtures.dart';
+import 'support/f04_mode_ui_harness.dart' show waitFor;
 import 'support/f05_sync_fixtures.dart';
 
 /// Sesión remota sintética: sin acceso en memoria (caducado). Verificar en
@@ -287,6 +288,7 @@ void main() {
 
       // (2) Ahora sí se envía; (3) sólo con el acuse se muestra aplicada.
       await sendNow(tester);
+      await waitFor(tester, find.text(_adminSees));
       final posted = s.requests.where((r) => r.method == 'POST').toList();
       expect(posted, hasLength(1));
       expect(
@@ -317,6 +319,7 @@ void main() {
     await expectStillTotalsOnly(tester, s.store);
 
     await sendNow(tester);
+    await waitFor(tester, find.text(_adminSees));
     expect(s.requests.where((r) => r.method == 'POST'), hasLength(1));
     expect(text(tester, 'joint-who-can-see'), _adminSees);
     expect(find.byKey(const Key('joint-consent-pending')), findsNothing);
