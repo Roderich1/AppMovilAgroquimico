@@ -4,6 +4,8 @@ import 'package:go_router/go_router.dart';
 
 import '../../app.dart';
 import '../../domain/money.dart';
+import '../../domain/operation_mode.dart';
+import '../../operation_mode_controller.dart';
 import '../theme/agro_theme.dart';
 import '../widgets/agro_ui.dart';
 import '../widgets/common.dart';
@@ -15,8 +17,14 @@ class PlanningScreen extends ConsumerStatefulWidget {
   ConsumerState<PlanningScreen> createState() => _PlanningScreenState();
 }
 
+typedef _PlansView = ({
+  List<Map<String, Object?>> rows,
+  OperationMode mode,
+  int? ownerPersonId,
+});
+
 class _PlanningScreenState extends ConsumerState<PlanningScreen> {
-  late Future<List<Map<String, Object?>>> future;
+  late Future<_PlansView> future;
   int? campaignFilter;
 
   /// La vista operativa muestra **planes pendientes** (UIBUG-045).
@@ -30,13 +38,24 @@ class _PlanningScreenState extends ConsumerState<PlanningScreen> {
   @override
   void initState() {
     super.initState();
-    future = ref.read(repositoryProvider).plans();
+    future = _load();
+  }
+
+  Future<_PlansView> _load() async {
+    final repo = ref.read(repositoryProvider);
+    final (rows, operating) = await (
+      repo.plans(includeApplied: showApplied),
+      repo.operatingContext(),
+    ).wait;
+    return (
+      rows: rows,
+      mode: operating.mode,
+      ownerPersonId: operating.ownerPersonId,
+    );
   }
 
   void refresh() {
-    final next = ref
-        .read(repositoryProvider)
-        .plans(includeApplied: showApplied);
+    final next = _load();
     setState(() {
       future = next;
     });
@@ -66,115 +85,132 @@ class _PlanningScreenState extends ConsumerState<PlanningScreen> {
   }
 
   @override
-  Widget build(BuildContext context) => RdmAListPage(
-    title: 'Planificación',
-    // Desde B1 no hay «+ Registrar» flotante aquí: el botón dice qué crea.
-    action: RdmARegisterButton(
-      key: const Key('planning-new'),
-      label: 'Nuevo plan',
-      onPressed: add,
-    ),
-    child: FutureBuilder<List<Map<String, Object?>>>(
-      future: future,
-      builder: (context, s) {
-        if (s.hasError) {
-          return EmptyState(
-            icon: Icons.error_outline,
-            message: friendlyError(s.error!),
-          );
-        }
-        if (!s.hasData) return const Center(child: CircularProgressIndicator());
-        final groups = <int, List<Map<String, Object?>>>{};
-        for (final row in s.data!) {
-          groups.putIfAbsent(row['plan_id'] as int, () => []).add(row);
-        }
-        final visible = groups.entries
-            .where(
-              (e) =>
-                  campaignFilter == null ||
-                  e.value.first['campaign_id'] == campaignFilter,
-            )
-            .toList();
-        final campaigns = {
-          for (final row in s.data!)
-            row['campaign_id'] as int: row['campaign_name'] as String,
-        };
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            // La necesidad declarada al sindicato es otra cosa que un plan
-            // (F06 §3): una intención expresa, no un cálculo de dosis.
-            AgroGroup(
-              children: [
-                ValueRow(
-                  key: const Key('open-declared-needs'),
-                  label: 'Para el sindicato',
-                  value: 'Necesidad declarada',
-                  onTap: () => context.push('/planificacion/necesidades'),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-            DropdownButtonFormField<int?>(
-              initialValue: campaignFilter,
-              decoration: const InputDecoration(labelText: 'Campaña'),
-              items: [
-                const DropdownMenuItem(child: Text('Todas')),
-                for (final e in campaigns.entries)
-                  DropdownMenuItem(value: e.key, child: Text(e.value)),
-              ],
-              onChanged: (v) => setState(() => campaignFilter = v),
-            ),
-            const SizedBox(height: 8),
-            // Acceso secundario y discreto al histórico: no compite con la
-            // lista, pero el plan aplicado sigue siendo consultable.
-            Align(
-              alignment: Alignment.centerLeft,
-              child: FilterChip(
-                selected: showApplied,
-                onSelected: (value) {
-                  showApplied = value;
-                  refresh();
-                },
-                // Elegido lleva la marca (no sólo el color) en vez del icono.
-                avatar: showApplied
-                    ? null
-                    : const Icon(Icons.history, size: 18),
-                label: const Text('Mostrar planes aplicados'),
-              ),
-            ),
-            const SizedBox(height: 12),
-            if (visible.isEmpty)
-              RdmAEmpty(
-                icon: Icons.event_note_outlined,
-                message: showApplied
-                    ? 'No hay planes registrados.'
-                    : 'No hay planes pendientes.',
+  Widget build(BuildContext context) {
+    final liveMode = ref.watch(operationModeProvider);
+    return RdmAListPage(
+      title: 'Planificación',
+      // Desde B1 no hay «+ Registrar» flotante aquí: el botón dice qué crea.
+      action: RdmARegisterButton(
+        key: const Key('planning-new'),
+        label: 'Nuevo plan',
+        onPressed: add,
+      ),
+      child: FutureBuilder<_PlansView>(
+        future: future,
+        builder: (context, s) {
+          if (s.hasError) {
+            return EmptyState(
+              icon: Icons.error_outline,
+              message: friendlyError(s.error!),
+            );
+          }
+          if (!s.hasData)
+            return const Center(child: CircularProgressIndicator());
+          final loaded = s.data!;
+          final personal = (liveMode ?? loaded.mode) == OperationMode.personal;
+          final ownerPersonId = loaded.ownerPersonId;
+          final groups = <int, List<Map<String, Object?>>>{};
+          for (final row in loaded.rows) {
+            groups.putIfAbsent(row['plan_id'] as int, () => []).add(row);
+          }
+          final visible = groups.entries
+              .where(
+                (e) =>
+                    campaignFilter == null ||
+                    e.value.first['campaign_id'] == campaignFilter,
               )
-            else
-              for (final entry in visible)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 10),
-                  child: _PlanCard(
-                    key: Key('plan-${entry.key}'),
-                    rows: entry.value,
-                    onApply: () => applyPlan(entry.key),
+              .toList();
+          final campaigns = {
+            for (final row in loaded.rows)
+              row['campaign_id'] as int: row['campaign_name'] as String,
+          };
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // La necesidad declarada al sindicato es otra cosa que un plan
+              // (F06 §3): una intención expresa, no un cálculo de dosis.
+              AgroGroup(
+                children: [
+                  ValueRow(
+                    key: const Key('open-declared-needs'),
+                    label: 'Para el sindicato',
+                    value: 'Necesidad declarada',
+                    onTap: () => context.push('/planificacion/necesidades'),
                   ),
+                ],
+              ),
+              const SizedBox(height: 16),
+              DropdownButtonFormField<int?>(
+                initialValue: campaignFilter,
+                decoration: const InputDecoration(labelText: 'Campaña'),
+                items: [
+                  const DropdownMenuItem(child: Text('Todas')),
+                  for (final e in campaigns.entries)
+                    DropdownMenuItem(value: e.key, child: Text(e.value)),
+                ],
+                onChanged: (v) => setState(() => campaignFilter = v),
+              ),
+              const SizedBox(height: 8),
+              // Acceso secundario y discreto al histórico: no compite con la
+              // lista, pero el plan aplicado sigue siendo consultable.
+              Align(
+                alignment: Alignment.centerLeft,
+                child: FilterChip(
+                  selected: showApplied,
+                  onSelected: (value) {
+                    showApplied = value;
+                    refresh();
+                  },
+                  // Elegido lleva la marca (no sólo el color) en vez del icono.
+                  avatar: showApplied
+                      ? null
+                      : const Icon(Icons.history, size: 18),
+                  label: const Text('Mostrar planes aplicados'),
                 ),
-          ],
-        );
-      },
-    ),
-  );
+              ),
+              const SizedBox(height: 12),
+              if (visible.isEmpty)
+                RdmAEmpty(
+                  icon: Icons.event_note_outlined,
+                  message: showApplied
+                      ? 'No hay planes registrados.'
+                      : 'No hay planes pendientes.',
+                )
+              else
+                for (final entry in visible)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: _PlanCard(
+                      key: Key('plan-${entry.key}'),
+                      rows: entry.value,
+                      hideOwner:
+                          personal &&
+                          ownerPersonId != null &&
+                          entry.value.first['owner_person_id'] == ownerPersonId,
+                      onApply: () => applyPlan(entry.key),
+                    ),
+                  ),
+            ],
+          );
+        },
+      ),
+    );
+  }
 }
 
 /// Un plan: chaco y responsable, campaña, productos y si está pendiente o
 /// aplicado. Se despliega para ver cada producto con su dosis y cantidad y,
 /// si sigue pendiente, «Aplicar este plan».
 class _PlanCard extends StatelessWidget {
-  const _PlanCard({super.key, required this.rows, required this.onApply});
+  const _PlanCard({
+    super.key,
+    required this.rows,
+    required this.hideOwner,
+    required this.onApply,
+  });
 
   final List<Map<String, Object?>> rows;
+  final bool hideOwner;
   final VoidCallback onApply;
 
   @override
@@ -191,7 +227,9 @@ class _PlanCard extends StatelessWidget {
           iconColor: AgroColors.ink,
           collapsedIconColor: AgroColors.muted,
           title: Text(
-            '${first['farm_name']} · ${first['owner_name']}',
+            hideOwner
+                ? '${first['farm_name']}'
+                : '${first['farm_name']} · ${first['owner_name']}',
             style: AgroText.value,
           ),
           // El estado va en palabras y en la etiqueta; el indicador de

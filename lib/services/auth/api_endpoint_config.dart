@@ -33,7 +33,7 @@ class ApiEndpointConfig {
   /// generó el teléfono (UUID v4 en minúsculas), opcionalmente seguido de
   /// `/photo`.
   static final _identificationPath = RegExp(
-    r'^/api/v1/catalog/identification-requests/[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}(/photo)?$',
+    r'^/api/v1/catalog/identification-requests/[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}(/photo|/clarification-response)?$',
   );
 
   /// Participación propia en una convocatoria de compra conjunta (E2 §4.2):

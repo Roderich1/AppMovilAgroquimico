@@ -13,19 +13,24 @@ import '../widgets/common.dart';
 import '../widgets/rdm_c_page.dart';
 import '../widgets/label_photo_sheet.dart';
 
-typedef _Catalogs = ({List<List<Map<String, Object?>>> tables, int? ownerId});
-
 class CatalogsScreen extends ConsumerStatefulWidget {
   const CatalogsScreen({super.key});
   @override
   ConsumerState<CatalogsScreen> createState() => _CatalogsScreenState();
 }
 
+typedef _CatalogsView = ({
+  List<List<Map<String, Object?>>> tables,
+  OperationMode mode,
+  int? ownerPersonId,
+});
+
 class _CatalogsScreenState extends ConsumerState<CatalogsScreen>
     with SingleTickerProviderStateMixin {
   late TabController tabs;
-  late Future<_Catalogs> data;
+  late Future<_CatalogsView> data;
   String query = '';
+  OperationMode? _loadedMode;
 
   @override
   void initState() {
@@ -45,17 +50,28 @@ class _CatalogsScreenState extends ConsumerState<CatalogsScreen>
     if (mounted) setState(() {});
   }
 
-  Future<_Catalogs> _load() async {
+  Future<_CatalogsView> _load() async {
     final repo = ref.read(repositoryProvider);
-    final operating = await repo.operatingContext();
-    final tables = await Future.wait([
-      repo.people(),
-      repo.farms(),
-      repo.products(),
-      repo.suppliers(),
-      repo.campaigns(),
-    ]);
-    return (tables: tables, ownerId: operating.ownerPersonId);
+    final (tables, operating) = await (
+      Future.wait([
+        repo.people(),
+        repo.farms(),
+        repo.products(),
+        repo.suppliers(),
+        repo.campaigns(),
+      ]),
+      repo.operatingContext(),
+    ).wait;
+    if (mounted && _loadedMode != operating.mode) {
+      setState(() => _loadedMode = operating.mode);
+    } else {
+      _loadedMode = operating.mode;
+    }
+    return (
+      tables: tables,
+      mode: operating.mode,
+      ownerPersonId: operating.ownerPersonId,
+    );
   }
 
   void _refresh() {
@@ -147,6 +163,9 @@ class _CatalogsScreenState extends ConsumerState<CatalogsScreen>
     try {
       switch (tabs.index) {
         case 0:
+          // En propio no se agregan responsables (#26); el botón no se
+          // muestra, pero la regla no depende de él.
+          if (_personal) return;
           await createPersonFromDialog(context, repo);
         // Chaco, producto y proveedor: las mismas altas que ofrecen los
         // selectores de los formularios (catalog_dialogs.dart). En modo propio
@@ -178,16 +197,24 @@ class _CatalogsScreenState extends ConsumerState<CatalogsScreen>
     _ => 'Agregar campaña',
   };
 
+  bool get _personal =>
+      (ref.read(operationModeProvider) ?? _loadedMode) ==
+      OperationMode.personal;
+
   @override
   Widget build(BuildContext context) {
-    final personal = ref.watch(operationModeProvider) == OperationMode.personal;
+    final personal =
+        (ref.watch(operationModeProvider) ?? _loadedMode) ==
+        OperationMode.personal;
     return _page(context, personal);
   }
 
   Widget _page(BuildContext context, bool personal) => RdmCPage(
     // Rediseño (lámina «Datos»), desde «Ajustes y datos».
     title: 'Datos',
-    subtitle: 'Personas, chacos, productos, proveedores y campañas.',
+    subtitle: personal
+        ? 'Titular, chacos, productos, proveedores y campañas.'
+        : 'Personas, chacos, productos, proveedores y campañas.',
     // **UIBUG-047 — jerarquía de acciones en `/catalogos`.** La pantalla
     // presentaba dos acciones visualmente primarias: este botón y el FAB
     // global "Nuevo". Se conserva el botón específico, que dice **qué** va a
@@ -255,7 +282,7 @@ class _CatalogsScreenState extends ConsumerState<CatalogsScreen>
         // Sin altura fija: la lista participa del scroll de la página, así
         // que su última fila siempre es alcanzable (UIBUG-018).
         Builder(
-          builder: (context) => FutureBuilder(
+          builder: (context) => FutureBuilder<_CatalogsView>(
             future: data,
             builder: (context, snapshot) {
               if (snapshot.hasError)
@@ -265,9 +292,13 @@ class _CatalogsScreenState extends ConsumerState<CatalogsScreen>
                 );
               if (!snapshot.hasData)
                 return const Center(child: CircularProgressIndicator());
-              final catalog = snapshot.data!;
-              final section = catalog.tables[tabs.index];
-              final rows = section.where((row) {
+              final loaded = snapshot.data!;
+              final isPersonal =
+                  (ref.watch(operationModeProvider) ?? loaded.mode) ==
+                  OperationMode.personal;
+              final ownerPersonId = loaded.ownerPersonId;
+              final tabRows = loaded.tables[tabs.index];
+              final rows = tabRows.where((row) {
                 if (query.isEmpty) return true;
                 // La ruta y la huella de la foto de la etiqueta no son
                 // texto que el agricultor busque.
@@ -296,14 +327,18 @@ class _CatalogsScreenState extends ConsumerState<CatalogsScreen>
                       final (title, subtitle, icon) = switch (tabs.index) {
                         0 => (
                           row['name'].toString(),
-                          row['id'] == catalog.ownerId
+                          row['id'] == ownerPersonId
                               ? personRoleLabel(row['role'], isOwner: true)
                               : '${personRoleLabel(row['role'])} · ${_policyLabel(row['settlement_policy']! as String)}',
                           Icons.person_outline,
                         ),
                         1 => (
                           row['name'].toString(),
-                          '${row['owner_name']} · ${formatHectares(row['area_m2'] as int)}',
+                          isPersonal &&
+                                  ownerPersonId != null &&
+                                  row['owner_person_id'] == ownerPersonId
+                              ? formatHectares(row['area_m2'] as int)
+                              : '${row['owner_name']} · ${formatHectares(row['area_m2'] as int)}',
                           Icons.landscape_outlined,
                         ),
                         2 => (
@@ -319,7 +354,7 @@ class _CatalogsScreenState extends ConsumerState<CatalogsScreen>
                         ),
                         _ => (
                           row['name'].toString(),
-                          campaignSubtitle(row, section),
+                          campaignSubtitle(row, tabRows),
                           Icons.calendar_month_outlined,
                         ),
                       };

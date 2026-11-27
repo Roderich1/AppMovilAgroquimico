@@ -13,6 +13,7 @@ import '../../services/sync/sync_api.dart';
 import '../../services/sync/sync_providers.dart';
 import '../widgets/agro_ui.dart';
 import '../widgets/common.dart';
+import '../widgets/identification_clarification_sheet.dart';
 import '../widgets/identification_texts.dart';
 import '../widgets/rdm_c_identification.dart';
 import '../widgets/rdm_c_page.dart';
@@ -390,6 +391,74 @@ class _CentralBindingScreenState extends ConsumerState<CentralBindingScreen> {
     _reloadLocal();
   }
 
+  Future<void> _completeInformation(IdentificationRequest request) async {
+    final answer = await showIdentificationClarification(context, request);
+    if (!mounted || answer == null) return;
+    try {
+      await ref
+          .read(identificationRequestStoreProvider)
+          .queueClarification(
+            requestId: request.requestId,
+            noteAt: request.serverNoteAt!,
+            name: answer.name,
+            ingredient: answer.ingredient,
+            authorizedPhotoPath: answer.photoPath,
+          );
+      if (mounted) await _sendClarification(request);
+    } on Object catch (error) {
+      if (mounted) showError(context, error);
+    }
+  }
+
+  Future<void> _sendClarification(IdentificationRequest request) async {
+    setState(() => loading = true);
+    try {
+      await ref
+          .read(syncControllerProvider.notifier)
+          .sendClarificationNow(request.requestId);
+      if (!mounted) return;
+      final latest = await ref
+          .read(identificationRequestStoreProvider)
+          .byId(request.requestId);
+      if (!mounted) return;
+      if (latest?.clarificationReply == null)
+        showSuccess(context, 'El sindicato recibió su respuesta.');
+    } on SyncAccessUnavailable {
+      if (mounted)
+        showSuccess(
+          context,
+          'Respuesta guardada en el teléfono. Queda pendiente de envío.',
+        );
+    } on Object catch (error) {
+      if (mounted) showError(context, error);
+    } finally {
+      if (mounted) {
+        setState(() => loading = false);
+        _reloadLocal();
+      }
+    }
+  }
+
+  Future<void> _removeSharedIdentificationPhoto(
+    IdentificationRequest request,
+  ) async {
+    final confirmed = await confirmDestructiveAction(
+      context,
+      title: 'Retirar foto compartida',
+      detail: 'Se pedirá al sindicato que retire la foto de la etiqueta de esta solicitud.',
+      confirmLabel: 'Retirar',
+    );
+    if (!confirmed || !mounted) return;
+    try {
+      await ref
+          .read(identificationRequestStoreProvider)
+          .requestSharedPhotoRemoval(request.requestId);
+      if (mounted) await _sendIdentificationNow(request);
+    } on Object catch (error) {
+      if (mounted) showError(context, error);
+    }
+  }
+
   /// «Enviar ahora»: verifica el acceso si hace falta y envía.
   Future<void> _sendIdentificationNow(IdentificationRequest request) async {
     setState(() {
@@ -720,6 +789,7 @@ class _CentralBindingScreenState extends ConsumerState<CentralBindingScreen> {
     final id = product['id']! as int;
     final binding = data.productBindings[id];
     final request = data.requests[id];
+    final reply = request?.clarificationReply;
     final unboundDetail = binding == null
         ? _noCompatibleProduct(product)
         : null;
@@ -746,8 +816,10 @@ class _CentralBindingScreenState extends ConsumerState<CentralBindingScreen> {
                     'Pulse «Enviar ahora».',
               if (request.serverNote != null)
                 'Nota del sindicato: ${request.serverNote}',
+              if (reply != null) identificationClarificationStatus(reply),
               ?linked,
               if (request.photoSendStatus == IdentificationPhotoStatus.sent &&
+                  product['photo_sha256'] != null &&
                   product['photo_sha256'] != request.photoSha256Consented)
                 'El sindicato conserva la foto anterior; la actual está '
                     'sólo en este teléfono.',
@@ -755,6 +827,20 @@ class _CentralBindingScreenState extends ConsumerState<CentralBindingScreen> {
       actions: request == null
           ? const []
           : [
+              if (request.canCompleteInformation)
+                FilledButton.tonal(
+                  onPressed: loading
+                      ? null
+                      : () => _completeInformation(request),
+                  child: const Text('Completar información'),
+                ),
+              if (reply != null &&
+                  !reply.isTerminal &&
+                  !request.canCompleteInformation)
+                TextButton(
+                  onPressed: loading ? null : () => _sendClarification(request),
+                  child: const Text('Reintentar respuesta'),
+                ),
               if (identificationCanSendNow(request))
                 TextButton.icon(
                   onPressed: loading
@@ -762,6 +848,13 @@ class _CentralBindingScreenState extends ConsumerState<CentralBindingScreen> {
                       : () => _sendIdentificationNow(request),
                   icon: const Icon(Icons.send_outlined),
                   label: const Text('Enviar ahora'),
+                ),
+              if (request.photoSendStatus == IdentificationPhotoStatus.sent)
+                TextButton(
+                  onPressed: loading
+                      ? null
+                      : () => _removeSharedIdentificationPhoto(request),
+                  child: const Text('Retirar foto compartida'),
                 ),
               // E1-D4: el vínculo lo confirma el agricultor.
               if (linked != null && binding == null)

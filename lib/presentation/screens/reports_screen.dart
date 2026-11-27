@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app.dart';
+import '../../domain/operation_mode.dart';
 import '../../domain/read_models.dart';
 import '../../domain/reports/report_composer.dart';
+import '../../operation_mode_controller.dart';
 import '../../services/reports/report_export_service.dart';
 import '../../services/reports/report_storage.dart';
 import '../providers/agro_providers.dart';
@@ -21,6 +23,7 @@ import '../widgets/rdm_c_page.dart';
 typedef _Filters = ({
   List<CampaignRead> campaigns,
   List<PersonRead> people,
+  OperationMode mode,
   int? ownerId,
 });
 
@@ -54,6 +57,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
   /// ofrece cancelar.
   ReportCancellation? _running;
   String? _location;
+  OperationMode? _loadedMode;
 
   @override
   void initState() {
@@ -73,16 +77,22 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
     final repo = ref.read(agroGatewayProvider);
     final campaigns = await repo.campaignsTyped();
     final people = await repo.peopleTyped();
-    final operating = await repo.operatingContext();
+    final operating = await ref.read(repositoryProvider).operatingContext();
     if (!_campaignInitialized) {
       final active = campaigns.where((row) => row.isActive);
       _campaignId = active.isEmpty ? null : active.first.id;
       _campaignInitialized = true;
     }
     _location = await ref.read(reportStorageProvider).describeLocation();
+    if (mounted && _loadedMode != operating.mode) {
+      setState(() => _loadedMode = operating.mode);
+    } else {
+      _loadedMode = operating.mode;
+    }
     return (
       campaigns: campaigns,
       people: people,
+      mode: operating.mode,
       ownerId: operating.ownerPersonId,
     );
   }
@@ -107,6 +117,10 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
     return null;
   }
 
+  bool get _isPersonal =>
+      (ref.read(operationModeProvider) ?? _loadedMode) ==
+      OperationMode.personal;
+
   Future<void> _export() async {
     if (_running != null) return;
     final blocker = _blocker();
@@ -117,7 +131,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
     // La advertencia de datos sensibles va ANTES de escribir el archivo, no
     // después: una vez guardado ya está en el teléfono sin cifrar
     // (09_SECURITY_AND_PRIVACY).
-    final confirmed = await _confirmSensitiveData();
+    final confirmed = await _confirmSensitiveData(_isPersonal);
     if (!confirmed || !mounted) return;
 
     final cancellation = ReportCancellation();
@@ -157,7 +171,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
     await _showSaved(stored!);
   }
 
-  Future<bool> _confirmSensitiveData() async =>
+  Future<bool> _confirmSensitiveData(bool personal) async =>
       await showDialog<bool>(
         context: context,
         builder: (dialogContext) => AlertDialog(
@@ -176,7 +190,7 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
           ),
           content: Text(
             'El ${_format.label} de "${_kind.label}" contiene información '
-            'sensible: precios, deudas, pagos y nombres de personas.\n\n'
+            '${personal ? 'sensible: precios, costos y pagos.' : 'sensible: precios, deudas, pagos y nombres de personas.'}\n\n'
             'Se guarda sin cifrar en la carpeta de la aplicación. Cualquiera '
             'que abra el archivo verá esos datos.\n\n'
             'La aplicación no lo envía a ningún sitio: si lo comparte, lo '
@@ -233,224 +247,246 @@ class _ReportsScreenState extends ConsumerState<ReportsScreen> {
   );
 
   @override
-  Widget build(BuildContext context) => RdmCPage(
-    title: 'Reportes',
-    subtitle: 'Exporta inventario, costos y cuentas a Excel o PDF.',
-    child: FutureBuilder<_Filters>(
-      future: _filters,
-      builder: (context, snapshot) {
-        if (snapshot.hasError) {
-          return EmptyState(
-            icon: Icons.error_outline,
-            message: friendlyError(snapshot.error!),
-          );
-        }
-        if (!snapshot.hasData) {
-          return const Center(child: CircularProgressIndicator());
-        }
-        final data = snapshot.data!;
-        final busy = _running != null;
-        final blocker = _blocker();
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            _sectionTitle(context, '¿Qué quiere exportar?'),
-            // Rediseño (lámina «Reportes»): cada reporte es una tarjeta que
-            // se elige; el grupo de opciones exclusivas es el de antes.
-            RadioGroup<ReportKind>(
-              groupValue: _kind,
-              // `RadioGroup` exige un manejador no nulo, así que la guarda
-              // de "ocupado" va dentro: durante una exportación no se puede
-              // cambiar lo que se está exportando.
-              onChanged: (value) {
-                if (busy || value == null) return;
-                setState(() => _kind = value);
-              },
-              child: Column(
-                children: [
-                  for (final kind in ReportKind.values)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 8),
-                      child: Material(
-                        color: AgroColors.surface,
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(20),
-                          side: BorderSide(
-                            color: kind == _kind
-                                ? AgroColors.ink
-                                : Colors.transparent,
-                            width: 2,
-                          ),
-                        ),
-                        clipBehavior: Clip.antiAlias,
-                        child: RadioListTile<ReportKind>(
-                          value: kind,
-                          controlAffinity: ListTileControlAffinity.trailing,
-                          title: Text(kind.label, style: AgroText.value),
-                          subtitle: Text(kind.description),
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 10),
-            // `Material`, no un `Container`: los desplegables lo necesitan
-            // aunque la pantalla se abra sin `Scaffold`.
-            Material(
-              color: AgroColors.surface,
-              borderRadius: BorderRadius.circular(20),
-              child: Padding(
-                padding: const EdgeInsets.all(12),
+  Widget build(BuildContext context) {
+    final liveMode = ref.watch(operationModeProvider);
+    ref.listen(operationModeProvider, (_, next) {
+      if (next == OperationMode.personal &&
+          _kind == ReportKind.accountStatement &&
+          widget.initialKind != ReportKind.accountStatement) {
+        setState(() => _kind = ReportKind.inventory);
+      }
+    });
+    final personal = (liveMode ?? _loadedMode) == OperationMode.personal;
+    return RdmCPage(
+      title: 'Reportes',
+      subtitle: personal
+          ? 'Exporta inventario y costos a Excel o PDF.'
+          : 'Exporta inventario, costos y cuentas a Excel o PDF.',
+      child: FutureBuilder<_Filters>(
+        future: _filters,
+        builder: (context, snapshot) {
+          if (snapshot.hasError) {
+            return EmptyState(
+              icon: Icons.error_outline,
+              message: friendlyError(snapshot.error!),
+            );
+          }
+          if (!snapshot.hasData) {
+            return const Center(child: CircularProgressIndicator());
+          }
+          final data = snapshot.data!;
+          final effectivePersonal =
+              (liveMode ?? data.mode) == OperationMode.personal;
+          final availableKinds = [
+            for (final kind in ReportKind.values)
+              if (!effectivePersonal ||
+                  kind != ReportKind.accountStatement ||
+                  widget.initialKind == ReportKind.accountStatement)
+                kind,
+          ];
+          final busy = _running != null;
+          final blocker = _blocker();
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              _sectionTitle(context, '¿Qué quiere exportar?'),
+              // Rediseño (lámina «Reportes»): cada reporte es una tarjeta que
+              // se elige; el grupo de opciones exclusivas es el de antes.
+              RadioGroup<ReportKind>(
+                groupValue: _kind,
+                // `RadioGroup` exige un manejador no nulo, así que la guarda
+                // de "ocupado" va dentro: durante una exportación no se puede
+                // cambiar lo que se está exportando.
+                onChanged: (value) {
+                  if (busy || value == null) return;
+                  setState(() => _kind = value);
+                },
                 child: Column(
                   children: [
-                    if (_kind.supportsCampaignFilter)
-                      DropdownButtonFormField<int?>(
-                        initialValue: _campaignId,
-                        // Sin `isExpanded` el desplegable se dimensiona por su
-                        // elemento más ancho y un nombre largo desborda el
-                        // campo por la derecha. Se vio en el Pixel 8.
-                        isExpanded: true,
-                        decoration: InputDecoration(
-                          labelText: _kind.requiresCampaign
-                              ? 'Campaña (obligatoria)'
-                              : 'Campaña',
-                        ),
-                        items: [
-                          // El resumen de campaña no admite "todas": es un
-                          // corte de un periodo contable concreto.
-                          if (!_kind.requiresCampaign)
-                            const DropdownMenuItem<int?>(
-                              child: Text('Todas las campañas'),
+                    for (final kind in availableKinds)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 8),
+                        child: Material(
+                          color: AgroColors.surface,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(20),
+                            side: BorderSide(
+                              color: kind == _kind
+                                  ? AgroColors.ink
+                                  : Colors.transparent,
+                              width: 2,
                             ),
-                          for (final campaign in data.campaigns)
-                            DropdownMenuItem<int?>(
-                              value: campaign.id,
-                              child: Text(
-                                '${campaign.name} · '
-                                '${campaignStatusLabel(campaign.status)}',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                        ],
-                        onChanged: busy
-                            ? null
-                            : (value) => setState(() => _campaignId = value),
-                      )
-                    else
-                      const ListTile(
-                        dense: true,
-                        leading: Icon(Icons.all_inclusive),
-                        title: Text('Inventario global'),
-                        subtitle: Text(
-                          'El stock es del almacén, no de una campaña.',
+                          ),
+                          clipBehavior: Clip.antiAlias,
+                          child: RadioListTile<ReportKind>(
+                            value: kind,
+                            controlAffinity: ListTileControlAffinity.trailing,
+                            title: Text(kind.label, style: AgroText.value),
+                            subtitle: Text(kind.description),
+                          ),
                         ),
                       ),
-                    if (_kind.requiresPerson) ...[
-                      const SizedBox(height: 12),
-                      DropdownButtonFormField<int?>(
-                        initialValue: _personId,
-                        isExpanded: true,
-                        decoration: const InputDecoration(
-                          labelText: 'Persona (obligatoria)',
-                        ),
-                        items: [
-                          for (final person in data.people)
-                            DropdownMenuItem<int?>(
-                              value: person.id,
-                              child: Text(
-                                '${person.name} · '
-                                '${personRoleLabel(person.role, isOwner: person.id == data.ownerId)}',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                        ],
-                        onChanged: busy
-                            ? null
-                            : (value) => setState(() => _personId = value),
-                      ),
-                    ],
                   ],
                 ),
               ),
-            ),
-            const SizedBox(height: 16),
-            // Formato: dos opciones, como en la lámina; su descripción
-            // (qué trae cada archivo) queda debajo.
-            Row(
-              children: [
-                Expanded(child: Text('Formato', style: AgroText.question)),
-                const SizedBox(width: 12),
-                Flexible(
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 220),
-                    child: SegmentToggle<ReportFormat>(
-                      semanticLabel: 'Formato',
-                      options: [
-                        for (final format in ReportFormat.values)
-                          ToggleOption(format, format.label),
+              const SizedBox(height: 10),
+              // `Material`, no un `Container`: los desplegables lo necesitan
+              // aunque la pantalla se abra sin `Scaffold`.
+              Material(
+                color: AgroColors.surface,
+                borderRadius: BorderRadius.circular(20),
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Column(
+                    children: [
+                      if (_kind.supportsCampaignFilter)
+                        DropdownButtonFormField<int?>(
+                          initialValue: _campaignId,
+                          // Sin `isExpanded` el desplegable se dimensiona por su
+                          // elemento más ancho y un nombre largo desborda el
+                          // campo por la derecha. Se vio en el Pixel 8.
+                          isExpanded: true,
+                          decoration: InputDecoration(
+                            labelText: _kind.requiresCampaign
+                                ? 'Campaña (obligatoria)'
+                                : 'Campaña',
+                          ),
+                          items: [
+                            // El resumen de campaña no admite "todas": es un
+                            // corte de un periodo contable concreto.
+                            if (!_kind.requiresCampaign)
+                              const DropdownMenuItem<int?>(
+                                child: Text('Todas las campañas'),
+                              ),
+                            for (final campaign in data.campaigns)
+                              DropdownMenuItem<int?>(
+                                value: campaign.id,
+                                child: Text(
+                                  '${campaign.name} · '
+                                  '${campaignStatusLabel(campaign.status)}',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                          ],
+                          onChanged: busy
+                              ? null
+                              : (value) => setState(() => _campaignId = value),
+                        )
+                      else
+                        const ListTile(
+                          dense: true,
+                          leading: Icon(Icons.all_inclusive),
+                          title: Text('Inventario global'),
+                          subtitle: Text(
+                            'El stock es del almacén, no de una campaña.',
+                          ),
+                        ),
+                      if (_kind.requiresPerson) ...[
+                        const SizedBox(height: 12),
+                        DropdownButtonFormField<int?>(
+                          initialValue: _personId,
+                          isExpanded: true,
+                          decoration: const InputDecoration(
+                            labelText: 'Persona (obligatoria)',
+                          ),
+                          items: [
+                            for (final person in data.people)
+                              DropdownMenuItem<int?>(
+                                value: person.id,
+                                child: Text(
+                                  '${person.name} · '
+                                  '${personRoleLabel(person.role, isOwner: person.id == data.ownerId)}',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                          ],
+                          onChanged: busy
+                              ? null
+                              : (value) => setState(() => _personId = value),
+                        ),
                       ],
-                      selected: _format,
-                      onChanged: busy
-                          ? null
-                          : (value) => setState(() => _format = value),
-                    ),
+                    ],
                   ),
                 ),
+              ),
+              const SizedBox(height: 16),
+              // Formato: dos opciones, como en la lámina; su descripción
+              // (qué trae cada archivo) queda debajo.
+              Row(
+                children: [
+                  Expanded(child: Text('Formato', style: AgroText.question)),
+                  const SizedBox(width: 12),
+                  Flexible(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 220),
+                      child: SegmentToggle<ReportFormat>(
+                        semanticLabel: 'Formato',
+                        options: [
+                          for (final format in ReportFormat.values)
+                            ToggleOption(format, format.label),
+                        ],
+                        selected: _format,
+                        onChanged: busy
+                            ? null
+                            : (value) => setState(() => _format = value),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(_format.description, style: AgroText.detail),
+              const SizedBox(height: 16),
+              const NoticeBox(
+                tone: NoticeTone.warning,
+                icon: Icons.lock_open_outlined,
+                text:
+                    'El archivo contiene información sensible y NO va '
+                    'cifrado. Se guarda en el teléfono; la aplicación no lo '
+                    'envía a ningún sitio.',
+              ),
+              if (_location != null) ...[
+                const SizedBox(height: 10),
+                Text('Se guardará en: $_location', style: AgroText.detail),
               ],
-            ),
-            const SizedBox(height: 4),
-            Text(_format.description, style: AgroText.detail),
-            const SizedBox(height: 16),
-            const NoticeBox(
-              tone: NoticeTone.warning,
-              icon: Icons.lock_open_outlined,
-              text:
-                  'El archivo contiene información sensible y NO va '
-                  'cifrado. Se guarda en el teléfono; la aplicación no lo '
-                  'envía a ningún sitio.',
-            ),
-            if (_location != null) ...[
-              const SizedBox(height: 10),
-              Text('Se guardará en: $_location', style: AgroText.detail),
-            ],
-            if (blocker != null) ...[
-              const SizedBox(height: 10),
-              Text(
-                blocker,
-                style: TextStyle(color: Theme.of(context).colorScheme.error),
-              ),
-            ],
-            const SizedBox(height: 16),
-            if (busy) ...[
-              const LinearProgressIndicator(),
-              const SizedBox(height: 10),
-              Text(
-                'Generando ${_kind.label} en ${_format.label}…',
-                textAlign: TextAlign.center,
-              ),
-              const SizedBox(height: 10),
-              OutlinedButton.icon(
-                onPressed: () => _running?.cancel(),
-                icon: const Icon(Icons.close),
-                label: const Text('Cancelar'),
-              ),
-            ] else
-              FilledButton.icon(
-                style: FilledButton.styleFrom(
-                  minimumSize: const Size.fromHeight(56),
+              if (blocker != null) ...[
+                const SizedBox(height: 10),
+                Text(
+                  blocker,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
                 ),
-                onPressed: blocker != null ? null : _export,
-                icon: const Icon(Icons.save_alt_outlined),
-                label: Text('Exportar ${_format.label}'),
-              ),
-          ],
-        );
-      },
-    ),
-  );
+              ],
+              const SizedBox(height: 16),
+              if (busy) ...[
+                const LinearProgressIndicator(),
+                const SizedBox(height: 10),
+                Text(
+                  'Generando ${_kind.label} en ${_format.label}…',
+                  textAlign: TextAlign.center,
+                ),
+                const SizedBox(height: 10),
+                OutlinedButton.icon(
+                  onPressed: () => _running?.cancel(),
+                  icon: const Icon(Icons.close),
+                  label: const Text('Cancelar'),
+                ),
+              ] else
+                FilledButton.icon(
+                  style: FilledButton.styleFrom(
+                    minimumSize: const Size.fromHeight(56),
+                  ),
+                  onPressed: blocker != null ? null : _export,
+                  icon: const Icon(Icons.save_alt_outlined),
+                  label: Text('Exportar ${_format.label}'),
+                ),
+            ],
+          );
+        },
+      ),
+    );
+  }
 
   Widget _sectionTitle(BuildContext context, String text) => Padding(
     padding: const EdgeInsets.only(bottom: 8),

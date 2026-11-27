@@ -1,6 +1,6 @@
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-const int dbSchemaVersion = 20;
+const int dbSchemaVersion = 21;
 const int dbOwnerBindingsSinceVersion = 8;
 const int dbSyncSinceVersion = 9;
 const int dbReviewAuditSinceVersion = 11;

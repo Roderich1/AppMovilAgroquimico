@@ -67,7 +67,7 @@ class ApplicationPlanQueries {
   }) async {
     final pending = pendingPlanStatuses.map((_) => '?').join(',');
     return (await _session.db).rawQuery(
-      '''SELECT i.*, p.name product_name, p.unit, f.name farm_name, pe.name owner_name,
+      '''SELECT i.*, p.name product_name, p.unit, f.name farm_name, f.owner_person_id, pe.name owner_name,
     c.name campaign_name, a.campaign_id, a.status plan_status, a.planned_date
     FROM application_plan_items i
     JOIN application_plans a ON a.id=i.plan_id JOIN products p ON p.id=i.product_id
@@ -108,7 +108,7 @@ class ApplicationPlanQueries {
     }
     return (await _session.db).rawQuery(
       '''SELECT a.id application_id, a.applied_at, a.status, a.notes,
-      c.name campaign_name, pe.name person_name, i.id application_item_id,
+      c.name campaign_name, a.person_id, pe.name person_name, i.id application_item_id,
       pr.id product_id, pr.name product_name, pr.unit, i.treated_area_m2,
       i.dose_base_per_ha, i.theoretical_quantity_base, i.quantity_base,
       i.cost_bob_minor,

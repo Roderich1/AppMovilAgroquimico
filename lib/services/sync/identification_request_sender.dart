@@ -101,18 +101,28 @@ class IdentificationRequestSender {
   Future<IdentificationRunReport> run(
     VerifiedAccess access, {
     bool includePaused = false,
+    bool sendClarifications = true,
   }) {
     final current = _running;
     if (current != null) return current;
-    final next = _run(access, includePaused).whenComplete(() {
-      _running = null;
-    });
+    final next = _run(access, includePaused, sendClarifications).whenComplete(
+      () {
+        _running = null;
+      },
+    );
     return _running = next;
+  }
+
+  Future<IdentificationRunReport> sendRequested(VerifiedAccess access) async {
+    final previous = _running;
+    if (previous != null) await previous;
+    return run(access, includePaused: true);
   }
 
   Future<IdentificationRunReport> _run(
     VerifiedAccess access,
     bool includePaused,
+    bool sendClarifications,
   ) async {
     final report = IdentificationRunReport();
     final tenantId = access.scope.tenantId;
@@ -131,12 +141,125 @@ class IdentificationRequestSender {
       includePaused: includePaused,
     );
     for (final request in pending) {
+      final reply = request.clarificationReply;
+      if (sendClarifications &&
+          reply != null &&
+          !reply.isTerminal &&
+          (reply.error != 'AUTH_REQUIRED' || includePaused) &&
+          _due(reply.retryAt)) {
+        if (!await _processClarification(api, token, request, reply, report))
+          return report;
+        continue;
+      }
       if (!await _process(api, token, request, includePaused, report)) {
         return report;
       }
     }
     await _readViews(api, token, report);
     return report;
+  }
+
+  Future<bool> _processClarification(
+    IdentificationApi api,
+    String token,
+    IdentificationRequest request,
+    IdentificationReply reply,
+    IdentificationRunReport report,
+  ) async {
+    final staged = await api.respond(request.requestId, reply.body, token);
+    if (!staged.ok)
+      return _clarificationFailure(staged, request, reply, report);
+    final body = staged.body;
+    final view = body is Map<String, dynamic> ? _view(body['request']) : null;
+    if (view?.requestId != request.requestId ||
+        body is! Map<String, dynamic> ||
+        body['received'] is! bool) {
+      return _clarificationFailure(
+        const IdentificationResponse(transportCode: 'INVALID_RESPONSE'),
+        request,
+        reply,
+        report,
+      );
+    }
+    if (body['received'] == true) {
+      await _store.receiveClarification(request.requestId, reply, view!);
+      report.received++;
+      return true;
+    }
+    final sha = reply.photoSha;
+    if (sha == null) {
+      return _clarificationFailure(
+        const IdentificationResponse(transportCode: 'INVALID_RESPONSE'),
+        request,
+        reply,
+        report,
+      );
+    }
+    final file = await _store.clarificationPhoto(reply.operationId);
+    if (!await file.exists()) {
+      await _store.failClarification(
+        request.requestId,
+        reply,
+        'PHOTO_MISSING',
+        terminal: true,
+      );
+      report.photosFailed++;
+      return true;
+    }
+    final uploaded = await api.uploadPhoto(
+      request.requestId,
+      file,
+      sha,
+      token,
+      responseId: reply.operationId,
+    );
+    if (!uploaded.ok)
+      return _clarificationFailure(uploaded, request, reply, report);
+    final received = _view(uploaded.body);
+    if (received == null ||
+        received.requestId != request.requestId ||
+        received.pendingNoteAt == reply.noteAt) {
+      return _clarificationFailure(
+        const IdentificationResponse(transportCode: 'INVALID_RESPONSE'),
+        request,
+        reply,
+        report,
+      );
+    }
+    await _store.receiveClarification(request.requestId, reply, received);
+    report.received++;
+    report.photosSent++;
+    return true;
+  }
+
+  Future<bool> _clarificationFailure(
+    IdentificationResponse response,
+    IdentificationRequest request,
+    IdentificationReply reply,
+    IdentificationRunReport report,
+  ) async {
+    if (_isAuth(response)) {
+      await _store.failClarification(request.requestId, reply, 'AUTH_REQUIRED');
+      report.authFailed = true;
+      return false;
+    }
+    final code = _codeOf(response);
+    final terminal = _terminalData(response) || response.statusCode == 404;
+    await _store.failClarification(
+      request.requestId,
+      reply,
+      code,
+      terminal: terminal,
+      retryAt: terminal
+          ? null
+          : _retryAt(reply.attempts + 1, response.retryAfter),
+    );
+    if (terminal) {
+      report.rejected++;
+    } else {
+      report.retried++;
+    }
+    return true;
   }
 
   bool _due(String? at) =>

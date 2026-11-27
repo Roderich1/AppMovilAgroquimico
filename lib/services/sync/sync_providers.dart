@@ -411,19 +411,36 @@ class SyncController extends Notifier<SyncState> {
     return report;
   }
 
+  Future<IdentificationRunReport> sendClarificationNow(String requestId) async {
+    await ref
+        .read(identificationRequestStoreProvider)
+        .retryClarification(requestId);
+    final access = await ensureAccess();
+    final report = await ref
+        .read(identificationRequestSenderProvider)
+        .sendRequested(access);
+    if (report.authFailed) ref.read(syncAccessHolderProvider).clear();
+    return report;
+  }
+
   /// Un ciclo del emisor de solicitudes de identificación (E1). Sin
   /// [access], usa el vigente y, si no hay, no hace nada (ni red ni base).
   /// Nunca lanza: lo pendiente queda para el próximo ciclo.
   Future<IdentificationRunReport?> _identificationCycle({
     VerifiedAccess? access,
     bool includePaused = false,
+    bool sendClarifications = true,
   }) async {
     final current = access ?? ref.read(syncAccessHolderProvider).current;
     if (current == null) return null;
     try {
       final report = await ref
           .read(identificationRequestSenderProvider)
-          .run(current, includePaused: includePaused);
+          .run(
+            current,
+            includePaused: includePaused,
+            sendClarifications: sendClarifications,
+          );
       if (report.authFailed) ref.read(syncAccessHolderProvider).clear();
       return report;
     } on Object {
@@ -547,7 +564,11 @@ class SyncController extends Notifier<SyncState> {
       // E1: al actualizar las referencias se envían las solicitudes de
       // identificación pendientes y se lee su estado. Un fallo aquí nunca
       // impide usar las referencias.
-      await _identificationCycle(access: access, includePaused: true);
+      await _identificationCycle(
+        access: access,
+        includePaused: true,
+        sendClarifications: false,
+      );
       // E2: también las convocatorias de compra conjunta. No se espera: las
       // referencias no dependen de ellas y nunca fallan por ellas.
       unawaited(_jointPurchaseCycle(access: access, includePaused: true));

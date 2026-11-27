@@ -156,8 +156,10 @@ class AppDatabase {
       options: OpenDatabaseOptions(
         version: schemaVersion,
         onConfigure: (db) async => db.execute('PRAGMA foreign_keys = ON'),
-        onCreate: (db, version) =>
-            createSchemaV20(db, voiceEvidenceSchema: voiceEvidenceSchema),
+        onCreate: (db, version) async {
+          await createSchemaV20(db, voiceEvidenceSchema: voiceEvidenceSchema);
+          await _addIdentificationClarificationColumns(db);
+        },
         onUpgrade: _upgradeSchema,
       ),
     );
@@ -174,6 +176,20 @@ class AppDatabase {
       oldVersion,
       voiceEvidenceSchema: voiceEvidenceSchema,
     );
+    if (oldVersion < 21) await _addIdentificationClarificationColumns(db);
+  }
+
+  Future<void> _addIdentificationClarificationColumns(Database db) async {
+    final columns = (await db.rawQuery(
+      'PRAGMA table_info(product_identification_requests)',
+    )).map((row) => row['name']).toSet();
+    for (final column in ['server_note_at', 'clarification_reply']) {
+      if (!columns.contains(column)) {
+        await db.execute(
+          'ALTER TABLE product_identification_requests ADD COLUMN $column TEXT',
+        );
+      }
+    }
   }
 
   DatabaseFactory _platformFactory() {

@@ -410,16 +410,16 @@ class _FarmDialogState extends State<FarmDialog> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (widget.fixedOwner)
+          if (widget.fixedOwner && !widget.fixedOwnerIsHolder) ...[
             Align(
               alignment: Alignment.centerLeft,
               child: Text(
-                'Propietario: ${widget.people.single['name']}'
-                '${widget.fixedOwnerIsHolder ? ' (titular)' : ''}',
+                'Propietario: ${widget.people.single['name']}',
                 key: const Key('farm-personal-owner'),
               ),
-            )
-          else
+            ),
+            const SizedBox(height: 12),
+          ] else if (!widget.fixedOwner) ...[
             DropdownButtonFormField<int>(
               initialValue: owner,
               decoration: const InputDecoration(labelText: 'Propietario'),
@@ -434,7 +434,8 @@ class _FarmDialogState extends State<FarmDialog> {
               validator: (value) =>
                   value == null ? 'Elija un propietario.' : null,
             ),
-          const SizedBox(height: 12),
+            const SizedBox(height: 12),
+          ],
           TextFormField(
             controller: name,
             decoration: const InputDecoration(labelText: 'Nombre'),
