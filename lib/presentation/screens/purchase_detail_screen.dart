@@ -23,7 +23,7 @@ import '../widgets/rdm_b_ui.dart';
 import '../widgets/owner_reversal_flow.dart';
 import 'purchase_form_screen.dart' show lotNumberCounter;
 import '../../services/auth/local_owner_credential.dart'
-    show AuthorizationPurpose;
+    show AuthorizationPurpose, OwnerVerificationMethod;
 
 /// Detalle de una compra, de sólo lectura (bloque de experiencia 2026-10-30,
 /// A2). Se llega tocando la tarjeta en Compras, también si está revertida.
@@ -84,7 +84,7 @@ class _PurchaseDetailScreenState extends ConsumerState<PurchaseDetailScreen> {
   }
 
   /// Corregir después del registro (decisión del autor del 2026-11-01):
-  /// primero los datos nuevos, después el motivo y el PIN del titular. El
+  /// primero los datos nuevos, después el motivo y la autorización del titular. El
   /// repositorio vuelve a comprobar todo en su transacción.
   Future<void> _correctLotData(
     Map<String, Object?> item, {
@@ -173,7 +173,8 @@ class _PurchaseDetailScreenState extends ConsumerState<PurchaseDetailScreen> {
                     '${value(row['previous_lot_number'], 'sin número')} → '
                     '${value(row['new_lot_number'], 'sin número')}. '
                     'Motivo: ${row['reason']}. Autorizó ${row['actor_name']} '
-                    'con PIN; ${row['lot_count']} '
+                    '${row['actor_method'] == OwnerVerificationMethod.password ? 'con la contraseña de su cuenta' : 'con PIN'}; '
+                    '${row['lot_count']} '
                     '${row['lot_count'] == 1 ? 'lote cambiado' : 'lotes cambiados'}'
                     '${(row['unproven_lot_count'] as int? ?? 0) == 0 ? '' : ', ${row['unproven_lot_count']} sin procedencia demostrada'}.',
                   ),
@@ -757,7 +758,7 @@ class _ItemsCard extends StatelessWidget {
 typedef _LotDataCorrection = ({String? expiryDay, String? lotNumber});
 
 /// Datos nuevos de vencimiento y número de lote de una línea (RF-42). El
-/// motivo y el PIN se piden después, en la aprobación del titular.
+/// motivo y la autorización se piden después, en la aprobación del titular.
 class _LotDataDialog extends StatefulWidget {
   const _LotDataDialog({required this.item, this.personal = false});
   final Map<String, Object?> item;
@@ -851,7 +852,7 @@ class _LotDataDialogState extends State<_LotDataDialog> {
           ),
           const SizedBox(height: 12),
           Text(
-            'Después se pide el motivo y el PIN del titular. '
+            'Después se pide el motivo y la autorización del titular. '
             '${widget.personal ? 'Se corrige en los lotes de esta compra. ' : 'Se corrige en los lotes de esta compra y en los entregados desde ellos cuando su procedencia está demostrada. '}'
             'Las cantidades y los movimientos no cambian, y la corrección queda '
             'registrada.',

@@ -170,12 +170,12 @@ Future<SeedB> seedSessionB(Household h, {DateTime? today}) async {
     date: ago(1),
   );
 
-  await repo.setProductAlertSettingsWithoutPinForTesting(
+  await repo.setProductAlertSettings(
     insecticide,
     minStockBase: 5000,
     leadDays: null,
   );
-  await repo.setProductAlertSettingsWithoutPinForTesting(
+  await repo.setProductAlertSettings(
     h.product,
     minStockBase: 10000,
     leadDays: 30,

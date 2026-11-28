@@ -12,14 +12,11 @@ import '../../domain/person_roles.dart' show PersonPurpose;
 import '../../domain/repository_types.dart'
     show ProductMovementFilter, repositoryMaxAlertLeadDays;
 import '../../operation_mode_controller.dart' show personalModeProvider;
-import '../../services/auth/local_owner_credential.dart'
-    show AuthorizationPurpose;
 import '../theme/agro_theme.dart';
 import '../widgets/agro_ui.dart';
 import '../widgets/rdm2_b_lotes.dart';
 import '../widgets/rdm_b_ui.dart';
 import '../widgets/common.dart';
-import 'owner_credential_screen.dart' show requestOwnerAuthorization;
 
 typedef _InventoryDetail = ({
   Map<String, Object?> header,
@@ -107,11 +104,7 @@ class _InventoryDetailScreenState extends ConsumerState<InventoryDetailScreen> {
     return null;
   }
 
-  /// Configura el nivel mínimo y el plazo de aviso (RF-44). Corresponde al
-  /// titular: primero los dos valores y, al guardar, su PIN una sola vez
-  /// (decisión del autor del 2026-11-01). Cancelar en cualquier paso no
-  /// cambia nada. Sólo cambia esa configuración; no toca existencias ni
-  /// operaciones.
+  /// Configura el nivel mínimo y el plazo de aviso (RF-44).
   Future<void> _configureAlerts(ProductAlertSettings current) async {
     final result = await showDialog<({int? minStockBase, int? leadDays})>(
       context: context,
@@ -119,30 +112,11 @@ class _InventoryDetailScreenState extends ConsumerState<InventoryDetailScreen> {
     );
     if (result == null || !mounted) return;
     final repo = ref.read(repositoryProvider);
-    String min(int? v) =>
-        v == null ? 'sin nivel mínimo' : formatQuantity(v, current.unit);
-    String lead(int? v) => v == null
-        ? '$defaultAlertLeadDays días (valor inicial)'
-        : (v == 1 ? '1 día' : '$v días');
-    final authorization = await requestOwnerAuthorization(
-      context,
-      ref,
-      purpose: AuthorizationPurpose.configureProductAlerts,
-      subjectRef: productAlertsSubjectRef(widget.productId),
-      title: 'Avisos de ${current.productName}',
-      effects:
-          'Nivel mínimo: ${min(current.minStockBase)} → '
-          '${min(result.minStockBase)}. Aviso de vencimiento: '
-          '${lead(current.leadDays)} → ${lead(result.leadDays)}. Sólo cambia '
-          'cuándo se avisa: las existencias no cambian.',
-    );
-    if (authorization == null || !mounted) return;
     try {
       await repo.setProductAlertSettings(
         widget.productId,
         minStockBase: result.minStockBase,
         leadDays: result.leadDays,
-        authorization: authorization,
       );
       if (!mounted) return;
       showSuccess(context, 'Se guardaron los avisos de este producto.');
@@ -1356,11 +1330,8 @@ class _AlertSettingsDialogState extends State<AlertSettingsDialog> {
             ),
           const SizedBox(height: 16),
           const NoticeBox(
-            icon: Icons.lock_outline,
-            text:
-                'Al guardar se pide el PIN del titular, una vez para los dos '
-                'datos. Los avisos no cambian sus existencias ni impiden '
-                'registrar operaciones.',
+            icon: Icons.info_outline,
+            text: 'Los avisos no cambian sus existencias ni impiden registrar operaciones.',
           ),
         ],
       ),

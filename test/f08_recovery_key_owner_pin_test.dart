@@ -92,7 +92,7 @@ void main() {
     await tester.enterText(find.byKey(const Key('owner-pin-input')), '000000');
     await tester.tap(find.byKey(const Key('owner-pin-submit')));
     await settle(tester);
-    expect(find.byKey(const Key('owner-pin-error')), findsOneWidget);
+    expect(find.byKey(const Key('owner-authorization-error')), findsOneWidget);
     await tester.tap(find.text('Cancelar'));
     await settle(tester);
     expect(find.byType(RecoveryKeyDisplay), findsNothing);

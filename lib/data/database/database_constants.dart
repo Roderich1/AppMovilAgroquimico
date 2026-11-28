@@ -1,6 +1,6 @@
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
-const int dbSchemaVersion = 21;
+const int dbSchemaVersion = 22;
 const int dbOwnerBindingsSinceVersion = 8;
 const int dbSyncSinceVersion = 9;
 const int dbReviewAuditSinceVersion = 11;
@@ -180,7 +180,7 @@ const List<String> dbReviewAuditSchema = <String>[
       actor_binding_id INTEGER NOT NULL REFERENCES owner_bindings(id),
       actor_member_id TEXT NOT NULL CHECK(length(actor_member_id) > 0),
       actor_tenant_id TEXT NOT NULL CHECK(length(actor_tenant_id) > 0),
-      actor_method TEXT NOT NULL CHECK(actor_method IN ('LOCAL_PIN')),
+      actor_method TEXT NOT NULL CHECK(actor_method IN ('LOCAL_PIN','ACCOUNT_PASSWORD')),
       credential_enrolment_ref TEXT NOT NULL CHECK(length(credential_enrolment_ref) > 0),
       recorded_at TEXT NOT NULL,
       UNIQUE(operation_type, operation_id))''',
@@ -214,7 +214,7 @@ const List<String> dbReviewAuditSchema = <String>[
       resolver_person_id INTEGER REFERENCES persons(id),
       resolver_binding_id INTEGER REFERENCES owner_bindings(id),
       resolver_member_id TEXT, resolver_tenant_id TEXT,
-      resolver_method TEXT CHECK(resolver_method IS NULL OR resolver_method IN ('LOCAL_PIN')),
+      resolver_method TEXT CHECK(resolver_method IS NULL OR resolver_method IN ('LOCAL_PIN','ACCOUNT_PASSWORD')),
       resolver_enrolment_ref TEXT,
       result_operation_id INTEGER,
       CHECK(kind = 'PURCHASE' OR invoice_image_path IS NULL),
@@ -231,6 +231,7 @@ const List<String> dbReviewAuditSchema = <String>[
     WHEN (OLD.status <> 'PENDING' AND (NEW.status IS NOT OLD.status
         OR NEW.resolved_at IS NOT OLD.resolved_at OR NEW.result_operation_id IS NOT OLD.result_operation_id
         OR NEW.resolver_person_id IS NOT OLD.resolver_person_id OR NEW.resolver_binding_id IS NOT OLD.resolver_binding_id
+        OR NEW.resolver_method IS NOT OLD.resolver_method
         OR NEW.resolver_enrolment_ref IS NOT OLD.resolver_enrolment_ref OR NEW.resolution_note IS NOT OLD.resolution_note
         OR NEW.last_conflict_code IS NOT OLD.last_conflict_code))
       OR NEW.draft_ref IS NOT OLD.draft_ref OR NEW.kind IS NOT OLD.kind

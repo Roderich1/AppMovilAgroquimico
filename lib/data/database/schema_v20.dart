@@ -194,7 +194,7 @@ const List<String> dbInventoryAlertsSchema = <String>[
       actor_binding_id INTEGER NOT NULL REFERENCES owner_bindings(id),
       actor_member_id TEXT NOT NULL CHECK(length(actor_member_id) > 0),
       actor_tenant_id TEXT NOT NULL CHECK(length(actor_tenant_id) > 0),
-      actor_method TEXT NOT NULL CHECK(actor_method IN ('LOCAL_PIN')),
+      actor_method TEXT NOT NULL CHECK(actor_method IN ('LOCAL_PIN','ACCOUNT_PASSWORD')),
       credential_enrolment_ref TEXT NOT NULL CHECK(length(credential_enrolment_ref) > 0),
       unproven_lot_count INTEGER NOT NULL DEFAULT 0 CHECK(unproven_lot_count >= 0),
       recorded_at TEXT NOT NULL,
