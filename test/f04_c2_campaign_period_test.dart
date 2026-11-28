@@ -402,11 +402,68 @@ void main() {
     });
   });
 
+  test(
+    'editar o vincular no deja una necesidad antes del nuevo inicio',
+    () async {
+      final fixture = await seedSyncFixture();
+      addTearDown(fixture.database.close);
+      await fixture.needs.declare(
+        referenceDate: DateTime(2026, 9, 20),
+        productId: fixture.litreProductId,
+        quantityBase: 1000,
+      );
+      final local = CampaignPeriod.fromRow(
+        (await fixture.repo.campaigns()).single,
+      );
+      final central = centralCampaign(startDate: _civil('2026-10-01'));
+      final proposal = suggestedPeriodForBinding(
+        local,
+        CentralPeriod.of(central),
+      )!;
+      final db = await fixture.database.database;
+      final before = await dumpTables(db);
+      final refused = throwsA(
+        isA<CampaignCalendarException>().having(
+          (error) => error.message,
+          'message',
+          contains('anteriores al inicio elegido (01/10/2026)'),
+        ),
+      );
+      expect(
+        await fixture.bindings.campaignAdjustmentProblem(local, proposal),
+        contains('registros del 20/09/2026'),
+      );
+      await expectLater(
+        fixture.repo.setCampaignPeriod(local, proposal),
+        refused,
+      );
+      await expectLater(
+        fixture.bindings.bindCampaign(
+          campaignId: local.id,
+          central: central,
+          tenantId: memberA.tenantId,
+          expectedPeriod: local,
+          adjustedPeriod: proposal,
+        ),
+        refused,
+      );
+      expect(await dumpTables(db), before);
+    },
+  );
+
   group('fin previsto (sin cerrar)', () {
     test(
-      'si el vínculo falla después de escribir el fin, se revierte la fecha',
+      'si falla el vínculo, se revierten ambos extremos del período',
       () async {
         final fixture = await seedSyncFixture(bindCatalog: false);
+        final initial = CampaignPeriod.fromRow(
+          (await fixture.repo.campaigns()).single,
+        );
+        final wide = initial.withDates(
+          startDay: '2026-11-03',
+          endDay: '2027-03-02',
+        );
+        await fixture.repo.setCampaignPeriod(initial, wide);
         final db = await fixture.database.database;
         await db.execute('''
         CREATE TRIGGER simulate_binding_failure BEFORE INSERT ON campaign_bindings
@@ -418,9 +475,16 @@ void main() {
         await expectLater(
           fixture.bindings.bindCampaign(
             campaignId: fixture.campaignId,
-            central: centralCampaign(endDate: _civil('2027-02-03')),
+            central: centralCampaign(
+              startDate: _civil('2026-11-06'),
+              endDate: _civil('2027-02-03'),
+            ),
             tenantId: memberA.tenantId,
-            plannedEnd: DateTime(2027, 2, 3),
+            expectedPeriod: wide,
+            adjustedPeriod: wide.withDates(
+              startDay: '2026-11-06',
+              endDay: '2027-02-03',
+            ),
           ),
           throwsA(
             predicate(
@@ -442,13 +506,17 @@ void main() {
           quantityBase: 1000,
         );
         final db = await fixture.database.database;
+        final local = CampaignPeriod.fromRow(
+          (await fixture.repo.campaigns()).single,
+        );
         final before = await dumpTables(db);
         await expectLater(
           fixture.bindings.bindCampaign(
             campaignId: fixture.campaignId,
             central: centralCampaign(endDate: _civil('2027-02-03')),
             tenantId: memberA.tenantId,
-            plannedEnd: DateTime(2026, 9, 19),
+            expectedPeriod: local,
+            adjustedPeriod: local.withEnd('2026-09-19'),
           ),
           throwsA(
             isA<CampaignCalendarException>().having(

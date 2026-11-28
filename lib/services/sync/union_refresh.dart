@@ -266,8 +266,12 @@ class UnionRefresh extends Notifier<Map<UnionFeed, UnionReadStatus>> {
   bool _due(UnionFeed feed, DateTime now) {
     final retry = _retryAt[feed];
     if (retry != null) return !now.isBefore(retry);
-    final lastRead = state[feed]?.lastRead;
-    return lastRead == null ||
+    final status = state[feed];
+    final lastRead = status?.lastRead;
+    // Una lectura marcada sin red se reintenta al primer ciclo conectado,
+    // incluso si Android reanuda la pantalla sin emitir otra transición.
+    return status?.issue == UnionReadIssue.offline ||
+        lastRead == null ||
         now.isBefore(lastRead) ||
         now.difference(lastRead) >= feed.interval;
   }

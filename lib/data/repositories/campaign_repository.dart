@@ -145,39 +145,60 @@ class CampaignRepository {
   }
 
   /// Fin previsto de una campaña activa o planificada (D-F04-C2).
-  Future<void> setCampaignEnd(int campaignId, {required DateTime end}) async {
-    await _session.write((txn, _) async {
-      final periods = await _queries.campaignPeriods(txn);
-      final current = periods.where((p) => p.id == campaignId).firstOrNull;
-      if (current == null) throw BusinessRuleException('La campaña no existe.');
-      if (!current.allowsPlannedEnd) {
-        throw CampaignCalendarException(
-          'El período de «${current.name}» no se cambia: la campaña está '
-          '${current.status == 'CLOSED' ? 'cerrada' : 'archivada'}.',
-        );
-      }
-      final endDay = localDay(end);
-      await _queries.validateCampaignEnd(
-        txn,
-        periods,
-        current,
-        endDay,
-        actionLabel: 'No se cambió el fin.',
-        recordsLabel: 'registros',
-      );
-      await txn.update(
-        'campaigns',
-        {'end_date': _session.date(startOfLocalDay(endDay))},
-        where: 'id=?',
-        whereArgs: [campaignId],
-      );
-      await CentralBindingStore.revalidateCampaignPeriod(
-        txn,
+  Future<void> setCampaignEnd(int campaignId, {required DateTime end}) =>
+      _changePeriod(
         campaignId,
-        now: _session.date(DateTime.now()),
+        (current) => current.withEnd(localDay(end)),
+        actionLabel: 'No se cambió el fin.',
       );
-    });
-  }
+
+  Future<void> setCampaignPeriod(
+    CampaignPeriod before,
+    CampaignPeriod proposed,
+  ) => _changePeriod(
+    before.id,
+    (current) =>
+        current.withDates(startDay: proposed.startDay, endDay: proposed.endDay),
+    expected: before,
+    actionLabel: 'No se cambió el período.',
+  );
+
+  Future<void> _changePeriod(
+    int campaignId,
+    CampaignPeriod Function(CampaignPeriod) propose, {
+    CampaignPeriod? expected,
+    required String actionLabel,
+  }) => _session.write((txn, _) async {
+    final periods = await _queries.campaignPeriods(txn);
+    final current = periods.where((p) => p.id == campaignId).firstOrNull;
+    if (current == null) throw BusinessRuleException('La campaña no existe.');
+    if (!current.allowsPlannedEnd) {
+      throw CampaignCalendarException(
+        'El período de «${current.name}» no se cambia: la campaña está '
+        '${current.status == 'CLOSED' ? 'cerrada' : 'archivada'}.',
+      );
+    }
+    if (expected != null && !current.matchesPeriod(expected)) {
+      throw CampaignCalendarException(
+        'El período de «${current.name}» cambió. Vuelva a abrir la edición.',
+      );
+    }
+    final proposed = propose(current);
+    if (current.matchesPeriod(proposed)) return;
+    await _queries.validatePeriod(
+      txn,
+      periods,
+      current,
+      proposed,
+      actionLabel: actionLabel,
+    );
+    await _queries.writePeriodDates(txn, current, proposed);
+    await CentralBindingStore.revalidateCampaignPeriod(
+      txn,
+      campaignId,
+      now: _session.date(DateTime.now()),
+    );
+  });
 
   Future<Map<String, Object?>?> activeCampaign() async {
     final rows = await (await _session.db).query(

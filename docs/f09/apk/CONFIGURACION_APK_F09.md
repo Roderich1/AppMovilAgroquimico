@@ -64,7 +64,7 @@ Notas:
 
 ## 5. Avisos de licencia
 
-La APK lleva los textos de `assets/licenses/` en `assets/flutter_assets/assets/licenses/`. Se ven en **Más › Licencias**, junto a los paquetes Dart y el motor de Flutter (`NOTICES.Z`). Procedencia en `assets/licenses/README.md`; inventario en `tool/voice_local/THIRD_PARTY.md`.
+La APK lleva los textos de `assets/licenses/` en `assets/flutter_assets/assets/licenses/`. Se ven en **Ajustes y datos › Acerca de Agrocuentas › Avisos de terceros**, junto a los paquetes Dart y el motor de Flutter (`NOTICES.Z`). Procedencia en `assets/licenses/README.md`; inventario en `tool/voice_local/THIRD_PARTY.md`.
 
 ### 5.1 Verificación en una APK compilada
 
@@ -80,7 +80,7 @@ La APK lleva los textos de `assets/licenses/` en `assets/flutter_assets/assets/l
 
 ### 5.2 Segunda entrega: componentes dentro de `libvosk.so`
 
-Kaldi, OpenFST, OpenBLAS 0.3.20, CLAPACK 3.2.1 y libf2c tienen ahora sus textos en `assets/licenses/vosk/` y aparecen en **Más › Licencias** como «incluido en Vosk». Las versiones que se pueden fijar y las que no se explican en la nota 5 de `assets/licenses/README.md`.
+Kaldi, OpenFST, OpenBLAS 0.3.20, CLAPACK 3.2.1 y libf2c tienen ahora sus textos en `assets/licenses/vosk/` y aparecen en **Ajustes y datos › Acerca de Agrocuentas › Avisos de terceros** como «incluido en Vosk». Las versiones que se pueden fijar y las que no se explican en la nota 5 de `assets/licenses/README.md`.
 
 - **Verificación:** mismo comando que en §5.1, sobre `b096487`. APK `agrocuentas-voz-b096487-x86_64-profile.apk`, SHA-256 `6b780afb0a133b19de120ff64859aaf7f820ae7773f6734d414700b37a06df36`. Sólo compilada.
 - **Resultado:** los 15 textos de `assets/licenses/` están en `assets/flutter_assets/assets/licenses/`, idénticos byte a byte (`cmp`).

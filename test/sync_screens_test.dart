@@ -309,8 +309,18 @@ void main() {
       await settle(tester);
       await tester.tap(find.text('Vincular…'));
       await settle(tester);
-      expect(find.text('Unidad central sin equivalencia L/KG'), findsOneWidget);
-      await tester.tap(find.text('Herbicida central (L)'));
+      final picker = find.byType(SimpleDialog);
+      expect(
+        find.descendant(of: picker, matching: find.byType(ListTile)),
+        findsOneWidget,
+      );
+      expect(find.text('Coadyuvante central (unidad)'), findsNothing);
+      final compatible = find.descendant(
+        of: picker,
+        matching: find.text('Herbicida central (L)'),
+      );
+      expect(compatible, findsOneWidget);
+      await tester.tap(compatible);
       await settle(tester);
       expect(
         find.textContaining('Vincular «Herbicida local» de este teléfono'),

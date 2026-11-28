@@ -237,11 +237,16 @@ abstract interface class CentralBindingGateway {
     required List<CampaignBinding> bindings,
     required Map<int, CampaignPeriod> periods,
   });
+  Future<String?> campaignAdjustmentProblem(
+    CampaignPeriod before,
+    CampaignPeriod proposed,
+  );
   Future<CampaignBinding> bindCampaign({
     required int campaignId,
     required CentralCampaign central,
     required String tenantId,
-    DateTime? plannedEnd,
+    CampaignPeriod? expectedPeriod,
+    CampaignPeriod? adjustedPeriod,
   });
   Future<ProductBinding> bindProduct({
     required int productId,

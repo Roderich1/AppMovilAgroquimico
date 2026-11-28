@@ -76,9 +76,14 @@ class MoreScreen extends ConsumerWidget {
       // F09: lleva a los formularios con el panel de voz; no registra nada
       // por sí sola.
       const _Entry(key: 'more-voice', title: 'Registrar por voz', path: '/voz'),
+      const _Entry(
+        key: 'more-about',
+        title: 'Acerca de Agrocuentas',
+        path: '/acerca-de',
+      ),
     ];
 
-    Widget group(String title, List<_Entry> entries, {Widget? extra}) => Column(
+    Widget group(String title, List<_Entry> entries) => Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         RdmCOverline(title),
@@ -92,7 +97,6 @@ class MoreScreen extends ConsumerWidget {
                 // Se APILAN: Atrás vuelve aquí (UIBUG-004A).
                 onTap: () => context.push(entry.path),
               ),
-            ?extra,
           ],
         ),
         const SizedBox(height: 16),
@@ -106,18 +110,7 @@ class MoreScreen extends ConsumerWidget {
         children: [
           group('Datos', _data),
           group('Seguridad', _security),
-          group(
-            'Uso',
-            usage,
-            // Avisos de licencia (F09): abre la página de licencias de
-            // Flutter con los paquetes Dart y los componentes de la voz local
-            // (lib/licenses).
-            extra: RdmCRow(
-              key: const Key('more-licenses'),
-              title: 'Licencias',
-              onTap: () => showAgroLicenses(context),
-            ),
-          ),
+          group('Uso', usage),
         ],
       ),
     );
@@ -139,7 +132,7 @@ class _Entry {
 
 /// «Ajustes y datos» del modo individual (lámina I-50): el modo y el titular
 /// arriba, en una tarjeta que abre Modo de uso; luego Datos, Cuenta y
-/// seguridad, y Licencias. Sólo navega: cada pantalla conserva sus guardas.
+/// seguridad, y Acerca de Agrocuentas. Sólo navega: cada pantalla conserva sus guardas.
 ///
 /// Respecto de la lámina: «Ayuda» no se muestra porque la app no tiene una
 /// pantalla de ayuda (no se inventa); la cuenta dice «Activada» (estado
@@ -192,12 +185,7 @@ class _IndividualSettings extends ConsumerWidget {
               'Chacos, productos y proveedores',
               '/catalogos',
             ),
-            row(
-              'more-campaigns',
-              'Campañas',
-              '/campanas',
-              trailing: const _ActiveCampaignName(),
-            ),
+            const _ActiveCampaignRow(),
             row(
               'more-reports',
               'Reportes',
@@ -219,11 +207,7 @@ class _IndividualSettings extends ConsumerWidget {
             row('more-backups', 'Respaldos', '/respaldo-remoto'),
           ]),
           group(null, [
-            RdmCRow(
-              key: const Key('more-licenses'),
-              title: 'Licencias',
-              onTap: () => showAgroLicenses(context),
-            ),
+            row('more-about', 'Acerca de Agrocuentas', '/acerca-de'),
           ]),
         ],
       ),
@@ -295,15 +279,14 @@ class _ModeCardState extends ConsumerState<_ModeCard> {
   );
 }
 
-class _ActiveCampaignName extends ConsumerStatefulWidget {
-  const _ActiveCampaignName();
+class _ActiveCampaignRow extends ConsumerStatefulWidget {
+  const _ActiveCampaignRow();
 
   @override
-  ConsumerState<_ActiveCampaignName> createState() =>
-      _ActiveCampaignNameState();
+  ConsumerState<_ActiveCampaignRow> createState() => _ActiveCampaignRowState();
 }
 
-class _ActiveCampaignNameState extends ConsumerState<_ActiveCampaignName> {
+class _ActiveCampaignRowState extends ConsumerState<_ActiveCampaignRow> {
   late final Future<Map<String, Object?>?> _active = ref
       .read(repositoryProvider)
       .activeCampaign();
@@ -313,9 +296,30 @@ class _ActiveCampaignNameState extends ConsumerState<_ActiveCampaignName> {
     future: _active,
     builder: (context, snapshot) {
       final name = snapshot.data?['name'] as String?;
-      return name == null
-          ? const SizedBox.shrink()
-          : Text(name, style: AgroText.detail);
+      return RdmCRow(
+        key: const Key('more-campaigns'),
+        title: 'Campañas',
+        detail: name,
+        onTap: () => context.push('/campanas'),
+      );
     },
+  );
+}
+
+class AboutAgrocuentasScreen extends StatelessWidget {
+  const AboutAgrocuentasScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) => RdmCPage(
+    title: 'Acerca de Agrocuentas',
+    child: AgroGroup(
+      children: [
+        RdmCRow(
+          key: const Key('about-licenses'),
+          title: 'Avisos de terceros',
+          onTap: () => showAgroLicenses(context),
+        ),
+      ],
+    ),
   );
 }

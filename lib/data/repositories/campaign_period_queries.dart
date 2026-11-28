@@ -19,10 +19,10 @@ class CampaignPeriodQueries {
       CampaignPeriod.fromRow(row),
   ];
 
-  /// Último día local con un registro fechado de la campaña: compras y
+  /// Días extremos de los registros fechados de la campaña: compras y
   /// aplicaciones (revertidas incluidas, también son su historia) y
   /// necesidades declaradas de F05 con todas sus versiones.
-  Future<String?> lastOperationDay(
+  Future<({String? first, String? last})> _operationDays(
     DatabaseExecutor executor,
     int campaignId,
   ) async {
@@ -52,12 +52,45 @@ class CampaignPeriodQueries {
         [campaignId],
       ),
     ];
+    String? first;
     String? last;
     for (final row in rows) {
       final day = storedLocalDay(row['day']! as String);
+      if (first == null || day.compareTo(first) < 0) first = day;
       if (last == null || day.compareTo(last) > 0) last = day;
     }
-    return last;
+    return (first: first, last: last);
+  }
+
+  Future<String?> lastOperationDay(
+    DatabaseExecutor executor,
+    int campaignId,
+  ) async => (await _operationDays(executor, campaignId)).last;
+
+  /// Guarda solamente extremos que cambiaron para conservar los instantes anteriores.
+  Future<void> writePeriodDates(
+    DatabaseExecutor executor,
+    CampaignPeriod before,
+    CampaignPeriod proposed,
+  ) async {
+    final end = proposed.endDay;
+    final updates = {
+      if (before.startDay != proposed.startDay)
+        'start_date': startOfLocalDay(proposed.startDay)
+            .toUtc()
+            .toIso8601String(),
+      if (before.endDay != end)
+        'end_date': end == null
+            ? null
+            : startOfLocalDay(end).toUtc().toIso8601String(),
+    };
+    if (updates.isEmpty) return;
+    await executor.update(
+      'campaigns',
+      updates,
+      where: 'id=?',
+      whereArgs: [before.id],
+    );
   }
 
   /// Comprueba que [proposed] no se solape con los períodos en [periods].
@@ -89,8 +122,7 @@ class CampaignPeriodQueries {
     }
   }
 
-  /// Comprueba que [endDay] no sea anterior al inicio de [period] ni deje
-  /// registros fechados fuera del período, y que no solape otras campañas.
+  /// Mantiene las reglas de cierre y de edición del fin previsto.
   Future<void> validateCampaignEnd(
     DatabaseExecutor executor,
     List<CampaignPeriod> periods,
@@ -98,25 +130,57 @@ class CampaignPeriodQueries {
     String endDay, {
     required String actionLabel,
     required String recordsLabel,
+  }) => validatePeriod(
+    executor,
+    periods,
+    period,
+    period.withEnd(endDay),
+    actionLabel: actionLabel,
+    recordsLabel: recordsLabel,
+  );
+
+  Future<void> validatePeriod(
+    DatabaseExecutor executor,
+    List<CampaignPeriod> periods,
+    CampaignPeriod before,
+    CampaignPeriod proposed, {
+    required String actionLabel,
+    String recordsLabel = 'registros',
   }) async {
-    if (endDay.compareTo(period.startDay) < 0) {
+    final start = proposed.startDay;
+    final end = proposed.endDay;
+    if (end != null && end.compareTo(start) < 0) {
       throw CampaignCalendarException(
-        'El fin (${displayDay(endDay)}) no puede ser anterior al inicio de '
-        '«${period.name}» (${displayDay(period.startDay)}). $actionLabel',
+        'El fin (${displayDay(end)}) no puede ser anterior al inicio de '
+        '«${before.name}» (${displayDay(start)}). $actionLabel',
       );
     }
-    final last = await lastOperationDay(executor, period.id);
-    if (last != null && last.compareTo(endDay) > 0) {
+    final (first: first, last: last) = await _operationDays(
+      executor,
+      before.id,
+    );
+    final preserved =
+        '${actionLabel[0].toLowerCase()}${actionLabel.substring(1)}';
+    if (start != before.startDay &&
+        first != null &&
+        first.compareTo(start) < 0) {
       throw CampaignCalendarException(
-        '«${period.name}» tiene $recordsLabel del ${displayDay(last)}, '
-        'posteriores al fin elegido (${displayDay(endDay)}). Las operaciones '
-        'no se cambian de campaña: ${actionLabel[0].toLowerCase()}${actionLabel.substring(1)}',
+        '«${before.name}» tiene $recordsLabel del ${displayDay(first)}, '
+        'anteriores al inicio elegido (${displayDay(start)}). Las operaciones '
+        'no se cambian de campaña: $preserved',
+      );
+    }
+    if (end != null && last != null && last.compareTo(end) > 0) {
+      throw CampaignCalendarException(
+        '«${before.name}» tiene $recordsLabel del ${displayDay(last)}, '
+        'posteriores al fin elegido (${displayDay(end)}). Las operaciones '
+        'no se cambian de campaña: $preserved',
       );
     }
     assertNoOverlap(
       periods,
-      period.withEnd(endDay),
-      excludeId: period.id,
+      proposed,
+      excludeId: before.id,
       suffix: ' $actionLabel',
     );
   }

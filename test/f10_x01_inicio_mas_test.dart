@@ -199,7 +199,7 @@ void main() {
       'Respaldos',
       'Modo de uso',
       'Registrar por voz',
-      'Licencias',
+      'Acerca de Agrocuentas',
     ]) {
       await tester.scrollUntilVisible(
         find.text(title),
