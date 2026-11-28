@@ -19,10 +19,6 @@ class InventoryRepository {
   static String lotDataSubjectRef(int purchaseItemId) =>
       'purchase_item:$purchaseItemId';
 
-  /// Referencia que firma la autorización de la configuración de avisos.
-  static String productAlertsSubjectRef(int productId) =>
-      'product_alerts:$productId';
-
   static const String _provenLotsSql = '''WITH RECURSIVE proven(id) AS (
       SELECT l.id FROM inventory_lots l
       WHERE l.purchase_item_id=?1 AND l.parent_lot_id IS NULL
@@ -270,10 +266,9 @@ class InventoryRepository {
     int productId, {
     required int? minStockBase,
     required int? leadDays,
-    required OwnerAuthorization authorization,
   }) async {
     _checkAlertSettings(minStockBase, leadDays);
-    await _session.writeAuthorized((txn, consume) async {
+    await _session.write((txn, _) async {
       final rows = await txn.query(
         'products',
         columns: ['min_stock_base', 'alert_lead_days'],
@@ -285,11 +280,6 @@ class InventoryRepository {
           rows.single['alert_lead_days'] == leadDays) {
         throw BusinessRuleException('No hay cambios que guardar.');
       }
-      await consume(
-        authorization,
-        AuthorizationPurpose.configureProductAlerts,
-        productAlertsSubjectRef(productId),
-      );
       await txn.update(
         'products',
         {'min_stock_base': minStockBase, 'alert_lead_days': leadDays},
@@ -299,27 +289,6 @@ class InventoryRepository {
     });
   }
 
-  /// Sólo pruebas y siembras sintéticas: la configuración sin PIN.
-  Future<void> setProductAlertSettingsWithoutPinForTesting(
-    int productId, {
-    required int? minStockBase,
-    required int? leadDays,
-  }) async {
-    _checkAlertSettings(minStockBase, leadDays);
-    await _session.write((txn, _) async {
-      final changed = await txn.update(
-        'products',
-        {'min_stock_base': minStockBase, 'alert_lead_days': leadDays},
-        where: 'id=?',
-        whereArgs: [productId],
-      );
-      if (changed == 0) {
-        throw BusinessRuleException('El producto no existe.');
-      }
-    });
-  }
-
-  /// Configuración de avisos de un producto.
   Future<ProductAlertSettings> productAlertSettings(int productId) async {
     final rows = await (await _session.db).query(
       'products',

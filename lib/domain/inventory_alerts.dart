@@ -17,9 +17,6 @@ const int defaultAlertLeadDays = 30;
 /// Plazo máximo de aviso admitido, en días (F04-AV).
 const int maxAlertLeadDays = 365;
 
-/// Referencia que firma la autorización de la configuración de avisos.
-String productAlertsSubjectRef(int productId) => 'product_alerts:$productId';
-
 /// Clasificación del vencimiento de un lote con cantidad remanente (RN-31).
 enum ExpiryStatus {
   /// La fecha es anterior a la de hoy en el teléfono.

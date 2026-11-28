@@ -569,30 +569,12 @@ class AgroRepository implements AgroGateway {
   Future<List<Map<String, Object?>>> lotDataCorrections(int purchaseItemId) =>
       _inventory.lotDataCorrections(purchaseItemId);
 
-  /// Referencia que firma la autorización de la configuración de avisos.
-  static String productAlertsSubjectRef(int productId) =>
-      InventoryRepository.productAlertsSubjectRef(productId);
-
   /// Nivel mínimo (unidad base) y plazo de aviso (días) de un producto (RF-44).
   Future<void> setProductAlertSettings(
     int productId, {
     required int? minStockBase,
     required int? leadDays,
-    required OwnerAuthorization authorization,
   }) => _inventory.setProductAlertSettings(
-    productId,
-    minStockBase: minStockBase,
-    leadDays: leadDays,
-    authorization: authorization,
-  );
-
-  /// Sólo pruebas y siembras sintéticas: la configuración sin PIN.
-  @visibleForTesting
-  Future<void> setProductAlertSettingsWithoutPinForTesting(
-    int productId, {
-    required int? minStockBase,
-    required int? leadDays,
-  }) => _inventory.setProductAlertSettingsWithoutPinForTesting(
     productId,
     minStockBase: minStockBase,
     leadDays: leadDays,

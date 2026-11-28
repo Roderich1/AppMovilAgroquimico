@@ -1,13 +1,12 @@
 // Soporte de las pruebas E-12 (F03 §4 bis): Auth V2 simulado que cuenta las
 // peticiones, una identidad de instalación fija, un almacén seguro de sesión
-// simulado y relojes manuales para la acreditación de activación. Ningún
+// simulado. Ningún
 // valor de aquí es una credencial real.
 import 'dart:convert';
 
 import 'package:agroquimicos/data/installation_client_id_store.dart';
-import 'package:agroquimicos/domain/installation_access.dart';
-import 'package:agroquimicos/installation_access.dart';
-import 'package:agroquimicos/services/auth/activation_owner_evidence.dart';
+import 'package:agroquimicos/domain/installation_access.dart'
+    show installationReference;
 import 'package:agroquimicos/services/auth/first_activation_coordinator.dart';
 import 'package:agroquimicos/services/auth/local_owner_credential.dart';
 import 'package:http/http.dart' as http;
@@ -25,16 +24,6 @@ const e12Access = 'access-de-prueba-no-mostrar';
 const e12Refresh = 'refresh-de-prueba-no-mostrar';
 
 final e12InstallationRef = installationReference(e12ClientId);
-
-/// La identidad que escribe la activación simulada (Member A).
-const e12Identity = SessionIdentity(
-  accountId: e12AccountId,
-  memberId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
-  tenantId: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
-  sessionId: e12SessionId,
-  registrationId: e12RegistrationId,
-  installationClientId: e12ClientId,
-);
 
 Map<String, Object?> _context({String? registrationId}) => {
   'account': {
@@ -131,54 +120,6 @@ class E12CommitPort implements SecureSessionCommitPort {
     calls++;
     if (outcomeUnknown) throw E12OutcomeUnknown();
   }
-}
-
-/// Reloj de pared y cronómetro manuales.
-class E12Clock {
-  E12Clock() : now = DateTime.now();
-
-  DateTime now;
-  Duration elapsed = Duration.zero;
-
-  void advance(Duration by, {bool monotonic = true}) {
-    now = now.add(by);
-    if (monotonic) elapsed += by;
-  }
-
-  ActivationEvidenceClock get evidenceClock => ActivationEvidenceClock(
-    now: () => now,
-    startElapsed: () {
-      final start = elapsed;
-      return () => elapsed - start;
-    },
-  );
-}
-
-/// Estado de acceso que la prueba mueve a mano.
-class E12SettableAccess extends InstallationAccessController {
-  E12SettableAccess(this._initial, {OwnerScope? bound}) : _bound = bound;
-
-  final InstallationAccessState _initial;
-  final OwnerScope? _bound;
-
-  @override
-  OwnerScope? get sessionScope => memberA;
-
-  @override
-  OwnerScope? get boundScope => _bound;
-
-  @override
-  InstallationAccessState? build() => _initial;
-
-  void move(InstallationAccessState next) => state = next;
-
-  @override
-  Future<InstallationAccessState?> refresh({
-    bool rereadSession = false,
-  }) async => state;
-
-  @override
-  Future<InstallationAccessState?> recomputeAfterReplacement() async => state;
 }
 
 /// Almacén de credencial en memoria que registra qué claves se escriben.

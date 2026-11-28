@@ -16,7 +16,7 @@ Este contrato añade los dos circuitos, sin quitar esas guardas para el registro
 
 ### 1.1 Quién autoriza
 
-- **Sólo el titular**, también en modo compartido, con una `OwnerAuthorization` de un solo uso: PIN local y propósito `REVERSE_PURCHASE`, `REVERSE_APPLICATION` o `REVERSE_TRANSFER`, sobre `subjectRef` = `purchase:<id>`, `application:<id>` o `transfer:<id>` (F03 §4).
+- **Sólo el titular**, también en modo compartido, con una `OwnerAuthorization` de un solo uso mediante el PIN local o, si aún carece de PIN propio, mediante la contraseña de la cuenta con conexión. La autorización tiene el propósito `REVERSE_PURCHASE`, `REVERSE_APPLICATION` o `REVERSE_TRANSFER`, sobre `subjectRef` = `purchase:<id>`, `application:<id>` o `transfer:<id>` (F03 §4).
 - **El repositorio exige la autorización.** Las tres reversiones públicas tienen la firma `reverseX(id, {required String reason, required OwnerAuthorization authorization})`. La consumen (`consumeOwnerAuthorization`) **dentro de la transacción que escribe**, contra el vínculo vigente leído en esa transacción. Llamar al repositorio sin autorización, con una vencida o ya usada, o con la de otra acción, falla sin escribir nada.
 - **Pantalla y repositorio no aceptan un identificador de actor:** el actor sale de la autorización, no de la pantalla.
 
@@ -31,7 +31,7 @@ Este contrato añade los dos circuitos, sin quitar esas guardas para el registro
 | `original_person_id` y `original_effective_date` | El responsable y la fecha efectiva de la operación original, copiados tal como estaban. **La operación original no se reasigna** |
 | `reason` | Obligatorio y no vacío |
 | `actor_person_id`, `actor_binding_id`, `actor_member_id` y `actor_tenant_id` | Quién autoriza: el titular del vínculo vigente |
-| `actor_method` (`LOCAL_PIN`) y `credential_enrolment_ref` | Cómo se verificó. No se guarda el PIN |
+| `actor_method` (`LOCAL_PIN` o `ACCOUNT_PASSWORD`) y `credential_enrolment_ref` | Método y referencia del enrolamiento del PIN o de la confirmación individual con contraseña |
 | `recorded_at` | Fecha de registro (UTC) |
 
 `reversal_audit_effects`: las filas compensatorias que escribió o anuló la reversión. Una por fila, con `(audit_id, table_name, row_id)`. Un CHECK limita la tabla a `inventory_movements`, `account_transactions`, `inventory_lots`, `provider_payments` y `application_consumptions`.
@@ -44,7 +44,7 @@ Este contrato añade los dos circuitos, sin quitar esas guardas para el registro
 
 - **Reversiones sin auditoría** (anteriores a v11): se muestran como «Actor no registrado». No se infiere el actor y no se hace backfill.
 - **Credencial de otra instalación** (R3 de C). `credential_enrolment_ref` apunta a un enrolamiento del almacén seguro, que no viaja en el respaldo. Tras restaurar en otro teléfono, la auditoría sigue mostrando al titular de `actor_*` como autorizante con su PIN: nunca un error ni «Actor no registrado».
-- **Base sin titular vinculado** (`legacyUnbound`) o sin PIN enrolado: **no se pueden autorizar reversiones nuevas** hasta activar, elegir el titular y configurar el PIN (F03 §5). El resto de la gestión privada sigue igual: no se bloquean compras, aplicaciones, transferencias ni consultas.
+- **Base sin titular vinculado** (`legacyUnbound`): las reversiones nuevas requieren activar, elegir al titular y verificar su autorización (F03 §5). El resto de la gestión privada sigue igual: no se bloquean compras, aplicaciones, transferencias ni consultas.
 
 ### 1.4 Privacidad
 
@@ -65,7 +65,7 @@ La auditoría es privada:
    - en `PLANNED` → rechazo;
    - **en una campaña `CLOSED`** → se ofrece **«Registrar para revisión»**.
 3. **Borrador pendiente.** Exige un motivo. Se guarda en `late_operation_drafts`, **separado** de las operaciones confirmadas: **no** afecta a existencias, costos, consumo, liquidación, reportes ni publicaciones. Persiste sin red y al reabrir la app.
-4. **Revisión.** El titular confirma o rechaza con su PIN (`CONFIRM_LATE_OPERATION` o `REJECT_LATE_OPERATION`, `subjectRef` = `late:<draft_ref>`). Una vez resuelto, el borrador no se edita. La Directiva no participa ni ve operaciones privadas.
+4. **Revisión.** El titular autoriza la confirmación o el rechazo con su PIN o, si aún carece de PIN propio, con la contraseña de su cuenta en línea (`CONFIRM_LATE_OPERATION` o `REJECT_LATE_OPERATION`, `subjectRef` = `late:<draft_ref>`). Una vez resuelto, el borrador no se edita. La Directiva no participa ni ve operaciones privadas.
 5. **Confirmación.** En **una transacción**:
    - se consume la autorización;
    - se revalidan la campaña de la fecha (única y `CLOSED`), el producto, las personas y la modalidad;

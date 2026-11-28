@@ -10,6 +10,7 @@ import 'database/create_schema_v20.dart';
 import 'database/database_constants.dart';
 import 'database/migrations_v12_to_v20.dart';
 import 'database/migrations_v2_to_v11.dart';
+import 'database/migration_v22.dart';
 import 'database/schema_v20.dart';
 import 'database_replacement.dart';
 
@@ -177,6 +178,7 @@ class AppDatabase {
       voiceEvidenceSchema: voiceEvidenceSchema,
     );
     if (oldVersion < 21) await _addIdentificationClarificationColumns(db);
+    if (oldVersion < 22) await allowAccountPasswordInAudit(db);
   }
 
   Future<void> _addIdentificationClarificationColumns(Database db) async {

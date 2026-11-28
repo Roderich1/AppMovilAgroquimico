@@ -735,6 +735,136 @@ void main() {
     });
   });
 
+  group('authorizations with account password', () {
+    const purpose = AuthorizationPurpose.reversePurchase;
+    const subject = 'purchase:1';
+
+    Future<OwnerAuthorization> authorize(LocalOwnerCredential credential) =>
+        credential.authorizeWithPassword(
+          email: 'farmer@example.test',
+          password: 'pw',
+          purpose: purpose,
+          subjectRef: subject,
+          binding: _binding,
+        );
+
+    test(
+      'require the same holder, installation, operation and one use',
+      () async {
+        final clock = _Clock();
+        final credential = _credential(_Storage(), clock);
+        await _proof(clock, sessionScope: _other);
+        await expectLater(
+          authorize(credential),
+          throwsA(isA<CredentialException>()),
+        );
+        await _proof(clock);
+        final authorization = await authorize(credential);
+        void consume({
+          LocalOwnerCredential? installation,
+          String subjectRef = subject,
+          OwnerBindingContext binding = _binding,
+        }) => consumeOwnerAuthorization(
+          authorization,
+          installation: installation ?? credential,
+          purpose: purpose,
+          subjectRef: subjectRef,
+          current: binding,
+          now: clock.now,
+        );
+        final rejected = throwsA(isA<OwnerAuthorizationRejected>());
+        expect(
+          () => consume(installation: _credential(_Storage(), clock)),
+          rejected,
+        );
+        expect(() => consume(subjectRef: 'purchase:2'), rejected);
+        expect(
+          () => consume(
+            binding: const OwnerBindingContext(
+              bindingId: 2,
+              personId: 7,
+              scope: _owner,
+            ),
+          ),
+          rejected,
+        );
+        consume();
+        expect(consume, rejected);
+      },
+    );
+
+    test(
+      'expire and are invalidated when the session or PIN changes',
+      () async {
+        final clock = _Clock();
+        final credential = _credential(_Storage(), clock);
+        await _proof(clock);
+        final first = await authorize(credential);
+        clock.now = first.expiresAt.add(const Duration(seconds: 1));
+        expect(
+          () => consumeOwnerAuthorization(
+            first,
+            installation: credential,
+            purpose: purpose,
+            subjectRef: subject,
+            current: _binding,
+            now: clock.now,
+          ),
+          throwsA(isA<OwnerAuthorizationRejected>()),
+        );
+
+        final second = await authorize(credential);
+        credential.invalidatePasswordAuthorizations();
+        expect(credential.accepts(second), isFalse);
+        final third = await authorize(credential);
+        await _enroll(credential, clock);
+        expect(credential.accepts(third), isFalse);
+        await expectLater(
+          authorize(credential),
+          throwsA(isA<CredentialException>()),
+        );
+      },
+    );
+
+    test(
+      'a blocked or unreadable PIN cannot fall back to the account',
+      () async {
+        final clock = _Clock();
+        final storage = _Storage();
+        final credential = _credential(storage, clock);
+        await _enroll(credential, clock);
+        for (var i = 0; i < 5; i++) {
+          await expectLater(
+            credential.verify(
+              pin: '000001',
+              purpose: purpose,
+              subjectRef: subject,
+              binding: _binding,
+            ),
+            throwsA(isA<CredentialException>()),
+          );
+        }
+        expect(
+          (await credential.status(_binding)).state,
+          CredentialState.locked,
+        );
+        await expectLater(
+          authorize(credential),
+          throwsA(isA<CredentialException>()),
+        );
+        storage.values['verifier'] = 'unreadable';
+        expect(
+          (await credential.status(_binding)).state,
+          CredentialState.unreadable,
+        );
+        await expectLater(
+          authorize(credential),
+          throwsA(isA<CredentialException>()),
+        );
+      },
+    );
+  });
+
   test('R3: credential, session and recovery code never call deleteAll()', () {
     for (final path in [
       'lib/services/auth/local_owner_credential.dart',

@@ -94,7 +94,7 @@ Future<bool> payPurchaseProvider(
   }
 }
 
-/// Revierte [purchase] con motivo y PIN del titular (RF-13). Devuelve `true`
+/// Revierte [purchase] con motivo y autorización del titular (RF-13). Devuelve `true`
 /// si se revirtió.
 Future<bool> reversePurchaseWithApproval(
   BuildContext context,

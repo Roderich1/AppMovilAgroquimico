@@ -31,7 +31,7 @@ Future<bool> offerLateRegistration(
       message:
           '${error.message}\n\nPuede registrar $what para revisión: queda '
           'pendiente, sin efecto en existencias, costos ni publicaciones, hasta '
-          'que el titular la confirme o la rechace con su PIN.'
+          'que el titular la confirme o la rechace.'
           '${extraNote == null ? '' : '\n\n$extraNote'}',
     ),
   );
@@ -108,7 +108,7 @@ class _LateReasonDialogState extends State<_LateReasonDialog> {
   );
 }
 
-/// Lista de operaciones tardías: el titular confirma o rechaza con su PIN y
+/// Lista de operaciones tardías: el titular autoriza la confirmación o el rechazo y
 /// puede definir un período histórico cuando falta (§2.5).
 class LateOperationsScreen extends ConsumerStatefulWidget {
   const LateOperationsScreen({super.key});

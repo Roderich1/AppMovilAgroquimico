@@ -12,7 +12,7 @@ import 'repository_exceptions.dart';
 import 'repository_types.dart';
 
 /// Infraestructura compartida de sesión, transacciones atómicas, autorización
-/// con PIN del titular y guardas de modalidad/activación para los sub-repositorios.
+/// del titular y guardas de modalidad/activación para los sub-repositorios.
 class RepositorySession {
   RepositorySession(
     this.appDatabase, {
@@ -54,7 +54,7 @@ class RepositorySession {
   });
 
   /// Consume la autorización de una acción del titular dentro de la
-  /// transacción que escribe, contra el vínculo y el PIN vigentes leídos
+  /// transacción que escribe, contra el vínculo y la credencial vigentes leídos
   /// justo antes.
   Future<T> writeAuthorized<T>(
     Future<T> Function(
@@ -84,7 +84,7 @@ class RepositorySession {
       if (!consumed) rethrow;
       // Sólo el tipo y el código: el texto de SQLite puede llevar datos.
       AppLog.error(
-        'Cambio autorizado con PIN no guardado tras consumir la '
+        'Cambio autorizado no guardado tras consumir la '
         'autorización; causa: ${error.runtimeType}'
         '${error is DatabaseException ? ' (código ${error.getResultCode()})' : ''}',
         stackTrace: stack,

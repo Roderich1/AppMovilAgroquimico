@@ -8,8 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import '../../app.dart' show backupServiceProvider, databaseProvider;
 import '../../data/owner_binding_store.dart';
 import '../../guarded_restore.dart';
-// Composición F03 + F08: el diálogo del PIN del titular (A) es la única
-// forma de obtener la autorización; vive en la capa de presentación.
+// Composición F03 + F08: la app pide al titular una autorización para la clave.
 import '../../presentation/screens/owner_credential_screen.dart'
     show requestOwnerAuthorization;
 import '../auth/auth_api_exception.dart';
@@ -61,8 +60,7 @@ AuthorizationPurpose _purposeOf(BackupKeyAction action) => switch (action) {
 /// Consume en el llavero la autorización del titular (composición con F03):
 /// `consumeOwnerAuthorization` de A, de un solo uso, para el propósito y la
 /// clave ([keyIdHex]) exactos, contra el vínculo vigente, leído ahora, y sólo
-/// si la emitió el almacén de credencial de esta instalación con su PIN
-/// vigente. Lo que no sea una `OwnerAuthorization` válida falla cerrado.
+/// si la emitió la credencial vigente de esta instalación. Lo que no sea una `OwnerAuthorization` válida falla cerrado.
 final backupKeyAuthorizationConsumerProvider =
     Provider<BackupKeyAuthorizationConsumer>(
       (ref) => (authorization, action, keyIdHex) async {
@@ -92,10 +90,9 @@ final backupKeyringProvider = Provider<BackupKeyring>(
   ),
 );
 
-/// Pide al titular su PIN local (`requestOwnerAuthorization` de A) para
+/// Pide al titular autorizar (`requestOwnerAuthorization` de A) para
 /// volver a mostrar o cambiar la clave de recuperación (F08-ADR-003 §3.3) y
-/// devuelve la autorización sin consumir; null si se cancela o no hay PIN. El
-/// PIN sólo autoriza: nunca interviene en la derivación de la clave. La
+/// devuelve la autorización sin consumir o null si el titular cancela. La
 /// consume el llavero ([backupKeyAuthorizationConsumerProvider]).
 typedef BackupKeyAuthorizer = Future<Object?> Function(
   BuildContext context,
@@ -123,12 +120,10 @@ final backupKeyAuthorizerProvider = Provider<BackupKeyAuthorizer>(
             'Se creará una clave nueva para los próximos respaldos. Conserve la '
                 'anterior: las copias ya subidas la siguen necesitando.',
         },
-        // F03 §4 bis.6 (C-5): al volver de configurar el PIN, la misma clave
-        // activa. F08 ya informa si no hay autorización: sin doble mensaje.
+        // Volver a comprobar la clave activa tras verificar al titular.
         revalidate: () async {
           final active = await ref.read(backupKeyringProvider).activeKey();
           return active?.keyId == keyIdHex ? null : 'la clave activa cambió';
         },
-        announceReturn: false,
       ),
 );

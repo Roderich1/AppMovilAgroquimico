@@ -360,14 +360,7 @@ void main() {
     await tester.runAsync(
       () => buy(AgroRepository(s.database), h, h.titular, 5000),
     );
-    final credential = await titularPin(tester, s);
-    final c = await pumpModeApp(
-      tester,
-      s.database,
-      extraOverrides: [
-        localOwnerCredentialProvider.overrideWithValue(credential),
-      ],
-    );
+    final c = await pumpModeApp(tester, s.database);
     c.read(routerProvider).push('/inventario/${h.product}');
     await waitFor(tester, find.byKey(const Key('inventory-alert-settings')));
     expect(
@@ -393,15 +386,6 @@ void main() {
       s.database,
       'products',
     )).firstWhere((p) => p['id'] == h.product);
-    Future<void> enterPin() async {
-      await waitFor(tester, find.byKey(const Key('owner-pin-input')));
-      await tester.enterText(
-        find.byKey(const Key('owner-pin-input')),
-        '284917',
-      );
-      await tapKey(tester, 'owner-pin-submit');
-    }
-
     await tapKey(tester, 'inventory-alert-settings-edit');
     // Sin cambios no se guarda nada ni se pide el PIN.
     expect(
@@ -420,29 +404,7 @@ void main() {
       find.text('Escriba un número entero de días, de 0 a 365.'),
       findsOneWidget,
     );
-    await tester.enterText(find.byKey(const Key('alert-settings-days')), '10');
-    await tapKey(tester, 'alert-settings-save');
-    // Un solo PIN para los dos datos, con lo que cambia a la vista.
-    await waitFor(tester, find.byKey(const Key('owner-pin-input')));
-    expect(
-      find.textContaining(
-        'Nivel mínimo: sin nivel mínimo → 2,5 L. Aviso de vencimiento: 30 '
-        'días (valor inicial) → 10 días.',
-      ),
-      findsOneWidget,
-    );
-    // Cancelar en el PIN no cambia nada.
-    await tester.tap(find.widgetWithText(TextButton, 'Cancelar'));
-    await settle(tester);
-    expect(find.byKey(const Key('owner-pin-input')), findsNothing);
-    expect((await product())['min_stock_base'], isNull);
-    expect((await product())['alert_lead_days'], isNull);
-    expect(
-      find.text('Sin nivel mínimo: no se avisa cuando queda poco.'),
-      findsOneWidget,
-    );
-    // Cancelar el diálogo de valores tampoco.
-    await tapKey(tester, 'inventory-alert-settings-edit');
+    // Cancelar conserva los valores guardados.
     await tester.enterText(find.byKey(const Key('alert-settings-days')), '7');
     await tester.tap(find.widgetWithText(TextButton, 'Cancelar'));
     await settle(tester);
@@ -456,8 +418,9 @@ void main() {
     );
     await tester.enterText(find.byKey(const Key('alert-settings-days')), '10');
     await tapKey(tester, 'alert-settings-save');
-    await enterPin();
     await waitFor(tester, find.textContaining('Nivel mínimo: 2,5 L.'));
+    expect(find.byKey(const Key('owner-account-password')), findsNothing);
+    expect(find.byKey(const Key('owner-pin-input')), findsNothing);
     expect(find.text('Aviso de vencimiento: 10 días antes.'), findsOneWidget);
     expect((await product())['min_stock_base'], 2500);
     expect((await product())['alert_lead_days'], 10);
@@ -496,7 +459,6 @@ void main() {
     await tester.enterText(find.byKey(const Key('alert-settings-minimum')), '');
     await tester.enterText(find.byKey(const Key('alert-settings-days')), '');
     await tapKey(tester, 'alert-settings-save');
-    await enterPin();
     await waitFor(
       tester,
       find.text('Sin nivel mínimo: no se avisa cuando queda poco.'),
@@ -548,12 +510,12 @@ void main() {
         ),
       );
       await buyOf(atrazina, h.titular, 1000);
-      await repo.setProductAlertSettingsWithoutPinForTesting(
+      await repo.setProductAlertSettings(
         mancozeb,
         minStockBase: 2000,
         leadDays: null,
       );
-      await repo.setProductAlertSettingsWithoutPinForTesting(
+      await repo.setProductAlertSettings(
         atrazina,
         minStockBase: 2000,
         leadDays: null,
@@ -616,7 +578,7 @@ void main() {
       await buy(repo, h, h.titular, 2000, expiry: in10, lot: 'PRONTO', day: 3);
       await buy(repo, h, h.relative, 1000, day: 4);
       await buy(repo, h, h.titular, 1000, expiry: today, lot: 'HOY', day: 5);
-      await repo.setProductAlertSettingsWithoutPinForTesting(
+      await repo.setProductAlertSettings(
         h.product,
         minStockBase: 2000,
         leadDays: null,
@@ -755,7 +717,7 @@ void main() {
         await buy(repo, h, h.titular, 1000, expiry: today, lot: 'HOY', day: 3);
         await buy(repo, h, h.titular, 2000, expiry: in10, day: 4);
         await buy(repo, h, h.relative, 1000, day: 5);
-        await repo.setProductAlertSettingsWithoutPinForTesting(
+        await repo.setProductAlertSettings(
           h.product,
           minStockBase: 2000,
           leadDays: null,

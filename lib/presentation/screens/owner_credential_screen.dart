@@ -5,77 +5,13 @@ import 'package:go_router/go_router.dart';
 
 import '../../domain/installation_access.dart';
 import '../../installation_access.dart';
-import '../../services/auth/first_activation_providers.dart';
 import '../../services/auth/local_owner_credential.dart';
 import '../../services/auth/local_owner_credential_providers.dart';
 import '../widgets/agro_ui.dart';
-import '../widgets/common.dart';
 
-/// Textos del enrolamiento dentro de la activación (F03 §4 bis.2).
-abstract final class ActivationPinTexts {
-  static const offer =
-      'Le recomendamos crear ahora el PIN del titular. Con él, el titular '
-      'autoriza en este teléfono, incluso sin conexión, las acciones que sólo '
-      'la persona titular puede aprobar: revertir una operación o revisar una '
-      'operación tardía.';
-  static const whyNow =
-      'Acaba de confirmar su cuenta en línea, así que ahora no hace falta '
-      'volver a escribir la contraseña. Si lo deja para después, tendrá que '
-      'confirmar la cuenta en línea con su correo y su contraseña.';
-  static const separation =
-      'El PIN no se guarda en el respaldo y no sirve para descifrar copias: la '
-      'clave de recuperación del respaldo es otra. Tampoco reemplaza la '
-      'contraseña de su cuenta.';
-  static const form = 'Elija un PIN de 6 dígitos que no sea una secuencia.';
-  static const done = 'PIN del titular creado. Funciona sin conexión.';
-  static const skipped =
-      'Puede crear el PIN más tarde en Ajustes y datos › PIN del titular. '
-      'Entonces se le pedirá confirmar su cuenta en línea.';
-  static const expired =
-      'Ya no se puede crear el PIN con la confirmación de la activación: pasó '
-      'el tiempo, salió de la aplicación o cambió la cuenta, la instalación o '
-      'el titular. Puede crearlo más tarde en Ajustes y datos › PIN del '
-      'titular, confirmando su cuenta en línea.';
-  static const saveFailed =
-      'No se pudo guardar el PIN. Puede crearlo más tarde en Ajustes y datos '
-      '› PIN del titular, confirmando su cuenta en línea.';
-}
-
-/// Textos del retorno a una operación pendiente (F03 §4 bis.6).
-abstract final class OwnerPinReturnTexts {
-  static const header =
-      'PIN del titular configurado. Revise la operación y autorícela con su '
-      'PIN.';
-  static const notConfigured =
-      'No se configuró el PIN. La operación no cambió.';
-  static const checkFailed =
-      'No se pudo comprobar la operación. No se hizo ningún cambio.';
-  static const ownerChanged =
-      'El titular de estos datos cambió. No se hizo ningún cambio.';
-  static String stale(String why) =>
-      'Esta operación ya no está pendiente: $why. No se hizo ningún cambio.';
-  static const noOwner =
-      'Esta acción la autoriza sólo el titular con su PIN. Para habilitarla, '
-      'active la aplicación, elija el titular y configure el PIN.';
-}
-
-/// Configurar o restablecer el PIN del titular (F03 §4). Por la vía (a) exige
-/// acreditar en línea al mismo titular con su contraseña; con
-/// [fromActivation] (vía (b), §4 bis) crea el primer PIN con la acreditación
-/// de activación, sin contraseña. Restablecer el PIN no recupera ni descifra
-/// copias de respaldo (la clave del respaldo es otra cosa). Al salir devuelve
-/// `true` sólo si guardó un PIN en esta visita.
+/// Configuración opcional del PIN desde Ajustes y datos.
 class OwnerCredentialScreen extends ConsumerStatefulWidget {
-  const OwnerCredentialScreen({
-    super.key,
-    this.fromActivation = false,
-    this.activationNotice,
-  });
-
-  final bool fromActivation;
-
-  /// Aviso de la confirmación del titular (modalidad) que se muestra arriba.
-  final String? activationNotice;
+  const OwnerCredentialScreen({super.key});
 
   @override
   ConsumerState<OwnerCredentialScreen> createState() =>
@@ -93,33 +29,8 @@ class _OwnerCredentialScreenState extends ConsumerState<OwnerCredentialScreen> {
   String? _message;
   bool _done = false;
 
-  // Modo de activación: el controlador se guarda aquí para anular la
-  // acreditación al salir sin usar `ref` en dispose (H9).
-  FirstActivationController? _activation;
-  bool _activationEnded = false;
-  String? _activationResult;
-
-  @override
-  void initState() {
-    super.initState();
-    if (!widget.fromActivation) return;
-    try {
-      if (ref.exists(firstActivationProvider)) {
-        _activation = ref.read(firstActivationProvider.notifier);
-      }
-    } on Object {
-      _activation = null;
-    }
-    if (!(_activation?.hasActivationEvidence ?? false)) {
-      _activationEnded = true;
-      _activationResult = ActivationPinTexts.expired;
-    }
-  }
-
   @override
   void dispose() {
-    // Salir de la oferta por cualquier vía la anula (F03 §4 bis.3).
-    _activation?.discardActivationEvidence();
     for (final c in [_email, _password, _pin, _pinConfirmation]) {
       c.dispose();
     }
@@ -134,6 +45,7 @@ class _OwnerCredentialScreenState extends ConsumerState<OwnerCredentialScreen> {
     });
     try {
       final binding = await ref.read(ownerBindingContextReaderProvider)();
+      if (!mounted) return;
       if (binding == null) {
         setState(
           () => _message = 'No hay un titular vinculado en este teléfono.',
@@ -158,25 +70,38 @@ class _OwnerCredentialScreenState extends ConsumerState<OwnerCredentialScreen> {
             : null;
       });
     } finally {
-      _password.clear();
-      if (mounted) setState(() => _busy = false);
+      if (mounted) {
+        _password.clear();
+        setState(() => _busy = false);
+      }
     }
   }
 
   Future<void> _enroll() async {
-    if (_busy || _proof == null || _binding == null) return;
+    final binding = _binding;
+    if (_busy || _proof == null || binding == null) return;
     setState(() {
       _busy = true;
       _message = null;
     });
     try {
+      final current = await ref.read(ownerBindingContextReaderProvider)();
+      if (!mounted) return;
+      if (!_sameOwner(binding, current)) {
+        setState(() {
+          _proof = null;
+          _binding = null;
+          _message = 'Cambió el titular. Confirme la cuenta nuevamente.';
+        });
+        return;
+      }
       await ref
           .read(localOwnerCredentialProvider)
           .enroll(
             pin: _pin.text,
             pinConfirmation: _pinConfirmation.text,
             proof: _proof,
-            binding: _binding!,
+            binding: binding,
           );
       if (!mounted) return;
       setState(() {
@@ -186,94 +111,20 @@ class _OwnerCredentialScreenState extends ConsumerState<OwnerCredentialScreen> {
     } on CredentialException catch (error) {
       if (mounted) setState(() => _message = error.message);
     } finally {
-      _pin.clear();
-      _pinConfirmation.clear();
-      if (mounted) setState(() => _busy = false);
+      if (mounted) {
+        _pin.clear();
+        _pinConfirmation.clear();
+        setState(() => _busy = false);
+      }
     }
   }
 
   /// Vía (b): la forma y la igualdad del PIN se comprueban antes de tocar la
   /// acreditación, para que un error de tecleo no la gaste.
-  Future<void> _createFromActivation() async {
-    if (_busy || _activationEnded) return;
-    final pin = _pin.text;
-    final confirmation = _pinConfirmation.text;
-    final problem =
-        pinProblem(pin) ??
-        (pin != confirmation ? 'Los dos PIN no coinciden.' : null);
-    if (problem != null) {
-      _pin.clear();
-      _pinConfirmation.clear();
-      setState(() => _message = problem);
-      return;
-    }
-    setState(() {
-      _busy = true;
-      _message = null;
-    });
-    String? result;
-    var done = false;
-    try {
-      final binding = await ref.read(ownerBindingContextReaderProvider)();
-      final proof = binding == null
-          ? null
-          : await ref
-                .read(ownerOnlineVerificationProvider)
-                .fromActivation(binding: binding);
-      if (proof == null || binding == null) {
-        result = ActivationPinTexts.expired;
-      } else {
-        await ref
-            .read(localOwnerCredentialProvider)
-            .enroll(
-              pin: pin,
-              pinConfirmation: confirmation,
-              proof: proof,
-              binding: binding,
-            );
-        done = true;
-        result = ActivationPinTexts.done;
-      }
-    } on CredentialException catch (error) {
-      result = error.message == activationExistingPinMessage
-          ? activationExistingPinMessage
-          : ActivationPinTexts.saveFailed;
-    } on Object {
-      result = ActivationPinTexts.saveFailed;
-    } finally {
-      _pin.clear();
-      _pinConfirmation.clear();
-      _activation?.discardActivationEvidence();
-    }
-    if (!mounted) return;
-    setState(() {
-      _busy = false;
-      _done = done;
-      _activationEnded = true;
-      _activationResult = result;
-    });
-  }
-
-  void _skip() {
-    _activation?.discardActivationEvidence();
-    showSuccess(context, ActivationPinTexts.skipped);
-    context.go('/');
-  }
-
-  void _leaveActivation() {
-    if (_busy) return;
-    if (_activationEnded) {
-      context.go('/');
-    } else {
-      _skip();
-    }
-  }
-
-  /// Vía (a): vuelve con el resultado (true sólo si se guardó un PIN).
   void _leave() {
     if (_busy) return;
     if (context.canPop()) {
-      context.pop(_done);
+      context.pop();
     } else {
       context.go('/');
     }
@@ -297,7 +148,6 @@ class _OwnerCredentialScreenState extends ConsumerState<OwnerCredentialScreen> {
     final activated =
         ref.watch(installationAccessProvider) ==
         InstallationAccessState.activated;
-    if (widget.fromActivation) return _buildActivation(context, activated);
     return PopScope(
       canPop: false,
       onPopInvokedWithResult: (didPop, _) {
@@ -314,9 +164,10 @@ class _OwnerCredentialScreenState extends ConsumerState<OwnerCredentialScreen> {
                   const Padding(
                     padding: EdgeInsets.all(16),
                     child: Text(
-                      'El PIN autoriza en este teléfono, incluso sin conexión, las '
-                      'acciones que sólo puede aprobar el titular: revertir una '
-                      'operación o revisar una operación tardía. No se guarda en el '
+                      'Configurar un PIN es opcional. Le permite autorizar sin conexión las '
+                      'acciones que sólo la persona titular puede aprobar: revertir una '
+                      'operación o revisar una operación tardía. Si no configura un PIN, puede '
+                      'usar la contraseña de su cuenta con conexión. El PIN no se guarda en el '
                       'respaldo y no sirve para descifrar copias: la clave de '
                       'recuperación del respaldo es otra.',
                     ),
@@ -374,7 +225,9 @@ class _OwnerCredentialScreenState extends ConsumerState<OwnerCredentialScreen> {
                             child: const Text('Confirmar en línea'),
                           ),
                         ] else ...[
-                          const Text(ActivationPinTexts.form),
+                          const Text(
+                            'Elija un PIN de 6 dígitos que no sea una secuencia.',
+                          ),
                           const SizedBox(height: 12),
                           _pinField(_pin, 'PIN', const Key('pin-new')),
                           const SizedBox(height: 12),
@@ -412,286 +265,14 @@ class _OwnerCredentialScreenState extends ConsumerState<OwnerCredentialScreen> {
       ),
     );
   }
-
-  Widget _buildActivation(BuildContext context, bool activated) {
-    final notice = widget.activationNotice;
-    final ended = _activationEnded || !activated;
-    return PopScope(
-      canPop: false,
-      onPopInvokedWithResult: (didPop, _) {
-        if (!didPop) _leaveActivation();
-      },
-      child: Scaffold(
-        appBar: const AgroAppBar(title: 'PIN del titular'),
-        body: SafeArea(
-          child: ListView(
-            padding: const EdgeInsets.all(20),
-            children: [
-              AgroGroup(
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Text(
-                      notice == null
-                          ? 'Titular vinculado.'
-                          : 'Titular vinculado. $notice',
-                      key: const Key('pin-activation-notice'),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              if (ended)
-                AgroGroup(
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          Text(
-                            _activationResult ?? ActivationPinTexts.expired,
-                            key: Key(
-                              _done
-                                  ? 'pin-activation-done'
-                                  : 'pin-activation-ended',
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                          FilledButton(
-                            key: const Key('pin-activation-continue'),
-                            onPressed: _busy ? null : () => context.go('/'),
-                            child: const Text('Continuar'),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                )
-              else ...[
-                AgroGroup(
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.stretch,
-                        children: [
-                          const Text(ActivationPinTexts.form),
-                          const SizedBox(height: 12),
-                          _pinField(_pin, 'PIN', const Key('pin-new')),
-                          const SizedBox(height: 12),
-                          _pinField(
-                            _pinConfirmation,
-                            'Repita el PIN',
-                            const Key('pin-confirm'),
-                          ),
-                          const SizedBox(height: 12),
-                          FilledButton(
-                            key: const Key('pin-activation-create'),
-                            onPressed: _busy ? null : _createFromActivation,
-                            child: const Text('Crear PIN'),
-                          ),
-                          TextButton(
-                            key: const Key('pin-activation-skip'),
-                            onPressed: _busy ? null : _skip,
-                            child: const Text('Ahora no'),
-                          ),
-                          if (_busy) const LinearProgressIndicator(),
-                          if (_message != null) ...[
-                            const SizedBox(height: 12),
-                            Text(_message!, key: const Key('pin-message')),
-                          ],
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                AgroGroup(
-                  children: const [
-                    Padding(
-                      padding: EdgeInsets.all(16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            ActivationPinTexts.offer,
-                            key: Key('pin-activation-offer'),
-                          ),
-                          SizedBox(height: 8),
-                          Text(ActivationPinTexts.whyNow),
-                          SizedBox(height: 8),
-                          Text(ActivationPinTexts.separation),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ],
-          ),
-        ),
-      ),
-    );
-  }
 }
 
-/// Un PIN utilizable para autorizar: el vínculo con el que se verifica y si
-/// se acaba de configurar en esta misma acción (F03 §4 bis.6).
-class OwnerPinGate {
-  const OwnerPinGate(this.binding, {required this.configuredNow});
+bool _sameOwner(OwnerBindingContext binding, OwnerBindingContext? current) =>
+    current?.bindingId == binding.bindingId &&
+    current?.personId == binding.personId &&
+    current?.scope == binding.scope;
 
-  final OwnerBindingContext binding;
-  final bool configuredNow;
-}
-
-/// Comprueba que hay un PIN del titular utilizable. Si no lo hay, ofrece
-/// configurarlo, espera a que se vuelva de `/titular/pin` y revalida: el
-/// mismo vínculo, un PIN vigente y, con [revalidate], que la operación siga
-/// aplicando (devuelve null si aplica o el motivo si ya no). Nunca autoriza
-/// ni ejecuta nada: null si no se puede seguir. [announceReturn] muestra los
-/// avisos del retorno (F08 los omite porque ya informa por su cuenta).
-Future<OwnerPinGate?> ensureOwnerPin(
-  BuildContext context,
-  WidgetRef ref, {
-  required String title,
-  Future<String?> Function()? revalidate,
-  bool announceReturn = true,
-}) async {
-  final reader = ref.read(ownerBindingContextReaderProvider);
-  final binding = await reader();
-  if (!context.mounted) return null;
-  if (binding == null) {
-    await _showPinUnavailable(
-      context,
-      title,
-      OwnerPinReturnTexts.noOwner,
-      configure: false,
-    );
-    return null;
-  }
-  final credential = ref.read(localOwnerCredentialProvider);
-  final status = await credential.status(binding);
-  if (!context.mounted) return null;
-  if (status.canVerify) return OwnerPinGate(binding, configuredNow: false);
-  final message = switch (status.state) {
-    CredentialState.locked =>
-      'Demasiados intentos. Espere antes de volver a intentarlo.',
-    CredentialState.requiresOnlineReset =>
-      'El PIN quedó bloqueado. Restablézcalo acreditando al titular en línea.',
-    _ =>
-      'Esta acción la autoriza sólo el titular con su PIN. Configure el PIN '
-          'del titular primero.',
-  };
-  final open = await _showPinUnavailable(
-    context,
-    title,
-    message,
-    configure: status.state != CredentialState.locked,
-  );
-  if (open != true || !context.mounted) return null;
-  final created = await context.push<bool>('/titular/pin');
-  if (!context.mounted) return null;
-  void announce(String text) {
-    if (announceReturn && context.mounted) showError(context, text);
-  }
-
-  if (created != true) {
-    announce(OwnerPinReturnTexts.notConfigured);
-    return null;
-  }
-  // REVALIDAR: mismo vínculo, PIN vigente y la operación todavía aplicable.
-  final again = await reader();
-  if (!context.mounted) return null;
-  if (again == null ||
-      again.bindingId != binding.bindingId ||
-      again.personId != binding.personId ||
-      again.scope != binding.scope) {
-    announce(OwnerPinReturnTexts.ownerChanged);
-    return null;
-  }
-  final after = await credential.status(again);
-  if (!context.mounted) return null;
-  if (!after.canVerify) {
-    announce(OwnerPinReturnTexts.notConfigured);
-    return null;
-  }
-  if (revalidate != null) {
-    final String? stale;
-    try {
-      stale = await revalidate();
-    } on Object {
-      announce(OwnerPinReturnTexts.checkFailed);
-      return null;
-    }
-    if (!context.mounted) return null;
-    if (stale != null) {
-      announce(OwnerPinReturnTexts.stale(stale));
-      return null;
-    }
-  }
-  return OwnerPinGate(again, configuredNow: true);
-}
-
-Future<bool?> _showPinUnavailable(
-  BuildContext context,
-  String title,
-  String message, {
-  required bool configure,
-}) => showDialog<bool>(
-  context: context,
-  builder: (context) => AlertDialog(
-    title: Text(title),
-    content: Text(message, key: const Key('owner-pin-unavailable')),
-    actions: [
-      TextButton(
-        onPressed: () => Navigator.pop(context, false),
-        child: const Text('Cerrar'),
-      ),
-      if (configure)
-        FilledButton(
-          key: const Key('owner-pin-configure'),
-          onPressed: () => Navigator.pop(context, true),
-          child: const Text('Configurar PIN'),
-        ),
-    ],
-  ),
-);
-
-/// El diálogo del PIN para una acción concreta, con el vínculo de [gate].
-/// Devuelve la autorización de un solo uso o null si se cancela.
-Future<OwnerAuthorization?> showOwnerPinDialog(
-  BuildContext context,
-  WidgetRef ref, {
-  required OwnerPinGate gate,
-  required AuthorizationPurpose purpose,
-  required String subjectRef,
-  required String title,
-  required String effects,
-}) {
-  final credential = ref.read(localOwnerCredentialProvider);
-  return showDialog<OwnerAuthorization>(
-    context: context,
-    barrierDismissible: false,
-    builder: (context) => _OwnerPinDialog(
-      title: title,
-      effects: effects,
-      header: gate.configuredNow ? OwnerPinReturnTexts.header : null,
-      onVerify: (pin) => credential.verify(
-        pin: pin,
-        purpose: purpose,
-        subjectRef: subjectRef,
-        binding: gate.binding,
-      ),
-    ),
-  );
-}
-
-/// Pide el PIN del titular para una acción concreta y devuelve la autorización
-/// de un solo uso, o null si se cancela. [effects] describe lo que hará la
-/// acción. Si el PIN no está configurado, ofrece configurarlo y, al volver con
-/// un PIN creado, revalida y vuelve a mostrar la acción: nunca la autoriza ni
-/// la ejecuta sola (F03 §4 bis.6).
+/// Solicita una autorización para la operación con el método de este titular.
 Future<OwnerAuthorization?> requestOwnerAuthorization(
   BuildContext context,
   WidgetRef ref, {
@@ -700,68 +281,155 @@ Future<OwnerAuthorization?> requestOwnerAuthorization(
   required String title,
   required String effects,
   Future<String?> Function()? revalidate,
-  bool announceReturn = true,
 }) async {
-  final gate = await ensureOwnerPin(
-    context,
-    ref,
-    title: title,
-    revalidate: revalidate,
-    announceReturn: announceReturn,
-  );
-  if (gate == null || !context.mounted) return null;
-  return showOwnerPinDialog(
-    context,
-    ref,
-    gate: gate,
-    purpose: purpose,
-    subjectRef: subjectRef,
-    title: title,
-    effects: effects,
+  final readBinding = ref.read(ownerBindingContextReaderProvider);
+  final binding = await readBinding();
+  if (!context.mounted) return null;
+  if (binding == null) {
+    await _showAuthorizationUnavailable(
+      context,
+      title,
+      'Para autorizar esta acción, active la aplicación y elija al titular.',
+    );
+    return null;
+  }
+  final credential = ref.read(localOwnerCredentialProvider);
+  final status = await credential.status(binding);
+  if (!context.mounted) return null;
+  final blocked = switch (status.state) {
+    CredentialState.locked =>
+      'Demasiados intentos. Espere antes de volver a intentarlo.',
+    CredentialState.requiresOnlineReset => 'El PIN quedó bloqueado. Restablézcalo en Ajustes y datos › PIN del titular.',
+    CredentialState.unreadable => 'No se pudo leer el PIN. Restablézcalo en Ajustes y datos › PIN del titular.',
+    _ => null,
+  };
+  if (blocked != null) {
+    await _showAuthorizationUnavailable(context, title, blocked);
+    return null;
+  }
+  final usePin = status.canVerify;
+  return showDialog<OwnerAuthorization>(
+    context: context,
+    barrierDismissible: false,
+    builder: (_) => _OwnerAuthorizationDialog(
+      title: title,
+      effects: effects,
+      usePin: usePin,
+      onVerify: (email, secret) async {
+        if (usePin) {
+          return credential.verify(
+            pin: secret,
+            purpose: purpose,
+            subjectRef: subjectRef,
+            binding: binding,
+          );
+        }
+
+        final authorization = await credential.authorizeWithPassword(
+          email: email,
+          password: secret,
+          purpose: purpose,
+          subjectRef: subjectRef,
+          binding: binding,
+        );
+        final current = await readBinding();
+        if (!_sameOwner(binding, current)) {
+          throw const CredentialException(
+            'Cambió el titular. Abra la operación de nuevo.',
+          );
+        }
+        final String? stale;
+        try {
+          stale = await revalidate?.call();
+        } on Object {
+          throw const CredentialException(
+            'No se pudo comprobar el estado de la operación. Vuelva a intentarlo.',
+          );
+        }
+        if (stale != null) {
+          throw CredentialException('No se puede continuar: $stale.');
+        }
+        return authorization;
+      },
+    ),
   );
 }
 
-class _OwnerPinDialog extends StatefulWidget {
-  const _OwnerPinDialog({
+Future<void> _showAuthorizationUnavailable(
+  BuildContext context,
+  String title,
+  String message,
+) => showDialog<void>(
+  context: context,
+  builder: (context) => AlertDialog(
+    title: Text(title),
+    content: Text(message),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: const Text('Volver'),
+      ),
+    ],
+  ),
+);
+
+class _OwnerAuthorizationDialog extends StatefulWidget {
+  const _OwnerAuthorizationDialog({
     required this.title,
     required this.effects,
     required this.onVerify,
-    this.header,
+    required this.usePin,
   });
 
   final String title;
   final String effects;
-  final String? header;
-  final Future<OwnerAuthorization> Function(String pin) onVerify;
+  final bool usePin;
+  final Future<OwnerAuthorization> Function(String email, String secret)
+  onVerify;
 
   @override
-  State<_OwnerPinDialog> createState() => _OwnerPinDialogState();
+  State<_OwnerAuthorizationDialog> createState() =>
+      _OwnerAuthorizationDialogState();
 }
 
-class _OwnerPinDialogState extends State<_OwnerPinDialog> {
-  final _pin = TextEditingController();
+class _OwnerAuthorizationDialogState extends State<_OwnerAuthorizationDialog> {
+  final _email = TextEditingController();
+  final _secret = TextEditingController();
   bool _busy = false;
   String? _error;
 
   @override
   void dispose() {
-    _pin.dispose();
+    _email.dispose();
+    _secret.dispose();
     super.dispose();
   }
 
   Future<void> _submit() async {
     if (_busy) return;
+    if (!widget.usePin &&
+        (_email.text.trim().isEmpty || _secret.text.isEmpty)) {
+      setState(() => _error = 'Ingrese el correo y la contraseña del titular.');
+      return;
+    }
     setState(() {
       _busy = true;
       _error = null;
     });
     try {
-      final authorization = await widget.onVerify(_pin.text);
+      final authorization = await widget.onVerify(
+        _email.text.trim(),
+        _secret.text,
+      );
       if (mounted) Navigator.pop(context, authorization);
     } on CredentialException catch (error) {
       if (mounted) setState(() => _error = error.message);
+    } on Object {
+      if (mounted) {
+        setState(() => _error = 'No se pudo autorizar. Vuelva a intentarlo.');
+      }
     } finally {
-      _pin.clear();
+      if (mounted) _secret.clear();
       if (mounted) setState(() => _busy = false);
     }
   }
@@ -769,36 +437,62 @@ class _OwnerPinDialogState extends State<_OwnerPinDialog> {
   @override
   Widget build(BuildContext context) => AlertDialog(
     title: Text(widget.title),
-    content: Column(
-      mainAxisSize: MainAxisSize.min,
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        if (widget.header != null) ...[
-          Text(widget.header!, key: const Key('owner-pin-return-header')),
-          const SizedBox(height: 8),
-        ],
-        Text(widget.effects, key: const Key('owner-pin-effects')),
-        const SizedBox(height: 12),
-        TextField(
-          key: const Key('owner-pin-input'),
-          controller: _pin,
-          enabled: !_busy,
-          autofocus: true,
-          obscureText: true,
-          keyboardType: TextInputType.number,
-          maxLength: 6,
-          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
-          enableSuggestions: false,
-          autocorrect: false,
-          decoration: const InputDecoration(
-            labelText: 'PIN del titular',
-            counterText: '',
+    content: SingleChildScrollView(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(widget.effects, key: const Key('owner-pin-effects')),
+          const SizedBox(height: 12),
+          if (!widget.usePin) ...[
+            const Text(
+              'Para autorizar con su cuenta necesita conexión a internet.',
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              key: const Key('owner-account-email'),
+              controller: _email,
+              enabled: !_busy,
+              autofocus: true,
+              keyboardType: TextInputType.emailAddress,
+              textInputAction: TextInputAction.next,
+              autocorrect: false,
+              decoration: const InputDecoration(
+                labelText: 'Correo del titular',
+              ),
+            ),
+            const SizedBox(height: 12),
+          ],
+          TextField(
+            key: Key(
+              widget.usePin ? 'owner-pin-input' : 'owner-account-password',
+            ),
+            controller: _secret,
+            enabled: !_busy,
+            autofocus: widget.usePin,
+            obscureText: true,
+            keyboardType: widget.usePin
+                ? TextInputType.number
+                : TextInputType.visiblePassword,
+            maxLength: widget.usePin ? 6 : null,
+            inputFormatters: widget.usePin
+                ? [FilteringTextInputFormatter.digitsOnly]
+                : null,
+            enableSuggestions: false,
+            autocorrect: false,
+            decoration: InputDecoration(
+              labelText: widget.usePin
+                  ? 'PIN del titular'
+                  : 'Contraseña de la cuenta',
+              counterText: '',
+            ),
+            onSubmitted: (_) => _submit(),
           ),
-          onSubmitted: (_) => _submit(),
-        ),
-        if (_error != null) Text(_error!, key: const Key('owner-pin-error')),
-        if (_busy) const LinearProgressIndicator(),
-      ],
+          if (_error != null)
+            Text(_error!, key: const Key('owner-authorization-error')),
+          if (_busy) const LinearProgressIndicator(),
+        ],
+      ),
     ),
     actions: [
       TextButton(
@@ -806,7 +500,7 @@ class _OwnerPinDialogState extends State<_OwnerPinDialog> {
         child: const Text('Cancelar'),
       ),
       FilledButton(
-        key: const Key('owner-pin-submit'),
+        key: Key(widget.usePin ? 'owner-pin-submit' : 'owner-account-submit'),
         onPressed: _busy ? null : _submit,
         child: const Text('Autorizar'),
       ),

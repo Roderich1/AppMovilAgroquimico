@@ -39,7 +39,7 @@ class _TransfersScreenState extends ConsumerState<TransfersScreen> {
 
   Future<void> reverse(Map<String, Object?> row) async {
     final id = row['id']! as int;
-    // RF-13: motivo y PIN del titular; el actor sale de la autorización.
+    // RF-13: motivo y autorización del titular; el actor sale de la autorización.
     final approval = await requestOwnerApproval(
       context,
       ref,

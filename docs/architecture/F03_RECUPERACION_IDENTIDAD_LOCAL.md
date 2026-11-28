@@ -75,50 +75,25 @@ Recuperar uno no concede los otros. **El PIN nunca se usa como clave criptográf
 | Qué se guarda | Un verificador `{versión, sal aleatoria de 16 bytes, PBKDF2-HMAC-SHA256 con ≥ 210 000 iteraciones, Member, tenant, enrolmentId aleatorio, fecha}`. Las iteraciones se miden en el dispositivo y se registran en la evidencia, no se suponen. La primitiva sale de una biblioteca mantenida: si C adopta `cryptography` (dint.dev) en su ADR, se usa su `Pbkdf2`; si no, se pide el turno de pubspec para ella. No se escribe un KDF propio |
 | Límite declarado | Un PIN de 6 dígitos tiene 10⁶ valores. Si alguien extrajera el verificador del almacén seguro, lo probaría por fuerza bruta fuera del teléfono aunque use PBKDF2. Su protección real es que el almacén está cifrado con claves de Android Keystore no exportables, junto con el límite de intentos de la app. Por eso el PIN **no** protege los respaldos (§1), que usan una clave aleatoria de C |
 | Forma del PIN | 6 dígitos. Se rechazan las secuencias triviales: todos iguales, ascendente o descendente |
-| Enrolamiento | Sólo en el estado `activated`: vínculo activo y sesión legible del mismo Member y tenant. Hay **dos vías y ninguna otra**. **(a)** En `/titular/pin` (Más › PIN del titular, o «Configurar PIN» desde una acción): la contraseña de la cuenta con `confirmAccount` y la relectura del ámbito (§9). Sirve para enrolar y para restablecer. **(b)** Sólo el **primer** PIN del titular, justo después de confirmarlo en la primera activación, con la acreditación de activación (§4 bis). Nunca restablece. En las dos se pide dos veces el PIN y se guarda el verificador con el ámbito del vínculo. *Redacción anterior, sustituida el 2026-10-27:* «Sólo en el estado `activated`: vínculo activo y sesión legible del mismo Member y tenant. Requiere **acreditar en línea al mismo titular**: contraseña de la cuenta y la reautenticación existente (`reauthenticate`), que verifica el mismo registro de cliente y el ámbito. Después se piden dos veces el PIN y se guarda el verificador con el ámbito del vínculo» |
+| Enrolamiento | Opcional y disponible en Ajustes y datos › PIN del titular. Requiere un vínculo activo y la contraseña de la misma cuenta. El PIN se introduce dos veces. La activación termina al vincular al titular. |
 | Ejecución | El PBKDF2 se calcula **fuera del hilo de la interfaz** (`Isolate.run`), en el enrolamiento y en cada verificación. El tiempo en el teléfono se mide y se registra (R4 de C) |
-| Comprobación | Funciona **sin red**: verificador local, comparación en tiempo constante y ámbito igual al vínculo activo. Si el vínculo cambió (otra base restaurada), el verificador **no vale** y hay que enrolar de nuevo |
+| Comprobación | Con PIN, la app compara el verificador local del Member y tenant activos sin conexión. Sin PIN propio, la app verifica la contraseña de la misma cuenta en línea. Un PIN bloqueado o ilegible requiere esperar o restablecerlo desde Ajustes. |
 | Intentos | El contador vive en el mismo almacén seguro y no se reinicia al cerrar la app. Tras 5 fallos seguidos hay una espera creciente: 30 s, 2 min y 10 min. Tras 10 fallos se bloquea y sólo se restablece acreditando al titular en línea. Un acierto pone el contador a cero |
 | Recuperación del PIN | «Olvidé el PIN»: acreditar en línea al mismo titular, como en el enrolamiento, y enrolar de nuevo. **Sin red no se puede restablecer.** Restablecer el PIN **no** descifra copias ni recupera la clave del respaldo |
-| Tras una restauración | El verificador **no viaja** en el respaldo. En otra instalación no existe: tras «Recuperar acceso», el titular enrola un PIN nuevo. En la misma instalación vale sólo si el vínculo de la base restaurada tiene el mismo Member y tenant; si no, se pide enrolar. **C lo invoca, no lo duplica** |
+| Tras una restauración | El verificador queda en el teléfono de origen. En otra instalación se puede usar la contraseña del titular con conexión o configurar un PIN nuevo. El verificador de la misma instalación requiere el mismo Member y tenant. |
 | Qué identifica | Una **autorización** del titular en esta instalación. No prueba quién sostenía físicamente el teléfono. |
 
-### Interfaz para RF-13, RF-03 y C
+### Autorización de operaciones
 
-Alineada con el código el 2026-10-27. La versión anterior describía `enroll({pin, pinConfirmation})` y un `resetAfterOnlineVerification` que nunca existieron: enrolar y restablecer son un solo camino.
+- Las anulaciones de compras, aplicaciones y transferencias, la revisión de operaciones tardías, la corrección de lotes y volver a mostrar o cambiar la clave de respaldo requieren autorización del titular. Los avisos de inventario se guardan como preferencias locales.
+- Sin PIN propio, `LocalOwnerCredential.authorizeWithPassword` usa `confirmAccount` y comprueba el Member y tenant del vínculo. Durante el envío vuelve a comprobar el estado del PIN. La contraseña queda en memoria durante la comprobación. Si esta falla, se puede reintentar y la operación queda sin ejecutar.
+- Los dos métodos emiten una `OwnerAuthorization` por operación, de un solo uso y con vigencia de 120 segundos. El repositorio o el llavero comprueba el método, el emisor, el propósito, el objeto, la persona y el vínculo al consumirla. Las autorizaciones con contraseña se invalidan al configurar el PIN, cambiar la sesión o restaurar la base.
+- SQLite v22 permite registrar `LOCAL_PIN` o `ACCOUNT_PASSWORD` en anulaciones, correcciones y revisiones tardías. La referencia de auditoría identifica el enrolamiento para el PIN o la confirmación individual para la contraseña. Las entradas anteriores se conservan. Para restaurar un respaldo v22 en otro teléfono se requiere una versión de la app compatible con v22.
+- La clave de recuperación sigue siendo independiente. Generar la primera clave usa el flujo del respaldo. Volver a mostrar la clave activa o cambiarla requiere la autorización del titular.
 
-```dart
-class LocalOwnerCredential {
-  Future<CredentialStatus> status(OwnerBindingContext? binding); // notEnrolled | enrolled | locked (lockedUntil) | requiresOnlineReset | scopeMismatch
-  Future<void> enroll({required String pin, required String pinConfirmation,
-      required OnlineOwnerProof? proof, required OwnerBindingContext binding}); // enrolar o restablecer
-  Future<OwnerAuthorization> verify({required String pin, required AuthorizationPurpose purpose,
-      required String subjectRef, required OwnerBindingContext binding});
-  Future<String?> currentEnrolmentId();
-  bool accepts(OwnerAuthorization authorization); // lo usa consumeOwnerAuthorization (§8)
-}
+## 4 bis. Historial del enrolamiento durante la activación (2026-10-27)
 
-class OwnerOnlineVerification {
-  Future<OnlineOwnerProof?> verify({required String email, required String password,
-      required OwnerBindingContext binding});                           // origen: contraseña (§9)
-  Future<OnlineOwnerProof?> fromActivation({required OwnerBindingContext binding}); // origen: activación (§4 bis)
-}
-```
-
-**Origen del comprobante.** `OnlineOwnerProof` lleva un origen privado: **contraseña** (`verify`) o **activación** (`fromActivation`). `enroll` acepta los dos sólo si los emitió la `OwnerOnlineVerification` configurada (§8). El de activación, además, sólo enrola cuando el titular no tiene un PIN propio en el almacén (§4 bis.4, comprobación 7).
-
-**Propósitos** (`AuthorizationPurpose`):
-- de A: `REVERSE_PURCHASE`, `REVERSE_APPLICATION`, `REVERSE_TRANSFER`, `CONFIRM_LATE_OPERATION` y `REJECT_LATE_OPERATION`;
-- de C (R1): `SHOW_BACKUP_RECOVERY_KEY` y `ROTATE_BACKUP_RECOVERY_KEY`, con `subjectRef` = keyId en hex. Sólo **autorizan** mostrar o rotar la clave. El PIN no entra en ninguna derivación.
-- Sin un PIN enrolado, C muestra la clave sin PIN **sólo** en su primer enrolamiento; para volver a mostrarla exige el PIN o la acreditación en línea. Aceptado.
-
-**Consumo (R2 de C).** Al **consumirla**, en la misma transacción que la acción, el repositorio compara su `bindingId`, Member y tenant con el **vínculo activo en ese momento**, no sólo en `verify`. Así, una autorización emitida antes de una restauración (que `GuardedRestore` puede completar dentro de los 120 s) no vale después.
-
-`OwnerAuthorization` es un objeto de **un solo uso**, de vida corta (120 s) y ligado a un propósito y a un objeto (por ejemplo `REVERSE_PURCHASE:<id>`). Se crea sólo en `verify`, con un constructor privado. El repositorio lo consume en la misma transacción que la acción. **Llamar al repositorio sin una autorización válida falla**: no basta con saltarse la pantalla.
-
-Lleva `{enrolmentId, personId del titular, bindingId, Member, tenant, método LOCAL_PIN, verificadoEn}`. No lleva el PIN.
-
-## 4 bis. Enrolamiento del PIN dentro de la activación (decisión del autor, Roderich Rendón, 2026-10-27)
+Este apartado conserva el diseño anterior para referencia. La regla vigente está en el §4.
 
 - **Fecha real:** 2026-10-27 (America/La_Paz). Base: Mobile `main` `ed9c55c`, rama `feat/e12-pin-en-activacion`.
 - **Fuente de la regla:** `_briefs/BLOQUE2_DECISIONES_AUTOR_2026-10-27.md`, sección E-12, y el análisis previo `_briefs/REVISION_INTEGRAL_MOB_2026-10-26/01_DECISIONES_DE_NEGOCIO.md` §4 (con el hallazgo A-15).
@@ -128,7 +103,7 @@ Lleva `{enrolmentId, personId del titular, bindingId, Member, tenant, método LO
 - **Estado:** implementado en `e3af008` (HOST). Evidencia: `docs/evidence/F10_BLOQUE2_E12_PIN_EN_ACTIVACION.md`. EMULADOR el 2026-10-28 (`docs/evidence/F10_BLOQUE2_EMULADOR_2026-10-28.md`): E1 y E2, y E3 desde una reversión, ejecutados. Pendientes: E3 desde una tardía (no hay campaña cerrada en la siembra) y E4 (no se mide sin personas).
 - **Trazabilidad:** RF-01, RF-13, RF-03, CU-01 y RNF-04.
 
-**La regla.** Después de confirmar al titular se ofrece crear el PIN, aprovechando la acreditación en línea que el mismo titular acaba de hacer al activar. Es un paso opcional y recomendado. No basta con que exista una sesión. Fuera de ese momento, todo sigue como en el §4.
+**La regla anterior.** Después de confirmar al titular se ofrece crear el PIN, aprovechando la acreditación en línea que el mismo titular acaba de hacer al activar. Es un paso opcional y recomendado. No basta con que exista una sesión. Fuera de ese momento, todo sigue como en el §4.
 
 ### 4 bis.1 Punto de partida (leído en `ed9c55c`)
 
@@ -398,7 +373,7 @@ Resoluciones de la revisión cruzada del 2026-10-27, dentro de lo aprobado. Son 
 ## 5. Bases históricas sin operador
 
 En `legacyUnbound` no hay titular vinculado:
-- **las acciones nuevas** que exigen `OwnerAuthorization` (reversión y revisión tardía) **no se habilitan** hasta activar, elegir el titular y enrolar el PIN, que es el procedimiento explícito;
+- **las acciones nuevas** que exigen `OwnerAuthorization` (reversión y revisión tardía) **no se habilitan** hasta activar, elegir al titular y verificar su autorización;
 - el resto de la gestión privada sigue como antes;
 - no se atribuye nada a ninguna cuenta.
 

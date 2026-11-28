@@ -36,8 +36,8 @@ class _Fixture {
       dumpTables(await database.database);
 }
 
-Future<_Fixture> _fixture() async {
-  final database = openDb(inMemoryDatabasePath);
+Future<_Fixture> _fixture({String path = inMemoryDatabasePath}) async {
+  final database = openDb(path);
   final bound = await seedActivatedInstallation(database);
   late TestOwnerPin pin;
   final repo = AgroRepository(database, ownerCredential: () => pin.credential);
@@ -53,6 +53,43 @@ Future<_Fixture> _fixture() async {
 
 void main() {
   sqfliteFfiInit();
+
+  test(
+    'v22 conserva el historial y los efectos auditados con PIN de v21',
+    () async {
+      final path = await tempDbPath('audit_v21');
+      final f = await _fixture(path: path);
+      final h = f.household;
+      await h.buy(h.titular, 5000);
+      final id = await h.apply(h.titular, h.titularFarm, 2000);
+      await f.repo.reverseApplication(
+        id,
+        reason: 'Anulación previa a la actualización',
+        authorization: await f.authorize(
+          AuthorizationPurpose.reverseApplication,
+          'application:$id',
+        ),
+      );
+      final before = await f.dump();
+      final old = await f.database.database;
+      await old.execute('PRAGMA user_version = 21');
+      await f.database.close();
+
+      final migrated = openDb(path);
+      addTearDown(migrated.close);
+      final db = await migrated.database;
+      expect(await dumpTables(db), before);
+      expect(await db.rawQuery('PRAGMA foreign_key_check'), isEmpty);
+      expect(
+        (await db.query('reversal_audit')).single['actor_method'],
+        'LOCAL_PIN',
+      );
+      await expectLater(
+        db.update('reversal_audit', {'reason': 'Otro motivo'}),
+        throwsA(isA<DatabaseException>()),
+      );
+    },
+  );
 
   test('an authorized application reversal writes effects, audit and references together', () async {
     final f = await _fixture();
