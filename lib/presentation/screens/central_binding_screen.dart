@@ -279,7 +279,7 @@ class _CentralBindingScreenState extends ConsumerState<CentralBindingScreen> {
     final chosen = await _choose<CentralCampaign>(
       'Campaña del sindicato',
       options,
-      emptyMessage: blocked ?? 'No hay campañas disponibles para vincular.',
+      emptyMessage: blocked ?? _emptyCampaignPickerMessage(source.references),
     );
     if (chosen == null || !mounted) return;
     final period = _centralPeriod(chosen)!;
@@ -612,14 +612,22 @@ class _CentralBindingScreenState extends ConsumerState<CentralBindingScreen> {
         '$unitDetail';
   }
 
+  String _emptyCampaignPickerMessage(CentralReferences refs) =>
+      refs.campaigns.any((campaign) => campaign.acceptsContributions)
+      ? 'No hay campañas disponibles para vincular.'
+      : 'El sindicato no tiene campañas que admitan nuevos aportes.';
+
   /// Sin vínculo y con las referencias ya leídas: si ninguna opción del
   /// sindicato se puede elegir, por qué, en la fila (sin consultas: sólo las
   /// referencias en memoria). Null si hay alguna opción o no se leyeron.
   String? _noCompatibleCampaign(CampaignPeriod local) {
     final refs = references;
     if (refs == null) return null;
-    for (final campaign in refs.campaigns) {
-      if (!campaign.acceptsContributions) continue;
+    final open = refs.campaigns.where(
+      (campaign) => campaign.acceptsContributions,
+    );
+    if (open.isEmpty) return _emptyCampaignPickerMessage(refs);
+    for (final campaign in open) {
       final period = _centralPeriod(campaign);
       if (period == null) continue;
       if (periodMismatch(local, period) == null ||

@@ -481,7 +481,7 @@ void main() {
           ),
         ],
       );
-      expect(find.textContaining('Ningún producto'), findsNothing);
+      expect(find.textContaining('No hay productos activos'), findsNothing);
       await tester.tap(find.text('Actualizar'));
       await settle(tester);
       Finder productRow(String label) =>
@@ -490,9 +490,8 @@ void main() {
         find.descendant(
           of: productRow('Herbicida local (L)'),
           matching: find.textContaining(
-            'Requiere vinculación\nNingún producto del sindicato es '
-            'compatible: unidad central sin equivalencia L/KG; unidad '
-            'distinta: no se convierte.',
+            'Requiere vinculación\nNo hay productos activos con unidad '
+            'compatible. Puede pedir identificación.',
           ),
         ),
         findsOneWidget,
@@ -505,22 +504,57 @@ void main() {
         ),
         findsOneWidget,
       );
-      await tester.tap(find.byKey(const Key('binding-tab-campaigns')));
-      await settle(tester);
+      Future<Finder> openPicker(Finder row) async {
+        await tester.tap(
+          find.descendant(
+            of: row,
+            matching: find.byType(PopupMenuButton<String>),
+          ),
+        );
+        await settle(tester);
+        await tester.tap(find.text('Vincular…'));
+        await settle(tester);
+        final picker = find.byType(SimpleDialog);
+        expect(picker, findsOneWidget);
+        expect(
+          find.descendant(of: picker, matching: find.byType(ListTile)),
+          findsNothing,
+        );
+        return picker;
+      }
+
+      final productPicker = await openPicker(productRow('Herbicida local (L)'));
       expect(
         find.descendant(
-          of: find.byKey(Key('campaign-binding-${fixture.campaignId}')),
+          of: productPicker,
           matching: find.textContaining(
-            'Ninguna campaña del sindicato es compatible',
+            'Puede pedir al sindicato que identifique este producto.',
           ),
         ),
         findsOneWidget,
       );
-      // Leer las referencias no vincula nada.
-      expect(
-        (await tester.runAsync(fixture.bindings.productBindings))!,
-        isEmpty,
+      await tester.tap(find.widgetWithText(TextButton, 'Cerrar'));
+      await settle(tester);
+
+      await tester.tap(find.byKey(const Key('binding-tab-campaigns')));
+      await settle(tester);
+      final campaignRow = find.byKey(
+        Key('campaign-binding-${fixture.campaignId}'),
       );
+      const closed =
+          'El sindicato no tiene campañas que admitan nuevos aportes.';
+      expect(
+        find.descendant(of: campaignRow, matching: find.textContaining(closed)),
+        findsOneWidget,
+      );
+      final campaignPicker = await openPicker(campaignRow);
+      expect(
+        find.descendant(of: campaignPicker, matching: find.text(closed)),
+        findsOneWidget,
+      );
+      // Leer las referencias y consultar los selectores no crea vínculos.
+      expect(await tester.runAsync(fixture.bindings.productBindings), isEmpty);
+      expect(await tester.runAsync(fixture.bindings.campaignBindings), isEmpty);
     },
   );
 }
