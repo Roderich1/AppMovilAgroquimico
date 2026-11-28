@@ -216,11 +216,55 @@ void main() {
         'more-access',
         'more-pin',
         'more-backups',
-        'more-licenses',
+        'more-about',
       ]) {
         expect(find.byKey(Key(key)), findsOneWidget, reason: key);
       }
     });
+
+    testWidgets(
+      'Campañas conserva su título con un nombre largo y permite editar el período',
+      (tester) async {
+        await tester.binding.setSurfaceSize(const Size(360, 1400));
+        tester.platformDispatcher.textScaleFactorTestValue = 1.6;
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+        addTearDown(tester.platformDispatcher.clearTextScaleFactorTestValue);
+        final s = await activatedHousehold(
+          tester,
+          'ind_settings_campaign_name',
+        );
+        await toPersonal(tester, s.database);
+        const name = 'Valle Claro – Campaña de demostración y seguimiento';
+        await tester.runAsync(() async {
+          final db = await s.database.database;
+          await db.update('campaigns', {
+            'name': name,
+          }, where: "status='ACTIVE'");
+        });
+        final c = await pumpModeApp(tester, s.database);
+        c.read(routerProvider).push('/mas');
+        await settle(tester);
+        final row = find.byKey(const Key('more-campaigns'));
+        final title = find.descendant(of: row, matching: find.text('Campañas'));
+        final detail = find.descendant(of: row, matching: find.text(name));
+        expect(
+          tester.getTopLeft(detail).dy,
+          greaterThan(tester.getBottomLeft(title).dy),
+        );
+        expect(tester.getSize(title).height, lessThan(65));
+        expect(tester.takeException(), isNull);
+
+        await tester.ensureVisible(row);
+        await tester.tap(row);
+        await settle(tester);
+        await tester.tap(find.byType(PopupMenuButton<String>).first);
+        await settle(tester);
+        await tester.tap(find.text('Editar período…'));
+        await settle(tester);
+        expect(find.byKey(const Key('campaign-period-start')), findsOneWidget);
+        expect(find.byKey(const Key('campaign-period-end')), findsOneWidget);
+      },
+    );
 
     testWidgets('I-51: desde individual el cambio está disponible', (
       tester,

@@ -6,6 +6,7 @@ import '../domain/account_ledger.dart'
     show AccountLedger, AccountStatement, AccountSummary;
 import '../domain/account_texts.dart' show AccountPaymentResult;
 import '../domain/agro_gateway.dart';
+import '../domain/campaign_calendar.dart';
 import '../domain/inventory_alerts.dart'
     show InventoryAlerts, ProductAlertSettings;
 import '../domain/models.dart';
@@ -116,6 +117,12 @@ class AgroRepository implements AgroGateway {
   /// Fin previsto de una campaña activa o planificada (D-F04-C2).
   Future<void> setCampaignEnd(int campaignId, {required DateTime end}) =>
       _campaigns.setCampaignEnd(campaignId, end: end);
+
+  @override
+  Future<void> setCampaignPeriod(
+    CampaignPeriod before,
+    CampaignPeriod proposed,
+  ) => _campaigns.setCampaignPeriod(before, proposed);
 
   @override
   Future<Map<String, Object?>?> activeCampaign() => _campaigns.activeCampaign();

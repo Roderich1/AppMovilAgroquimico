@@ -148,6 +148,10 @@ final routerProvider = Provider<GoRouter>((ref) {
           // «Más»: funciones poco frecuentes, bajo Operaciones (piloto X01).
           GoRoute(path: '/mas', builder: (_, __) => const MoreScreen()),
           GoRoute(
+            path: '/acerca-de',
+            builder: (_, __) => const AboutAgrocuentasScreen(),
+          ),
+          GoRoute(
             path: '/catalogos',
             builder: (_, __) => const CatalogsScreen(),
           ),

@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app.dart';
+import '../../domain/campaign_calendar.dart';
 import '../../domain/money.dart';
 import '../widgets/campaign_actions.dart';
+import '../widgets/campaign_period_editor.dart';
 import '../widgets/catalog_dialogs.dart';
 import '../theme/agro_theme.dart';
 import '../widgets/agro_ui.dart';
@@ -66,6 +68,11 @@ class _CampaignsScreenState extends ConsumerState<CampaignsScreen> {
       () => switch (action) {
         'activate' => activateCampaignFlow(context, repo, row),
         'close' => closeCampaignFlow(context, repo, row),
+        'period' => editCampaignPeriodFlow(
+          context,
+          repo,
+          CampaignPeriod.fromRow(row),
+        ),
         _ => _rename(row),
       },
     );
@@ -80,6 +87,11 @@ class _CampaignsScreenState extends ConsumerState<CampaignsScreen> {
         onSelected: (value) => _onMenu(value, row),
         itemBuilder: (_) => [
           const PopupMenuItem(value: 'edit', child: Text('Editar nombre')),
+          if (CampaignPeriod.fromRow(row).allowsPlannedEnd)
+            const PopupMenuItem(
+              value: 'period',
+              child: Text('Editar período…'),
+            ),
           if (row['status'] == 'PLANNED')
             const PopupMenuItem(value: 'activate', child: Text('Activar')),
           if (row['status'] == 'ACTIVE')

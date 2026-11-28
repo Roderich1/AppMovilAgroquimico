@@ -286,6 +286,26 @@ void main() {
   );
 
   test(
+    'el primer ciclo conectado renueva referencias recientes marcadas sin red',
+    () async {
+      final container = scope((_) async => jsonResponse(referencesJson(), 200));
+      final refresh = container.read(unionRefreshProvider.notifier);
+      await refresh.refresh({UnionFeed.references});
+      await refresh.refresh({UnionFeed.references}, connected: false);
+      expect(
+        container.read(unionRefreshProvider)[UnionFeed.references]?.issue,
+        UnionReadIssue.offline,
+      );
+      await refresh.refresh({UnionFeed.references});
+      expect(sent, ['GET', 'GET']);
+      expect(
+        container.read(unionRefreshProvider)[UnionFeed.references]?.issue,
+        isNull,
+      );
+    },
+  );
+
+  test(
     'sin acceso vigente la actualización automática espera verificación',
     () async {
       access.clear();

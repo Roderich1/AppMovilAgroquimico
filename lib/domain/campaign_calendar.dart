@@ -103,13 +103,25 @@ final class CampaignPeriod {
       (endDay == null || other.startDay.compareTo(endDay!) <= 0) &&
       (other.endDay == null || startDay.compareTo(other.endDay!) <= 0);
 
-  CampaignPeriod withEnd(String? day) => CampaignPeriod(
+  CampaignPeriod withEnd(String? day) =>
+      withDates(startDay: startDay, endDay: day);
+
+  CampaignPeriod withDates({
+    required String startDay,
+    required String? endDay,
+  }) => CampaignPeriod(
     id: id,
     name: name,
     status: status,
     startDay: startDay,
-    endDay: day,
+    endDay: endDay,
   );
+
+  bool matchesPeriod(CampaignPeriod other) =>
+      id == other.id &&
+      status == other.status &&
+      startDay == other.startDay &&
+      endDay == other.endDay;
 
   /// «desde dd/mm/aaaa» o «del dd/mm/aaaa al dd/mm/aaaa».
   String get describe => endDay == null

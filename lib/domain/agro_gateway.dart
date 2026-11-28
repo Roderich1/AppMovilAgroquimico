@@ -1,4 +1,5 @@
 import 'account_ledger.dart';
+import 'campaign_calendar.dart';
 import 'models.dart';
 import 'person_roles.dart';
 import 'read_models.dart';
@@ -27,6 +28,10 @@ abstract interface class AgroGateway {
     DateTime? end,
   });
 
+  Future<void> setCampaignPeriod(
+    CampaignPeriod before,
+    CampaignPeriod proposed,
+  );
   Future<DateTime> suggestedCampaignStart();
   Future<Map<String, Object?>?> activeCampaign();
   Future<void> activateCampaign(int campaignId, {bool closeCurrent = false});

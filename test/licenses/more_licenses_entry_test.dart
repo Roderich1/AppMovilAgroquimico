@@ -1,4 +1,4 @@
-// «Más › Licencias» (F09): entrada secundaria, sin tarjeta, que abre la página
+// «Ajustes › Acerca de Agrocuentas › Avisos de terceros» (F09): entrada secundaria, sin tarjeta, que abre la página
 // de licencias con los componentes de la voz local; Atrás vuelve a «Más».
 import 'package:agroquimicos/app.dart';
 import 'package:agroquimicos/licenses/third_party_licenses.dart';
@@ -18,7 +18,7 @@ void main() {
   });
   tearDown(LicenseRegistry.reset);
 
-  testWidgets('Más › Licencias abre la página con Vosk y lo que incluye, JNA, '
+  testWidgets('Ajustes › Acerca de Agrocuentas › Avisos de terceros abre la página con Vosk y lo que incluye, JNA, '
       'whisper.cpp, ggml y los modelos', (tester) async {
     await tester.binding.setSurfaceSize(const Size(400, 1600));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -30,14 +30,17 @@ void main() {
     await tester.tap(find.byKey(const Key('home-settings')));
     await settle(tester);
 
-    final entry = find.byKey(const Key('more-licenses'));
+    expect(find.text('Licencias'), findsNothing);
+    expect(find.byKey(const Key('about-licenses')), findsNothing);
+    final entry = find.byKey(const Key('more-about'));
     expect(entry, findsOneWidget);
-    expect(find.text('Licencias'), findsOneWidget);
     // Discreta: no es una tarjeta más entre los accesos de «Más».
     expect(find.ancestor(of: entry, matching: find.byType(Card)), findsNothing);
 
     await tester.ensureVisible(entry);
     await tester.tap(entry);
+    await settle(tester);
+    await tester.tap(find.byKey(const Key('about-licenses')));
     await waitFor(tester, find.text('ggml'));
     expect(find.byType(LicensePage), findsOneWidget);
     for (final name in [
@@ -78,9 +81,6 @@ void main() {
     );
     await settle(tester);
     expect(find.byType(LicensePage), findsNothing);
-    expect(
-      find.text('Personas, chacos, productos y proveedores'),
-      findsOneWidget,
-    );
+    expect(find.text('Acerca de Agrocuentas'), findsOneWidget);
   });
 }

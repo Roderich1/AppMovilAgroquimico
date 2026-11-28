@@ -11,6 +11,8 @@ import '../../domain/sync/sync_types.dart';
 import '../app_database.dart';
 import '../farmer_operation_gate.dart';
 import '../repositories/campaign_period_queries.dart';
+import '../repositories/repository_exceptions.dart'
+    show CampaignCalendarException;
 
 export '../../domain/sync/central_binding_models.dart';
 
@@ -352,12 +354,43 @@ class CentralBindingStore implements CentralBindingGateway {
   /// rechaza con los dos períodos y sin escribir nada.
   /// [plannedEnd] completa un período local abierto dentro de la misma
   /// transacción que guarda el vínculo.
+  static const _calendar = CampaignPeriodQueries();
+  static const _unchanged = 'El período y el vínculo siguen como estaban.';
+
+  @override
+  Future<String?> campaignAdjustmentProblem(
+    CampaignPeriod before,
+    CampaignPeriod proposed,
+  ) async {
+    final db = await _database.database;
+    final periods = await _calendar.campaignPeriods(db);
+    final current = periods
+        .where((period) => period.id == before.id)
+        .firstOrNull;
+    if (current == null || !current.matchesPeriod(before)) {
+      return 'La campaña cambió. Abra el selector de nuevo.';
+    }
+    try {
+      await _calendar.validatePeriod(
+        db,
+        periods,
+        current,
+        proposed,
+        actionLabel: _unchanged,
+      );
+      return null;
+    } on CampaignCalendarException catch (error) {
+      return error.message;
+    }
+  }
+
   @override
   Future<CampaignBinding> bindCampaign({
     required int campaignId,
     required CentralCampaign central,
     required String tenantId,
-    DateTime? plannedEnd,
+    CampaignPeriod? expectedPeriod,
+    CampaignPeriod? adjustedPeriod,
   }) async {
     if (!central.acceptsContributions) {
       throw CentralBindingException(
@@ -379,14 +412,20 @@ class CentralBindingStore implements CentralBindingGateway {
       if (local == null) {
         throw CentralBindingException('La campaña local no existe.');
       }
-      final endDay = plannedEnd == null ? null : localDay(plannedEnd);
-      if (endDay != null &&
-          suggestedEndForBinding(local, centralPeriod) == null) {
+      if ((expectedPeriod != null && !local.matchesPeriod(expectedPeriod)) ||
+          (adjustedPeriod != null &&
+              (expectedPeriod == null ||
+                  suggestedPeriodForBinding(local, centralPeriod) == null))) {
         throw CentralBindingException(
           'El período de la campaña cambió. Vuelva a elegir el vínculo.',
         );
       }
-      final proposed = endDay == null ? local : local.withEnd(endDay);
+      final proposed = adjustedPeriod == null
+          ? local
+          : local.withDates(
+              startDay: adjustedPeriod.startDay,
+              endDay: adjustedPeriod.endDay,
+            );
       final mismatch = periodMismatch(proposed, centralPeriod);
       if (mismatch != null) {
         throw CentralBindingException(
@@ -415,22 +454,15 @@ class CentralBindingStore implements CentralBindingGateway {
           localId: campaignId,
         );
       }
-      if (endDay != null) {
-        const calendar = CampaignPeriodQueries();
-        await calendar.validateCampaignEnd(
+      if (adjustedPeriod != null) {
+        await _calendar.validatePeriod(
           txn,
-          await calendar.campaignPeriods(txn),
+          await _calendar.campaignPeriods(txn),
           local,
-          endDay,
-          actionLabel: 'El fin y el vínculo siguen como estaban.',
-          recordsLabel: 'registros',
+          proposed,
+          actionLabel: _unchanged,
         );
-        await txn.update(
-          'campaigns',
-          {'end_date': startOfLocalDay(endDay).toUtc().toIso8601String()},
-          where: 'id=?',
-          whereArgs: [campaignId],
-        );
+        await _calendar.writePeriodDates(txn, local, proposed);
       }
       final now = _now();
       await txn.rawInsert(
